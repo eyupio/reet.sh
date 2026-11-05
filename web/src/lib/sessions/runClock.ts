@@ -27,6 +27,8 @@ export function startLabel(createdAt: number, now: number, locale?: string): str
 }
 
 export function runLine(s: Pick<TerminalSession, 'state' | 'createdAt' | 'completedAt'>, now: number, locale?: string): string {
+  // A missing or zero start would read as 1 January 1970 and a run of twenty thousand days; say nothing instead.
+  if (!(typeof s.createdAt === 'number' && Number.isFinite(s.createdAt) && s.createdAt > 0)) return ''
   const started = `Started ${startLabel(s.createdAt, now, locale)}`
   if (LIVE.has(s.state)) return `${started} · running ${formatLength(now - s.createdAt)}`
   if (s.completedAt == null) return started

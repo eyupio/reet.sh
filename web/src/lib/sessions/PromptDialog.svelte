@@ -26,7 +26,7 @@
     <h2 id={titleId}>You asked</h2>
     <button type="button" class="btn quiet" onclick={onclose} aria-label="Close" data-shell-close>Close ×</button>
   </header>
-  <div class="chips" aria-label="How the session was started">
+  <div class="chips" role="group" aria-label="How the session was started">
     {#if session.tool}<span class="chip">{session.tool}</span>{/if}
     {#if session.model}<span class="chip">{session.model}</span>{/if}
     {#if session.effort}<span class="chip">{session.effort}</span>{/if}

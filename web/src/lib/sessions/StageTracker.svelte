@@ -6,7 +6,8 @@
   import InsightIcon from './InsightIcon.svelte'
 
   // `terminal` is a session with no composer to fill, so the button copies; `note` is what the last click did, said politely and in words.
-  let { id, stages, now, onsession, onfix, terminal = false, note = '' }: { id: string; stages: Stages; now: number; onsession: () => void; onfix: (kind: FixKind) => void; terminal?: boolean; note?: string } = $props()
+  // `stale` is the "Last known" marker when the GitHub read behind the Next line can no longer be vouched for; empty when it is current.
+  let { id, stages, now, onsession, onfix, terminal = false, note = '', stale = '' }: { id: string; stages: Stages; now: number; onsession: () => void; onfix: (kind: FixKind) => void; terminal?: boolean; note?: string; stale?: string } = $props()
 
   // Every state has a word as well as an icon and a colour: colour is never the only signal.
   const WORDS: Record<StepState, string> = { done: 'Done', current: 'Now', attention: 'Needs you', upcoming: 'Not yet', unknown: 'Not read' }
@@ -16,11 +17,14 @@
     checks: { what: 'fix the checks', short: 'Ask the agent to fix' },
     threads: { what: 'address the threads', short: 'Ask the agent to address' },
   }
-  // One step is "the step": the first that is in progress, else the first that needs the person.
+  // One step is "the step", the one the Next line talks about: the first that needs the person, else the first in progress.
+  // Failing checks with a review still to come announce Checks, not Review.
   const here = $derived.by(() => {
-    const now = stages.steps.findIndex(s => s.state === 'current')
-    return now >= 0 ? now : stages.steps.findIndex(s => s.state === 'attention')
+    const needs = stages.steps.findIndex(s => s.state === 'attention')
+    return needs >= 0 ? needs : stages.steps.findIndex(s => s.state === 'current')
   })
+  // Labels that a narrow panel shortens rather than cut off mid-word.
+  const SHORT: Record<string, string> = { Planning: 'Plan' }
   const next = $derived(stages.next)
   const primary = $derived(next.primary)
   const fix = $derived(next.fix ? FIX[next.fix] : undefined)
@@ -48,7 +52,7 @@
             {:else if step.state === 'attention'}<InsightIcon name="conflict" />
             {:else}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8" stroke-dasharray={step.state === 'unknown' ? '3 3' : undefined} />{#if step.state === 'unknown'}<path d="M10 10a2 2 0 1 1 3 1.7c-.6.4-1 .8-1 1.5M12 16.5v.1" />{/if}</svg>{/if}
           </span>
-          <span class="label">{step.label}</span>
+          <span class="label">{#if SHORT[step.label]}<span class="long">{step.label}</span><span class="short">{SHORT[step.label]}</span>{:else}{step.label}{/if}</span>
           <span class="word">{WORDS[step.state]}</span>
           <span class="sr">{step.detail}</span>
         </li>
@@ -56,7 +60,8 @@
     </ol>
     <!-- The Next slot is the height of the status notice above, whatever it says. -->
     <div class="next" data-tone={next.tone}>
-      <p title={next.text}>{next.text}</p>
+      <!-- The sentence stays, as the last thing known to be true; the marker before it keeps it from reading as current. -->
+      <p title={stale ? `${stale}. ${next.text}` : next.text}>{#if stale}<span class="stale">{stale}.</span> {/if}{next.text}</p>
       {#if primary?.kind === 'session'}<button type="button" class="primary" aria-label="Review the question in the session" onclick={() => onsession()}>{primary.label} <InsightIcon name="arrow" /></button>
       {:else if primary?.kind === 'link' && primary.href}<a class="primary" href={primary.href} target="_blank" rel="noopener noreferrer">{primary.label} <InsightIcon name="arrow" /></a>{/if}
     </div>
@@ -88,10 +93,14 @@
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   li { position: relative; }
   @container (max-width: 290px) { li { font-size: 10px; } .word { font-size: 9px; } }
+  .short { display: none; }
+  /* The tracker is about 48 px narrower than the panel, so this is a panel under 340 px. */
+  @container (max-width: 291px) { .long { display: none; } .short { display: inline; } }
 
   .next, .merged { box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--tint); color: var(--ink-soft); font-size: 11px; line-height: 1.5; overflow: hidden; }
   .next { height: var(--next); }
   .next p { flex: 1; min-width: 0; margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+  .stale { color: var(--muted); font-weight: 600; }
   .next[data-tone='bad'] { border-color: color-mix(in srgb, var(--bad) 40%, transparent); background: color-mix(in srgb, var(--bad) 7%, transparent); color: var(--ink); }
   .next[data-tone='warn'] { border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 7%, transparent); color: var(--ink); }
   .next[data-tone='good'] { border-color: color-mix(in srgb, var(--good) 40%, transparent); background: color-mix(in srgb, var(--good) 7%, transparent); color: var(--ink); }

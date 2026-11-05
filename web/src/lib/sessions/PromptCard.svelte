@@ -18,10 +18,13 @@
   let outcome = $state<PromptOutcome>({ kind: 'idle' })
   let trigger = $state<HTMLButtonElement>()
   // The races (a late answer, a second read, an abort) live in the loader, where a node test holds them.
-  const loader = createPromptLoader(sessionPrompt, () => session.id, next => { outcome = next }, error => error instanceof TerminalError && error.status === 404)
+  // The workspace hands over a fresh copy of the same session on every poll and after every action. Keyed on the id alone,
+  // so only a move to another session resets the read and closes the dialog; a refresh leaves it, its text and its focus.
+  const sessionId = $derived(session.id)
+  const loader = createPromptLoader(sessionPrompt, () => sessionId, next => { outcome = next }, error => error instanceof TerminalError && error.status === 404)
 
   $effect(() => {
-    void session.id
+    void sessionId
     return () => { loader.reset(); open = false }
   })
 
@@ -45,8 +48,8 @@
   }
 </script>
 
-<div class="prompt" role="group" aria-labelledby={`${session.id}-asked`}>
-  <h4 id={`${session.id}-asked`}>You asked</h4>
+<div class="prompt" role="group" aria-labelledby={`${sessionId}-asked`}>
+  <h4 id={`${sessionId}-asked`}>You asked</h4>
   <div class="slot">
     {#if quote}<blockquote><p title={quote}>{quote}</p></blockquote>
     {:else if waiting}<p class="line" role="status">Loading the opening prompt…</p>

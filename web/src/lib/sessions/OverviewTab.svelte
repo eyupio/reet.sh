@@ -16,16 +16,18 @@
   import { copyNote, fixRoute } from './fixDelivery'
   import { fixMessage, type FixKind } from './fixMessages'
   import { deriveStages } from './overviewStages'
-  import { placeholderLine } from './pullFacts'
+  import { githubStale, placeholderLine } from './pullFacts'
   import { splitChecks } from './pullVerdict'
   import { runLine } from './runClock'
 
   // The panel owns reading and polling; the Overview only shows what it is handed, so it can grow cards without touching either.
-  let { id, session, host, status, project, skills, now, chat, supported, workspace, github, checking, base, remote, pending, errors, baseline, newEvents, terminalAdvanced, onterminal, onpick, onfull }: {
+  let { id, session, host, status, project, skills, now, chat, supported, workspace, github, checking, base, remote, pending, errors, baseline, newEvents, terminalAdvanced, docked = false, onterminal, onpick, onfull }: {
     id: string; session: TerminalSession; host: string; status: FleetCard['status'] | undefined
     project: string; skills: FleetCard['skills'] | null | undefined; now: number; chat?: ChatState; supported: boolean
     workspace: SessionInsight | null; github: SessionInsight | null; checking: boolean; base?: string; remote?: string; pending: Record<string, boolean>; errors: Record<string, string>
     baseline: { seq: number; at: number; activityAt?: number } | null; newEvents: number; terminalAdvanced: boolean | null
+    /** The panel sits beside the session; otherwise it is a sheet over it, which a filled composer must not stay behind. */
+    docked?: boolean
     onterminal?: () => void; onpick: (tab: 'changes') => void; onfull: () => void
   } = $props()
   const chatAttention = $derived(chat?.connection === 'open' ? ({ working: 'working', waiting: 'waiting', starting: 'starting', idle: 'quiet', error: 'failed', ended: 'finished', cancelled: 'quiet' } as const)[chat.status.state as 'working' | 'waiting' | 'starting' | 'idle' | 'error' | 'ended' | 'cancelled'] : undefined)
@@ -56,6 +58,11 @@
     return { ...derived, next: { text: placeholderLine({ supported, loading: reading }), tone: 'muted' as const } }
   })
   const placeholder = $derived(placeholderLine({ supported, loading: reading, reason: pullReason }))
+  // The footer's freshness is the workspace read, not GitHub's, so the pull request card and the Next line say for themselves when what they show is only the last known state.
+  const canRead = $derived(supported && status !== 'offline' && status !== 'paused')
+  // A question from the agent comes live from the chat, not from GitHub, so the tracker drops the marker while the Next line asks it.
+  const githubMarker = $derived(github && githubStale({ canRead, checkedAt: github.checkedAt, now }) ? `Last known · checked ${elapsedWord(github.checkedAt, now)}` : '')
+  const runText = $derived(runLine(session, now))
   // The message is made here, from what the pull request says, and either put in the chat composer for the person to read and send,
   // or copied. A chat whose composer cannot take it (nearly full, disabled, not on screen) falls back to the copy, so it is never lost.
   let fixNote = $state(''), fixTimer: ReturnType<typeof setTimeout> | undefined
@@ -72,7 +79,11 @@
     const message = fixMessage(kind, { base: pull?.base, checks: splitChecks(pull?.checks ?? []).failed.map(c => c.name), threads: pull?.threads?.open })
     const structured = !!session.structured
     fixNote = ''
-    if (fixRoute(structured) === 'composer' && await offerPrefill(session.id, message)) return
+    if (fixRoute(structured) === 'composer' && await offerPrefill(session.id, message)) {
+      // A sheet covers the composer it just filled: dismiss it the way Review does, which also puts focus back in the composer.
+      if (!docked) onterminal?.()
+      return
+    }
     say(copyNote(structured, await copyText(message)))
   }
   const errorDetail = $derived(chat?.status.state === 'error' ? chat.status.detail : '')
@@ -83,7 +94,8 @@
   <h3 title={headline}>{headline}</h3>
   <p class="quiet one-line" title={subline}>{subline}</p>
   <!-- Not live: a clock that a screen reader announced every minute would be noise. The person reads it when they look. -->
-  <p class="run-line one-line"><time datetime={startedIso} title={startedFull}>{runLine(session, now)}</time></p>
+  <!-- With no real start time there is nothing to say, and the line keeps its height empty. -->
+  <p class="run-line one-line">{#if runText}<time datetime={startedIso} title={startedFull}>{runText}</time>{/if}</p>
   {#if attention}<div class="notice warn"><p title={attention}>{attention}</p><button class="notice-action" aria-label="Review and answer in session" title="Review and answer in session" onclick={() => onterminal?.()}>Review <InsightIcon name="arrow" /></button></div>
   {:else if errorDetail}<div class="notice bad"><p title={errorDetail}>{errorDetail}</p></div>
   {:else if baseline && ((chat && newEvents > 0) || terminalAdvanced)}<div class="notice"><InsightIcon name="clock" /><span><strong>Since your last visit</strong>{terminalAdvanced ? 'New terminal output' : `${newEvents} new event${newEvents === 1 ? '' : 's'}`} · last here {elapsedWord(baseline.at, now)}{#if chat?.truncated}<small>Earlier activity is outside the loaded history.</small>{/if}</span></div>
@@ -91,8 +103,8 @@
   {#if session.structured}<div class="facts"><span><b>{activity.done.length}</b> tools done</span><span class:bad={activity.failed.length > 0}><b>{activity.failed.length}</b> failed</span><span><b>{activity.active.length}</b> active</span></div><p class="quiet one-line" title={countsLine}>{countsLine}</p>{:else}<p class="quiet">Terminal state comes from process and output activity. Agent steps are available in Gaffer chats.</p>{/if}
 </section>
 <div class="prompt-slot"><PromptCard {session} {chat} {now} /></div>
-<div class="stage-slot"><StageTracker {id} {stages} {now} onsession={() => onterminal?.()} onfix={fix} terminal={!session.structured} note={fixNote} /></div>
-<div class="pull-slot"><PullCard {id} {pull} {placeholder} {now} {onfull} /></div>
+<div class="stage-slot"><StageTracker {id} {stages} {now} onsession={() => onterminal?.()} onfix={fix} terminal={!session.structured} note={fixNote} stale={attention ? '' : githubMarker} /></div>
+<div class="pull-slot"><PullCard {id} {pull} {placeholder} {now} {onfull} stale={githubMarker} /></div>
 {#if session.structured}
   <section class="live" aria-label="Agent activity">
     <div class="slot"><div class="slot-head"><h4>In progress</h4>{#if activity.active.length > 1}<span class="count">{activity.active.length} running</span>{/if}</div><div class="slot-box tool-row">{#if running}<div class="activity-row"><InsightIcon name="clock" /><span><span class="tool-title">{running.title || toolLabel(running.toolKind)}</span><small>{running.command || running.path || toolLabel(running.toolKind)}</small></span></div>{:else}<p class="slot-empty">Nothing is running right now.</p>{/if}</div></div>

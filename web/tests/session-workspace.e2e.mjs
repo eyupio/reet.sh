@@ -16,7 +16,7 @@ session.promptExcerpt = EXCERPT; session.promptMore = true
 const ok = name => ({name,state:'SUCCESS'})
 const second = {...session, id:'session-insights-002', title:'Second session', promptExcerpt:'SECOND-SESSION-PROMPT is a short one.', promptMore:false}
 async function open(width=1600,theme='dark', supported=true, hold=null, opts={}) {
- const calls=[], box={fail:false, answer:null, pull:null, reason:null}, prompts=[]
+ const calls=[], box={fail:false, answer:null, pull:null, reason:null, offline:false, lists:0}, prompts=[]
  const first = {...session, ...opts.session}
  const inspect = async request=>{
    const q=new URL(request.url()).searchParams,view=q.get('view'),path=q.get('path');calls.push({view,path})
@@ -40,8 +40,10 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
   [`/api/v2/terminal/sessions/${second.id}/inspect`]:inspect,
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
   '/api/v2/terminal/machines':{machines:[{...machine,capabilities:{...caps,inspect:supported}}]},
-  '/api/v2/machines/health':()=>({serverNow:Date.now(),machines:[{...machine,state:'connected',connection:{connected:true,reportFresh:true,reportAt:Date.now(),contactAt:Date.now(),missedProbes:0,reconnects:0,path:'direct'}}]}),
-  '/api/v2/terminal/sessions':{sessions:opts.second?[first,second]:[first]},
+  // `box.offline` makes the next health read say the machine stopped reporting, as a machine that went away would.
+  '/api/v2/machines/health':()=>({serverNow:Date.now(),machines:[{...machine,state:box.offline?'disconnected':'connected',connection:{connected:!box.offline,reportFresh:!box.offline,reportAt:Date.now(),contactAt:Date.now(),missedProbes:0,reconnects:0,path:'direct'}}]}),
+  // Counted, so a test can tell that the workspace read its session list again.
+  '/api/v2/terminal/sessions':()=>{box.lists++;return {sessions:opts.second?[first,second]:[first]}},
   '/api/v2/folder-projects':{projects:[{id:'p1',name:'reet',host:'a1',machine:'studio',dir:session.dir,isRepo:true,baseBranch:'main',worktreeDefault:'inherit',colour:'green',defaultTool:'opencode',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1}],savedWaiting:0},
   '/api/v2/projects':{projects:[]},
   [`/api/v2/terminal/sessions/${session.id}/seen`]:{},
@@ -158,6 +160,7 @@ try {
   const pinned=()=>sw.evaluate(el=>{const top=n=>Math.round(n.getBoundingClientRect().top),h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
   const settle=()=>sp.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
   const baseline=await pinned()
+  expect(Object.values(baseline),`${width}px: every block was found for the baseline`).not.toContain(null)
   const longTitle='Edit web/src/lib/sessions/ContextPanel.svelte so the overview keeps every section where it is while the current task changes'
   const longAsk='Allow the agent to run a command that rewrites several generated files across the whole repository before the build starts?'
   const paragraphs=Array.from({length:14},(_,i)=>`Paragraph ${i+1} of a long agent update that wraps over several lines in a narrow panel.`).join('\n\n')
@@ -263,6 +266,29 @@ try {
   expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(FULL_PROMPT)
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden();await expect(trigger).toBeFocused()
+  expect(errors).toEqual([]);await context.close()
+ }
+ // A refresh of the session list hands the card a fresh copy of the same session: the open dialog, its whole text and the focus stay.
+ // (The workspace refreshes every 15 s and after every action, so a dialog that closed on it would vanish while being read.)
+ for(const width of [1600,375]){
+  const {page,context,panel,errors,box,prompts}=await open(width,'dark')
+  await panel.getByRole('button',{name:'Read full prompt'}).click()
+  const dialog=page.getByRole('dialog',{name:'You asked'})
+  await expect(dialog).toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+  await dialog.getByRole('button',{name:'Copy prompt'}).focus()
+  for(let round=0;round<2;round++){
+   const before=box.lists
+   // The workspace's own refresh, as its 15 s poll and a reconnect run it.
+   await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+   await expect.poll(()=>box.lists,`${width}px: the session list was read again`).toBeGreaterThan(before)
+   await page.waitForTimeout(400)
+   await expect(dialog,`${width}px: the dialog closed when the session list refreshed`).toBeVisible()
+   await expect(dialog).toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+   await expect(dialog.getByRole('button',{name:'Copy prompt'})).toBeFocused()
+  }
+  expect(prompts,`${width}px: the full prompt was read once`).toEqual(['session-insights-001'])
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden();await expect(panel.getByRole('button',{name:'Read full prompt'})).toBeFocused()
   expect(errors).toEqual([]);await context.close()
  }
  // The chips say how the session was started, including the auto-approve decision.
@@ -451,8 +477,8 @@ try {
   const WORD = {done:'Done',current:'Now',attention:'Needs you',upcoming:'Not yet',unknown:'Not read'}
   const PR = 'https://github.com/example/project/pull/42', RUN = 'https://github.com/example/project/actions/runs/1'
   const scenarios = [
-   ['conflicts',{pull:{mergeable:'CONFLICTING',review:'REVIEW_REQUIRED',checks:[ok('Build')],base:'main',...detail()}},['done','done','done','current','attention'],'review','Conflicts with main.',['Open pull request',PR],'Ask the agent to fix the conflicts'],
-   ['failing checks',{pull:{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED'}},['done','done','attention','current','upcoming'],'review','1 check failing.',['Open failing check',RUN],'Ask the agent to fix the checks'],
+   ['conflicts',{pull:{mergeable:'CONFLICTING',review:'REVIEW_REQUIRED',checks:[ok('Build')],base:'main',...detail()}},['done','done','done','current','attention'],'merge','Conflicts with main.',['Open pull request',PR],'Ask the agent to fix the conflicts'],
+   ['failing checks',{pull:{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED'}},['done','done','attention','current','upcoming'],'checks','1 check failing.',['Open failing check',RUN],'Ask the agent to fix the checks'],
    ['running checks',{pull:{mergeable:'MERGEABLE',review:'APPROVED',checks:[{name:'Build',state:'IN_PROGRESS'},{name:'Lint',state:'QUEUED'},ok('Unit tests')],...detail()}},['done','done','current','done','upcoming'],'checks','Waiting on Build and Lint.',null,null],
    ['approved with no open threads',{pull:{mergeable:'MERGEABLE',review:'APPROVED',checks:[ok('Build'),ok('Unit tests')],...detail({threads:{open:0,resolved:2}})}},['done','done','done','done','current'],'merge','Ready. GitHub decides whether it can merge.',['Open pull request',PR],null],
    ['no review decision and none requested',{pull:{mergeable:'MERGEABLE',review:'',checks:[ok('Build')],...detail()}},['done','done','done','done','current'],'merge','Ready. GitHub decides whether it can merge.',['Open pull request',PR],null],
@@ -469,6 +495,7 @@ try {
    expect(steps.map(x=>x.key),`${name}: the five steps`).toEqual(['code','pr','checks','review','merge'])
    expect(steps.map(x=>x.state),`${name}: step states`).toEqual(states)
    expect(steps.map(x=>x.word),`${name}: every state has a word`).toEqual(states.map(x=>WORD[x]))
+   // The step announced is the one the Next line is about: the first that needs the person, else the first in progress.
    expect(steps.filter(x=>x.current).map(x=>[x.key,x.current]),`${name}: aria-current marks one step`).toEqual([[current,'step']])
    if(primary){
     const link=tracker.locator('.next').getByRole('link',{name:primary[0]})
@@ -508,6 +535,41 @@ try {
    expect(live.errors).toEqual([]);await live.context.close()
   }
  }
+ // A GitHub read the machine can no longer vouch for is marked "Last known" on the card and beside the Next line; a fresh one is not.
+ {
+  const {page,context,panel,errors,box}=await open(1600,'dark')
+  const card=panel.getByRole('group',{name:'Pull request'}),next=panel.getByRole('group',{name:'Progress'}).locator('.next')
+  await expect(card).toContainText('#42')
+  await expect(card).not.toContainText('Last known');await expect(next).not.toContainText('Last known')
+  const before=box.lists
+  box.offline=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')))
+  await expect.poll(()=>box.lists).toBeGreaterThan(before)
+  await expect(panel.locator('.connection')).toHaveText('Machine offline')
+  await expect(card.locator('.ident')).toContainText('Last known · checked just now')
+  // The Next line still says what was last true, marked so it does not read as current.
+  await expect(next).toContainText('Last known · checked just now');await expect(next).toContainText('Conflicts with')
+  expect(errors).toEqual([]);await context.close()
+ }
+ {
+  const {context,panel,errors}=await open(1600,'dark',true,null,{status:{checkedAt:Date.now()-12*60000}})
+  const card=panel.getByRole('group',{name:'Pull request'}),next=panel.getByRole('group',{name:'Progress'}).locator('.next')
+  await expect(card).toContainText('#42')
+  await expect(card.locator('.ident')).toContainText('Last known · checked 12m ago')
+  await expect(next).toContainText('Last known · checked 12m ago')
+  expect(errors).toEqual([]);await context.close()
+ }
+ // A panel under 340 px shortens Planning to Plan rather than risk cutting it to "Plann…"; a wider one keeps the whole word.
+ for(const [width,word] of [[300,'Plan'],[520,'Planning']]){
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{session:{agentMode:'plan'}})
+  await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
+  const tracker=panel.getByRole('group',{name:'Progress'}),label=tracker.locator('li[data-step=code] .label')
+  await expect(label).toBeVisible()
+  await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
+  expect(await label.evaluate(e=>e.innerText),`${width}px: the planning step's label`).toBe(word)
+  const cut=await tracker.locator('li .label').evaluateAll(els=>els.filter(e=>e.scrollWidth>e.clientWidth).map(e=>e.innerText))
+  expect(cut,`${width}px: a step label is cut off`).toEqual([])
+  expect(errors).toEqual([]);await context.close()
+ }
  // Asking the agent to fix: the message goes into the chat composer for the person to read and send, or onto the clipboard. Nothing is sent for them.
  {
   const detail = {detailKnown:true,reviews:{approved:0,changesRequested:0,commented:0,requested:0},threads:{open:0,resolved:0}}
@@ -537,6 +599,26 @@ try {
    await expect(t.composer).toBeFocused()
    await t.page.waitForTimeout(300)
    onlyReads(t.requests,'a chat with an empty composer')
+   expect(t.errors).toEqual([]);await t.context.close()
+  }
+  {
+   // On a phone the panel is a sheet over the chat: a filled composer the person cannot see would be no help, so the sheet goes.
+   const t = await open(375,'dark',true,null,conflicted)
+   const tracker = t.panel.getByRole('group',{name:'Progress'}), composer = t.page.locator('.composer-input')
+   await tracker.getByRole('button',{name:'Ask the agent to fix the conflicts'}).click()
+   await expect(t.panel,'the Details sheet stayed over the filled composer').toBeHidden()
+   await expect(composer).toBeVisible();await expect(composer).toHaveValue(MESSAGE);await expect(composer).toBeFocused()
+   expect(t.errors).toEqual([]);await t.context.close()
+  }
+  {
+   // A copy on the phone keeps the sheet open, so the note saying what happened stays in sight.
+   const t = await open(375,'dark',true,null,conflicted)
+   await t.context.grantPermissions(['clipboard-read','clipboard-write'])
+   const tracker = t.panel.getByRole('group',{name:'Progress'})
+   await t.page.locator('.composer-input').evaluate((el,v)=>{el.value=v;el.dispatchEvent(new Event('input',{bubbles:true}))},'x'.repeat(1990))
+   await tracker.getByRole('button',{name:'Ask the agent to fix the conflicts'}).click()
+   await expect(tracker.getByRole('status')).toHaveText('Copied. The composer is nearly full.')
+   await expect(t.panel).toBeVisible()
    expect(t.errors).toEqual([]);await t.context.close()
   }
   {
@@ -612,6 +694,9 @@ try {
    await expect(card.getByRole('link',{name:'Open pull request'})).toHaveAttribute('href','https://github.com/example/project/pull/42')
    await expect(card.getByRole('link',{name:'Open failing check'})).toHaveAttribute('href','https://github.com/example/project/actions/runs/1')
    await expect(card.getByRole('link',{name:'Open review'})).toHaveAttribute('href','https://github.com/example/project/pull/42')
+   await context.grantPermissions(['clipboard-read','clipboard-write'])
+   await card.getByRole('button',{name:'Copy pull request link'}).click()
+   expect(await panel.evaluate(()=>navigator.clipboard.readText())).toBe('https://github.com/example/project/pull/42')
    await card.getByRole('button',{name:'Full detail'}).click()
    await expect(panel.getByRole('tab',{name:/^GitHub/})).toHaveAttribute('aria-selected','true')
    await expect(panel.getByText('Resolve merge conflicts')).toBeVisible()
@@ -691,6 +776,7 @@ try {
   const settle=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
   const pinned=()=>panel.evaluate(el=>{const top=n=>Math.round(n.getBoundingClientRect().top),h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{tracker:top(h('progress')),pull:top(h('pull request')),changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
   const baseline=await pinned()
+  expect(Object.values(baseline),'every block was found for the baseline').not.toContain(null)
   const states=[
    ['conflicts',{mergeable:'CONFLICTING',base:'a-very-long-branch-name-that-cannot-possibly-fit-in-the-slot-at-three-hundred-pixels'}],
    ['failing checks with long names',{mergeable:'MERGEABLE',checks:[{name:'A check with a name long enough to need cutting off somewhere sensible',state:'FAILURE',url:'https://github.com/example/project/actions/runs/9'},{name:'Other',state:'FAILURE'},{name:'Third',state:'FAILURE'}]}],
@@ -732,6 +818,7 @@ try {
   const settle=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
   const pinned=()=>panel.evaluate(el=>{const top=n=>n?Math.round(n.getBoundingClientRect().top):null,h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{run:top(el.querySelector('.run-line')),notice:top(el.querySelector('.session-summary .notice')),facts:top(h('in progress')),latest:top(h('latest agent update')),prompt:top(h('you asked')),tracker:top(h('progress')),pull:top(h('pull request')),changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
   const baseline=await pinned()
+  expect(Object.values(baseline),'every block was found for the baseline').not.toContain(null)
   const long='Allow the agent to run a command that rewrites several generated files across the whole repository before the build starts?'
   const tool=(id,title,status,extra={})=>({kind:'tool',toolCallId:id,title,toolKind:'edit',status,...extra})
   // One change per round, each followed by a settle and a comparison of every block against the baseline.

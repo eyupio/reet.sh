@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
 const source = ts.transpileModule(readFileSync(new URL('./pullFacts.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { reviewsLine, threadsFact, conflictFact, placeholderLine, githubReadDue } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+const { reviewsLine, threadsFact, conflictFact, placeholderLine, githubReadDue, githubStale } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 
 const pull = (over = {}) => ({ number: 7, title: 't', url: 'https://github.com/o/r/pull/7', state: 'OPEN', draft: false, review: '', mergeable: 'MERGEABLE', added: 1, removed: 1, checks: [], ...over })
 
@@ -88,4 +88,28 @@ test('a read in flight, a hidden tab or an unreadable machine is never due', () 
   assert.equal(due({ busy: true }), false)
   assert.equal(due({ hidden: true }), false)
   assert.equal(due({ canRead: false }), false)
+})
+
+test('a fresh GitHub read from a machine that can be read is current, not last known', () => {
+  const now = 1_000_000_000
+  assert.equal(githubStale({ canRead: true, checkedAt: now - 60_000, now }), false)
+  assert.equal(githubStale({ canRead: true, checkedAt: now - 180_000, now }), false)
+})
+
+test('a GitHub read from a machine that is offline or paused is last known, however recent', () => {
+  const now = 1_000_000_000
+  assert.equal(githubStale({ canRead: false, checkedAt: now - 1_000, now }), true)
+})
+
+test('a GitHub read older than three minutes is last known', () => {
+  const now = 1_000_000_000
+  assert.equal(githubStale({ canRead: true, checkedAt: now - 180_001, now }), true)
+  assert.equal(githubStale({ canRead: true, checkedAt: now - 12 * 60_000, now }), true)
+})
+
+test('a GitHub read with no time is not claimed to be last known, since its age is unknown', () => {
+  const now = 1_000_000_000
+  assert.equal(githubStale({ canRead: true, checkedAt: undefined, now }), false)
+  assert.equal(githubStale({ canRead: false, checkedAt: undefined, now }), false)
+  assert.equal(githubStale({ canRead: false, checkedAt: 0, now }), false)
 })

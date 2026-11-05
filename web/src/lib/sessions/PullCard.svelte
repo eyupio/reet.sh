@@ -3,9 +3,11 @@
   import { conflictFact, reviewsLine, threadsFact } from './pullFacts'
   import { pullVerdict, splitChecks } from './pullVerdict'
   import InsightIcon from './InsightIcon.svelte'
+  import CopyButton from '../CopyButton.svelte'
 
   // `pull` is absent while GitHub is loading, not read, or has nothing for this branch; `placeholder` then says which, in the 69 px row the changes card also uses.
-  let { id, pull, placeholder, now, onfull }: { id: string; pull?: InsightPull; placeholder: string; now: number; onfull: () => void } = $props()
+  // `stale` is the "Last known" marker for a read the machine can no longer vouch for; empty while the read is current.
+  let { id, pull, placeholder, now, onfull, stale = '' }: { id: string; pull?: InsightPull; placeholder: string; now: number; onfull: () => void; stale?: string } = $props()
   const checks = $derived(pull?.checks ?? [])
   const split = $derived(splitChecks(checks))
   const total = $derived(checks.length)
@@ -24,7 +26,8 @@
   <h4 id={`${id}-pull`}>Pull request</h4>
   {#if pull && verdict && threads && conflict}
     <div class="pull">
-      <div class="row ident"><span class="grow"><b>#{pull.number}</b> · {pull.state.toLowerCase()}{#if pull.draft} · draft{/if}</span>{#if pull.lastPushAt}<span class="muted">pushed {elapsedWord(pull.lastPushAt, now)}</span>{/if}</div>
+      <!-- A stale read takes the push time's place: how old the whole card is matters more than when the branch last moved. -->
+      <div class="row ident"><span class="grow"><b>#{pull.number}</b> · {pull.state.toLowerCase()}{#if pull.draft} · draft{/if}</span>{#if stale}<span class="muted stale" title={stale}>{stale}</span>{:else if pull.lastPushAt}<span class="muted">pushed {elapsedWord(pull.lastPushAt, now)}</span>{/if}{#if prURL}<span class="copy-link"><CopyButton text={prURL} label="Link" ariaLabel="Copy pull request link" compact /></span>{/if}</div>
       <div class="row title" title={pull.title}>{pull.title}</div>
       <div class="row verdict" data-tone={verdict.tone} title={verdict.detail}><InsightIcon name={verdict.icon} /><strong>{verdict.title}</strong></div>
       <div class="chips">
@@ -56,16 +59,21 @@
 </div>
 
 <style>
-  .pull-card { min-width: 0; --btn: 32px; }
+  .pull-card { min-width: 0; --btn: 32px; --ident: 24px; }
   h4 { margin: 0 0 10px; font: 600 11px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
   .placeholder { box-sizing: border-box; height: 69px; display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
   .placeholder p { margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
   /* Every row has a fixed height, whether or not it has anything to say, so a pull request that changes never moves what is below it. */
-  .pull { box-sizing: border-box; overflow: hidden; min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--ink); height: calc(24px + 147px + 8px + 6px + 2 * var(--btn)); }
+  .pull { box-sizing: border-box; overflow: hidden; min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--ink); height: calc(24px + 129px + var(--ident) + 8px + 6px + 2 * var(--btn)); }
   .row { display: flex; align-items: center; gap: 8px; height: 18px; font-size: 11px; line-height: 18px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .row.ident { color: var(--muted); } .ident b { color: var(--ink); font-weight: 600; }
+  /* The ident row is as tall as the copy control in it (24 px, 44 px on touch), in every state, so the card keeps one height. */
+  .row.ident { height: var(--ident); color: var(--muted); } .ident b { color: var(--ink); font-weight: 600; }
   .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .muted { flex: none; color: var(--muted); }
+  .stale { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .copy-link { flex: none; display: inline-flex; align-items: center; }
+  .copy-link :global(.copy.compact) { box-sizing: border-box; min-height: var(--ident); min-width: 24px; padding: 0 7px; gap: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); font: inherit; font-size: 10px; cursor: pointer; }
+  .copy-link :global(.copy svg) { width: 12px; height: 12px; }
   .title { display: block; height: 20px; line-height: 20px; font-size: 13px; font-weight: 600; color: var(--ink); }
   .verdict { height: 20px; color: var(--ink); } .verdict strong { font-size: 12px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .verdict :global(svg) { flex: none; }
@@ -82,5 +90,5 @@
   .btn { box-sizing: border-box; min-width: 0; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; font-size: 11px; text-decoration: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .btn:hover { background: var(--tint); }
   :is(a, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  @media (pointer: coarse) { .pull-card { --btn: 44px; } }
+  @media (pointer: coarse) { .pull-card { --btn: 44px; --ident: 44px; } .copy-link :global(.copy.compact) { min-width: 44px; } }
 </style>

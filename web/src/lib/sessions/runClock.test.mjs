@@ -53,3 +53,10 @@ test('a session that finished before it started reads as under a minute, never n
   const s = { state: 'exited', createdAt: at('2026-11-05T14:02:00Z'), completedAt: at('2026-11-05T14:00:00Z') }
   assert.equal(c.runLine(s, now, 'en-GB'), 'Ran under a minute')
 })
+
+test('a session with no real start time shows no run line rather than an invented one', () => {
+  for (const createdAt of [0, -5, Number.NaN, undefined, Number.POSITIVE_INFINITY]) {
+    assert.equal(c.runLine({ state: 'running', createdAt }, now, 'en-GB'), '', `createdAt ${createdAt}`)
+    assert.equal(c.runLine({ state: 'exited', createdAt, completedAt: now }, now, 'en-GB'), '', `finished, createdAt ${createdAt}`)
+  }
+})

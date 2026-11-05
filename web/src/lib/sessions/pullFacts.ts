@@ -61,3 +61,15 @@ export function githubReadDue({ auto, canRead, hidden, pending, busy, hasStored,
   if (!auto || !canRead || hidden || pending || busy) return false
   return !hasStored || ageMs >= cadenceMs
 }
+
+// The GitHub tab's own threshold: past it, its footer says "Last known" too.
+export const GITHUB_STALE_MS = 180_000
+
+export type GitHubFreshness = { canRead: boolean; checkedAt?: number; now: number }
+
+/** Whether a GitHub read shown on the Overview must be marked "Last known": the machine cannot be read now, or the read is
+ * older than the GitHub tab's threshold. A read with no time is not claimed either way, since its age is not known. */
+export function githubStale({ canRead, checkedAt, now }: GitHubFreshness): boolean {
+  if (!checkedAt || !Number.isFinite(checkedAt)) return false
+  return !canRead || now - checkedAt > GITHUB_STALE_MS
+}

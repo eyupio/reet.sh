@@ -12,6 +12,11 @@ export function fixRoute(structured: boolean): 'composer' | 'clipboard' {
 
 /** The line shown after a copy. `copied` is false when the clipboard itself refused. */
 export function copyNote(structured: boolean, copied: boolean): string {
-  if (!copied) return 'Could not copy the message. Select it in the composer or try again.'
+  if (!copied) return 'Could not copy the message. Try again.'
   return structured ? 'Copied. The composer is nearly full.' : 'Copied'
+}
+
+/** A draft that already ends with the message has it: asking again must not stack a second copy. */
+export function alreadyThere(draft: string, message: string): boolean {
+  return message !== '' && draft.trimEnd().endsWith(message)
 }

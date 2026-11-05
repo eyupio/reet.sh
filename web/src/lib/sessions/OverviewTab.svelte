@@ -61,7 +61,14 @@
   let fixNote = $state(''), fixTimer: ReturnType<typeof setTimeout> | undefined
   onDestroy(() => clearTimeout(fixTimer))
   function say(text: string) { fixNote = text; clearTimeout(fixTimer); fixTimer = setTimeout(() => { fixNote = '' }, 6000) }
+  // A second click while the first is still being answered would race it: the first would time out and copy although the second applied.
+  let offering = false
   async function fix(kind: FixKind) {
+    if (offering) return
+    offering = true
+    try { await deliver(kind) } finally { offering = false }
+  }
+  async function deliver(kind: FixKind) {
     const message = fixMessage(kind, { base: pull?.base, checks: splitChecks(pull?.checks ?? []).failed.map(c => c.name), threads: pull?.threads?.open })
     const structured = !!session.structured
     fixNote = ''

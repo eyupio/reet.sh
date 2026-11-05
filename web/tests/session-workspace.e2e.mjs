@@ -549,6 +549,21 @@ try {
    expect(t.errors).toEqual([]);await t.context.close()
   }
   {
+   // Asking twice, slowly or in a blink, leaves the message in the composer once and never reports it as too full.
+   for(const quick of [false,true]){
+    const t = await ready(conflicted)
+    t.watch()
+    const fix = t.tracker.getByRole('button',{name:'Ask the agent to fix the conflicts'})
+    if(quick){await fix.dblclick()} else {await fix.click();await expect(t.composer).toHaveValue(MESSAGE);await fix.click()}
+    await t.page.waitForTimeout(700)
+    await expect(t.composer,`${quick?'two quick clicks':'two clicks'}: the message is there once`).toHaveValue(MESSAGE)
+    await expect(t.tracker.getByRole('status')).toHaveText('')
+    await expect(t.composer).toBeFocused()
+    onlyReads(t.requests,'repeat clicks')
+    expect(t.errors).toEqual([]);await t.context.close()
+   }
+  }
+  {
    const t = await ready(conflicted)
    const draft = 'x'.repeat(1990)
    await t.composer.fill(draft)

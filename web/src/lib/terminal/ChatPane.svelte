@@ -5,6 +5,7 @@
  import { copyText } from '../clipboard'
  import { composerPrefill } from '../sessions/composerPrefill'
  import { prefillText } from '../sessions/fixMessages'
+ import { alreadyThere } from '../sessions/fixDelivery'
  import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
  import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
  import { defaultLabel, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
@@ -190,7 +191,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   const ask = $composerPrefill
   if (!ask || ask.sessionId !== session.id || ask.nonce <= prefillSeen) return
   prefillSeen = ask.nonce
-  const next = !composerInput || reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting' ? null : prefillText(untrack(() => draft), ask.text)
+  const next = !composerInput || reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting' ? null : untrack(() => alreadyThere(draft, ask.text) ? draft : prefillText(draft, ask.text))
   if (next !== null) { draft = next; void tick().then(() => { composerInput?.focus(); composerInput?.setSelectionRange(next.length, next.length) }) }
   ask.answer?.(next !== null)
  })

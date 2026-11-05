@@ -19,5 +19,13 @@ test('a chat keeps the tracker wording and tries the composer first', () => {
 test('a copy from a full composer says why, and a terminal copy just says Copied', () => {
   assert.equal(d.copyNote(true, true), 'Copied. The composer is nearly full.')
   assert.equal(d.copyNote(false, true), 'Copied')
-  assert.match(d.copyNote(true, false), /Could not copy/)
+  for (const structured of [true, false]) assert.equal(d.copyNote(structured, false), 'Could not copy the message. Try again.')
+})
+
+test('a draft that already ends with the message counts as having it, whatever whitespace follows', () => {
+  const m = 'Resolve the merge conflicts with main on this branch, then push.'
+  assert.equal(d.alreadyThere(m, m), true)
+  assert.equal(d.alreadyThere('Also this\n' + m + '\n  ', m), true)
+  assert.equal(d.alreadyThere(m + ' and more', m), false)
+  assert.equal(d.alreadyThere('', m), false)
 })

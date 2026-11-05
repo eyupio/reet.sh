@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
 const source = ts.transpileModule(readFileSync(new URL('./pullFacts.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { reviewsLine, threadsFact, conflictFact, placeholderLine } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+const { reviewsLine, threadsFact, conflictFact, placeholderLine, githubReadDue } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 
 const pull = (over = {}) => ({ number: 7, title: 't', url: 'https://github.com/o/r/pull/7', state: 'OPEN', draft: false, review: '', mergeable: 'MERGEABLE', added: 1, removed: 1, checks: [], ...over })
 
@@ -57,7 +57,35 @@ test('only no_pr says there is no pull request; every other absence says it was 
   assert.equal(read({ reason: 'no_pr' }), 'No pull request yet.')
   assert.equal(read({ reason: 'github_unavailable' }), 'GitHub status is not available on this machine.')
   assert.equal(read({ reason: 'busy' }), 'GitHub status could not be read.')
-  assert.equal(read({}), 'GitHub status could not be read.')
+  assert.equal(read({}), 'Not read yet.')
   assert.equal(read({ loading: true }), 'Checking GitHub…')
   assert.equal(placeholderLine({ supported: false, loading: true }), 'Update reet on this machine for GitHub status.')
+})
+
+const due = over => githubReadDue({ auto: true, canRead: true, hidden: false, pending: false, busy: false, hasStored: false, ageMs: Infinity, cadenceMs: 120_000, ...over })
+
+test('nothing stored and nothing running is due for a read', () => {
+  assert.equal(due({}), true)
+})
+
+test('Live updates off is never due, even right after the machine becomes readable', () => {
+  assert.equal(due({ auto: false }), false)
+  assert.equal(due({ auto: false, canRead: true, hasStored: false }), false)
+})
+
+test('a warm store within the cadence is not read again, whatever the local copy says', () => {
+  assert.equal(due({ hasStored: true, ageMs: 30_000 }), false)
+  assert.equal(due({ hasStored: true, ageMs: 119_999 }), false)
+})
+
+test('a stored answer at or past the cadence is due', () => {
+  assert.equal(due({ hasStored: true, ageMs: 120_000 }), true)
+  assert.equal(due({ hasStored: true, ageMs: 500_000 }), true)
+})
+
+test('a read in flight, a hidden tab or an unreadable machine is never due', () => {
+  assert.equal(due({ pending: true }), false)
+  assert.equal(due({ busy: true }), false)
+  assert.equal(due({ hidden: true }), false)
+  assert.equal(due({ canRead: false }), false)
 })

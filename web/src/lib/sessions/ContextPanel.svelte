@@ -7,7 +7,8 @@
   import { changedList, worktreeTargetOf } from '../sessions'
   import { inspectSession, worktreeStatus, type TerminalSession } from '../terminal/api'
   import { elapsedWord, insightReason, type InsightFile, type InsightView, type SessionInsight } from '../sessionInsights'
-  import { insightsAuto, pullReadAge, pullReadBusy, rememberInsight, sessionInsights, trackPullRead } from './insightStore'
+  import { insightsAuto, pullReadAge, pullReadBusy, pullReadingIds, rememberInsight, sessionInsights, trackPullRead } from './insightStore'
+  import { githubReadDue } from './pullFacts'
   import InsightIcon from './InsightIcon.svelte'
   import { pullVerdict } from './pullVerdict'
   import OverviewTab from './OverviewTab.svelte'
@@ -92,9 +93,9 @@
   }
   // Every automatic GitHub read goes through here: not while Live updates is off, not while the navigation's read for this session is in flight, and not within a cadence of the last read by either.
   function backgroundGitHub() {
-    if (!auto || !canRead || document.hidden || pending.github || pullReadBusy(session.id)) return
-    if (github && Math.min(Date.now() - lastGitHub, pullReadAge(session.id)) < 120_000) return
-    void read('github')
+    // The shared store decides, not the local copy: on a warm store `github` may not be seeded yet when the mount effect runs.
+    const hasStored = !!github || !!get(sessionInsights)[session.id]?.github
+    if (githubReadDue({ auto, canRead, hidden: document.hidden, pending: !!pending.github, busy: pullReadBusy(session.id), hasStored, ageMs: Math.min(Date.now() - lastGitHub, pullReadAge(session.id)), cadenceMs: 120_000 })) void read('github')
   }
   // The Overview shows the pull request too, so its Refresh reads both; a manual refresh is never held back by the cadence.
   function refresh() { if (!supported) void readLegacy(); else if (selected) void read(previewView, selected); else { void read(view, tab === 'files' ? folder : ''); if (tab === 'overview') void read('github') } }
@@ -124,7 +125,7 @@
   $effect(() => { if (canRead) untrack(() => { if (!workspace && !pending.status) void read('status'); if (tab === 'overview' || tab === 'github') backgroundGitHub() }) })
   // A read the navigation made for this session lands in the store; the panel takes it up rather than reading again.
   const stored = $derived($sessionInsights[session.id]?.github)
-  $effect(() => { const next = stored; if (next && (!github || (next.checkedAt ?? 0) > (github.checkedAt ?? 0))) untrack(() => { github = next; errors.github = ''; lastGitHub = Date.now() }) })
+  $effect(() => { const next = stored; if (next && (!github || (next.checkedAt ?? 0) > (github.checkedAt ?? 0))) untrack(() => { github = next; errors.github = '' }) })
   // Live updates is the one switch for automatic reads: the navigation's background PR reads follow it too.
   $effect(() => { insightsAuto.set(auto) })
   onMount(() => {
@@ -155,7 +156,7 @@
   </header>
   <div class="panel-body" id={`${id}-view`} role="tabpanel" aria-labelledby={`${id}-tab-${tab}`} tabindex="0">
     {#if tab === 'overview'}
-      <OverviewTab {id} {session} {host} {status} {project} {skills} {now} {chat} {supported} {workspace} {github} base={github?.pull?.base} remote={workspace?.remote || github?.remote} {pending} {errors} {baseline} {newEvents} {terminalAdvanced} {onterminal} onpick={pick} onfull={() => pick('github')} />
+      <OverviewTab {id} {session} {host} {status} {project} {skills} {now} {chat} {supported} {workspace} {github} checking={!!pending.github || !!$pullReadingIds[session.id]} base={github?.pull?.base} remote={workspace?.remote || github?.remote} {pending} {errors} {baseline} {newEvents} {terminalAdvanced} {onterminal} onpick={pick} onfull={() => pick('github')} />
     {:else if !supported}
       {#if tab === 'changes'}<section aria-label="Changed files"><h3>Changed files</h3>{#if !session.worktreePath}<p class="empty">Update reet on this machine to inspect changes in the checkout.</p>{:else if !target}<p class="empty">reet can't name this worktree, so its changes aren't listed here.</p>{:else if legacyList}<p><span class="total">{legacyList.total}</span> changed files</p><ul class="legacy-files">{#each legacyList.shown as path}<li>{path}</li>{/each}</ul>{#if legacyList.more}<p class="quiet">and {legacyList.more} more not listed.</p>{/if}{:else}<p class="empty">{legacyFailed ? "Couldn't read the changed files just now." : 'Checking…'}</p>{/if}{#if target}<button class="secondary" disabled={legacyBusy} aria-busy={legacyBusy} onclick={() => void readLegacy()}>Refresh changed files</button>{/if}</section>{:else}<p class="empty">Update reet on this machine to use {tab === 'github' ? 'GitHub status' : 'read-only file browsing'}.</p>{/if}
     {:else}

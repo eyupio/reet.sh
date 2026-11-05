@@ -583,6 +583,20 @@ try {
   await expect.poll(gh).toBe(3)
   expect(live.errors).toEqual([]);await live.context.close()
  }
+ // A warm store: the navigation has already read the other session's pull request, nothing is in flight, and opening its panel reads nothing more.
+ {
+  const warm=await open(1600,'dark',true,null,{second:true})
+  const gh=()=>warm.calls.filter(c=>c.view==='github').length
+  await expect.poll(gh).toBe(2)
+  await warm.page.waitForTimeout(500)
+  expect(gh(),'one read each for the two sessions').toBe(2)
+  await warm.page.getByRole('button',{name:/Second session/}).first().click()
+  await expect(warm.panel.getByRole('group',{name:'You asked'})).toContainText('SECOND-SESSION-PROMPT')
+  await expect(warm.panel.getByRole('group',{name:'Pull request'})).toContainText('#42')
+  await warm.page.waitForTimeout(700)
+  expect(gh(),'opening a session whose pull request was read moments ago makes no extra read').toBe(2)
+  expect(warm.errors).toEqual([]);await warm.context.close()
+ }
  // Nothing below the tracker moves when the pull request changes, at the panel widths and on the phone sheet, in both themes.
  for(const theme of ['dark','light']) for(const width of [300,340,520,375]){
   const phone=width===375

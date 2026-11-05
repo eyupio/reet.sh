@@ -16,10 +16,10 @@
   import { runLine } from './runClock'
 
   // The panel owns reading and polling; the Overview only shows what it is handed, so it can grow cards without touching either.
-  let { id, session, host, status, project, skills, now, chat, supported, workspace, github, base, remote, pending, errors, baseline, newEvents, terminalAdvanced, onterminal, onpick, onfull, onfix }: {
+  let { id, session, host, status, project, skills, now, chat, supported, workspace, github, checking, base, remote, pending, errors, baseline, newEvents, terminalAdvanced, onterminal, onpick, onfull, onfix }: {
     id: string; session: TerminalSession; host: string; status: FleetCard['status'] | undefined
     project: string; skills: FleetCard['skills'] | null | undefined; now: number; chat?: ChatState; supported: boolean
-    workspace: SessionInsight | null; github: SessionInsight | null; base?: string; remote?: string; pending: Record<string, boolean>; errors: Record<string, string>
+    workspace: SessionInsight | null; github: SessionInsight | null; checking: boolean; base?: string; remote?: string; pending: Record<string, boolean>; errors: Record<string, string>
     baseline: { seq: number; at: number; activityAt?: number } | null; newEvents: number; terminalAdvanced: boolean | null
     onterminal?: () => void; onpick: (tab: 'changes') => void; onfull: () => void; onfix?: (kind: FixKind) => void
   } = $props()
@@ -42,10 +42,12 @@
   const worked = $derived(activity.active.length > 0 || (workspace?.changed ?? 0) > 0)
   const pull = $derived(github?.pull)
   const pullReason = $derived(github?.reason || (errors.github ? 'error' : undefined))
-  const reading = $derived(supported && !github && !errors.github)
+  const unread = $derived(!github && !errors.github)
+  // "Checking" is only said while a read is running; an unread view with nothing running says it was not read.
+  const reading = $derived(supported && unread && checking)
   const stages = $derived.by(() => {
     const derived = deriveStages({ live, planning, needsInput: attention, active: worked, pull, pullReason })
-    if (pull || attention || (supported && !reading)) return derived
+    if (pull || attention || (supported && !unread)) return derived
     return { ...derived, next: { text: placeholderLine({ supported, loading: reading }), tone: 'muted' as const } }
   })
   const placeholder = $derived(placeholderLine({ supported, loading: reading, reason: pullReason }))

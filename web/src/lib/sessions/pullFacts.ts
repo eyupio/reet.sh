@@ -50,5 +50,14 @@ export function placeholderLine({ supported, loading, reason }: PullRead): strin
   if (loading) return 'Checking GitHub…'
   if (reason === 'no_pr') return 'No pull request yet.'
   if (reason === 'github_unavailable') return 'GitHub status is not available on this machine.'
-  return 'GitHub status could not be read.'
+  // No answer and nothing running (Live updates off, machine was offline): say so rather than claim a read in progress.
+  return reason ? 'GitHub status could not be read.' : 'Not read yet.'
+}
+
+export type ReadDue = { auto: boolean; canRead: boolean; hidden: boolean; pending: boolean; busy: boolean; hasStored: boolean; ageMs: number; cadenceMs: number }
+
+/** Whether an automatic GitHub read should start now. The mount, the timer and the visibility handler all ask this, with the shared store's state (not a local copy that may not be seeded yet), so a visible session costs one read per cadence. */
+export function githubReadDue({ auto, canRead, hidden, pending, busy, hasStored, ageMs, cadenceMs }: ReadDue): boolean {
+  if (!auto || !canRead || hidden || pending || busy) return false
+  return !hasStored || ageMs >= cadenceMs
 }

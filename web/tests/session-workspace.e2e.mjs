@@ -558,7 +558,7 @@ try {
   await expect(next).toContainText('Last known · checked 12m ago')
   expect(errors).toEqual([]);await context.close()
  }
- // At 14px the five steps sit side by side from 340 px up; a cell is too narrow for "Planning" only in a panel of about 306 to 354 px,
+ // At 14px the five steps sit side by side from 340 px up; a cell is too narrow for "Planning" only in a panel of about 306 to 353 px,
  // where the step reads "Plan", and the 300 px panel sets them three over two, wide enough for "Planning" again. No word is ever cut.
  for(const [width,word,rows] of [[300,'Planning',2],[340,'Plan',1],[360,'Planning',1],[520,'Planning',1]]){
   const {page,context,panel,errors}=await open(1600,'dark',true,null,{session:{agentMode:'plan'}})
@@ -844,7 +844,7 @@ try {
   expect(fits,`${theme} ${width}px: the tracker or card overflows sideways`).toBe(true)
   // The fixed words (step labels and states, the Next and fix buttons, the card's buttons and its Details summary) are never cut, at
   // any of these widths, with the fold closed and open.
-  const cutWords=()=>panel.evaluate(el=>[...el.querySelectorAll('.tracker li .label, .tracker li .word, .tracker .primary, .tracker .fix, .pull .btn, .pull summary')].filter(n=>n.checkVisibility()&&(n.scrollWidth>n.clientWidth+1||n.scrollHeight>n.clientHeight+1)).map(n=>n.textContent.trim()))
+  const cutWords=()=>panel.evaluate(el=>[...el.querySelectorAll('.tracker li .label, .tracker li .word, .tracker .primary, .tracker .fix, .tracker .fix-note, .pull .btn, .pull .copy, .pull summary, .pull .summary-facts .review')].filter(n=>n.checkVisibility()&&(n.scrollWidth>n.clientWidth+1||n.scrollHeight>n.clientHeight+1)).map(n=>n.textContent.trim()))
   expect(await cutWords(),`${theme} ${width}px: a fixed word is cut`).toEqual([])
   // At 340 px and wider the five steps are one row and the two Next buttons share one; the 300 px panel has three steps over two.
   const layout=await panel.evaluate(el=>{const top=n=>Math.round(n.getBoundingClientRect().top);return{rows:new Set([...el.querySelectorAll('.tracker ol > li')].map(top)).size,buttons:top(el.querySelector('.tracker .primary'))===top(el.querySelector('.tracker .fix'))}})
@@ -854,6 +854,48 @@ try {
   expect(await cutWords(),`${theme} ${width}px: a fixed word is cut in the open fold`).toEqual([])
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   if(phone){for(const target of await panel.locator('.tracker button, .tracker a, .pull button, .pull a, .pull summary').all()){const b=await target.boundingBox();if(b)expect(b.height,'a touch target under 44px').toBeGreaterThanOrEqual(43)}}
+  expect(errors).toEqual([]);await context.close()
+ }
+ // A terminal session's Next slot is taller where its longer Copy button needs a row of its own, and the merged row must match it,
+ // or merging (which arrives on a poll) would move every block below the tracker.
+ for(const width of [340,360,375]){
+  const phone=width===375
+  const {page,context,panel,errors,box}=await open(phone?375:1600,'dark',true,null,{session:{structured:false},pull:{mergeable:'CONFLICTING',review:'REVIEW_REQUIRED',checks:[ok('Build')],base:'main'}})
+  if(!phone)await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
+  await expect(panel.getByRole('group',{name:'Progress'}).getByRole('button',{name:/conflicts/})).toBeVisible()
+  await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
+  const pinned=()=>panel.evaluate(el=>{const top=n=>Math.round(n.getBoundingClientRect().top),h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{pull:top(h('pull request')),changes:top(h('workspace changes')),where:top(h("where it's working"))}})
+  const baseline=await pinned()
+  box.pull=()=>({...snapshot(),pull:{...pull().pull,state:'MERGED',mergeable:'UNKNOWN',checks:[],mergedAt:Date.now()-720000}})
+  await panel.getByRole('button',{name:'Refresh session workspace'}).click()
+  await expect(panel.getByRole('group',{name:'Progress'}).locator('.merged')).toBeVisible()
+  await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
+  expect(await pinned(),`${phone?'phone sheet':width+'px'}: merging a terminal session's pull request moved the blocks below`).toEqual(baseline)
+  expect(errors).toEqual([]);await context.close()
+ }
+ // The review word is never cut, even with two-digit check counts beside it and conflicts after it.
+ const many=[...Array.from({length:12},(_,i)=>({name:'f'+i,state:'FAILURE'})),...Array.from({length:13},(_,i)=>({name:'r'+i,state:'IN_PROGRESS'})),...Array.from({length:32},(_,i)=>ok('p'+i))]
+ for(const width of [300,340,360,520,375]){
+  const phone=width===375
+  const {page,context,panel,errors}=await open(phone?375:1600,'dark',true,null,{pull:{mergeable:'CONFLICTING',review:'CHANGES_REQUESTED',checks:many,base:'main'}})
+  if(!phone)await page.locator('.session-screen').evaluate((el,w)=>el.style.setProperty('--context-width',w+'px'),width)
+  const review=panel.getByRole('group',{name:'Pull request'}).locator('.summary-facts .review')
+  await expect(review).toHaveText('Changes requested')
+  await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
+  expect(await review.evaluate(n=>n.scrollWidth>n.clientWidth||n.scrollHeight>n.clientHeight),`${phone?'phone sheet':width+'px'}: the review word is cut`).toBe(false)
+  expect(errors).toEqual([]);await context.close()
+ }
+ // The longest fix note, a failed copy, is whole at the 300 px minimum.
+ {
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{session:{structured:false},pull:{mergeable:'CONFLICTING',review:'REVIEW_REQUIRED',checks:[ok('Build')],base:'main'}})
+  await page.locator('.session-screen').evaluate(el=>el.style.setProperty('--context-width','300px'))
+  await page.waitForTimeout(2000)
+  await page.evaluate(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:()=>Promise.reject(new Error('refused'))}});document.execCommand=()=>false})
+  const tracker=panel.getByRole('group',{name:'Progress'})
+  await tracker.getByRole('button',{name:/conflicts/}).click()
+  const note=tracker.getByRole('status')
+  await expect(note).toHaveText('Could not copy the message. Try again.')
+  expect(await note.evaluate(n=>n.scrollWidth>n.clientWidth||n.scrollHeight>n.clientHeight),'300px: the failed-copy note is cut').toBe(false)
   expect(errors).toEqual([]);await context.close()
  }
  // With no pull request, or none read, the card is the one documented exception: the placeholder row, 76 px at every width, as tall

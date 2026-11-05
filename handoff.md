@@ -59,7 +59,8 @@ request fields from OVERVIEW-2; contents and rules are in `docs/terminal-workspa
   - Wording not covered rule by rule: the fix messages (checks and singular threads wording were chosen in Task 7).
 - **Compact at 14px (Task 16).** At the default 360 px panel the five steps are one row, the Next buttons share a row
   above the fix note's line, and the pull request card is a summary with a native **Details** fold for the secondary facts
-  and actions (closed by default, kept open across polls); the 300 px panel sets the steps three over two. Measurements
+  and actions (closed by default, kept open across polls; its summary row is two lines below about 388 px); the 300 px
+  panel sets the steps three over two. Measurements
   and thresholds are in `docs/ui-verification.md` and the components' comments.
 - **Not done.** Firefox, Safari and physical devices; screenshots; `terminal.e2e.mjs` passing in this container.
 

@@ -86,9 +86,10 @@
 <style>
   /* Folded, the card is a summary of rows with fixed heights: the number and state (and the Last known marker), the title, the
      verdict, one row of the facts a person scans for (checks, review, conflicts) and a row holding "Open pull request" and the
-     Details fold. Measured at 14px: the summary row needs about 290 px with three single-digit check counts, "Changes requested"
-     and "Conflicts", which a 360 px panel's card (312 px, 290 inside) holds; under 300 px of card width (a panel under about
-     348 px) it takes two lines, and so do the fold's fact rows, whose buttons then go one per row.
+     Details fold. Measured at 14px: the summary row needs 308 px inside with two-digit counts of all three kinds of check,
+     "Changes requested" and "Conflicts" (a card of 330 px), so under 340 px of card width (a panel under about 388 px, the
+     default 360 px included) it takes two lines and no word in it is cut. Under 300 px of card width the fold's fact rows take
+     two lines too, and its buttons go one per row.
      Everything else is behind Details, which only the person opens, so it is the one thing allowed to make the card taller. */
   .pull-card { min-width: 0; --btn: 32px; --summary: 24px; container-type: inline-size; }
   h4 { margin: 0 0 10px; font: 600 14px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
@@ -106,7 +107,8 @@
   .verdict { margin-top: 4px; color: var(--ink); } .verdict strong { font-size: 14px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .verdict :global(svg), .count :global(svg) { flex: none; }
   .verdict[data-tone='bad'] { color: var(--bad); } .verdict[data-tone='warn'] { color: var(--warn); } .verdict[data-tone='good'] { color: var(--good); }
-  /* The checks keep their counts whole, the conflicts their word; the review word is the one that gives way, its words in a title. */
+  /* The checks keep their counts whole and the conflicts their word. Only a count beyond two digits could still crowd the review word
+     on one line; it would then give way with its words in a title, and the reviews line is whole in the fold. */
   .summary-facts { margin-top: 6px; height: var(--summary); display: grid; grid-template-columns: auto minmax(0, auto) auto; grid-template-areas: 'checks review conflicts'; justify-content: start; align-items: center; column-gap: 10px; overflow: hidden; font-size: 14px; line-height: 20px; white-space: nowrap; }
   .checks { grid-area: checks; display: inline-flex; align-items: center; gap: 6px; }
   .count { display: inline-flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -140,10 +142,12 @@
   .copy-link :global(.copy) { box-sizing: border-box; flex: 1; min-width: 0; height: var(--btn); min-height: var(--btn); justify-content: center; gap: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; line-height: 20px; cursor: pointer; }
   .copy-link :global(.copy:hover) { background: var(--tint); }
   .copy-link :global(.copy svg) { width: 14px; height: 14px; }
-  @container (max-width: 299px) {
+  @container (max-width: 339px) {
     /* The summary row takes two lines: the counts and the conflicts word on the first, the review word on the second. */
     .pull { --summary: 44px; }
     .summary-facts { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: 'checks conflicts' 'review review'; row-gap: 4px; }
+  }
+  @container (max-width: 299px) {
     /* In the fold: one button per row, so "Open failing check" keeps its words, and two lines for each fact row. */
     .fold { --chips: 52px; --fact: 40px; } .buttons { grid-template-columns: minmax(0, 1fr); }
     .fact { align-items: flex-start; } .fact .grow { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }

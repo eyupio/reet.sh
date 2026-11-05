@@ -32,7 +32,7 @@
   const fixName = $derived(fix ? (terminal ? `Copy message for the agent to ${fix.what}` : `Ask the agent to ${fix.what}`) : '')
 </script>
 
-<div class="tracker" role="group" aria-labelledby={`${id}-progress`}>
+<div class="tracker" class:terminal role="group" aria-labelledby={`${id}-progress`}>
   <h4 id={`${id}-progress`}>Progress</h4>
   {#if stages.merged}
     <div class="merged">
@@ -60,7 +60,7 @@
     </ol>
     <!-- The Next slot has one height whatever it says: the sentence, one row for its buttons, and the line for what the last fix click did,
          held empty when there is nothing to ask or say, so a pull request that changes does not move the blocks below. -->
-    <div class="next" class:terminal data-tone={next.tone}>
+    <div class="next" data-tone={next.tone}>
       <!-- The sentence stays, as the last thing known to be true; the marker before it keeps it from reading as current. -->
       <p title={stale ? `${stale}. ${next.text}` : next.text}>{#if stale}<span class="stale">{stale}.</span> {/if}{next.text}</p>
       {#if primary?.kind === 'session'}<button type="button" class="primary" aria-label="Review the question in the session" onclick={() => onsession()}>{primary.label}<span class="arrow"><InsightIcon name="arrow" /></span></button>
@@ -80,7 +80,8 @@
          arrow goes, as its words already say where it leads.
        - 258 to 355 px (the default 360 px panel is 312 px here): five across, and a state word may take two lines ("Needs / you").
          Under 306 px a cell is too narrow for "Planning" (58 px), so it reads "Plan".
-       - Under 290 px, or under 338 px for a terminal session's longer "Copy message for the agent", the two buttons take a row each.
+       - Under 345 px for a terminal session (its "Copy message for the agent" and a primary need 316 px), the two buttons take a
+         row each; under 290 px for every session, and the fix note then has two lines (a failed copy's note is 244 px).
        - Under 258 px (a panel under about 306 px, so the 300 px minimum): three steps over two, each icon beside its label, with
          "Planning" whole again.
      Every one of these has fixed heights, so a pull request that changes moves nothing below at any one width. */
@@ -140,15 +141,19 @@
     ol { grid-auto-rows: 92px; }
     .word { white-space: normal; height: 40px; }
   }
-  @container (max-width: 337px) {
-    .next.terminal { --next: calc(2 * var(--btn) + 80px); grid-template-columns: minmax(0, 1fr); grid-template-rows: 40px 4px var(--btn) 4px var(--btn) 6px 20px; grid-template-areas: 'text' '.' 'primary' '.' 'fix' '.' 'note'; }
-    .next.terminal .primary { margin-right: 0; }
+  @container (max-width: 344px) {
+    /* Set on the tracker's children, not on the Next slot alone, so the merged row that replaces them is just as tall. */
+    .tracker.terminal > * { --next: calc(2 * var(--btn) + 80px); }
+    .tracker.terminal .next { grid-template-columns: minmax(0, 1fr); grid-template-rows: 40px 4px var(--btn) 4px var(--btn) 6px 20px; grid-template-areas: 'text' '.' 'primary' '.' 'fix' '.' 'note'; }
+    .tracker.terminal .primary { margin-right: 0; }
   }
   @container (max-width: 305px) { .long { display: none; } .short { display: inline; } }
   @container (max-width: 289px) {
-    .tracker > * { --next: calc(2 * var(--btn) + 80px); }
-    .next { grid-template-columns: minmax(0, 1fr); grid-template-rows: 40px 4px var(--btn) 4px var(--btn) 6px 20px; grid-template-areas: 'text' '.' 'primary' '.' 'fix' '.' 'note'; }
-    .primary { margin-right: 0; }
+    /* A row each for the buttons, and two lines for the note: "Could not copy the message. Try again." is 244 px. */
+    .tracker > *, .tracker.terminal > * { --next: calc(2 * var(--btn) + 100px); }
+    .next, .tracker.terminal .next { grid-template-columns: minmax(0, 1fr); grid-template-rows: 40px 4px var(--btn) 4px var(--btn) 6px 40px; grid-template-areas: 'text' '.' 'primary' '.' 'fix' '.' 'note'; }
+    .primary, .tracker.terminal .primary { margin-right: 0; }
+    .fix-note { align-self: start; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
   }
   @container (max-width: 257px) {
     /* Five cells would be 47 px, the width of "Review" itself: three over two instead. A cell of 80 px or more holds the icon and

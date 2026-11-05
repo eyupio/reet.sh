@@ -4,8 +4,14 @@
 
 The 14px round had made the narrow Overview long. It is compact again, still at 14px. At the default 360 px panel the five
 steps sit in one row (92 px; a state word may take two lines), the Next sentence and both its buttons fit 110 px with the
-fix note's line, and the pull request card is a 158 px summary with a **Details** fold for the secondary facts and actions.
-Before, at 360 px, these were 128, 176 and 427 px. The thresholds come from measured 14px words and are in the comments of
+fix note's line, and the pull request card is a 178 px summary with a **Details** fold for the secondary facts and actions.
+Before, at 360 px, these were 128, 176 and 427 px. A review fix round then made the card's summary row two lines below about
+388 px of panel (it is 158 px from there), so the review word is never cut even beside two-digit check counts; gave a
+terminal session's merged row the height of its two-row Next slot (it had been 38 px shorter, so merging moved the blocks
+below at 340 to 392 px); moved a terminal's one-row buttons from about 386 to 393 px; and gave the fix note two lines under
+about 338 px, where "Could not copy the message. Try again." had been cut. New checks for each were seen failing first: a
+terminal merging at 340, 360 px and the phone, the review word with 12, 13 and 32 checks at five widths, and a failed copy's
+note at 300 px; the cut check also covers the note, the review word and Copy link. The thresholds come from measured 14px words and are in the comments of
 `StageTracker.svelte` and `PullCard.svelte`; the 300 px panel sets the steps three over two.
 
 `session-workspace.e2e.mjs` now checks, in both themes at 300, 340, 360 and 520 px and the 375 px phone sheet: that the steps
@@ -23,6 +29,9 @@ passing: `session-workspace`, `sessions`, `chat`, `chat-controls`, `chat-preview
 the Go tests (no Go file changed), Firefox, Safari and physical devices.
 
 ## The Overview at the 14px floor (5 November 2026)
+
+(Superseded for the tracker and pull request card layout by "The Overview made compact at 14px" above: the one-step-per-row
+list and the stacked Next slot described here are gone.)
 
 After `main`'s change that keeps all web UI text at 14px or larger, the Overview's cards and the prompt dialog were
 brought up to the same floor; quiet labels keep their colour and weight. At 14px five steps with their words do not fit

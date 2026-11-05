@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -80,5 +81,36 @@ func TestChatRingRetainsPendingQuestions(t *testing.T) {
 		if event.Kind == "question" {
 			t.Fatal("cancelled question stayed pinned")
 		}
+	}
+}
+
+func TestChatSubscribeEvictsOldestSubscriber(t *testing.T) {
+	l := newChatLog()
+	_, _, oldest, oldestCancel := l.subscribe()
+	defer oldestCancel()
+	for i := 1; i < maxChatSubs; i++ {
+		_, _, _, cancel := l.subscribe()
+		defer cancel()
+	}
+	_, _, newest, newestCancel := l.subscribe()
+	defer newestCancel()
+
+	select {
+	case _, ok := <-oldest:
+		if ok {
+			t.Fatal("oldest subscriber stayed open")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("oldest subscriber was not closed")
+	}
+
+	l.publish(terminalproto.ACPEvent{Kind: "notice", Text: "after eviction"})
+	select {
+	case event := <-newest:
+		if event.Kind != "notice" || event.Text != "after eviction" {
+			t.Fatalf("newest subscriber received %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("newest subscriber did not receive the event")
 	}
 }

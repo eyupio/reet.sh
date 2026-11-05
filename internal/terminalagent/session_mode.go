@@ -290,8 +290,11 @@ func (a *agentSwitch) startChat(requestID, sessionID, title string, in terminalp
 
 func (a *agentSwitch) startTerminal(ctx context.Context, requestID, sessionID, title string, in terminalproto.SessionMode, cols, rows int) (terminalproto.SessionChanged, error) {
 	if in.Tool == agentsoftware.OpenCodeTool {
-		softwareGate.RLock()
-		defer softwareGate.RUnlock()
+		release, err := lockSoftwareRead(ctx)
+		if err != nil {
+			return terminalproto.SessionChanged{}, err
+		}
+		defer release()
 	}
 	s, err := a.shells.Create(ctx, requestID, sessionID, terminalproto.Create{
 		Title: title, Cols: cols, Rows: rows, Tool: in.Tool, Dir: in.Dir, Model: in.Model, Yolo: in.Yolo,

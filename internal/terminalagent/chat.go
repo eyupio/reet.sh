@@ -350,8 +350,11 @@ func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (t
 // transcript, so only what happens after the start reaches it.
 func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create, dropReplay bool) (terminalproto.SessionChanged, error) {
 	if in.Tool == agentsoftware.OpenCodeTool {
-		softwareGate.RLock()
-		defer softwareGate.RUnlock()
+		release, err := lockSoftwareRead(h.sup.ctx)
+		if err != nil {
+			return terminalproto.SessionChanged{}, terminalhost.ErrManagerClosed
+		}
+		defer release()
 	}
 	h.sup.mu.Lock()
 	if h.sup.closed {

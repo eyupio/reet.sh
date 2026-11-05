@@ -615,10 +615,15 @@ func (l *chatLog) subscribe() (snapshot []ChatEvent, truncated bool, events <-ch
 	l.nextSub++
 	if len(l.subs) >= maxChatSubs {
 		// Oldest subscriber is dropped; its stream reconnects and resets.
-		for old, oldCh := range l.subs {
-			delete(l.subs, old)
-			close(oldCh)
-			break
+		oldest := -1
+		for id := range l.subs {
+			if oldest < 0 || id < oldest {
+				oldest = id
+			}
+		}
+		if oldest >= 0 {
+			close(l.subs[oldest])
+			delete(l.subs, oldest)
 		}
 	}
 	l.subs[id] = ch

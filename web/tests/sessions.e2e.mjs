@@ -500,7 +500,7 @@ try {
  const tabTitles = async page => (await tabs(page).locator('a.tab .name').allInnerTexts()).map(t => t.trim())
  const sidebarRow = (page, title) => page.getByRole('navigation',{name:'Terminal sessions'}).getByRole('button',{name:new RegExp(`^${title}`)}).first()
  const panel = page => page.getByRole('complementary',{name:'Session context'})
- const fact = (page, name) => panel(page).locator('.where div').filter({has:page.locator('dt',{hasText:new RegExp(`^${name}$`)})}).locator('dd')
+ const fact = (page, name) => panel(page).locator('.where div').filter({has:page.locator('dt',{hasText:new RegExp(`^${name}$`)})}).locator('dd').first()
 
  if (run('opening a row adds a tab; closing a tab never ends the session')) {
   const {context,page,errors,box} = await open()
@@ -567,8 +567,8 @@ try {
   await expect(panel(page).getByRole('heading',{name:"Where it's working"})).toBeVisible()
   await expect(fact(page,'Machine')).toHaveText(/^studio\s*●\s*online$/)
   await expect(fact(page,'Project')).toHaveText('reet')
-  await expect(fact(page,'Branch')).toHaveText('reet/reet-0f1e2d3c4b5a6978')
-  await expect(fact(page,'Worktree')).toHaveText('own copy')
+  await expect(fact(page,'Branch')).toContainText('reet/reet-0f1e2d3c4b5a6978')
+  await expect(fact(page,'Worktree')).toHaveText('Own worktree')
   // Skills on this machine: the fleet card's line, and Manage opens that machine's skills.
   await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.skills-line')).toHaveText(/skills in sync · checked 3 min ago/)
@@ -577,8 +577,8 @@ try {
   await sidebarRow(page, 'Speed up the runner pool').click()
   await expect(fact(page,'Machine')).toHaveText(/^server\s*●\s*online$/)
   await expect(fact(page,'Project')).toHaveText('site')
-  await expect(fact(page,'Branch')).toHaveText('Not recorded')
-  await expect(fact(page,'Worktree')).toHaveText('the checkout')
+  await expect(fact(page,'Branch')).toContainText('Not recorded')
+  await expect(fact(page,'Worktree')).toHaveText('Shared checkout')
   await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.skills-line')).toHaveText('Not checked')
   // An offline machine is named so, never as reporting.

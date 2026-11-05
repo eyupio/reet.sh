@@ -22,8 +22,8 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
    if(hold&&view==='status')await hold
    if(box.answer)return box.answer(view,path)
    if(box.fail)return {status:503,json:{error:'Machine unavailable'}}
-   if(view==='status')return snapshot()
-   if(view==='github')return pull()
+   if(view==='status')return {...snapshot(),...opts.status}
+   if(view==='github'){const answer=pull();return opts.noPull?{...snapshot(),...opts.status}:{...answer,...opts.status,pull:{...answer.pull,...opts.pull}}}
    if(view==='files')return {checkedAt:Date.now(),files:path?[{path:'src/session.ts',added:0,removed:0}]:[{path:'src',directory:true,added:0,removed:0},{path:'README.md',added:0,removed:0}],ahead:0,behind:0,changed:0,conflicts:0}
    return {checkedAt:Date.now(),text:view==='diff'?'@@ -1 +1 @@\n-old value\n+new value':'export const status = "working"',ahead:0,behind:0,changed:0,conflicts:0}
  }
@@ -97,7 +97,7 @@ try {
   await expect(panel.locator('.folder-head')).toContainText('src')
   await panel.getByRole('button',{name:/session.ts/}).click()
   await expect(panel.locator('.preview')).toContainText('export const status')
-  await panel.getByRole('tab',{name:'GitHub',exact:true}).click()
+  await panel.getByRole('tab',{name:/^GitHub/}).click()
   await expect(panel.getByText('Resolve merge conflicts')).toBeVisible()
   await expect(panel.getByText('GitHub reports conflicts with the base branch. 1 check is also failing.')).toBeVisible()
   await expect(panel.getByText('1 failing',{exact:true})).toBeVisible()
@@ -122,7 +122,7 @@ try {
   await expect(panel.getByText('No files match this filter.')).toBeVisible()
   await expect(page.locator('.session-sidebar .signals')).toContainText('42')
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
-  if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await panel.getByRole('tab',{name:'GitHub',exact:true}).click();await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/session-github-${theme}.png`});await panel.getByRole('tab',{name:'Overview',exact:true}).click();await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/session-overview-${theme}.png`})}
+  if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await panel.getByRole('tab',{name:/^GitHub/}).click();await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/session-github-${theme}.png`});await panel.getByRole('tab',{name:'Overview',exact:true}).click();await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/session-overview-${theme}.png`})}
   expect(errors).toEqual([]);expect(calls.some(c=>c.view==='file'&&c.path==='src/session.ts')).toBe(true)
   await context.close()
  }
@@ -339,6 +339,102 @@ try {
   for(let i=0;i<5;i++){await page.keyboard.press('Tab');expect(await panel.evaluate(p=>{const a=document.activeElement;return p.contains(a)&&!a.closest('dialog')}),`Tab ${i+1} moved focus into the sheet behind the dialog`).toBe(false)}
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden();await expect(panel).toBeVisible();await expect(trigger).toBeFocused()
+  expect(errors).toEqual([]);await context.close()
+ }
+
+ // The run clock: one line under the subline, a real time element, and nothing that a screen reader announces every minute.
+ {
+  const {context,panel,errors}=await open(1600,'dark')
+  const line=panel.locator('.run-line')
+  await expect(line).toHaveText(/^Started \d\d:\d\d · running 1h \d+m$/)
+  await expect(line.locator('time')).toHaveAttribute('datetime',/^\d{4}-\d\d-\d\dT/)
+  expect(await line.locator('time').getAttribute('title')).toMatch(/\d{4}/)
+  expect(await line.evaluate(el=>!el.closest('[aria-live],[role=status],[role=alert]')&&!el.querySelector('[aria-live]'))).toBe(true)
+  expect(errors).toEqual([]);await context.close()
+ }
+ {
+  const created=Date.now()-3*3600000
+  const done=await open(1600,'light',true,null,{session:{state:'exited',exitCode:0,createdAt:created,completedAt:created+4320000}})
+  await expect(done.panel.locator('.run-line')).toHaveText('Ran 1h 12m')
+  expect(done.errors).toEqual([]);await done.context.close()
+  const lost=await open(1600,'light',true,null,{session:{state:'lost',createdAt:created}})
+  await expect(lost.panel.locator('.run-line')).toHaveText(/^Started \d\d:\d\d$/)
+  expect(lost.errors).toEqual([]);await lost.context.close()
+ }
+ // The Where card: the repo is a link only for a well-formed owner/name, branch and worktree copy, the base shows once known, and the old facts stay.
+ {
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{status:{remote:'acme/widgets'},session:{worktreeRepo:'widgets',worktreePath:'/home/dev/.reet/worktrees/a-very-long-folder-name/another-long-folder/reet-session-insights-001'}})
+  await context.grantPermissions(['clipboard-read','clipboard-write'])
+  const where=panel.getByRole('region',{name:"Where it's working"}).or(panel.locator('section[aria-labelledby$="-where"]'))
+  const row=name=>where.locator('.where > div').filter({has:page.getByText(name,{exact:true})})
+  const repo=row('Repo').getByRole('link',{name:'acme/widgets'})
+  await expect(repo).toHaveAttribute('href','https://github.com/acme/widgets')
+  await expect(repo).toHaveAttribute('target','_blank');await expect(repo).toHaveAttribute('rel','noopener noreferrer')
+  await expect(row('Machine')).toContainText('studio');await expect(row('Machine')).toContainText('online')
+  await expect(row('Project')).toContainText('reet')
+  await expect(row('Branch')).toContainText('feature/session-workspace')
+  await expect(row('Agent')).toContainText('opencode');await expect(row('Agent')).toContainText('provider/model')
+  await expect(row('Started')).toContainText(/\d\d:\d\d/)
+  await expect(row('Worktree')).toContainText('Own worktree')
+  const shown=await row('Worktree').locator('.path').textContent()
+  expect(shown).toContain('…');expect(shown.length).toBeLessThan(60);expect(shown.endsWith('session-insights-001')).toBe(true)
+  await expect(row('Worktree').locator('.path')).toHaveAttribute('title','/home/dev/.reet/worktrees/a-very-long-folder-name/another-long-folder/reet-session-insights-001')
+  await row('Branch').getByRole('button',{name:'Copy branch name'}).click()
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe('feature/session-workspace')
+  await row('Worktree').getByRole('button',{name:'Copy worktree path'}).click()
+  expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe('/home/dev/.reet/worktrees/a-very-long-folder-name/another-long-folder/reet-session-insights-001')
+  expect(errors).toEqual([]);await context.close()
+ }
+ for(const [remote,expected] of [['not a repo/..','widgets'],['javascript:alert(1)//x','widgets'],[undefined,'widgets']]){
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{status:{remote},session:{worktreeRepo:'widgets'}})
+  const repo=panel.locator('.where > div').filter({has:page.getByText('Repo',{exact:true})})
+  await expect(repo).toContainText(expected);await expect(repo.getByRole('link')).toHaveCount(0)
+  expect(errors).toEqual([]);await context.close()
+ }
+ {
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{status:{remote:undefined}})
+  const repo=panel.locator('.where > div').filter({has:page.getByText('Repo',{exact:true})})
+  await expect(repo).toContainText('Not recorded')
+  await expect(panel.locator('.where > div').filter({has:page.getByText('Worktree',{exact:true})})).toContainText('Shared checkout')
+  await expect(panel.locator('.where')).not.toContainText('Base →')
+  expect(errors).toEqual([]);await context.close()
+ }
+ // The base branch appears next to the branch once the pull request read has named it.
+ {
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{pull:{base:'main'}})
+  await expect(panel.locator('.where > div').filter({has:page.getByText('Branch',{exact:true})})).toContainText('Base → main')
+  expect(errors).toEqual([]);await context.close()
+ }
+ // The GitHub tab says what the pull request needs, in its name and not only in colour; with no pull request it says nothing.
+ for(const [label,pullFields,name,tone] of [
+  ['failing checks',{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED'},'GitHub, needs attention','bad'],
+  ['conflicts',{mergeable:'CONFLICTING',checks:[]},'GitHub, needs attention','bad'],
+  ['checks running',{mergeable:'MERGEABLE',review:'REVIEW_REQUIRED',checks:[{name:'Build',state:'IN_PROGRESS'}]},'GitHub, in progress','warn'],
+  ['merged',{state:'MERGED',mergeable:'UNKNOWN',checks:[]},'GitHub, merged','good'],
+ ]){
+  const {context,panel,errors}=await open(1600,'dark',true,null,{pull:pullFields})
+  const tab=panel.getByRole('tab',{name})
+  await expect(tab,`${label}: the tab names the state`).toBeVisible()
+  await expect(tab.locator('.tab-dot')).toHaveAttribute('data-tone',tone)
+  await expect(tab.locator('span').filter({hasText:/^GitHub$/})).toBeVisible()
+  expect(errors).toEqual([]);await context.close()
+ }
+ {
+  const {context,panel,errors}=await open(1600,'dark',true,null,{noPull:true})
+  await expect(panel.getByText('3 changed files',{exact:true})).toBeVisible()
+  await expect(panel.getByRole('tab',{name:'GitHub',exact:true})).toBeVisible()
+  await expect(panel.locator('.tab-dot')).toHaveCount(0)
+  expect(errors).toEqual([]);await context.close()
+ }
+ // The Where card and the run line hold their height between the first read and the loaded view, at both widths.
+ for(const width of [1600,375]){
+  let release;const held=new Promise(done=>{release=done})
+  const {page,context,panel,errors}=await open(width,'dark',true,held,{status:{remote:'acme/widgets'},pull:{base:'main'}})
+  const heights=()=>panel.evaluate(el=>({rows:[...el.querySelectorAll('.where > div')].map(r=>Math.round(r.getBoundingClientRect().height)).join(),run:Math.round(el.querySelector('.run-line').getBoundingClientRect().height),where:Math.round(el.querySelector('section[aria-labelledby$="-where"]').getBoundingClientRect().height)}))
+  const loading=await heights();release()
+  await expect(panel.getByRole('link',{name:'acme/widgets'})).toBeVisible()
+  expect(await heights(),`${width}px: the Where card or run line changed height when the read arrived`).toEqual(loading)
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   expect(errors).toEqual([]);await context.close()
  }
  console.log('Session workspace: tabs, return summary, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')

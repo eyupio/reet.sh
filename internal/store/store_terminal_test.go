@@ -1138,6 +1138,9 @@ func TestArchivingClearsThePromptOnBothPaths(t *testing.T) {
 		if err := s.db.QueryRow(`SELECT COUNT(*) FROM terminal_sessions WHERE id=? AND prompt<>''`, session.ID).Scan(&stored); err != nil || stored != 0 {
 			t.Fatalf("%s left the column filled: %d %v", name, stored, err)
 		}
+		if params := createParameters(t, s, session.ID); strings.Contains(params, `"prompt"`) || !strings.Contains(params, `"tool":"claude"`) {
+			t.Fatalf("%s left the prompt in the stored create, or dropped the rest of it: %s", name, params)
+		}
 	}
 
 	// A session that ended but stays in history is not archived, so the person
@@ -1150,6 +1153,56 @@ func TestArchivingClearsThePromptOnBothPaths(t *testing.T) {
 	}
 	if got, err := s.TerminalPromptFor(uid, kept.ID); err != nil || got != prompt {
 		t.Fatalf("a closed session still in history lost its prompt: %q, %v", got, err)
+	}
+	if params := createParameters(t, s, kept.ID); !strings.Contains(params, `"prompt"`) {
+		t.Fatalf("a session still in history lost its stored create's prompt: %s", params)
+	}
+}
+
+func createParameters(t *testing.T, s *Store, sessionID string) string {
+	t.Helper()
+	var params string
+	if err := s.db.QueryRow(`SELECT parameters FROM terminal_operations WHERE session_id=? AND kind='create'`, sessionID).Scan(&params); err != nil {
+		t.Fatal(err)
+	}
+	return params
+}
+
+// The stored create is also what a retry is compared with. Once a session is
+// archived its prompt is gone from that copy, so a retry that still carries the
+// prompt is a conflict rather than a replay; a create that had none still replays.
+func TestARetryOfAnArchivedCreateWithAPromptIsAConflict(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	archive := func(id string) {
+		if _, err := s.RequestTerminalEndFor(uid, a.ID, id, syncID()); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ArchiveTerminalFor(uid, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	withPrompt := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude", Prompt: "fix the invoice export"}
+	plain := terminalproto.Create{Title: "Shell", Cols: 80, Rows: 24}
+	promptRequest, plainRequest := syncID(), syncID()
+	first, _, err := s.ReserveTerminalCreateFor(uid, a.ID, promptRequest, c.Generation, withPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shell, _, err := s.ReserveTerminalCreateFor(uid, a.ID, plainRequest, c.Generation, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Before archiving, the identical retry replays.
+	if again, created, err := s.ReserveTerminalCreateFor(uid, a.ID, promptRequest, c.Generation, withPrompt); err != nil || created || again.ID != first.ID {
+		t.Fatal("retry before archive", again.ID, created, err)
+	}
+	archive(first.ID)
+	archive(shell.ID)
+	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, promptRequest, c.Generation, withPrompt); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatal("retry of an archived create that had a prompt", err)
+	}
+	if again, created, err := s.ReserveTerminalCreateFor(uid, a.ID, plainRequest, c.Generation, plain); err != nil || created || again.ID != shell.ID {
+		t.Fatal("retry of an archived create with no prompt", again.ID, created, err)
 	}
 }
 

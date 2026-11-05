@@ -555,7 +555,15 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 // straight after each archive INSERT, in the same transaction, and does nothing
 // for a session that is not archived.
 func clearArchivedPrompt(tx *sql.Tx, uid int64, sessionID string) error {
-	_, err := tx.Exec(`UPDATE terminal_sessions SET prompt='' WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id)`, sessionID, uid)
+	if _, err := tx.Exec(`UPDATE terminal_sessions SET prompt='' WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id)`, sessionID, uid); err != nil {
+		return err
+	}
+	// The stored create request carries the prompt too (the retry comparison needs
+	// the whole request). Dispatch reads a create only while the session is
+	// creating, and archiving needs a closed or end-requested one, so nothing
+	// sends it again. A retry of an archived create that had a prompt no longer
+	// matches and answers ErrTerminalConflict instead of replaying.
+	_, err := tx.Exec(`UPDATE terminal_operations SET parameters=json_remove(parameters,'$.prompt') WHERE session_id=? AND user_id=? AND kind='create' AND json_valid(parameters) AND EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_operations.session_id)`, sessionID, uid)
 	return err
 }
 

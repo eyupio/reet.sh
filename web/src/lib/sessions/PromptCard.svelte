@@ -3,6 +3,7 @@
   import type { ChatState } from '../chat'
   import { sessionPrompt, TerminalError, type TerminalSession } from '../terminal/api'
   import { promptView } from './promptSource'
+  import { createPromptLoader, type PromptOutcome } from './promptLoader'
   import PromptDialog from './PromptDialog.svelte'
 
   let { session, chat, now }: { session: TerminalSession; chat?: ChatState; now: number } = $props()
@@ -14,44 +15,30 @@
   const quote = $derived(view.kind === 'stored' ? view.excerpt : view.kind === 'chat' ? view.text : '')
 
   let open = $state(false)
-  let full = $state<string | null>(null)
-  let phase = $state<'idle' | 'loading' | 'failed' | 'none'>('idle')
+  let outcome = $state<PromptOutcome>({ kind: 'idle' })
   let trigger = $state<HTMLButtonElement>()
-  let controller: AbortController | undefined
+  // The races (a late answer, a second read, an abort) live in the loader, where a node test holds them.
+  const loader = createPromptLoader(sessionPrompt, () => session.id, next => { outcome = next }, error => error instanceof TerminalError && error.status === 404)
 
-  // A late answer must never land under another session's card: the controller is aborted when the session changes, and the id is compared again when the answer arrives.
   $effect(() => {
     void session.id
-    return () => { controller?.abort(); open = false; full = null; phase = 'idle' }
+    return () => { loader.reset(); open = false }
   })
 
+  const full = $derived(outcome.kind === 'ready' ? outcome.text : null)
   const dialogState = $derived.by(() => {
     if (view.kind !== 'stored' || !view.more || full !== null) return 'ready' as const
-    return phase === 'failed' ? 'failed' as const : phase === 'none' ? 'none' as const : 'loading' as const
+    return outcome.kind === 'failed' ? 'failed' as const : outcome.kind === 'none' ? 'none' as const : 'loading' as const
   })
   const dialogText = $derived(full ?? quote)
 
-  async function load() {
-    if (view.kind !== 'stored' || !view.more || full !== null || phase === 'none') return
-    controller?.abort()
-    const mine = new AbortController(), id = session.id
-    controller = mine
-    phase = 'loading'
-    try {
-      const text = await sessionPrompt(id, mine.signal)
-      if (mine.signal.aborted || id !== session.id) return
-      if (text === '') phase = 'none'
-      else { full = text; phase = 'idle' }
-    } catch (error) {
-      if (mine.signal.aborted || id !== session.id) return
-      phase = error instanceof TerminalError && error.status === 404 ? 'none' : 'failed'
-    }
+  function load() {
+    if (view.kind === 'stored' && view.more && outcome.kind !== 'ready' && outcome.kind !== 'none') void loader.load()
   }
 
-  function show() { open = true; void load() }
+  function show() { open = true; load() }
   async function close() {
-    controller?.abort()
-    if (phase === 'loading') phase = 'idle'
+    loader.abort()
     open = false
     await tick()
     trigger?.focus()
@@ -69,7 +56,7 @@
   <div class="action">{#if quote}<button type="button" class="open" bind:this={trigger} onclick={show}>Read full prompt</button>{/if}</div>
 </div>
 {#if open}
-  <PromptDialog {session} text={dialogText} {now} phase={dialogState} notKept={NOT_KEPT} onretry={() => void load()} onclose={() => void close()} />
+  <PromptDialog {session} text={dialogText} {now} phase={dialogState} notKept={NOT_KEPT} onretry={load} onclose={() => void close()} />
 {/if}
 
 <style>

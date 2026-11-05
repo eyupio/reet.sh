@@ -16,11 +16,12 @@
 
   let dialog = $state<HTMLDialogElement>()
   const titleId = $props.id()
+  // The dialog sits inside the details sheet on a phone, whose key handler would close the sheet on Escape and trap Tab over its own controls. The keys are stopped here, never prevented, so the dialog's own Escape and focus handling still run.
 
   onMount(() => { dialog?.showModal(); return () => dialog?.close() })
 </script>
 
-<dialog bind:this={dialog} use:shell={{ sheet: 'bottom' }} aria-labelledby={titleId} oncancel={(event) => { event.preventDefault(); onclose() }}>
+<dialog bind:this={dialog} use:shell={{ sheet: 'bottom' }} aria-labelledby={titleId} oncancel={(event) => { event.preventDefault(); onclose() }} onkeydown={(event) => event.stopPropagation()}>
   <header data-shell-head>
     <h2 id={titleId}>You asked</h2>
     <button type="button" class="btn quiet" onclick={onclose} aria-label="Close" data-shell-close>Close ×</button>

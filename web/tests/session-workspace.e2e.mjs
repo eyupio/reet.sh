@@ -329,5 +329,17 @@ try {
   expect((await dialog.getByRole('button',{name:'Copy prompt'}).boundingBox()).height).toBeGreaterThanOrEqual(42)
   expect(errors).toEqual([]);await context.close()
  }
+ // In the phone sheet the dialog keeps its own keys: Tab stays inside it, and Escape closes it, not the sheet behind it.
+ {
+  const {page,context,panel,errors}=await open(375,'dark')
+  const trigger=panel.getByRole('button',{name:'Read full prompt'})
+  await trigger.click()
+  const dialog=page.getByRole('dialog',{name:'You asked'})
+  await expect(dialog).toContainText('FINAL-LINE-ONLY-IN-FULL-TEXT')
+  for(let i=0;i<5;i++){await page.keyboard.press('Tab');expect(await panel.evaluate(p=>{const a=document.activeElement;return p.contains(a)&&!a.closest('dialog')}),`Tab ${i+1} moved focus into the sheet behind the dialog`).toBe(false)}
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden();await expect(panel).toBeVisible();await expect(trigger).toBeFocused()
+  expect(errors).toEqual([]);await context.close()
+ }
  console.log('Session workspace: tabs, return summary, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')
 }finally{await browser.close()}

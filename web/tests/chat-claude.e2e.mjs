@@ -77,10 +77,12 @@ try {
     window.__chatStream.emit('chat', { seq: 4, kind: 'status', state: 'working' })
   })
   await expect(page.getByRole('status').getByText('Claude Code is working…')).toBeVisible()
-  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 5, kind: 'status', state: 'error', detail: 'stopped' }))
+  await page.evaluate(() => window.__chatStream.emit('chat', { seq: 5, kind: 'status', state: 'error', detail: 'Sign in to Claude on that machine first.' }))
   await expect(page.getByRole('alert').getByText('Claude Code could not continue')).toBeVisible()
+  // A signed-out machine refuses the first prompt; the chat shows that sentence, not the adapter's raw words.
+  await expect(page.getByRole('alert').getByText('Sign in to Claude on that machine first.')).toBeVisible()
   expect(errors).toEqual([])
-  console.log('Claude chat UI passed: no Gaffer for Claude where the adapter is only unverified, Claude Code copy and no plugin warning where it is available, the create body is structured without trust, and the session screen says Claude Code with an approval card.')
+  console.log('Claude chat UI passed: no Gaffer for Claude where the adapter is only unverified, Claude Code copy and no plugin warning where it is available, the create body is structured without trust, the session screen says Claude Code with an approval card, and a signed-out turn shows the sign-in sentence.')
 } finally {
   await context.close()
   await browser.close()

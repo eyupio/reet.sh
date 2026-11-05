@@ -8,8 +8,9 @@
  import { defaultLabel, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
  import { modelSuggestions, validateModel } from '../agentLaunch'
  import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
- import Toast from '../Toast.svelte'
- import ImageLightbox from './ImageLightbox.svelte'
+import Toast from '../Toast.svelte'
+import ConfirmDialog from '../ConfirmDialog.svelte'
+import ImageLightbox from './ImageLightbox.svelte'
  import ChatPreview from './ChatPreview.svelte'
  import GafferProgress from './GafferProgress.svelte'
 import SkillPicker from './SkillPicker.svelte'
@@ -263,8 +264,11 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  function stopSettle() { if (settleTimer !== undefined) { clearTimeout(settleTimer); settleTimer = undefined } }
  // Every tool row is folded by default, including a failure; the person's toggle wins for that key.
  let expanded = $state<Record<string, boolean>>({})
- let copied = $state('')
- let copyTimer: ReturnType<typeof setTimeout> | undefined
+let copied = $state('')
+let copyTimer: ReturnType<typeof setTimeout> | undefined
+// A link in the agent's narrative waits here until the person confirms it, so a message can never navigate the tab by itself.
+let linkPrompt = $state<string | null>(null)
+function openLink() { const href = linkPrompt; linkPrompt = null; if (href) window.open(href, '_blank', 'noopener,noreferrer') }
 
  const ended = $derived(terminalClosed(session.state) || chat.status.state === 'ended')
  // While the chat reconnects in place, the transcript stays and the message box waits, disabled, for it to come back.
@@ -608,7 +612,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
 </script>
 
 {#snippet inline(text: string)}
- {#each inlineSegments(text) as part, n (n)}{#if part.kind === 'code'}<code>{part.text}</code>{:else if part.kind === 'strong'}<strong>{part.text}</strong>{:else}{part.text}{/if}{/each}
+ {#each inlineSegments(text) as part, n (n)}{#if part.kind === 'code'}<code>{part.text}</code>{:else if part.kind === 'strong'}<strong>{part.text}</strong>{:else if part.kind === 'link'}<a class="prose-link" href={part.href} title={part.href} onclick={(event) => { event.preventDefault(); linkPrompt = part.href }} onauxclick={(event) => { if (event.button === 1) { event.preventDefault(); linkPrompt = part.href } }}>{part.text}</a>{:else}{part.text}{/if}{/each}
 {/snippet}
 
 <section class="chat-pane" aria-label={`Gaffer in ${session.title}`} ondragover={(event) => { if (canAttach) { event.preventDefault(); dropping = true } }} ondragleave={(event) => { if (event.currentTarget === event.target || !(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false }} ondrop={(event) => { dropping = false; dropped(event) }}>
@@ -975,6 +979,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  {/if}
  {#if toast}{#key toast.id}<Toast message={toast.text} placement="right" tone={toast.bad ? 'bad' : 'ok'} duration={toast.bad ? 7000 : 3600} ondismiss={() => (toast = null)} />{/key}{/if}
  {#if lightbox}<ImageLightbox items={lightbox.items} index={lightbox.index} onclose={() => (lightbox = null)} />{/if}
+ {#if linkPrompt}<ConfirmDialog title="Open this link in a new tab?" body={`This leaves reet for ${linkPrompt}. Only open links you trust.`} confirmLabel="Open link" onconfirm={openLink} oncancel={() => (linkPrompt = null)} />{/if}
 </section>
 
 <style>
@@ -1036,6 +1041,9 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  .prose-quote { margin: 0 0 8px; padding: 2px 0 2px 11px; border-left: 2px solid var(--line-strong); color: var(--muted); font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
  .prose code, .prose-list code, .prose-quote code { padding: 1px 4px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--bg-sunk); font: 11.5px var(--mono); color: var(--ink); }
  .prose strong, .prose-list strong { font-weight: 600; color: var(--ink); }
+ .prose-link { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; }
+ .prose-link:hover { color: var(--ink); }
+ .prose-link:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 2px; }
  .code { margin: 9px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-sunk); overflow: hidden; }
  .code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 4px 11px; border-bottom: 1px solid var(--line-soft); font: 600 10px var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }
  .code pre { margin: 0; padding: 10px 12px; max-height: 24rem; overflow: auto; font: 12px/1.55 var(--mono); color: var(--ink-soft); white-space: pre; }

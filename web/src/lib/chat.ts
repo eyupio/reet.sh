@@ -547,17 +547,45 @@ export function textSegments(text: string): CodeSegment[] {
   return out
 }
 
-export type InlineSegment = { kind: 'text' | 'code' | 'strong'; text: string }
+export type InlineSegment =
+  | { kind: 'text' | 'code' | 'strong'; text: string }
+  | { kind: 'link'; text: string; href: string }
 
-/** Split a prose line into plain text, `inline code` and **bold**, without interpreting anything as HTML. */
+/** A bare URL stops before trailing punctuation, and before a closing bracket that balances nothing. */
+function trimLink(raw: string): string {
+  let end = raw.length
+  while (end > 0 && /[.,;:!?'”’]/.test(raw[end - 1])) end--
+  while (end > 0 && raw[end - 1] === ')') {
+    const slice = raw.slice(0, end)
+    const opens = (slice.match(/\(/g) ?? []).length, closes = (slice.match(/\)/g) ?? []).length
+    if (closes <= opens) break
+    end--
+  }
+  return raw.slice(0, end)
+}
+
+/**
+ * Split a prose line into plain text, `inline code`, **bold**, markdown links and bare http(s) URLs, without
+ * interpreting anything as HTML. Only http and https links are returned, so a crafted message cannot smuggle in a
+ * `javascript:` or `data:` target.
+ */
 export function inlineSegments(text: string): InlineSegment[] {
   const out: InlineSegment[] = []
-  const pattern = /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g
+  const pattern = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"']+)/g
   let at = 0, match: RegExpExecArray | null
   while ((match = pattern.exec(text))) {
     if (match.index > at) out.push({ kind: 'text', text: text.slice(at, match.index) })
     if (match[1] !== undefined) out.push({ kind: 'code', text: match[1] })
-    else out.push({ kind: 'strong', text: match[2] })
+    else if (match[2] !== undefined) out.push({ kind: 'strong', text: match[2] })
+    else if (match[4] !== undefined) out.push({ kind: 'link', text: match[3], href: match[4] })
+    else {
+      const raw = match[5] ?? ''
+      const href = trimLink(raw)
+      if (href) {
+        out.push({ kind: 'link', text: href, href })
+        if (href.length < raw.length) out.push({ kind: 'text', text: raw.slice(href.length) })
+      } else out.push({ kind: 'text', text: raw })
+    }
     at = pattern.lastIndex
   }
   if (at < text.length) out.push({ kind: 'text', text: text.slice(at) })

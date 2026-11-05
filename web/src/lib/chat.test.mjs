@@ -173,6 +173,29 @@ test('prose markdown is split into safe blocks and inline spans', async () => {
   ])
 })
 
+test('narrative links become link spans, and only http(s) targets qualify', async () => {
+  const { inlineSegments } = await import('./chat.ts')
+  assert.deepEqual(inlineSegments('see https://example.com/a?b=1. Next'), [
+    { kind: 'text', text: 'see ' },
+    { kind: 'link', text: 'https://example.com/a?b=1', href: 'https://example.com/a?b=1' },
+    { kind: 'text', text: '.' },
+    { kind: 'text', text: ' Next' },
+  ])
+  assert.deepEqual(inlineSegments('[the PR](https://github.com/o/r/pull/1) is up'), [
+    { kind: 'link', text: 'the PR', href: 'https://github.com/o/r/pull/1' },
+    { kind: 'text', text: ' is up' },
+  ])
+  assert.deepEqual(inlineSegments('(https://example.com/x)'), [
+    { kind: 'text', text: '(' },
+    { kind: 'link', text: 'https://example.com/x', href: 'https://example.com/x' },
+    { kind: 'text', text: ')' },
+  ])
+  assert.deepEqual(inlineSegments('`https://example.com` and javascript:alert(1)'), [
+    { kind: 'code', text: 'https://example.com' },
+    { kind: 'text', text: ' and javascript:alert(1)' },
+  ])
+})
+
 // --- typed agent questions -------------------------------------------------------------------------------------------
 import { checkQuestionDraft, emptyDraft, pendingQuestions, readQuestion, summarizeAnswers, trimChat, MAX_ITEMS } from './chat.ts'
 

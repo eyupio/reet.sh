@@ -66,7 +66,7 @@ limit above). Only the session's owner can read it. The session list carries a 3
 (`promptExcerpt`, with `promptMore` when there was more), and a create reply carries the same excerpt
 because the row is read back after it is written. The whole text comes from
 `GET /api/v2/terminal/sessions/{id}/prompt`, which answers `{"prompt": "..."}` with `Cache-Control: no-store`;
-a session that is not the caller's is a 404, exactly as on the other session routes, and a malformed id is a
+a session that is not the caller's answers 404 "session not found", as the inspect route does, and a malformed id is a
 400. Archiving the session clears the prompt, both from the session and from the copy kept with its create
 request, so the endpoint then answers an empty prompt and a retry of that create request that carried a
 prompt answers a conflict instead of replaying. The prompt is never written to the audit trail or to logs.

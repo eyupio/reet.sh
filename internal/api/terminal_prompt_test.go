@@ -79,3 +79,35 @@ func httptestGet(t *testing.T, f *launchAPI, cookie, path string) *httptest.Resp
 	f.srv.ServeHTTP(w, r)
 	return w
 }
+
+// Reading a prompt is controller-local metadata, so it stays available when the
+// server has turned terminal execution off; the account checks still apply.
+func TestPromptEndpointWorksWithTerminalsDisabledButStillChecksTheCaller(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "prompt": launchTestPrompt}))
+	id, _ := out["id"].(string)
+	if code != 200 || id == "" {
+		t.Fatal("create", code, raw)
+	}
+	f.srv.SetRemoteTerminals(false)
+	path := "/api/v2/terminal/sessions/" + id + "/prompt"
+	if r := httptestGet(t, f, f.cookie, path); r.Code != 200 || !strings.Contains(r.Body.String(), launchTestPrompt) {
+		t.Fatal("owner with terminals disabled", r.Code, r.Body.String())
+	}
+	viewer, err := f.st.CreateUser("prompt-viewer@example.test", "Viewer", "viewer", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := httptestGet(t, f, terminalLogin(t, f.st, viewer.ID), path); r.Code != 403 {
+		t.Fatal("viewer", r.Code, r.Body.String())
+	}
+	r := httptest.NewRequest("GET", path, nil)
+	r.Header.Set("Origin", "https://reet.example")
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
+	r.Header.Set("Authorization", "Bearer some-token")
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	if w.Code != 403 {
+		t.Fatal("token caller", w.Code, w.Body.String())
+	}
+}

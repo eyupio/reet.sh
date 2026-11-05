@@ -104,7 +104,7 @@
     <div><p class="eyebrow">Your critical buddy</p><h2>Gaffer AI</h2><p class="quip">Pick the brains. I’ll put the kettle on.</p>
       <p class="intro-copy">Choose who Gaffer talks to. His model is separate from the agent doing your work, and these providers belong to your account.</p></div>
   </header>
-  <p class="note">Provider setup is ready. Gaffer’s companion chat and session follow-up are coming next.</p>
+  <p class="note">Choose a provider, then use Ask Gaffer for a natter. Live session context and follow-up are coming next.</p>
   {#if notice}<p class="feedback good" role="status">{notice}</p>{/if}
   {#if error}<div class="feedback bad" role="alert"><p>{error}</p><button class="btn quiet" onclick={() => void load()} disabled={!!busy}>Reload providers</button></div>{/if}
   {#if data && !data.available}<p class="feedback bad" role="alert">The controller’s provider-key storage is unavailable. Ask an administrator to check the instance key configuration.</p>{/if}

@@ -440,7 +440,7 @@ cards under the existing queue/worker authority.
 
 ### GM2B: floating general/session companion UI (5 November 2026)
 
-[Draft PR #606](https://github.com/eyupio/reet.sh/pull/606),
+[Open PR #606](https://github.com/eyupio/reet.sh/pull/606),
 `feat/gaffer-floating-chat`, targets provider/conversation PR #603. #605 was merged
 into #603's branch as `628118e8`, not into main. This branch now includes #603's
 review/CI fix `d7bfa84e` as well. #603 and #606 remain open; do not merge either
@@ -519,7 +519,17 @@ instruction with its queue/live controls in both themes at desktop and phone
 widths. The full Gaffer companion browser matrix also passes. Web check/build
 retain only the two existing warnings. #603's provider fallback and deterministic
 browse-test fixes are carried forward; its full local race result is recorded in
-the review checkpoint above. Final-head CI remains the merge gate for both PRs.
+the review checkpoint above. The full phone run subsequently exposed a plain-terminal **Focus terminal**
+collision. Its footer and bottom extra-key row now opt into the same clearance
+contract; the sideways top key row does not. The launcher also stays inside the
+visual viewport above an on-screen keyboard. Phone session tests cover 320/390 px,
+keyboard visibility and sideways layout alongside the existing terminal actions.
+
+Provider settings also directs users to Ask Gaffer now that companion chat is
+available; only live session context and follow-up remain forthcoming. Final-head
+CI remains the merge gate for #606. All final-head GitHub checks on #603
+`d7bfa84e` pass, including full Go race, browsers and native-service checks. Both
+PRs remain open; neither was merged in this batch.
 
 ## Gaffer branding and Eli reuse (1 November 2026)
 

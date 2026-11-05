@@ -12,17 +12,20 @@ export function keepLauncherClear(node: HTMLElement) {
     for (const region of current) if (!regions.has(region)) { regions.add(region); size.observe(region) }
     node.style.removeProperty('--launcher-clearance')
     const box = node.getBoundingClientRect()
-    let bottom = window.innerHeight - box.bottom
+    const viewport = window.visualViewport
+    const viewTop = viewport && Math.abs(viewport.scale - 1) < .01 ? viewport.offsetTop : 0
+    const viewBottom = viewport && Math.abs(viewport.scale - 1) < .01 ? Math.min(innerHeight, viewTop + viewport.height) : innerHeight
+    let bottom = Math.max(innerHeight - box.bottom, innerHeight - viewBottom + 20)
     for (const region of regions) {
       const r = region.getBoundingClientRect()
-      if (r.width && r.height && r.bottom > 0 && r.top < innerHeight && r.left < box.right && r.right > box.left) {
+      if (r.width && r.height && r.bottom > viewTop && r.top < viewBottom && r.left < box.right && r.right > box.left) {
         bottom = Math.max(bottom, innerHeight - r.top + 12)
       }
     }
     node.style.setProperty('--launcher-clearance', `${bottom}px`)
   }
   function schedule() { if (!frame) frame = requestAnimationFrame(measure) }
-  changes.observe(document.body, {childList:true, subtree:true})
+  changes.observe(document.body, {childList:true, subtree:true, attributes:true, attributeFilter:['data-floating-clearance']})
   window.addEventListener('resize', schedule)
   document.addEventListener('scroll', schedule, true)
   document.addEventListener('transitionend', schedule, true)

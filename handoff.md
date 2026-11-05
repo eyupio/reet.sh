@@ -43,13 +43,16 @@ restart recovery without replay. Only typed companion messages reach providers.
 The [conversation/access contract](docs/handoffs/gaffer-conversations.md) records
 worker eligibility, grants and queue receipt/recovery boundaries for later slices.
 
-GM2B is [draft PR #606](https://github.com/eyupio/reet.sh/pull/606),
+GM2B is [open PR #606](https://github.com/eyupio/reet.sh/pull/606),
 `feat/gaffer-floating-chat`, based on #603 and carrying its `d7bfa84e` review fix.
 It supplies floating general/session chat, independent model choices, durable
 receipt recovery, scoped drafts, cancellation and history cleanup. Its browser CI
 exposed launcher overlaps with **Save draft** and worker **Queue** controls. The
 launcher now follows measured composer/action-dock bounds; both failing flows and
-the full Gaffer chat browser matrix pass locally. See the companion record and
+the full Gaffer chat browser matrix pass locally. A subsequent phone-terminal
+collision is fixed too: the footer/extra-key controls remain reachable, and the
+launcher stays above an on-screen keyboard. Phone session, clipboard and upload
+flows pass. #603's final `d7bfa84e` GitHub checks are all green. See the companion record and
 [UI evidence](docs/ui-verification.md) for the widget scope and final checks. Do
 not merge either PR without owner direction. Scoped context tools, worker messages
 and durable offline supervision remain ahead; Gaffer has no coding or PR authority.

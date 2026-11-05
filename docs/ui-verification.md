@@ -44,6 +44,11 @@ The previously failing sync-vocabulary/live-controls flows pass, with geometry
 assertions for the save dock and multi-line worker composer in desktop/phone and
 both themes. The companion browser matrix and web check/build also pass. No
 worker/provider authority or model interaction changed in this layout fix.
+The complete phone run also found **Focus terminal** blocked. The terminal footer
+and bottom extra-key row now supply clearance; the sideways top key row does not.
+The launcher stays above the visual keyboard. Phone sessions (320/390 px, keyboard
+open, and sideways), clipboard and uploads pass after this follow-up. Provider
+settings now points to Ask Gaffer; live context and offline follow-up remain ahead.
 
 ## Gaffer AI provider settings (5 November 2026)
 

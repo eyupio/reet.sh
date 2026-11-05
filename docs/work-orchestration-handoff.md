@@ -2,8 +2,8 @@
 
 Prepared: 1 November 2026. Updated: 5 November 2026. Active direction: the Gaffer
 session-companion MVP below. Product decisions and the initial HTTP provider
-foundation and account provider settings are recorded here; the new chat and
-offline coordination runtime are not implemented.
+foundation, provider settings and general/session companion chat are recorded
+here. Scoped context/message tools and offline coordination are not implemented.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -386,6 +386,68 @@ Next: build the floating companion UI over these routes, then the contract's
 allowlisted context projections and explicit scoped grants for GM3. Prove those
 before enabling GM4's durable offline supervision. Backend/subscription parity,
 provider/model tool capability and physical/deployed-flow evidence remain open.
+
+### GM2B: floating general/session companion UI (5 November 2026)
+
+Branch `feat/gaffer-floating-chat`, stacked on #605. Live GitHub reads show #603
+`ecaa08be` and #605 `e315b2fe` unmerged, with completed checks passing; #603's
+previous Go timing failures passed on the requested rerun. Do not merge any slice
+without owner direction. Older delivery records above describe their checkpoints.
+
+- `GafferChatWidget.svelte`, the typed API and receipt helpers connect the GM2A
+  runtime to a global **Ask Gaffer** launcher for private browser writers. It does
+  no provider/conversation work while closed. Public/auth/viewer/legacy modes
+  have no launcher. The existing portrait follows motion/reduced-motion settings.
+- `SessionScreen.svelte` publishes only active session identity/model to a small
+  UI context store. The panel automatically binds active-session mode to that ID,
+  also offers general chat, and explains plain-terminal unavailability. It does
+  not read or copy worker history; backend ownership checks remain authoritative.
+- Desktop chat is modeless, with an expand control; phone chat uses the existing
+  dialog shell, visual-viewport/short-screen rules and native modal focus. Escape
+  closes and returns focus. The launcher is raised above the worker composer.
+- General and session drafts stay separate in memory. Request epochs and aborted
+  reads prevent a late response from A replacing B. Closing/switching aborts only
+  browser reads and observation, not an admitted provider answer. Reopening reads
+  the saved scope and observes any running turn. Cancellation targets only Gaffer.
+- Before a send, browser session storage records only account/scope-bound receipt
+  metadata, never prompt text or credentials. An uncertain outcome blocks a new
+  send until reconciliation; explicit safe retry uses the original ID/body/revision.
+  A reload can find an already-admitted receipt without calling the model again.
+  Definitive initial refusals retain the draft; a failed retry keeps its uncertainty.
+- Provider/model choices are independent of the worker. Discovery/manual fallback
+  and explicit application of overrides disclose conversation-history sharing.
+  The UI shows requested provider/model per reply, known/unknown usage, truncation,
+  partial/error/interrupted state and copy controls. Model text is escaped plain text.
+- **Saved chats** lists owned metadata and removes histories, including archived
+  worker scopes. Removing a companion stops its answer, leaves the worker alone,
+  and does not refund provider credits. Context flags remain future policy:
+  only explicitly typed Gaffer messages and completed companion history are sent.
+
+Verification: receipt unit tests, web checks (zero errors, two existing warnings)
+and production build pass. The new Chromium matrix and existing Gaffer settings,
+session workspace, navigation and phone-layout suites pass. Static docs build and
+rendered-site checks pass 51 pages; all 16 MCP checks and the static docs browser
+matrix (40 responsive views plus no-JS) also pass. UI captures and exact cases are recorded in
+[UI verification](ui-verification.md#gaffer-floating-companion-chat-5-november-2026).
+Go vet passes. The full Go race run passes API (471 s), store (246 s), Gaffer
+(48 s), broker (76 s) and all packages except four previously reproduced terminal-
+host failures: the model-list process-group check and three missing-tmux service
+checks. The previously observed git-child timeout check passed on this run. No
+Go runtime authority was changed; the full local suite is not green.
+
+No live provider credentials, paid requests, physical device or deployment was
+used. Native EventSource is exercised over a synthetic HTTP SSE envelope; the
+remaining browser flow uses synthetic API/stream fixtures. Scope is GM2B, not the
+complete MVP: no live reet status, worker transcript tool, scoped MCP message,
+follow goal or background PR supervision is enabled.
+
+Exact next task: GM3A's account/session grants and bounded context projections,
+following [the contract](handoffs/gaffer-conversations.md). Define and test the
+allowlisted status/history/tool fields before making any worker data available to
+Gaffer or MCP. Then add GM3B's explicit worker-message operations and receipt
+mapping over the existing queue; GM4 adds durable offline goals only after those
+boundaries are verified. Preserve separate identities, existing approvals and the
+quirky critical-buddy voice throughout.
 
 ## Gaffer branding and Eli reuse (1 November 2026)
 

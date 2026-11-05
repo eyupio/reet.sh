@@ -1,5 +1,41 @@
 # UI verification — 4 November 2026
 
+## Gaffer floating companion chat (5 November 2026)
+
+**Ask Gaffer** now opens a modeless desktop panel or a modal phone sheet, with the
+existing cap-and-brew portrait, Yorkshire copy and light/dark tokens. General and
+active-session conversations have separate messages/drafts. The panel names both
+models, exposes live model discovery/overrides, streams replies, distinguishes
+cancellation from closure, and shows partial/error/interrupted/usage states.
+Saved-chat metadata supports cleanup even after the worker session is archived.
+The UI explicitly limits this slice to typed companion messages; session context,
+worker instructions and offline follow-up remain subsequent work.
+
+- **Unit/type/build.** Receipt helpers cover account/scope keys, metadata-only
+  storage, blocked/malformed storage, request IDs, UTF-8 limits, terminal-state
+  monotonicity and stream identity. Web unit/type checks and production build
+  pass; two existing unused-selector warnings remain.
+- **Browser.** `web/tests/gaffer-chat.e2e.mjs` covers first send, partial/final
+  streaming, close/reopen without another send, exact-receipt retry, lost reply
+  acknowledgement across reload, provider/model override, cancellation, removal,
+  archived-chat cleanup, separate drafts, late session-A responses after switching
+  to B, worker-history exclusion, plain-terminal guidance, native EventSource,
+  no-provider/access states, UTF-8 limits and Escape/focus return. It exercises
+  1440, 390 and 320 px in both themes and a 390×430 short screen. The existing
+  settings, session-workspace, navigation and phone-layout browser suites pass.
+  The dedicated Gaffer workflow includes this suite; the terminal job is unchanged.
+- **Seen.** Inspected the actual rendered panel and phone sheet with synthetic
+  data: readable portrait/text, bounded panels, scrollable history, independent
+  model labels and touch-sized actions. Captures:
+  [desktop light](images/ui/gaffer-chat-1440-light.png),
+  [desktop dark](images/ui/gaffer-chat-1440-dark.png),
+  [phone light](images/ui/gaffer-chat-390-light.png),
+  [phone dark](images/ui/gaffer-chat-390-dark.png).
+- **Limits.** Chromium fixtures and a synthetic native SSE response do not prove
+  a live LLM deployment or physical phone keyboard. Safari, Firefox, paid model
+  calls and controller/Docker rollout were not exercised. No backend authority
+  changed in this UI slice.
+
 ## Gaffer AI provider settings (5 November 2026)
 
 Account → Gaffer AI now has account-owned provider cards, default/pause/remove

@@ -19,9 +19,56 @@ related:
 
 Open **Account → Gaffer AI** to configure Gaffer's own provider and model. They
 belong to your account and are separate from the agent working in a session.
-This first slice provides settings and connection tests. The companion chat,
-activity summaries and offline session follow-up are still being implemented.
-Saving a provider does not start a conversation or send any reet context.
+Use **Ask Gaffer** for a private companion conversation after choosing a provider.
+This delivery uses only messages typed in that conversation; live activity/session
+reads and offline follow-up are still being implemented. Saving a provider or
+opening the panel does not start a model request or send any reet context.
+
+## Talk to Gaffer
+
+Choose **Ask Gaffer** at the edge of your workspace. On a desktop the panel leaves
+the workspace usable; on a phone it fills the screen and stays above the keyboard.
+The portrait follows your Gaffer animation and reduced-motion preferences.
+
+Outside a session, use **General Gaffer chat**. Inside a supported structured chat,
+**This session** has its own conversation and draft. The panel names both the
+working agent/model and Gaffer's independent provider/model. A plain terminal
+explains why its session companion is unavailable and offers general chat.
+Changing scope never forwards the working agent's history to Gaffer.
+
+Write a message and choose **Send message**, or press Ctrl/Command+Enter. Replies
+stream from the controller and are saved there. **Close Gaffer** keeps the current
+answer running. Reopen to find it again; **Cancel answer** requests cancellation
+of Gaffer's answer and leaves the working agent alone. The final saved outcome
+shows completion, cancellation, interruption or failure. Provider usage is shown
+when reported, otherwise marked unknown. No automatic follow-up starts here.
+
+Use **Model** to choose Gaffer's provider and optional model override for this
+conversation. Fetch the provider's model list or enter an exact name. **Apply
+choice** saves it before your next message; that message shares this Gaffer
+conversation's completed history with the chosen provider. Working-agent defaults
+stay separate. Provider changes during an answer wait until it finishes or you
+cancel it. Connection tests and model protocol limits below still apply.
+
+If delivery is unconfirmed, choose **Check delivery**. Gaffer reads its saved
+receipt rather than sending the message again. **Send same message safely**, when
+available, uses the original receipt; do not retype the question as a new send
+before checking. A paused reply connection can be reconnected without restarting
+the model. After a controller restart, an unfinished answer stays interrupted
+with its saved partial text and is never replayed automatically.
+
+Drafts stay in memory while the page is open, separately for each scope; a reload
+loses unsent drafts. Saved messages remain on the controller. Only receipt IDs,
+not drafts or message text, enter browser session storage. **Remove chat**
+deletes its messages and stops its current answer; it leaves the working agent
+running and cannot recover provider credits already used. Limits are 100 stored
+conversations per account, 100 turns per conversation, 8,000 bytes per question
+and 64 KiB per reply. The panel shows when a reply was cut short.
+
+**Saved chats** lists your conversation metadata and offers removal, including
+companions whose worker session has been archived. To read a session conversation,
+open that session's workspace. Archiving worker history does not silently delete
+your Gaffer messages; the saved-chat cleanup remains available.
 
 ## Add a provider
 
@@ -84,8 +131,8 @@ already have billed it.
 
 The three permissions separately allow reet status/activity, followed-session
 conversations/tool results, and code/logs from those sessions. Code/logs require
-session context to be enabled. They are stored policy for the forthcoming chat;
-this settings slice sends none of that data.
+session context to be enabled. They are stored policy for forthcoming context tools. The current chat sends
+only the messages you type there and its own completed conversation history.
 
 Instance database backups include provider settings and encrypted keys. Keep the
 instance key with your recovery material. If a restored key cannot be decrypted,

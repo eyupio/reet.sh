@@ -8,7 +8,7 @@
   import { changedList, decisionsLine, worktreeTargetOf } from '../sessions'
   import { inspectSession, worktreeStatus, type TerminalSession } from '../terminal/api'
   import { chatInsight, elapsedWord, insightReason, type InsightFile, type InsightView, type SessionInsight } from '../sessionInsights'
-  import { rememberInsight, sessionInsights } from './insightStore'
+  import { insightsAuto, rememberInsight, sessionInsights } from './insightStore'
   import InsightIcon from './InsightIcon.svelte'
   import WorkspaceFiles from './WorkspaceFiles.svelte'
   import GitHubPane from './GitHubPane.svelte'
@@ -119,6 +119,8 @@
     event.preventDefault(); pick(tabs[next].key); document.getElementById(`${id}-tab-${tabs[next].key}`)?.focus()
   }
   $effect(() => { if (canRead) untrack(() => { if (!workspace && !pending.status) void read('status') }) })
+  // Live updates is the one switch for automatic reads: the navigation's background PR reads follow it too.
+  $effect(() => { insightsAuto.set(auto) })
   onMount(() => {
     const cached = get(sessionInsights)[session.id]; workspace = cached?.status ?? null; github = cached?.github ?? null
     readVisit(); visitReady = true; saveVisit()

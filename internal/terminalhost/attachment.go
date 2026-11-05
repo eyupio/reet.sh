@@ -102,6 +102,11 @@ func (m *Manager) Attach(ctx context.Context, sessionID string, opts AttachOptio
 			attachmentLock.Close()
 		}
 	}()
+	// Apply to existing servers as well: without mouse reporting an attached
+	// browser turns wheel input into cursor keys instead of scrolling the TUI.
+	if _, err := m.command(ctx, 0, "set-option", "-g", "mouse", "on"); err != nil {
+		return nil, err
+	}
 	attachCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(attachCtx, m.tmux.Path, "-S", m.layout.Socket, "attach-session", "-t", "="+m.name(sessionID))
 	cmd.Env = m.environment()

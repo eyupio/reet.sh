@@ -148,6 +148,7 @@ func ensureTmuxConfig(layout Layout) error {
 // start off here; the manager follows the local clipboard switch at runtime.
 // The clipboard-v1 negotiation gates the connector's capability separately.
 const tmuxConfig = `set -g history-limit 5000
+set -g mouse on
 set -g default-terminal "screen-256color"
 set -g escape-time 10
 set -g focus-events off

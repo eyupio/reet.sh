@@ -8,6 +8,7 @@
   import { TerminalConnection, type ConnectionState } from './connection'
   import { terminalArchivable, terminalClosed, terminalUpload, refusalSentence, getSessionSkills, type TerminalSession } from './api'
   import { terminalShortcut } from './keyboard'
+  import { terminalScrolling } from './scrolling'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalAppearance from './TerminalAppearance.svelte'
   import CommandHistory from './CommandHistory.svelte'
@@ -356,6 +357,11 @@
     try{const saved=localStorage.getItem('reet-terminal-palette');if(saved==='system'||terminalPalettes.some(item=>item.id===saved))palette=saved!;const shape=localStorage.getItem('reet-terminal-cursor');if(shape==='bar'||shape==='block'||shape==='underline')cursor=shape;copyOnSelect=localStorage.getItem('reet-terminal-copy-on-select')==='1'}catch{/* optional preferences */}
     const term = new Terminal({ cursorStyle:cursor,cursorBlink:!matchMedia('(prefers-reduced-motion: reduce)').matches,fontSize:14,fontFamily:'"DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace',scrollback:5000,screenReaderMode:true,allowProposedApi:false,windowOptions:{},minimumContrastRatio:4.5 })
     terminal = term;term.options.fontSize=fontSize;term.loadAddon(fit);search=new SearchAddon();term.loadAddon(search);term.open(element)
+    const stopScrolling=terminalScrolling(element,{
+      enabled:()=>alive&&live&&!scrollbackOpen,
+      mouseTracking:()=>term.modes.mouseTrackingMode!=='none',
+      earlier:openScrollback,
+    })
     const onPaste=(event:ClipboardEvent)=>{event.preventDefault();event.stopImmediatePropagation();const images=imageFiles(event.clipboardData?.items);if(images.length){void startUploads(images);return}paste(event.clipboardData?.getData('text/plain')||'')}
     element.addEventListener('paste',onPaste,true)
     term.attachCustomKeyEventHandler(event=>{
@@ -427,7 +433,7 @@
     const online=()=>connection?.recover(),visible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',visible)
     void connection.connect()
-    return ()=>{alive=false;skillsLife?.abort();pendingCopy=null;staleUploads=null;for(const chip of uploads)chip.controller.abort();uploads=[];clearTimeout(selectionTimer);selectionTimer=undefined;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
+    return ()=>{alive=false;stopScrolling();skillsLife?.abort();pendingCopy=null;staleUploads=null;for(const chip of uploads)chip.controller.abort();uploads=[];clearTimeout(selectionTimer);selectionTimer=undefined;element?.removeEventListener('paste',onPaste,true);search?.dispose();search=undefined;fitTerminal=undefined;sizeSender=undefined;sender.dispose();connection?.dispose();connection=undefined;cancelAnimationFrame(frame);cancelAnimationFrame(clipFrame);sizes.disconnect();observer.disconnect();media.removeEventListener('change',theme);window.removeEventListener('online',online);document.removeEventListener('visibilitychange',visible);selection.dispose();input.dispose();binary.dispose();clipboard.dispose();links.dispose();applyTheme=undefined;term.dispose();terminal=undefined}
   })
 </script>
 
@@ -439,6 +445,7 @@
   {#snippet toolbar()}
     <div class="tools terminal-toolbar" aria-label="Terminal tools" use:edges>
       {#if onsessions&&(!sessionsVisible||maximised)}<button class="show-sessions" onclick={toggleSessions} aria-label="Show sessions" title="Show session sidebar"><span aria-hidden="true">›</span><span>Show sessions</span></button>{/if}
+      <button onclick={openScrollback} aria-label="Earlier output" aria-pressed={scrollbackOpen} title="Scroll earlier terminal output · Shift+PageUp"><TerminalIcon name="history"/><span>Earlier output</span></button>
       <button onclick={()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching}} aria-expanded={searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search"/><span class="tool-label">Search</span></button>
       <button onclick={()=>void copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy"/><span class="tool-label">Copy</span></button>
       <button onclick={()=>void copyBuffer('screen')} disabled={scrollbackOpen} aria-label="Copy screen" title="Copy the visible screen"><TerminalIcon name="screen"/><span class="tool-label">Screen</span></button>
@@ -449,7 +456,6 @@
       <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
       <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
       {#if session.tool}<button onclick={openSkills} disabled={!!skillsOff} aria-haspopup="dialog" aria-label="Skills" title={skillsOff||'Insert a skill into the agent'}><span>Skills</span></button>{/if}
-      <button onclick={openScrollback} aria-label="Earlier output" aria-pressed={scrollbackOpen} title="Scroll earlier terminal output · Shift+PageUp"><TerminalIcon name="history"/><span>Scrollback</span></button>
       <span class="tool-space"></span>
       <button onclick={()=>appearanceOpen=true} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance"/><span class="tool-label">Appearance</span></button>
       <button onclick={()=>historyOpen=true} aria-label="Recent history" title="Find saved shell commands or read terminal output"><TerminalIcon name="history"/><span class="tool-label">History</span></button>
@@ -513,6 +519,7 @@
   .screen.reading {visibility:hidden}
   .screen :global(.xterm) {height:100%;padding:0}
   .screen :global(.xterm-viewport) {overscroll-behavior:contain}
+  .screen :global(.xterm-screen) {touch-action:pinch-zoom}
   .connection-message {max-height:72px;overflow:auto;padding:6px 12px;margin:0;font-size:.73rem;background:var(--tint);border-bottom:1px solid var(--line)}
   .agent-copy {display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 12px;font-size:.73rem;background:var(--tint);border-bottom:1px solid var(--line)}
   .agent-copy span {flex:1;min-width:0;overflow-wrap:anywhere}

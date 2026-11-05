@@ -339,7 +339,11 @@ func (s *server) terminalCreateRecorded(uid int64, agent, requestID string) bool
 func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64, agent, tool string) {
 	var trust *terminalbroker.ACPTrustError
 	if errors.As(err, &trust) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "This folder has OpenCode plugins. Start only in a folder you trust.", "code": "acp_trust_required", "detail": trust.Detail})
+		message := "This folder has OpenCode plugins. Start only in a folder you trust."
+		if tool == "antigravity" {
+			message = "AGY workspace hooks and customizations may run. Start only in a folder you trust."
+		}
+		writeJSON(w, http.StatusConflict, map[string]string{"error": message, "code": "acp_trust_required", "detail": trust.Detail})
 		return
 	}
 	var acpUnavailable *terminalbroker.ACPUnavailableError

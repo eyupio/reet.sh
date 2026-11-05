@@ -3,8 +3,8 @@
 **Gaffer** is reet's native agent control interface. **Eli AI Chat** is the underlying technology intended for reuse from Zoomies; **OpenCode TUI** is the agent's original terminal interface. The reet CLI TUI is separate. A bounded Eli provider compatibility probe is documented in [the reuse review](research/eli-reuse.md); the coordinator is not enabled and live worker chat still uses ACP. Existing ACP, session ownership, permissions, streaming and lifecycle paths stay in place.
 
 A structured session is an agent in **Gaffer**, a conversation over the Agent Client Protocol (ACP). It is not a
-terminal: the agent streams messages and tool calls, and reet shows an approval card before an edit or command runs.
-OpenCode was the first integration and is described in most detail below; Claude Code, Codex and Cline share the same
+terminal: the agent streams messages and tool calls, and reet displays its approval requests.
+OpenCode was the first integration and is described in most detail below; Claude Code, Codex, Cline and Google Antigravity share the same
 client and its contracts. Terminal sessions are unchanged.
 
 Slice 1 was deliberately narrow: OpenCode only, trusted folders only, and **Allow once** or **Deny** only. Always allow is
@@ -26,7 +26,7 @@ the connection's capabilities rather than querying a package registry.
 - `unverified`: an adapter is present but reet has not verified its integration.
 - `incompatible`: readable installation evidence does not meet the reviewed floor.
 
-OpenCode, Claude Code (behind its switch), Codex (behind its switch) and Cline
+OpenCode, Claude Code (behind its switch), Codex (behind its switch), Cline and Google Antigravity
 have reviewed integrations. Gemini entries describe missing or unverified support;
 installing an adapter alone does not enable its chat. No CLI is executed to build
 these descriptors, and availability does not establish a successful model turn or
@@ -59,6 +59,30 @@ lists its models, modes and approvals:
 
 The measured behaviour, the exact frames and the two refused tool calls are in
 [Cline ACP probe](research/cline-acp-probe.md).
+
+### Google Antigravity (AGY) in Gaffer
+
+AGY 1.5.0 and newer uses the native `agy acp` server. Updated controllers and
+connectors negotiate `antigravity-acp-v1` before advertising it; a connector
+that only supports AGY terminals continues to offer the terminal UI.
+
+- Choose **Google Antigravity (AGY)** and **Gaffer**. Start only in a folder you
+  trust: AGY workspace hooks and customizations may run.
+- The adapter verifies the executable's version and ACP identity, then requires
+  Default mode. AGY's configured permission rules apply, including its rules
+  for temporary files; approval requests appear as **Allow once** / **Deny** cards.
+- A chosen model is applied and confirmed through ACP before the opening
+  prompt. Effort choices depend on the model; the agent must confirm the choice.
+- Image attachments and continuing a closed chat with its stored history are
+  supported. Reconnecting a lost chat in place and switching a live chat to its
+  terminal UI remain OpenCode-only.
+- Sign in with `agy` on the machine first. Reet uses that login and does not
+  start OAuth or change accounts. A missing login is reported with that step.
+- Stop during a running tool ends the AGY chat and retires its process group,
+  so a command cannot continue behind a stopped conversation.
+
+The real executable was checked against a local provider stub, without a real
+Google model call. See the [AGY ACP probe](research/antigravity-acp-probe.md).
 
 ### Experimental: Claude Code and Codex chats
 

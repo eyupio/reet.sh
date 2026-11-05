@@ -107,7 +107,8 @@ export function folderChoices(machine: { host: string } | undefined, snapshot: M
 /** One text for the dialog: what will start, that nothing runs until Start, and (with a prompt) where the prompt can be seen. */
 export function launchSentence(tool: string, dir: string, machine: string, hasPrompt: boolean, structured = false): string {
   if (structured) {
-    const start = `Starts OpenCode in Gaffer in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start; OpenCode asks before it edits a file or runs a command.`
+    const permissions = tool === 'antigravity' ? 'AGY’s configured permission rules apply and approval requests appear here.' : `${nameOf(tool)} asks before it edits a file or runs a command.`
+    const start = `Starts ${nameOf(tool)} in Gaffer in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start; ${permissions}`
     return hasPrompt ? `${start} The opening prompt is the first message. Its transcript is kept with the session.` : start
   }
   const start = `Starts ${nameOf(tool)} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start.`

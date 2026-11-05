@@ -21,6 +21,16 @@ slice it unblocks. A pass recorded anywhere else does not remove a gate.
 
 ### Recorded on 5 November 2026
 
+- **Google Antigravity (AGY), native CLI 1.5.0 with a local provider stub:**
+  `TestRealAntigravityGaffer` passes with an isolated home and workspace outside
+  `/tmp`: missing login, Default mode, confirmed model/effort, streamed text,
+  command and edit Allow/Deny effects, images, history after restart and Stop
+  during a tool. No real Google request or OAuth login was used. The contract and
+  reproduction command are in [the AGY ACP probe](https://github.com/eyupio/reet.sh/blob/main/docs/research/antigravity-acp-probe.md).
+  `web/tests/chat-antigravity.e2e.mjs` also passes in Chromium at 1360 px and
+  320 px in light and dark themes: descriptor gating, folder trust, model/effort,
+  sign-in refusal and retry, streaming and approval answers. These are emulated
+  browser checks, not physical-device or real OAuth results.
 - **Cline, real signed-in CLI, `cline` 3.0.74:** `REET_CLINE_ACP=…/cline CLINE_DIR=…/.cline go test ./internal/acpagent
   -run TestRealClineStart` passes — the version floor, the reported identity, `act` mode, a boolean `auto_approve`
   of `false`, a confirmed plan/act switch and a confirmed model switch, with no prompt and therefore no model call.

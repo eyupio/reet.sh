@@ -250,12 +250,12 @@ test('switchModeState: the inactive TUI button, enabled or with the reason it is
     ['a chat with no saved OpenCode conversation cannot open in the OpenCode TUI', fresh, caps, false, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
     ['an old machine outranks no saved conversation, as on the controller', fresh, old, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['no saved conversation outranks a busy chat', fresh, caps, true, { to: 'terminal', enabled: false, why: NO_CONVERSATION }],
-    ['another agent has no Gaffer', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'Gaffer is for a structured OpenCode session.' }],
+    ['another agent cannot switch between Gaffer and its TUI', { ...started, tool: 'claude' }, caps, false, { to: 'chat', enabled: false, why: 'Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.' }],
     ['OpenCode among the launch tools keeps the switch', chat, { ...caps, tools: ['claude', 'opencode'] }, false, { to: 'terminal', enabled: true, why: '' }],
     ['OpenCode not a launch tool on the machine, to the OpenCode TUI', chat, { ...caps, tools: ['claude'] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
     ['OpenCode not a launch tool on the machine, to Gaffer', tui, { ...caps, tools: ['claude'] }, false, { to: 'chat', enabled: false, why: UPDATE }],
     ['an empty launch tool list is a known list without OpenCode', chat, { ...caps, tools: [] }, false, { to: 'terminal', enabled: false, why: UPDATE }],
-    ['a plain shell has no Gaffer', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'Gaffer is for a structured OpenCode session.' }],
+    ['a plain shell cannot switch to Gaffer', { ...started, tool: undefined }, caps, false, { to: 'chat', enabled: false, why: 'Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.' }],
   ]
   for (const [name, s, c, busy, want] of rows) assert.deepEqual(switchModeState(s, c, busy), want, name)
 })

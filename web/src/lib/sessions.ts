@@ -220,7 +220,7 @@ export function decisionsLine(s: Pick<TerminalSession, 'yolo' | 'structured'>): 
 export function switchModeState(session: TerminalSession, caps: Capabilities | undefined, busy: boolean): { to: 'terminal' | 'chat'; enabled: boolean; why: string } {
   const to = session.structured ? 'terminal' : 'chat'
   const no = (why: string) => ({ to, enabled: false, why } as const)
-  if (session.tool !== 'opencode') return no('Gaffer is for a structured OpenCode session.')
+  if (session.tool !== 'opencode') return no('Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.')
   if (session.state !== 'running') return no('Only a running session can switch.')
   if (to === 'chat' && !session.acpSessionId) return no('This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
   // The controller also requires OpenCode to be one of the machine's launch tools (Capabilities.SessionModeFor); an absent list is unknown.

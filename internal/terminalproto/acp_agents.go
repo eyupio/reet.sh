@@ -8,6 +8,20 @@ import (
 // ACPAgentsFeature negotiates per-tool structured-chat descriptors. An absent
 // list is a legacy OpenCode-only peer; an explicit empty list supports no chats.
 const ACPAgentsFeature = "acp-agents-v1"
+
+// AntigravityACPFeature keeps descriptors off the wire to controllers that
+// understand AGY terminals but have not reviewed its Gaffer adapter.
+const AntigravityACPFeature = "antigravity-acp-v1"
+
+func SupportsAntigravityACP(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == AntigravityACPFeature {
+			return true
+		}
+	}
+	return false
+}
+
 const MaxACPAgents = 8
 
 func SupportsACPAgents(features string) bool {
@@ -89,6 +103,8 @@ func chatAdapter(tool string) string {
 		return "codex-acp"
 	case "cline":
 		return "cline"
+	case "antigravity":
+		return "agy"
 	}
 	return ""
 }
@@ -255,7 +271,7 @@ func nativeIDMatches(tool, id string) bool {
 	switch tool {
 	case "opencode":
 		return ValidACPSessionID(id)
-	case "claude", "codex":
+	case "claude", "codex", "antigravity":
 		return validUUIDSessionID(id)
 	case "cline":
 		return validClineSessionID(id)

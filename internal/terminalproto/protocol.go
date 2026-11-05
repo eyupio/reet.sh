@@ -220,12 +220,25 @@ func (c Capabilities) Validate() error {
 	}
 	if c.ACPAgents != nil {
 		features = append(features, ACPAgentsFeature)
+		for _, entry := range *c.ACPAgents {
+			if entry.Tool == "antigravity" {
+				features = append(features, AntigravityACPFeature)
+				break
+			}
+		}
 	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
 
 // ValidateFor validates capabilities against the features negotiated by the peer.
 func (c Capabilities) ValidateFor(features string) error {
+	if c.ACPAgents != nil {
+		for _, entry := range *c.ACPAgents {
+			if entry.Tool == "antigravity" && !SupportsAntigravityACP(features) {
+				return ErrInvalid
+			}
+		}
+	}
 	validPreviews := c.ACP && SupportsACPPreviews(features)
 	if c.ACPPreviews && !validPreviews {
 		return ErrInvalid

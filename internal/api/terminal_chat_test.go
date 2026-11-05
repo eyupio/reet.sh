@@ -23,6 +23,22 @@ func chatCaps() terminalproto.Capabilities {
 	return caps
 }
 
+func TestAntigravityChatCreateKeepsItsOptionsAndTrust(t *testing.T) {
+	caps := chatCaps()
+	caps.AgentsV2, caps.ACPLiveControls, caps.ACPStartOptions, caps.ACPModel = true, true, true, true
+	caps.Tools = []string{"antigravity"}
+	entries := []terminalproto.ACPAgent{{Tool: "antigravity", Adapter: "agy", State: "available", MinimumVersion: "1.5.0", History: true, Images: true, Model: true, Approval: true}}
+	caps.ACPAgents = &entries
+	f := launchAPIFixture(t, caps)
+	status, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "antigravity", "structured": true, "trust": true, "dir": "/tmp", "model": "gemini-4-argon", "effort": "medium", "prompt": "hello"}))
+	if status != 200 || out["structured"] != true || out["tool"] != "antigravity" {
+		t.Fatalf("create: %d %s", status, body)
+	}
+	if sent := f.sent(); len(sent) != 1 || !sent[0].Structured || !sent[0].Trust || sent[0].Model != "gemini-4-argon" || sent[0].Effort != "medium" {
+		t.Fatalf("sent: %+v", sent)
+	}
+}
+
 func TestChatCreatePromptAndSSE(t *testing.T) {
 	f := launchAPIFixture(t, chatCaps())
 	code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{

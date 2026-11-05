@@ -27,6 +27,14 @@ says so and Start waits.
 
 ## Gaffer or the agent TUI
 
+Google Antigravity (AGY) offers **Gaffer** on an updated machine that reports its
+native ACP integration. Choose **Google Antigravity (AGY) TUI** for its terminal
+instead. Gaffer uses AGY's configured permission rules, displays its approval
+requests, and supports model/effort choices, images and continuing closed chats
+with history. Workspace hooks and customizations may run, so start only in a
+folder you trust. Sign in with `agy` on that machine first. See
+[AGY in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#google-antigravity-agy-in-gaffer).
+
 For OpenCode (1.19.5 or newer) or Cline (3.0.74 or newer) on a machine that advertises `acp`, the dialog's **Session**
 choice is **Gaffer** by default; choose the agent's own TUI for the terminal interface instead. A chat sends
 `structured: true`, and OpenCode also sends the person's trust confirmation. The **Model** control chooses the model;

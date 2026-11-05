@@ -1,6 +1,6 @@
 <script lang="ts">
   import { gafferTooltip } from '../gafferTooltip'
- import { isChatTool, structuredAgent } from '../terminal/api'
+ import { chatNeedsTrust, chatTrustText, isChatTool, structuredAgent } from '../terminal/api'
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { shell } from '../dialogShell'
@@ -470,7 +470,7 @@
   const reason = $derived(!choice || !projects ? '' : !machines ? 'Start waits until your machines have been read.' : startable(choice, projects, machines, profile))
   const locked = $derived(busy || leaving || operation !== null)
   // The trust box is the one choice that stops a Gaffer start: say so beside the box, not only in the status line.
-  const trustMissing = $derived(!!choice?.chat && choice.agent === 'opencode' && choice.trust !== true)
+  const trustMissing = $derived(!!choice?.chat && chatNeedsTrust(choice.agent) && choice.trust !== true)
   // Why YOLO cannot even open the dialog. A machine that refuses it is shown in the dialog instead.
   const yoloWhy = $derived.by(() => {
     if (!yoloSetting) return 'Reading the account setting…'
@@ -1071,10 +1071,10 @@
         aria-describedby={[choice?.prompt ? `${id}-secrets` : '', shownStatus ? `${id}-status` : ''].filter(Boolean).join(' ') || undefined}
         autocomplete="off" spellcheck="true"></textarea>
     </div>
-    {#if choice?.chat && choice.agent === 'opencode'}
+    {#if choice?.chat && chatNeedsTrust(choice.agent)}
       <label class="trust" class:missing={trustMissing}>
         <input type="checkbox" bind:checked={choice.trust} disabled={locked} aria-invalid={trustMissing} aria-describedby={trustMissing ? `${id}-trust-why` : undefined} />
-        <span>I trust this folder; OpenCode plugins in <code>.opencode</code> may run.
+        <span>{chatTrustText(choice.agent)}
           {#if trustMissing}<span class="trust-why" id={`${id}-trust-why`} role="alert">Tick this box to start Gaffer.</span>{/if}
         </span>
       </label>

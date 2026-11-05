@@ -1,6 +1,6 @@
 import type { Profile, YoloSetting } from './api'
 import type { BranchesResult, FolderProject, LaunchRequest, TerminalMachine, TerminalSession } from './terminal/api'
-import { isChatTool, readiness, structuredAgent } from './terminal/api'
+import { chatNeedsTrust, isChatTool, readiness, structuredAgent } from './terminal/api'
 import { CATALOGUE, agentChoices } from './catalogue'
 import { launchEfforts } from './terminal/launchOptions'
 import { resolveLaunchDefaults, type ModelFavourite } from './models'
@@ -296,8 +296,7 @@ export function startable(choice: LaunchChoice, projects: LaunchProject[], machi
   if (prompt) return prompt
   if (choice.chat === true) {
     if (picked.length > 1) return 'Gaffer starts in one folder at a time. Choose one project, or switch to the agent TUI.'
-    // The trust prompt is OpenCode's plugin warning; Claude ignores a folder's own settings, so there is nothing to confirm.
-    if (choice.agent === 'opencode' && choice.trust !== true) return 'Confirm you trust this folder before starting Gaffer.'
+    if (chatNeedsTrust(choice.agent) && choice.trust !== true) return 'Confirm you trust this folder before starting Gaffer.'
     const model = validateModel(choice.model)
     if (model) return model
     const target = machines.find(x => x.agentId === (picked[0]?.host ?? choice.homeMachine ?? ''))
@@ -352,8 +351,7 @@ export function defaultTitle(prompt: string, fallback = ''): string {
 export function toCreate(choice: LaunchChoice, project: LaunchProject | null, requestId: string, runToken: string, profile: LaunchDefaults = {}): LaunchCreate {
   const chat = choice.chat === true && isChatTool(choice.agent)
   const launch: LaunchRequest = { tool: choice.agent }
-  // Trust is OpenCode's plugin warning; no other chat tool takes it, so it is never sent for one.
-  if (chat) { launch.structured = true; if (choice.trust === true && choice.agent === 'opencode') launch.trust = true }
+  if (chat) { launch.structured = true; if (choice.trust === true && chatNeedsTrust(choice.agent)) launch.trust = true }
   const model = cleanModel(choice.model)
   if (model) launch.model = model
   if (project) launch.dir = project.dir

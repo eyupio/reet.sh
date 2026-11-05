@@ -191,7 +191,7 @@ func structuredAgents(home string) []terminalproto.ACPAgent {
 		version = evidence.Version
 	}
 	entries := []terminalproto.ACPAgent{}
-	for _, tool := range []string{"claude", "codex", "cline", "gemini", "opencode"} {
+	for _, tool := range []string{"claude", "codex", "cline", "gemini", "opencode", "antigravity"} {
 		found := installed(tool)
 		// Claude and Codex chats run through a separate adapter binary; Cline's
 		// ACP server is the cline binary itself, so its install evidence is the

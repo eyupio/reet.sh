@@ -17,6 +17,7 @@ test('reviewed agents can use Gaffer when the machine supports it, without a wor
   for (const tool of ['claude','codex','cline']) assert.deepEqual(draftOptionRules({...base, tool, canChat:true, chat:true}), {showChat:true, chat:true, showWorktree:false, showTrust:false})
   const r = draftOptionRules({ ...base, tool: 'opencode', canChat: true, chat: true })
   assert.deepEqual(r, { showChat: true, chat: true, showWorktree: false, showTrust: true })
+  assert.deepEqual(draftOptionRules({ ...base, tool: 'antigravity', canChat: true, chat: true }), r)
   assert.equal(draftOptionRules({ ...base, tool: 'opencode', canChat: false, chat: true }).chat, false)
 })
 test('hidden choices are cleared before saving', () => {

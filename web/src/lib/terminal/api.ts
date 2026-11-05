@@ -481,10 +481,15 @@ export type StructuredAgentOption = { id: string; category: 'thought_level' | 'm
 export type StructuredAgent = { tool: string; adapter: string; state: 'available' | 'missing' | 'unverified' | 'incompatible'; version?: string; minimumVersion?: string; history?: boolean; images?: boolean; model?: boolean; approval?: boolean; questions?: boolean; modes?: string[]; options?: StructuredAgentOption[] }
 
 /** The adapter each reviewed chat tool must report; a descriptor for any other adapter never makes a tool chat-capable. */
-const CHAT_ADAPTERS: Record<string, string> = { opencode: 'opencode', claude: 'claude-agent-acp', codex: 'codex-acp', cline: 'cline' }
+const CHAT_ADAPTERS: Record<string, string> = { opencode: 'opencode', claude: 'claude-agent-acp', codex: 'codex-acp', cline: 'cline', antigravity: 'agy' }
 export function isChatTool(tool: string | undefined): boolean { return !!tool && tool in CHAT_ADAPTERS }
 /** The product name shown for a chat tool. */
-export function chatToolName(tool: string | undefined): string { return tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cline' ? 'Cline' : 'OpenCode' }
+export function chatToolName(tool: string | undefined): string { return tool === 'antigravity' ? 'Google Antigravity (AGY)' : tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cline' ? 'Cline' : 'OpenCode' }
+
+export function chatNeedsTrust(tool: string | undefined): boolean { return tool === 'opencode' || tool === 'antigravity' }
+export function chatTrustText(tool: string | undefined): string {
+ return tool === 'antigravity' ? 'I trust this folder; AGY workspace hooks and customizations may run.' : 'I trust this folder; OpenCode plugins in .opencode may run.'
+}
 
 /** Explicit descriptors override legacy booleans; only reviewed tools may start. */
 export function structuredAgent(caps: Capabilities | undefined, tool: string | undefined): StructuredAgent | null {

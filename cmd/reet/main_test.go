@@ -178,6 +178,7 @@ func TestHealthcheckCLIUsesExplicitURLAndRejectsIgnoredArguments(t *testing.T) {
 }
 
 func TestHealthcheckTargetEnvironmentAndLocalOverride(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	localRequests, remoteRequests := 0, 0
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { localRequests++; w.WriteHeader(200) }))
 	defer local.Close()

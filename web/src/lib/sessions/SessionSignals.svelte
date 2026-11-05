@@ -30,5 +30,5 @@
   </span>
 {/if}
 <style>
-  .signals{display:flex;align-items:center;gap:9px;font:500 10px var(--mono);color:var(--muted)}.signals>span{display:inline-flex;align-items:center;gap:4px}.signals.stale,.signals>span.stale{opacity:.65}.bad{color:var(--bad)}.warn{color:var(--warn)}.good{color:var(--good)}
+  .signals{display:flex;align-items:center;gap:9px;font:500 14px var(--mono);color:var(--muted)}.signals>span{display:inline-flex;align-items:center;gap:4px}.signals.stale,.signals>span.stale{opacity:.65}.bad{color:var(--bad)}.warn{color:var(--warn)}.good{color:var(--good)}
 </style>

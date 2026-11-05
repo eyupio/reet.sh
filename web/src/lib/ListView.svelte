@@ -532,15 +532,15 @@
 
 <style>
   .listpage { margin-top: 0; }
-  .publication-preview { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow-wrap: anywhere; font-size: 0.85rem; }
+  .publication-preview { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow-wrap: anywhere; font-size: 0.875rem; }
   .publication-preview h3 { margin: 0; font: 500 1.3rem/1.3 var(--serif); }
   .publication-preview ul { list-style: none; padding: 0; }
   .publication-preview li { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
   .publication-preview p { margin: 6px 0; }
   .public-note { white-space: pre-wrap; border-left: 2px solid var(--accent); padding-left: 8px; }
-  .back { color: var(--muted); font-size: 0.85rem; text-decoration: none; }
+  .back { color: var(--muted); font-size: 0.875rem; text-decoration: none; }
   .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
   h1 { margin: 6px 0 0; font: 600 clamp(1.9rem, 5vw, 2.6rem)/1.06 var(--serif); letter-spacing: -0.025em; overflow-wrap: anywhere; }
   .lede { margin: 10px 0 0; color: var(--muted); max-width: 58ch; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
@@ -553,29 +553,29 @@
 
   .panel { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--bg) 38%, var(--card)); }
   .panel h2 { margin: 0 0 4px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.01em; }
-  .panel-lede { margin: 0 0 12px; color: var(--muted); font-size: 0.86rem; }
-  .field { display: grid; gap: 5px; margin-top: 10px; font-size: 0.8rem; font-weight: 600; }
+  .panel-lede { margin: 0 0 12px; color: var(--muted); font-size: 0.875rem; }
+  .field { display: grid; gap: 5px; margin-top: 10px; font-size: 0.875rem; font-weight: 600; }
   .field input { width: 100%; font-weight: 400; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .linkbox { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
-  .linkbox p { margin: 0 0 8px; color: var(--muted); font-size: 0.84rem; }
+  .linkbox p { margin: 0 0 8px; color: var(--muted); font-size: 0.875rem; }
   .linkline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .linkline code { flex: 1 1 240px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 0.78rem; overflow-wrap: anywhere; }
+  .linkline code { flex: 1 1 240px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 0.875rem; overflow-wrap: anywhere; }
   .dangerrow { display: flex; gap: 14px; align-items: center; justify-content: space-between; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
   .dangerrow strong { font-size: 0.88rem; }
-  .dangerrow p { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; }
+  .dangerrow p { margin: 2px 0 0; color: var(--muted); font-size: 0.875rem; }
 
   .people { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .people li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px dashed var(--line); }
   .who { flex: 1 1 200px; display: grid; gap: 1px; min-width: 0; }
   .who strong { font-size: 0.9rem; overflow-wrap: anywhere; }
-  .who small { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
-  .tag-owner { margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
-  .role { color: var(--muted); font-size: 0.82rem; }
+  .who small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .tag-owner { margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .role { color: var(--muted); font-size: 0.875rem; }
   .people select { width: auto; padding: 6px 10px; }
   .addperson { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
   .addperson input { flex: 1 1 220px; }
-  .handover { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 0.84rem; }
+  .handover { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 0.875rem; }
   .handover select { width: auto; padding: 6px 10px; }
 
   /* minmax(0, 1fr): the shelf select is as wide as its longest skill name, and a plain column grew to fit it, widening the page. */
@@ -584,7 +584,7 @@
   .addrow select { flex: 0 1 220px; }
   .addrow input { flex: 1 1 240px; }
   .addrow.second input { flex: 1 1 320px; }
-  .or { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; }
+  .or { color: var(--muted); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.08em; }
 
   .entries { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 14px; }
   .entry { padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); box-shadow: 0 18px 50px -48px rgb(0 0 0 / 0.4); }
@@ -592,17 +592,17 @@
   .entry h2 { margin: 0; font: 500 1.4rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .entry h2 a { color: inherit; text-decoration: none; }
   .entry h2 a:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
-  .source { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; color: var(--muted); font-size: 0.76rem; }
+  .source { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; }
   .source code { overflow-wrap: anywhere; }
-  .adoption { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 999px; color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); font-size: 0.7rem; font-weight: 650; white-space: nowrap; }
+  .adoption { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 999px; color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); font-size: 0.875rem; font-weight: 650; white-space: nowrap; }
   .desc { margin: 8px 0 0; color: var(--muted); max-width: 64ch; font-size: 0.9rem; }
   .note { margin: 10px 0 0; padding: 6px 0 6px 12px; border-left: 2px solid var(--accent); font: italic 0.95rem/1.5 var(--serif); white-space: pre-wrap; }
-  .added { margin: 6px 0 0; color: var(--muted); font-size: 0.72rem; }
+  .added { margin: 6px 0 0; color: var(--muted); font-size: 0.875rem; }
   .noteedit { margin-top: 10px; display: grid; gap: 8px; }
   .noteedit textarea { width: 100%; }
   .entry-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
   .command { flex: 1 1 260px; display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
-  .command code { flex: 1; min-width: 0; font-size: 0.78rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .command code { flex: 1; min-width: 0; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
   @media (max-width: 560px) {
     .entry-head { flex-direction: column; }
     .adoption { white-space: normal; }

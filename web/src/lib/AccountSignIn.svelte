@@ -141,7 +141,7 @@
   label { font-weight: 600; font-size: 0.9rem; }
   input { width: 100%; }
   .submit { width: 100%; margin-top: 4px; }
-  .help { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem; }
+  .help { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; }
   .help p { margin: 0; }
   .help a { color: var(--accent-text); font-weight: 600; }
   .forgot { margin-top: 8px; }
@@ -149,16 +149,16 @@
   .forgot summary:hover { color: var(--ink); }
   .forgot p { margin: 6px 0 0; line-height: 1.5; }
   .forgot form { display: grid; gap: 8px; margin-top: 8px; }
-  .forgot form label { font-weight: 600; font-size: 0.82rem; }
+  .forgot form label { font-weight: 600; font-size: 0.875rem; }
   .reset-note { color: var(--good); }
   .error { margin: 0; color: var(--bad); font-size: 0.9rem; }
   .sso-error { margin-top: 18px; }
   .sso { display: flex; width: 100%; min-height: 44px; margin-top: 22px; align-items: center; justify-content: center; text-align: center; box-sizing: border-box; }
-  .or { display: flex; align-items: center; gap: 12px; margin: 18px 0 0; color: var(--muted); font-size: 0.8rem; }
+  .or { display: flex; align-items: center; gap: 12px; margin: 18px 0 0; color: var(--muted); font-size: 0.875rem; }
   .or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
   .fold { margin-top: 14px; }
   .fold summary { min-height: 40px; display: flex; align-items: center; color: var(--muted); cursor: pointer; font-weight: 600; }
   .fold summary:hover { color: var(--ink); }
-  .fold > p { margin: 4px 0 0; color: var(--muted); font-size: 0.8rem; }
+  .fold > p { margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; }
   .fold form { margin-top: 12px; }
 </style>

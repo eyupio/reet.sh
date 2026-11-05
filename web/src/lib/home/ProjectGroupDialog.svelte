@@ -71,18 +71,18 @@
   header { display: flex; gap: 13px; align-items: flex-start; }
   .mark { flex: none; width: 9px; height: 34px; border-radius: 99px; background: var(--project-colour, var(--accent)); margin-top: 2px; }
   h2 { margin: 0; font: 600 1.35rem/1.2 var(--serif); letter-spacing: -0.02em; }
-  header p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
   .field { display: flex; flex-direction: column; gap: 7px; margin-top: 22px; }
-  .field > span { font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .field > span { font-size: 14px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   input { width: 100%; box-sizing: border-box; min-height: 42px; padding: 9px 12px; border: 1px solid var(--line-mid); border-radius: 9px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
   input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
   input[aria-invalid='true'] { border-color: var(--bad); }
-  .hint { margin: 6px 0 0; font-size: 11px; color: var(--muted); text-align: right; }
+  .hint { margin: 6px 0 0; font-size: 14px; color: var(--muted); text-align: right; }
   .hint.bad { color: var(--bad); text-align: left; }
   .colours { border: 0; padding: 0; margin: 20px 0 0; }
-  legend { font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 0; margin-bottom: 9px; }
+  legend { font-size: 14px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 0; margin-bottom: 9px; }
   .colours div { display: flex; gap: 9px; }
-  .colours button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--swatch); color: var(--ink); font-size: 13px; line-height: 1; cursor: pointer; }
+  .colours button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--swatch); color: var(--ink); font-size: 14px; line-height: 1; cursor: pointer; }
   .colours button.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent); }
   .colours button:first-child { color: var(--muted); }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }

@@ -220,15 +220,15 @@
   .card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 20px; min-width: 0; }
   .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
   h2 { margin: 0; font: 500 1.4rem/1.2 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
-  .muted, .empty { color: var(--muted); font-size: 0.84rem; line-height: 1.6; }
+  .muted, .empty { color: var(--muted); font-size: 0.875rem; line-height: 1.6; }
   .muted { margin: 8px 0 0; }
   .empty { margin: 18px 0 0; padding: 18px; border: 1px dashed var(--line); border-radius: 10px; text-align: center; font-family: var(--serif); font-size: 1.05rem; }
 
   .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
-  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 
   .feed { display: grid; }
   .notification { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 14px 2px; border: 0; border-top: 1px solid var(--line-soft); background: transparent; text-align: left; color: inherit; cursor: pointer; }
@@ -241,8 +241,8 @@
   .main { min-width: 0; flex: 1; display: grid; gap: 2px; }
   .main strong { overflow-wrap: anywhere; }
   .unread .main strong { font-weight: 650; }
-  .body { color: var(--muted); font-size: 0.84rem; line-height: 1.45; overflow-wrap: anywhere; }
-  .main small { color: var(--muted); font-size: 0.73rem; }
+  .body { color: var(--muted); font-size: 0.875rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .main small { color: var(--muted); font-size: 0.875rem; }
   .go { flex: none; width: 7px; height: 7px; margin-top: 7px; border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
 
   .state { padding: 24px 0 16px; max-width: 58ch; }
@@ -251,19 +251,19 @@
   .error p { color: var(--ink); }
 
   fieldset { margin: 14px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
-  legend { padding: 0 5px; color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+  legend { padding: 0 5px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .pref { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 10px 0; border-top: 1px solid var(--line); align-items: start; }
   .pref:first-of-type { border-top: 0; }
-  .check { display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 0.84rem; }
+  .check { display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 0.875rem; }
   .check.static { align-items: flex-start; }
   .check input { width: 18px; height: 18px; min-height: 0; margin-top: 1px; flex: none; }
   .check span { display: grid; gap: 2px; }
   .check small { color: var(--muted); font-weight: 400; line-height: 1.4; }
-  .badge { align-self: start; border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--muted); font-size: 0.7rem; white-space: nowrap; }
-  .mode { display: grid; gap: 4px; color: var(--muted); font-size: 0.75rem; min-width: 160px; }
+  .badge { align-self: start; border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
+  .mode { display: grid; gap: 4px; color: var(--muted); font-size: 0.875rem; min-width: 160px; }
   .mode select { width: 100%; }
-  .source { grid-column: 2; color: var(--muted); font-size: 0.7rem; text-align: right; }
-  .notice { margin: 16px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.86rem; }
+  .source { grid-column: 2; color: var(--muted); font-size: 0.875rem; text-align: right; }
+  .notice { margin: 16px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.875rem; }
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }

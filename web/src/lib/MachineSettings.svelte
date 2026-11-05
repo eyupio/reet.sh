@@ -393,47 +393,47 @@
   dialog::backdrop { background: rgb(20 18 16 / 0.45); backdrop-filter: blur(2px); }
   .sheet { display: grid; gap: 18px; padding: clamp(20px, 4vw, 30px); overflow: auto; max-height: inherit; }
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
   h2 { margin: 5px 0 0; font: 500 clamp(1.5rem, 3vw, 2rem)/1.1 var(--serif); letter-spacing: -0.025em; overflow-wrap: anywhere; }
-  .lede { margin: 8px 0 0; max-width: 54ch; color: var(--muted); font-size: 0.86rem; line-height: 1.55; }
+  .lede { margin: 8px 0 0; max-width: 54ch; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
   .icon { width: 38px; height: 38px; flex: none; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--muted); font-size: 1.25rem; cursor: pointer; }
   .icon:hover { color: var(--ink); border-color: var(--muted); }
   section { display: grid; gap: 0; padding-top: 14px; border-top: 1px solid var(--line); }
-  h3 { margin: 0 0 4px; color: var(--muted); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  h3 { margin: 0 0 4px; color: var(--muted); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
   .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; }
   .row + .row { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
   .copy { display: grid; gap: 2px; min-width: 0; }
-  .copy strong { font-size: 0.86rem; }
-  .copy small { color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
-  .copy code { font-size: 0.74rem; }
-  .hint { margin: 4px 0 0; color: var(--muted); font-size: 0.76rem; line-height: 1.5; }
+  .copy strong { font-size: 0.875rem; }
+  .copy small { color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+  .copy code { font-size: 0.875rem; }
+  .hint { margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
   .model-state { overflow-wrap: anywhere; }
   .software-detail { overflow-wrap: anywhere; }
   .plan { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .plan p, .plan ol { margin: 0; }
   .plan ol { display: grid; gap: 4px; padding-left: 18px; }
-  .plan-command { font: 12px/1.4 var(--mono, monospace); overflow-wrap: anywhere; }
+  .plan-command { font: 14px/1.4 var(--mono, monospace); overflow-wrap: anywhere; }
   .plan-error { color: var(--bad); }
   .plan-source { overflow-wrap: anywhere; }
-  .plan-source code { font-size: 0.72rem; }
+  .plan-source code { font-size: 0.875rem; }
   .plan-notice { color: var(--good); }
   .plan-apply { align-self: start; margin-top: 2px; }
   .plan-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-  .typed-confirm { display: grid; gap: 6px; color: var(--muted); font-size: 0.82rem; }
+  .typed-confirm { display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   .typed-confirm input { height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--mono, monospace); }
   .confirm { width: min(520px, calc(100vw - 32px)); border-radius: 16px; }
   .confirm-body { display: grid; gap: 12px; padding: clamp(20px, 4vw, 28px); }
   .confirm h2 { margin: 0; font: 500 clamp(1.3rem, 3vw, 1.7rem)/1.15 var(--serif); letter-spacing: -0.02em; }
   .confirm p { margin: 0; color: var(--ink); font-size: 0.88rem; line-height: 1.55; }
-  .confirm dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.82rem; }
+  .confirm dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.875rem; }
   .confirm dt { color: var(--muted); }
   .confirm dd { margin: 0; overflow-wrap: anywhere; }
   .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
   .confirm-actions .btn { min-height: 38px; padding: 8px 14px; }
   .confirm-actions .primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
-  .row .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
+  .row .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.875rem; }
   .scope-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 0; }
-  .scope-actions .btn { min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
+  .scope-actions .btn { min-height: 36px; padding: 7px 12px; font-size: 0.875rem; }
   .btn.danger { color: var(--bad); }
   .switch { position: relative; flex: none; width: 42px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); cursor: pointer; }
   .switch[aria-checked='true'] { background: var(--accent); border-color: var(--accent); }

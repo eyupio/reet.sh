@@ -169,8 +169,8 @@
   }
   .taglist li:last-child { border-bottom: 0; }
   .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  .count { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-  .small { min-height: 32px; padding: 4px 10px; font-size: 0.85rem; }
+  .count { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+  .small { min-height: 32px; padding: 4px 10px; font-size: 0.875rem; }
   .taglist input { flex: 1; min-width: 0; padding: 7px 10px; }
   .merge { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
   .merge p { margin: 0 0 8px; color: var(--muted); font-size: 0.9rem; }

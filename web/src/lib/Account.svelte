@@ -675,44 +675,44 @@
   .notice.good { border-color: var(--good); }
   .block { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .muted { margin: 8px 0 0; color: var(--muted); }
-  .note { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+  .note { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
   .profile-form { margin-top: 0; gap: 14px; }
   .profile-form fieldset { margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
-  .profile-form legend { padding: 0 5px; color: var(--muted); font-size: 0.78rem; font-weight: 600; }
+  .profile-form legend { padding: 0 5px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .profile-form .grid2 { gap: 12px; }
   .password-form { margin-top: 0; }
   /* minmax(0, 1fr): a text field is about 20 characters wide by default, which overflowed the card on a 320 px phone. */
   form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 16px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .grid2 label { display: grid; gap: 4px; font-size: 0.84rem; color: var(--muted); }
+  .grid2 label { display: grid; gap: 4px; font-size: 0.875rem; color: var(--muted); }
   .grid2 label.wide, .grid2 .field.wide { grid-column: 1 / -1; }
-  .grid2 .field { display: grid; gap: 4px; font-size: 0.84rem; color: var(--muted); }
-  .grid2 small { color: var(--muted); font-size: 0.76rem; }
+  .grid2 .field { display: grid; gap: 4px; font-size: 0.875rem; color: var(--muted); }
+  .grid2 small { color: var(--muted); font-size: 0.875rem; }
   .formacts { display: flex; justify-content: flex-end; }
   .prefix-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .prefix-toggle { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 0.84rem; }
+  .prefix-toggle { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 0.875rem; }
   .prefix-toggle input { width: auto; }
   .prefix-input { flex: 1 1 140px; max-width: 220px; }
   .session-toolbar, .token-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
-  .session-search, .token-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .session-search, .token-search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   .session-search input, .token-search input { width: 100%; }
   .session-scopes, .token-scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
-  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .session-list, .token-list { list-style: none; margin: 0; padding: 0; display: grid; }
   .session-list > li, .token-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
   .session-list > li:first-child, .token-list > li:first-child { border-top: 0; }
   .session-main, .token-main { min-width: 0; }
   .session-main strong, .token-main strong { overflow-wrap: anywhere; }
-  .session-main small, .token-main small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.78rem; line-height: 1.4; }
+  .session-main small, .token-main small { display: block; margin-top: 3px; color: var(--muted); font-size: 0.875rem; line-height: 1.4; }
   .session-action, .token-action { justify-self: end; }
   .state-block { padding: 24px 0 16px; max-width: 58ch; }
   .state-block h2 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
   /* Token, session and connection names can be one long word: they wrap rather than widen the card past the screen. */
-  .tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.65rem; }
+  .tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; }
   .fresh { margin-top: 14px; padding: 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--tint); }
   .fresh p { margin: 0 0 8px; font-size: 0.88rem; }
   .createrow { display: flex; gap: 8px; flex-wrap: wrap; }

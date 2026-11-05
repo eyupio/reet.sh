@@ -405,32 +405,32 @@
   /* Only the fields scroll. The dialog and the sheet take the same height, so no second scrollbar appears on the frame. */
   .sheet { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; }
   header { display: flex; justify-content: space-between; gap: 16px; padding: 22px 24px 16px; border-bottom: 1px solid var(--line); }
-  .eyebrow { margin: 0; font-size: 10px; font-weight: 650; letter-spacing: .13em; text-transform: uppercase; color: var(--accent-text); }
+  .eyebrow { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: .13em; text-transform: uppercase; color: var(--accent-text); }
   h2 { font: 500 24px/1.2 var(--serif); margin: 6px 0; }
-  .lede { margin: 0; color: var(--muted); font-size: 13px; }
+  .lede { margin: 0; color: var(--muted); font-size: 14px; }
   .close { align-self: start; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 22px; cursor: pointer; }
   .body { padding: 18px 24px; overflow-y: auto; min-height: 0; }
   fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-  .field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 15px; font-size: 13px; font-weight: 600; }
-  .field small { font-size: 11px; font-weight: 400; color: var(--muted); }
-  input:not([type='checkbox']):not([type='file']), select, textarea { width: 100%; box-sizing: border-box; font-size: 13px; font-weight: 400; color: var(--ink); }
+  .field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 15px; font-size: 14px; font-weight: 600; }
+  .field small { font-size: 14px; font-weight: 400; color: var(--muted); }
+  input:not([type='checkbox']):not([type='file']), select, textarea { width: 100%; box-sizing: border-box; font-size: 14px; font-weight: 400; color: var(--ink); }
   textarea { resize: vertical; min-height: 90px; }
   .mode { display: inline-flex; align-self: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 3px; background: var(--bg-sunk); }
-  .mode button { padding: 8px 14px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; }
+  .mode button { padding: 8px 14px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); font: 500 14px var(--sans); cursor: pointer; }
   .mode button.on { background: var(--card); color: var(--ink); border-color: var(--line); }
   .mode button:disabled { opacity: .5; cursor: default; }
   .settings { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 12px; }
   .checkout { grid-template-columns: 1fr 1.4fr; margin-top: 4px; }
-  .hint { font-size: 12px; color: var(--muted); margin: -6px 0 12px; }
-  .section-title { margin: 24px 0 12px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; font-weight: 650; }
-  .field em { font-size: 10px; font-style: normal; font-weight: 400; color: var(--muted); margin-left: 8px; }
-  .prompt-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: -10px; color: var(--muted); font-size: 11px; }
+  .hint { font-size: 14px; color: var(--muted); margin: -6px 0 12px; }
+  .section-title { margin: 24px 0 12px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 14px; font-weight: 650; }
+  .field em { font-size: 14px; font-style: normal; font-weight: 400; color: var(--muted); margin-left: 8px; }
+  .prompt-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: -10px; color: var(--muted); font-size: 14px; }
   .prompt-count { flex: none; font-variant-numeric: tabular-nums; }
   .prompt-count.over { color: var(--bad); font-weight: 650; }
-  .field-error { margin: -7px 0 14px; padding: 9px 11px; border: 1px solid var(--bad); border-radius: 8px; background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); font-size: 12px; font-weight: 600; line-height: 1.5; }
+  .field-error { margin: -7px 0 14px; padding: 9px 11px; border: 1px solid var(--bad); border-radius: 8px; background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); font-size: 14px; font-weight: 600; line-height: 1.5; }
   .prompt-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
   textarea { line-height: 1.65; }
-  .picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); font: 400 13px var(--sans); text-align: left; cursor: pointer; }
+  .picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); font: 400 14px var(--sans); text-align: left; cursor: pointer; }
   .picker:disabled { opacity: .55; cursor: default; }
   .picker .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .picker .chev { flex: none; color: var(--muted); }
@@ -438,20 +438,20 @@
   .folder input { flex: 1; min-width: 0; }
   .mode { margin-bottom: 15px; }
   .mode button:disabled { opacity: .5; cursor: default; }
-  .attach { position: relative; padding: 7px 0; color: var(--accent-text); font: 600 11px var(--sans); cursor: pointer; }
+  .attach { position: relative; padding: 7px 0; color: var(--accent-text); font: 600 14px var(--sans); cursor: pointer; }
   .attach input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
   .attach:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
   .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; padding: 0; list-style: none; }
-  .attachments li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 11px; max-width: 100%; }
+  .attachments li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 14px; max-width: 100%; }
   .attachments img { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
   .attachments span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .attachments button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; min-width: 28px; }
-  .skill-add { border: 0; background: none; padding: 7px 0; color: var(--accent-text); font: 600 11px var(--sans); cursor: pointer; }
+  .skill-add { border: 0; background: none; padding: 7px 0; color: var(--accent-text); font: 600 14px var(--sans); cursor: pointer; }
   .skill-add:hover { text-decoration: underline; }
-  .trust { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
+  .trust { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; }
   .trust.missing { color: var(--bad); }
   .trust-why { display: block; margin-top: 2px; font-weight: 600; }
-  .note, .none { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+  .note, .none { font-size: 14px; color: var(--muted); margin: 8px 0 0; }
   .note.bad { padding: 9px 11px; border: 1px solid var(--bad); border-radius: 8px; background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); font-weight: 600; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--line); }
   @media (max-width: 650px) { input:not([type='checkbox']), select, textarea, .picker { font-size: 16px; } .settings, .checkout { grid-template-columns: 1fr; gap: 0; } .skill-add { min-height: 44px; } header, .body, footer { padding-left: 16px; padding-right: 16px; } }

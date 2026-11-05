@@ -168,7 +168,7 @@
   .body { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px; }
   .filter { width: 100%; min-width: 0; min-height: 36px; padding: 6px 10px; font: inherit; font-size: 16px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-sizing: border-box; }
   .groups { display: flex; flex-direction: column; gap: 10px; }
-  .heading { padding: 4px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .heading { padding: 4px 10px 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
   .list, .single { display: flex; flex-direction: column; gap: 2px; }
   .item { display: flex; flex-direction: column; align-items: stretch; }
   .install { align-self: flex-start; min-height: 36px; margin: 0 0 6px 10px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
@@ -178,12 +178,12 @@
   .option[aria-disabled='true'] { cursor: default; opacity: 0.6; }
   .option[aria-disabled='true']:hover { background: none; }
   .name { font-weight: 600; }
-  .description { font-size: 12px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); }
+  .description { font-size: 14px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 14px; color: var(--muted); }
   .reason { font-weight: 600; }
-  .note, .seen { margin: 0; padding: 4px 10px; font-size: 13px; color: var(--muted); }
+  .note, .seen { margin: 0; padding: 4px 10px; font-size: 14px; color: var(--muted); }
   .note p { margin: 0 0 8px; }
-  .seen { font-size: 12px; }
+  .seen { font-size: 14px; }
   .retry { min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
   @media (max-width: 560px) { .card { border-radius: 14px; } }
   @media (pointer: coarse) {

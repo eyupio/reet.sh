@@ -45,12 +45,12 @@
 
 <style>
  .comparison { padding:20px; margin:24px 0; border:1px solid var(--line); border-radius:10px; background:var(--bg); }
- h3 { margin:0; } p { color:var(--muted); font-size:.85rem; line-height:1.6; }
+ h3 { margin:0; } p { color:var(--muted); font-size:0.875rem; line-height:1.6; }
  .pickers,.differences { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
- label { display:grid; gap:6px; margin:10px 0; font-size:.85rem; font-weight:600; }
+ label { display:grid; gap:6px; margin:10px 0; font-size:0.875rem; font-weight:600; }
  select { width:100%; min-width:0; } .result { padding:14px; margin:16px 0; border:1px solid var(--good); border-radius:8px; } .result p:last-child { margin-bottom:0; } .attention { border-color:var(--accent); }
- details { border-top:1px solid var(--line); padding:12px 0; min-width:0; } summary { cursor:pointer; font-size:.85rem; font-weight:600; overflow-wrap:anywhere; }
- ul { padding-left:20px; max-height:260px; overflow:auto; } li { font-size:.8rem; padding:4px; overflow-wrap:anywhere; } code { color:var(--muted); overflow-wrap:anywhere; }
- .hint { font-size:.8rem; } .btn { margin-top:12px; }
+ details { border-top:1px solid var(--line); padding:12px 0; min-width:0; } summary { cursor:pointer; font-size:0.875rem; font-weight:600; overflow-wrap:anywhere; }
+ ul { padding-left:20px; max-height:260px; overflow:auto; } li { font-size:0.875rem; padding:4px; overflow-wrap:anywhere; } code { color:var(--muted); overflow-wrap:anywhere; }
+ .hint { font-size:0.875rem; } .btn { margin-top:12px; }
  @media(max-width:600px) { .pickers,.differences { grid-template-columns:1fr; } .comparison { padding:14px; } }
 </style>

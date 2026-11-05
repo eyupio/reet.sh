@@ -43,7 +43,7 @@
 <style>
   .copy { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .copy svg { width: 15px; height: 15px; flex: none; }
-  .copy.compact { min-height: 32px; padding: 5px 10px; border-radius: 8px; font-size: 0.82rem; }
+  .copy.compact { min-height: 32px; padding: 5px 10px; border-radius: 8px; font-size: 0.875rem; }
   .success {
     opacity: 1; transform: scale(1); transform-box: fill-box; transform-origin: center;
     transition: opacity 140ms var(--ease-out), transform 140ms var(--ease-out);

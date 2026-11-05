@@ -430,54 +430,54 @@
   dialog::backdrop { background: color-mix(in srgb, var(--ink) 45%, transparent); backdrop-filter: blur(2px); }
   .sheet { display: grid; gap: 18px; padding: clamp(20px, 4vw, 30px); overflow: auto; max-height: inherit; }
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
   h2 { margin: 5px 0 0; font: 500 clamp(1.5rem, 3vw, 2rem)/1.1 var(--serif); letter-spacing: -0.025em; }
-  .lede { margin: 8px 0 0; max-width: 54ch; color: var(--muted); font-size: 0.86rem; line-height: 1.55; }
+  .lede { margin: 8px 0 0; max-width: 54ch; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
   .icon { width: 38px; height: 38px; flex: none; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--muted); font-size: 1.25rem; cursor: pointer; }
   .icon:hover { color: var(--ink); border-color: var(--muted); }
   .icon.small { width: 32px; height: 32px; font-size: 1rem; }
-  .hint { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+  .hint { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
   .mirror-line { margin-top: 8px; }
-  .error { margin: 0; color: var(--bad); font-size: 0.86rem; }
+  .error { margin: 0; color: var(--bad); font-size: 0.875rem; }
   .rows, .batch-members, .ordered { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .rows li, .batch-members li, .ordered li { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .copy { display: grid; gap: 3px; min-width: 0; flex: 1 1 auto; }
   .copy strong { font-size: 0.9rem; }
-  .copy code { font-size: 0.8rem; }
-  .copy small { color: var(--muted); font-size: 0.78rem; line-height: 1.5; overflow-wrap: anywhere; }
+  .copy code { font-size: 0.875rem; }
+  .copy small { color: var(--muted); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
   .copy .label { color: var(--ink); font-weight: 600; }
   .copy .warn { color: var(--warn); }
   .guide { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 10px; }
   .guide-title { font-size: 0.95rem; }
   .guide-cmd { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 6px 6px 10px; border-radius: 8px; background: color-mix(in srgb, var(--ink) 8%, transparent); }
-  .guide-cmd code { font-family: var(--mono); font-size: 0.85rem; }
+  .guide-cmd code { font-family: var(--mono); font-size: 0.875rem; }
   .copy .notice-line { color: var(--good); }
-  .copy .source { font: 0.72rem/1.4 var(--mono, monospace); }
-  .apply { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
+  .copy .source { font: 0.875rem/1.4 var(--mono, monospace); }
+  .apply { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.875rem; }
   .pick { display: flex; align-items: center; padding-top: 2px; }
   .pick input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
   .batch, .selection { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--accent) 5%, var(--bg)); }
   .batch-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .batch-head strong { font-size: 0.92rem; }
-  .batch-head .label { color: var(--accent-text); font-weight: 600; margin-left: 8px; font-size: 0.8rem; }
-  .pos { flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+  .batch-head .label { color: var(--accent-text); font-weight: 600; margin-left: 8px; font-size: 0.875rem; }
+  .pos { flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .batch-members li[data-state='applied'] .label { color: var(--good); }
   .batch-members li[data-state='failed'] { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
   .batch-members li[data-state='excluded'] { opacity: 0.8; }
   .order-actions, .batch-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
-  .batch-actions .btn { min-height: 32px; padding: 6px 10px; font-size: 0.78rem; }
+  .batch-actions .btn { min-height: 32px; padding: 6px 10px; font-size: 0.875rem; }
   .batch-actions .btn + .btn { margin-left: 0; }
   .batch-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .batch-foot .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
+  .batch-foot .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.875rem; }
   footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid var(--line); }
-  footer .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.8rem; }
+  footer .btn { flex: none; min-height: 36px; padding: 7px 12px; font-size: 0.875rem; }
   .confirm { width: min(520px, calc(100vw - 32px)); border-radius: 16px; }
   .confirm-body { display: grid; gap: 12px; padding: clamp(20px, 4vw, 28px); }
   .confirm h2 { margin: 0; font: 500 clamp(1.3rem, 3vw, 1.7rem)/1.15 var(--serif); letter-spacing: -0.02em; }
   .confirm p { margin: 0; color: var(--ink); font-size: 0.88rem; line-height: 1.55; }
   .confirm .warn { color: var(--warn); }
-  .confirm .hint { color: var(--muted); font-size: 0.8rem; }
-  .confirm dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.82rem; }
+  .confirm .hint { color: var(--muted); font-size: 0.875rem; }
+  .confirm dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.875rem; }
   .confirm dt { color: var(--muted); }
   .confirm dd { margin: 0; overflow-wrap: anywhere; }
   .ordered.compact { gap: 4px; }

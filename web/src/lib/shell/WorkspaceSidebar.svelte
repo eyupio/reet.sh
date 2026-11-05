@@ -33,7 +33,7 @@
     .workspace-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; display: flex; flex-direction: column; width: 228px; overflow-y: auto; background: var(--bg-sunk); border-right: 1px solid var(--line); padding: 27px 17px 20px; }
     .brand { display: block; color: inherit; text-decoration: none; padding: 0 11px 35px; }
     .brand :global(.logo) { width: 134px; }
-    .label { font: 9px var(--mono); letter-spacing: .08em; color: var(--muted); margin: 0 12px 12px; }
+    .label { font: 14px var(--mono); letter-spacing: .08em; color: var(--muted); margin: 0 12px 12px; }
     nav { display: grid; gap: 4px; }
     nav a, nav button { display: flex; align-items: center; gap: 12px; padding: 11px 12px; min-height: 44px; border-radius: 5px; color: var(--muted); font: 400 14px var(--sans); text-decoration: none; border: 0; background: none; cursor: pointer; text-align: left; }
     nav a > svg, nav button > svg { width: 18px; height: 18px; flex: none; }
@@ -41,8 +41,8 @@
     nav a:hover, nav button:hover { background: var(--card); color: var(--ink); }
     a:focus-visible, button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
     .help { margin-top: auto; padding: 35px 11px 0; display: grid; gap: 15px; }
-    .help a { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); text-decoration: none; min-height: 30px; }
+    .help a { display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: var(--muted); text-decoration: none; min-height: 30px; }
     .help a:hover { color: var(--accent-text); }
-    .help > span { font: 8px var(--mono); color: var(--muted); letter-spacing: .02em; }
+    .help > span { font: 14px var(--mono); color: var(--muted); letter-spacing: .02em; }
   }
 </style>

@@ -213,8 +213,8 @@
   p { line-height:1.6; }
   .muted,.hint,.connection-meta { color:var(--muted); }
   .muted { margin:5px 0 0; }
-  .hint { font-size:.8rem; margin:12px 0 0; }
-  .statusline { display:flex; align-items:center; gap:9px; flex-wrap:wrap; font-size:.82rem; padding:20px 0; }
+  .hint { font-size:0.875rem; margin:12px 0 0; }
+  .statusline { display:flex; align-items:center; gap:9px; flex-wrap:wrap; font-size:0.875rem; padding:20px 0; }
   .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
   .dot.active { background:var(--good); box-shadow:0 0 0 4px color-mix(in srgb,var(--good) 10%,transparent); }
   .connect-card,.panel,.fresh { padding:clamp(18px,3vw,26px); border:1px solid var(--line); border-radius:12px; background:var(--card); margin-bottom:18px; }
@@ -222,38 +222,38 @@
   .connect-card h3 { margin-top:16px; font:500 1.65rem/1.25 var(--serif); letter-spacing:-.025em; }
   .connect-card > p { max-width:75ch; }
   .cardtop { display:flex; justify-content:space-between; align-items:center; gap:12px; }
-  .step { font:500 .8rem/1 var(--sans); color:var(--accent-text); }
-  .badge,.kind,.state { display:inline-block; font-size:.7rem; border-radius:99px; padding:3px 9px; border:1px solid var(--line); color:var(--muted); }
+  .step { font:500 0.875rem/1 var(--sans); color:var(--accent-text); }
+  .badge,.kind,.state { display:inline-block; font-size:0.875rem; border-radius:99px; padding:3px 9px; border:1px solid var(--line); color:var(--muted); }
   .badge { color:var(--accent-text); border-color:color-mix(in srgb,var(--accent) 25%,var(--line)); }
   .subtle { color:var(--muted); border-color:var(--line); }
   .kind { margin-left:8px; }
   .state.live { color:var(--good); }
   .endpoint { display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:16px; }
-  .endpoint code { overflow-wrap:anywhere; min-width:0; font-size:.84rem; }
+  .endpoint code { overflow-wrap:anywhere; min-width:0; font-size:0.875rem; }
   .empty-state { padding:26px 0 8px; }
   .empty-state p { color:var(--muted); margin-bottom:0; }
   .connection-toolbar { display:flex; align-items:flex-end; flex-wrap:wrap; gap:12px 16px; }
-  .connection-search { flex:1 1 240px; display:grid; gap:6px; color:var(--muted); font-size:.8rem; }
+  .connection-search { flex:1 1 240px; display:grid; gap:6px; color:var(--muted); font-size:0.875rem; }
   .connection-search input { width:100%; }
   .connection-scopes { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
-  .scope { min-height:36px; padding:5px 10px; border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--muted); font:inherit; font-size:.8rem; cursor:pointer; }
+  .scope { min-height:36px; padding:5px 10px; border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--muted); font:inherit; font-size:0.875rem; cursor:pointer; }
   .scope:hover { border-color:var(--muted); color:var(--ink); }
   .scope[aria-pressed='true'] { background:var(--tint); border-color:var(--accent); color:var(--ink); font-weight:600; }
-  .scope small { margin-left:5px; font-size:.75rem; font-variant-numeric:tabular-nums; }
+  .scope small { margin-left:5px; font-size:0.875rem; font-variant-numeric:tabular-nums; }
   .connections { list-style:none; margin:0; padding:0; }
   .connections li { padding:18px 0; border-top:1px solid var(--line); }
   .connections li:first-child { border-top:0; padding-top:4px; }
   .state-block { padding:24px 0 16px; max-width:58ch; }
   .state-block h3 { margin:0; font:500 1.25rem/1.2 var(--serif); letter-spacing:-.02em; }
   .state-block p { margin:6px 0 12px; color:var(--muted); }
-  .connection-meta { font-size:.8rem; margin:8px 0 12px; line-height:1.7; }
+  .connection-meta { font-size:0.875rem; margin:8px 0 12px; line-height:1.7; }
   .actions { display:flex; gap:8px; flex-wrap:wrap; }
   .danger { color:var(--bad); }
   .revoke-all { margin-top:12px; }
   form { margin-top:18px; }
   .fields,.edit-form { display:grid; grid-template-columns:2fr 1fr 1fr; gap:14px; }
   .edit-form { padding:18px; margin-top:16px; border:1px solid var(--line); border-radius:8px; background:var(--bg); }
-  label { display:grid; gap:7px; color:var(--muted); font-size:.82rem; }
+  label { display:grid; gap:7px; color:var(--muted); font-size:0.875rem; }
   .wide { grid-column:1/-1; }
   form > .actions { margin-top:16px; }
   .browser-options { display:flex; gap:24px; align-items:center; flex-wrap:wrap; margin-top:20px; }

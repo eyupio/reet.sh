@@ -149,18 +149,18 @@
   .card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 20px; min-width: 0; }
   h2 { margin: 0; font: 500 1.4rem/1.2 var(--serif); letter-spacing: -0.02em; }
   form { display: grid; gap: 12px; margin-top: 16px; }
-  label { display: grid; gap: 6px; color: var(--muted); font-size: 0.84rem; }
+  label { display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   input, select, textarea { width: 100%; }
   textarea { min-height: 140px; resize: vertical; }
 
   .ticket-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
-  .search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   .search input { width: 100%; }
   .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
-  .scope small { margin-left: 5px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 
   .ticket-list { display: grid; }
   .ticket { display: grid; grid-template-columns: minmax(0, 1fr) auto 8px; align-items: center; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); color: inherit; text-decoration: none; }
@@ -168,8 +168,8 @@
   .ticket:hover strong { text-decoration: underline; text-underline-offset: 2px; }
   .main { min-width: 0; display: grid; gap: 3px; }
   .main strong { overflow-wrap: anywhere; }
-  .main small { color: var(--muted); font-size: 0.76rem; overflow-wrap: anywhere; }
-  .state { flex: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+  .main small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .state { flex: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
   .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.waiting { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
   .state.closed { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
@@ -180,7 +180,7 @@
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
   .state-block.error p { color: var(--ink); }
 
-  .notice { margin: 16px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.86rem; }
+  .notice { margin: 16px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.875rem; }
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
 

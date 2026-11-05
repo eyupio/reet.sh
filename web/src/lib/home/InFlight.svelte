@@ -110,18 +110,18 @@
   .session-card-pop { position: fixed; z-index: 60; pointer-events: none; }
   header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   h2 { margin: 0; flex-grow: 1; font: 600 20px/1.3 var(--serif); }
-  .group-by { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .group-by { display: flex; align-items: center; gap: 10px; font-size: 14px; }
   .lead { color: var(--muted); }
   .segments { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .segments label { position: relative; display: flex; align-items: center; padding: 5px 10px; color: var(--muted); cursor: pointer; }
   .segments label.on { background: var(--line-soft); color: var(--ink); }
   .segments label:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
   .segments input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
-  .offline { margin: 0; font-size: 13px; color: var(--muted); }
+  .offline { margin: 0; font-size: 14px; color: var(--muted); }
   .none { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--card); color: var(--muted); }
   .list { border: 1px solid var(--line); border-radius: 13px; background: var(--card); overflow: hidden; }
   .group + .group { border-top: 1px solid var(--line); }
-  h3 { margin: 0; padding: 8px 16px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); }
+  h3 { margin: 0; padding: 8px 16px 4px; font-size: 14px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); }
   .count { font-weight: 500; }
   ul { list-style: none; margin: 0; padding: 0; }
   .row { display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 10px 16px; color: var(--ink); text-decoration: none; border-top: 1px solid var(--line-soft); }
@@ -131,13 +131,13 @@
   li[data-status='working'] .row, li[data-status='waiting'] .row, li[data-status='starting'] .row, li[data-status='failed'] .row { box-shadow: inset 3px 0 var(--status); background: color-mix(in srgb, var(--status) 6%, transparent); }
   .main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
   .title { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .badge.yolo { margin-left: 4px; padding: 0 5px; border: 1px solid var(--warn); border-radius: 5px; color: var(--warn); font-size: 10px; font-weight: 600; vertical-align: 1px; }
-  .where { font-size: 12px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .branch { font-family: var(--mono); font-size: 12px; }
+  .badge.yolo { margin-left: 4px; padding: 0 5px; border: 1px solid var(--warn); border-radius: 5px; color: var(--warn); font-size: 14px; font-weight: 600; vertical-align: 1px; }
+  .where { font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .branch { font-family: var(--mono); font-size: 14px; }
   .state { flex: none; display: flex; flex-direction: column; align-items: flex-end; text-align: right; max-width: 40%; }
-  .word { font-size: 12px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 2px 8px; }
-  .source { font-size: 11px; color: var(--muted); }
-  .age { flex: none; width: 34px; text-align: right; font-size: 12px; color: var(--muted); }
+  .word { font-size: 14px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 2px 8px; }
+  .source { font-size: 14px; color: var(--muted); }
+  .age { flex: none; width: 34px; text-align: right; font-size: 14px; color: var(--muted); }
 
   @media (pointer: coarse), (max-width: 1099px) {
     .segments label { min-height: 44px; padding: 0 14px; }

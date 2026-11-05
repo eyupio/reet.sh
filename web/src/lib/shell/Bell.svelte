@@ -92,7 +92,7 @@
   svg { width: 18px; height: 18px; }
   .badge {
     position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center;
-    border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 0.68rem; font-weight: 600; line-height: 1;
+    border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 0.875rem; font-weight: 600; line-height: 1;
   }
   .panel {
     position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: min(320px, calc(100vw - 32px));
@@ -102,19 +102,19 @@
   }
   .panel[hidden] { display: none; }
   .heading { margin: 0 0 6px; font: 600 1rem/1.3 var(--serif); color: var(--ink); }
-  .empty { margin: 0; color: var(--muted); font-size: 0.85rem; }
+  .empty { margin: 0; color: var(--muted); font-size: 0.875rem; }
   .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
   .item { display: flex; flex-direction: column; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--line-soft); }
   .item:last-child { padding-bottom: 0; border-bottom: 0; }
-  .kind { align-self: flex-start; font-size: 11px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 2px 8px; }
-  .ask { font-size: 12px; color: var(--ink); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .kind { align-self: flex-start; font-size: 14px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 99px; padding: 2px 8px; }
+  .ask { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .ask .more { color: var(--muted); }
-  .title { font-size: 13px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
-  .where { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .title { font-size: 14px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+  .where { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
   .actions { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
   .btn {
     display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 0 10px;
-    border-radius: 7px; font: 500 12px/1 var(--sans); text-decoration: none; cursor: pointer;
+    border-radius: 7px; font: 500 14px/1 var(--sans); text-decoration: none; cursor: pointer;
   }
   .btn.open { border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
   .btn.seen { border: 1px solid var(--line); background: transparent; color: var(--ink); }

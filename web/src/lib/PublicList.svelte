@@ -97,7 +97,7 @@
   .actions a.btn { color: var(--ink); }
   .status { margin: 14px 0 0; color: var(--good); font-size: 0.88rem; }
   .error { margin: 14px 0 0; color: var(--bad); font-size: 0.88rem; }
-  .privacy { margin: 18px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--bg) 45%, var(--card)); color: var(--muted); font-size: 0.8rem; }
+  .privacy { margin: 18px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--bg) 45%, var(--card)); color: var(--muted); font-size: 0.875rem; }
   .back { color: var(--accent-text); font-weight: 600; text-underline-offset: 3px; }
 
   .entries { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 14px; }
@@ -106,13 +106,13 @@
   .entry h2 { margin: 0; font: 500 1.4rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .entry h2 a { color: inherit; text-decoration: none; }
   .entry h2 a:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
-  .source { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; color: var(--muted); font-size: 0.76rem; }
+  .source { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; }
   .source code { overflow-wrap: anywhere; }
-  .adoption { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 999px; color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); font-size: 0.7rem; font-weight: 650; white-space: nowrap; }
+  .adoption { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 999px; color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); font-size: 0.875rem; font-weight: 650; white-space: nowrap; }
   .desc { margin: 8px 0 0; color: var(--muted); max-width: 64ch; font-size: 0.9rem; }
   .note { margin: 10px 0 0; padding: 6px 0 6px 12px; border-left: 2px solid var(--accent); font: italic 0.95rem/1.5 var(--serif); white-space: pre-wrap; }
   .command { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
-  .command code { flex: 1; min-width: 0; font-size: 0.78rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .command code { flex: 1; min-width: 0; font-size: 0.875rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
   @media (max-width: 560px) {
     .entry-head { flex-direction: column; }
     .adoption { white-space: normal; }

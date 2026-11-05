@@ -65,8 +65,8 @@
   pre {margin:0;width:max-content;min-width:100%;font:var(--terminal-font-size,14px)/1.45 "DejaVu Sans Mono","SFMono-Regular",Consolas,monospace;white-space:pre;tab-size:8;user-select:text;cursor:text;color:var(--ink)}
   pre:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
   footer {display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:8px;flex-shrink:0;padding:10px 18px;border-top:1px solid var(--line);background:var(--card)}
-  footer p {flex:1 1 100%;margin:0;font-size:.72rem;color:var(--muted)}
-  .btn {font:inherit;font-size:.78rem;padding:8px 12px;min-height:40px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}
+  footer p {flex:1 1 100%;margin:0;font-size:0.875rem;color:var(--muted)}
+  .btn {font:inherit;font-size:0.875rem;padding:8px 12px;min-height:40px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}
   .btn:hover {border-color:var(--accent);background:var(--tint)}
   .quiet {color:var(--muted)}
   [data-shell-close] {min-width:44px;min-height:44px}

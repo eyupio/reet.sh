@@ -226,7 +226,7 @@
   .folder { color: var(--muted); }
   .plan { margin: 0; padding: 0 0 0 18px; font-size: 14px; line-height: 1.5; }
   .failure { color: var(--ink); }
-  .status { min-height: 1.45em; color: var(--muted); font-size: 13px; }
+  .status { min-height: 1.45em; color: var(--muted); font-size: 14px; }
   a { color: var(--accent); font-weight: 600; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }

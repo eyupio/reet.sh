@@ -85,9 +85,9 @@
   .gates li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; color: var(--ink); }
   .gates li.bad { color: var(--bad); }
   .gates li.warn { color: var(--warn); }
-  .gates small { display: block; color: var(--muted); font-size: 0.78rem; }
+  .gates small { display: block; color: var(--muted); font-size: 0.875rem; }
   .mark { font-weight: 700; text-align: center; }
-  .terms { padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.86rem; list-style: disc; padding-left: 20px; }
+  .terms { padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; list-style: disc; padding-left: 20px; }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
   @media (max-width: 560px) {
     .box { padding: 20px; border-radius: 14px; }

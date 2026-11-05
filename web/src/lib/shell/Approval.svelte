@@ -42,25 +42,25 @@
 
 <style>
   .approval { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-  .what { font-size: 12px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+  .what { font-size: 14px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
   .cmd {
     display: block; max-height: 4.2em; overflow: hidden; padding: 4px 6px; border-radius: 6px;
     background: var(--card-raised); border: 1px solid var(--line-soft, var(--line));
-    font: 12px/1.4 var(--mono, monospace); color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap;
+    font: 14px/1.4 var(--mono, monospace); color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap;
   }
-  .note { font-size: 12px; color: var(--muted); }
+  .note { font-size: 14px; color: var(--muted); }
   .answers { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
   .btn {
     display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 12px;
-    border-radius: 8px; font: 500 13px/1 var(--sans); cursor: pointer;
+    border-radius: 8px; font: 500 14px/1 var(--sans); cursor: pointer;
   }
   .btn:disabled { opacity: 0.55; cursor: not-allowed; }
   .allow { border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
   .deny { border: 1px solid var(--line-strong, var(--line)); background: transparent; color: var(--ink); }
   .deny:hover:not(:disabled) { background: var(--card-raised); }
-  .status { font-size: 12px; color: var(--bad); min-height: 0; }
+  .status { font-size: 14px; color: var(--bad); min-height: 0; }
   .status:empty { display: none; }
-  .compact .btn { min-height: 32px; font-size: 12px; padding: 0 10px; border-radius: 7px; }
+  .compact .btn { min-height: 32px; font-size: 14px; padding: 0 10px; border-radius: 7px; }
   @media (pointer: coarse), (max-width: 1099px) {
     .btn { min-height: 48px; flex: 1 1 0; }
     .compact .btn { min-height: 44px; }

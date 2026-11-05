@@ -153,13 +153,13 @@
 <p class="hint">This community contains lists explicitly published on this reet site. It does not expose private collections or search other reet servers.</p>
 <style>
   .community-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
-  .search { flex: 1 1 260px; display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+  .search { flex: 1 1 260px; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   .search input { width: 100%; }
   .tabs { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
-  .tabs button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 0.8rem; cursor: pointer; }
+  .tabs button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .tabs button:hover { color: var(--ink); }
   .tabs button[aria-pressed='true'] { background: var(--tint); color: var(--ink); font-weight: 600; }
-  .tabs small { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .tabs small { font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 
   .records { display: grid; }
   .record { color: var(--ink); text-decoration: none; min-width: 0; }
@@ -170,14 +170,14 @@
   .skill-record:first-child { border-top: 0; }
   .description { min-width: 0; }
   h2 { margin: 0 0 4px; font: 500 1.2rem/1.3 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
-  .description p { margin: 0; color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
-  .description .source { margin-bottom: 3px; color: var(--muted); font: 0.75rem var(--mono); }
+  .description p { margin: 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .description .source { margin-bottom: 3px; color: var(--muted); font: 0.875rem var(--mono); }
   .meta { display: grid; width: 100%; justify-items: end; gap: 5px; }
-  .meta-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 5px 14px; color: var(--muted); font-size: 0.75rem; text-align: right; }
+  .meta-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 5px 14px; color: var(--muted); font-size: 0.875rem; text-align: right; }
   .meta-row > * { flex: none; }
   .go { width: 7px; height: 7px; border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
   .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .actions :global(.btn) { min-height: 38px; padding: 6px 12px; font-size: 0.8rem; }
+  .actions :global(.btn) { min-height: 38px; padding: 6px 12px; font-size: 0.875rem; }
 
   .state { padding: 26px 0 18px; max-width: 60ch; }
   .state h2 { font-size: 1.3rem; }
@@ -185,7 +185,7 @@
   .state-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
   .error p { margin: 0 0 12px; color: var(--ink); }
 
-  .hint { margin: 12px 2px 0; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+  .hint { margin: 12px 2px 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
 
   @media (prefers-reduced-motion: no-preference) {
     .tabs button { transition: background-color 0.15s, border-color 0.15s, color 0.15s; }

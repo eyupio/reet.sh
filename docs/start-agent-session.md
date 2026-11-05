@@ -252,17 +252,20 @@ the same last two sentences.
 
 The fields stay locked and the button reads **Try the same request again**. It sends the same
 request id with exactly the same details. A start that already happened is returned, not started
-twice. If you close the dialog instead, the request is forgotten with it: the prompt is never kept
-past the dialog. A new dialog sends a new request, so check your sessions first. If the first
+twice. If you close the dialog instead, the request is forgotten with it: the dialog does not keep the prompt
+(a session that did start keeps its own copy; see Safety and privacy). A new dialog sends a new request, so check your sessions first. If the first
 attempt did start, it appears in your sessions list on the next refresh.
 
 ## Safety and privacy
 
 - **Command line.** The page never sends a program name or a command line. The model and the prompt
   each reach the agent as a single argument, never through a shell.
-- **Where the prompt is kept.** It is stored with the create request in the controller's database
-  and in the machine's private registry file, which only its owner can read. It is never written to
-  the audit trail, to logs, to browser storage or to the address bar.
+- **Where the prompt is kept.** It is stored with the session and with the create request in the
+  controller's database, capped at 8,000 bytes, and in the machine's private registry file, which only
+  its owner can read. Only the session's owner can read it back: the sessions list carries a
+  300-character excerpt and the full text comes from a request of its own. Archiving the session clears
+  it, including the copy kept with the create request. It is never written to the audit trail, to logs,
+  to browser storage or to the address bar.
 - **Process list.** The prompt is on the agent's command line, so other users of that machine can
   see it in the process list. Secrets don't belong in a prompt.
 - **Browser storage.** Nothing about the session, folder, model or prompt is written there. The

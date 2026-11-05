@@ -18,7 +18,7 @@ const HOME_A='/home/dev',SITE='/home/dev/work/site'
 let authMode='accounts',viewer=false,machinesFail=false,theme='light',machineReads=0
 let yoloAllowed=true,profileDefaults={},modelsFail=false,favourites=[],folderProjects=[]
 const tmachines=[
- {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,tools:['claude','codex','gemini','cline']}},
+ {agentId:A,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,worktree:true,tools:['claude','codex','gemini','cline']}},
  // An older connector: no launch capability. The tools list is there only to show that it is not enough on its own.
  {agentId:B,host:'old-box',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'old',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',tools:['claude']}},
  {agentId:C,host:'spare-box',ready:false,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'spare',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude']}},
@@ -625,7 +625,26 @@ try{
  await p.effort.selectOption('medium')
  await p.start.click()
  await expect(page).toHaveURL(/\/sessions\?/)
- expect(body(-1)).toMatchObject({agentId:A,tool:'cline',model:'anthropic/claude-sonnet-4-5',effort:'medium',dir:PROJECT_DIR,projectId:PROJECT_ID})
+ const fromProjectsBar=body(-1)
+ expect(fromProjectsBar).toMatchObject({agentId:A,tool:'cline',model:'anthropic/claude-sonnet-4-5',effort:'medium',dir:PROJECT_DIR,projectId:PROJECT_ID,project:'site'})
+ expect(fromProjectsBar.worktree).toMatch(/^[0-9a-f]{32}$/)
+
+ // ── The session panel's project + honours the same project worktree defaults. ──
+ profileDefaults={worktreesByDefault:true}
+ sessions=[]
+ await page.goto(`${base}/sessions?agent=${A}`)
+ const projectPlus=page.locator('#terminal-sessions').getByRole('button',{name:'New session in Site',exact:true})
+ await expect(projectPlus).toBeEnabled()
+ await projectPlus.click()
+ d=dialog();p=parts(d)
+ await expect(p.machine).toHaveValue(A)
+ await expect(p.folder).toHaveValue(PROJECT_DIR)
+ await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
+ await p.start.click()
+ await expect(page).toHaveURL(/\/sessions\?/)
+ const fromPanel=body(-1)
+ expect(fromPanel).toMatchObject({agentId:A,dir:PROJECT_DIR,projectId:PROJECT_ID,project:'site'})
+ expect(fromPanel.worktree).toMatch(/^[0-9a-f]{32}$/)
  folderProjects=[]
 
  // ── The account's defaults reach the dialog without a project, from a machine card and from the workspace. ──

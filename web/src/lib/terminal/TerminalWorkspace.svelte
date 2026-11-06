@@ -45,7 +45,7 @@
   const readScreen=()=>screenShortSide(window.screen,innerWidth,innerHeight)
   let viewportWidth=$state(innerWidth),screenSide=$state(readScreen()),bodyWidth=$state(0),resizing=$state(false),contextResizing=$state(false)
   // The right-hand session details panel, toggled from the same toolbar row as the sessions panel.
-  let contextOpen=$state(true),contextButton=$state<HTMLButtonElement>()
+  let contextOpen=$state(true),contextButton=$state<HTMLButtonElement>(),sessionScreen=$state<{toggleContext?:()=>void}>()
   let mode=$state<PanelMode>(panelMode(innerWidth,undefined,undefined,isPhone(innerWidth,readScreen()))),pinned=$state<boolean|undefined>(undefined),sidebarWidth=$state(defaultPanelWidth(innerWidth))
   const phone=$derived(isPhone(viewportWidth,screenSide))
   // Keep open as shown: the person's choice, or on by default from 768 px.
@@ -71,8 +71,6 @@
   async function focusPanel(selector:string){await tick();workspace?.querySelector<HTMLElement>(selector)?.focus()}
   const TOOLBAR_SESSIONS='.workspace-actions [aria-controls="terminal-sessions"]'
   function toggleSidebar(){if(theatre){theatre=false;setMode('full')}else setMode(panelOpen?'closed':'full');saveLayout()}
-  // The right panel's toggle mirrors the sessions toggle: one button in the toolbar, aria-expanded and the same icon.
-  function toggleContext(){if(sideSession)return;contextOpen=!contextOpen}
   // The terminal's own Show/Hide sessions: shows the panel as it was (the rail stays a rail), or hides it.
   function paneSessions(){if(theatre){theatre=false;if(panelView==='closed')setMode('full')}else setMode(panelView==='closed'?'full':'closed');saveLayout()}
   function chevron(){const next=chevronNext(mode,phone);setMode(next);saveLayout();void focusPanel(next==='mini'?'#terminal-sessions .rail-expand':next==='full'?'#terminal-sessions .collapse':TOOLBAR_SESSIONS)}
@@ -605,7 +603,7 @@
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <!-- The session screen's tabs share this row, so the terminal keeps its height. -->
     {#if session && !loading && !accessDenied && !phone}<SessionTabs tabs={tabSessions} current={session.id} onselect={chooseSession} onclose={closeSessionTab} />{/if}
-    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button>{#if session && !loading && !accessDenied}<button class="btn panel-toggle" bind:this={contextButton} aria-expanded={sideSession ? false : contextOpen} aria-controls="session-details-panel" aria-label="Session details panel" title={sideSession ? 'Close the terminal beside the session to use details' : contextOpen?'Hide session details':'Show session details'} disabled={!!sideSession} onclick={toggleContext}><TerminalIcon name="panel"/></button>{/if}<button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
+    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button>{#if session && !loading && !accessDenied}<button class="btn panel-toggle" bind:this={contextButton} aria-expanded={sideSession ? false : contextOpen} aria-controls="session-details-panel" aria-label="Session details panel" title={sideSession ? 'Close the terminal beside the session to use details' : contextOpen?'Hide session details':'Show session details'} disabled={!!sideSession} onclick={() => sessionScreen?.toggleContext?.()}><TerminalIcon name="panel"/></button>{/if}<button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
   </header>
   {#if preferenceError}<p class="workspace-notice bad" role="status">{preferenceError}</p>{/if}
   {#if statusError}<p class="workspace-notice bad" role="status">{statusError} <button onclick={()=>void refresh()}>Retry status</button></p>{/if}
@@ -627,7 +625,7 @@
       {:else if !machines.length}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to open a shell here.</p><a class="btn primary" href="/machines#add-machine">Connect a machine</a></div>
       {:else if session}
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
-        <SessionScreen {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
+        <SessionScreen bind:this={sessionScreen} {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
           contextKey={`${preferenceKey}:context`} contextId="session-details-panel" bind:contextOpen oncontextclosed={() => contextButton?.focus()} onresizing={active => contextResizing = active}
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
           insightChat={insightChat?.id === session.id ? insightChat.state : undefined}

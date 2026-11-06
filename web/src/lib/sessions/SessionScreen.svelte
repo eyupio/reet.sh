@@ -1,7 +1,7 @@
 <script lang="ts">
   import { gafferSessionContext } from '../gafferContext'
   import { gafferTooltip } from '../gafferTooltip'
-  import { onMount, tick, untrack, type Snippet } from 'svelte'
+  import { onMount, tick, type Snippet } from 'svelte'
   import { getSyncState, getYoloSetting, type SyncState, type YoloSetting } from '../api'
   import { copyText } from '../clipboard'
   import WorktreeDialog from '../WorktreeDialog.svelte'
@@ -105,7 +105,7 @@
     const next = !focusOn
     focusWanted = next
     try { localStorage.setItem(focusKey, next ? '1' : '0') } catch { /* optional browser preference */ }
-    if (next) { contextOpen = false; saveContext() }
+    if (next) { sheetOpen = false; saveContext() }
     await tick()
     if (next) screen?.querySelector<HTMLTextAreaElement>('.composer-input')?.focus({ preventScroll: true })
     else focusButton?.focus()
@@ -118,7 +118,7 @@
     try { saved = localStorage.getItem(contextKey) ?? '' } catch { /* optional browser preference */ }
     const layout = readContextLayout(saved)
     contextWidth = layout.width ?? CONTEXT_DEFAULT
-    contextOpen = layout.open ?? true
+    dockedOpen = layout.open ?? true
     layoutLoaded = true
     if (!screen) return
     const measure = () => { screenWidth = screen!.clientWidth }
@@ -249,11 +249,16 @@
   // its open state and width are remembered in this browser for the person.
   let screen = $state<HTMLElement>(), screenWidth = $state(0)
   let contextWidth = $state(CONTEXT_DEFAULT), bodyWidth = $state(0), layoutLoaded = $state(false)
+  // Docked and sheet have their own open state: a docked panel is open by default, a sheet only when asked for.
+  let dockedOpen = $state(true), sheetOpen = $state(false)
   const docked = $derived(!theatre && screenWidth > 1099)
   const hasSide = $derived(showSide && !!side)
+  const effectiveOpen = $derived(docked ? dockedOpen : sheetOpen)
+  // The workspace toolbar's toggle shows this state; it never writes it, so the two open states stay separate.
+  $effect(() => { contextOpen = effectiveOpen })
   const panelId = $derived(contextId ?? `${id}-context`)
   // Focus keeps the conversation alone on the screen, so a Details sheet opened before it goes away.
-  $effect(() => { if (focusOn) contextOpen = false })
+  $effect(() => { if (focusOn) sheetOpen = false })
   // The separator's 8 px track sits between the terminal and the panel; the panel takes at most 40 % of what is left.
   const CONTEXT_TRACK = 8
   const contextRoom = $derived(Math.max(0, bodyWidth - CONTEXT_TRACK))
@@ -261,49 +266,36 @@
   const contextMax = $derived(widestContext(contextRoom))
   function saveContext() {
     if (!layoutLoaded) return
-    try { localStorage.setItem(contextKey, JSON.stringify(contextLayoutRecord(contextOpen, contextWidth))) } catch { /* optional browser preference */ }
+    try { localStorage.setItem(contextKey, JSON.stringify(contextLayoutRecord(dockedOpen, contextWidth))) } catch { /* optional browser preference */ }
   }
-  // The toolbar's Details toggle changes the shared open state, so the choice is saved from here as well as from the panel.
-  // The width is written when the drag ends, so this only follows the open state.
-  $effect(() => {
-    void contextOpen
-    if (layoutLoaded) untrack(() => saveContext())
-  })
-  // Opening the sheet from the toolbar moves focus into it, as the old in-header Details button did.
-  let lastContextOpen = contextOpen
-  $effect(() => {
-    const open = contextOpen, isDocked = docked, target = panelId
-    if (open && !lastContextOpen && !isDocked) void tick().then(() => document.getElementById(target)?.querySelector<HTMLElement>('.close-details')?.focus())
-    lastContextOpen = open
-  })
-  async function toggleDetails() {
+  // The workspace toolbar calls this through its bound component instance.
+  export function toggleContext() {
     // A terminal opened beside the session takes the panel's place; Details has nothing to toggle until it closes.
     if (hasSide) return
-    contextOpen = !contextOpen
+    if (docked) dockedOpen = !dockedOpen; else sheetOpen = !sheetOpen
     saveContext()
-    if (!contextOpen || docked) return
+    if (docked || !sheetOpen) return
     // Focus moves into the sheet (its Close details first), so it never stays on a control the sheet could cover.
-    await tick()
-    document.getElementById(panelId)?.querySelector<HTMLElement>('.close-details')?.focus()
+    void tick().then(() => document.getElementById(panelId)?.querySelector<HTMLElement>('.close-details')?.focus())
   }
   // The panel's own collapse control, and the sheet's Close details: the panel goes and focus returns to Details.
   async function collapseDetails() {
-    contextOpen = false
+    if (docked) dockedOpen = false; else sheetOpen = false
     saveContext()
     await tick()
     oncontextclosed?.()
   }
   // Leaving the panel for the terminal only dismisses a sheet; a docked panel stays where the person put it.
-  function closeSheet() { if (!docked) { contextOpen = false; saveContext() } }
+  function closeSheet() { if (!docked) { sheetOpen = false; saveContext() } }
   function closeDetails(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || docked || !contextOpen) return
+    if (event.key !== 'Escape' || docked || !sheetOpen) return
     event.preventDefault(); event.stopPropagation()
     void collapseDetails()
   }
   // While it is a sheet, Tab and Shift+Tab go round its own controls; Escape and Close details give focus back to Details.
   function panelKey(event: KeyboardEvent) {
     if (event.key === 'Escape') return closeDetails(event)
-    if (event.key !== 'Tab' || !contextOpen || docked) return
+    if (event.key !== 'Tab' || !sheetOpen || docked) return
     const panel = event.currentTarget as HTMLElement
     const items = [...panel.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[tabindex]')].filter(el => {
       if (el.tabIndex < 0 || !el.getClientRects().length || el.closest('[inert]')) return false
@@ -374,7 +366,7 @@
      terminal while the panel shows beside the terminal (right column) or over its edge (as a sheet below the header). -->
 <div class="session-screen" class:theatre class:keyboard class:focus={focusOn} class:resizing={contextResizing}
   bind:this={screen} style={`--context-width:${shownContextWidth}px`}>
-  <div class="body" class:context-docked={docked && contextOpen && !hasSide} class:context-sheet={!theatre && !docked && contextOpen && !hasSide} bind:clientWidth={bodyWidth}>
+  <div class="body" class:context-docked={docked && effectiveOpen && !hasSide} class:context-sheet={!theatre && !docked && effectiveOpen && !hasSide} bind:clientWidth={bodyWidth}>
     <header class="head">
       <div class="identity-row">
       <a class="back" href="/sessions" aria-label="Back to sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
@@ -438,7 +430,7 @@
           onterminal={() => { closeSheet(); void tick().then(() => stage?.querySelector<HTMLElement>('.xterm-helper-textarea, textarea.composer-input')?.focus()) }}
           id={panelId} onkeydown={panelKey} onclose={() => void collapseDetails()} />
       {/key}
-      {#if docked && contextOpen}
+      {#if docked && effectiveOpen}
         <!-- The right panel's separator, the same control as every other panel: drag (pointer capture), Left widens,
              Right narrows, Home the narrowest, End the widest, double-click 360 px. -->
         <PanelResizer value={shownContextWidth} min={CONTEXT_MIN} max={contextMax} resetValue={CONTEXT_DEFAULT}

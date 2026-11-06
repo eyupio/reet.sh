@@ -96,10 +96,11 @@ credentials live outside it, and a system installation is never touched.
 Machines → **Software** opens with one sentence and one button. The sentence says
 whether OpenCode can be updated (*OpenCode can be updated on 2 machines.*), is up to
 date (*Everything is up to date.*) or is held back (*1 machine can't be updated right
-now.*). The button, **Update 2 machines**, starts one batch of every machine that can
-apply now, in the order listed, with no second confirmation. A machine that is not
-connected is skipped, so nothing waits on it, and once the batch ends the same button
-is offered again for whatever is still behind.
+now.*). The button, **Update 2 machines**, asks once (*Update 2 machines?*), naming the
+machines in the order they will be updated, and then starts one batch of every machine
+that can apply now. Nothing starts until that is confirmed, and cancelling changes
+nothing. A machine that is not connected is skipped, so nothing waits on it, and once
+the batch ends the same button is offered again for whatever is still behind.
 
 Under **Machines** is the review itself, closed unless there is nothing to press. Each
 row is built from stored evidence and names the machine's version, the plan it would
@@ -114,8 +115,8 @@ machine's Settings.
 The one button starts a batch of every machine that can apply now. To choose which
 machines, or in what order, open **Machines**: the rows a machine can apply now carry
 a checkbox, chosen machines form an ordered batch, up and down move a machine in the
-order, and **Review batch** shows the machines, their actions, targets and sources
-before anything runs. The
+order, and **Review batch** asks the same question as the one button, showing the
+machines, their actions, targets and sources before anything runs. The
 controller rebuilds each plan from stored evidence and freezes it, so a machine
 whose evidence no longer supports its plan is left out with the reason shown.
 

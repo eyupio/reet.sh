@@ -6,7 +6,7 @@ import ts from 'typescript'
 const { outputText } = ts.transpileModule(readFileSync(new URL('./software.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 })
-const { batchCanAbandon, batchFailedMember, batchMemberAction, batchMemberLabel, batchMemberNote, batchStateLabel, fleetSoftwareCanApply, fleetSoftwareGuide, fleetSoftwareLabel, fleetSoftwareSummary, fleetSoftwareWarning, softwareLine, softwarePlanActions } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { batchCanAbandon, batchFailedMember, batchMemberAction, batchMemberLabel, batchMemberNote, batchStateLabel, fleetSoftwareCanApply, fleetSoftwareGuide, fleetSoftwareLabel, fleetSoftwarePress, fleetSoftwareSummary, fleetSoftwareWarning, softwareLine, softwarePlanActions } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const installed = { tool: 'opencode', state: 'installed', version: '1.19.5', manager: 'reet', package: 'opencode-ai', path: '/home/me/.reet/software/opencode/versions/1.19.5/opencode', platform: 'linux', arch: 'amd64', source: 'verified_tarball', managed: true, operations: ['plan_update', 'plan_remove'], checkedAt: 1 }
 const missing = { tool: 'opencode', state: 'missing', package: 'opencode-ai', source: 'npm', platform: 'linux', arch: 'amd64', reason: 'not_installed', operations: ['plan_install'], checkedAt: 1 }
@@ -247,6 +247,17 @@ test('once a batch has ended, whatever can still update is one press away again'
   // While a batch is still going, there is never a second button.
   assert.equal(fleetSoftwareSummary([row('desk', 'update')], batchOf('running', member('laptop', 'running'))).button, '')
   assert.equal(fleetSoftwareSummary([row('desk', 'update')], batchOf('stopped', member('laptop', 'failed'))).button, '')
+})
+
+test('the question asked before an update names the same press as the button it came from', () => {
+  assert.deepEqual(fleetSoftwarePress([row('a', 'update'), row('b', 'update')]), { button: 'Update 2 machines', ready: ['agent-a', 'agent-b'] })
+  assert.equal(fleetSoftwarePress([row('a', 'install')]).button, 'Install on 1 machine')
+  assert.equal(fleetSoftwarePress([row('a', 'install'), row('b', 'update'), row('c', 'update')]).button, 'Update 3 machines')
+  // Nothing chosen, nothing to ask.
+  assert.deepEqual(fleetSoftwarePress([]), { button: '', ready: [] })
+  // The summary's own button is the same one.
+  const summary = fleetSoftwareSummary([row('a', 'update'), row('b', 'install')], null)
+  assert.equal(summary.button, fleetSoftwarePress([row('a', 'update'), row('b', 'install')]).button)
 })
 
 test('the plain sentences stay plain: no internal words', () => {

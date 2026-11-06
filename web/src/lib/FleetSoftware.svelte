@@ -25,6 +25,7 @@
     fleetSoftwareCanApply,
     fleetSoftwareLabel,
     fleetSoftwareGuide,
+    fleetSoftwarePress,
     fleetSoftwareSummary,
     fleetSoftwareWarning,
   } from './software'
@@ -53,6 +54,15 @@
       .map((agentId) => rows.find((row) => row.agentId === agentId))
       .filter((row): row is FleetSoftwareRow => !!row),
   )
+  // The machines the open question is about, in the order they will be updated. The one button and a hand-picked order both
+  // end in the same question, so each has its own list here and a cancelled question leaves nothing behind.
+  let confirming = $state<string[]>([])
+  const confirmRows = $derived(
+    confirming
+      .map((agentId) => rows.find((row) => row.agentId === agentId))
+      .filter((row): row is FleetSoftwareRow => !!row),
+  )
+  const confirmPress = $derived(fleetSoftwarePress(confirmRows))
   const batchActive = $derived(!!batch && batch.state !== 'done' && batch.state !== 'abandoned')
   // The page leads with one sentence and one button. Choosing machines, their order and one-off updates sit under Machines.
   const summary = $derived(fleetSoftwareSummary(rows, batch))
@@ -98,14 +108,15 @@
     selection = next
   }
 
-  function openBatchConfirm() {
-    if (!selection.length) return
+  // Asks once before anything starts, naming the machines in order.
+  function askToStart(ids: string[]) {
+    if (!ids.length) return
     batchError = ''
+    confirming = [...ids]
     batchDialog?.showModal()
   }
 
-  // Starts one batch for these machines, in this order. The one button passes everything that can update; a hand-picked
-  // order passes its own list and closes its confirmation once the batch exists.
+  // Starts one batch for these machines, in this order, once the question has been answered.
   async function startBatch(ids: string[], created?: () => void) {
     if (batchBusy || !ids.length) return
     batchBusy = true
@@ -269,10 +280,9 @@
             <strong>{summary.headline}</strong>
             {#if summary.detail}<span>{summary.detail}</span>{/if}
           </div>
-          {#if summary.button}<button class="btn primary" type="button" disabled={batchBusy} onclick={() => void startBatch(summary.ready)}>{batchBusy ? 'Starting…' : summary.button}</button>{/if}
+          {#if summary.button}<button class="btn primary" type="button" disabled={batchBusy} onclick={() => askToStart(summary.ready)}>{summary.button}</button>{/if}
         </div>
         {#if summary.button}<p class="hint">Machines that aren't connected are skipped, so nothing waits on them.</p>{/if}
-        {#if batchError && !batch}<p class="error" role="alert">{batchError}</p>{/if}
       {/if}
 
       {#if batch}
@@ -341,7 +351,7 @@
           </ol>
           <div class="batch-foot">
             <p class="hint">{selection.length} {selection.length === 1 ? 'machine' : 'machines'} reviewed. reet stops at the first failure.</p>
-            <button class="btn primary" type="button" onclick={openBatchConfirm}>Review batch ({selection.length})</button>
+            <button class="btn primary" type="button" onclick={() => askToStart(selection)}>Review batch ({selection.length})</button>
           </div>
         </section>
       {/if}
@@ -432,12 +442,12 @@
   </div>
 </dialog>
 
-<dialog bind:this={batchDialog} class="confirm" aria-labelledby={`${id}-batch`} onclose={() => { batchError = '' }}>
+<dialog bind:this={batchDialog} class="confirm" aria-labelledby={`${id}-batch`} onclose={() => { batchError = ''; confirming = [] }}>
   <div class="confirm-body">
-    <h2 id={`${id}-batch`}>Apply this batch?</h2>
-    <p>{selection.length} {selection.length === 1 ? 'machine' : 'machines'} will be applied in this order, one at a time. reet stops at the first failure.</p>
+    <h2 id={`${id}-batch`}>{confirmPress.button}?</h2>
+    <p>{confirming.length} {confirming.length === 1 ? 'machine' : 'machines'} will be applied in this order, one at a time. A machine that isn't connected is skipped. reet stops at the first failure.</p>
     <ol class="ordered compact">
-      {#each selectedRows as row, index (row.agentId)}
+      {#each confirmRows as row, index (row.agentId)}
         <li>
           <span class="pos">{index + 1}</span>
           <span class="copy"><strong>{row.host}</strong><small>{fleetSoftwareLabel(row)}</small>{#if row.source}<code>{row.source}</code>{/if}</span>
@@ -445,10 +455,10 @@
       {/each}
     </ol>
     <p class="hint">Each machine re-checks its own installation before it downloads anything. A machine whose installation changed since this review refuses and stops the batch.</p>
-    {#if batchError}<p class="error">{batchError}</p>{/if}
+    {#if batchError}<p class="error" role="alert">{batchError}</p>{/if}
     <div class="confirm-actions">
       <button class="btn" type="button" onclick={() => batchDialog?.close()} disabled={batchBusy}>Cancel</button>
-      <button class="btn primary" type="button" onclick={() => void startBatch(selection, () => batchDialog?.close())} disabled={batchBusy || selection.length === 0}>{batchBusy ? 'Starting…' : 'Start batch'}</button>
+      <button class="btn primary" type="button" onclick={() => void startBatch(confirming, () => batchDialog?.close())} disabled={batchBusy || confirming.length === 0}>{batchBusy ? 'Starting…' : confirmPress.button}</button>
     </div>
   </div>
 </dialog>
@@ -534,6 +544,8 @@
     .overview-text { flex-basis: calc(100% - 28px); }
     .overview .btn { width: 100%; }
     .rows li, .batch-members li, .ordered li { padding: 10px 12px; flex-wrap: wrap; }
+    /* The question keeps each machine's number beside its name; its details wrap inside. */
+    .ordered.compact li { flex-wrap: nowrap; }
     .apply { width: 100%; }
     .order-actions, .batch-actions { width: 100%; }
   }

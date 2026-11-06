@@ -117,10 +117,16 @@ textarea { width: 100%; resize: vertical; }
   input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px; }
 }
 
+/* Gaffer's stable corner has its own space below primary page actions. */
+:root{--gaffer-reserve:0px;--bottom-chrome:var(--gaffer-reserve)}
+html[data-gaffer-anchor]{--gaffer-reserve:112px}
+@media(min-width:768px){html[data-gaffer-anchor] main:not(.terminal-layout):not(.home-layout){padding-bottom:calc(56px + var(--gaffer-reserve))}}
+@media(max-width:767px){html[data-gaffer-anchor]{--gaffer-reserve:88px}}
+
 /* The phone's bottom tab bar (shell/BottomTabs.svelte) is fixed over the page: the page keeps room for it at its foot, and
    anything else pinned to the bottom (toasts, the bulk bar, the save dock) sits above it. Same rule as PHONE_SCREEN. */
 @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-  html[data-bottom-tabs] { --bottom-chrome: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  html[data-bottom-tabs] { --bottom-chrome: calc(64px + env(safe-area-inset-bottom, 0px) + var(--gaffer-reserve,0px)); }
   html[data-bottom-tabs] body { padding-bottom: var(--bottom-chrome); }
   /* The launch prompt has the keyboard up: the top bar steps aside as well (shell/AppShell.svelte). */
   html[data-chrome-aside] .site-header { display: none; }
@@ -128,6 +134,7 @@ textarea { width: 100%; resize: vertical; }
      conversation, leaving the screen's slim header as the way back and out. */
   html[data-session-focus] .site-header { display: none; }
   html[data-session-focus] nav.bottom-tabs[aria-label] { display: none; }
+  html[data-session-focus] { --bottom-chrome: var(--gaffer-reserve,0px); }
   html[data-session-focus] body { padding-bottom: 0; }
   html[data-session-focus] main.terminal-layout { padding: 0; }
 }

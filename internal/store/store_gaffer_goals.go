@@ -128,105 +128,115 @@ func removeGoalQueue(tx *sql.Tx, g GafferGoal) error {
 	return err
 }
 func (s *Store) SaveGafferGoal(uid int64, expected int64, g GafferGoal) (GafferGoal, error) {
-	if !validGafferID(g.ID) || len(g.Text) > 2000 || strings.TrimSpace(g.Text) == "" || !utf8.ValidString(g.Text) || strings.ContainsRune(g.Text, 0) || g.MaxReviews < 1 || g.MaxReviews > 48 || g.ExpiresAt <= now() || g.ExpiresAt > now()+7*24*60*60*1000 {
-		return g, ErrGafferConflict
-	}
-	err := s.withTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, uid); err != nil {
-			return err
-		}
-		c, err := scanGafferConversation(tx.QueryRow(`SELECT `+gafferConversationColumns+` FROM gaffer_conversations WHERE user_id=? AND id=?`, uid, g.ConversationID))
-		if err != nil {
-			return err
-		}
-		g.OwnerID = uid
-		g.SessionID = c.SessionID
-		old, err := goalRow(tx, uid, c.ID)
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		if old.Revision != expected {
-			return ErrGafferConflict
-		}
-		var count int
-		if err = tx.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND json_extract(data,'$.state')='active' AND conversation_id!=?`, uid, c.ID).Scan(&count); err != nil {
-			return err
-		}
-		if count >= 10 {
-			return ErrGafferChatBusy
-		}
-		if old.ID != "" {
-			if err = removeGoalQueue(tx, old); err != nil {
-				return err
-			}
-		}
-		g.Revision = old.Revision + 1
-		g.State = "active"
-		g.CreatedAt = now()
-		g.NextAt = now()
-		g.UsageReported = true
-		if err = goalAuthority(tx, g); err != nil {
-			return err
-		}
-		return saveGoal(tx, g)
-	})
+
+	err := s.withTx(func(tx *sql.Tx) error { return saveGafferGoal(tx, uid, expected, &g) })
 	return g, err
+}
+func saveGafferGoal(tx *sql.Tx, uid int64, expected int64, g *GafferGoal) error {
+	if !validGafferID(g.ID) || len(g.Text) > 2000 || strings.TrimSpace(g.Text) == "" || !utf8.ValidString(g.Text) || strings.ContainsRune(g.Text, 0) || g.MaxReviews < 1 || g.MaxReviews > 48 || g.ExpiresAt <= now() || g.ExpiresAt > now()+7*24*60*60*1000 {
+		return ErrGafferConflict
+	}
+	if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, uid); err != nil {
+		return err
+	}
+	c, err := scanGafferConversation(tx.QueryRow(`SELECT `+gafferConversationColumns+` FROM gaffer_conversations WHERE user_id=? AND id=?`, uid, g.ConversationID))
+	if err != nil {
+		return err
+	}
+	g.OwnerID = uid
+	g.SessionID = c.SessionID
+	old, err := goalRow(tx, uid, c.ID)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if old.Revision != expected {
+		return ErrGafferConflict
+	}
+	var count int
+	if err = tx.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND json_extract(data,'$.state')='active' AND conversation_id!=?`, uid, c.ID).Scan(&count); err != nil {
+		return err
+	}
+	if count >= 10 {
+		return ErrGafferChatBusy
+	}
+	if old.ID != "" {
+		if err = removeGoalQueue(tx, old); err != nil {
+			return err
+		}
+	}
+	g.Revision = old.Revision + 1
+	g.State = "active"
+	g.CreatedAt = now()
+	g.NextAt = now()
+	g.UsageReported = true
+	if err = goalAuthority(tx, *g); err != nil {
+		return err
+	}
+	return saveGoal(tx, *g)
 }
 func (s *Store) ControlGafferGoal(uid int64, c string, expected int64, action string, pins GafferGoal) (GafferGoal, error) {
 	var g GafferGoal
-	err := s.withTx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, uid); err != nil {
-			return err
-		}
-		if err := workerSubject(tx, uid, "gaffer", c, pins.SessionID, false); err != nil {
-			return err
-		}
-		var err error
-		g, err = goalRow(tx, uid, c)
-		if err != nil {
-			return err
-		}
-		if g.Revision != expected {
-			return ErrGafferConflict
-		}
-		if err = removeGoalQueue(tx, g); err != nil {
-			return err
-		}
-		g.Revision++
-		g.ActiveTurnID = ""
-		g.PendingID = ""
-		g.Note = ""
-		switch action {
-		case "pause":
-			g.State = "paused"
-			g.Note = "You paused Gaffer follow-up. The working model keeps running."
-		case "stop":
-			g.State = "stopped"
-			g.Note = "You stopped this goal."
-		case "complete":
-			g.State = "completed"
-			g.Note = "You marked this goal complete."
-		case "resume":
-			if g.State == "stopped" || g.State == "completed" || g.ExpiresAt <= now() || g.UsedReviews >= g.MaxReviews {
-				return ErrGafferConflict
-			}
-			g.State = "active"
-			g.ProviderID = pins.ProviderID
-			g.ProviderRevision = pins.ProviderRevision
-			g.Model = pins.Model
-			g.ContextRevision = pins.ContextRevision
-			g.WorkerRevision = pins.WorkerRevision
-			g.LastSeq = pins.LastSeq
-			g.NextAt = now()
-			if err = goalAuthority(tx, g); err != nil {
-				return err
-			}
-		default:
-			return ErrGafferConflict
-		}
-		return saveGoal(tx, g)
-	})
+	err := s.withTx(func(tx *sql.Tx) error { return controlGafferGoal(tx, uid, c, expected, action, pins, &g) })
 	return g, err
+}
+func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action string, pins GafferGoal, g *GafferGoal) error {
+	if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, uid); err != nil {
+		return err
+	}
+	if err := workerSubject(tx, uid, "gaffer", c, pins.SessionID, false); err != nil {
+		return err
+	}
+	var err error
+	*g, err = goalRow(tx, uid, c)
+	if err != nil {
+		return err
+	}
+	if g.Revision != expected {
+		return ErrGafferConflict
+	}
+	if err = removeGoalQueue(tx, *g); err != nil {
+		return err
+	}
+	g.Revision++
+	g.ActiveTurnID = ""
+	g.PendingID = ""
+	g.Note = ""
+	switch action {
+	case "pause":
+		g.State = "paused"
+		g.Note = "You paused Gaffer follow-up. The working model keeps running."
+	case "stop":
+		g.State = "stopped"
+		g.Note = "You stopped this goal."
+	case "complete":
+		g.State = "completed"
+		g.Note = "You marked this goal complete."
+	case "resume":
+		if g.State == "stopped" || g.State == "completed" || g.ExpiresAt <= now() || g.UsedReviews >= g.MaxReviews {
+			return ErrGafferConflict
+		}
+		var active int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND conversation_id!=? AND json_extract(data,'$.state')='active'`, uid, c).Scan(&active); err != nil {
+			return err
+		}
+		if active >= 10 {
+			return ErrGafferChatBusy
+		}
+		g.State = "active"
+		g.ProviderID = pins.ProviderID
+		g.ProviderRevision = pins.ProviderRevision
+		g.Model = pins.Model
+		g.ContextRevision = pins.ContextRevision
+		g.WorkerRevision = pins.WorkerRevision
+		g.LastSeq = pins.LastSeq
+		g.NextAt = now()
+		if err = goalAuthority(tx, *g); err != nil {
+			return err
+		}
+	default:
+		return ErrGafferConflict
+	}
+	return saveGoal(tx, *g)
 }
 func (s *Store) DueGafferGoals(at int64) ([]GafferGoal, error) {
 	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_goals WHERE json_extract(data,'$.state')='active' AND json_extract(data,'$.nextAt')<=? ORDER BY json_extract(data,'$.nextAt'),conversation_id LIMIT 50`, at)

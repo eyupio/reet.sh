@@ -12,7 +12,21 @@ func (s *server) registerGoalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/gaffer/goals", access(s.goalList))
 	mux.HandleFunc("GET /api/v2/gaffer/conversations/{id}/goal", access(s.goalGet))
 	mux.HandleFunc("PUT /api/v2/gaffer/conversations/{id}/goal", access(s.goalSave))
+	mux.HandleFunc("POST /api/v2/gaffer/conversations/{id}/goal/setup", access(s.goalSetup))
 	mux.HandleFunc("POST /api/v2/gaffer/conversations/{id}/goal/control", access(s.goalControl))
+}
+func (s *server) goalSetup(w http.ResponseWriter, r *http.Request) {
+	var in gaffer.GoalSetupInput
+	if !decodeStrictJSON(w, r, 12<<10, &in, "Review this session's access and follow-up limits before continuing.") {
+		return
+	}
+	v, err := s.gafferProviders.SetupGoal(s.uid(r), r.PathValue("id"), in)
+	if err != nil {
+		gafferError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-goal-access-reviewed", "", map[string]any{"conversation": r.PathValue("id"), "goal": v.Goal.ID, "revision": v.Goal.Revision, "action": in.Action, "maxReviews": v.Goal.MaxReviews, "expiresAt": v.Goal.ExpiresAt})
+	writeJSON(w, 200, v)
 }
 func (s *server) goalList(w http.ResponseWriter, r *http.Request) {
 	v, err := s.gafferProviders.Goals(s.uid(r))

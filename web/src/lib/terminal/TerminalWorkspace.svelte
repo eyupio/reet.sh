@@ -18,6 +18,7 @@
   import ChatPane from './ChatPane.svelte'
   import SessionScreen from '../sessions/SessionScreen.svelte'
   import SessionTabs from '../sessions/SessionTabs.svelte'
+  import PanelResizer from '../shell/PanelResizer.svelte'
   import { canContinue, canContinueChat, canReattachChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
   import { continuationFailureInPane, offersContinueAfterReattach, quietReattachRefusal, reattachTrust, recoveryInFlight, shouldAutoReattach } from './reattachState'
   import ConfirmDialog from '../ConfirmDialog.svelte'
@@ -28,7 +29,7 @@
   import TerminalCommandReference from './TerminalCommandReference.svelte'
   import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN } from './sizing'
   import { chromeFocus } from '../shell/chrome.svelte'
-  import { ALWAYS_DOCKED, MINI_WIDTH, keepOpen, PANEL_DEFAULT, changeMode, chevronNext, clampPanelWidth, defaultLayout, defaultPanelWidth, dragWidth, isPhone, keyWidth, layoutRecord, panelDocks, panelMode, readLayout, screenShortSide, widestPanel, type PanelMode } from './panelLayout'
+  import { ALWAYS_DOCKED, MINI_WIDTH, PANEL_MIN, SNAP_TO_MINI, keepOpen, PANEL_DEFAULT, changeMode, chevronNext, clampPanelWidth, defaultLayout, defaultPanelWidth, isPhone, layoutRecord, panelDocks, panelMode, readLayout, screenShortSide, widestPanel, type PanelMode } from './panelLayout'
 
   let {userId=0,ontitle}:{userId?:number;ontitle?:(title:string)=>void}=$props()
   // svelte-ignore state_referenced_locally
@@ -43,6 +44,8 @@
   // Keep open off, it is a drawer over the terminal. A phone is told by its screen's shorter side, not the window's height.
   const readScreen=()=>screenShortSide(window.screen,innerWidth,innerHeight)
   let viewportWidth=$state(innerWidth),screenSide=$state(readScreen()),bodyWidth=$state(0),resizing=$state(false),contextResizing=$state(false)
+  // The right-hand session details panel, toggled from the same toolbar row as the sessions panel.
+  let contextOpen=$state(true),contextButton=$state<HTMLButtonElement>()
   let mode=$state<PanelMode>(panelMode(innerWidth,undefined,undefined,isPhone(innerWidth,readScreen()))),pinned=$state<boolean|undefined>(undefined),sidebarWidth=$state(defaultPanelWidth(innerWidth))
   const phone=$derived(isPhone(viewportWidth,screenSide))
   // Keep open as shown: the person's choice, or on by default from 768 px.
@@ -68,6 +71,8 @@
   async function focusPanel(selector:string){await tick();workspace?.querySelector<HTMLElement>(selector)?.focus()}
   const TOOLBAR_SESSIONS='.workspace-actions [aria-controls="terminal-sessions"]'
   function toggleSidebar(){if(theatre){theatre=false;setMode('full')}else setMode(panelOpen?'closed':'full');saveLayout()}
+  // The right panel's toggle mirrors the sessions toggle: one button in the toolbar, aria-expanded and the same icon.
+  function toggleContext(){if(sideSession)return;contextOpen=!contextOpen}
   // The terminal's own Show/Hide sessions: shows the panel as it was (the rail stays a rail), or hides it.
   function paneSessions(){if(theatre){theatre=false;if(panelView==='closed')setMode('full')}else setMode(panelView==='closed'?'full':'closed');saveLayout()}
   function chevron(){const next=chevronNext(mode,phone);setMode(next);saveLayout();void focusPanel(next==='mini'?'#terminal-sessions .rail-expand':next==='full'?'#terminal-sessions .collapse':TOOLBAR_SESSIONS)}
@@ -75,14 +80,15 @@
   function findSessions(){setMode('full');saveLayout();void tick().then(()=>sessionPanel?.openFind?.())}
   function togglePin(){pinned=!keptOpen;saveLayout()}
   function closeDrawer(){if(panelView==='drawer')mode='closed'}
-  // Dragging the separator: the pointer is captured, so leaving the handle keeps the drag. The grid column changes with it
-  // and the terminal refits locally once per frame; the host's size is held (holdSize) and sent once when the drag ends.
-  let drag:{x:number;width:number}|null=null
-  function separatorDown(event:PointerEvent){if(event.pointerType==='mouse'&&event.button!==0)return;event.preventDefault();const handle=event.currentTarget as HTMLElement;handle.setPointerCapture(event.pointerId);handle.focus({preventScroll:true});drag={x:event.clientX,width:panelView==='mini'?MINI_WIDTH:panelWidth};resizing=true}
-  function separatorMove(event:PointerEvent){if(!drag||!(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId))return;const next=dragWidth(drag.width+event.clientX-drag.x,panelRoom);setMode(next.mode);if(next.width!==null)sidebarWidth=next.width}
-  function separatorEnd(){if(!drag)return;drag=null;resizing=false;saveLayout()}
-  function separatorKey(event:KeyboardEvent){const next=keyWidth(event.key,mode,sidebarWidth,panelRoom);if(!next)return;event.preventDefault();setMode(next.mode);sidebarWidth=next.width;saveLayout()}
-  function separatorReset(){setMode('full');sidebarWidth=PANEL_DEFAULT;saveLayout()}
+  // The separator is the shared PanelResizer: it captures the pointer, so leaving the handle keeps the drag. The grid column
+  // changes with it and the terminal refits locally once per frame; the host's size is held (holdSize) and sent when the drag ends.
+  // A requested width below SNAP_TO_MINI is the mini rail; widening a key from there restores the full panel at PANEL_MIN.
+  function setPanelWidth(width:number){
+    if(width<SNAP_TO_MINI){setMode('mini');return}
+    setMode('full');sidebarWidth=clampPanelWidth(width,panelRoom)
+  }
+  function commitPanelWidth(width:number){setPanelWidth(width);saveLayout()}
+  function setPanelResizing(active:boolean){resizing=active}
   let machines = $state<TerminalMachine[]>([]), sessions = $state<TerminalSession[]>([])
   // The folder projects, read with the rest of the workspace inventory, for the panel's Projects list and the tab title.
   let projects = $state<FolderProject[] | undefined>()
@@ -599,7 +605,7 @@
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <!-- The session screen's tabs share this row, so the terminal keeps its height. -->
     {#if session && !loading && !accessDenied && !phone}<SessionTabs tabs={tabSessions} current={session.id} onselect={chooseSession} onclose={closeSessionTab} />{/if}
-    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Details & help" onclick={() => detailsOpen = true}><span class="wide-label">Details &amp; help</span><span class="mobile-label">Help</span></button></div>
+    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button>{#if session && !loading && !accessDenied}<button class="btn panel-toggle" bind:this={contextButton} aria-expanded={sideSession ? false : contextOpen} aria-controls="session-details-panel" aria-label="Session details panel" title={sideSession ? 'Close the terminal beside the session to use details' : contextOpen?'Hide session details':'Show session details'} disabled={!!sideSession} onclick={toggleContext}><TerminalIcon name="panel"/></button>{/if}<button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
   </header>
   {#if preferenceError}<p class="workspace-notice bad" role="status">{preferenceError}</p>{/if}
   {#if statusError}<p class="workspace-notice bad" role="status">{statusError} <button onclick={()=>void refresh()}>Retry status</button></p>{/if}
@@ -609,8 +615,11 @@
     {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-      <div class="panel-separator" class:mini={shown==='mini'} role="separator" tabindex="0" aria-label="Resize session navigation" aria-controls="terminal-sessions" aria-orientation="vertical" aria-valuemin={MINI_WIDTH} aria-valuemax={panelMax} aria-valuenow={shown==='mini'?MINI_WIDTH:panelWidth} aria-valuetext={shown==='mini'?'Mini rail':`${panelWidth} pixels`} title="Drag to resize · double-click resets" onpointerdown={separatorDown} onpointermove={separatorMove} onpointerup={separatorEnd} onpointercancel={separatorEnd} onlostpointercapture={separatorEnd} onkeydown={separatorKey} ondblclick={separatorReset}></div>
+      <PanelResizer value={shown==='mini'?MINI_WIDTH:panelWidth} min={MINI_WIDTH} max={panelMax} resetValue={PANEL_DEFAULT}
+        label="Resize session navigation" controls="terminal-sessions" extraClass="panel-separator" mode="inline"
+        position="grid-column: 2; grid-row: 1 / -1" minText="Mini rail"
+        snap={{ value: MINI_WIDTH, below: SNAP_TO_MINI, restore: PANEL_MIN }}
+        onchange={setPanelWidth} oncommit={commitPanelWidth} onresizing={setPanelResizing} />
     {/if}
     <div class="terminal-stage">
       {#if loading}<div class="empty" role="status"><span class="empty-icon" aria-hidden="true">›_</span><h2>Finding your shells…</h2><p>Connecting to your existing workspace.</p></div>
@@ -619,7 +628,7 @@
       {:else if session}
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
         <SessionScreen {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
-          contextKey={`${preferenceKey}:context`} onresizing={active => contextResizing = active}
+          contextKey={`${preferenceKey}:context`} contextId="session-details-panel" bind:contextOpen oncontextclosed={() => contextButton?.focus()} onresizing={active => contextResizing = active}
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
           insightChat={insightChat?.id === session.id ? insightChat.state : undefined}
           insightProgress={insightChat?.id === session.id ? insightChat.progress : undefined}
@@ -703,18 +712,13 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .side-terminal-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.875rem; }
   .side-terminal-head button { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: 0.875rem; }
   @media (max-width:650px){.workspace:has(:global(.session-screen)) .workspace-title>a{display:none}}
-  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:0.875rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:0.875rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-actions .panel-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.workspace-actions .panel-toggle:hover{color:var(--ink)}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:0.875rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:0.875rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:0.875rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:0.875rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:0.875rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:0.875rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:0.875rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}
+  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:14px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:0.875rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:0.875rem;border-radius:20px;background:var(--tint);padding:1px 5px}.workspace-actions .panel-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.workspace-actions .panel-toggle:hover{color:var(--ink)}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:0.875rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:0.875rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:0.875rem;color:var(--muted);line-height:1.5;margin:0 0 16px}.workspace-notice{margin:0;padding:7px 12px;background:var(--tint);font-size:0.875rem;flex-shrink:0;display:flex;align-items:center;gap:10px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:0.875rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:14px;border-radius:8px}.setup-notice pre{font-size:0.875rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:0.875rem;margin:0 0 10px}.shortcut-help p+p{margin-top:8px}
   .creation-error{color:var(--bad)!important}.find-machine{font-size:0.875rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:0.875rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:5px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:0.875rem;color:var(--muted)}
   .new-session-choice{display:grid;gap:10px}.new-session-option{display:grid;gap:5px;text-align:left;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer}.new-session-option:hover,.new-session-option:focus-visible{border-color:var(--accent)}.new-session-option strong{font-size:.9rem}.new-session-option span{font-size:0.875rem;color:var(--muted);line-height:1.5}
   .end-options{display:grid;gap:14px;margin-top:16px;font-size:0.875rem}.end-options .option{display:grid;gap:5px}.end-options label{display:flex;align-items:flex-start;gap:9px;line-height:1.5;cursor:pointer}.end-options input{flex:none;width:16px;height:16px;min-height:0;margin:2px 0 0;padding:0;border:0;background:none;accent-color:var(--accent)}.end-options p,.end-options a{margin:0;font-size:0.875rem;line-height:1.6;color:var(--muted)}.end-options p{margin-left:25px}.end-options a{justify-self:start;color:var(--accent-text)}
   .mobile-label{display:none}
   .viewport-debug{position:fixed;top:4px;right:4px;z-index:200;margin:0;padding:4px 6px;max-width:calc(100vw - 8px);white-space:pre-wrap;font:14px/1.3 var(--mono);color:#fff;background:rgb(0 0 0 / .72);border-radius:4px;pointer-events:none;user-select:none}
   @media(max-height:500px) and (pointer:coarse) and (orientation:landscape){.workspace-toolbar{padding-top:0;padding-bottom:0}}
-  /* The separator's 8 px track plus 8 px either side: a 24 px hit area over the panel's padding and the terminal's edge. On a touch
-     tablet its grip (the middle 88 px) is 44 px wide and reaches into the panel: it ends 4 px past the track's middle, so over the
-     terminal it reaches no further than the track does, and the panel's padding there is wide enough that it covers no control.
-     Beside the mini rail (64 px, no spare padding) there is no grip: the 24 px track is the grab area and covers no rail button. */
-  .panel-separator{position:relative;z-index:3;margin:0 -8px;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;outline:0}.panel-separator::after{content:'';width:4px;height:40px;border-radius:2px;background:var(--line)}.panel-separator:hover::after,.workspace.resizing .panel-separator::after{background:var(--accent);height:64px}.panel-separator:focus-visible::after{background:var(--accent);height:64px;outline:2px solid var(--accent);outline-offset:3px}
   .workspace.resizing{cursor:col-resize;user-select:none}
   @media(max-width:650px){.workspace{border-radius:8px}.workspace-toolbar{gap:6px;padding:5px 6px}.workspace-title h1{display:none}.workspace-actions>button[aria-controls="terminal-sessions"]{max-width:52px;white-space:normal;line-height:1.1}.quick-machine{padding:4px 7px;min-width:28px}.workspace-toolbar .find-machine{display:none}.workspace-title>a{padding:3px}.workspace-actions{gap:4px}.workspace-actions .btn{padding:5px 7px;min-height:32px;font-size:0.875rem}.workspace-actions .count,.workspace-actions .wide-label{display:none}.workspace-actions .mobile-label{display:inline}.empty{padding:20px 14px}.empty h2{font-size:1.35rem}.create-form{grid-template-columns:minmax(0,1fr)}.create-form p{grid-column:1}.workspace-notice{font-size:0.875rem;padding:5px 8px}}
   /* Gaffer's super focus on a phone, held upright or sideways: even the workspace frame and toolbar give their room to
@@ -724,7 +728,6 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
     .workspace:has(:global(.session-screen.focus))>.workspace-toolbar{display:none}
   }
   @media(pointer:coarse){.workspace-actions .btn{min-height:40px;min-width:40px}.quick-machine{min-width:40px}.workspace-toolbar .find-machine{min-height:40px}.workspace-title>a{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;box-sizing:border-box}}
-  /* A touch tablet (wider than a phone, not a phone held sideways): the toolbar's targets are 44 px, as everything around the session screen; the panel's separator has a 44 × 88 px grip. */
-  @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px){.panel-separator:not(.mini)::before{content:'';position:absolute;top:50%;right:calc(50% - 4px);width:44px;height:88px;transform:translateY(-50%)}}
+  /* A touch tablet (wider than a phone, not a phone held sideways): the toolbar's targets are 44 px, as everything around the session screen. */
   @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px){.workspace-actions .btn,.workspace-toolbar .find-machine,.quick-machine{min-height:44px;min-width:44px}.workspace-title>a{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;box-sizing:border-box}}
 </style>

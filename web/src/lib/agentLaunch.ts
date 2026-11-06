@@ -297,15 +297,12 @@ export function notStartedText(state: string): string {
 }
 
 /**
- * The machine the dialog opens on: the one you came from when it is ready; otherwise the first ready one, with a note saying
- * so. When nothing is ready the one you came from stays selected, so its own readiness sentence is shown.
+ * The machine the dialog opens on: only the one an action named. Nothing is chosen for a person who opened the dialog
+ * from somewhere without a machine, so the machine is a deliberate choice every time; a named machine stays selected
+ * even when it is not ready, so its own readiness sentence is shown.
  */
-export function preselect(machines: { agentId: string; host: string; ready: boolean }[], initial: string): { agentId: string; note: string } {
-  const from = machines.find(x => x.agentId === initial)
-  if (from?.ready) return { agentId: from.agentId, note: '' }
-  const ready = machines.find(x => x.ready)
-  if (!ready) return { agentId: from?.agentId ?? '', note: '' }
-  return { agentId: ready.agentId, note: from ? `${from.host} isn't ready, so ${ready.host} is selected.` : '' }
+export function preselect(machines: { agentId: string }[], initial: string): { agentId: string; note: string } {
+  return { agentId: machines.some(x => x.agentId === initial) ? initial : '', note: '' }
 }
 
 export type LaunchChoices = { key: string; model: string; folder: string; effort?: string }

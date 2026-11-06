@@ -124,6 +124,7 @@ try {
   await models.getByRole('option', { name: 'anthropic/claude-sonnet-4-5', exact: true }).click()
   await expect(dialog.getByRole('button', { name: /^Model:/ })).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')
+  await dialog.getByRole('combobox', { name: 'Project', exact: true }).selectOption({ label: 'No project — start in a folder' })
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()
   await page.waitForURL(new RegExp(`session=${S}`))
   // The URL changes before the dialog has finished closing, and while it is a modal the page behind it is inert: focus() on the

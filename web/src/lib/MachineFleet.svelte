@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { cardReadiness, terminalMachines, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
+  import { cardReadiness, folderProjectList, terminalMachines, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
   import StartAgentDialog from './StartAgentDialog.svelte'
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
@@ -116,6 +116,13 @@
   // The last read failed: said on the card (and the button stays disabled) until a read succeeds. Reads keep the 15-second pace.
   let terminalsFailed = $state(false)
   let startAgent = $state<{ agent: string; opener: HTMLElement | null } | null>(null)
+  // The folder projects the machine's Start an agent offers, so it asks for the same project choice as every other entry
+  // point. Read when the dialog opens; a failed read leaves only the explicit "No project" folder path.
+  let folderProjects = $state<FolderProject[]>([])
+  async function beginStart(agent: string, opener: HTMLElement) {
+    startAgent = { agent, opener }
+    try { folderProjects = (await folderProjectList()).projects } catch { /* the folder path is still available */ }
+  }
   onMount(() => {
     if (!terminalAccess) return
     const abort = new AbortController()
@@ -516,7 +523,7 @@
         {#if terminalAccess && enrolled}
           <div class="actions">
             <a class="btn" class:primary={sync.tone === 'synced' || sync.tone === 'setup'} href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>
-            <button class="btn" type="button" disabled={!!agentReadiness(enrolled.id)} aria-describedby={agentReadiness(enrolled.id) ? `start-agent-${m}` : undefined} onclick={(event) => (startAgent = { agent: enrolled.id, opener: event.currentTarget })}>Start an agent</button>
+            <button class="btn" type="button" disabled={!!agentReadiness(enrolled.id)} aria-describedby={agentReadiness(enrolled.id) ? `start-agent-${m}` : undefined} onclick={(event) => void beginStart(enrolled.id, event.currentTarget)}>Start an agent</button>
           </div>
         {/if}
         {#if terminalAccess&&enrolled&&agentReadiness(enrolled.id)}<p class="start-reason" id={`start-agent-${m}`}>{agentReadiness(enrolled.id)}</p>{/if}
@@ -564,7 +571,7 @@
   </div>
 </section>
 
-{#if startAgent && terminalAccess && terminals}<StartAgentDialog machines={terminals} snapshot={snapshot.machines ?? []} initialAgent={startAgent.agent} opener={startAgent.opener} onstarted={agentStarted} onleavefailed={agentLeaveFailed} onaddmachine={addFromStart(startAgent)} {onsignedout} onclose={() => (startAgent = null)} />{/if}
+{#if startAgent && terminalAccess && terminals}<StartAgentDialog machines={terminals} snapshot={snapshot.machines ?? []} projects={folderProjects} initialAgent={startAgent.agent} opener={startAgent.opener} onstarted={agentStarted} onleavefailed={agentLeaveFailed} onaddmachine={addFromStart(startAgent)} {onsignedout} onclose={() => (startAgent = null)} />{/if}
 
 {#if contentSource}<MachineSkillContent {snapshot} source={contentSource} opener={contentSource.opener} note={contentSource.note ?? ''} onaddmachine={addFromPrivate(contentSource)} {canWrite} {accounts} {onsignedout} onclose={() => contentSource = null} />{/if}
 

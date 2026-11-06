@@ -1,8 +1,9 @@
 # Start an agent session
 
 Home starts sessions from its launch bar ([below](#on-home-the-launch-bar)). The **Start an agent**
-dialog stays for Machines and the Sessions panel: pick a machine, an agent, a folder and, if you like,
-a model and an opening prompt. Press **Start**
+dialog stays for Machines and the Sessions panel: pick a project and a machine, then an agent and, if
+you like, a model and an opening prompt. Choose **No project — start in a folder** to pick a folder
+instead. Press **Start**
 and you land in a new browser terminal session with that agent already running, or in Gaffer when you
 choose it. The dialog is
 `web/src/lib/StartAgentDialog.svelte`. The launch request it sends and how a machine handles it are
@@ -70,7 +71,8 @@ local consent, and the session limits (8 per machine, 32 per account).
 - **Sessions → New agent session.** It appears under **Your sessions** in the sessions sidebar,
   in a machine's menu next to **New terminal**, and as **✦ Start a new agent session** in the empty
   or ended workspace beside **✦ Start a new Terminal session**. Each opens its settings dialog.
-  The machine you were on is preselected. On success the new session opens in the workspace.
+  The machine you were on is preselected; the project is still a deliberate choice. On success the new
+  session opens in the workspace.
 - **Machines → Start an agent** on every enrolled machine's card. While the machine isn't ready the
   button is disabled and the reason is written underneath; a machine the terminal list doesn't know
   yet says "This machine hasn't connected for terminals yet." If its readiness couldn't be read, it says
@@ -82,7 +84,13 @@ you pressed, except while a request is in flight (see below).
 
 Home starts an agent from the rail card's **+** (and **New session here** in the card's menu): the
 same **Start an agent** dialog that Machines, the Sessions panel and a project list open, with the
-project's machine, folder and defaults already chosen. Nothing starts until **Start** is pressed.
+project, its machine, folder and defaults already chosen. Nothing starts until **Start** is pressed.
+
+Every entry point asks for the same two required choices. A project or machine action fills in what it
+already knows: a project action fills the project and its machine, and a machine action fills the
+machine. Nothing else is chosen for you, so opening the dialog from elsewhere starts on **Choose a
+project** and **Choose a machine**. The **Folder** and **Folder path** fields appear only under **No
+project — start in a folder**; a project supplies its own folder.
 
 ## On Home: the launch bar
 
@@ -188,16 +196,19 @@ It is one screen:
 
 | Field | What it offers |
 | --- | --- |
-| **Machine** | Every terminal machine. A machine that isn't ready is listed but can't be chosen. If the one you came from isn't ready and another is, the other is chosen and the dialog says "\<from\> isn't ready, so \<other\> is selected." **Not listed? Add a machine** opens [Add a machine](add-machine-in-context.md). |
+| **Project** (required) | The folder projects this account can start in. A project on a machine that isn't ready is listed but can't be chosen. **No project — start in a folder** is an explicit choice which reveals the folder fields. |
+| **Machine** (required) | Every terminal machine. A machine that isn't ready is listed but can't be chosen. Only a machine an action named is preselected; otherwise nothing is chosen. A machine change leaves a project that belongs to another machine. **Not listed? Add a machine** opens [Add a machine](add-machine-in-context.md). |
 | **Agent** | Claude Code, Codex, OpenCode, Gemini CLI and, on a machine with `agents-v2`, Cline and Google Antigravity (AGY). Only an agent the machine reports as installed can be chosen. Any other is listed but disabled, with the reason "Not installed on <machine>." |
 | **Model** (optional) | The shared picker: **Agent default**, the account's favourites for this agent, the machine's list by provider, reet's suggestions and **Other…** for any model name made of letters, digits and `. _ : / @ + -`, up to 100 characters. A star adds or removes a favourite. A list is only a hint; if a model name doesn't exist, the agent says so itself. Nothing is sent for Agent default. |
 | **Thinking** | Only for an agent that takes an effort level (Cline and Google Antigravity): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
-| **Folder** | **Home folder**, the project folders that machine has reported, and **Type a path…**. A typed path must be absolute. The machine decides whether it may start there: the folder must exist and be inside the home folder it was enrolled with. |
+| **Folder** (only under **No project**) | **Home folder**, the project folders that machine has reported, and **Type a path…**. A typed path must be absolute. The machine decides whether it may start there: the folder must exist and be inside the home folder it was enrolled with. |
 | **Opening prompt** (optional) | Up to 8,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |
 
 Opening the dialog with a project applies that project's default agent, model and thinking;
 otherwise the account defaults apply, then a favourite marked for the agent. Changing the machine or
-the agent resets the model and folder to their defaults. The model list's status line and Refresh are
+the agent resets the model and folder to their defaults. Changing the project to one on another
+machine moves the machine with it; changing the machine leaves a project that belongs to another
+machine unset, so it is chosen again. The model list's status line and Refresh are
 honest about a cache read; a failed read never disables Start.
 
 Below the fields, one line says exactly what will happen, for example "Starts Claude Code in

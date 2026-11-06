@@ -251,22 +251,16 @@ test('launchActivity reads an audit detail as one plain line and never needs the
   assert.equal(m.launchActivity({ tool: 'claude', host: 'studio', prompt: 'secret words' }), 'Started Claude Code in the home folder on studio')
 })
 
-test('preselect keeps the machine you came from when it is ready', () => {
+test('preselect keeps only the machine an action named, even when it is not ready', () => {
+  const ms = [{ agentId: 'a', host: 'studio', ready: true }, { agentId: 'b', host: 'annexe', ready: false }]
+  assert.deepEqual(m.preselect(ms, 'a'), { agentId: 'a', note: '' })
+  assert.deepEqual(m.preselect(ms, 'b'), { agentId: 'b', note: '' })
+})
+
+test('preselect chooses nothing when the dialog was not opened from a machine', () => {
   const ms = [{ agentId: 'a', host: 'studio', ready: true }, { agentId: 'b', host: 'annexe', ready: true }]
-  assert.deepEqual(m.preselect(ms, 'b'), { agentId: 'b', note: '' })
-  assert.deepEqual(m.preselect(ms, ''), { agentId: 'a', note: '' })
-  assert.deepEqual(m.preselect(ms, 'gone'), { agentId: 'a', note: '' })
-})
-
-test('preselect says so when the machine you came from is not ready', () => {
-  const ms = [{ agentId: 'a', host: 'studio', ready: false }, { agentId: 'b', host: 'annexe', ready: true }]
-  assert.deepEqual(m.preselect(ms, 'a'), { agentId: 'b', note: "studio isn't ready, so annexe is selected." })
-})
-
-test('preselect keeps an unready machine when none is ready, so its readiness sentence shows', () => {
-  const ms = [{ agentId: 'a', host: 'studio', ready: false }, { agentId: 'b', host: 'annexe', ready: false }]
-  assert.deepEqual(m.preselect(ms, 'b'), { agentId: 'b', note: '' })
   assert.deepEqual(m.preselect(ms, ''), { agentId: '', note: '' })
+  assert.deepEqual(m.preselect(ms, 'gone'), { agentId: '', note: '' })
   assert.deepEqual(m.preselect([], 'b'), { agentId: '', note: '' })
 })
 

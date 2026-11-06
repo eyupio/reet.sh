@@ -76,6 +76,7 @@ try {
    await dialog.getByRole('combobox', { name: 'Effort', exact: true }).selectOption('medium')
    await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('hello')
    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+   await dialog.getByRole('combobox', { name: 'Project', exact: true }).selectOption({ label: 'No project — start in a folder' })
    state.failLogin = true
    await dialog.getByRole('button', { name: 'Start', exact: true }).click()
    await expect(dialog.getByRole('status')).toContainText(login)

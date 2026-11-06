@@ -59,6 +59,7 @@ try {
   await expect(dialog.getByText('Cline asks before it reads a file, edits one or runs a command.', { exact: false })).toBeVisible()
   await expect(dialog.getByText('.opencode', { exact: false })).toHaveCount(0)
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')
+  await dialog.getByRole('combobox', { name: 'Project', exact: true }).selectOption({ label: 'No project — start in a folder' })
   state.created = true
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()
   await page.waitForURL(new RegExp(`session=${S}`))

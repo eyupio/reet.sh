@@ -308,6 +308,8 @@ try{
  expect(inputs.join('').split('native-paste-once').length-1).toBe(1)
  // Normal app fields retain native cut semantics and do not forward editor keys.
  await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).click()
+ const findToggle=page.locator('#terminal-sessions').getByRole('button',{name:'Search sessions'})
+ if(await findToggle.getAttribute('aria-expanded')!=='true')await findToggle.click()
  const filter=page.getByRole('searchbox',{name:'Find sessions'})
  await filter.fill('cut this filter');await filter.press('Control+a')
  const beforeCut=inputs.length

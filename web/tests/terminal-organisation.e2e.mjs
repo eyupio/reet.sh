@@ -56,7 +56,9 @@ const sidebar=page.getByRole('complementary',{name:'Session navigation'}),menu=p
 const row=name=>sidebar.locator('.session-row').filter({has:page.getByText(name,{exact:true})})
 async function showSidebar(){if(await sidebar.count()===0)await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).click()}
 // Sort and Group sit behind the panel's View options toggle, folded until asked for.
-async function viewOptions(){const toggle=sidebar.getByRole('button',{name:/^View options/});if(await toggle.count())await toggle.click()}
+async function viewOptions(){const toggle=sidebar.getByRole('button',{name:/^View options/});if(await toggle.count()&&await toggle.getAttribute('aria-expanded')!=='true')await toggle.click()}
+// Search sits behind the panel toolbar's magnifier, which opens on the field.
+async function openSearch(){const button=sidebar.getByRole('button',{name:'Search sessions'});if(await button.getAttribute('aria-expanded')!=='true')await button.click()}
 async function live(){await expect(pane).toHaveAttribute('data-connection-state','live')}
 try{
  await page.goto(`${base}/sessions?agent=${a}&session=${sessions[0].id}`);await live()
@@ -118,9 +120,9 @@ try{
  await row('Closed shell').click({button:'right'});await menu.getByRole('menuitem',{name:'Remove from history…'}).click()
  await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click()
  await expect(row('Closed shell')).toHaveCount(0)
- await sidebar.getByLabel('Find sessions').fill('Builder')
+ await openSearch();await sidebar.getByRole('searchbox',{name:'Find sessions'}).fill('Builder')
  await expect(sidebar.locator('.session-row')).toHaveCount(1)
- await sidebar.getByLabel('Find sessions').fill('')
+ await sidebar.getByRole('searchbox',{name:'Find sessions'}).fill('')
  await expect(sidebar.locator('.session-row')).toHaveCount(3)
  await row('Alpha shell').click();await live()
  await page.getByRole('button',{name:'Recent history',exact:true}).click()
@@ -283,7 +285,8 @@ try{
  await expect(sidebar.locator('.session-group h2 .need-badge').first()).toHaveText('1')
  await fold('Your sessions').click()
  await expect(sidebar.locator('#panel-sessions-body')).toHaveCount(0)
- // Find sessions still has its field while the section is folded, and a query shows the matches.
+ // Search still opens while the section is folded, and a query shows the matches.
+ await openSearch()
  await expect(sidebar.getByRole('searchbox',{name:'Find sessions'})).toBeVisible()
  await sidebar.getByRole('searchbox',{name:'Find sessions'}).fill(sessions[0].title)
  await expect(sidebar.locator('#panel-sessions-body')).toBeVisible()

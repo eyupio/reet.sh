@@ -34,6 +34,7 @@ try{
   try{
    await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`);await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
    const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true}),goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
+   await expect(chat.getByRole('button',{name:'Look after this session',exact:true})).toBeVisible()
    const openGoal=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Look after this session',exact:true}).click()}
    await openGoal();await expect(goal.getByRole('button',{name:'Start follow-up',exact:true})).toBeDisabled();expect(f.box.starts).toHaveLength(0)
    await w.page.keyboard.press('Escape');await expect(chat.getByRole('button',{name:'Chat options',exact:true})).toBeFocused()

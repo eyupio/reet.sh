@@ -130,18 +130,15 @@ try {
   // The URL changes before the dialog has finished closing, and while it is a modal the page behind it is inert: focus() on the
   // button would do nothing and no tooltip would open. Wait for it to go, then check the button really took the focus.
   await expect(dialog).toBeHidden()
-  await expect(page.getByRole('button', { name: 'Gaffer', exact: true })).toHaveAttribute('aria-pressed', 'true')
-  const gaffer = page.getByRole('button', { name: 'Gaffer', exact: true })
-  await gaffer.focus()
-  await expect(gaffer).toBeFocused()
+  // The interface control names Gaffer. This machine has not negotiated session-mode-v1, so it offers no switch.
+  const tui = page.locator('.session-screen .tui-pill')
+  await expect(tui).toHaveText('Gaffer')
+  await expect(tui).toHaveAttribute('title','Update reet on this machine to switch between Gaffer and the OpenCode TUI.')
+  await expect(page.locator('.session-screen .tui-picker select')).toHaveCount(0)
+  await tui.hover()
   await expect(page.getByRole('tooltip')).toHaveText(`Gaffer${explanation}`)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('tooltip')).toHaveCount(0)
-
-  // This machine has not negotiated session-mode-v1, so the OpenCode TUI is offered with the reason it cannot switch.
-  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAttribute('aria-pressed', 'false')
-  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAttribute('aria-disabled', 'true')
-  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAccessibleDescription('Update reet on this machine to switch between Gaffer and the OpenCode TUI.')
   await page.waitForFunction(() => window.__chatStream?.url.endsWith('/chat'))
   await page.evaluate(() => window.__chatStream.emit('reset', { truncated: false }))
   await page.evaluate(() => {
@@ -990,23 +987,19 @@ try {
   await page.goto(`${base}/sessions?agent=${A}&session=${S2}`)
   // Focus keeps the ended chat and its Continue action on the screen; the ordinary session actions wait behind Exit focus.
   await expect(page.locator('.session-screen')).toHaveClass(/focus/)
-  await expect(page.getByRole('button', { name: 'Session actions' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Rename…', exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Exit focus mode', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Session actions' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Rename…', exact: true })).toBeVisible()
   // A chat that exited does not say who ended it (it may have stopped on its own or been ended by the person), only what can be done next.
   await expect(page.locator('.ended-note')).toContainText('This OpenCode chat has ended. What was already shown stays here.')
   await expect(page.locator('.ended-note').getByRole('button', { name: 'Continue with history', exact: true })).toBeVisible()
   await page.locator('.session-screen .head').getByRole('button', { name: 'Continue with history', exact: true }).click()
   await expect.poll(() => state.resume).toMatchObject({ structured: true, trust: true, resumeAcp: closedSession.acpSessionId, dir: SITE })
   await page.waitForURL(new RegExp(`session=${S3}`))
-  // A closed chat cannot switch: the menu offers no switch and the OpenCode TUI says why (on a wider screen, where the
-  // header shows the switch).
+  // A closed chat cannot switch: the interface label says why.
   await page.setViewportSize({ width: 1360, height: 900 })
   await page.goto(`${base}/sessions?agent=${A}&session=${S2}`)
-  await expect(page.getByRole('button', { name: 'OpenCode TUI', exact: true })).toHaveAccessibleDescription('Only a running session can switch.')
-  await page.getByRole('button', { name: 'Session actions' }).click()
-  await expect(page.getByRole('menuitem', { name: /Switch to the/ })).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  await expect(page.locator('.session-screen .tui-pill')).toHaveAttribute('title','Only a running session can switch.')
   expect(state.resume.prompt).toBeUndefined()
   expect(state.resume.model).toBe('anthropic/claude-sonnet-4-5')
   expect(errors).toEqual([])

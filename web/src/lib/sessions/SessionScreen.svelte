@@ -393,17 +393,18 @@
         </div>
       {:else if session.yolo}<span class="badge yolo">YOLO</span>{/if}
       <!-- One dropdown names the interface shown. When the session cannot switch, a plain label says which one it is. -->
-      {#if canSwitch}
+      {#if canSwitch || modeSwitching}
         <label class="tui-picker">
           <span class="vh">Session interface</span>
-          <select use:gafferTooltip aria-label="Session interface" value={chatView ? 'chat' : 'terminal'} title="Choose Gaffer or the agent TUI"
-            onchange={event => { const pick = event.currentTarget.value, current = chatView ? 'chat' : 'terminal'; event.currentTarget.value = current; if (pick !== current) openSwitch(event.currentTarget) }}>
+          <select use:gafferTooltip aria-label="Session interface" value={chatView ? 'chat' : 'terminal'} aria-disabled={modeSwitching || undefined}
+            title={modeSwitching ? whyNot : 'Choose Gaffer or the agent TUI'}
+            onchange={event => { const pick = event.currentTarget.value, current = chatView ? 'chat' : 'terminal'; event.currentTarget.value = current; if (pick !== current && canSwitch) openSwitch(event.currentTarget) }}>
             <option value="chat">Gaffer</option>
             <option value="terminal">{terminalLabel}</option>
           </select>
         </label>
       {:else}
-        <span class="tui-pill" title={whyNot} aria-label={`${chatView ? 'Gaffer' : terminalLabel}. ${whyNot}`}>{chatView ? 'Gaffer' : terminalLabel}</span>
+        <span class="tui-pill" use:gafferTooltip={chatView} title={whyNot} aria-label={`${chatView ? 'Gaffer' : terminalLabel}. ${whyNot}`}>{chatView ? 'Gaffer' : terminalLabel}</span>
       {/if}
       <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
       <button type="button" class="theatre-button" aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Restore the session panels' : 'Hide the panels and focus on this session'} onclick={theatreView}>
@@ -508,7 +509,7 @@
   .approvals button:disabled { opacity: .5; cursor: default; }
   .tui-picker { flex: none; display: inline-flex; align-items: center; min-width: 0; }
   .tui-picker select { min-height: 36px; padding: 0 30px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
-  .tui-picker select:disabled { opacity: .55; cursor: not-allowed; }
+  .tui-picker select:disabled, .tui-picker select[aria-disabled=true] { opacity: .55; cursor: progress; }
   .tui-picker select:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .tui-pill { flex: none; display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--line-soft); color: var(--muted); font: 500 14px var(--sans); }
   .live p { margin: 0 28px 8px; font-size: 14px; color: var(--muted); }
@@ -567,13 +568,19 @@
     .session-screen.focus :global(.hint) { display: none; }
     .session-screen.focus :global(.tool-head) { min-height: 44px; }
   }
+  /* A very short viewport (a phone with the keyboard up, or held sideways): keep the controls on one scrolling row so
+     the terminal keeps the room it needs. */
+  @media (max-height: 500px) {
+    .session-tools { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  }
   /* In landscape keep the controls reachable and trim secondary metadata. */
   @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 4px 4px; }
     .identity-row { flex: 1 1 190px; min-height: 44px; }
     .heading { max-width: 100px; }
     .where-phone { display: none; }
-    .session-tools { flex: 0 1 auto; }
+    /* A landscape phone has no room for several wrapped rows: the controls keep their 44 px targets in one scrolling row. */
+    .session-tools { flex: 0 1 auto; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
   }
   /* With the phone keyboard up the site's chrome steps aside (keyboardChrome) and the slim header stays, as the mock-up's phone
      session draws it; the status line gives its row to the terminal. */

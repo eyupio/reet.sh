@@ -141,11 +141,6 @@ try {
   const continueItem = page.locator('.session-screen .head').getByRole('button', { name: 'Continue with history', exact: true })
   const headerContinue = async present => {
     await expect(continueItem).toHaveCount(present ? 1 : 0)
-    await page.locator('.session-screen').getByRole('button', { name: 'Session actions' }).click()
-    await expect(page.getByRole('menuitem').first()).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: /Continue/ })).toHaveCount(0)
-    await page.keyboard.press('Escape')
-    await expect(page.getByRole('menuitem')).toHaveCount(0)
   }
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
 

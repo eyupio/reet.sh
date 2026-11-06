@@ -69,7 +69,7 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
   await opened.page.locator('.session-screen header.head').waitFor({state:'visible',timeout:60000})
   const exitFocus=opened.page.getByRole('button',{name:'Exit focus mode',exact:true})
   if(await exitFocus.count())await exitFocus.click()
-  await opened.page.getByRole('button',{name:'Details',exact:true}).click()
+  await opened.page.getByRole('button',{name:'Session details panel',exact:true}).click()
  }
  try { await expect(panel).toBeVisible({timeout:60000}) } catch(e) { console.error('Runtime errors:',opened.errors,'Unexpected routes:',opened.state.unexpected); throw e }
  return {...opened,calls,box,panel,prompts}
@@ -147,7 +147,7 @@ try {
   await page.keyboard.press('Tab');await expect(panel.getByRole('button',{name:'Session',exact:true})).toBeFocused()
   await page.keyboard.press('Tab');await expect(panel.getByRole('button',{name:'Close details'})).toBeFocused()
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
-  await page.keyboard.press('Escape');await expect(panel).not.toBeVisible();await expect(page.getByRole('button',{name:'Details',exact:true})).toBeFocused()
+  await page.keyboard.press('Escape');await expect(panel).not.toBeVisible();await expect(page.getByRole('button',{name:'Session details panel',exact:true})).toBeFocused()
   expect(errors).toEqual([]);await context.close()
  }
  // The overview keeps every section where it is while the current task changes: only the text inside the live slots changes.
@@ -220,7 +220,7 @@ try {
  // control that hands focus back to Details, with the width and open state kept for the person.
  for(const theme of ['dark','light']){
   const {page,context,panel,errors}=await open(1600,theme)
-  const details=page.locator('.session-screen').getByRole('button',{name:'Details',exact:true})
+  const details=page.getByRole('button',{name:'Session details panel',exact:true})
   const separator=page.getByRole('separator',{name:'Resize session workspace'})
   const width=async()=>Math.round((await panel.boundingBox()).width)
   expect(await width()).toBe(360)

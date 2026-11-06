@@ -281,7 +281,7 @@ try{
  await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).click()
  await bounds(1360,900)
  expect(websockets).toBe(connections)
- await page.getByRole('button',{name:'Details & help',exact:true}).click()
+ await page.getByRole('button',{name:'Help & shortcuts',exact:true}).click()
  await expect(page.getByRole('dialog')).toContainText('Controller terminal access')
  await page.getByRole('button',{name:'Close Machine & terminal details'}).click()
  await live();expect(websockets).toBe(connections)

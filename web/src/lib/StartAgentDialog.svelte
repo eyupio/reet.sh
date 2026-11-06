@@ -22,7 +22,7 @@
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
  // the prompt lives only in this component: it is cleared when the dialog closes.
  // opener is the element the person pressed to open this, which gets focus back on close.
- let { machines, snapshot, projects = [], initialAgent = '', projectId = '', honourProjectDefaults = false, opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
+ let { machines, snapshot, projects = [], initialAgent = '', projectId = '', opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
   /** The machines from /api/v2/terminal/machines, with their readiness and launch capabilities. */
   machines: TerminalMachine[]
   /** The machines' reported folders (from the sync state), or undefined while they are unknown: the home folder and a typed path still work. */
@@ -36,8 +36,6 @@
   /** The folder project the folder belongs to: sent with the start while the machine and folder are still that project's,
    *  so the session is listed under it. */
   projectId?: string
-  /** Honour the project's and account's worktree and base-branch defaults, as Home's old launch bar did. */
-  honourProjectDefaults?: boolean
   opener?: HTMLElement | null
   /** Hands over the started session. A page that answers 'leaving' is opening it at another address: the dialog then stays in
    *  its Starting… state, with nothing left to press, until the page unloads. */
@@ -520,9 +518,9 @@
    const chosenProject = pickedProject
    const onProject = !!chosenProject && machine.agentId === chosenProject.host && dir === chosenProject.dir
    if (onProject) launch.projectId = chosenProject.id
-   // Home's rail + and a machine's New session give a project's own defaults the same weight the launch bar did: a
-   // repository that asks for a worktree (or inherits the account's default) starts in one, from its own base branch.
-   if (honourProjectDefaults && onProject && !structured && chosenProject?.isRepo) {
+   // A chosen project's own defaults apply however the dialog was opened: a repository that asks for a worktree (or
+   // inherits the account's default) starts in one, from its own base branch, never in the shared checkout.
+   if (onProject && !structured && chosenProject?.isRepo) {
     const worktree = chosenProject.worktreeDefault === 'yes' ? true : chosenProject.worktreeDefault === 'no' ? false : accountDefaults?.worktreesByDefault !== false
     if (worktree && machine.capabilities?.worktree) {
      launch.worktree = crypto.randomUUID().replaceAll('-', '')

@@ -173,8 +173,12 @@ function batchSummary(batch: SoftwareBatch): FleetSoftwareSummary {
   }
 }
 
-/** The one button for these machines, and the machines it updates. */
-function pressFor(ready: FleetSoftwareRow[]): { button: string; ready: string[] } {
+/**
+ * The one button for these machines, and the machines it updates. The question asked before anything starts uses the
+ * same label, so what was pressed and what is confirmed always read the same.
+ */
+export function fleetSoftwarePress(ready: FleetSoftwareRow[]): { button: string; ready: string[] } {
+  if (!ready.length) return { button: '', ready: [] }
   const installs = ready.filter(row => row.state === 'install').length
   return {
     button: installs === ready.length ? `Install on ${machinesLabel(ready.length)}` : `Update ${machinesLabel(ready.length)}`,
@@ -188,7 +192,7 @@ export function fleetSoftwareSummary(rows: FleetSoftwareRow[], batch: SoftwareBa
   if (batch) {
     const summary = batchSummary(batch)
     // Once a batch has ended, whatever can still update is one press away again, without starting over first.
-    return summary.state === 'finished' && ready.length ? { ...summary, ...pressFor(ready) } : summary
+    return summary.state === 'finished' && ready.length ? { ...summary, ...fleetSoftwarePress(ready) } : summary
   }
   if (!rows.length) return { state: 'empty', headline: 'No machines yet.', detail: '', button: '', ready: [] }
   const blocked = rows.filter(row => (row.state === 'update' || row.state === 'install') && !fleetSoftwareCanApply(row))
@@ -208,7 +212,7 @@ export function fleetSoftwareSummary(rows: FleetSoftwareRow[], batch: SoftwareBa
       state: 'ready',
       headline: `OpenCode can be ${verb} on ${machinesLabel(ready.length)}.`,
       detail: [`${names(ready)}${target ? `, to ${target}` : ''}.`, ...rest].join(' '),
-      ...pressFor(ready),
+      ...fleetSoftwarePress(ready),
     }
   }
   if (blocked.length) {

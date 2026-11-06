@@ -24,7 +24,7 @@
 <dialog bind:this={dialog} use:shell={{ sheet: 'bottom' }} aria-labelledby={titleId} oncancel={(event) => { event.preventDefault(); onclose() }} onkeydown={(event) => event.stopPropagation()}>
   <header data-shell-head>
     <h2 id={titleId}>You asked</h2>
-    <button type="button" class="btn quiet" onclick={onclose} aria-label="Close" data-shell-close>Close ×</button>
+    <button type="button" class="btn quiet" onclick={onclose} aria-label="Close" data-shell-close>Close <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
   </header>
   <div class="chips" role="group" aria-label="How the session was started">
     {#if session.tool}<span class="chip">{session.tool}</span>{/if}
@@ -44,13 +44,13 @@
 </dialog>
 
 <style>
-  dialog { padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: hidden; }
+  dialog { padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: hidden; }
   dialog[open] { display: flex; flex-direction: column; }
   dialog::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
   h2 { margin: 0; font: 500 1.35rem var(--serif); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 20px 0; }
-  .chip { border-radius: 999px; padding: 3px 9px; background: var(--tint); color: var(--muted); font: 500 14px var(--mono); overflow-wrap: anywhere; }
+  .chip { border-radius: 6px; padding: 3px 9px; background: var(--tint); color: var(--muted); font: 500 14px var(--mono); overflow-wrap: anywhere; }
   .chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
   .body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; }
   .text { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 var(--sans); }

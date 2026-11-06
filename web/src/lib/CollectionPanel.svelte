@@ -23,15 +23,15 @@
 </section>
 
 <style>
-  .collection { border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
-  .head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+  .collection { border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
   .count { margin: 0; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .toolbar { padding: 14px 20px; border-bottom: 1px solid var(--line-soft); }
+  .toolbar { padding: 16px 20px; border-bottom: 1px solid var(--line-soft); }
   .body { padding: 0 20px 20px; }
   @media (max-width: 650px) {
-    .head { padding: 12px 14px; }
-    .toolbar { padding: 0 14px 12px; }
-    .body { padding: 0 14px 14px; }
+    .head { padding: 12px 16px; }
+    .toolbar { padding: 0 16px 12px; }
+    .body { padding: 0 16px 16px; }
   }
 </style>

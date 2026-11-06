@@ -92,10 +92,10 @@
      two lines too, and its buttons go one per row.
      Everything else is behind Details, which only the person opens, so it is the one thing allowed to make the card taller. */
   .pull-card { min-width: 0; --btn: 32px; --summary: 24px; container-type: inline-size; }
-  h4 { margin: 0 0 10px; font: 600 14px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
-  .placeholder { box-sizing: border-box; height: 76px; display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
+  h4 { margin: 0 0 10px; font: 600 14px var(--sans); letter-spacing: 0.01em; color: var(--muted); }
+  .placeholder { box-sizing: border-box; height: 76px; display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
   .placeholder p { margin: 0; font-size: 14px; line-height: 20px; color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
-  .pull { box-sizing: border-box; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--ink); }
+  .pull { box-sizing: border-box; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
   .row { display: flex; align-items: center; gap: 8px; height: 20px; font-size: 14px; line-height: 20px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row.ident { color: var(--muted); } .ident b { color: var(--ink); font-weight: 600; }
   .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -120,7 +120,7 @@
   /* "Open pull request" floats beside the fold's summary, so the two share one row while the fold's contents open below both. The
      link keeps its own width (130 px) and the summary takes the rest, which still leaves "Details" 84 px in a 300 px panel. */
   .open-pull { float: left; margin-right: 6px; }
-  .btn { box-sizing: border-box; min-width: 0; height: var(--btn); min-height: var(--btn); display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; text-decoration: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .btn { box-sizing: border-box; min-width: 0; height: var(--btn); min-height: var(--btn); display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; text-decoration: none; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .btn:hover { background: var(--tint); }
   .more > summary { display: flex; gap: 6px; list-style: none; user-select: none; }
   .more > summary::-webkit-details-marker { display: none; }
@@ -129,13 +129,13 @@
   @media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }
   .fold { clear: both; padding-top: 10px; --chips: 28px; --fact: 20px; }
   .chips { display: flex; flex-wrap: wrap; align-content: center; align-items: center; gap: 4px; height: var(--chips); overflow: hidden; }
-  .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; border-radius: 999px; padding: 2px 7px; background: var(--tint); color: var(--muted); font: 500 14px/20px var(--sans); white-space: nowrap; }
+  .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; border-radius: 6px; padding: 2px 7px; background: var(--tint); color: var(--muted); font: 500 14px/20px var(--sans); white-space: nowrap; }
   .chip.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); } .chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); } .chip.good { color: var(--good); background: color-mix(in srgb, var(--good) 10%, transparent); }
   .meter-slot { height: 13px; display: flex; align-items: center; }
   .meter { display: flex; width: 100%; height: 5px; border-radius: 3px; overflow: hidden; background: var(--line-soft); }
   .meter i { display: block; height: 100%; } .meter .bad { background: var(--bad); } .meter .warn { background: var(--warn); } .meter .good { background: var(--good); }
   [data-tone='bad'] { color: var(--bad); } [data-tone='warn'] { color: var(--warn); } [data-tone='good'] { color: var(--good); }
-  .fact { height: var(--fact); } .split { gap: 10px; } .totals { flex: none; font: 14px var(--mono); } .totals .good { color: var(--good); } .totals .bad { color: var(--bad); }
+  .fact { height: var(--fact); } .split { gap: 10px; } .totals { flex: none; font: 14px var(--mono); font-variant-numeric: tabular-nums; } .totals .good { color: var(--good); } .totals .bad { color: var(--bad); }
   .pushed { color: var(--muted); }
   .buttons { margin-top: 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: var(--btn); gap: 6px; }
   .copy-link { display: flex; min-width: 0; }

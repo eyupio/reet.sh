@@ -18,7 +18,7 @@
 
 <style>
   .password-field { position: relative; min-width: 0; }
-  input { width: 100%; padding-right: 68px; }
-  button { position: absolute; right: 1px; top: 1px; bottom: 1px; min-width: 56px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
+  .password-field input { width: 100%; padding-right: 68px; }
+  button { position: absolute; right: 1px; top: 0; bottom: 0; min-width: 56px; min-height: 44px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
   button:hover { background: var(--tint); color: var(--ink); }
 </style>

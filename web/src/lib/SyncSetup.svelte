@@ -147,7 +147,7 @@
   .library-sync { border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: clamp(18px, 3vw, 30px); margin: 20px 0; }
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
   header > div { min-width: 0; }
-  .eyebrow { margin: 0 0 8px; color: var(--accent-text); font-size: 0.875rem; text-transform: uppercase; letter-spacing: .1em; }
+  .eyebrow { margin: 0 0 8px; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; }
   h2 { margin: 0; font: 500 clamp(1.7rem, 3vw, 2.25rem)/1.15 var(--serif); }
   .promise { max-width: 65ch; color: var(--muted); font-size: .9rem; line-height: 1.65; }
   header .btn { flex: none; }
@@ -162,7 +162,7 @@
   .fleet-text { flex: 1; min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
   .fleet-text strong { font: 500 clamp(1.25rem, 2.6vw, 1.6rem)/1.25 var(--serif); }
   .fleet-text span { font-size: 0.875rem; line-height: 1.5; }
-  .fleet-text small { color: var(--muted); font-size: 0.875rem; }
+  .fleet-text small { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .fleet .btn { flex: none; min-height: 44px; }
   .promise { margin: 14px 0 22px; }
   .machine-list { border-top: 1px solid var(--line); }
@@ -173,12 +173,12 @@
   .machine-name strong { font-size: .92rem; }
   .machine-name span, .machine-link { font-size: 0.875rem; color: var(--muted); }
   .machine-link { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
-  .status { flex: none; max-width: 35%; border-radius: 20px; padding: 6px 10px; font-size: 0.875rem; background: var(--bg); overflow-wrap: anywhere; }
+  .status { flex: none; max-width: 35%; border-radius: 6px; padding: 6px 10px; font-size: 0.875rem; background: var(--bg); overflow-wrap: anywhere; }
   .status[data-tone='synced'] { color: var(--good); }
   .status[data-tone='attention'], .status[data-tone='review'] { color: var(--warn); }
   .status[data-tone='working'] { color: var(--accent-text); }
   .library-content { margin-top: 22px; }
-  summary { cursor: pointer; padding: 8px 0; font-size: 0.875rem; }
+  summary { cursor: pointer; padding: 8px 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .search { display: grid; gap: 6px; margin: 12px 0; font-size: 0.875rem; }
   input { min-height: 44px; width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; padding: 10px; }
   ul { list-style: none; padding: 0; max-height: 320px; overflow: auto; }

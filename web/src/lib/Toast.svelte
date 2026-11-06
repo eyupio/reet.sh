@@ -95,22 +95,22 @@
 <style>
   .toast {
     position: fixed; left: 50%; bottom: max(calc(24px + var(--bottom-chrome, 0px)), calc(var(--sync-dock-clearance, 0px) + 12px)); z-index: 20; transform: translate(-50%, 0);
-    display: flex; align-items: center; gap: 10px; width: max-content;
-    max-width: min(460px, calc(100vw - 32px)); padding: 10px 10px 10px 14px;
+    display: flex; align-items: center; gap: 8px; width: max-content;
+    max-width: min(460px, calc(100vw - 32px)); padding: 8px 8px 8px 12px;
     background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--accent);
     border-radius: 12px; box-shadow: 0 18px 50px -20px rgb(0 0 0 / 0.4);
   }
   .toast.right { left: auto; right: 24px; transform: none; max-width: min(380px, calc(100vw - 32px)); }
   .toast.ok { border-left-color: var(--good); }
   .toast.bad { border-left-color: var(--bad); }
-  .mark { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--accent-ink); background: var(--accent); }
+  .mark { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; color: var(--accent-ink); background: var(--accent); }
   .ok .mark { background: var(--good); }
   .bad .mark { background: var(--bad); }
-  .mark svg { width: 13px; height: 13px; }
+  .mark svg { width: 12px; height: 12px; }
   .msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .action {
     flex: none; background: none; border: 0; padding: 6px 8px; min-height: 36px;
-    color: var(--accent-text); font-weight: 650; cursor: pointer; border-radius: 8px;
+    color: var(--accent-text); font-weight: 600; cursor: pointer; border-radius: 6px;
   }
   .action:hover:not(:disabled) { background: var(--tint); }
   .action:disabled { opacity: 0.6; cursor: default; }

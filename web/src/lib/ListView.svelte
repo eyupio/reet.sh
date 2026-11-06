@@ -540,14 +540,14 @@
   .public-note { white-space: pre-wrap; border-left: 2px solid var(--accent); padding-left: 8px; }
   .back { color: var(--muted); font-size: 0.875rem; text-decoration: none; }
   .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; }
   h1 { margin: 6px 0 0; font: 600 clamp(1.9rem, 5vw, 2.6rem)/1.06 var(--serif); letter-spacing: -0.025em; overflow-wrap: anywhere; }
   .lede { margin: 10px 0 0; color: var(--muted); max-width: 58ch; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
   .status { margin: 14px 0 0; color: var(--good); font-size: 0.88rem; }
-  .inline { background: none; border: 0; padding: 0 2px; color: var(--accent-text); font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .inline { background: none; border: 0; padding: 0 2px; color: var(--accent-text); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
   .error { margin: 14px 0 0; color: var(--bad); font-size: 0.88rem; }
-  .empty { text-align: center; color: var(--muted); font: italic 1.1rem/1.5 var(--serif); padding: 44px 0; }
+  .empty { text-align: center; color: var(--muted); font: 400 1.1rem/1.5 var(--serif); padding: 44px 0; }
   .start { margin-top: 28px; padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
   .start h1 { margin: 8px 0 0; }
 
@@ -570,7 +570,7 @@
   .who { flex: 1 1 200px; display: grid; gap: 1px; min-width: 0; }
   .who strong { font-size: 0.9rem; overflow-wrap: anywhere; }
   .who small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
-  .tag-owner { margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .tag-owner { margin-left: 4px; padding: 1px 6px; border-radius: 6px; background: var(--tint); color: var(--ink); font-size: 0.875rem; font-weight: 600; }
   .role { color: var(--muted); font-size: 0.875rem; }
   .people select { width: auto; padding: 6px 10px; }
   .addperson { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
@@ -584,7 +584,7 @@
   .addrow select { flex: 0 1 220px; }
   .addrow input { flex: 1 1 240px; }
   .addrow.second input { flex: 1 1 320px; }
-  .or { color: var(--muted); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.08em; }
+  .or { color: var(--muted); font-size: 0.875rem; }
 
   .entries { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 14px; }
   .entry { padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); box-shadow: 0 18px 50px -48px rgb(0 0 0 / 0.4); }
@@ -592,9 +592,9 @@
   .entry h2 { margin: 0; font: 500 1.4rem/1.25 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .entry h2 a { color: inherit; text-decoration: none; }
   .entry h2 a:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
-  .source { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; }
+  .source { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .source code { overflow-wrap: anywhere; }
-  .adoption { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 999px; color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); font-size: 0.875rem; font-weight: 650; white-space: nowrap; }
+  .adoption { flex: none; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--good) 35%, var(--line)); border-radius: 6px; color: var(--good); background: color-mix(in srgb, var(--good) 7%, var(--card)); font-size: 0.875rem; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .desc { margin: 8px 0 0; color: var(--muted); max-width: 64ch; font-size: 0.9rem; }
   .note { margin: 10px 0 0; padding: 6px 0 6px 12px; border-left: 2px solid var(--accent); font: italic 0.95rem/1.5 var(--serif); white-space: pre-wrap; }
   .added { margin: 6px 0 0; color: var(--muted); font-size: 0.875rem; }

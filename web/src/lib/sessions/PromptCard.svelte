@@ -63,7 +63,7 @@
 {/if}
 
 <style>
-  h4 { margin: 0 0 10px; font: 600 14px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  h4 { margin: 0 0 10px; font: 600 14px var(--sans); letter-spacing: 0.01em; color: var(--muted); }
   .slot { height: 40px; }
   blockquote { margin: 0; padding-left: 10px; border-left: 2px solid var(--line); }
   blockquote p, .line { margin: 0; font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }

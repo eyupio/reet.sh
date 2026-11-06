@@ -632,9 +632,9 @@
 <style>
   /* The mock-up's rail: 272 px of content inside 14 px padding and a 1 px rule (301 px in all). */
   .rail { position: relative; border-right: 1px solid var(--line-soft); align-self: stretch; min-width: 0; line-height: 1.3; }
-  .full { position: sticky; top: 0; max-height: 100dvh; overflow-y: auto; padding: 18px 14px; display: flex; flex-direction: column; gap: 12px; min-height: calc(100dvh - 61px); box-sizing: border-box; }
+  .full { position: sticky; top: 0; max-height: 100dvh; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 12px; min-height: calc(100dvh - 61px); box-sizing: border-box; }
   header { display: flex; align-items: center; }
-  h2 { flex-grow: 1; margin: 0; font: 600 14px/1.3 var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+  h2 { flex-grow: 1; margin: 0; font: 600 14px/1.3 var(--sans); letter-spacing: 0.01em; color: var(--muted); }
   .add { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink); font-size: 14px; font-weight: 500; cursor: pointer; }
   .add svg, .add-icon svg { width: 14px; height: 14px; }
   .add:hover:not(:disabled), .add-icon:hover:not(:disabled) { border-color: var(--muted); }
@@ -644,27 +644,27 @@
   .rail-fold svg { width: 15px; height: 15px; }
   ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
   .items { gap: 8px; }
-  .groups { display: flex; flex-direction: column; gap: 14px; }
-  .group-block { display: flex; flex-direction: column; gap: 7px; min-width: 0; border-radius: 10px; }
+  .groups { display: flex; flex-direction: column; gap: 12px; }
+  .group-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; border-radius: 8px; }
   .group-block.captioned { gap: 6px; }
-  .group-caption { margin: 0 3px; font: 600 14px/1.3 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .group-caption { margin: 0 4px; font: 600 14px/1.3 var(--sans); letter-spacing: 0.01em; color: var(--muted); }
   .group-head { display: flex; align-items: center; gap: 2px; padding: 3px 3px 3px 1px; border-radius: 8px; transition: background .15s; }
   .group-head:hover { background: var(--line-soft); }
-  .group-fold { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+  .group-fold { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
   .group-fold:hover { color: var(--ink); }
   .group-fold svg { width: 12px; height: 12px; transition: transform .16s var(--ease-out, ease); }
   .folded .group-fold svg { transform: rotate(-90deg); }
-  .group-name { flex: 1; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 4px 2px; border: 0; border-radius: 6px; background: none; color: var(--ink-soft); font: 600 14px/1.2 var(--sans); text-align: left; cursor: pointer; }
+  .group-name { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 2px; border: 0; border-radius: 6px; background: none; color: var(--ink-soft); font: 600 14px/1.2 var(--sans); text-align: left; cursor: pointer; }
   .group-name:hover { color: var(--ink); }
   .group-name.scoped { color: var(--accent-text); }
   .group-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 1px var(--line-deep); }
   .group-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .group-count { flex: none; margin-left: 1px; padding: 0 6px; border: 1px solid var(--line); border-radius: 99px; background: var(--bg-sunk); color: var(--muted); font: 500 14px/16px var(--sans); }
-  .group-more { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; opacity: 0; }
+  .group-count { flex: none; margin-left: 1px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-sunk); color: var(--muted); font: 500 14px/16px var(--sans); font-variant-numeric: tabular-nums; }
+  .group-more { flex: none; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; opacity: 0; }
   .group-head:hover .group-more, .group-more:focus-visible, .group-more[aria-expanded='true'] { opacity: 1; }
   .group-more svg { width: 14px; height: 14px; }
-  .group-block > .items { margin-left: 10px; padding-left: 7px; border-left: 2px solid var(--line-soft); }
-  .group-empty { margin-left: 10px; padding: 13px 10px; border: 1px dashed var(--line-mid); border-radius: 9px; color: var(--muted); font-size: 14px; text-align: center; transition: border-color .15s, background .15s, color .15s; }
+  .group-block > .items { margin-left: 10px; padding-left: 8px; border-left: 2px solid var(--line-soft); }
+  .group-empty { margin-left: 10px; padding: 12px 10px; border: 1px dashed var(--line-mid); border-radius: 8px; color: var(--muted); font-size: 14px; text-align: center; transition: border-color .15s, background .15s, color .15s; }
   .group-empty.active { border-color: var(--accent); color: var(--accent-text); background: var(--accent-wash); }
   .group-block.drop-group > .group-head { background: var(--accent-wash); }
   /* A drag shows a line where the project will land. */
@@ -676,7 +676,7 @@
   .card[draggable='true'] { cursor: grab; }
   .item.dragging .card { cursor: grabbing; }
   .item { position: relative; display: flex; flex-direction: column; gap: 6px; }
-  .card { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+  .card { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
   .card:hover { border-color: var(--line-strong); }
   .card.chosen, .card.scoped { border-color: var(--accent); }
   .card.scoped { box-shadow: inset 0 0 0 1px var(--accent); }
@@ -689,37 +689,37 @@
   .icon.folder { color: var(--muted); }
   /* A project's name is shown in full, over as many lines as it needs: two names that start the same must stay apart. */
   .name { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
-  .tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); border: 1px solid var(--line-mid); border-radius: 99px; padding: 1px 8px; }
-  .meta { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; color: var(--muted); }
+  .tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); border: 1px solid var(--line-mid); border-radius: 6px; padding: 1px 8px; }
+  .meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; color: var(--muted); }
   .branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
   .state { flex: none; }
   .state.good { color: var(--good); }
   .state.warn { color: var(--warn); }
-  .wt { margin-left: auto; flex: none; white-space: nowrap; }
+  .wt { margin-left: auto; flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
   /* The card's menu button shows on hover or keyboard focus with a mouse, and always on touch. */
-  .more, .start { position: absolute; top: 6px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--card-raised); color: var(--ink-soft); cursor: pointer; opacity: 0; }
+  .more, .start { position: absolute; top: 6px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--card-raised); color: var(--ink-soft); cursor: pointer; opacity: 0; }
   .more { right: 6px; }
   /* The + is always in reach: it is the one press that starts a session in this project. */
   .start { right: 38px; opacity: 1; }
   .more svg, .start svg { width: 15px; height: 15px; }
   .item:hover .more, .more:focus-visible, .start:focus-visible, .more[aria-expanded='true'] { opacity: 1; }
-  .menu { position: fixed; z-index: 30; min-width: 198px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: 0 12px 30px var(--scrim); }
-  .menu button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+  .menu { position: fixed; z-index: 30; min-width: 198px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card-raised); box-shadow: 0 12px 30px var(--scrim); }
+  .menu button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
   .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--line-soft); }
   .menu button:disabled { color: var(--faint); cursor: default; }
   .menu .danger { color: var(--bad); }
   .identity { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--project-colour); }
-  .colour-label { display: block; padding: 5px 12px 1px; color: var(--muted); font-size: 14px; }
-  .colours { display: flex; gap: 7px; padding: 4px 12px 6px; }
+  .colour-label { display: block; padding: 4px 12px 1px; color: var(--muted); font-size: 14px; }
+  .colours { display: flex; gap: 8px; padding: 4px 12px 6px; }
   .menu .colours button { flex: none; width: 20px; height: 20px; min-height: 0; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--swatch); color: var(--ink); font-size: 14px; line-height: 1; }
   .menu .colours button[aria-checked='true'] { box-shadow: 0 0 0 2px var(--accent); }
   .menu .colours button:first-child { color: var(--muted); }
-  .group-picks { display: flex; flex-direction: column; gap: 1px; max-height: 168px; overflow-y: auto; padding: 2px 6px 5px; }
-  .menu .group-picks button { display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 0 6px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .group-picks { display: flex; flex-direction: column; gap: 1px; max-height: 168px; overflow-y: auto; padding: 2px 6px 4px; }
+  .menu .group-picks button { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 6px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .menu .group-picks button[aria-checked='true'] { color: var(--accent-text); background: var(--accent-wash); }
   .pick-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 1px var(--line-deep); }
   .pick-dot.none { background: transparent; }
-  .note, .waiting { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--card); font-size: 14px; }
+  .note, .waiting { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card); font-size: 14px; }
   .note p, .waiting p { margin: 0; color: var(--ink-soft); overflow-wrap: anywhere; line-height: 1.45; }
   .ghost { align-self: flex-start; min-height: 32px; padding: 4px 12px; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; text-align: left; }
   .ghost:hover:not(:disabled) { border-color: var(--muted); }
@@ -730,7 +730,7 @@
   .head-more { display: grid; place-items: center; width: 30px; height: 30px; margin-right: 8px; padding: 0; border: 1px solid var(--line-mid); border-radius: 8px; background: transparent; color: var(--ink-soft); cursor: pointer; }
   .head-more svg { width: 16px; height: 16px; }
   .head-more[aria-expanded='true'] { border-color: var(--muted); }
-  .picking { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .picking { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .picking p { margin: 0; font-size: 14px; color: var(--ink-soft); }
   .tick { flex: none; display: grid; place-items: center; width: 16px; height: 16px; border: 1.5px solid var(--line-deep); border-radius: 4px; color: var(--accent-ink); }
   .tick svg { width: 12px; height: 12px; }
@@ -761,25 +761,25 @@
   /* 1100 to 1239 px: a 56 px strip with the same cards as buttons, each named in full. */
   @media (min-width: 1100px) and (max-width: 1239px) {
     .full { display: none; }
-    .strip { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 0; min-height: calc(100dvh - 61px); box-sizing: border-box; }
-    .add-icon, .manage, .mini { position: relative; display: grid; place-items: center; width: 40px; min-height: 40px; padding: 0; border: 1px solid var(--line-mid); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+    .strip { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 0; min-height: calc(100dvh - 61px); box-sizing: border-box; }
+    .add-icon, .manage, .mini { position: relative; display: grid; place-items: center; width: 40px; min-height: 40px; padding: 0; border: 1px solid var(--line-mid); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
     .add-icon, .manage { background: transparent; }
     .manage svg { width: 16px; height: 16px; }
     .manage[aria-expanded='true'] { border-color: var(--accent); }
-    .marker { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-text); border: 2px solid var(--bg); }
+    .marker { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-text); border: 2px solid var(--bg); }
     /* Each project: its initial, then its base branch (mono, cut short; the whole is in the button's name), the repository
        diamond, a running dot and the worktrees in use as a small count. */
-    .mini { width: 44px; padding: 5px 0 4px; gap: 1px; align-content: center; }
+    .mini { width: 44px; padding: 4px 0; gap: 1px; align-content: center; }
     .mini-initial { font-size: 14px; line-height: 1.2; }
     .mini-branch { max-width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 14px/1.2 var(--mono); color: var(--muted); }
     .mini.chosen, .mini.picked { border-color: var(--accent); }
     .mini.picked { box-shadow: inset 0 0 0 1px var(--accent); }
     .mini[aria-disabled='true'] { opacity: 0.55; }
     /* Select's count under the toggle: how many are chosen. */
-    .picked-count { margin: 0; min-width: 28px; padding: 1px 6px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font: 600 14px/18px var(--sans); text-align: center; }
+    .picked-count { margin: 0; min-width: 28px; padding: 1px 6px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font: 600 14px/18px var(--sans); font-variant-numeric: tabular-nums; text-align: center; }
     .badge { position: absolute; top: 3px; left: 3px; width: 8px; height: 8px; fill: var(--repo); }
     .live { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
-    .mini-wt { position: absolute; bottom: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card-raised); color: var(--ink-soft); font: 500 14px/13px var(--sans); text-align: center; }
+    .mini-wt { position: absolute; bottom: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--card-raised); color: var(--ink-soft); font: 500 14px/13px var(--sans); font-variant-numeric: tabular-nums; text-align: center; }
     /* The full rail, opened over the page from the strip. */
     .rail.open .full { display: flex; position: fixed; z-index: 20; top: 0; left: 0; width: 301px; height: 100dvh; max-height: none; min-height: 0; background: var(--bg); border-right: 1px solid var(--line-soft); box-shadow: 12px 0 40px var(--scrim); }
   }
@@ -789,22 +789,22 @@
   @media (min-width: 1240px) {
     .rail.collapsed { border-right-color: var(--line-soft); }
     .rail.collapsed .full { display: none; }
-    .rail.collapsed .strip { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 0; min-height: calc(100dvh - 61px); box-sizing: border-box; }
-    .rail.collapsed .add-icon, .rail.collapsed .manage, .rail.collapsed .mini { position: relative; display: grid; place-items: center; width: 40px; min-height: 40px; padding: 0; border: 1px solid var(--line-mid); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+    .rail.collapsed .strip { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 0; min-height: calc(100dvh - 61px); box-sizing: border-box; }
+    .rail.collapsed .add-icon, .rail.collapsed .manage, .rail.collapsed .mini { position: relative; display: grid; place-items: center; width: 40px; min-height: 40px; padding: 0; border: 1px solid var(--line-mid); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
     .rail.collapsed .add-icon, .rail.collapsed .manage { background: transparent; }
     .rail.collapsed .manage svg { width: 16px; height: 16px; }
     .rail.collapsed .manage[aria-expanded='true'] { border-color: var(--accent); }
-    .rail.collapsed .marker { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent-text); border: 2px solid var(--bg); }
-    .rail.collapsed .mini { width: 44px; padding: 5px 0 4px; gap: 1px; align-content: center; }
+    .rail.collapsed .marker { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-text); border: 2px solid var(--bg); }
+    .rail.collapsed .mini { width: 44px; padding: 4px 0; gap: 1px; align-content: center; }
     .rail.collapsed .mini-initial { font-size: 14px; line-height: 1.2; }
     .rail.collapsed .mini-branch { max-width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 14px/1.2 var(--mono); color: var(--muted); }
     .rail.collapsed .mini.chosen, .rail.collapsed .mini.picked { border-color: var(--accent); }
     .rail.collapsed .mini.picked { box-shadow: inset 0 0 0 1px var(--accent); }
     .rail.collapsed .mini[aria-disabled='true'] { opacity: 0.55; }
-    .rail.collapsed .picked-count { margin: 0; min-width: 28px; padding: 1px 6px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font: 600 14px/18px var(--sans); text-align: center; }
+    .rail.collapsed .picked-count { margin: 0; min-width: 28px; padding: 1px 6px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font: 600 14px/18px var(--sans); font-variant-numeric: tabular-nums; text-align: center; }
     .rail.collapsed .badge { position: absolute; top: 3px; left: 3px; width: 8px; height: 8px; fill: var(--repo); }
     .rail.collapsed .live { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
-    .rail.collapsed .mini-wt { position: absolute; bottom: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card-raised); color: var(--ink-soft); font: 500 14px/13px var(--sans); text-align: center; }
+    .rail.collapsed .mini-wt { position: absolute; bottom: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--card-raised); color: var(--ink-soft); font: 500 14px/13px var(--sans); font-variant-numeric: tabular-nums; text-align: center; }
   }
   @media (max-width: 1239px) { .rail-fold { display: none; } }
   /* Tablet and phone: the rail is a section on the Sessions screen, with the same cards. */
@@ -813,7 +813,7 @@
     .full { position: static; max-height: none; min-height: 0; overflow: visible; padding: 0; }
     h2 { font: 600 21px/1.3 var(--serif); letter-spacing: 0; text-transform: none; color: var(--ink); }
     /* The phone Sessions screen draws the heading as "Projects · N" over the cards, with a 44 px Add a project. */
-    .rail.sessions h2 { font: 600 14px/1.3 var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
-    .rail.sessions .add { height: 44px; padding: 0 14px; border-color: var(--line-strong); border-radius: 10px; font-size: 15px; }
+    .rail.sessions h2 { font: 600 14px/1.3 var(--sans); letter-spacing: 0.01em; color: var(--muted); }
+    .rail.sessions .add { height: 44px; padding: 0 14px; border-color: var(--line-strong); border-radius: 8px; font-size: 15px; }
   }
 </style>

@@ -73,7 +73,7 @@
     padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent);
     border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px -20px rgb(0 0 0 / 0.4);
   }
-  strong { font-size: 0.9rem; }
+  strong { font-size: 0.9rem; font-variant-numeric: tabular-nums; }
   .actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
   .actions form { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .actions input { width: 12rem; }

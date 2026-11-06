@@ -499,20 +499,20 @@
   .controls {flex-shrink:0}
   .state {font-size:0.875rem;color:var(--muted);white-space:nowrap}
   .state.live {color:var(--good)}
-  button {font:inherit;font-size:0.875rem;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 10px;min-height:32px;cursor:pointer;white-space:nowrap}
+  button {font:inherit;font-size:0.875rem;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 10px;min-height:32px;cursor:pointer;white-space:nowrap}
   button:disabled {opacity:.45;cursor:default}
   button.continue {background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
   .tools {display:flex;gap:6px;align-items:center;flex-wrap:nowrap;overflow-x:auto;min-width:0;scrollbar-width:thin;padding:6px 10px;border-bottom:1px solid var(--line);font-size:0.875rem}
   .tools>button,.tools label {flex-shrink:0}
   .upload-off {font-size:0.875rem;color:var(--muted);white-space:nowrap;align-self:center}
-  .terminal-toolbar{background:var(--bg);padding:5px 8px;gap:2px}.terminal-toolbar button{display:flex;align-items:center;gap:6px;border-color:transparent;background:transparent;font-size:0.875rem;padding:6px 8px;min-height:32px}.terminal-toolbar button:hover:not(:disabled){background:var(--card);border-color:var(--line)}.tool-space{flex:1}.tool-divider{height:16px;width:1px;background:var(--line);margin:0 5px;flex-shrink:0}
+  .terminal-toolbar{background:var(--bg);padding:4px 8px;gap:2px}.terminal-toolbar button{display:flex;align-items:center;gap:6px;border-color:transparent;background:transparent;font-size:0.875rem;padding:6px 8px;min-height:32px}.terminal-toolbar button:hover:not(:disabled){background:var(--card);border-color:var(--line)}.tool-space{flex:1}.tool-divider{height:16px;width:1px;background:var(--line);margin:0 4px;flex-shrink:0}
   .tools label {display:flex;gap:8px;align-items:center;min-width:0}
   .tools input {min-width:0;max-width:180px;font-size:0.875rem}
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
   .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent-text)}
   .tools.mobile-keys {display:none;border-top:1px solid var(--line);border-bottom:0}
   .upload-input {display:none}
-  .screen-frame {position:relative;flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 10px 8px 14px}
+  .screen-frame {position:relative;flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 12px 8px 16px}
   .screen {height:100%;min-height:0;min-width:0;overflow:hidden;padding:0}
   .drop-overlay {position:absolute;inset:6px;z-index:4;display:grid;place-items:center;border:1px dashed var(--accent);border-radius:8px;background:color-mix(in srgb,var(--bg) 88%,transparent);color:var(--ink);font-size:0.875rem;pointer-events:none}
   .upload-chips {position:absolute;top:8px;right:8px;z-index:3;display:grid;gap:6px;max-width:min(260px,calc(100% - 16px));max-height:calc(100% - 48px);overflow:auto;pointer-events:none}
@@ -524,20 +524,20 @@
   .agent-copy {display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 12px;font-size:0.875rem;background:var(--tint);border-bottom:1px solid var(--line)}
   .agent-copy span {flex:1;min-width:0;overflow-wrap:anywhere}
   .agent-copy code {font-size:0.875rem}
-  .agent-copy button {font-size:0.875rem;min-height:28px;padding:3px 8px}
+  .agent-copy button {font-size:0.875rem;min-height:28px;padding:4px 8px}
   @media(pointer:coarse) {.agent-copy button {min-width:40px;min-height:40px}}
-  footer {padding:5px 10px;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:0.875rem;color:var(--muted)}
-  footer button {font-size:0.875rem;min-height:28px;padding:3px 8px}
+  footer {padding:4px 12px;border-top:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:0.875rem;color:var(--muted)}
+  footer button {font-size:0.875rem;min-height:28px;padding:4px 8px}
   /* The session screen's Approvals line (Ask me or YOLO), first in the footer. */
   .approvals {color:var(--ink-soft);font-size:0.875rem;white-space:nowrap}
   footer .link-state {flex:1;min-width:0}
   .session-menu {position:relative}
-  .session-menu>summary {cursor:pointer;font-size:0.875rem;min-height:32px;padding:6px 9px;border:1px solid var(--line);border-radius:7px;list-style:none}
+  .session-menu>summary {cursor:pointer;font-size:0.875rem;min-height:32px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;list-style:none}
   .session-menu>summary::-webkit-details-marker {display:none}
-  .session-menu>div {position:absolute;right:0;top:calc(100% + 4px);min-width:150px;display:grid;gap:5px;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--card);box-shadow:var(--shadow);z-index:10}
+  .session-menu>div {position:absolute;right:0;top:calc(100% + 4px);min-width:150px;display:grid;gap:4px;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--card);box-shadow:var(--shadow);z-index:10}
   .session-menu button {text-align:left}
   .end {color:var(--bad)}
-  .clipboard-menu {position:fixed;z-index:110;min-width:180px;max-height:calc(100dvh - 16px);overflow:auto;padding:6px;display:grid;gap:4px;border:1px solid var(--line);border-radius:9px;background:var(--card);box-shadow:0 8px 30px rgb(0 0 0 / .2)}
+  .clipboard-menu {position:fixed;z-index:110;min-width:180px;max-height:calc(100dvh - 16px);overflow:auto;padding:6px;display:grid;gap:4px;border:1px solid var(--line);border-radius:8px;background:var(--card);box-shadow:0 8px 30px rgb(0 0 0 / .2)}
   .clipboard-menu button {text-align:left}
   .pane.maximised {position:fixed;inset:12px;bottom:auto;height:calc(var(--terminal-viewport,100dvh) - 24px);z-index:90}
   /* Phones (narrow, or a touch screen held sideways; see PHONE_SCREEN in sizing.ts): every row of chrome is one line, so the screen keeps the height. */

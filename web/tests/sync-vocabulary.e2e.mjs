@@ -52,7 +52,7 @@ try {
 
     // Writing is writing, and its save notice says what to do next.
     await page.goto(`${base}/hosting`)
-    await expect(page.getByRole('heading', { name: 'Write a skill.', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Write a skill', exact: true })).toBeVisible()
     await expect(page).toHaveTitle(/Write a skill · reet\.sh/)
     await page.locator('.skill-choice').filter({ hasText: 'reet-review' }).click()
     await expect.poll(() => page.evaluate(() => {

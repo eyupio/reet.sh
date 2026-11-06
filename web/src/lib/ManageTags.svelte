@@ -152,7 +152,7 @@
   }
   dialog::backdrop { background: rgb(20 18 15 / 0.45); backdrop-filter: blur(2px); }
   .box {
-    padding: 22px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 22px; background: var(--card); border: 1px solid var(--line); border-radius: 16px;
     box-shadow: 0 28px 80px -24px rgb(0 0 0 / 0.45);
   }
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

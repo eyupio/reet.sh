@@ -519,7 +519,7 @@
  h2:focus { outline: none; }
  h2:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); overflow-wrap: anywhere; }
- .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: 0.875rem; letter-spacing: .1em; overflow-wrap: anywhere; }
+ .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; overflow-wrap: anywhere; }
  header .btn { flex: none; white-space: nowrap; }
  .body { padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; }
  .intro, small { color: var(--muted); font-size: 0.875rem; line-height: 1.5; }

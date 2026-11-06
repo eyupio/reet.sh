@@ -359,7 +359,7 @@
 </script>
 
 <svelte:window ondragover={windowDragOver} ondrop={windowDrop} />
-<PageHeader eyebrow="Write &amp; publish" title="Write a skill." lede="Keep it on your machines, or publish it for anyone to install." />
+<PageHeader eyebrow="Write &amp; publish" title="Write a skill" lede="Keep it on your machines, or publish it for anyone to install." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
 {#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)}<span class="next-action">Ready for your machines. {#if onsync}<button class="btn" type="button" disabled={syncing} onclick={() => void onsync()}>{syncing ? 'Starting…' : 'Sync all machines'}</button>{:else}<a href={syncHref}>Sync all machines</a>.{/if}</span>{/if}</p>{/if}
 {#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />
@@ -538,7 +538,7 @@
   .publisher { display: grid; gap: 6px; }
   .publisher p { margin: 0; }
   .stats { display: flex; gap: 8px; flex-wrap: wrap; }
-  .stat { padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.875rem; color: var(--muted); }
+  .stat { padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 0.875rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .stat code { color: var(--ink); }
   .toolbar-actions, .import-pickers { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .workspace { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); align-items: start; gap: 20px; }
@@ -554,7 +554,7 @@
   .skills-panel h2 { margin: 0; }
   .search { margin: 0; }
   .filters { display: flex; gap: 6px; flex-wrap: wrap; }
-  .chip { width: auto; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 0.875rem; cursor: pointer; }
+  .chip { width: auto; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); font-size: 0.875rem; cursor: pointer; }
   .chip.on { border-color: var(--accent); color: var(--ink); background: var(--tint); }
   .empty { padding: 8px 0; }
   .empty p { margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; }
@@ -565,10 +565,10 @@
   .skill-choice span { font-size: 0.875rem; color: var(--muted); }
   .choice-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .choice-top strong { color: var(--ink); }
-  .choice-meta { display: grid; gap: 2px; font-size: 0.875rem !important; }
+  .choice-meta { display: grid; gap: 2px; font-size: 0.875rem !important; font-variant-numeric: tabular-nums; }
   .choice-meta .where { color: var(--ink-soft); }
   .skill-choice small { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .pill { flex: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.875rem !important; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .pill { flex: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 0.875rem !important; font-weight: 600; }
   .pill.published { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); color: var(--good); }
   .form-block { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
   .form-block h3 { margin: 0; font-size: .9rem; }
@@ -606,7 +606,7 @@
   .import-check input { width: auto; margin-top: 3px; }
   .import-check span { display: grid; gap: 2px; min-width: 0; }
   .import-check small { color: var(--muted); }
-  .import-meta { display: flex; gap: 12px; flex-wrap: wrap; padding-left: 26px; color: var(--muted); font-size: 0.875rem; }
+  .import-meta { display: flex; gap: 12px; flex-wrap: wrap; padding-left: 26px; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .import-meta .problem { color: var(--bad); }
   .save-dock { position: fixed; right: 20px; bottom: calc(20px + var(--bottom-chrome, 0px)); z-index: 14; display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px -20px rgb(0 0 0 / .4); }
   .save-state { font-size: 0.875rem; color: var(--muted); }

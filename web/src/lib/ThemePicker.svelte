@@ -46,8 +46,8 @@
 </div>
 
 <style>
-  .theme-picker { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
-  button { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; }
+  .theme-picker { display: inline-flex; gap: 2px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+  button { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
   button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   button:hover { color: var(--ink); }
   button[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--accent-text); }

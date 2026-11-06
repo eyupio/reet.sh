@@ -97,25 +97,25 @@
 </dialog>
 
 <style>
-  dialog { width: min(760px, calc(100vw - 32px)); max-height: min(88vh, 780px); padding: 0; border: 1px solid var(--line); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 30px 90px rgb(0 0 0 / 0.28); }
+  dialog { width: min(760px, calc(100vw - 32px)); max-height: min(88vh, 780px); padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: 0 30px 90px rgb(0 0 0 / 0.28); }
   dialog::backdrop { background: rgb(20 18 16 / 0.45); backdrop-filter: blur(2px); }
   .sheet { display: grid; gap: 18px; padding: clamp(20px, 4vw, 30px); overflow: auto; max-height: inherit; }
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; }
   h2 { margin: 5px 0 0; font: 500 clamp(1.5rem, 3vw, 2rem)/1.1 var(--serif); letter-spacing: -0.025em; overflow-wrap: anywhere; }
   .lede { margin: 8px 0 0; max-width: 54ch; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
-  .icon { width: 38px; height: 38px; flex: none; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--muted); font-size: 1.25rem; cursor: pointer; }
+  .icon { width: 38px; height: 38px; flex: none; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); font-size: 1.25rem; cursor: pointer; }
   .icon:hover { color: var(--ink); border-color: var(--muted); }
-  .status { margin: 0; padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--good) 45%, var(--line)); border-radius: 999px; color: var(--good); background: color-mix(in srgb, var(--good) 8%, var(--card)); font-size: 0.875rem; justify-self: start; }
+  .status { margin: 0; padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--good) 45%, var(--line)); border-radius: 6px; color: var(--good); background: color-mix(in srgb, var(--good) 8%, var(--card)); font-size: 0.875rem; font-variant-numeric: tabular-nums; justify-self: start; }
   .layout { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 18px; align-items: start; }
   .tabs { display: grid; gap: 4px; }
   .tabs button { text-align: left; min-height: 40px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .tabs button:hover { color: var(--ink); background: var(--bg); }
-  .tabs button.active { color: var(--ink); background: var(--tint); border-color: var(--line); font-weight: 650; }
+  .tabs button.active { color: var(--ink); background: var(--tint); border-color: var(--line); font-weight: 600; }
   .command-panel { min-width: 0; }
   h3 { margin: 0; font-size: 1rem; }
   .command-panel p { margin: 6px 0 12px; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
-  .command { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); min-width: 0; }
+  .command { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); min-width: 0; }
   pre { max-width: 100%; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.875rem/1.65 var(--mono); }
   .hint { color: var(--muted); font-size: 0.875rem; }
   footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }

@@ -757,16 +757,16 @@
  .mode-hint{margin:8px 0 0}
  .skill-options{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin:12px 0;padding:8px}
  .skill{display:flex;align-items:center;gap:10px;padding:10px;font-weight:400;border-bottom:1px solid var(--line)} .skill.blocked{opacity:.62}.skill input{flex-shrink:0} small{display:block;font-size:0.875rem;color:var(--muted);overflow-wrap:anywhere}
- .skill > span{min-width:0}.skill-state{display:inline-block;margin-top:3px;padding:1px 7px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:0.875rem;font-weight:600}
- .actions,.counts,.command{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0}.counts span{border:1px solid var(--line);border-radius:16px;padding:5px 10px;font-size:0.875rem}
+ .skill > span{min-width:0}.skill-state{display:inline-block;margin-top:3px;padding:1px 7px;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:0.875rem;font-weight:600;font-variant-numeric:tabular-nums}
+ .actions,.counts,.command{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0}.counts span{border:1px solid var(--line);border-radius:6px;padding:5px 10px;font-size:0.875rem;font-variant-numeric:tabular-nums}
  .differences{margin:14px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
  .differences h3{margin:0;padding:10px 12px;border-bottom:1px solid var(--line);font-size:0.875rem}
- .differences table{width:100%;border-collapse:collapse;font-size:0.875rem}
+ .differences table{width:100%;border-collapse:collapse;font-size:0.875rem;font-variant-numeric:tabular-nums}
  .differences th,.differences td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line-soft);overflow-wrap:anywhere}
  .differences th{color:var(--muted);font-weight:600}.differences tr:last-child td{border-bottom:0}
  .inline-blocked{margin:10px 0;padding:9px 11px;border:1px solid var(--bad);border-radius:8px;font-size:0.875rem}
  .save-dock{position:sticky;bottom:calc(var(--bottom-chrome,0px) + 10px);z-index:8;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:18px -6px -4px;padding:12px 14px;border:1px solid var(--line-strong);border-radius:10px;background:var(--card-raised);box-shadow:0 10px 30px -18px var(--scrim)}
- .save-summary{margin:0;font-size:0.875rem;color:var(--ink-soft)}.save-hint{display:block;margin-top:2px;color:var(--muted);font-size:0.875rem}
+ .save-summary{margin:0;font-size:0.875rem;color:var(--ink-soft);font-variant-numeric:tabular-nums}.save-hint{display:block;margin-top:2px;color:var(--muted);font-size:0.875rem}
  .editing{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0}
  .mini-btn{min-height:24px;padding:2px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink-soft);font:600 0.875rem var(--sans);cursor:pointer}
  .mini-btn:hover{border-color:var(--muted)}
@@ -781,7 +781,7 @@
  .more-actions > summary::-webkit-details-marker{display:none}
  .more-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
  .review-plan{margin:0;padding:10px 12px;border:1px solid color-mix(in srgb,var(--warn) 45%,var(--line));border-radius:8px;background:var(--warn-wash,var(--card))}
- .review-head{margin:0 0 4px;color:var(--warn);font-size:0.875rem;font-weight:650;text-transform:uppercase;letter-spacing:.06em}
+ .review-head{margin:0 0 4px;color:var(--warn);font-size:0.875rem;font-weight:600}
  .review-plan ul{margin:0;padding-left:18px;font-size:0.875rem}.activity-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
  .feedback{padding:12px;border:1px solid var(--good);border-radius:8px}.bad{color:var(--bad);border-color:var(--bad)}details{margin:16px 0}summary{cursor:pointer;font-weight:600;padding:2px 0}code,li,h4{overflow-wrap:anywhere}section{margin:20px 0} .command code{font-size:0.875rem}
  .retry-result{margin:8px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:0.875rem;line-height:1.5;overflow-wrap:anywhere}
@@ -797,26 +797,26 @@
  .scope-option input{flex:none;margin-top:2px}
  .scope-option span{display:grid;gap:2px;min-width:0}
  .scope-option strong{font-size:0.875rem;overflow-wrap:anywhere}
- .scope-option small{font-size:0.875rem}
+ .scope-option small{font-size:0.875rem;font-variant-numeric:tabular-nums}
  /* No clip: a card holding actions must never cut them off. The header rounds its own top corners instead. */
  .machine-set{padding:0}
  .set-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line);border-radius:9px 9px 0 0;background:var(--bg)}
  .set-head > div{min-width:0}
  .set-head h4{margin:0}
- .set-head p{margin:3px 0 0;font-size:0.875rem}
+ .set-head p{margin:3px 0 0;font-size:0.875rem;font-variant-numeric:tabular-nums}
  .scope-sets{display:grid;grid-template-columns:minmax(0,1fr)}
  .scope-set{padding:14px 18px;border-top:1px solid var(--line)}
  .scope-set:first-child{border-top:0}
  .scope-title{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
  .scope-title strong{min-width:0;font-size:0.875rem;overflow-wrap:anywhere}
- .badge{padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:0.875rem}
+ .badge{padding:3px 8px;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:0.875rem;font-variant-numeric:tabular-nums}
  .scope-set > p{margin:5px 0;overflow-wrap:anywhere}
  .local-preview{margin:8px 0 0}
  .local-preview summary{font-size:0.875rem}
  .activity{margin:24px 0;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--card);scroll-margin-top:16px}
  .activity-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
  .activity-head > div{min-width:0;max-width:70ch}
- .eyebrow{margin:0 0 4px;color:var(--accent-text);text-transform:uppercase;letter-spacing:.1em;font-size:0.875rem;font-weight:650}
+ .eyebrow{margin:0 0 4px;color:var(--accent-text);font-size:0.875rem;font-weight:600}
  .activity-head h3{margin:0;font:500 1.25rem/1.25 var(--serif);letter-spacing:-.02em}
  .activity-head p{margin:5px 0 0;font-size:0.875rem;line-height:1.55}
  .activity-head .badge{flex:none}
@@ -826,14 +826,14 @@
  .host-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line);background:var(--card);border-radius:11px 11px 0 0;flex-wrap:wrap}
  .activity-host.calm .host-head{border-bottom:0;border-radius:11px}
  .host-head h4{margin:0;font-size:0.875rem;overflow-wrap:anywhere}
- .host-head p{margin:0;color:var(--muted);font-size:0.875rem}
+ .host-head p{margin:0;color:var(--muted);font-size:0.875rem;font-variant-numeric:tabular-nums}
  .activity-job{margin:0;border-top:1px solid var(--line);min-width:0}
  .activity-job:first-of-type{border-top:0}
  .activity-job > summary{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:48px;padding:10px 14px;list-style:none;font-weight:400}
  .activity-job > summary::-webkit-details-marker{display:none}
  .activity-job > summary::marker{content:''}
  .activity-job[open] > summary{background:color-mix(in srgb,var(--bg) 55%,transparent)}
- .job-mark{display:grid;place-items:center;width:24px;height:24px;flex:none;border:1px solid var(--line);border-radius:50%;font-size:0.875rem;font-weight:700}
+ .job-mark{display:grid;place-items:center;width:24px;height:24px;flex:none;border:1px solid var(--line);border-radius:6px;font-size:0.875rem;font-weight:600}
  .job-mark.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
  .job-mark.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
  .job-mark.work{color:var(--accent-text);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
@@ -844,24 +844,24 @@
  @keyframes pulse{50%{opacity:.35}}
  .job-copy{display:grid;gap:1px;min-width:0}
  .job-copy strong{font-size:0.875rem;line-height:1.35;overflow-wrap:anywhere}
- .job-copy small{font-size:0.875rem;color:var(--muted);line-height:1.4;overflow-wrap:anywhere}
+ .job-copy small{font-size:0.875rem;color:var(--muted);line-height:1.4;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
  .job-end{display:flex;align-items:center;gap:6px;justify-self:end;flex:none}
  .job-chevron{width:16px;height:16px;flex:none;color:var(--muted);transition:transform .2s var(--ease-out)}
  .activity-job[open] .job-chevron{transform:rotate(180deg)}
- .job-state{flex:none;padding:3px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:0.875rem;font-weight:650;white-space:nowrap}
+ .job-state{flex:none;padding:3px 9px;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:0.875rem;font-weight:600;white-space:nowrap}
  .job-state.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
  .job-state.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
  .job-state.work{color:var(--accent-text);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
  .job-state.ok{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--line))}
  .job-body{display:grid;gap:10px;padding:0 14px 14px;min-width:0}
  .stages{list-style:none;display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0}
- .stages li{padding:3px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:0.875rem}
+ .stages li{padding:3px 8px;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:0.875rem}
  .stages li.active{color:var(--accent-text);border-color:color-mix(in srgb,var(--accent) 40%,var(--line));font-weight:600}
  .stages li.done{color:var(--good);border-color:color-mix(in srgb,var(--good) 35%,var(--line))}
  .stages li.failed{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
  .stages li.review{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
  .job-facts,.job-message{margin:0;color:var(--muted);font-size:0.875rem;line-height:1.55;overflow-wrap:anywhere}
- .job-facts{color:var(--ink-soft)}
+ .job-facts{color:var(--ink-soft);font-variant-numeric:tabular-nums}
  .plan{margin:0;border-top:1px solid var(--line);padding-top:8px}
  .plan > summary{font-size:0.875rem}
  .plan p,.plan ul{font-size:0.875rem}

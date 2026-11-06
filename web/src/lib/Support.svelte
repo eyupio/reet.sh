@@ -157,19 +157,19 @@
   .search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   .search input { width: 100%; }
   .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 
   .ticket-list { display: grid; }
-  .ticket { display: grid; grid-template-columns: minmax(0, 1fr) auto 8px; align-items: center; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); color: inherit; text-decoration: none; }
+  .ticket { display: grid; grid-template-columns: minmax(0, 1fr) auto 8px; align-items: center; gap: 12px; padding: 16px 2px; border-top: 1px solid var(--line-soft); color: inherit; text-decoration: none; }
   .ticket:first-child { border-top: 0; }
   .ticket:hover strong { text-decoration: underline; text-underline-offset: 2px; }
   .main { min-width: 0; display: grid; gap: 3px; }
   .main strong { overflow-wrap: anywhere; }
-  .main small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
-  .state { flex: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
+  .main small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .state { flex: none; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
   .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.waiting { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
   .state.closed { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }

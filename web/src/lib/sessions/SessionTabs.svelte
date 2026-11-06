@@ -72,12 +72,12 @@
      top corners rounded and flush with the row's bottom edge, the current one raised. */
   .session-tabs { flex: 1 1 auto; align-self: stretch; margin: -8px 0; display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
   ul { list-style: none; margin: 0; padding: 0; display: flex; align-items: flex-end; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-  li { flex: 0 1 auto; min-width: 120px; display: flex; align-items: center; height: 36px; border: 1px solid transparent; border-bottom: none; border-radius: 9px 9px 0 0; color: var(--muted); }
+  li { flex: 0 1 auto; min-width: 120px; display: flex; align-items: center; height: 36px; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; color: var(--muted); }
   li.current { background: var(--bg); border-color: var(--line); margin-bottom: -1px; height: 37px; color: var(--ink); }
   li:hover:not(.current) { color: var(--ink-soft); }
   .tab { display: flex; align-items: center; gap: 8px; min-width: 0; height: 100%; padding: 0 4px 0 14px; color: inherit; text-decoration: none; white-space: nowrap; font-size: 14px; }
   .name { overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
-  .tab:focus-visible, .close:focus-visible, .new:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; border-radius: 7px; }
+  .tab:focus-visible, .close:focus-visible, .new:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; border-radius: 6px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--status); }
   .state { flex: none; font-size: 14px; font-weight: 600; color: var(--status); white-space: nowrap; }
   @media (max-width: 1400px) { .state { display: none; } }

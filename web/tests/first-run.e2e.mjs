@@ -55,11 +55,11 @@ try {
   await page.goto(`${base}/this-page-does-not-exist`)
   await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible()
   expect(await page.title()).toContain('Page not found')
-  await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toHaveCount(0)
+  await expect(page.getByRole('heading',{name:'Skills',exact:true})).toHaveCount(0)
   await page.getByRole('link',{name:'Back to Home'}).click()
   await expect(page.getByRole('heading',{name:'Your work, in good order.',exact:true})).toBeVisible()
   await page.goto(`${base}/skills`)
-  await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Skills',exact:true})).toBeVisible()
   await context.close()
  }
 

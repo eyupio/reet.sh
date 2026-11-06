@@ -489,18 +489,18 @@
   .tool-action:focus-visible, .theatre-button:focus-visible, .focus-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .heading { flex-grow: 1; min-width: 0; }
   /* Back to the Sessions screen: the phone's slim header has it (the workspace toolbar's arrow gives way there). */
-  .back { display: none; flex: none; width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--ink-soft); border-radius: 10px; }
+  .back { display: none; flex: none; width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--ink-soft); border-radius: 8px; }
   .back svg { width: 22px; height: 22px; }
   .back:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .title { margin: 0; font: 600 21px/1.3 var(--serif); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .sub, .where-phone { margin: 0; font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .where-phone { display: none; }
-  .pill { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 99px; box-sizing: border-box;
+  .pill { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 6px; box-sizing: border-box;
     background: var(--status-wash); border: 1px solid var(--status-edge); color: var(--status); font-size: 14px; font-weight: 600; white-space: nowrap; }
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-  .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 99px; font-size: 14px; line-height: 22px; color: var(--muted); }
+  .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
-  .approvals { flex: none; display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .approvals { flex: none; display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .approvals button { padding: 7px 12px; border: 0; background: none; color: var(--muted); font: 400 14px var(--sans); cursor: pointer; }
   .approvals button[aria-pressed=true] { color: var(--ink); font-weight: 600; }
   .approvals button[aria-pressed=true]:first-child { background: var(--line-soft); }

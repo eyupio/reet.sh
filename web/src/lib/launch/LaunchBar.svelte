@@ -1246,11 +1246,10 @@
   .checkout { grid-column: 1 / -1; grid-row: 4; margin: -8px 0 0; padding: 0 18px 12px; font-size: 14px; color: var(--muted); }
   .summary, .tablet-change { display: none; }
   .trust { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0; font-size: 0.875rem; line-height: 1.4; color: var(--ink-soft); }
- .trust input { margin-top: 2px; }
- .trust code { font-size: max(0.875rem, .95em); }
+  .trust input { margin-top: 2px; }
   .trust.missing { color: var(--bad); }
   .trust-why { display: block; margin-top: 2px; font-weight: 600; }
- .titled { margin: 0; max-width: 100%; font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .titled { margin: 0; max-width: 100%; font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { grid-column: 1 / -1; grid-row: 5; margin: 0; padding: 0 18px 12px; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
   .status:empty { display: none; }
   /* While a start runs the panel above says it; the line stays for screen readers only so nothing reads twice. */
@@ -1269,10 +1268,10 @@
   .attachment { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 2px 2px 4px; border: 1px solid var(--line-mid); border-radius: 8px; background: var(--card); font-size: 14px; }
   .attachment img { width: 24px; height: 24px; flex: none; border-radius: 4px; object-fit: cover; }
   .attachment-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .attachment-size { flex: none; color: var(--muted); }
+  .attachment-size { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
   .attachment-remove { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); font: 16px/1 var(--sans); cursor: pointer; }
   .attachment-remove:hover { background: var(--line-soft); color: var(--ink); }
-  .chip { min-height: 30px; padding: 2px 12px; border: 1px solid var(--line-mid); border-radius: 99px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+  .chip { min-height: 30px; padding: 2px 12px; border: 1px solid var(--line-mid); border-radius: 6px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
   .chip:hover { border-color: var(--muted); }
   .secrets { margin: 0; font-size: 14px; color: var(--muted); }
 

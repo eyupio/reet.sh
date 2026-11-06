@@ -261,12 +261,12 @@
   .support-admin h2 { margin: 0 0 6px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
   .muted, .meta, .hint { color: var(--muted); }
   .muted { margin: 4px 0 0; }
-  .layout { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.35fr); gap: 18px; margin-top: 18px; align-items: start; }
+  .layout { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.35fr); gap: 16px; margin-top: 16px; align-items: start; }
   .detail, .composer { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 16px; min-width: 0; }
-  .queue { position: sticky; top: 18px; max-height: calc(100vh - 48px); overflow: auto; }
+  .queue { position: sticky; top: 16px; max-height: calc(100vh - 48px); overflow: auto; }
   .queue-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
   .filters { display: flex; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
@@ -277,13 +277,13 @@
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
   .tickets { list-style: none; margin: 12px 0 0; padding: 0; }
   .tickets li + li { border-top: 1px solid var(--line); }
-  .tickets button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 11px 6px; border: 0; background: transparent; text-align: left; cursor: pointer; color: inherit; border-radius: 8px; }
+  .tickets button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 12px 6px; border: 0; background: transparent; text-align: left; cursor: pointer; color: inherit; border-radius: 8px; }
   .tickets button:hover, .tickets button.selected { background: var(--tint); }
   .tickets .main { min-width: 0; display: grid; gap: 3px; }
   .tickets strong { overflow-wrap: anywhere; }
-  .tickets small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .tickets small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .assignee { grid-column: 1 / -1; color: var(--muted); font-size: 0.875rem; }
-  .state { justify-self: end; align-self: start; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
+  .state { justify-self: end; align-self: start; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
   .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.waiting { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
   .state.closed { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
@@ -291,21 +291,21 @@
   .empty-detail h3 { margin: 0 0 6px; font: 500 1.3rem/1.2 var(--serif); color: var(--ink); }
   .empty-detail p { margin: 0; }
   .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-  .eyebrow { color: var(--muted); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .eyebrow { color: var(--muted); font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .detail h3 { margin: 3px 0 5px; font: 500 1.5rem/1.2 var(--serif); overflow-wrap: anywhere; }
-  .meta { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
+  .meta { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 16px 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
   .controls label { display: grid; gap: 4px; color: var(--muted); font-size: 0.875rem; min-width: 150px; }
   .controls select { width: 100%; }
-  .thread { list-style: none; display: grid; gap: 9px; margin: 0 0 16px; padding: 0; }
-  .thread li { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: color-mix(in srgb, var(--card) 90%, var(--bg)); }
+  .thread { list-style: none; display: grid; gap: 8px; margin: 0 0 16px; padding: 0; }
+  .thread li { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: color-mix(in srgb, var(--card) 90%, var(--bg)); }
   .thread li.admin { border-left: 3px solid var(--accent); }
   .thread li.team { border-left: 3px solid var(--good); }
   .thread li.note { background: color-mix(in srgb, var(--warn) 8%, var(--card)); border-style: dashed; }
   .who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 9px; margin-bottom: 6px; }
   .who strong { font-size: 0.875rem; }
-  .who span, .who time { color: var(--muted); font-size: 0.875rem; }
-  .tag { padding: 1px 6px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-radius: 999px; color: var(--warn); }
+  .who span, .who time { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+  .tag { padding: 1px 6px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-radius: 6px; color: var(--warn); }
   .thread p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 0.9rem; }
   .composer { margin-top: 0; }
   .modes { display: flex; gap: 4px; margin-bottom: 8px; }

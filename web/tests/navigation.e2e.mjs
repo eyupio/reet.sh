@@ -450,7 +450,7 @@ try {
  if (run('names')) {
   const {context,page} = await open({width:1440,skills:[skill('code-review')],terminalStatus:active,terminalMachines:[terminalMachine('a','dev-laptop',true)]})
   await page.goto(`${base}/skills`)
-  await expect(page.getByRole('heading',{name:'Skills.',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Skills',exact:true})).toBeVisible()
   expect(await page.title()).toMatch(/^Skills ·/)
   await expect(page.getByRole('link',{name:'Sync all machines',exact:true})).toHaveAttribute('href','/sync')
   await page.getByRole('button',{name:/^More/}).first().click()

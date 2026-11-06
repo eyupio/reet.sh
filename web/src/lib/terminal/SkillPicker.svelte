@@ -162,16 +162,16 @@
   .card { display: flex; flex-direction: column; min-height: 0; max-height: calc(100dvh - 32px); overflow: hidden; padding: 8px 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); overflow-wrap: anywhere; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 4px 12px; }
   h2 { margin: 0; font: 600 1.15rem/1.3 var(--serif); }
-  .close { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--muted); cursor: pointer; }
+  .close { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
   .close:hover { background: var(--tint); color: var(--ink); }
   .close svg { width: 20px; height: 20px; }
   .body { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; padding: 4px; }
   .filter { width: 100%; min-width: 0; min-height: 36px; padding: 6px 10px; font: inherit; font-size: 16px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-sizing: border-box; }
-  .groups { display: flex; flex-direction: column; gap: 10px; }
-  .heading { padding: 4px 10px 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .groups { display: flex; flex-direction: column; gap: 8px; }
+  .heading { padding: 4px 10px 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.01em; color: var(--muted); }
   .list, .single { display: flex; flex-direction: column; gap: 2px; }
   .item { display: flex; flex-direction: column; align-items: stretch; }
-  .install { align-self: flex-start; min-height: 36px; margin: 0 0 6px 10px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .install { align-self: flex-start; min-height: 36px; margin: 0 0 6px 10px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
   .option { display: flex; flex-direction: column; gap: 2px; min-height: 40px; justify-content: center; padding: 6px 10px; border-radius: 8px; color: var(--ink); cursor: pointer; }
   .option:hover, .option:focus-visible { background: var(--tint); }
   .option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -179,13 +179,13 @@
   .option[aria-disabled='true']:hover { background: none; }
   .name { font-weight: 600; }
   .description { font-size: 14px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 14px; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 14px; color: var(--muted); }
   .reason { font-weight: 600; }
   .note, .seen { margin: 0; padding: 4px 10px; font-size: 14px; color: var(--muted); }
   .note p { margin: 0 0 8px; }
   .seen { font-size: 14px; }
-  .retry { min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
-  @media (max-width: 560px) { .card { border-radius: 14px; } }
+  .retry { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  @media (max-width: 560px) { .card { border-radius: 12px; } }
   @media (pointer: coarse) {
     .option { min-height: 44px; padding: 8px 12px; }
     .filter, .retry, .install { min-height: 44px; }

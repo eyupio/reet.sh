@@ -22,15 +22,15 @@
 </header>
 
 <style>
-  .page-heading { display: flex; justify-content: space-between; align-items: center; gap: 28px; margin-bottom: 32px; }
+  .page-heading { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 32px; }
   .copy { min-width: 0; }
-  .eyebrow { margin: 0; color: var(--accent-text); font: 14px/1.6 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
-  h1 { margin: 14px 0 14px; font: 600 clamp(2.2rem, 4vw, 3rem)/1.1 var(--serif); letter-spacing: -0.04em; overflow-wrap: anywhere; }
-  .lede { margin: 0; color: var(--muted); max-width: 64ch; font-size: 14px; line-height: 1.8; }
-  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; color: var(--muted); font-size: 0.875rem; }
+  .eyebrow { margin: 0; color: var(--accent-text); font: 500 14px/1.5 var(--mono); letter-spacing: 0.01em; }
+  h1 { margin: 12px 0; font: 600 clamp(2.2rem, 4vw, 3rem)/1.1 var(--serif); letter-spacing: -0.03em; overflow-wrap: anywhere; }
+  .lede { margin: 0; color: var(--muted); max-width: 64ch; font-size: 14px; line-height: 1.65; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; }
   @media (max-width: 1000px) {
-    .page-heading { align-items: flex-start; flex-direction: column; gap: 10px; margin-bottom: 16px; }
-    h1 { margin: 9px 0 10px; font-size: clamp(1.9rem, 5vw, 2.5rem); }
+    .page-heading { align-items: flex-start; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+    h1 { margin: 8px 0; font-size: clamp(1.9rem, 5vw, 2.5rem); }
   }
 </style>

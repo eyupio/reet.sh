@@ -86,7 +86,7 @@
          "Planning" whole again.
      Every one of these has fixed heights, so a pull request that changes moves nothing below at any one width. */
   .tracker { --steps: 72px; --gap: 8px; --btn: 34px; --next: calc(var(--btn) + 76px); container-type: inline-size; min-width: 0; }
-  h4 { margin: 0 0 10px; font: 600 14px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+  h4 { margin: 0 0 10px; font: 600 14px var(--sans); letter-spacing: 0.01em; color: var(--muted); }
   ol { list-style: none; margin: 0 0 var(--gap); padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: 72px; gap: 6px 3px; height: var(--steps); }
   li { --tone: var(--muted); position: relative; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; font-size: 14px; color: var(--muted); }
   .bar { align-self: stretch; height: 3px; margin-bottom: 4px; border-radius: 2px; background: var(--line); }
@@ -102,9 +102,6 @@
   li[data-state='attention'] { --tone: var(--bad); }
   li[data-state='attention'] .bar { background: var(--bad); }
   li[data-state='unknown'] .bar { background: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 7px); }
-  li[data-state='current'] .icon { animation: pulse 2.4s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity: 0.45; } }
-  @media (prefers-reduced-motion: reduce) { li[data-state='current'] .icon { animation: none; } }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   /* One grid for the sentence, the buttons and the note. The tinted box is drawn behind the sentence and the buttons only and stops

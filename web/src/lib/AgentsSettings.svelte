@@ -539,38 +539,38 @@
 {/if}
 
 <style>
-  .block { margin-top: 24px; padding: clamp(18px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); min-width: 0; }
+  .block { margin-top: 24px; padding: clamp(16px, 3vw, 28px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); min-width: 0; }
   h2 { margin: 0; font: 500 1.35rem/1.25 var(--serif); }
-  h3 { margin: 26px 0 0; font: 600 1.02rem/1.3 var(--sans); }
+  h3 { margin: 24px 0 0; font: 600 1.02rem/1.3 var(--sans); }
   h4 { margin: 0 0 8px; font: 600 .9rem/1.3 var(--sans); color: var(--ink); }
   .muted { margin: 8px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
   .muted.small { font-size: 0.875rem; }
   .readonly { color: var(--ink-soft); }
-  .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 0.875rem; }
+  .notice { margin: 12px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 0.875rem; }
   .notice.bad { border-color: var(--bad); }
   .notice.good { border-color: var(--good); }
-  form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 12px; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-width: 0; }
+  form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-width: 0; }
   .grid2 label, .field, .addrow label { display: grid; gap: 4px; font-size: 0.875rem; color: var(--muted); min-width: 0; }
   .grid2 small { color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
-  select, input { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+  select, input { min-width: 0; width: 100%; min-height: 42px; padding: 8px 12px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
   select:disabled, input:disabled { opacity: .6; }
-  .picker { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  .picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; width: 100%; min-height: 42px; padding: 8px 12px; font: inherit; color: var(--ink); text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
   .picker:disabled { opacity: .55; cursor: default; }
   .picker .value { min-width: 0; overflow-wrap: anywhere; }
   .picker .chev { flex: none; color: var(--muted); }
   .formacts { display: flex; justify-content: flex-end; }
   .favgroup { margin-top: 16px; min-width: 0; }
   .favs { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  .favs li { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+  .favs li { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--line); min-width: 0; }
   .favmain { display: grid; gap: 6px; min-width: 0; flex: 1 1 240px; }
   .favname { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
   .favname strong { overflow-wrap: anywhere; }
   .default { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 0.875rem; line-height: 1.4; }
   .default input { flex: none; width: auto; min-height: 0; }
   .favactions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .tag { padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; }
-  .add { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); min-width: 0; }
+  .tag { padding: 1px 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 0.875rem; }
+  .add { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); min-width: 0; }
   .addrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: end; }
   .addpicker { align-self: end; }
   /* On a phone a field under 16 px makes the browser zoom in when it is focused. */

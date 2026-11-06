@@ -34,10 +34,10 @@ dialog[data-shell][data-shell-short] [data-shell-aside] { display: none; }
 dialog[data-shell][data-shell-short] h2 { margin-top: 0; font-size: 1.2rem; line-height: 1.25; }
 dialog[data-shell][data-shell-short] [data-shell-head] { align-items: center; padding-block: 4px; }
 dialog[data-shell][data-shell-short] [data-shell-body] { padding-block: 12px; }
-dialog[data-shell][data-shell-short] [data-shell-card] { padding-top: 14px; }
+dialog[data-shell][data-shell-short] [data-shell-card] { padding-top: 12px; }
 dialog[data-shell][data-shell-short] [data-shell-foot] {
-  flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 10px;
-  padding-block: 6px; margin-top: 12px;
+  flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px;
+  padding-block: 8px; margin-top: 12px;
 }
 dialog[data-shell][data-shell-short] [data-shell-foot]:is(footer) { margin-top: 0; }
 dialog[data-shell][data-shell-short] [data-shell-foot] > p { flex: 1 1 12em; min-width: 0; }

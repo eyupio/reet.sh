@@ -279,7 +279,7 @@
         <button class="icon" bind:this={historyButton} aria-label="Conversation history" title="Conversation history" aria-haspopup="dialog" onclick={() => historyOpen = true}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7M12 7v5l3 2" /></svg></button>
         <button class="icon" bind:this={optionsButton} aria-label="Chat options" title="Chat options" aria-haspopup="dialog" onclick={() => optionsOpen=true}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
         <button class="icon expand" aria-label={full ? 'Restore panel' : 'Full screen'} aria-pressed={full} title={full ? 'Restore panel' : 'Full screen'} onclick={() => full = !full}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d={full ? 'M4 10h6V4M20 14h-6v6M10 10 3 3m11 11 7 7' : 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7'} /></svg></button>
-        <button class="icon" data-shell-close aria-label="Close Gaffer" title="Close the panel; keep the current answer running" onclick={() => void close()}>×</button>
+        <button class="icon" data-shell-close aria-label="Close Gaffer" title="Close the panel; keep the current answer running" onclick={() => void close()}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
       </div>
     </header>
     <div class="panel-layout"><div class="panel-sizes" role="group" aria-label="Gaffer panel size">{#each [['compact','Compact'],['comfortable','Default'],['expanded','Expanded']] as [value,label]}<button type="button" aria-pressed={panelSize===value} disabled={full} onclick={()=>layout(value as GafferPanelSize)}>{label}</button>{/each}</div><div class="panel-position" role="group" aria-label="Panel position"><button type="button" aria-label="Place Gaffer on the left" aria-pressed={panelSide==='left'} disabled={full} onclick={()=>layout(panelSize,'left')}>←</button><button type="button" aria-label="Place Gaffer on the right" aria-pressed={panelSide==='right'} disabled={full} onclick={()=>layout(panelSize,'right')}>→</button></div></div>
@@ -381,21 +381,21 @@
   .gaffer-chat[data-size=compact]{width:min(24rem,calc(100vw - 32px));height:min(32rem,calc(100dvh - var(--gaffer-floor) - 24px))}
   .gaffer-chat[data-size=expanded]{width:min(46rem,calc(100vw - 32px));height:min(52rem,calc(100dvh - var(--gaffer-floor) - 24px))}
   .gaffer-chat[data-full]{inset:16px; width:calc(100vw - 32px);height:calc(100dvh - 32px);max-height:calc(100dvh - 32px);resize:none}
-  .gaffer-chat::backdrop{background:var(--scrim);backdrop-filter:blur(3px)}
+  .gaffer-chat::backdrop{background:var(--scrim)}
   .move-face{display:grid;place-items:center;border:0;padding:0;background:none;cursor:grab;touch-action:none}.move-face:disabled{cursor:default}.chat-head{cursor:grab;touch-action:none}.chat-head:active{cursor:grabbing}
   .panel-layout{display:flex;align-items:center;justify-content:space-between;padding:3px 12px;border-bottom:1px solid var(--line);flex:none}.panel-sizes,.panel-position{display:flex;align-items:center;gap:4px}
   .panel-layout button{border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font:400 12px var(--sans);padding:6px 8px;min-height:36px;cursor:pointer}.panel-layout button[aria-pressed=true]{color:var(--accent-text);background:var(--tint);border-color:var(--accent)}.panel-layout button:disabled{opacity:.5;cursor:default}.panel-position button{width:36px;font-size:16px}
-  .chat-head { display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none;background:linear-gradient(110deg,var(--tint),var(--card)); }
+  .chat-head { display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none;background:var(--bg-sunk); }
   .heading { flex:1;min-width:0; }
   h2 { font:600 18px/1.1 var(--serif);margin:0; }
   h3 { font:600 23px/1.25 var(--serif);margin:0 0 10px; }
-  .scope-title { margin:3px 0 0;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .scope-title { margin:3px 0 0;font-size:14px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
   .head-actions { display:flex;flex:none;gap:0; }
   .icon { width:36px;min-height:40px;display:grid;place-items:center;background:transparent;color:var(--muted);border:0;border-radius:8px;font-size:24px;cursor:pointer; }
   .icon:hover,.quiet:hover,.model-control:hover,.context-control:hover { background:var(--tint);color:var(--ink); }
-  select,input,textarea { width:100%;box-sizing:border-box;min-height:42px;border:1px solid var(--line-strong);border-radius:9px;background:var(--bg);color:var(--ink);padding:9px 10px;font:400 14px/1.45 var(--sans);min-width:0; }
+  select,input,textarea { width:100%;box-sizing:border-box;min-height:42px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg);color:var(--ink);padding:8px 10px;font:400 14px/1.45 var(--sans);min-width:0; }
   .conversation-body { display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain; }
-  .quiet { border:0;background:transparent;color:var(--accent-text);padding:8px;min-height:36px;font:600 14px var(--sans);cursor:pointer;border-radius:7px; }
+  .quiet { border:0;background:transparent;color:var(--accent-text);padding:8px;min-height:36px;font:600 14px var(--sans);cursor:pointer;border-radius:6px; }
   .choices { display:grid;gap:16px;min-width:0; }
   fieldset { border:0;padding:0;margin:0;display:grid;gap:12px;min-width:0; }
   .choices label { font-size:14px;display:grid;gap:6px; }
@@ -406,31 +406,31 @@
   .welcome { padding:16px 4px;display:flex;align-items:flex-start;flex-wrap:wrap;gap:16px 20px; }.welcome-copy{flex:1 1 220px;min-width:0}
   .welcome h3 { margin:0 0 10px; }
   .welcome-copy>p { font-size:15px;line-height:1.6; }
-  .welcome .note { margin-top:16px;font-size:13px; }
+  .welcome .note { margin-top:16px;font-size:14px; }
   .turn+.turn { margin-top:28px; }
-  .user-message { background:var(--tint);border:1px solid var(--line-soft);border-radius:14px 14px 4px 14px;padding:12px 14px;margin:0 0 18px 24px; }
+  .user-message { background:var(--tint);border:1px solid var(--line-soft);border-radius:12px 12px 4px 12px;padding:12px 14px;margin:0 0 18px 24px; }
   .user-message .speaker { position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0); }
-  .speaker { display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:13px;font-weight:600; }
+  .speaker { display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px;font-weight:600; }
   .message-text { margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.65; }
   .reply-head { display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px; }
-  .state { color:var(--muted);font-size:12px; }
-  .reply-foot { display:flex;align-items:flex-start;gap:12px;margin-top:10px;color:var(--muted);font-size:12px; }
+  .state { color:var(--muted);font-size:14px;border-radius:6px; }
+  .reply-foot { display:flex;align-items:flex-start;gap:12px;margin-top:10px;color:var(--muted);font-size:14px;font-variant-numeric:tabular-nums; }
   .reply-details { min-width:0;flex:1; }
   .reply-details summary { cursor:pointer;min-height:32px;align-content:center; }
   .reply-details p { overflow-wrap:anywhere;line-height:1.5;margin:4px 0; }
   .turn-error { border-left:2px solid var(--accent);padding-left:10px;font-size:14px;color:var(--muted);line-height:1.5; }
   .thinking { font-size:14px;color:var(--muted); }
-  .feedback { flex:none;margin:8px 18px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:9px;background:var(--bg-sunk);font-size:14px;overflow-wrap:anywhere; }
+  .feedback { flex:none;margin:8px 16px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg-sunk);font-size:14px;overflow-wrap:anywhere; }
   .feedback p { margin:0 0 6px;line-height:1.4; }
   .bad,.attention { color:var(--bad); }
-  .notice { font-size:13px;margin:6px 18px;color:var(--accent-text); }
-  .setup,.unavailable { padding:18px;font-size:14px;line-height:1.5; }
+  .notice { font-size:14px;margin:6px 16px;color:var(--accent-text); }
+  .setup,.unavailable { padding:16px;font-size:14px;line-height:1.5; }
   .unavailable { flex:1;overflow:auto; }
   .composer { padding:10px 14px 12px;border-top:1px solid var(--line);flex:none;background:var(--card); }
   textarea { resize:vertical;height:72px;max-height:150px;min-height:54px;background:var(--bg-sunk);border-color:var(--line);border-radius:12px; }
   .compose-actions { display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px; }
   .compose-tools { display:flex;align-items:center;gap:4px;flex:1;min-width:0; }
-  .model-control,.context-control { display:flex;align-items:center;gap:6px;min-height:36px;min-width:0;padding:6px 8px;border:0;background:transparent;color:var(--muted);font:500 12px var(--sans);border-radius:8px;cursor:pointer; }
+  .model-control,.context-control { display:flex;align-items:center;gap:6px;min-height:36px;min-width:0;padding:6px 8px;border:0;background:transparent;color:var(--muted);font:500 14px var(--sans);border-radius:8px;cursor:pointer; }
   .model-control { flex:0 1 auto;max-width:58%; }
   .model-control span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
   .model-control svg { flex:none; }
@@ -439,9 +439,9 @@
   .shared .context-dot { background:var(--good); }.attention .context-dot { background:var(--bad); }
   .send-control { display:grid;place-items:center;width:40px;min-height:40px;flex:none;border:0;border-radius:50%;background:var(--accent);color:var(--accent-ink);cursor:pointer; }
   .send-control:disabled { opacity:.45;cursor:default; }.send-control.stop { background:var(--ink);color:var(--card); }
-  .compose-hint { font-size:12px;margin:4px 8px 0;color:var(--muted); }.compose-hint.bad { color:var(--bad); }
+  .compose-hint { font-size:14px;margin:4px 8px 0;color:var(--muted);font-variant-numeric:tabular-nums; }.compose-hint.bad { color:var(--bad); }
   .chat-options { display:grid;gap:14px;font-size:14px;line-height:1.5; }.chat-options p { margin:0;overflow-wrap:anywhere; }.chat-options .btn { text-align:center; }.remove { color:var(--bad); }
-  .request-mode { margin:0 0 6px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:var(--accent-text); }.worker-receipt { margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:9px; }.worker-receipt summary { cursor:pointer;font-size:14px; }.worker-receipt p { margin-top:8px; }
+  .request-mode { margin:0 0 6px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;color:var(--accent-text); }.worker-receipt { margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:8px; }.worker-receipt summary { cursor:pointer;font-size:14px; }.worker-receipt p { margin-top:8px; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (pointer:coarse) { .icon { width:44px;min-height:44px; }.send-control { width:44px;min-height:44px; }.model-control,.context-control,.reply-details summary { min-height:44px; } }

@@ -88,7 +88,7 @@ try {
    await expect.poll(() => page.evaluate(() => {
     const button = document.querySelector('.gaffer-launcher')?.getBoundingClientRect()
     const docks = [...document.querySelectorAll('[data-floating-clearance]')].map(node => node.getBoundingClientRect()).filter(r => r.width && r.height)
-    return !!button && docks.length > 0 && button.top >= 0 && button.bottom<=innerHeight && docks.every(dock => button.bottom <= dock.top || button.top >= dock.bottom)
+    return !!button && docks.length > 0 && button.top >= 0 && button.bottom<=innerHeight && docks.every(dock => button.bottom <= dock.top || button.top >= dock.bottom || button.right <= dock.left || button.left >= dock.right)
    })).toBe(true)
    await expect(page.locator('.gaffer-launcher')).toHaveCount(1)
    await composer.fill('')

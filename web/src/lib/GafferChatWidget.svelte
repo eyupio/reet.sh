@@ -10,6 +10,7 @@
   import GafferProse from './GafferProse.svelte'
   import WorkerMessaging from './WorkerMessaging.svelte'
  import GafferGoal from './GafferGoal.svelte'
+  import GafferFollowedSessions from './GafferFollowedSessions.svelte'
   import ContextSharing from './ContextSharing.svelte'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import CopyButton from './CopyButton.svelte'
@@ -22,6 +23,7 @@
   let { userId, onerror, timeZone = '', dateFormat = 'locale' }: { userId: number; onerror?: (e: unknown) => void; timeZone?: string; dateFormat?: string } = $props()
   const contextDescriptionId = $props.id()
   let historyOpen = $state(false), optionsOpen = $state(false), workerOpen = $state(false), goalOpen=$state(false), relay = $state(false)
+  let followedOpen = $state(false)
   let modelButton = $state<HTMLButtonElement>(), historyButton = $state<HTMLButtonElement>(), contextButton = $state<HTMLButtonElement>(), optionsButton = $state<HTMLButtonElement>()
   let modelBefore: {providerId:string;model:string;manual:boolean} | undefined
   let contextOpen = $state(false)
@@ -58,7 +60,7 @@
     resize(); mq.addEventListener('change', resize)
     return () => { gafferChatEntry.update(current => current === entry ? null : current); mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
   })
-  $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; workerOpen=false;goalOpen=false;relay=false; if (shown) void load(key); else dispose() }) })
+  $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; workerOpen=false;goalOpen=false;followedOpen=false;relay=false; if (shown) void load(key); else dispose() }) })
   $effect(() => {
     if (!open || !panel) return
     const mobile = phone, dialog = panel
@@ -128,7 +130,7 @@
       if (mine === epoch && stream === source && open) { stream = undefined; streamError = 'The reply connection paused. Reconnect to read Gaffer’s saved answer.' }
     }
   }
-  async function close() { open = false; confirming = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : $gafferChatDock ?? launcher)?.focus({preventScroll:true}) }
+  async function close() { open = false; confirming = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : $gafferChatDock ?? launcher)?.focus({preventScroll:true}) }
   function chooseProvider(value: string) { providerId = value; model = ''; manualModel = false; invalidateModels() }
   function invalidateModels() { modelEpoch++; modelRequest?.abort(); fetchingModels = false; models = []; modelsError = '' }
   async function fetchModels() {
@@ -346,11 +348,13 @@
     <p>Your critical buddy, with a brew standing by. Closing the panel keeps the current answer running. In a structured session, Worker messages lets you enable one instruction for your next request. Use Session follow-up to save a bounded goal while you’re away.</p>
     <a class="btn" href="/account/gaffer">Gaffer settings</a>
     {#if scope&&!unavailable}<button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void workerChoices()}>Worker messages</button><button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices()}>Session follow-up</button>{/if}
+    <button class="btn" type="button" onclick={()=>{optionsOpen=false;followedOpen=true}}>Followed sessions</button>
     {#if current}<button class="btn remove" aria-label="Remove conversation" disabled={sending||updating||loading} onclick={()=>{optionsOpen=false;confirming=true}}>Remove chat</button>{/if}
   </div>
 </WorkspaceDialog>{/if}
 
 {#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {timeZone} {dateFormat} onchanged={goalChanged}/></WorkspaceDialog>{/if}
+{#if followedOpen}<GafferFollowedSessions {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(current)await goalChanged()}} onselect={()=>{mode='session';followedOpen=false}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}/>{/if}
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 
 <style>

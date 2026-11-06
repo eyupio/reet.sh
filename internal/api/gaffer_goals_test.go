@@ -77,6 +77,15 @@ func TestGoalHTTPNeedsOwningBrowserExplicitPinsAndBothGrants(t *testing.T) {
 		t.Fatal("MCP credential started goal", code)
 	}
 	contextAPIJSON(t, client, ts, "PUT", path, payload, 200)
+	overview := contextAPIJSON(t, client, ts, "GET", "/api/v2/gaffer/goals", nil, 200)
+	goals := overview["goals"].([]any)
+	if len(goals) != 1 || goals[0].(map[string]any)["goal"].(map[string]any)["text"] != payload.Text {
+		t.Fatal("overview omitted the owned goal", overview)
+	}
+	code, _ = do(t, ts, "GET", "/api/v2/gaffer/goals", "", "Authorization", "Bearer "+token)
+	if code != 403 && code != 401 {
+		t.Fatal("MCP credential read browser overview", code)
+	}
 	contextAPIJSON(t, client, ts, "PUT", path, payload, 409)
 	raw := contextAPIJSON(t, client, ts, "GET", path, nil, 200)
 	goal := raw["goal"].(map[string]any)
@@ -104,6 +113,14 @@ func TestGoalHTTPNeedsOwningBrowserExplicitPinsAndBothGrants(t *testing.T) {
 			want = 403
 		}
 		contextAPIJSON(t, other, ts, "GET", path, nil, want)
+		listWant := 200
+		if role == "viewer" {
+			listWant = 403
+		}
+		list := contextAPIJSON(t, other, ts, "GET", "/api/v2/gaffer/goals", nil, listWant)
+		if role == "member" && len(list["goals"].([]any)) != 0 {
+			t.Fatal("overview leaked another account's goal", list)
+		}
 	}
 	events := contextAPIJSON(t, client, ts, "GET", "/api/events?limit=100", nil, 200)
 	audit, _ := json.Marshal(events)

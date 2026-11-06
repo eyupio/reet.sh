@@ -177,6 +177,31 @@ and omissions described below. It does not poll unchanged evidence or observe
 external PR/check changes on its own: the working model must monitor those and
 report progress. Unsupported channels and providers remain visible limitations.
 
+## Review all followed sessions
+
+Choose **Chat options → Followed sessions** from general or session chat. The job
+sheet shows only your explicitly selected session goals, with decisions first.
+Use **Needs you**, **Following** or **Finished** to narrow the view. Paused goals
+remain under **All**. Opening or refreshing this view starts no goal, model request
+or worker instruction.
+
+Each card shows the agreed work, latest Gaffer report, review budget and deadline.
+Worker evidence observation time and the actual review finish time stay separate
+from the overview read time. Expand **Review & evidence** for the full saved
+report, reported usage and last goal instruction. **Handed to worker** confirms
+handoff, not completion. Uncertain or blocked delivery needs your review; a model's
+PR/check report still needs verification in the working conversation.
+
+**Open session** returns to that workspace and its companion, preserving drafts
+when switching within the current workspace. **Review goal** opens the existing
+controls with fresh permission checks and the same resume/completion confirmations.
+Archived or unavailable sessions retain your saved goal for review; use
+**Conversation history** to remove their saved chats. Their unavailable worker
+channels cannot be resumed from the overview.
+
+The view refreshes retained records while open. A failed refresh keeps the last
+successful read visibly labelled; source times are never replaced by refresh time.
+
 ## Add a provider
 
 1. Choose **Add provider**, then a preset: OpenAI, Anthropic, Ollama Cloud,

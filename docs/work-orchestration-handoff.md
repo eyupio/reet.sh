@@ -216,8 +216,22 @@ confirmation, escaping and focus. The local full race run passes API/Gaffer/stor
 only the five unchanged terminal-host environment failures. All 16 MCP checks,
 aligned web check/build, goal and existing companion/context/worker/layout browser
 matrices, vet, strict docs, 51-page checks and the 40-view docs smoke pass. Final-
-head CI and review are recorded on #620. No real credentials, deployment or merge
+head `1ce63151` passed all 20 applicable CI checks, with four intentional skips
+and no unresolved review threads on #620. The PR remains open. No real credentials, deployment or merge
 is authorised.
+
+### GM5: followed-session job sheet (6 November 2026)
+
+The authorised next slice is implemented separately in
+[PR #623](https://github.com/eyupio/reet.sh/pull/623),
+`feat/gaffer-followed-sessions`, based on #620. The
+[overview contract](handoffs/gaffer-followed-sessions.md) records the bounded,
+account-owned browser read, passive receipt reconciliation, attention-first stable
+ordering, preserved observation/review times and retained archived-goal metadata.
+General and session chat expose the same secondary **Followed sessions** dialog.
+Gaffer's report is labelled separately from controller delivery and user-marked
+completion. Existing goal controls handle pause/resume/stop/completion with fresh
+permissions; the overview grants nothing and performs no model or worker call.
 
 ### Source-grounded feasibility and current gaps
 

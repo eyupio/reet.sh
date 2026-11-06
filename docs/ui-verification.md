@@ -1,5 +1,27 @@
 # UI verification — 4 November 2026
 
+## Gaffer followed-session overview (6 November 2026)
+
+**Chat options → Followed sessions** opens a secondary job sheet from general or
+session chat. Decisions come first; All, Needs you, Following and Finished filters
+keep saved goals readable. Cards separate the agreed goal, Gaffer's reported
+progress, actual observation/review times, remaining review bounds and controller
+handoff. Details expand the full retained report/instruction and usage. Archived
+scopes offer history cleanup, with no unavailable worker control.
+
+`web/tests/gaffer-followed.e2e.mjs` passes at 1440, 800, 390 and 320 px in light/dark.
+It checks general-chat entry, decision filters, escaping, queued/handoff semantics,
+archived availability, nested goal pause, stale-read retry, empty state, scoped
+draft preservation and focus return even when a paused row leaves the filter.
+The existing goal and chat browser regressions also pass. Opening/refreshing makes
+no model or worker write. The four captures were visually inspected and contain
+only synthetic sessions, goals and reports.
+
+![Followed sessions desktop light](images/ui/gaffer-followed-1440-light.png)
+![Followed sessions desktop dark](images/ui/gaffer-followed-1440-dark.png)
+![Followed sessions phone light](images/ui/gaffer-followed-390-light.png)
+![Followed sessions phone dark](images/ui/gaffer-followed-390-dark.png)
+
 ## Gaffer saved session goals (6 November 2026)
 
 **Chat options → Session follow-up** opens a secondary native dialog for an

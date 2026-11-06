@@ -9,9 +9,18 @@ func (s *server) registerGoalRoutes(mux *http.ServeMux) {
 	access := func(h http.HandlerFunc) http.HandlerFunc {
 		return s.featureAccess(accessWords{accounts: "Offline goals require a browser account.", signedOut: "Sign in to manage Gaffer goals.", readOnly: "A read-only account cannot delegate Gaffer follow-up."}, h)
 	}
+	mux.HandleFunc("GET /api/v2/gaffer/goals", access(s.goalList))
 	mux.HandleFunc("GET /api/v2/gaffer/conversations/{id}/goal", access(s.goalGet))
 	mux.HandleFunc("PUT /api/v2/gaffer/conversations/{id}/goal", access(s.goalSave))
 	mux.HandleFunc("POST /api/v2/gaffer/conversations/{id}/goal/control", access(s.goalControl))
+}
+func (s *server) goalList(w http.ResponseWriter, r *http.Request) {
+	v, err := s.gafferProviders.Goals(s.uid(r))
+	if err != nil {
+		gafferError(w, err)
+		return
+	}
+	writeJSON(w, 200, v)
 }
 func (s *server) goalGet(w http.ResponseWriter, r *http.Request) {
 	v, err := s.gafferProviders.Goal(s.uid(r), r.PathValue("id"))

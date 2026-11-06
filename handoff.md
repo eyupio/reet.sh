@@ -78,7 +78,9 @@ permissions, one explicitly enabled request, atomic queue receipts and delivery
 checks. It preserves the working model and user approval boundary.
 GM4’s plan was merged by the owner in [PR #617](https://github.com/eyupio/reet.sh/pull/617).
 The implementation is tracked separately in [PR #620](https://github.com/eyupio/reet.sh/pull/620),
-`feat/gaffer-offline-runtime`, aligned with main `1b10a978`. The
+`feat/gaffer-offline-runtime`, aligned with main `1b10a978`. Its final head
+`1ce63151` passed all 20 applicable CI checks (four intentionally skipped) and has
+no unresolved review threads; the PR remains open. The
 [offline-goal contract](docs/handoffs/gaffer-offline-goals.md) records explicit
 per-session goals, the user's default of 12 reviews over 24 hours, progress-only
 reviews, atomic budget/turn admission, fresh goal/grant delivery checks, stop/
@@ -89,10 +91,15 @@ the working model performs those actions. No model-requested tools, worker write
 background polling or real provider credentials are enabled in GM3A. Final checks
 and PR state are recorded in the companion handoff and UI verification record.
 
-The user also authorised the next slice after GM4: a followed-session overview
-with grounded “what happened / what remains / needs you” information and clear
-source times, as a separate reviewable change. Keep goal/worker permissions and
-normal chat's narrative-led layout under the same boundaries.
+GM5 is implemented for review in [PR #623](https://github.com/eyupio/reet.sh/pull/623),
+a separate followed-session overview on
+`feat/gaffer-followed-sessions`, based on runtime #620. It lists only the browser
+account's selected goals, prioritises decisions, preserves source/review times and
+separates model reports from retained delivery receipts and user completion.
+**Chat options → Followed sessions** opens it from general or session chat without
+crowding the narrative. Existing goal controls retain fresh permission checks;
+listing never calls a provider, wakes a worker or starts a goal. See the
+[overview handoff](docs/handoffs/gaffer-followed-sessions.md) for tests and PR state.
 
 The 5 November #603 review follow-up fixes first-address-only provider dialing:
 try all validated literal addresses, with dual-stack fallback and bounded,

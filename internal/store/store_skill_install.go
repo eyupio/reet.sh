@@ -224,7 +224,7 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		// QueueSyncJob's machine rule, in this transaction: a scan or apply
 		// anywhere on the machine blocks it, as does another preview here.
 		var busy int
-		if err = tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND status IN ('queued','running','awaiting-approval') AND (?='scan' OR kind!='preview' OR target_id=?)`, in.AgentID, "preview", envID).Scan(&busy); err != nil {
+		if err = tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND kind<>'update' AND status IN ('queued','running','awaiting-approval') AND (?='scan' OR kind!='preview' OR target_id=?)`, in.AgentID, "preview", envID).Scan(&busy); err != nil {
 			return err
 		}
 		if busy > 0 {

@@ -25,7 +25,10 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 		return err
 	}
 	var pending int
-	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND status IN ('queued','running','awaiting-approval')`, uid, agent.ID).Scan(&pending); err != nil {
+	// A binary update that is waiting for the machine is not skill work. It must
+	// not stop the library from being planned, or an offline machine that queued
+	// an update would never be brought onto the shared library at all.
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind<>'update' AND status IN ('queued','running','awaiting-approval')`, uid, agent.ID).Scan(&pending); err != nil {
 		return err
 	}
 	if pending > 0 {

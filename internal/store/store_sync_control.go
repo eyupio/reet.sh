@@ -600,7 +600,7 @@ func (s *Store) QueueSyncJob(uid int64, agentID, targetID, kind string) (SyncJob
 	// serialises execution on each machine. Approval still requires an exact hash.
 	err := s.withTx(func(tx *sql.Tx) error {
 		var n int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND status IN ('queued','running','awaiting-approval') AND (?='scan' OR kind!='preview' OR target_id=?)`, agentID, kind, targetID).Scan(&n); err != nil {
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND kind<>'update' AND status IN ('queued','running','awaiting-approval') AND (?='scan' OR kind!='preview' OR target_id=?)`, agentID, kind, targetID).Scan(&n); err != nil {
 			return err
 		}
 		if n > 0 {

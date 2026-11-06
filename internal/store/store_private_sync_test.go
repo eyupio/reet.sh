@@ -254,3 +254,29 @@ func TestMachineSkillSyncBatchQueuesBeyondInteractiveImportLimit(t *testing.T) {
 		t.Fatal(work, err)
 	}
 }
+
+// A skill that has been captured before keeps the bundle it was bound to. A new
+// capture appends a revision there instead of starting a second bundle, which is
+// what used to fill an account with copies of the same skill.
+func TestMachineCaptureReusesTheSkillsBundle(t *testing.T) {
+	s, uid, a, b, dest, r, files := machineSyncFixture(t)
+	r = finishMachineCopy(t, s, uid, a, r, files)
+	if r.Receipt == nil {
+		t.Fatal("the first capture has no receipt")
+	}
+	before := privateCounts(t, s)[0]
+	again, err := s.RequestMachineSkillSync(uid, "local/demo", b.Host, r.EnvironmentID, "machine_sync_request_0002", dest, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.BundleID != r.Receipt.Bundle.ID || again.ExpectedBase != r.Receipt.Bundle.Head {
+		t.Fatalf("a second capture would start a new bundle: %+v (bound to %s)", again, r.Receipt.Bundle.ID)
+	}
+	again = finishMachineCopy(t, s, uid, a, again, files)
+	if after := privateCounts(t, s)[0]; after != before {
+		t.Fatalf("a repeated capture added a bundle: %d -> %d", before, after)
+	}
+	if again.Receipt == nil || again.Receipt.Bundle.ID != r.Receipt.Bundle.ID {
+		t.Fatalf("the second capture used another bundle: %+v", again.Receipt)
+	}
+}

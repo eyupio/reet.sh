@@ -776,3 +776,125 @@ func writtenSkillOnly(t *testing.T, s *Store, uid int64, slug string) HostedSkil
 	}
 	return saved
 }
+
+func machineCaptureWrite(key, name string) PrivateSkillWrite {
+	base := ""
+	return PrivateSkillWrite{
+		RequestID:    key,
+		ExpectedBase: &base,
+		Name:         name,
+		Origin:       PrivateSkillOrigin{Kind: "import", Reference: `{"Name":"` + name + `"}`},
+		Files: []skillbundle.ContentFile{{
+			Path: "SKILL.md",
+			Data: []byte("---\nname: " + name + "\ndescription: Captured from a machine\n---\nBody\n"),
+		}},
+	}
+}
+
+// A capture that started a new bundle every time left duplicates of one skill
+// behind. They are copies, not something a person saved, so they are freed when a
+// slot is needed, while the bundle a skill is still bound to stays.
+func TestUnusedCaptureBundlesAreFreedButBoundOnesStay(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if _, err := s.UpsertLocalFor(uid, "kept", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := s.SavePrivateSkillRevisionFor(uid, "", machineCaptureWrite("bound_capture_0001", "kept"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The skill is bound to this bundle; it is in use even when a slot is needed.
+	if _, err = s.db.Exec(`INSERT INTO sync_private_sources(user_id,skill_id,bundle_id,revision_id,digest) VALUES(?,?,?,?,?)`, uid, "local/kept", kept.Bundle.ID, kept.Revision.ID, kept.Revision.ManifestDigest); err != nil {
+		t.Fatal(err)
+	}
+	var victim string
+	for i := 1; i < MaxPrivateSkillBundles; i++ {
+		saved, err := s.SavePrivateSkillRevisionFor(uid, "", machineCaptureWrite(fmt.Sprintf("unbound_capture_%04d", i), fmt.Sprintf("captured-%d", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 1 {
+			victim = saved.Bundle.ID
+		}
+	}
+	// Only the oldest unused copy is old enough to be reclaimed.
+	if _, err = s.db.Exec(`UPDATE private_skill_revisions SET created_at=1 WHERE user_id=? AND bundle_id=?`, uid, victim); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.SavePrivateSkillRevisionFor(uid, "", machineCaptureWrite("new_capture_0001", "new")); err != nil {
+		t.Fatalf("unused capture bundles kept the account full: %v", err)
+	}
+	if bundleExists(t, s, uid, victim) {
+		t.Fatal("the oldest unused capture bundle still holds a slot")
+	}
+	if !bundleExists(t, s, uid, kept.Bundle.ID) {
+		t.Fatal("the bundle a skill is bound to was freed")
+	}
+	var bundles int
+	if err = s.db.QueryRow(`SELECT count(*) FROM private_skill_bundles WHERE user_id=?`, uid).Scan(&bundles); err != nil || bundles != MaxPrivateSkillBundles {
+		t.Fatalf("expected the account to be back at its bound: %d %v", bundles, err)
+	}
+}
+
+// A binary update can sit queued for a machine that is switched off. It is not
+// skill work, so it must not stop Sync all machines from putting that machine on
+// the shared library, nor stop a later poll from following the library.
+func TestAQueuedUpdateDoesNotBlockTheSharedLibrary(t *testing.T) {
+	s, uid, id := controlFixture(t)
+	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
+		t.Fatal(err)
+	}
+	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An older custom selection that does not follow the library.
+	if err = s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: id, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.QueueAgentUpdate(uid, agent.ID, "latest"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
+		t.Fatalf("a queued update stopped Sync all machines: %v", err)
+	}
+	targets, err := s.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].SourceID != "library" || !targets[0].FollowSource {
+		t.Fatalf("the machine was not put on the shared library: %+v", targets)
+	}
+
+	// The library gains an entry. The machine's own poll follows it even though
+	// the update is still waiting for it. Let the plan the button just queued
+	// settle first, so only the update could hold the poll back.
+	if _, err = s.db.Exec(`UPDATE sync_jobs SET status='succeeded' WHERE user_id=? AND agent_id=? AND kind<>'update'`, uid, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.UpsertFor(uid, mustRef(t, "c/d/two"), Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	agent.KeepSynced = true
+	if err = s.MaintainSync(uid, "owner", agent); err != nil {
+		t.Fatalf("a queued update stopped the machine's poll: %v", err)
+	}
+	targets, err = s.SyncTargetsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{}
+	for _, sk := range targets[0].Desired {
+		ids = append(ids, sk.ID)
+	}
+	slices.Sort(ids)
+	if !slices.Equal(ids, []string{"a/b/one", "c/d/two"}) {
+		t.Fatalf("the poll did not follow the library: %v", ids)
+	}
+	var updates int
+	if err = s.db.QueryRow(`SELECT count(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind='update' AND status='queued'`, uid, agent.ID).Scan(&updates); err != nil || updates != 1 {
+		t.Fatalf("the queued update should still wait its turn: %d %v", updates, err)
+	}
+}

@@ -23,7 +23,8 @@ Use **Ask Gaffer** for a private companion conversation after choosing a provide
 Chat starts with typed messages only. You can separately preview and enable
 retained reet or selected-session context as described below. In a supported
 structured session, you can separately enable one instruction to its working model.
-Offline Gaffer supervision is still to come. Saving a provider or
+Explicit session goals can now continue on the controller while you are away.
+Saving a provider or
 opening the panel does not start a model request or send any reet context.
 
 ## Talk to Gaffer
@@ -119,6 +120,63 @@ permissions block subsequent delivery. Instructions are limited to 8,000 UTF-8
 bytes, with 500 retained receipts per account. MCP clients may have 100 enabled
 session scopes each. Use a supported structured chat with a verified message channel.
 
+## Let Gaffer look after a session
+
+Open **Chat options → Session follow-up** in an eligible structured session.
+First review **Context** sharing for session event history and message text, and
+**Worker messages** permission. The provider must allow that session text. A
+saved goal grants no read or messaging permission implicitly.
+
+Write the agreed goal, for example: “Ensure a PR is raised, its checks pass and
+conflicts are fixed. Bring scope changes back to me. Do not merge.” Choose the
+review and time limits, then **Start follow-up**. Defaults are **12 Gaffer reviews
+over 24 hours**. You may choose 1–48 reviews over 1–168 hours, with at most ten
+active session goals per account. Each review uses at most one worker instruction
+and two Gaffer model requests. This budget covers Gaffer's reviews; the working
+model keeps its existing usage and permission controls.
+
+Closing chat or the browser leaves an explicitly active goal running on the
+controller, in both native and Docker deployments. Each selected session has its
+own goal, conversation and budget. Gaffer waits for new retained worker progress
+and an idle verified channel. Quiet, busy and unavailable sessions make no model
+requests. The first review can use the session's existing retained progress.
+Gaffer asks the working model to handle implementation, PR actions and any future
+check monitoring; Gaffer itself makes no direct GitHub or shell request.
+
+A review chooses one next step or brings a question back to you. A prose-only
+review needs your attention too; it does not silently promise further progress.
+Two identical instructions are allowed per goal; a third stops for your review.
+Human input/approvals, a stopped or failed worker, interrupted Gaffer reviews,
+ambiguous or blocked delivery, policy changes and exhausted limits also need you.
+A quiet session or a model saying “ready” does not prove that the goal is complete.
+Only **Mark goal complete** records your decision. It does not merge a PR.
+
+The compact goal entry opens the saved goal, latest Gaffer review, observation
+sequence/time, actual review finish time and reported token usage. Missing usage
+is shown as unknown. Observation time is separate from a newer controller status
+update. **Edit goal or start a new budget** opens the editor without crowding the
+normal conversation. Automatic turns are labelled **Goal review**.
+
+**Pause follow-up** or **Stop goal** removes that goal's instructions still queued,
+cancels its current Gaffer review and leaves manual messages and the working model
+alone. Already claimed or accepted work cannot be recalled. Cancelling one Gaffer
+answer leaves its saved outcome and requires review before automatic follow-up
+resumes. **Resume after review** asks you to check decisions and uncertain delivery;
+it keeps the remaining budget and expiry and waits for fresh worker progress.
+Starting a new goal/budget is a separate confirmed action.
+
+An ordinary controller restart resumes unchanged active goals after reconciling
+saved turns and receipts. In-flight interrupted reviews and uncertain deliveries
+are never replayed automatically. Restoring an instance copy pauses its goals for
+explicit review, because the worker may have progressed beyond the saved copy.
+Changes to provider/model, account access, sharing or worker permission stop stale
+follow-up. Review the new permissions before resuming.
+
+This slice follows controller-retained worker events, with the same context bounds
+and omissions described below. It does not poll unchanged evidence or observe
+external PR/check changes on its own: the working model must monitor those and
+report progress. Unsupported channels and providers remain visible limitations.
+
 ## Add a provider
 
 1. Choose **Add provider**, then a preset: OpenAI, Anthropic, Ollama Cloud,
@@ -208,7 +266,7 @@ Already shared data cannot be recalled. Completed Gaffer replies derived from
 categories you revoke are excluded from later model history; they remain visible
 in your saved conversation. Archiving a worker session revokes its context grants.
 Context sharing alone grants no worker messaging. Enable an instruction separately
-as described above; offline Gaffer follow-up is still to come.
+as described above, or activate a separately bounded session goal.
 
 [MCP context access](mcp.md#share-retained-reet-context) is granted separately per
 connection or browser tools. Giving Gaffer context does not grant it to MCP clients.

@@ -1,6 +1,7 @@
 # Gaffer offline goals — GM4
 
 6 November 2026. Follow-on to merged #612, aligned with main `b68c84e9`.
+Implementation is tracked in [PR #617](https://github.com/eyupio/reet.sh/pull/617).
 Only reet.sh changes. Local fake providers/workers; no real credentials or merge.
 
 The user selected 12 Gaffer reviews over 24 hours by default, with limits visible
@@ -51,3 +52,28 @@ Use fake-backed domain/store/HTTP and browser tests for consent, budget/expiry,
 progress gating, multi-session fairness, revocation and queue fencing, shutdown,
 actual database reopen, ambiguity and UI focus/phone/themes. Public docs and the
 main handoff record the delivered scope and final PR/check state.
+
+## Implementation record
+
+The store owns the goal, source cursor, pins and atomic budget/review reservation.
+The existing conversation service owns its bounded provider turn. The supervisor
+uses a four-probe pool and oldest-due scanning while preserving the existing two-
+per-account/four-global Gaffer turn limits. Queue delivery reads the saved goal
+revision as well as worker grants. Browser-only goal controls cannot be supplied
+through MCP credentials or ordinary chat-turn arguments. Model decisions remain
+one next instruction or a user question; a prose-only review needs user attention.
+
+Fake-backed race tests cover default-off grants, budget/expiry, changed permissions,
+atomic claims across Store handles, busy/quiet/stopped workers, two sessions,
+queued and in-flight pause, repeated instructions, saved user questions, browser-
+free restart, interrupted review recovery and instance restore. The full local
+race run passes API (404 s), Gaffer (103 s), store (174 s), broker (43 s), embedded
+web and all other packages except the same five unchanged terminal-host environment
+failures: three missing-tmux and two process-group cleanup tests. Later decision/
+shutdown guards have targeted race checks; final-head CI remains the publication
+gate. The 16 MCP compatibility checks pass; generated tools remain unchanged.
+
+The goal dialog and existing chat/context/worker/layout browser matrices pass on
+main `b68c84e9`; web check/build, vet, strict docs, 51-page validation and the 40-view
+docs browser smoke pass. Captures use only synthetic data. PR #617 records the
+final immutable head, review and CI state. No paid provider, deployment or merge.

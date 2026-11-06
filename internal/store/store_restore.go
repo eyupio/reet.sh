@@ -66,6 +66,7 @@ type Adaptation struct {
 	TokensRevoked         int
 	MCPConnectionsRevoked int
 	IdentityDropped       bool
+	GafferGoalsPaused     int
 	// Cleared names each stored secret that could not be opened on the
 	// controller the copy lands on, and what to do about it. The value is
 	// removed rather than kept as something nothing can read.
@@ -231,6 +232,16 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 		n, _ := res.RowsAffected()
 		return int(n), nil
 	}
+	// A copy can predate external worker effects, or run beside its original.
+	// Restoring it must not reauthorise background work from that old snapshot.
+	if tableExists(ctx, tx, "gaffer_goals") {
+		if out.GafferGoalsPaused, err = exec("gaffer_goals", `UPDATE gaffer_goals SET data=json_set(data,'$.state','needs_user','$.revision',json_extract(data,'$.revision')+1,'$.activeTurnId','','$.pendingId','','$.note','This controller was restored from a copy. Check the working conversation and explicitly resume follow-up.','$.updatedAt',?) WHERE json_extract(data,'$.state') NOT IN('stopped','completed')`, now()); err != nil {
+			return out, err
+		}
+		if _, err = exec("terminal_chat_queue", `UPDATE terminal_chat_queue SET state=CASE WHEN state='sending' THEN 'uncertain' ELSE 'removed' END,text='',images='[]',note='Restored copy: review goal delivery before resuming.',revision=revision+1 WHERE state IN('queued','sending') AND origin='companion' AND id IN(SELECT r.queue_id FROM worker_message_receipts r JOIN gaffer_turns t ON t.conversation_id=r.subject AND t.id=r.turn_id WHERE r.kind='gaffer' AND t.goal_id<>'')`); err != nil {
+			return out, err
+		}
+	}
 	if opts.DropSessions {
 		if out.SessionsEnded, err = exec("sessions", `DELETE FROM sessions`); err != nil {
 			return out, err
@@ -271,6 +282,7 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 		detail["sessionsDropped"] = opts.DropSessions
 		detail["tokensDropped"] = opts.DropTokens
 		detail["secretsCleared"] = len(out.Cleared)
+		detail["gafferGoalsPaused"] = out.GafferGoalsPaused
 		raw, _ := json.Marshal(detail)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO events(at,user_id,actor,source,action,skill_id,detail) VALUES(?,0,'',?,?,'',?)`,
 			now(), opts.EventSource, opts.EventAction, string(raw)); err != nil {

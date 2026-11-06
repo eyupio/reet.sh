@@ -148,7 +148,9 @@ access. They cannot grant themselves permission, interrupt a worker, answer an
 approval or change its settings. The browser offers a separately confirmed
 **Stop worker and send** action for a queued receipt. Browser WebMCP also uses its
 existing write confirmation. Legacy API-token/anonymous stdio cannot send worker
-messages; use a scoped MCP connection. No offline Gaffer follow goal is created.
+messages; use a scoped MCP connection. No offline Gaffer follow goal is created by these tools. Goals are activated
+separately in the signed-in session companion; client credentials cannot start
+background supervision or grant themselves that authority.
 
 ## OAuth implementation and limits
 

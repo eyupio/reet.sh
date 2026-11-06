@@ -33,6 +33,9 @@ type GafferConversation struct {
 }
 
 type GafferTurn struct {
+	GoalID              string      `json:"goalId,omitempty"`
+	GoalRevision        int64       `json:"goalRevision,omitempty"`
+	GoalNeedsUser       bool        `json:"goalNeedsUser,omitempty"`
 	WorkerGrantRevision int64       `json:"workerGrantRevision,omitempty"`
 	Context             *ContextUse `json:"context,omitempty"`
 	ID                  string      `json:"id"`
@@ -85,7 +88,7 @@ func (s *Store) migrateGafferChats() error {
 }
 
 const gafferConversationColumns = `id,user_id,session_id,provider_id,model,revision,created_at,updated_at`
-const gafferTurnColumns = `id,conversation_id,request_revision,prompt,answer,state,provider_id,provider_name,model,error,input_tokens,output_tokens,usage_reported,cut,started_at,updated_at,finished_at,context_json,worker_grant_revision`
+const gafferTurnColumns = `id,conversation_id,request_revision,prompt,answer,state,provider_id,provider_name,model,error,input_tokens,output_tokens,usage_reported,cut,started_at,updated_at,finished_at,context_json,worker_grant_revision,goal_id,goal_revision,goal_needs_user`
 
 func scanGafferConversation(row interface{ Scan(...any) error }) (GafferConversation, error) {
 	var c GafferConversation
@@ -98,7 +101,7 @@ func scanGafferConversation(row interface{ Scan(...any) error }) (GafferConversa
 func scanGafferTurn(row interface{ Scan(...any) error }) (GafferTurn, error) {
 	var t GafferTurn
 	var contextJSON string
-	err := row.Scan(&t.ID, &t.ConversationID, &t.RequestRevision, &t.Prompt, &t.Answer, &t.State, &t.ProviderID, &t.ProviderName, &t.Model, &t.Error, &t.InputTokens, &t.OutputTokens, &t.UsageReported, &t.Cut, &t.StartedAt, &t.UpdatedAt, &t.FinishedAt, &contextJSON, &t.WorkerGrantRevision)
+	err := row.Scan(&t.ID, &t.ConversationID, &t.RequestRevision, &t.Prompt, &t.Answer, &t.State, &t.ProviderID, &t.ProviderName, &t.Model, &t.Error, &t.InputTokens, &t.OutputTokens, &t.UsageReported, &t.Cut, &t.StartedAt, &t.UpdatedAt, &t.FinishedAt, &contextJSON, &t.WorkerGrantRevision, &t.GoalID, &t.GoalRevision, &t.GoalNeedsUser)
 	if err == nil && contextJSON != "" {
 		err = json.Unmarshal([]byte(contextJSON), &t.Context)
 	}
@@ -222,13 +225,18 @@ func (s *Store) StartGafferTurnFor(uid int64, t GafferTurn) (GafferTurn, bool, e
 	}
 	created := false
 	err := s.withTx(func(tx *sql.Tx) error {
+		if t.GoalID != "" {
+			if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, uid); err != nil {
+				return err
+			}
+		}
 		c, err := scanGafferConversation(tx.QueryRow(`SELECT `+gafferConversationColumns+` FROM gaffer_conversations WHERE user_id=? AND id=?`, uid, t.ConversationID))
 		if err != nil {
 			return err
 		}
 		old, err := scanGafferTurn(tx.QueryRow(`SELECT `+gafferTurnColumns+` FROM gaffer_turns WHERE conversation_id=? AND id=?`, c.ID, t.ID))
 		if err == nil {
-			if old.Prompt != t.Prompt || old.RequestRevision != t.RequestRevision || (old.WorkerGrantRevision > 0) != (t.WorkerGrantRevision > 0) {
+			if old.Prompt != t.Prompt || old.RequestRevision != t.RequestRevision || (old.WorkerGrantRevision > 0) != (t.WorkerGrantRevision > 0) || old.GoalID != t.GoalID || old.GoalRevision != t.GoalRevision {
 				return ErrGafferConflict
 			}
 			t = old
@@ -250,6 +258,11 @@ func (s *Store) StartGafferTurnFor(uid int64, t GafferTurn) (GafferTurn, bool, e
 		if count >= MaxGafferTurns || bytes+len(t.Prompt)+MaxGafferAnswerBytes > MaxGafferConversationBytes {
 			return ErrGafferChatFull
 		}
+		if t.GoalID != "" {
+			if err = admitGoalReview(tx, uid, t); err != nil {
+				return err
+			}
+		}
 		at := now()
 		t.State = "running"
 		t.StartedAt = at
@@ -262,7 +275,7 @@ func (s *Store) StartGafferTurnFor(uid int64, t GafferTurn) (GafferTurn, bool, e
 			}
 			contextJSON = string(raw)
 		}
-		_, err = tx.Exec(`INSERT INTO gaffer_turns(conversation_id,id,request_revision,prompt,state,provider_id,provider_name,model,started_at,updated_at,context_json,worker_grant_revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, c.ID, t.ID, t.RequestRevision, t.Prompt, t.State, t.ProviderID, t.ProviderName, t.Model, at, at, contextJSON, t.WorkerGrantRevision)
+		_, err = tx.Exec(`INSERT INTO gaffer_turns(conversation_id,id,request_revision,prompt,state,provider_id,provider_name,model,started_at,updated_at,context_json,worker_grant_revision,goal_id,goal_revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, c.ID, t.ID, t.RequestRevision, t.Prompt, t.State, t.ProviderID, t.ProviderName, t.Model, at, at, contextJSON, t.WorkerGrantRevision, t.GoalID, t.GoalRevision)
 		if err != nil {
 			return err
 		}
@@ -293,7 +306,7 @@ func (s *Store) UpdateGafferTurnFor(uid int64, t GafferTurn) error {
 		if t.State != "running" {
 			finished = at
 		}
-		r, err := tx.Exec(`UPDATE gaffer_turns SET answer=?,state=?,error=?,input_tokens=?,output_tokens=?,usage_reported=?,cut=?,updated_at=?,finished_at=? WHERE conversation_id=? AND id=? AND state='running'`, t.Answer, t.State, t.Error, t.InputTokens, t.OutputTokens, t.UsageReported, t.Cut, at, finished, t.ConversationID, t.ID)
+		r, err := tx.Exec(`UPDATE gaffer_turns SET answer=?,state=?,error=?,input_tokens=?,output_tokens=?,usage_reported=?,cut=?,updated_at=?,finished_at=?,goal_needs_user=? WHERE conversation_id=? AND id=? AND state='running'`, t.Answer, t.State, t.Error, t.InputTokens, t.OutputTokens, t.UsageReported, t.Cut, at, finished, t.GoalNeedsUser, t.ConversationID, t.ID)
 		if err != nil {
 			return err
 		}

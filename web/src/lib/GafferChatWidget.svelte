@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, UnauthorizedError, cancelGafferAnswer, configureGafferConversation, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,
+  import { ApiError, UnauthorizedError, cancelGafferAnswer, configureGafferConversation, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,getGafferGoal,
     type GafferConversationView, type GafferSettings, type GafferTurn } from './api'
   import { gafferSessionContext, gafferChatEntry, gafferChatDock } from './gafferContext'
   import { gafferMessageBytes, gafferMessageId, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt, type PendingGafferSend } from './gafferChat'
@@ -9,6 +9,7 @@
   import GafferChatHistory from './GafferChatHistory.svelte'
   import GafferProse from './GafferProse.svelte'
   import WorkerMessaging from './WorkerMessaging.svelte'
+ import GafferGoal from './GafferGoal.svelte'
   import ContextSharing from './ContextSharing.svelte'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import CopyButton from './CopyButton.svelte'
@@ -20,7 +21,7 @@
 
   let { userId, onerror, timeZone = '', dateFormat = 'locale' }: { userId: number; onerror?: (e: unknown) => void; timeZone?: string; dateFormat?: string } = $props()
   const contextDescriptionId = $props.id()
-  let historyOpen = $state(false), optionsOpen = $state(false), workerOpen = $state(false), relay = $state(false)
+  let historyOpen = $state(false), optionsOpen = $state(false), workerOpen = $state(false), goalOpen=$state(false), relay = $state(false)
   let modelButton = $state<HTMLButtonElement>(), historyButton = $state<HTMLButtonElement>(), contextButton = $state<HTMLButtonElement>(), optionsButton = $state<HTMLButtonElement>()
   let modelBefore: {providerId:string;model:string;manual:boolean} | undefined
   let contextOpen = $state(false)
@@ -57,7 +58,7 @@
     resize(); mq.addEventListener('change', resize)
     return () => { gafferChatEntry.update(current => current === entry ? null : current); mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
   })
-  $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; workerOpen=false;relay=false; if (shown) void load(key); else dispose() }) })
+  $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; workerOpen=false;goalOpen=false;relay=false; if (shown) void load(key); else dispose() }) })
   $effect(() => {
     if (!open || !panel) return
     const mobile = phone, dialog = panel
@@ -127,7 +128,7 @@
       if (mine === epoch && stream === source && open) { stream = undefined; streamError = 'The reply connection paused. Reconnect to read Gaffer’s saved answer.' }
     }
   }
-  async function close() { open = false; confirming = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : $gafferChatDock ?? launcher)?.focus({preventScroll:true}) }
+  async function close() { open = false; confirming = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : $gafferChatDock ?? launcher)?.focus({preventScroll:true}) }
   function chooseProvider(value: string) { providerId = value; model = ''; manualModel = false; invalidateModels() }
   function invalidateModels() { modelEpoch++; modelRequest?.abort(); fetchingModels = false; models = []; modelsError = '' }
   async function fetchModels() {
@@ -187,6 +188,23 @@
     const timer=setInterval(()=>{if(loading||sending||updating)return;void getWorkerSettings(`/api/v2/gaffer/conversations/${encodeURIComponent(id)}/worker`,request?.signal).then(next=>{if(mine===epoch&&view?.conversation.id===id)view={...view,messages:next.messages}}).catch(e=>{if(mine===epoch)streamError=message(e)})},3000)
     return()=>clearInterval(timer)
   })
+  async function goalChoices(){
+ optionsOpen=false
+ if(loading||sending||updating||dirty||unavailable||!scope)return
+ const mine=epoch;updating=true;error=''
+ try{if(!current){const c=await createGafferConversation(scope,providerId,model,request?.signal);if(mine!==epoch)return;view=c}if(mine===epoch)goalOpen=true}catch(e){if(mine===epoch)error=message(e)}finally{if(mine===epoch)updating=false}
+ }
+ async function goalChanged(){
+ const mine=epoch,key=scope;updating=true
+ try{const fresh=await getGafferConversation(key,request?.signal);if(mine!==epoch)return;view=fresh;const live=fresh.turns.find(t=>t.state==='running');if(live&&!stream)observe(live,mine)}catch(e){if(mine===epoch)error=message(e)}finally{if(mine===epoch)updating=false}
+ }
+ $effect(()=>{
+ if(!open||current?.goal?.state!=='active')return
+ const id=current.conversation.id,mine=epoch
+ let reading=false
+ const timer=setInterval(()=>{if(reading||loading||sending||updating)return;reading=true;void getGafferGoal(id,request?.signal).then(async next=>{if(mine!==epoch||view?.conversation.id!==id)return;const previous=view.goal;view={...view,goal:next.goal??undefined};if(previous?.activeTurnId!==next.goal?.activeTurnId||previous?.usedReviews!==next.goal?.usedReviews||previous?.summary!==next.goal?.summary)await goalChanged()}).catch(e=>{if(mine===epoch)error=message(e)}).finally(()=>reading=false)},4000)
+ return()=>clearInterval(timer)
+ })
   async function contextSaved(){contextOpen=false;await load(scope);notice='Context sharing updated. The working agent keeps running.'}
   async function send(existing?: PendingGafferSend) {
     if (!existing && (blocked || !drafts[scope]?.trim() || bytes > 8000)) return
@@ -256,10 +274,10 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrolling history must be reachable with a keyboard.) -->
       <div class="transcript" bind:this={transcript} data-shell-body onscroll={() => {if (transcript) stickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 90}} tabindex="0" role="region" aria-label="Gaffer conversation messages">
         {#if loading}<p class="empty" role="status">Finding our place…</p>
-        {:else if loadedScope === scope && !error && !current?.turns.length}<div class="welcome"><span class="welcome-mark" aria-hidden="true">“</span><h3>Reet. What’s on your mind?</h3><p>Talk it through, question the plan, or ask for a second pair of eyes.</p><p class="note">Choose Context to share retained reet or session data. In a structured session, use Chat options → Worker messages to relay an instruction. Offline follow-up is still to come.</p></div>{/if}
+        {:else if loadedScope === scope && !error && !current?.turns.length}<div class="welcome"><span class="welcome-mark" aria-hidden="true">“</span><h3>Reet. What’s on your mind?</h3><p>Talk it through, question the plan, or ask for a second pair of eyes.</p><p class="note">Choose Context to share retained reet or session data. In a structured session, use Chat options → Worker messages to relay an instruction. Use Session follow-up to save a bounded goal while you’re away.</p></div>{/if}
         {#if loadedScope === scope}{#each current?.turns ?? [] as turn (turn.id)}
           <article class="turn">
-            <div class="user-message"><p class="speaker">You</p><p class="message-text">{turn.prompt}</p></div>
+            <div class="user-message"><p class="speaker">{turn.goalId?'Goal review':'You'}</p><p class="message-text">{turn.prompt}</p></div>
             <div class="gaffer-message"><div class="reply-head"><p class="speaker">Gaffer</p><span class="state" class:bad={turn.state === 'failed'}>{gafferTurnLabel(turn)}</span></div>
               {#if turn.answer}<GafferProse text={turn.answer} />{:else if turn.state === 'running'}<p class="thinking" role="status">Putting the thinking cap on…</p>{/if}
               {#if turn.error}<p class="turn-error" role="status">{turn.error}</p>{/if}
@@ -276,6 +294,7 @@
           </article>
         {/each}{/if}
       </div>
+      {#if current?.goal}<button class="goal-status quiet" type="button" onclick={()=>void goalChoices()}>{current.goal.state==='active'?'Gaffer following':current.goal.state==='needs_user'?'Goal needs you':current.goal.state==='limit'?'Goal limit reached':`Goal ${current.goal.state}`} · {current.goal.usedReviews}/{current.goal.maxReviews} reviews</button>{/if}
       {#if error}<div class="feedback bad" role="alert"><p>{error}</p><button class="quiet" onclick={() => void load()}>Reload conversation</button></div>{/if}
       {#if streamError}<div class="feedback" role="alert"><p>{streamError}</p><button class="btn" onclick={() => void load()}>Reconnect reply</button></div>{/if}
       {#if notice}<p class="notice" role="status">{notice}</p>{/if}
@@ -324,13 +343,14 @@
   <div class="chat-options"><p><strong>{scopeTitle}</strong></p>
     {#if scope && $gafferSessionContext}<p>Working agent: {toolName($gafferSessionContext.tool)||'Agent'} · {$gafferSessionContext.model||'Model not reported'}</p>{/if}
     <p>Gaffer: {provider?.name||'Choose a provider'} · {model||provider?.model||'Choose a model'}</p>
-    <p>Your critical buddy, with a brew standing by. Closing the panel keeps the current answer running. In a structured session, Worker messages lets you enable one instruction for your next request. Offline follow-up is still to come.</p>
+    <p>Your critical buddy, with a brew standing by. Closing the panel keeps the current answer running. In a structured session, Worker messages lets you enable one instruction for your next request. Use Session follow-up to save a bounded goal while you’re away.</p>
     <a class="btn" href="/account/gaffer">Gaffer settings</a>
-    {#if scope&&!unavailable}<button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void workerChoices()}>Worker messages</button>{/if}
+    {#if scope&&!unavailable}<button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void workerChoices()}>Worker messages</button><button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices()}>Session follow-up</button>{/if}
     {#if current}<button class="btn remove" aria-label="Remove conversation" disabled={sending||updating||loading} onclick={()=>{optionsOpen=false;confirming=true}}>Remove chat</button>{/if}
   </div>
 </WorkspaceDialog>{/if}
 
+{#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {timeZone} {dateFormat} onchanged={goalChanged}/></WorkspaceDialog>{/if}
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 
 <style>
@@ -398,6 +418,7 @@
   .send-control:disabled { opacity:.45;cursor:default; }.send-control.stop { background:var(--ink);color:var(--card); }
   .compose-hint { font-size:12px;margin:4px 8px 0;color:var(--muted); }.compose-hint.bad { color:var(--bad); }
   .chat-options { display:grid;gap:14px;font-size:14px;line-height:1.5; }.chat-options p { margin:0;overflow-wrap:anywhere; }.chat-options .btn { text-align:center; }.remove { color:var(--bad); }
+  .goal-status { flex:none;text-align:left;margin:0 16px;min-height:32px;font-size:12px; }
   .request-mode { margin:0 0 6px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:var(--accent-text); }.worker-receipt { margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:9px; }.worker-receipt summary { cursor:pointer;font-size:14px; }.worker-receipt p { margin-top:8px; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

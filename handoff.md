@@ -69,16 +69,30 @@ escaped content. The browser matrix includes the supplied 800×1280 touch-tablet
 shape, 560 px boundary, phones and desktop; normal layouts reserve over 60% for
 messages. See the latest UI evidence and the PR for final verification.
 
-GM3B is implemented for review in [PR #612](https://github.com/eyupio/reet.sh/pull/612),
+GM3B shipped in [merged PR #612](https://github.com/eyupio/reet.sh/pull/612) as
+`77892506`, with all 20 final-head checks passing. It used
 `feat/gaffer-worker-messages`. It started from main `6c5638cf` after #608/#609 and
 is aligned with main `6c40c7fb` after #610/#611. The concrete
 [worker-message plan](docs/handoffs/gaffer-worker-messages.md) records separate
 permissions, one explicitly enabled request, atomic queue receipts and delivery
 checks. It preserves the working model and user approval boundary.
-Durable goals and offline supervision remain GM4. Gaffer has no coding/PR authority;
+GM4 is implemented for review in [PR #617](https://github.com/eyupio/reet.sh/pull/617),
+`feat/gaffer-offline-goals`, aligned with main
+`b68c84e9` after the owner merged #612 (`77892506`). The
+[offline-goal contract](docs/handoffs/gaffer-offline-goals.md) records explicit
+per-session goals, the user's default of 12 reviews over 24 hours, progress-only
+reviews, atomic budget/turn admission, fresh goal/grant delivery checks, stop/
+pause/resume, concurrent sessions and restart reconciliation. Instance restores
+pause goals. The working model retains implementation and PR authority.
+Gaffer has no coding/PR authority;
 the working model performs those actions. No model-requested tools, worker writes,
 background polling or real provider credentials are enabled in GM3A. Final checks
 and PR state are recorded in the companion handoff and UI verification record.
+
+The user also authorised the next slice after #617: a followed-session overview
+with grounded “what happened / what remains / needs you” information and clear
+source times, as a separate reviewable change. Keep goal/worker permissions and
+normal chat's narrative-led layout under the same boundaries.
 
 The 5 November #603 review follow-up fixes first-address-only provider dialing:
 try all validated literal addresses, with dual-stack fallback and bounded,

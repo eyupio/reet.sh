@@ -12,6 +12,7 @@ import (
 func (s *server) registerGafferChatRoutes(mux *http.ServeMux) {
 	s.registerContextRoutes(mux)
 	s.registerWorkerRoutes(mux)
+	s.registerGoalRoutes(mux)
 	access := func(h http.HandlerFunc) http.HandlerFunc {
 		return s.featureAccess(accessWords{accounts: "Gaffer conversations need a browser account.", signedOut: "Sign in to talk to Gaffer.", readOnly: "This account is read-only, so it cannot use Gaffer conversations."}, h)
 	}

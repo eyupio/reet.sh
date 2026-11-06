@@ -291,6 +291,23 @@ func (s *Store) AdmitWorkerMessageFor(uid int64, kind, subject string, m WorkerM
 			if !permitted {
 				return ErrNotFound
 			}
+			if err = goalTurnAllowed(tx, uid, subject, m.TurnID, true); err != nil {
+				return err
+			}
+			var goalID string
+			if err = tx.QueryRow(`SELECT goal_id FROM gaffer_turns WHERE conversation_id=? AND id=?`, subject, m.TurnID).Scan(&goalID); err != nil {
+				return err
+			}
+			if goalID != "" {
+				var repeats int
+				if err = tx.QueryRow(`SELECT COUNT(*) FROM worker_message_receipts r JOIN gaffer_turns t ON t.conversation_id=r.subject AND t.id=r.turn_id WHERE r.user_id=? AND r.kind='gaffer' AND r.subject=? AND t.goal_id=? AND r.text_hash=?`, uid, subject, goalID, digest).Scan(&repeats); err != nil {
+					return err
+				}
+				if repeats >= 2 {
+					return ErrGafferGoalRepeat
+				}
+			}
+
 		} else if m.TurnID != "" {
 			return ErrNotFound
 		}
@@ -337,7 +354,17 @@ func workerDelivery(q contextQuerier, uid int64, session, id string) error {
 	if err != nil {
 		return err
 	}
-	return workerAllowed(q, uid, kind, subject, session, revision)
+	if err = workerAllowed(q, uid, kind, subject, session, revision); err != nil {
+		return err
+	}
+	if kind == "gaffer" {
+		var turn string
+		if err = q.QueryRow(`SELECT turn_id FROM worker_message_receipts WHERE user_id=? AND queue_id=?`, uid, id).Scan(&turn); err != nil {
+			return err
+		}
+		return goalTurnAllowed(q, uid, subject, turn, false)
+	}
+	return nil
 }
 func (s *Store) CheckWorkerDelivery(uid int64, session, id string) error {
 	return workerDelivery(s.db, uid, session, id)

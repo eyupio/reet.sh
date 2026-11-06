@@ -524,7 +524,7 @@
     if(viewportMeta&&viewportContent!==null&&!/interactive-widget/.test(viewportContent))viewportMeta.setAttribute('content',`${viewportContent}, interactive-widget=resizes-content`)
     let frame=0
     const coarse=matchMedia('(pointer:coarse)'),narrow=matchMedia(PHONE_SCREEN)
-    const editing=()=>{const focus=document.activeElement;return focus instanceof HTMLElement&&!!focus.closest('.pane')&&focus.matches('textarea,input,[contenteditable]:not([contenteditable="false"])')}
+    const editing=()=>{const focus=document.activeElement;return focus instanceof HTMLElement&&!!focus.closest('.pane,.chat-pane')&&focus.matches('textarea,input,[contenteditable]:not([contenteditable="false"])')}
     const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
       if(!workspace)return
       const usable=pageViewport.read(browserViewport())

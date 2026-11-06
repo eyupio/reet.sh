@@ -1,5 +1,37 @@
 # UI verification — 4 November 2026
 
+## Gaffer floating companion and one-step setup (6 November 2026)
+
+PR #625 uses one 56 px mascot launcher in the account's saved bottom corner.
+The workspace viewport and page action docks reserve that space. Compact
+(24 × 32 rem), Default (28 × 42 rem) and Expanded (46 × 52 rem) presets, saved
+left/right placement, temporary desktop drag/resize, keyboard movement and modal
+Full screen match the reference. Phones use a viewport-aware sheet. The warm
+flat-capped mascot, welcome illustration and reply avatars honour reduced motion
+and the user's animation setting. History remains in the header and model choice
+at the composer; the narrative keeps the main area.
+
+**Look after this session** opens one review for the selected provider/model,
+recent session conversation including code/logs, worker messaging and the bounded
+goal. The default 12 reviews / 24 hours stays visible; Change limits and detailed
+permissions are optional. A single confirmed browser action commits access and
+the goal together. Resume retains its existing budget/deadline.
+
+The ten-view widget matrix covers 1440, 800, 767, 390 and 320 px in light/dark,
+including presets, resetting temporary geometry, corner persistence, focus,
+drafts and launcher clearance. Existing chat geometry requires over 60% narrative
+space, including the supplied 800 × 1280 tablet shape. Landscape drawer geometry
+now measures modal dialogs in the browser's top layer, without clipping them to
+the terminal behind them; the save-dock check verifies its new clearance above
+the stable launcher. Captures below were visually inspected with synthetic data.
+Final-head CI/review and the separate real-controller native/Docker acceptance
+remain the delivery gates. No physical-phone or real-provider claim is made.
+
+![Floating Gaffer desktop light](images/ui/gaffer-widget-1440-light.png)
+![Floating Gaffer desktop dark](images/ui/gaffer-widget-1440-dark.png)
+![Floating Gaffer phone light](images/ui/gaffer-widget-390-light.png)
+![Floating Gaffer phone dark](images/ui/gaffer-widget-390-dark.png)
+
 ## Gaffer followed-session overview (6 November 2026)
 
 **Chat options → Followed sessions** opens a secondary job sheet from general or
@@ -24,7 +56,7 @@ only synthetic sessions, goals and reports.
 
 ## Gaffer saved session goals (6 November 2026)
 
-**Chat options → Session follow-up** opens a secondary native dialog for an
+**Chat options → Look after this session** opens a secondary native dialog for an
 explicit goal and budget. Defaults are 12 reviews over 24 hours. Existing goals
 show their current state, used reviews, deadline, latest review, source event/time
 and review finish time; the editor is collapsed behind **Edit goal or start a new
@@ -33,7 +65,7 @@ current dock. Automatic turns say **Goal review**. Pausing is immediate; resumin
 replacing, stopping and marking complete use their stated confirmation paths.
 
 `web/tests/gaffer-goal.e2e.mjs` passes at 1440, 800, 390 and 320 px in light/dark.
-It checks separate-grant gating, the selected defaults, UTF-8 bounds, goal storage
+It checks reviewed setup eligibility, the selected defaults, UTF-8 bounds, goal storage
 across close/reload, automatic review labels, escaped summaries, preserved budget
 on resume, explicit confirmation, no direct worker writes, width and focus return.
 The four captures below were visually inspected. The HTML-looking summary is an

@@ -18,7 +18,7 @@ alongside this UX change; real provider credentials remain for later settings.
   available. Presets and side persist per browser account; manual geometry and
   full screen are temporary. Phones use a viewport-aware modal sheet.
 - The flat-capped face sits on the reference warm circular tile in the launcher,
-  header, welcome and replies, with restrained greeting/thinking motion and reduced
+  header and replies, with the seated illustration in the welcome, with restrained greeting/thinking motion and reduced
   motion/user-animation preferences. The working-session mascot is unchanged.
 - History stays in the header, model selection stays beside the composer, and the
   narrative remains the main area. A session's **Look after** control opens one
@@ -50,8 +50,12 @@ provider maximum changes, separate-session isolation, resume preservation and
 foreign-origin/MCP denial. Existing goal/store/API race selections pass after the
 transaction helper refactor. The widget matrix passes ten theme/width views with
 stable clearance, presets, resize reset, keyboard positioning, full screen, phone
-sheet, drafts and focus. Final combined chat/context/worker/goal/settings regressions,
-source UI captures, docs and final-head CI/review are the publication gate.
+sheet, drafts and focus. Chat/context/worker/goal/settings/overview browser regressions also pass. Source UI captures were visually inspected; strict docs, 51-page static checks
+and the 40-view browser smoke pass. Final-head CI/review remains the publication
+gate. Initial CI found two geometry-test assumptions: modal drawers were
+incorrectly clipped to terminal ancestors, and the save-dock check expected the
+old launcher placement. Both are corrected with the visible top-layer and stable
+corner contracts retained. Targeted goal/API/store race tests and vet pass.
 
 GM6's separate acceptance harness already proves a real private WebSocket/broker
 queued instruction survives database reopen and reaches its worker once without a

@@ -24,6 +24,17 @@ run a shell or acquire a second GitHub-write path. Interrupting the worker remai
 an explicit separate action. Generic chat, closing a panel and receiving a quiet
 worker event do not create a follow goal or prove it is complete.
 
+## Reviewed browser session setup
+
+The [widget/setup contract](gaffer-widget-setup.md) supersedes the old multi-dialog
+activation instructions. One explicitly reviewed browser operation enables the
+selected provider's session/text maxima if needed, binds read/message grants to
+only this conversation/session and starts or resumes its bounded goal atomically.
+It requires confirmation and current conversation/provider/model/grant/goal
+revisions. Failure rolls back every access change. Other subjects, ordinary chat,
+MCP access, worker approval/interrupt rules and delivery fences retain their
+existing contracts. Advanced separate-grant controls remain available.
+
 ## Verified worker/message boundary for GM3 and GM4
 
 The controller's existing source of truth is

@@ -283,11 +283,11 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrolling history must be reachable with a keyboard.) -->
       <div class="transcript" bind:this={transcript} data-shell-body onscroll={() => {if (transcript) stickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 90}} tabindex="0" role="region" aria-label="Gaffer conversation messages">
         {#if loading}<p class="empty" role="status">Finding our place…</p>
-        {:else if loadedScope === scope && !error && !current?.turns.length}<div class="welcome"><GafferCompanionAvatar size={88}/><h3>Reet. What’s on your mind?</h3><p>Talk it through, question the plan, or ask for a second pair of eyes.</p><p class="note">{scope?'Choose “Look after this session” to review access and set a goal in one place.':'A brew and a second pair of eyes. Open a working session when you’d like Gaffer to look after its progress.'}</p></div>{/if}
+        {:else if loadedScope === scope && !error && !current?.turns.length}<div class="welcome"><GafferCompanionAvatar size={112} sitting/><div class="welcome-copy"><h3>Ey up. I’m Gaffer.</h3><p>Talk it through, question the plan, or ask for a second pair of eyes.</p><p class="note">{scope?'Choose “Look after this session” to review access and set a goal in one place.':'A brew and a second pair of eyes. Open a working session when you’d like Gaffer to look after its progress.'}</p></div></div>{/if}
         {#if loadedScope === scope}{#each current?.turns ?? [] as turn (turn.id)}
           <article class="turn">
             <div class="user-message"><p class="speaker">{turn.goalId?'Goal review':'You'}</p><p class="message-text">{turn.prompt}</p></div>
-            <div class="gaffer-message"><div class="reply-head"><p class="speaker"><GafferCompanionAvatar size={28} thinking={turn.state==='running'} seed={parseInt(turn.id.slice(-6),16)||0}/>Gaffer</p><span class="state" class:bad={turn.state === 'failed'}>{gafferTurnLabel(turn)}</span></div>
+            <div class="gaffer-message"><div class="reply-head"><p class="speaker"><GafferCompanionAvatar size={36} thinking={turn.state==='running'} seed={parseInt(turn.id.slice(-6),16)||0}/>Gaffer</p><span class="state" class:bad={turn.state === 'failed'}>{gafferTurnLabel(turn)}</span></div>
               {#if turn.answer}<GafferProse text={turn.answer} />{:else if turn.state === 'running'}<p class="thinking" role="status">Putting the thinking cap on…</p>{/if}
               {#if turn.error}<p class="turn-error" role="status">{turn.error}</p>{/if}
               {#if turn.cut}<p class="turn-error">This reply reached its output limit and may be incomplete.</p>{/if}
@@ -396,9 +396,9 @@
   .choices a { font-size:14px; }
   .note { font-size:14px;color:var(--muted);line-height:1.5;margin:4px 0; }
   .transcript { overflow:auto;overscroll-behavior:contain;flex:1;min-height:80px;padding:22px 20px;scrollbar-gutter:stable; }
-  .welcome { padding:24px 4px;max-width:34ch; }
-  .welcome h3 { margin-top:18px; }
-  .welcome>p { font-size:15px;line-height:1.6; }
+  .welcome { padding:16px 4px;display:flex;align-items:flex-start;flex-wrap:wrap;gap:16px 20px; }.welcome-copy{flex:1 1 220px;min-width:0}
+  .welcome h3 { margin:0 0 10px; }
+  .welcome-copy>p { font-size:15px;line-height:1.6; }
   .welcome .note { margin-top:16px;font-size:13px; }
   .turn+.turn { margin-top:28px; }
   .user-message { background:var(--tint);border:1px solid var(--line-soft);border-radius:14px 14px 4px 14px;padding:12px 14px;margin:0 0 18px 24px; }

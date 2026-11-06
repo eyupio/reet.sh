@@ -20,20 +20,22 @@ related:
 Open **Account → Gaffer AI** to configure Gaffer's own provider and model. They
 belong to your account and are separate from the agent working in a session.
 Use **Ask Gaffer** for a private companion conversation after choosing a provider.
-Chat starts with typed messages only. You can separately preview and enable
-retained reet or selected-session context as described below. In a supported
-structured session, you can separately enable one instruction to its working model.
-Explicit session goals can now continue on the controller while you are away.
-Saving a provider or
-opening the panel does not start a model request or send any reet context.
+Chat starts with typed messages only. You can preview and enable retained reet
+context separately, or review a session's access and bounded goal together through
+**Look after this session**. Saving a provider or opening the panel starts no
+model request and sends no reet context.
 
 ## Talk to Gaffer
 
-In a structured session, choose **Ask Gaffer** beside the conversation status at
-the top of the narrative. Elsewhere, use the launcher at the edge of the workspace.
-On a desktop the panel aligns with the conversation and leaves the workspace
-usable; on a phone it fills the screen and stays above the keyboard.
-The portrait follows your Gaffer animation and reduced-motion preferences.
+Use the circular **Ask Gaffer** mascot in the saved bottom corner on every page,
+including session workspaces. Page actions and the session viewport leave room
+for it. **Panel layout** offers Compact, Default and Expanded sizes, Full screen,
+and left/right placement. The preset and corner are saved in this browser for
+your account. Drag the desktop header or focus its mascot and use arrow keys
+(Shift moves farther); the resize grip changes the panel temporarily. Choosing a
+preset or reopening restores its saved corner. Full screen and the phone sheet
+stay above the keyboard. The mascot follows your animation and reduced-motion
+preferences.
 
 Outside a session, use **General Gaffer chat**. Inside a supported structured chat,
 **This session** has its own conversation and draft. **Conversation history** in
@@ -59,8 +61,9 @@ conversation's completed history with the chosen provider. Working-agent default
 stay separate. Provider changes during an answer wait until it finishes or you
 cancel it. Connection tests and model protocol limits below still apply. Replies
 use readable paragraphs, lists and code; **Reply details** expands provider, usage
-and retained-context receipts. **Context** stays beside the model control, with
-a visible off/on/review state.
+and retained-context receipts. In general chat, **Context** stays beside the model control. In a session,
+**Look after this session** takes that place; detailed sharing choices remain in
+**Chat options → Advanced session controls → Context sharing**.
 
 If delivery is unconfirmed, choose **Check delivery**. Gaffer reads its saved
 receipt rather than sending the message again. **Send same message safely**, when
@@ -84,7 +87,7 @@ your Gaffer messages; the saved-chat cleanup remains available.
 
 ## Ask the working model to act
 
-In a structured session, open **Chat options → Worker messages**. Allow Gaffer to
+In a structured session, open **Chat options → Advanced session controls → Worker messages**. Allow Gaffer to
 queue messages for this session, then **Save worker permission**. This is separate
 from Context sharing and requires a provider allowing session data. Changing the
 provider, model or provider policy requires reviewing the permission again.
@@ -122,15 +125,18 @@ session scopes each. Use a supported structured chat with a verified message cha
 
 ## Let Gaffer look after a session
 
-Open **Chat options → Session follow-up** in an eligible structured session.
-First review **Context** sharing for session event history and message text, and
-**Worker messages** permission. The provider must allow that session text. A
-saved goal grants no read or messaging permission implicitly.
+Choose **Look after this session** beside the composer, or in **Chat options**,
+in an eligible structured session. One review shows Gaffer's selected provider
+and model, the recent session conversation it may read (including code or logs
+in that conversation), worker messaging, the agreed goal and its limits.
+**Start follow-up** saves those choices together. If needed, it enables the
+provider's session/text permissions; other sessions still need their own
+delegation. Closing this review makes no change. Detailed sharing, worker and
+provider permissions remain optional advanced controls.
 
 Write the agreed goal, for example: “Ensure a PR is raised, its checks pass and
-conflicts are fixed. Bring scope changes back to me. Do not merge.” Choose the
-review and time limits, then **Start follow-up**. Defaults are **12 Gaffer reviews
-over 24 hours**. You may choose 1–48 reviews over 1–168 hours, with at most ten
+conflicts are fixed. Bring scope changes back to me. Do not merge.” Review the visible default of **12 Gaffer reviews over 24 hours**, or expand
+**Change limits**, then choose **Start follow-up**. You may choose 1–48 reviews over 1–168 hours, with at most ten
 active session goals per account. Each review uses at most one worker instruction
 and two Gaffer model requests. This budget covers Gaffer's reviews; the working
 model keeps its existing usage and permission controls.
@@ -170,7 +176,8 @@ saved turns and receipts. In-flight interrupted reviews and uncertain deliveries
 are never replayed automatically. Restoring an instance copy pauses its goals for
 explicit review, because the worker may have progressed beyond the saved copy.
 Changes to provider/model, account access, sharing or worker permission stop stale
-follow-up. Review the new permissions before resuming.
+follow-up. Resume reviews the current provider/model and session access together, then
+preserves the existing budget and deadline.
 
 This slice follows controller-retained worker events, with the same context bounds
 and omissions described below. It does not poll unchanged evidence or observe

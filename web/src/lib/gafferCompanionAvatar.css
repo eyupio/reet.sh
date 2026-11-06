@@ -1,11 +1,15 @@
 
-  .companion-face{display:inline-grid;place-items:center;flex:none;overflow:hidden;border-radius:50%;background:#2c2119;color:#fffdf9;border:1px solid #4a382a;transform-origin:50% 80%}img{display:block;width:100%;height:100%;object-fit:cover}
+  .companion-face{display:inline-grid;place-items:center;flex:none;overflow:hidden;border-radius:50%;background:#2c2119;color:#fffdf9;border:1px solid #4a382a;transform-origin:50% 80%}.companion-face img{display:block;width:100%;height:100%;object-fit:cover}
   :root[data-theme=light] .companion-face{background:#6b5848;border-color:#8a7260}
   @media(prefers-color-scheme:light){:root:not([data-theme=dark]) .companion-face{background:#6b5848;border-color:#8a7260}}
-  @media(prefers-reduced-motion:no-preference){button:hover .companion-face:not(.still),button:focus-visible .companion-face:not(.still){animation:perk 600ms ease-out 1}.thinking:not(.still){animation:think 2.4s ease-in-out infinite}}
-  @keyframes perk{0%,100%{transform:none}35%{transform:translateY(-2px) rotate(-6deg)}65%{transform:rotate(4deg)}}
-  @keyframes think{0%,100%{transform:none}30%{transform:rotate(-7deg)}60%{transform:rotate(5deg) translateY(-1px)}}
+  @media(prefers-reduced-motion:no-preference){button:hover .companion-face:not(.still),button:focus-visible .companion-face:not(.still){animation:gaffer-companion-perk 600ms ease-out 1}.companion-face.thinking:not(.still){animation:gaffer-companion-think 2.4s ease-in-out infinite}}
+  @keyframes gaffer-companion-perk{0%,100%{transform:none}35%{transform:translateY(-2px) rotate(-6deg)}65%{transform:rotate(4deg)}}
+  @keyframes gaffer-companion-think{0%,100%{transform:none}30%{transform:rotate(-7deg)}60%{transform:rotate(5deg) translateY(-1px)}}
 
-@media(prefers-reduced-motion:no-preference){button:hover .companion-face[data-greeting="1"]:not(.still),button:focus-visible .companion-face[data-greeting="1"]:not(.still){animation:boop 600ms ease-out 1}button:hover .companion-face[data-greeting="2"]:not(.still),button:focus-visible .companion-face[data-greeting="2"]:not(.still){animation:waggle 600ms ease-out 1}}
-@keyframes boop{0%,100%{transform:none}35%{transform:translateY(-1px) scale(1.12)}65%{transform:scale(.97)}}
-@keyframes waggle{0%,100%{transform:none}20%{transform:rotate(-10deg)}40%{transform:rotate(8deg)}60%{transform:rotate(-5deg)}80%{transform:rotate(2deg)}}
+@media(prefers-reduced-motion:no-preference){button:hover .companion-face[data-greeting="1"]:not(.still),button:focus-visible .companion-face[data-greeting="1"]:not(.still){animation:gaffer-companion-boop 600ms ease-out 1}button:hover .companion-face[data-greeting="2"]:not(.still),button:focus-visible .companion-face[data-greeting="2"]:not(.still){animation:gaffer-companion-waggle 600ms ease-out 1}}
+@keyframes gaffer-companion-boop{0%,100%{transform:none}35%{transform:translateY(-1px) scale(1.12)}65%{transform:scale(.97)}}
+@keyframes gaffer-companion-waggle{0%,100%{transform:none}20%{transform:rotate(-10deg)}40%{transform:rotate(8deg)}60%{transform:rotate(-5deg)}80%{transform:rotate(2deg)}}
+
+.companion-face.sitting{border-radius:18%}
+@media(prefers-reduced-motion:no-preference){.companion-face.sitting:not(.still){animation:gaffer-companion-breathe 7s ease-in-out infinite}}
+@keyframes gaffer-companion-breathe{0%,70%,100%{transform:none}78%{transform:translateY(-1.5px)}86%{transform:translateY(.5px)}}

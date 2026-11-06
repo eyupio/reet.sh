@@ -7,8 +7,11 @@
   import { GAFFER_AWAY_AFTER, gafferAside, gafferClickAside, gafferClickRun, gafferGesture, gafferMayPerform, gafferPerformance, gafferPerformanceGap, gafferPoke, gafferPose, type GafferPoke, type GafferPose, type GafferReaction } from '../gafferPersonality'
   import GafferAvatar from './GafferAvatar.svelte'
 
-  let { chat, sessionId = '', dir = '', agent = 'Agent', replayed = true, ended = false, sessionFailed = false, reattaching = false }: { chat: ChatState; sessionId?: string; dir?: string; agent?: string; replayed?: boolean; ended?: boolean; sessionFailed?: boolean; reattaching?: boolean } = $props()
-  const view = $derived(gafferProgress(chat, dir, replayed, ended, agent, sessionFailed, reattaching))
+  let { chat, sessionId = '', dir = '', agent = 'Agent', replayed = true, ended = false, sessionFailed = false, reattaching = false, placement = 'chat' }: { placement?: 'chat' | 'overview'; chat: ChatState; sessionId?: string; dir?: string; agent?: string; replayed?: boolean; ended?: boolean; sessionFailed?: boolean; reattaching?: boolean } = $props()
+  const view = $derived.by(() => {
+    const progress = gafferProgress(chat, dir, replayed, ended, agent, sessionFailed, reattaching)
+    return placement === 'overview' && replayed && chat.connection === 'open' ? { ...progress, visible: true } : progress
+  })
   const summary = $derived(gafferSummary(chat, dir, replayed, ended))
   const needsYou = $derived(view.phase === 'approval' || view.phase === 'question')
   const stopped = $derived(['idle', 'error', 'cancelled', 'ended'].includes(view.phase))
@@ -37,7 +40,8 @@
   let ambient = false
   const recentPerformances: GafferReaction[] = []
   let clicks = $state({ count: 0, at: -Infinity }), clickAside = $state('')
-  const miniQuote = $derived(clickAside || (summary ? handoverText : quote))
+  const spokenQuote = $derived(view.phase === 'idle' && view.turnKey === 'unavailable' && !summary ? 'Ready when you are. Tell the agent what needs doing.' : quote)
+  const miniQuote = $derived(clickAside || (summary ? handoverText : spokenQuote))
   // A nudge is answered by the pose he is already in; pokeKey restarts the acknowledgement even for the same kind twice.
   let pokeKind = $state<GafferPoke | ''>(''), pokeKey = $state(0)
 
@@ -173,9 +177,9 @@
 </script>
 
 {#if view.visible && minimised}
-  <section data-floating-clearance class="gaffer-progress mini" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-mode="minimised" data-poke-count={clicks.count}>
+  <section class="gaffer-progress mini" class:overview={placement === 'overview'} class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-mode="minimised" data-poke-count={clicks.count}>
     <button type="button" class="mini-portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} {pokeKind} {pokeKey} paused={still} /></button>
-    <div class="mini-status" role="status" aria-live="polite" aria-atomic="true">
+    <div class="mini-status" title={view.label} role="status" aria-live="polite" aria-atomic="true">
       <span class="signal" class:live={view.active} aria-hidden="true">{#if needsYou}?{:else if view.phase === 'idle'}✓{:else if view.phase === 'ended' || view.phase === 'cancelled'}<i class="sq"></i>{:else if view.phase === 'error' || view.phase === 'reconnecting'}!{:else}<i></i><i></i><i></i>{/if}</span>
       <strong>{view.label}</strong>
     </div>
@@ -187,7 +191,7 @@
     {#if view.active}<div class="activity-line" aria-hidden="true"><span></span></div>{/if}
   </section>
 {:else if view.visible}
-  <section data-floating-clearance class="gaffer-progress" class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-poke-count={clicks.count}>
+  <section class="gaffer-progress" class:overview={placement === 'overview'} class:needs-you={needsYou} class:problem={view.phase === 'error' || view.phase === 'reconnecting'} class:compact={stopped} class:paused={still} aria-label="Gaffer’s work update" data-phase={view.phase} data-poke-count={clicks.count}>
     <div class="gaffer-main">
       <button type="button" class="portrait" aria-label="Say ey up to Gaffer" title="Say ey up. Give him another nudge; he’s got opinions." onclick={greet}><GafferAvatar variant="bust" active={view.active} phase={view.phase} {pose} {reaction} {reactionKey} {pokeKind} {pokeKey} paused={still} /></button>
       <div class="brief">
@@ -204,7 +208,7 @@
             {#if longHandover}<button type="button" class="more" aria-expanded={handoverMore} onclick={() => handoverMore = !handoverMore}>{handoverMore ? 'Show less' : 'Read more'}</button>{/if}
           </div>
         {:else}
-          <p class="quote" role={clickAside ? 'status' : undefined} aria-live={clickAside ? 'polite' : 'off'}><span aria-hidden="true">“</span>{clickAside || quote}<span aria-hidden="true">”</span></p>
+          <p class="quote" title={clickAside || spokenQuote} role={clickAside ? 'status' : undefined} aria-live={clickAside ? 'polite' : 'off'}><span aria-hidden="true">“</span>{clickAside || spokenQuote}<span aria-hidden="true">”</span></p>
         {/if}
         {#if summary && clickAside}<p class="quote click-aside" role="status" aria-live="polite"><span aria-hidden="true">“</span>{clickAside}<span aria-hidden="true">”</span></p>{/if}
       </div>
@@ -235,7 +239,7 @@
         </button>
       {:else if view.recent.length}
         <button type="button" class="quiet activity" aria-expanded={details} onclick={() => details = !details}>
-          {view.phase === 'reconnecting' ? 'Last seen: ' : view.partial ? 'Recent: ' : ''}{view.completed} done{#if view.running} · {view.running} active{/if}{#if view.failed} · {view.failed} failed{/if}
+          {view.phase === 'reconnecting' ? 'Last seen: ' : view.partial ? 'Recent: ' : ''}{view.completed} done{#if view.running}{' · '}{view.running} active{/if}{#if view.failed}{' · '}{view.failed} failed{/if}
           <svg class:open={details} viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
           <span class="vh"> · Tool activity</span>
         </button>
@@ -386,5 +390,24 @@
     .more { min-height: 40px; margin-block: -6px -8px; }
     .sheet { padding: 10px; }
   }
+  .overview { margin: 0; }
+  .overview:not(.mini) .gaffer-main { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 12px; }
+  .overview .brief { display: contents; }
+  .overview .portrait { grid-column: 1; grid-row: 1; width: 48px; height: 48px; }
+  .overview .byline { grid-column: 2; grid-row: 1; flex-direction: column; gap: 3px; }
+  .overview .role { font-size: 14px; letter-spacing: .06em; }
+  .overview .controls { grid-column: 3; grid-row: 1; margin: 0; }
+  .overview .pause, .overview .fold { width: 32px; height: 40px; }
+  .overview .live-update, .overview .quote, .overview .handover { grid-column: 1 / -1; margin-top: 0; }
+  .overview .live-update { min-height: 44px; align-content: start; }
+  .overview .live-update > strong { flex: 1; }
+  .overview .quote { min-height: 63px; padding-top: 2px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+  .overview .chips { padding: 0 12px 12px; }
+  .overview.mini { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 6px; }
+  .overview .mini-portrait { grid-column: 1; grid-row: 1; }
+  .overview .mini-status { grid-column: 2; grid-row: 1; min-width: 0; max-width: none; }
+  .overview .mini-quote { grid-column: 1 / -1; grid-row: 2; padding: 0 2px 5px; }
+  .overview.mini .fold { grid-column: 3; grid-row: 1; }
+  @media (pointer: coarse) { .overview.mini { grid-template-columns: 44px minmax(0, 1fr) 44px; } .overview .pause, .overview .fold, .overview .mini-portrait { width: 44px; height: 44px; } }
   @media (prefers-reduced-motion: reduce) { .signal.live i, .activity-line > span { animation: none; } .activity-line > span { width: 100%; opacity: .35; } }
 </style>

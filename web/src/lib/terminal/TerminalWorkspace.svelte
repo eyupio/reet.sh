@@ -1,6 +1,7 @@
 <script lang="ts">
  import { structuredAgent } from './api'
  import type { ChatState } from '../chat'
+ import type { ChatProgressState } from '../gafferProgress'
   import { onMount, tick, untrack } from 'svelte'
   import {getProfile,getSyncState,saveProfile,type Machine} from '../api'
   import { titleFor, validateDir } from '../agentLaunch'
@@ -89,7 +90,7 @@
   let sideSession = $state<TerminalSession | null>(null)
   // The open chat's word on whether it is busy, for the header's TUI switch; kept with the session it is about. Undefined
   // until its stream has replayed, so the header keeps to the row's word meanwhile.
-  let insightChat = $state<{ id: string; state: ChatState } | null>(null)
+  let insightChat = $state<{ id: string; state: ChatState; progress: ChatProgressState } | null>(null)
   let chatBusy = $state<{ id: string; busy: boolean | undefined } | null>(null)
   let health = $state<HealthResponse>({ serverNow:Date.now(),machines:[] })
   let receivedAt = performance.now(), elapsed = $state(0)
@@ -620,6 +621,7 @@
           contextKey={`${preferenceKey}:context`} onresizing={active => contextResizing = active}
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
           insightChat={insightChat?.id === session.id ? insightChat.state : undefined}
+          insightProgress={insightChat?.id === session.id ? insightChat.progress : undefined}
           chatBusy={session.structured && chatBusy?.id === session.id ? chatBusy.busy : undefined} onmode={modeSwitched}
           oncontinue={session.structured
             ? (continueOffered(session) && canContinueChat(session, machines.find(item => item.agentId === session.agentId)) ? () => void continueSession(session) : undefined)
@@ -643,7 +645,7 @@
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
               {@const reattachable = reconnectable(session)}
-              <ChatPane {session} liveControls={machine?.capabilities?.acpLiveControls??false} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={state => { insightChat = { id: session.id, state } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
+              <ChatPane {session} liveControls={machine?.capabilities?.acpLiveControls??false} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={(state, progress) => { insightChat = { id: session.id, state, progress } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
             {:else}
               <TerminalPane {keyboard} headerTheatre footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing || contextResizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />
             {/if}

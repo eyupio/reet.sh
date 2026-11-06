@@ -15,7 +15,9 @@ import Toast from '../Toast.svelte'
 import ConfirmDialog from '../ConfirmDialog.svelte'
 import ImageLightbox from './ImageLightbox.svelte'
  import ChatPreview from './ChatPreview.svelte'
- import GafferProgress from './GafferProgress.svelte'
+ import ChatStatus from './ChatStatus.svelte'
+ import type { ChatProgressState } from '../gafferProgress'
+ import { dockGafferChat, gafferChatEntry } from '../gafferContext'
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import ChatQueue from './ChatQueue.svelte'
@@ -49,10 +51,10 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   continuation?: { phase: 'pending' | 'failed'; reason?: string }
   /** Told whenever the chat starts or stops being busy (a running turn, a waiting approval or question), for the header's TUI
    *  switch; undefined until the stream has opened and its replay has been applied, as the chat cannot say before then. */
-  onbusy?: (busy: boolean | undefined) => void; onstate?: (state: ChatState) => void } = $props()
+  onbusy?: (busy: boolean | undefined) => void; onstate?: (state: ChatState, progress: ChatProgressState) => void } = $props()
 
  let chat: ChatState = $state(initialChat())
- $effect(() => { onstate?.(chat) })
+ $effect(() => { onstate?.(chat, progressState) })
  let selectedModel = $state(''), currentModel = $state(''), changingModel = $state(false)
  let modelSession = '', modelValue = ''
  $effect(() => {
@@ -289,6 +291,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  const ended = $derived(terminalClosed(session.state) || chat.status.state === 'ended')
  // While the chat reconnects in place, the transcript stays and the message box waits, disabled, for it to come back.
  const reattaching = $derived(ended && reattach?.phase === 'pending')
+ const progressState: ChatProgressState = $derived({ replayed, ended, reattaching, sessionFailed: terminalClosed(session.state) && (session.state === 'lost' || (session.exitCode != null && session.exitCode !== 0)) })
  const reattachFailed = $derived(ended && reattach?.phase === 'failed')
  const pendingCopy = reattachCopy('pending')
  // A dismissed `/` trigger re-arms whenever the draft stops being a leading-slash token, however the draft changed.
@@ -350,7 +353,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
   await tick()
   if (log) log.scrollTop = log.scrollHeight
  }
- // Gaffer's row and the composer come and go below the log, so a shrinking log would hide its own last line.
+ // The status strip and composer come and go below the log, so a shrinking log would hide its own last line.
  // While the reader is at the bottom, follow the new height instead of leaving the transcript clipped.
  $effect(() => {
   const el = log
@@ -632,10 +635,13 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
 {/snippet}
 
 <section class="chat-pane" aria-label={`Gaffer in ${session.title}`} ondragover={(event) => { if (canAttach) { event.preventDefault(); dropping = true } }} ondragleave={(event) => { if (event.currentTarget === event.target || !(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false }} ondrop={(event) => { dropping = false; dropped(event) }}>
- <div class="chat-status" role="status" aria-live="polite">
+ <div class="chat-status">
+ <div class="chat-live" role="status" aria-live="polite">
   <span class="status-dot" class:busy={working || reattaching} class:wait={pending.length > 0} class:down={chat.connection === 'reconnecting'} aria-hidden="true"></span>
   <strong>{statusWord}</strong>
   {#if statusDetail && !failed}<span class="detail">{statusDetail}</span>{/if}
+ </div>
+ {#if $gafferChatEntry}<button type="button" class="ask-gaffer" use:dockGafferChat aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 3.5h10a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4.5 3v-3H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/><path d="M6.5 7h7m-7 3h4"/></svg>Ask Gaffer</button>{/if}
  </div>
  {#if reattaching}
   <!-- The status line above is the one live region while reconnecting; this note does not announce again. -->
@@ -910,7 +916,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
    {/if}
   {/each}
  </div>
- <GafferProgress sessionId={session.id} {chat} dir={session.dir} agent={toolName} {replayed} {ended} {reattaching} sessionFailed={terminalClosed(session.state) && (session.state === 'lost' || (session.exitCode != null && session.exitCode !== 0))} />
+ <ChatStatus {chat} dir={session.dir} agent={toolName} {...progressState} />
  {#if ended && !reattaching}
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
@@ -1026,7 +1032,13 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  .star:disabled { opacity: .5; cursor: default; }
  .star:focus-visible, .tile:focus-visible, .thumb:focus-visible, .tile-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
  .chat-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; height: 100%; background: var(--bg); container: chat-pane / inline-size; }
- .chat-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 18px; border-bottom: 1px solid var(--line-soft); font-size: 14px; color: var(--muted); background: var(--bg); }
+ .chat-status { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 14px; border-bottom: 1px solid var(--line-soft); font-size: 14px; color: var(--muted); background: var(--bg); }
+ .chat-live { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+ .ask-gaffer { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 7px; min-height: 36px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
+ .ask-gaffer svg { width: 17px; height: 17px; color: var(--accent-text); }
+ .ask-gaffer:hover { color: var(--ink); border-color: var(--accent-text); background: var(--tint); }
+ .ask-gaffer:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+ @media (pointer: coarse) { .ask-gaffer { min-height: 44px; } }
  .chat-status strong { font-weight: 500; color: var(--ink); }
  .chat-status .detail { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); flex: none; }

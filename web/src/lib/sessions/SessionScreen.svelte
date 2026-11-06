@@ -16,6 +16,7 @@
   import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
+  import type { ChatProgressState } from '../gafferProgress'
   import SwitchModeDialog from './SwitchModeDialog.svelte'
   import TerminalIcon from '../terminal/TerminalIcon.svelte'
   import { PHONE_SCREEN } from '../terminal/sizing'
@@ -25,7 +26,7 @@
   // and terminal creation. The menu contains management actions only, the live terminal the workspace hosts here (children),
   // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
   // session shows no steps and no progress bar (R10): only its state word and where that word came from.
-  let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy, insightChat,
+  let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy, insightChat, insightProgress,
     onaction, ontheatre, onrefresh, onmode, onsignedout, oncontinue, onterminal, onside, side, showSide = false, contextKey = 'reet-session-context-panel', onresizing, children }: {
     session: TerminalSession; sessions: TerminalSession[]
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
@@ -37,7 +38,7 @@
     onaction: (kind: 'rename' | 'end' | 'archive') => void; ontheatre: () => void; onrefresh: () => void
     /** The open chat's own word on whether it is busy (a running turn, a waiting approval or question), once its stream has
      *  replayed; until then (undefined) the row's attention stands in for it. */
-    chatBusy?: boolean; insightChat?: ChatState
+    chatBusy?: boolean; insightChat?: ChatState; insightProgress?: ChatProgressState
     /** The machine switched this session to the other TUI: the workspace shows it at once and reads the listing again. */
     onmode?: (id: string, to: 'terminal' | 'chat') => void
     onsignedout?: (e: unknown) => void
@@ -452,7 +453,7 @@
       <div class="side-terminal" data-keeps-focus>{@render side()}</div>
     {:else}
       {#key session.id}
-        <ContextPanel {session} {host} {status} {project} {skills} {now} chat={insightChat} supported={!!machineCaps?.inspect}
+        <ContextPanel {session} {host} {status} {project} {skills} {now} chat={insightChat} chatProgress={insightProgress} supported={!!machineCaps?.inspect}
           docked={docked}
           onterminal={() => { closeSheet(); void tick().then(() => stage?.querySelector<HTMLElement>('.xterm-helper-textarea, textarea.composer-input')?.focus()) }}
           id={`${id}-context`} onkeydown={panelKey} onclose={() => void collapseDetails()} />
@@ -623,7 +624,7 @@
     .session-screen.focus .live p { margin: 0 8px 6px; }
     .session-screen.focus .stage { border-top: 0; }
     /* The narrative is the screen: larger prose, a tighter log, and the composer's secondary tools wait behind Exit focus. */
-    .session-screen.focus :global(.chat-status) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    /* Keep live status and the nearby Gaffer entry visible in focus mode too. */
     .session-screen.focus :global(.log) { padding: 12px 14px 16px; gap: 10px; }
     .session-screen.focus :global(.bubble.agent) { font-size: 15px; line-height: 1.68; }
     .session-screen.focus :global(.row.user) { margin-top: 14px; }

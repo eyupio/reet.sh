@@ -42,3 +42,26 @@ export function keepLauncherClear(node: HTMLElement) {
     node.style.removeProperty('--launcher-clearance')
   }}
 }
+
+// Keep the desktop companion beside the conversation when the workspace is resized.
+// The phone dialog continues to use its full-screen sheet.
+export function alignToConversation(node: HTMLElement, dock: HTMLElement | null) {
+  let current = dock, frame = 0
+  const size = new ResizeObserver(schedule)
+  function measure() {
+    frame = 0
+    const pane = current?.closest('.chat-pane')
+    if (!pane || !pane.getClientRects().length) { node.style.removeProperty('--gaffer-right'); return }
+    const right = innerWidth - pane.getBoundingClientRect().right + 12
+    node.style.setProperty('--gaffer-right', `${Math.max(16, Math.min(right, innerWidth - node.getBoundingClientRect().width - 16))}px`)
+  }
+  function schedule() { if (!frame) frame = requestAnimationFrame(measure) }
+  function observe() { size.disconnect(); size.observe(node); const pane = current?.closest('.chat-pane'); if (pane) size.observe(pane); schedule() }
+  observe()
+  window.addEventListener('resize', schedule)
+  document.addEventListener('scroll', schedule, true)
+  return {
+    update(next: HTMLElement | null) { current = next; observe() },
+    destroy() { size.disconnect(); cancelAnimationFrame(frame); window.removeEventListener('resize', schedule); document.removeEventListener('scroll', schedule, true); node.style.removeProperty('--gaffer-right') },
+  }
+}

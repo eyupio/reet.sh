@@ -3,12 +3,18 @@
   import { onMount } from 'svelte'
   import ChatPane from '../../src/lib/terminal/ChatPane.svelte'
   import GafferAvatar from '../../src/lib/terminal/GafferAvatar.svelte'
+  import GafferProgress from '../../src/lib/terminal/GafferProgress.svelte'
+  import { initialChat, type ChatState } from '../../src/lib/chat'
+  import type { ChatProgressState } from '../../src/lib/gafferProgress'
   import type { TerminalSession } from '../../src/lib/terminal/api'
 
   const session = { id: 'session-gaffer-preview001', agentId: 'connector-preview00001', title: 'reet.sh · Gaffer', state: 'running', createdAt: 1, updatedAt: 1, exitCode: null, tool: 'opencode', model: '', effort: '', yolo: false, projectId: null, dir: '/home/dev/reet.sh', structured: true } as unknown as TerminalSession
   type Stream = { emit: (data: unknown) => void; reset: () => void; disconnect: () => void; reconnect: () => void }
   const stream = () => (window as unknown as { __gaffer: Stream }).__gaffer
   let present = $state(true)
+  // Mount the card separately so its interaction tests stay independent of its production Overview placement.
+  let chat: ChatState = $state(initialChat())
+  let progress: ChatProgressState = $state({ replayed: false, ended: false, sessionFailed: false, reattaching: false })
   function visit() { present = !present; if (present) setTimeout(() => scene(current), 80) }
   let current = $state('Editing'), sequence = 0
   const send = (data: object) => stream().emit({ seq: ++sequence, ...data })
@@ -68,7 +74,7 @@
     </aside>
     <div class="workspace">
       <div class="session-head"><div><span class="session-mark" aria-hidden="true">g</span><strong>Gaffer</strong><span class="project">reet.sh / web</span></div><span class="session-state"><i></i> Preview</span></div>
-      <div class="pane">{#if present}<ChatPane {session} />{:else}<p>Session left open in the background.</p>{/if}</div>
+      <div class="pane">{#if present}<ChatPane {session} onstate={(state, next) => { chat = state; progress = next }} /><div class="card-preview"><GafferProgress {chat} sessionId={session.id} dir={session.dir} agent="OpenCode" {...progress} /></div>{:else}<p>Session left open in the background.</p>{/if}</div>
     </div>
   </div>
   <nav class="scenes" aria-label="Preview states"><span>Try a state</span><button type="button" onclick={visit}>{present ? 'Leave session' : 'Return to session'}</button><button type="button" onclick={() => gafferAnimations.update(enabled => !enabled)}>{$gafferAnimations ? 'Disable animation' : 'Enable animation'}</button>{#each ['Thinking', 'Reading', 'Searching', 'Editing', 'Running', 'Approval', 'Question', 'Reconnecting', 'Error', 'Snag', 'Finished', 'Ended'] as name}<button type="button" class:chosen={current === name} aria-pressed={current === name} onclick={() => scene(name)}>{name}</button>{/each}</nav>
@@ -87,7 +93,7 @@
   aside > p:not(.eyebrow) { color: var(--muted); font: 14px/1.9 var(--sans); }.note { border-left: 2px solid var(--line-strong); margin-top: 25px; padding-left: 12px; color: var(--ink-soft); font: italic 14px/1.7 var(--serif); }.demo-note { display: block; margin-top: 32px; color: var(--faint); font: 10px var(--mono); }
   .workspace { border: 1px solid var(--line-strong); border-radius: 15px; overflow: hidden; box-shadow: 0 20px 60px #00000020; }
   .session-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 16px; border-bottom: 1px solid var(--line); background: var(--card); }.session-head > div { display: flex; align-items: center; gap: 10px; }.session-head strong { font-size: 13px; }.session-mark { display: grid; place-items: center; width: 24px; height: 24px; background: var(--tint); color: var(--accent-text); border-radius: 6px; font: 600 18px var(--serif); }.project { color: var(--faint); font: 10px var(--mono); }.session-state { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; }.session-state i { width: 5px; height: 5px; border-radius: 50%; background: var(--good); }
-  .pane { height: 565px; }
+  .pane { height: 700px; display: flex; flex-direction: column; }.card-preview { flex: none; }
   .scenes { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; justify-content: flex-end; padding-top: 22px; }.scenes > span { color: var(--faint); font: 10px var(--mono); margin-right: 8px; }.scenes button { min-height: 34px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--muted); padding: 4px 9px; font-size: 11px; cursor: pointer; }.scenes button.chosen { color: var(--accent-text); background: var(--accent-wash); border-color: var(--accent); }
   @media (max-width: 850px) { main { padding: 16px; }.review-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }aside { display: none; }.review-head { margin-bottom: 16px; }.scenes { justify-content: flex-start; }.pane { height: 580px; } }
   @media (max-width: 430px) { main { padding: 8px; }.review-label { display: none; }.project { display: none; }.scenes button, .theme { min-height: 40px; }.pane { height: 590px; } }

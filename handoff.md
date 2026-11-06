@@ -71,7 +71,7 @@ messages. See the latest UI evidence and the PR for final verification.
 
 GM3B is implemented for review in [PR #612](https://github.com/eyupio/reet.sh/pull/612),
 `feat/gaffer-worker-messages`. It started from main `6c5638cf` after #608/#609 and
-is aligned with main `67518414` after #611. The concrete
+is aligned with main `6c40c7fb` after #610/#611. The concrete
 [worker-message plan](docs/handoffs/gaffer-worker-messages.md) records separate
 permissions, one explicitly enabled request, atomic queue receipts and delivery
 checks. It preserves the working model and user approval boundary.

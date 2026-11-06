@@ -127,7 +127,7 @@ never starts supervision. The worker retains all coding, PR and approval authori
 
 [PR #612](https://github.com/eyupio/reet.sh/pull/612),
 `feat/gaffer-worker-messages`, starts from main `6c5638cf` after merged #608
-(`95eb8822`)/#609, and is aligned with main `67518414` after #611. The
+(`95eb8822`)/#609, and is aligned with main `6c40c7fb` after #610/#611. The
 [worker-message contract](handoffs/gaffer-worker-messages.md) records the concrete
 plan and implementation. Gaffer remains the critical buddy; the existing session
 model remains responsible for all implementation, commands, PRs and checks.
@@ -166,7 +166,11 @@ The queue-ID guard has separate positive race coverage and a negative source-
 overlay proof. Review follow-up makes both browser receipt views reconcile
 foreign-owner sending states to uncertain without a worker probe, wake or replay;
 database-reopen/domain and HTTP tests cover it. Final-head GitHub checks remain
-the merge gate; see #612 for their final state. All provider and worker tests
+the merge gate; see #612 for their final state. All 20 checks passed on `79f93135`
+before main advanced through #610; the combined layout/worker, companion/context
+browser matrices, web check/build, vet and strict docs also pass locally. The #610 alignment retains the
+Overview progress card and narrative chat dock while resetting one-request worker
+intent on close and returning focus to the current entry. All provider and worker tests
 use fakes. GM4 is the next bounded slice: durable explicit goals,
 background follow-up budgets, multi-session fairness and restart/offline recovery.
 Opening/closing chat, saving read/write permission or a one-off relay creates no

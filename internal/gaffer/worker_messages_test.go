@@ -421,3 +421,25 @@ func TestWorkerApprovalWaitProducesBlockedReceiptWithoutQueueOrReplay(t *testing
 		t.Fatal(q, err)
 	}
 }
+
+func TestWorkerInterruptRequiresCurrentControllerAccess(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	row := runningWorkerSession(t, st, p)
+	worker := &fakeWorker{st: st}
+	var enabled atomic.Bool
+	enabled.Store(true)
+	s.SetWorker(worker, enabled.Load)
+	subject := workerClient(t, s, st, p, row.ID, true)
+	m, err := s.WorkerMessage(context.Background(), p.UserID, "mcp", subject, row.ID, strings.Repeat("d", 32), "", "Check the PR.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled.Store(false)
+	if _, err = s.InterruptWorker(p.UserID, "mcp", subject, row.ID, m.ID, m.Revision); !errors.Is(err, ErrContextForbidden) {
+		t.Fatal("disabled controller accepted interrupt intent", err)
+	}
+	queue, err := st.TerminalQueueFor(p.UserID, row.ID)
+	if err != nil || len(queue) != 1 || queue[0].Intent != "wait" || worker.enqueues.Load() != 1 {
+		t.Fatal("denied interrupt changed queue", queue, err)
+	}
+}

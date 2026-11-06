@@ -3235,3 +3235,25 @@ Fleet software is one sentence and one **Update N machines** button.
   `skill-card.e2e.mjs`, `sync-activity.e2e.mjs` and the other Sync and Skills tests pass
   unchanged. `sync-vocabulary.e2e.mjs` now expects the button where the notice used to
   link.
+
+## Ask once before the software update, 6 November 2026
+
+The **Update N machines** button in Fleet software started a batch the moment it was
+pressed. It now asks once first (*Update 2 machines?*), naming the machines in the order
+they will be updated, and starts nothing until that is confirmed. The hand-picked path
+(**Review batch** under Machines) asks the same question, so there is one confirmation
+in one wording. This replaces the "no second confirmation" in the entry above.
+
+- `fleet-software.e2e.mjs` checks that pressing the button opens the question with the
+  machines in order and starts nothing, that **Cancel** changes nothing and leaves the
+  button where it was, that confirming sends exactly those machines, that a skipped
+  machine's button returns and asks again, that the hand-picked path asks for just the
+  machine chosen, and that a refused start shows its reason inside the question, with
+  the message gone the next time it is asked. It runs at phone and desktop width in
+  both themes, and the screenshots were looked at. With the button starting the batch
+  directly, three of its sections fail; with the question listing the hand-picked
+  selection instead of its own, one does.
+- `software.test.mjs` checks that the question and the button it came from share one
+  label (*Update 2 machines*, *Install on 1 machine*).
+- On a phone the question keeps each machine's number beside its name instead of on a
+  line of its own.

@@ -190,8 +190,12 @@ func (s *Service) WorkerMessageReceipt(uid int64, kind, subject, session, id str
 	return m, nil
 }
 func (s *Service) InterruptWorker(uid int64, kind, subject, session, id string, revision int64) (store.WorkerMessage, error) {
-	if s.worker == nil {
-		return store.WorkerMessage{}, ErrUnavailable
+	v, err := s.WorkerSettings(uid, kind, subject, session)
+	if err != nil {
+		return store.WorkerMessage{}, err
+	}
+	if !v.Grant.Enabled || !v.Allowed || v.NeedsReview {
+		return store.WorkerMessage{}, ErrContextForbidden
 	}
 	if err := s.store.InterruptWorkerMessageFor(uid, kind, subject, session, id, revision); err != nil {
 		return store.WorkerMessage{}, err

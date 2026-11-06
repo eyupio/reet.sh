@@ -125,8 +125,9 @@ never starts supervision. The worker retains all coding, PR and approval authori
 
 ### GM3B: explicit worker instructions (6 November 2026)
 
-Work on `feat/gaffer-worker-messages` starts from main `6c5638cf`, after the owner
-merged #608 (`95eb8822`) and #609. The
+[PR #612](https://github.com/eyupio/reet.sh/pull/612),
+`feat/gaffer-worker-messages`, starts from main `6c5638cf` after merged #608
+(`95eb8822`)/#609, and is aligned with main `67518414` after #611. The
 [worker-message contract](handoffs/gaffer-worker-messages.md) records the concrete
 plan and implementation. Gaffer remains the critical buddy; the existing session
 model remains responsible for all implementation, commands, PRs and checks.
@@ -155,9 +156,11 @@ with a fake structured peer, policy/model/role/archive fences, partial provider
 failure, malformed tools and database-reopen uncertainty. All 16 MCP compatibility
 tests pass. Web unit/type/build, the new worker UI matrix, existing chat/context/
 settings, account MCP and worker queue browser suites pass. Strict docs build,
-51-page validation and the 40-view browser smoke pass. Full repository race checks
-are in progress; final-head GitHub checks remain the merge gate. See the PR attached
-to `feat/gaffer-worker-messages` for final check state. All provider and worker tests
+51-page validation and the 40-view browser smoke pass. The first full race run passed the changed backend packages but retained the
+five known terminal-host environment failures (three missing-tmux/two process-group
+checks); a concurrent UI rebuild also invalidated its embedded-web compilation.
+A stable-build rerun is in progress. Final-head GitHub checks remain the merge
+gate; see #612 for final check state. All provider and worker tests
 use fakes. GM4 is the next bounded slice: durable explicit goals,
 background follow-up budgets, multi-session fairness and restart/offline recovery.
 Opening/closing chat, saving read/write permission or a one-off relay creates no

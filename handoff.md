@@ -69,8 +69,9 @@ escaped content. The browser matrix includes the supplied 800×1280 touch-tablet
 shape, 560 px boundary, phones and desktop; normal layouts reserve over 60% for
 messages. See the latest UI evidence and the PR for final verification.
 
-GM3B is implemented for review on `feat/gaffer-worker-messages`, based on main
-`6c5638cf` after merged #608/#609. The concrete
+GM3B is implemented for review in [PR #612](https://github.com/eyupio/reet.sh/pull/612),
+`feat/gaffer-worker-messages`. It started from main `6c5638cf` after #608/#609 and
+is aligned with main `67518414` after #611. The concrete
 [worker-message plan](docs/handoffs/gaffer-worker-messages.md) records separate
 permissions, one explicitly enabled request, atomic queue receipts and delivery
 checks. It preserves the working model and user approval boundary.

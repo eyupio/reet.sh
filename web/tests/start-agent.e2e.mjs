@@ -731,9 +731,11 @@ try{
  const COMBOS=[];for(const scheme of ['light','dark'])for(const [width,height] of [[1360,900],[768,900],[390,800],[320,640]])COMBOS.push({scheme,width,height,label:`${scheme} ${width}px`})
  // Two frames after the change, so the page's own media-query listeners (the workspace shuts its list below 960px) have run.
  const setCombo=async c=>{await page.emulateMedia({colorScheme:c.scheme});await page.setViewportSize({width:c.width,height:c.height});await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))))}
+ // Scrolling lands on whole pixels while layout is fractional, so an element scrolled to an edge can sit a fraction of a pixel
+ // outside it; one pixel of slack keeps that from failing a button that is fully visible and the topmost thing at its centre.
  const reachable=async locator=>{
   await locator.scrollIntoViewIfNeeded()
-  return locator.evaluate(el=>{const r=el.getBoundingClientRect(),top=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return r.width>0&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&(top===el||el.contains(top))||`${el.tagName}#${el.id} at ${Math.round(r.left)},${Math.round(r.top)}-${Math.round(r.right)},${Math.round(r.bottom)} in ${innerWidth}x${innerHeight}, under ${top?.tagName}.${top?.className}`})
+  return locator.evaluate(el=>{const r=el.getBoundingClientRect(),top=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return r.width>0&&r.left>=-1&&r.right<=innerWidth+1&&r.top>=-1&&r.bottom<=innerHeight+1&&(top===el||el.contains(top))||`${el.tagName}#${el.id} at ${Math.round(r.left)},${Math.round(r.top)}-${Math.round(r.right)},${Math.round(r.bottom)} in ${innerWidth}x${innerHeight}, under ${top?.tagName}.${top?.className}`})
  }
  const surfaces={}
  let sweeps=0

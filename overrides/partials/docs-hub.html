@@ -1,16 +1,16 @@
 {% from "partials/icons-reet.html" import icon %}
 <section class="guides-hero wrap">
   <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ nav.homepage.url | url }}">Home</a><span aria-hidden="true">/</span><span>Documentation</span></nav>
-  <div class="eyebrow">THE NUTS AND BOLTS</div>
+  <div class="eyebrow">The nuts and bolts</div>
   <div class="guides-heading">{{ page.content }}</div>
 </section>
 <section class="wrap docs-start">
-  <div><div class="eyebrow">NEW TO REET?</div><h2>A proper start.</h2><p>Install the binary, open your control room and connect your first machine.</p><a class="button" href="{{ 'quick-start/' | url }}">Get up and running {{ icon('arrow') }}</a></div>
+  <div><div class="eyebrow">New to Reet?</div><h2>Start with one machine</h2><p>Install the binary, open your control room and connect your first machine.</p><a class="button" href="{{ 'quick-start/' | url }}">Get up and running {{ icon('arrow') }}</a></div>
   <button class="hub-search" data-docs-search>{{ icon('search') }}<span><strong>What would you like to do?</strong><span>Search all documentation and guides</span></span><kbd data-search-shortcut>Ctrl K</kbd></button>
 </section>
 <section class="wrap docs-directory" aria-label="Browse documentation">
   {% for group in nav.items %}{% if group.title == 'Documentation' %}{% for section in group.children %}{% if section.is_section %}
-  <div class="docs-category"><span class="eyebrow">{{ '%02d' | format(loop.index - 2) }} / EXPLORE</span><h2>{{ section.title }}</h2><ul>{% for child in section.children %}<li><a href="{{ child.url | url }}">{{ child.title }} {{ icon('arrow') }}</a></li>{% endfor %}</ul></div>
+  <div class="docs-category"><span class="eyebrow">{{ '%02d' | format(loop.index - 2) }} / Explore</span><h2>{{ section.title }}</h2><ul>{% for child in section.children %}<li><a href="{{ child.url | url }}">{{ child.title }} {{ icon('arrow') }}</a></li>{% endfor %}</ul></div>
   {% endif %}{% endfor %}{% endif %}{% endfor %}
 </section>
 <section class="guide-cta wrap"><div>{{ icon('book') }}<h2>Prefer a practical walkthrough?</h2><p>Our field guides take you from an idea to a working setup.</p></div><a class="button" href="{{ 'guides/' | url }}">Find your guide {{ icon('arrow') }}</a></section>

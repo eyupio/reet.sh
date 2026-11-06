@@ -4,6 +4,6 @@ description: "Choose the right tool for agent sessions, skill discovery or model
 layout: compare
 ---
 
-# Start with the job.<br><em>Then choose the tool.</em>
+# Start with the job.<br><em>Then choose the tool</em>
 
 A skill directory, a chat platform and an agent control room solve different problems. These comparisons help you choose what belongs in your setup.

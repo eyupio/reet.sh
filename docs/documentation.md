@@ -4,6 +4,6 @@ description: "Install Reet, connect machines, run AI coding agents and review sk
 layout: hub
 ---
 
-# The details.<br><em>All in one place.</em>
+# Set up Reet.<br><em>Keep it running</em>
 
 From a fresh install to a well-kept fleet. Find the steps, controls and reference you need to get on with the work.

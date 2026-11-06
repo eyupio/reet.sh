@@ -1,0 +1,266 @@
+/* Landing-page polish using Unslop by Damir Sokolovsky (@heydamir).
+ * https://github.com/heydamir/unslop — CC BY 4.0
+ * Keep the existing Reet brand and leave long-form reading styles independent.
+ */
+:is(.site-home, .site-hub, .site-guides, .site-compare) {
+  --landing-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Spacing and grouping */
+.site-home .hero {
+  gap: 48px;
+  min-height: 720px;
+  padding-block: 64px;
+}
+.site-home .hero h1 {
+  margin-block: 24px;
+}
+.site-home .hero-actions {
+  gap: 24px;
+  margin-top: 32px;
+}
+.site-home .hero-proof {
+  gap: 12px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.site-home .hero-visual {
+  padding: 0;
+  margin: 0;
+}
+.site-home .visual-label {
+  margin: 0 0 16px;
+}
+.site-home .visual-note {
+  position: static;
+  margin-top: 16px;
+  padding: 0;
+  gap: 12px;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  transform: none;
+}
+:is(.site-home, .site-guides) .article-card-body {
+  padding: 24px;
+}
+:is(.site-home, .site-guides) .article-card h3 {
+  margin-block: 16px;
+}
+.site-hub .docs-start {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 48px;
+  padding: 32px;
+  margin-bottom: 48px;
+}
+.site-hub .docs-directory {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 48px;
+  padding-bottom: 64px;
+}
+.site-hub .docs-category {
+  min-width: 0;
+}
+.site-hub .docs-category h2 {
+  font-size: clamp(24px, 2.2vw, 28px);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  margin-block: 16px;
+}
+.site-hub .docs-category li a {
+  gap: 16px;
+  padding-block: 8px;
+  min-height: 40px;
+}
+.site-hub .hub-search {
+  gap: 16px;
+  padding: 24px;
+}
+.site-hub .hub-search span > span {
+  margin-top: 8px;
+}
+
+/* Quiet chrome; the real product screenshots carry the detail and color. */
+.site-home .app-window {
+  transform: none;
+  border-color: var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 6%);
+}
+[data-md-color-scheme="slate"] .site-home .app-window {
+  box-shadow: none;
+}
+.site-home .window-bar {
+  height: 40px;
+  font-size: 11px;
+  gap: 8px;
+}
+.site-home .window-bar .icon,
+.site-home .visual-note > .icon {
+  width: 16px;
+  height: 16px;
+}
+.site-home .visual-note > .icon {
+  color: var(--muted);
+}
+.site-home .hero-screen {
+  aspect-ratio: 1.25;
+}
+:is(.site-home, .site-guides) .article-art::before,
+:is(.site-home, .site-guides) .article-art::after {
+  content: none;
+}
+
+/* Readable labels, captions and counts, without tracked uppercase. */
+:is(.site-home, .site-hub, .site-guides, .site-compare) .eyebrow,
+.site-home .hero .eyebrow,
+.site-home .agents-strip > .eyebrow,
+.site-home .visual-label,
+.site-home .hero-proof,
+.site-home .diagram-note,
+:is(.site-home, .site-guides) .article-art > span,
+:is(.site-home, .site-guides) .article-card-foot {
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.site-home .visual-label,
+.site-home .hero .eyebrow,
+.site-home .hero-proof,
+:is(.site-home, .site-hub, .site-guides, .site-compare) .eyebrow {
+  color: var(--muted);
+}
+.site-home .visual-note strong,
+.site-hub .hub-search strong {
+  font-size: 14px;
+}
+.site-home .visual-note div > span,
+.site-home .screen-note,
+.site-hub .hub-search span > span {
+  font-size: 12px;
+}
+:is(.site-home, .site-guides) .article-card p,
+.site-hub .docs-category li a,
+.site-guides .filter,
+:is(.site-guides, .site-compare) .comparison-list p {
+  font-size: 14px;
+  letter-spacing: 0;
+}
+.site-guides .filter span,
+:is(.site-guides, .site-compare) .comparison-list > a > span {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.site-home .hero h1 {
+  font-size: clamp(44px, 5.6vw, 80px);
+  letter-spacing: -0.03em;
+  line-height: 1.06;
+}
+:is(.site-hub, .site-guides, .site-compare) .guides-heading h1 {
+  font-size: clamp(40px, 4.4vw, 64px);
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+}
+:is(.site-home, .site-guides) .article-card h3,
+.site-hub .docs-category h2 {
+  letter-spacing: 0;
+}
+
+/* Feedback stays in place, with the existing keyboard focus treatment. */
+:is(.site-home, .site-hub, .site-guides, .site-compare) .button {
+  padding: 12px 20px;
+  gap: 16px;
+  border-radius: 8px;
+  transition: background-color 160ms var(--landing-ease),
+    border-color 160ms var(--landing-ease);
+}
+:is(.site-home, .site-hub, .site-guides, .site-compare) .button:hover,
+:is(.site-home, .site-guides) .article-card:hover {
+  transform: none;
+}
+:is(.site-home, .site-guides) .article-card {
+  border-radius: 12px;
+  transition: border-color 160ms var(--landing-ease);
+}
+:is(.site-home, .site-guides) .article-card:hover {
+  border-color: var(--muted);
+  box-shadow: none;
+}
+
+@media (max-width: 1200px) {
+  .site-hub .docs-directory {
+    gap: 32px;
+  }
+}
+@media (max-width: 960px) {
+  .site-home .hero {
+    gap: 32px;
+    min-height: 0;
+    padding-block: 48px;
+  }
+  .site-hub .docs-directory {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .site-hub .docs-start {
+    gap: 32px;
+    padding: 24px;
+  }
+  .site-hub .hub-search {
+    padding: 16px;
+  }
+}
+@media (max-width: 760px) {
+  .site-home .hero h1 {
+    font-size: clamp(40px, 11.6vw, 64px);
+  }
+  .site-home .hero-visual {
+    margin-top: 8px;
+  }
+  .site-home .window-bar .window-dots {
+    display: none;
+  }
+  .site-home .window-bar {
+    padding-inline: 8px;
+  }
+  .site-home .hero-screen {
+    aspect-ratio: 0.85;
+    object-fit: cover;
+    object-position: top left;
+  }
+  .site-home .hero-actions {
+    flex-wrap: wrap;
+    gap: 16px 24px;
+  }
+  .site-home .agents-strip > .eyebrow {
+    width: 100%;
+  }
+  :is(.site-hub, .site-guides, .site-compare) .guides-heading h1 {
+    font-size: clamp(36px, 9.6vw, 48px);
+  }
+  .site-hub .docs-directory {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+    padding-bottom: 32px;
+  }
+  .site-hub .docs-category {
+    margin: 0;
+    padding-bottom: 0;
+  }
+  .site-hub .docs-category h2 {
+    font-size: 28px;
+  }
+  .site-hub .docs-category li a {
+    min-height: 44px;
+  }
+  .site-hub .hub-search {
+    margin-top: 24px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.site-home, .site-hub, .site-guides, .site-compare) .button,
+  :is(.site-home, .site-guides) .article-card {
+    transition: none;
+  }
+}

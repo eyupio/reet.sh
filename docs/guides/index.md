@@ -4,6 +4,6 @@ description: "Practical guides to running AI coding agents in your browser, mana
 layout: guides
 ---
 
-# A little know-how.<br><em>A lot more done.</em>
+# Coding agents.<br><em>On your own terms</em>
 
 Useful guides, honest comparisons, and practical ideas for running AI agents on your own terms.

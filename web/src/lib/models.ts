@@ -155,11 +155,15 @@ export function resolveLaunchDefaults({
   explicitAgent = '', project = null, account = null, favouriteDefault = null, availableAgents = [],
 }: ResolveLaunchDefaultsInput): ResolvedLaunchDefaults {
   const agent = explicitAgent || project?.defaultTool || account?.defaultTool || availableAgents[0] || ''
+  // A favourite marked as the default for this agent is the person's own choice for that agent, so it outranks the
+  // project and account defaults: those fill the model only when no default was marked for the agent.
+  const favourite = typeof favouriteDefault === 'string'
+    ? favouriteDefault
+    : favouriteDefault && favouriteDefault.tool === agent ? favouriteDefault.model : ''
   let model = ''
-  if (agent && project?.defaultTool === agent && project.defaultModel) model = project.defaultModel
+  if (favourite) model = favourite
+  else if (agent && project?.defaultTool === agent && project.defaultModel) model = project.defaultModel
   else if (agent && account?.defaultTool === agent && account.defaultModel) model = account.defaultModel
-  else if (typeof favouriteDefault === 'string') model = favouriteDefault
-  else if (favouriteDefault && favouriteDefault.tool === agent) model = favouriteDefault.model
 
   let effort = ''
   if (agent && project?.defaultTool === agent && project.defaultEffort) effort = project.defaultEffort

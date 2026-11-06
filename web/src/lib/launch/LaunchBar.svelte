@@ -150,15 +150,12 @@
       choice = { ...next, effort: chatEffort(next, host, all) }
     }
   })
-  // Favourites are a help, not a prerequisite: the bar opens on the project/account defaults and the favourite
-  // marked for the agent only fills a model that neither of those set. A late favourites read therefore cannot hold up
-  // the bar or overwrite a model the person chose.
+  // Favourites are a help, not a prerequisite: the bar waits for no read, and never overwrites a model the person chose.
+  // A favourite marked as the default for the agent is the person's own choice for that agent, so a late read applies
+  // it over the project and account defaults too.
   $effect(() => {
     const current = choice
     if (!favouritesRead || !current || explicitModel || locked) return
-    const project = picked.length === 1 ? picked[0] : null
-    if (project?.defaultTool === current.agent && project.defaultModel) return
-    if (profile.defaultTool === current.agent && profile.defaultModel) return
     const favourite = favourites.find(f => f.agentDefault && f.tool === current.agent)
     if (favourite?.model && current.model !== favourite.model) choice = { ...current, model: favourite.model }
   })

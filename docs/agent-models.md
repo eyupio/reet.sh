@@ -109,10 +109,13 @@ reason, sentence}`; the browser adds the relative age.
 - A folder project gains `defaultEffort`, and its `defaultTool` now accepts
   Cline (`ValidToolV2`), which fixes the old four-agent check. A project model
   needs its project agent; an effort needs an agent that takes one.
-- The **browser** resolves the precedence: explicit choice, then the project
-  default, then the account default, then a favourite marked for that agent,
-  then the agent's own default. The server stores and validates these values but
-  never substitutes one into a launch; what the browser sends is what runs.
+- The **browser** resolves the precedence: explicit choice, then a favourite
+  marked as the default for that agent, then the project default, then the
+  account default, then the agent's own default. A model marked as the agent's
+  default is the person's own choice for that agent, so it is applied even when
+  a project or the account names another model. The server stores and validates
+  these values but never substitutes one into a launch; what the browser sends
+  is what runs.
 
 API:
 

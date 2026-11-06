@@ -655,6 +655,31 @@ try{
  const fromPanel=body(-1)
  expect(fromPanel).toMatchObject({agentId:A,dir:PROJECT_DIR,projectId:PROJECT_ID,project:'site'})
  expect(fromPanel.worktree).toMatch(/^[0-9a-f]{32}$/)
+
+ // ── The project choice, not the entry point, decides the worktree: a project picked in a dialog that was not opened
+ // from one still gets its own worktree. Without this a new session in a project quietly ran in the shared checkout.
+ sessions=[]
+ await page.goto(`${base}/sessions?agent=${A}`)
+ d=await openFromSidebar(false);p=parts(d)
+ await expect(p.project).toHaveValue('')
+ await p.project.selectOption(PROJECT_ID)
+ await expect(p.machine).toHaveValue(A)
+ await p.chosen('Cline')
+ await p.start.click()
+ await expect(page).toHaveURL(/\/sessions\?/)
+ const fromPickedProject=body(-1)
+ expect(fromPickedProject).toMatchObject({agentId:A,dir:PROJECT_DIR,projectId:PROJECT_ID,project:'site'})
+ expect(fromPickedProject.worktree).toMatch(/^[0-9a-f]{32}$/)
+ // The machine card's Start an agent makes the same choice the same way.
+ await page.goto(`${base}/machines`)
+ d=await openFromCard('dev-laptop',false);p=parts(d)
+ await p.project.selectOption(PROJECT_ID)
+ await p.chosen('Cline')
+ await p.start.click()
+ await expect(page).toHaveURL(/\/sessions\?/)
+ const fromPickedOnCard=body(-1)
+ expect(fromPickedOnCard).toMatchObject({agentId:A,dir:PROJECT_DIR,projectId:PROJECT_ID,project:'site'})
+ expect(fromPickedOnCard.worktree).toMatch(/^[0-9a-f]{32}$/)
  folderProjects=[]
 
  // ── The account's defaults reach the dialog without a project, from a machine card and from the workspace. ──

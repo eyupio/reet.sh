@@ -37,6 +37,7 @@
   // A session's menu on the Sessions page opens it in theatre view (?theatre=1); the address then forgets it.
   let theatre=$state(new URLSearchParams(location.search).get('theatre')==='1')
   let terminalPane=$state<{disconnect:()=>void}>()
+  let sessionPanel=$state<{openFind?:()=>void}>()
   // The sessions panel (see panelLayout.ts): full, the 64 px mini rail, or closed. Full is a docked column beside the
   // terminal from 600 px (below 960 px while Keep open is on, by default from 768 px); on a phone, or a tablet whose person turned
   // Keep open off, it is a drawer over the terminal. A phone is told by its screen's shorter side, not the window's height.
@@ -71,7 +72,7 @@
   function paneSessions(){if(theatre){theatre=false;if(panelView==='closed')setMode('full')}else setMode(panelView==='closed'?'full':'closed');saveLayout()}
   function chevron(){const next=chevronNext(mode,phone);setMode(next);saveLayout();void focusPanel(next==='mini'?'#terminal-sessions .rail-expand':next==='full'?'#terminal-sessions .collapse':TOOLBAR_SESSIONS)}
   function expand(){setMode('full');saveLayout();void focusPanel('#terminal-sessions .collapse')}
-  function findSessions(){setMode('full');saveLayout();void focusPanel('#terminal-sessions input[type=search]')}
+  function findSessions(){setMode('full');saveLayout();void tick().then(()=>sessionPanel?.openFind?.())}
   function togglePin(){pinned=!keptOpen;saveLayout()}
   function closeDrawer(){if(panelView==='drawer')mode='closed'}
   // Dragging the separator: the pointer is captured, so leaving the handle keeps the drag. The grid column changes with it
@@ -605,7 +606,7 @@
   {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>openTerminalStart()}>Review creation</button></p>{/if}
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
-    {#if shown!=='closed'}<SessionSidebar {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
+    {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->

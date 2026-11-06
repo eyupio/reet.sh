@@ -56,8 +56,11 @@ and the production container runtime (325 seconds), including the revocation and
 uncertain-delivery cases. Changed-package vet and shell syntax checks pass.
 Inspected captures use synthetic data: native/light desktop review and overview,
 Docker/dark phone overview. They are recorded in the UI verification page.
-Final-head CI/review remains the merge gate. This slice is
-[PR #626](https://github.com/eyupio/reet.sh/pull/626), now targeting main after the owner merged widget/setup #625.
+The owner merged [PR #626](https://github.com/eyupio/reet.sh/pull/626) as
+`aa64c24f`, after widget/setup #625. Final head `db4f4ff7` passed all 22 applicable
+checks, with four intentional skips and no unresolved inline review threads. The
+automated reviewer was quota-blocked. See the [pause checkpoint](gaffer-resume.md)
+for the continuation procedure and unverified areas.
 
 The performance comparison now compiles both revisions before sampling and
 interleaves eight one-second samples, reversing the starting revision each round.

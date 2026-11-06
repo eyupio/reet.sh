@@ -18,6 +18,16 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## Current Gaffer pause point — 6 November 2026
+
+The user has paused work. Read the [continuation checkpoint](docs/handoffs/gaffer-resume.md)
+first: owner-merged #625 passed all 20 applicable checks and owner-merged #626
+passed all 22. Both had four intentional skips and no unresolved inline review
+threads. Automated code review was blocked by account quota. No next slice has
+been selected; older “next task” statements are historical. The checkpoint records
+completed UX/setup, offline acceptance, benchmark correction, limitations and
+standing permissions. Resume from current main and agree the next bounded slice.
+
 ## Gaffer AI session-companion MVP: agreed direction (5 November 2026)
 
 The user selected the [Gaffer session-companion MVP](docs/work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)
@@ -110,12 +120,13 @@ The single floating mascot has saved left/right placement, three reference-sized
 presets, temporary drag/resize and modal full screen/phone layouts. Page docks and
 session viewports reserve its corner. See the
 [widget/setup handoff](docs/handoffs/gaffer-widget-setup.md).
-GM6 is [PR #626](https://github.com/eyupio/reet.sh/pull/626), now targeting main after #625 merged.
+GM6 shipped through owner-merged [PR #626](https://github.com/eyupio/reet.sh/pull/626).
 Fake-backed real-controller/private-WebSocket browser acceptance passes in native
 with race detection and the production container runtime/non-root user, including
 restart, limits, approvals, revocation and uncertain delivery. Its
 [acceptance contract](docs/handoffs/gaffer-offline-acceptance.md) records exact
-coverage and remaining CI/review gates. Neither
+coverage and validation limits. Final CI passed all 22 applicable checks; automated
+review was quota-blocked. Neither
 PR merging nor real-provider setup is authorised by this handoff.
 
 The 5 November #603 review follow-up fixes first-address-only provider dialing:

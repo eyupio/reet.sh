@@ -400,8 +400,8 @@ try{
   await expect(p.locator('.xterm-rows')).toHaveCSS('font-size','14px')
   if(width>650){
   await expect(p.locator('.pane>header')).toHaveCSS('padding','7px 12px')
-  await expect(p.locator('.terminal-toolbar')).toHaveCSS('padding','5px 8px')
-  await expect(p.locator('.screen-frame')).toHaveCSS('padding','12px 10px 8px 14px')
+  await expect(p.locator('.terminal-toolbar')).toHaveCSS('padding','4px 8px')
+  await expect(p.locator('.screen-frame')).toHaveCSS('padding','12px 12px 8px 16px')
   await expect(p.locator('.terminal-toolbar')).toHaveCSS('mask-image','none')
   await expect(p.locator('.mobile-keys')).toBeHidden()
   await expect(p.locator('.pane>footer')).toBeVisible()

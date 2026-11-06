@@ -500,6 +500,8 @@ try {
  const tabTitles = async page => (await tabs(page).locator('a.tab .name').allInnerTexts()).map(t => t.trim())
  const sidebarRow = (page, title) => page.getByRole('navigation',{name:'Terminal sessions'}).getByRole('button',{name:new RegExp(`^${title}`)}).first()
  const panel = page => page.getByRole('complementary',{name:'Session context'})
+ const tuiSelect = page => screen(page).locator('.tui-picker select')
+ const tuiPill = page => screen(page).locator('.tui-pill')
  const fact = (page, name) => panel(page).locator('.where div').filter({has:page.locator('dt',{hasText:new RegExp(`^${name}$`)})}).locator('dd').first()
 
  if (run('opening a row adds a tab; closing a tab never ends the session')) {
@@ -561,7 +563,7 @@ try {
  }
 
  if (run('context panel shows machine, project, branch, worktree')) {
-  const {context,page,errors} = await open()
+  const {context,page,errors} = await open({touch:true})
   await page.goto(`${base}/sessions?agent=a1&session=s2`)
   await expect(panel(page)).toBeVisible()
   await expect(panel(page).getByRole('heading',{name:"Where it's working"})).toBeVisible()
@@ -588,7 +590,7 @@ try {
   // Under 1100 px the panel waits behind Details (a 44 px target).
   await page.setViewportSize({width:834,height:1112})
   await expect(panel(page)).toBeHidden()
-  const details = screen(page).getByRole('button',{name:'Details',exact:true})
+  const details = page.getByRole('button',{name:'Session details panel',exact:true})
   await expect(details).toHaveAttribute('aria-expanded','false')
   expect((await details.boundingBox()).height).toBeGreaterThanOrEqual(44)
   await details.click()
@@ -666,25 +668,22 @@ try {
 
  if (run('view switch says why it is disabled')) {
   const {context,page,errors} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines()})
-  // An OpenCode session started in the OpenCode TUI has no conversation for Gaffer to load.
+  // An OpenCode session started in the OpenCode TUI has no conversation for Gaffer to load, so no switch is offered.
   await page.goto(`${base}/sessions?agent=a1&session=s7`)
-  const view = screen(page).getByRole('group',{name:'View'})
-  await expect(view.getByRole('button',{name:'OpenCode TUI'})).toHaveAttribute('aria-pressed','true')
-  await expect(view.getByRole('button',{name:'Gaffer'})).toHaveAttribute('aria-disabled','true')
-  await expect(view.getByRole('button',{name:'Gaffer'})).toHaveAccessibleDescription("This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
+  await expect(tuiSelect(page)).toHaveCount(0)
+  const label = tuiPill(page)
+  await expect(label).toHaveText('OpenCode TUI')
+  await expect(label).toHaveAttribute('title','This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
   // One reet started and switched to the OpenCode TUI can go back.
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
-  await expect(view.getByRole('button',{name:'OpenCode TUI'})).toHaveAttribute('aria-pressed','true')
-  await expect(view.getByRole('button',{name:'Gaffer'})).toHaveAttribute('aria-disabled','false')
+  await expect(tuiSelect(page)).toHaveValue('terminal')
+  await expect(tuiSelect(page)).toBeEnabled()
   // Another agent cannot switch between Gaffer and its TUI.
   await sidebarRow(page, 'Add browse-v1 protocol').click()
-  const chat = view.getByRole('button',{name:'Gaffer'})
-  await expect(chat).toHaveAttribute('aria-disabled','true')
-  await expect(chat).toHaveAccessibleDescription("Switching between Gaffer and the agent’s TUI is currently available for OpenCode only. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
-  await expect(view.getByRole('button',{name:'Claude Code TUI'})).toHaveAttribute('aria-pressed','true')
-  // Choosing it changes nothing (it is aria-disabled, so it stays in the tab order with its reason).
-  await chat.click({force:true})
-  await expect(view.getByRole('button',{name:'Claude Code TUI'})).toHaveAttribute('aria-pressed','true')
+  await expect(tuiSelect(page)).toHaveCount(0)
+  const other = tuiPill(page)
+  await expect(other).toHaveText('Claude Code TUI')
+  await expect(other).toHaveAttribute('title','Switching between Gaffer and the agent’s TUI is currently available for OpenCode only.')
   await expect(page.locator('.pane')).toBeVisible()
   // The header: agent · model · started, the state in words with its source, and no step count or progress bar (R10).
   await expect(screen(page).locator('.sub')).toHaveText('Claude Code · sonnet · started 2 hours ago')
@@ -696,17 +695,12 @@ try {
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toHaveCount(0)
   await expect(screen(page).locator('.approvals')).toHaveText('Approvals: Ask me')
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
-  // Management stays in the menu; layout and terminal actions are directly available.
-  await screen(page).getByRole('button',{name:'Session actions'}).click()
-  const menu = page.getByRole('menu',{name:'Actions for Add browse-v1 protocol'})
-  await expect(menu.getByRole('menuitem')).toHaveText(['Rename…','Copy branch','End session…','Check and remove worktree…'])
-  await expect(menu.getByRole('menuitem',{name:'Rename…'})).toBeFocused()
-  await expect(menu.getByRole('menuitem',{name:'Check and remove worktree…'})).toBeDisabled()
-  await page.keyboard.press('Escape')
-  await expect(menu).toBeHidden()
-  await expect(screen(page).getByRole('button',{name:'Session actions'})).toBeFocused()
-  await screen(page).getByRole('button',{name:'Session actions'}).click()
-  await menu.getByRole('menuitem',{name:'Rename…'}).click()
+  // Management actions are on the toolbar rather than behind a menu.
+  await expect(screen(page).getByRole('button',{name:'Rename…',exact:true})).toBeVisible()
+  await expect(screen(page).getByRole('button',{name:'Copy branch',exact:true})).toBeVisible()
+  await expect(screen(page).getByRole('button',{name:'End session…',exact:true})).toBeVisible()
+  await expect(screen(page).getByRole('button',{name:'Check and remove worktree…',exact:true})).toBeDisabled()
+  await screen(page).getByRole('button',{name:'Rename…',exact:true}).click()
   await expect(page.getByRole('dialog',{name:'Rename session'})).toBeVisible()
   await page.keyboard.press('Escape')
   expect(errors).toEqual([])
@@ -717,17 +711,17 @@ try {
  if (run('phone interface control says why switching is disabled')) {
   const {context,page,errors,box} = await open({width:390, height:844, touch:true, sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines()})
   await page.goto(`${base}/sessions?agent=a1&session=s7`)
-  const item = screen(page).getByRole('group',{name:'View'}).getByRole('button',{name:'Gaffer',exact:true})
+  await expect(tuiSelect(page)).toHaveCount(0)
+  const item = tuiPill(page)
   await expect(item).toBeVisible()
-  await expect(item).toHaveAttribute('aria-disabled','true')
-  await expect(item).toHaveAccessibleDescription("This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation. Reet's native AI agent control interface. Chat with your agent, follow its work, manage tool calls and approvals, and control sessions without using the agent's original terminal UI.")
-  await item.click({force:true})
-  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(item).toHaveText('OpenCode TUI')
+  await expect(item).toHaveAttribute('title','This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
   await page.goto(`${base}/sessions?agent=a1&session=s8`)
-  const offered = screen(page).getByRole('group',{name:'View'}).getByRole('button',{name:'Gaffer',exact:true})
+  const offered = tuiSelect(page)
   await expect(offered).toBeVisible()
-  await expect(offered).toHaveAttribute('aria-disabled','false')
-  await offered.click()
+  await expect(offered).toBeEnabled()
+  await expect(offered).toHaveValue('terminal')
+  await offered.selectOption('chat')
   await expect(page.getByRole('alertdialog',{name:'Switch to Gaffer?'})).toBeVisible()
   expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
   expect(errors).toEqual([])
@@ -749,7 +743,7 @@ try {
    const head = screen(page).locator('.head')
    await expect(head.getByRole('button',{name:'Theatre view',exact:true})).toBeVisible()
    await expect(page.getByRole('button',{name:'Theatre view',exact:true})).toHaveCount(1)
-   await expect(head.getByRole('group',{name:'View'})).toBeVisible()
+   await expect(head.getByLabel('Session interface',{exact:true})).toBeVisible()
    await expect(head.getByRole('group',{name:'Approvals'})).toBeVisible()
    await expect(head.getByRole('button',{name:'Terminal here',exact:true})).toBeVisible()
    await page.waitForFunction(() => window.__chatStream)
@@ -760,14 +754,9 @@ try {
    await expect(exit).toHaveAttribute('aria-pressed','true')
    await expect(exit).toBeFocused()
    expect(await page.evaluate(() => window.__originalChat === window.__chatStream)).toBe(true)
-   await head.getByRole('button',{name:'Session actions'}).click()
-   const menu=page.getByRole('menu')
-   // A phone's actions menu also offers Focus mode once the chat has left super focus.
-   const menuItems = width <= 650 || (height <= 500 && touch) ? ['Rename…','Focus mode','End session…'] : ['Rename…','End session…']
-   await expect(menu.getByRole('menuitem')).toHaveText(menuItems)
-   await expect(menu.getByRole('menuitem',{name:'Rename…'})).toBeFocused()
-   await page.keyboard.press('Escape')
-   await expect(head.getByRole('button',{name:'Session actions'})).toBeFocused()
+   // Management actions are direct toolbar buttons now.
+   await expect(head.getByRole('button',{name:'Rename…',exact:true})).toBeVisible()
+   await expect(head.getByRole('button',{name:'End session…',exact:true})).toBeVisible()
    await exit.click()
    await expect(head.getByRole('button',{name:'Theatre view',exact:true})).toHaveAttribute('aria-pressed','false')
    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
@@ -791,9 +780,8 @@ try {
   let finish
   box.mode = () => new Promise(resolve => { finish = resolve })
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
-  const view = screen(page).getByRole('group',{name:'View'})
-  const chatButton = view.getByRole('button',{name:'Gaffer'}), tuiButton = view.getByRole('button',{name:'OpenCode TUI'})
-  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  const tui = tuiSelect(page)
+  await expect(tui).toHaveValue('chat')
   await expect(page.locator('.chat-pane')).toBeVisible()
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
@@ -803,8 +791,8 @@ try {
   const quietRow = page.locator('aside#terminal-sessions').getByRole('button',{name:/^Chat about the store on studio/})
   await expect(quietRow).toHaveAccessibleName(/, Quiet$/)
   await expect(quietRow.locator('.session-dot')).toHaveClass(/finished/)
-  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
-  await tuiButton.click()
+  await expect(tui).toBeEnabled()
+  await tui.selectOption('terminal')
   const dialog = page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'})
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('reet stops Gaffer and starts the OpenCode TUI')
@@ -813,16 +801,14 @@ try {
   // Cancel sends nothing and gives focus back.
   await dialog.getByRole('button',{name:'Cancel'}).click()
   await expect(dialog).toBeHidden()
-  await expect(tuiButton).toBeFocused()
+  await expect(tui).toBeFocused()
   expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
-  await tuiButton.click()
+  await tui.selectOption('terminal')
   await dialog.getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
   await expect(dialog).toBeHidden()
-  // While the machine works, the switch says so and both buttons wait: a second press sends nothing.
+  // While the machine works, the switch says so and waits: another pick sends nothing.
   await expect(screen(page).getByRole('status').first()).toContainText('Switching to the OpenCode TUI…')
-  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
-  await expect(chatButton).toHaveAttribute('aria-disabled','true')
-  await tuiButton.click({force:true})
+  await expect(tuiSelect(page)).toHaveAttribute('aria-disabled','true')
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
   expect(box.writes.find(w => w.kind === 'mode')).toEqual({kind:'mode',id:'s9',body:{mode:'terminal',trust:false}})
@@ -830,9 +816,8 @@ try {
   finish({status:204, body:''})
   // The pane swaps to the OpenCode TUI's terminal and the switch follows.
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
-  await expect(tuiButton).toHaveAttribute('aria-pressed','true')
-  await expect(chatButton).toHaveAttribute('aria-pressed','false')
-  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  await expect(tuiSelect(page)).toHaveValue('terminal')
+  await expect(tuiSelect(page)).toBeEnabled()
   // The status pill follows the row the switch read again: its word now comes from the terminal.
   await expect(pill).toHaveText(/^Working\W*from terminal activity$/)
   // The Approvals line and the decisions follow the new mode: the terminal's own line, asked in the terminal.
@@ -842,11 +827,11 @@ try {
   // And back: Gaffer loads the conversation again.
   box.mode = null
   box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, attention:'quiet', attentionSource:'chat'} : x)
-  await chatButton.click()
+  await tuiSelect(page).selectOption('chat')
   const back = page.getByRole('alertdialog',{name:'Switch to Gaffer?'})
   await expect(back).toContainText('scrollback is not kept')
   await back.getByRole('button',{name:'Switch to Gaffer'}).click()
-  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(tuiSelect(page)).toHaveValue('chat')
   await expect(page.locator('.chat-pane')).toBeVisible()
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the chat: Allow once or Deny.')
@@ -860,23 +845,21 @@ try {
  if (run('switch is disabled while an approval card waits')) {
   const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
-  const tuiButton = screen(page).getByRole('group',{name:'View'}).getByRole('button',{name:'OpenCode TUI'})
-  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  await expect(tuiSelect(page)).toBeEnabled()
   await page.waitForFunction(() => !!window.__chatStream)
   await page.evaluate(() => window.__chatStream.emit('chat', {seq:1, kind:'permission', permissionId:'p1', toolCallId:'c1', title:'Run the tests', toolKind:'execute', command:'go test ./...'}))
   await expect(page.getByRole('button',{name:'Allow once',exact:true})).toBeVisible()
-  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
-  await expect(tuiButton).toHaveAccessibleDescription('Wait for the agent to finish or answer what it is asking.')
-  await tuiButton.click({force:true})
+  await expect(tuiSelect(page)).toHaveCount(0)
+  await expect(tuiPill(page)).toHaveAttribute('title','Wait for the agent to finish or answer what it is asking.')
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   // Answered, the chat is idle again and the switch is offered.
   await page.evaluate(() => window.__chatStream.emit('chat', {seq:2, kind:'permission_resolved', permissionId:'p1', allow:false}))
-  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  await expect(tuiSelect(page)).toBeEnabled()
   // A turn that is running holds it too.
   await page.evaluate(() => window.__chatStream.emit('chat', {seq:3, kind:'status', state:'working'}))
-  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
+  await expect(tuiSelect(page)).toHaveCount(0)
   await page.evaluate(() => window.__chatStream.emit('chat', {seq:4, kind:'status', state:'idle'}))
-  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  await expect(tuiSelect(page)).toBeEnabled()
   expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
   expect(errors).toEqual([])
   await context.close()
@@ -887,27 +870,25 @@ try {
   const BUSY = 'Wait for the agent to finish or answer what it is asking.'
   const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions().map(x => x.id === 's9' ? {...x, attention:'waiting', attentionSource:'chat'} : x)], machines:switchMachines(), chat:true, chatHold:true})
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
-  const tuiButton = screen(page).getByRole('group',{name:'View'}).getByRole('button',{name:'OpenCode TUI'})
   await expect(page.locator('.chat-pane')).toBeVisible()
   await page.waitForFunction(() => !!window.__chatStream)
-  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
-  await expect(tuiButton).toHaveAccessibleDescription(BUSY)
-  // From here on, any moment the button is offered is recorded: the replay of the waiting approval must never let it go.
-  await tuiButton.evaluate(button => {
+  await expect(tuiSelect(page)).toHaveCount(0)
+  await expect(tuiPill(page)).toHaveAttribute('title', BUSY)
+  // From here on, any moment the switch is offered is recorded: the replay of the waiting approval must never let it go.
+  await screen(page).locator('.session-tools').evaluate(tools => {
    window.__offered = false
-   new MutationObserver(() => { if (button.getAttribute('aria-disabled') === 'false') window.__offered = true }).observe(button, {attributes:true, attributeFilter:['aria-disabled']})
+   new MutationObserver(() => { if (tools.querySelector('.tui-picker select')) window.__offered = true }).observe(tools, {subtree:true, childList:true, attributes:true})
   })
   await page.waitForTimeout(200)
   await page.evaluate(() => window.__chatStream.start({seq:1, kind:'permission', permissionId:'p1', toolCallId:'c1', title:'Run the tests', toolKind:'execute', command:'go test ./...'}))
   await expect(page.getByRole('button',{name:'Allow once',exact:true})).toBeVisible()
   await page.waitForTimeout(200)
   expect(await page.evaluate(() => window.__offered)).toBe(false)
-  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
-  await tuiButton.click({force:true})
+  await expect(tuiSelect(page)).toHaveCount(0)
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   // Once the chat has replayed, its own word wins: answered, it is idle and the switch is offered.
   await page.evaluate(() => window.__chatStream.emit('chat', {seq:2, kind:'permission_resolved', permissionId:'p1', allow:false}))
-  await expect(tuiButton).toHaveAttribute('aria-disabled','false')
+  await expect(tuiSelect(page)).toBeEnabled()
   expect(box.writes.filter(w => w.kind === 'mode')).toEqual([])
   expect(errors).toEqual([])
   await context.close()
@@ -919,29 +900,27 @@ try {
   let finish
   box.mode = (body, find) => find().id === 's9' ? new Promise(resolve => { finish = resolve }) : null
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
-  const view = screen(page).getByRole('group',{name:'View'})
-  const chatButton = view.getByRole('button',{name:'Gaffer'}), tuiButton = view.getByRole('button',{name:'OpenCode TUI'})
-  await tuiButton.click()
+  await tuiSelect(page).selectOption('terminal')
   await page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'}).getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
   // B, while A is still switching: its switch is offered and its request is sent.
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
-  await expect(tuiButton).toHaveAttribute('aria-pressed','true')
-  await expect(chatButton).toHaveAttribute('aria-disabled','false')
-  await chatButton.click()
+  await expect(tuiSelect(page)).toHaveValue('terminal')
+  await expect(tuiSelect(page)).toBeEnabled()
+  await tuiSelect(page).selectOption('chat')
   await page.getByRole('alertdialog',{name:'Switch to Gaffer?'}).getByRole('button',{name:'Switch to Gaffer'}).click()
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').map(w => [w.id, w.body.mode])).toEqual([['s9','terminal'],['s8','chat']])
-  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(tuiSelect(page)).toHaveValue('chat')
   await expect(page.locator('.chat-pane')).toBeVisible()
-  // A is still switching: back on it, both its buttons wait and say why.
+  // A is still switching: back on it, its switch waits and says why.
   await sidebarRow(page, 'Chat about the store').click()
-  await expect(chatButton).toHaveAttribute('aria-pressed','true')
-  await expect(tuiButton).toHaveAttribute('aria-disabled','true')
-  await expect(tuiButton).toHaveAccessibleDescription('Switching to the OpenCode TUI…')
+  await expect(tuiSelect(page)).toHaveValue('chat')
+  await expect(tuiSelect(page)).toHaveAttribute('aria-disabled','true')
+  await expect(tuiSelect(page)).toHaveAttribute('title','Switching to the OpenCode TUI…')
   box.sessions = box.sessions.map(x => x.id === 's9' ? {...x, structured:false} : x)
   finish({status:204, body:''})
-  await expect(tuiButton).toHaveAttribute('aria-pressed','true')
-  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  await expect(tuiSelect(page)).toHaveValue('terminal')
+  await expect(tuiSelect(page)).toBeEnabled()
   expect(errors).toEqual([])
   await context.close()
  }
@@ -954,9 +933,7 @@ try {
   let finish
   box.mode = () => new Promise(resolve => { finish = resolve })
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
-  const view = screen(page).getByRole('group',{name:'View'})
-  const tuiButton = view.getByRole('button',{name:'OpenCode TUI'})
-  await tuiButton.click()
+  await tuiSelect(page).selectOption('terminal')
   await page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'}).getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
   // On this session: the controller's sentence, and the ended row read again (the list is otherwise read every 15 s).
@@ -970,7 +947,7 @@ try {
   // Away from it: a failure for a session no longer shown still reads the list again, so its row is not stale.
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
   box.mode = (body, find) => find().id === 's8' ? new Promise(resolve => { finish = resolve }) : null
-  await view.getByRole('button',{name:'Gaffer'}).click()
+  await tuiSelect(page).selectOption('chat')
   await page.getByRole('alertdialog',{name:'Switch to Gaffer?'}).getByRole('button',{name:'Switch to Gaffer'}).click()
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(2)
   await sidebarRow(page, 'Add browse-v1 protocol').click()
@@ -990,8 +967,8 @@ try {
   const PLUGINS = 'This folder has agent extensions: .opencode/plugin/audit.ts. Start a chat only in a folder you trust.'
   box.mode = body => body.trust ? null : {status:409, json:{error:'This folder has OpenCode plugins. Start only in a folder you trust.', code:'acp_trust_required', detail:PLUGINS}}
   await page.goto(`${base}/sessions?agent=a1&session=s8`)
-  const chatButton = screen(page).getByRole('group',{name:'View'}).getByRole('button',{name:'Gaffer'})
-  await chatButton.click()
+  await expect(tuiSelect(page)).toHaveValue('terminal')
+  await tuiSelect(page).selectOption('chat')
   const dialog = page.getByRole('alertdialog',{name:'Switch to Gaffer?'})
   await dialog.getByRole('button',{name:'Switch to Gaffer'}).click()
   // The machine refuses: the dialog comes back with the plugin warning and asks for trust before sending again.
@@ -999,17 +976,17 @@ try {
   const trust = dialog.getByRole('checkbox',{name:/I trust this folder/})
   await expect(trust).not.toBeChecked()
   await expect(dialog.getByRole('button',{name:'Switch to Gaffer'})).toBeDisabled()
-  await expect(chatButton).toHaveAttribute('aria-pressed','false')
+  await expect(tuiSelect(page)).toHaveValue('terminal')
   // Cancel on the trust question closes it, sends nothing more, and leaves the switch usable: asked again, the dialog
   // starts without the question until the machine refuses once more.
   await dialog.getByRole('button',{name:'Cancel'}).click()
   await expect(dialog).toBeHidden()
-  await expect(chatButton).toBeFocused()
-  await expect(chatButton).toHaveAttribute('aria-disabled','false')
+  await expect(tuiSelect(page)).toBeFocused()
+  await expect(tuiSelect(page)).toBeEnabled()
   await expect(screen(page).getByRole('status').first()).not.toContainText('Switching')
   await page.waitForTimeout(200)
   expect(box.writes.filter(w => w.kind === 'mode')).toHaveLength(1)
-  await chatButton.click()
+  await tuiSelect(page).selectOption('chat')
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('checkbox')).toHaveCount(0)
   await dialog.getByRole('button',{name:'Switch to Gaffer'}).click()
@@ -1017,7 +994,7 @@ try {
   await expect(trust).not.toBeChecked()
   await trust.check()
   await dialog.getByRole('button',{name:'Switch to Gaffer'}).click()
-  await expect(chatButton).toHaveAttribute('aria-pressed','true')
+  await expect(tuiSelect(page)).toHaveValue('chat')
   await expect(page.locator('.pane')).toHaveCount(0)
   expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'chat',trust:false},{mode:'chat',trust:false},{mode:'chat',trust:true}])
   // In the dark theme and at phone width the same dialog reads and fits.
@@ -1025,7 +1002,7 @@ try {
    const next = await open({width, height, touch:width < 600, theme, sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
    next.box.mode = box.mode
    await next.page.goto(`${base}/sessions?agent=a1&session=s8`)
-   await next.page.locator('.session-screen').getByRole('group',{name:'View'}).getByRole('button',{name:'Gaffer'}).click()
+   await tuiSelect(next.page).selectOption('chat')
    const d = next.page.getByRole('alertdialog',{name:'Switch to Gaffer?'})
    await d.getByRole('button',{name:'Switch to Gaffer'}).click()
    await expect(d.getByRole('checkbox',{name:/I trust this folder/})).toBeVisible()
@@ -1082,7 +1059,7 @@ try {
   let {context,page,errors} = await open()
   await page.goto(`${base}/sessions?agent=a1&session=s2`)
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
-  await screen(page).getByRole('button',{name:'Session actions'}).focus()
+  await screen(page).locator('.head :is(button,select):not([disabled])').last().focus()
   await tabTo(page, 'Refresh session workspace')
   await tabTo(page, 'Skills & session decisions')
    await page.keyboard.press('Enter')
@@ -1091,7 +1068,7 @@ try {
   // The new terminal takes focus once it is live; start from the header after that.
   await expect(page.locator('.pane')).toHaveAttribute('aria-label',/^Speed up the runner pool/)
   await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
-  await screen(page).getByRole('button',{name:'Session actions'}).focus()
+  await screen(page).locator('.head :is(button,select):not([disabled])').last().focus()
   await tabTo(page, 'Skills & session decisions')
   await page.keyboard.press('Enter')
   await tabTo(page, 'Activity')
@@ -1102,16 +1079,16 @@ try {
    ;({context,page,errors} = await open({width,height,touch:true}))
    await page.goto(`${base}/sessions?agent=a1&session=s2`)
    await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
-   const details = screen(page).getByRole('button',{name:'Details',exact:true})
+   const details = page.getByRole('button',{name:'Session details panel',exact:true})
    await details.focus()
    await page.keyboard.press('Enter')
    await expect(panel(page)).toBeVisible()
    await expect(panel(page).getByRole('button',{name:'Close details'})).toBeFocused()
    expect(await focusedUncovered(page), `${width}px`).toBe(true)
    // The sheet never lies over the header's Details and ⋮.
-   for (const name of ['Details','Session actions']) {
-    const b = await screen(page).getByRole('button',{name,exact:true}).boundingBox()
-    expect(await page.evaluate(([x,y]) => !document.elementFromPoint(x,y)?.closest('.context-panel'), [b.x+b.width/2, b.y+b.height/2]), `${name} covered at ${width}px`).toBe(true)
+   for (const target of [page.getByRole('button',{name:'Session details panel',exact:true}), screen(page).getByRole('button',{name:'Rename…',exact:true})]) {
+    const b = await target.boundingBox()
+    expect(await page.evaluate(([x,y]) => !document.elementFromPoint(x,y)?.closest('.context-panel'), [b.x+b.width/2, b.y+b.height/2]), `header control covered at ${width}px`).toBe(true)
    }
    await tabTo(page, 'Refresh session workspace')
    await tabTo(page, 'Skills & session decisions')
@@ -1140,7 +1117,7 @@ try {
   await page.goto(`${base}/sessions?agent=a1&session=s2`)
   const pane = page.locator('.pane')
   await expect(pane).toHaveAttribute('data-connection-state','live')
-  const details = screen(page).getByRole('button',{name:'Details',exact:true})
+  const details = page.getByRole('button',{name:'Session details panel',exact:true})
   await details.focus()
   await page.keyboard.press('Enter')
   const close = panel(page).getByRole('button',{name:'Close details'})
@@ -1175,35 +1152,6 @@ try {
   await more.click()
   await page.keyboard.press('Shift+Tab')
   await expect(more).toBeFocused()
-  await page.goto(`${base}/sessions?agent=a1&session=s2`)
-  await expect(page.locator('.pane')).toHaveAttribute('data-connection-state','live')
-  const actions = screen(page).getByRole('button',{name:'Session actions'})
-  await actions.click()
-  await expect(page.getByRole('menu',{name:/^Actions for /})).toBeVisible()
-  await page.keyboard.press('Tab')
-  await expect(page.getByRole('menu',{name:/^Actions for /})).toHaveCount(0)
-  expect(await follows(actions), 'session screen: Tab goes on after ⋮').toBe(true)
-  await actions.click()
-  await page.keyboard.press('Shift+Tab')
-  await expect(actions).toBeFocused()
-  expect(errors).toEqual([])
-  await context.close()
- }
-
- // A reconnect while the session's ⋮ menu is open leaves focus in the menu.
- if (run('a reconnect keeps focus in the menu')) {
-  const {context,page,errors,box} = await open()
-  await page.goto(`${base}/sessions?agent=a1&session=s2`)
-  const pane = page.locator('.pane')
-  await expect(pane).toHaveAttribute('data-connection-state','live')
-  await screen(page).getByRole('button',{name:'Session actions'}).click()
-  const first = page.getByRole('menu',{name:/^Actions for /}).getByRole('menuitem').first()
-  await expect(first).toBeFocused()
-  await box.sockets.at(-1).close()
-  await expect(pane).not.toHaveAttribute('data-connection-state','live')
-  await expect(pane).toHaveAttribute('data-connection-state','live',{timeout:10000})
-  await page.waitForTimeout(300)
-  await expect(first).toBeFocused()
   expect(errors).toEqual([])
   await context.close()
  }
@@ -1277,7 +1225,7 @@ try {
   // The workspace toolbar, the tab strip and the session's header (the pane keeps its own 40 px terminal controls, as the spec allows).
   for (const [name,w,h] of await targets(page.locator('.workspace-toolbar a, .workspace-toolbar button, .session-screen .head a, .session-screen .head button')))
    expect(Math.min(w,h), `"${name}" is ${w}×${h}`).toBeGreaterThanOrEqual(44)
-  await screen.getByRole('button',{name:'Details',exact:true}).click()
+  await page.getByRole('button',{name:'Session details panel',exact:true}).click()
   const sheet = screen.locator('.context-panel')
   await expect(sheet).toBeVisible()
   const s = await sheet.boundingBox(), head = await screen.locator('.head').boundingBox(), stage = await screen.locator('.stage').boundingBox(), whole = await screen.boundingBox()
@@ -1399,8 +1347,7 @@ try {
   const live = screen(page).getByRole('status').first()
   await expect(live).toBeAttached()
   expect(await live.evaluate(el => getComputedStyle(el).display)).not.toBe('none')
-  await screen(page).getByRole('button',{name:'Session actions'}).click()
-  await page.getByRole('menuitem',{name:'Copy branch'}).click()
+  await screen(page).getByRole('button',{name:'Copy branch',exact:true}).click()
   await expect(live).toHaveText('Copied reet/reet-0f1e2d3c4b5a6978.')
   expect(errors).toEqual([])
   await context.close()
@@ -1449,11 +1396,8 @@ try {
      console.log(`axe ${width} ${theme} ${state}: ${r.violations.length} violations ${JSON.stringify(r.violations.map(v => [v.id, v.nodes.map(n => n.target.join(' '))]))}, ${r.incomplete.length} incomplete ${JSON.stringify(r.incomplete.map(v => [v.id, v.nodes.length, process.env.REET_AXE_NODES ? v.nodes.map(n => n.target.join(' ') + ' ' + (n.any[0]?.message ?? '')) : []]))}`)
     }
     await audit('screen')
-    const details = page.locator('.session-screen').getByRole('button',{name:'Details',exact:true})
+    const details = page.getByRole('button',{name:'Session details panel',exact:true})
     if (await details.isVisible()) { await details.click(); await page.screenshot({path:`${shots}/session-${width}-${theme}-details.png`}); await audit('details open'); await page.keyboard.press('Escape') }
-    await page.locator('.session-screen').getByRole('button',{name:'Session actions'}).click()
-    await audit('menu open')
-    await page.keyboard.press('Escape')
    }
    await context.close()
   }

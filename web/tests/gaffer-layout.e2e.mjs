@@ -81,7 +81,7 @@ try {
     if (!await overview.isVisible()) {
       const exit = page.getByRole('button', { name: 'Exit focus mode', exact: true })
       if (await exit.count()) await exit.click()
-      await page.getByRole('button', { name: 'Details', exact: true }).click()
+      await page.getByRole('button', { name: 'Session details panel', exact: true }).click()
     }
     await expect(card).toBeVisible()
     await expect(card).toHaveAttribute('data-phase', 'editing')

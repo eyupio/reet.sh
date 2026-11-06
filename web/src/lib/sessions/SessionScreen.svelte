@@ -8,7 +8,7 @@
   import { fleetCards, stateWord, type FleetCard } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import type { RunMember } from '../projects'
-  import { headerMeta, offlineSentence, switchModeState, switchWhy, tabFromMenu, worktreeTargetOf } from '../sessions'
+  import { headerMeta, offlineSentence, switchModeState, switchWhy, worktreeTargetOf } from '../sessions'
   import { toolName } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
@@ -23,17 +23,24 @@
   import { PHONE_SCREEN } from '../terminal/sizing'
   import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
 
-  // The session screen: identity and persistent layout actions above a wrapping toolbar for interface, approvals
-  // and terminal creation. The menu contains management actions only, the live terminal the workspace hosts here (children),
-  // Approvals under it, and the context panel beside it (behind Details under 1100 px and in theatre view). A terminal
-  // session shows no steps and no progress bar (R10): only its state word and where that word came from.
+  // The session screen: identity above a wrapping toolbar for interface, approvals, theatre, management and terminal
+  // actions. The live terminal is the workspace's (children), and the context panel sits beside it, toggled from the
+  // workspace toolbar like the sessions panel. A terminal session shows no steps and no progress bar (R10): only its
+  // state word and where that word came from.
   let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy, insightChat, insightProgress,
-    onaction, ontheatre, onrefresh, onmode, onsignedout, oncontinue, onterminal, onside, side, showSide = false, contextKey = 'reet-session-context-panel', onresizing, children }: {
+    onaction, ontheatre, onrefresh, onmode, onsignedout, oncontinue, onterminal, onside, side, showSide = false, contextKey = 'reet-session-context-panel', onresizing, children,
+    contextOpen = $bindable(true), contextId, oncontextclosed }: {
     session: TerminalSession; sessions: TerminalSession[]
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
     theatre?: boolean; keyboard?: boolean; busy?: boolean
     /** Where the right panel's width and open state are saved, scoped to this person. */
     contextKey?: string
+    /** Whether the right panel is open, shared with the workspace toolbar's Details toggle. */
+    contextOpen?: boolean
+    /** The element id the toolbar's Details toggle controls. */
+    contextId?: string
+    /** Where focus goes when the panel is closed from inside it. */
+    oncontextclosed?: () => void
     /** Whether the right panel's separator is being dragged, so the terminal holds its size until it ends. */
     onresizing?: (active: boolean) => void
     onaction: (kind: 'rename' | 'end' | 'archive') => void; ontheatre: () => void; onrefresh: () => void
@@ -97,9 +104,8 @@
   async function toggleFocus() {
     const next = !focusOn
     focusWanted = next
-    menuAt = null
     try { localStorage.setItem(focusKey, next ? '1' : '0') } catch { /* optional browser preference */ }
-    if (next) sheetOpen = false
+    if (next) { sheetOpen = false; saveContext() }
     await tick()
     if (next) screen?.querySelector<HTMLTextAreaElement>('.composer-input')?.focus({ preventScroll: true })
     else focusButton?.focus()
@@ -242,12 +248,15 @@
   // theatre view, Details opens it as a sheet over the terminal's edge. Docked it can also be collapsed and resized, and
   // its open state and width are remembered in this browser for the person.
   let screen = $state<HTMLElement>(), screenWidth = $state(0)
+  let contextWidth = $state(CONTEXT_DEFAULT), bodyWidth = $state(0), layoutLoaded = $state(false)
+  // Docked and sheet have their own open state: a docked panel is open by default, a sheet only when asked for.
   let dockedOpen = $state(true), sheetOpen = $state(false)
-  let contextWidth = $state(CONTEXT_DEFAULT), bodyWidth = $state(0), layoutLoaded = false
-  let detailsButton = $state<HTMLButtonElement>()
   const docked = $derived(!theatre && screenWidth > 1099)
   const hasSide = $derived(showSide && !!side)
-  const contextOpen = $derived(docked ? dockedOpen : sheetOpen)
+  const effectiveOpen = $derived(docked ? dockedOpen : sheetOpen)
+  // The workspace toolbar's toggle shows this state; it never writes it, so the two open states stay separate.
+  $effect(() => { contextOpen = effectiveOpen })
+  const panelId = $derived(contextId ?? `${id}-context`)
   // Focus keeps the conversation alone on the screen, so a Details sheet opened before it goes away.
   $effect(() => { if (focusOn) sheetOpen = false })
   // The separator's 8 px track sits between the terminal and the panel; the panel takes at most 40 % of what is left.
@@ -259,25 +268,25 @@
     if (!layoutLoaded) return
     try { localStorage.setItem(contextKey, JSON.stringify(contextLayoutRecord(dockedOpen, contextWidth))) } catch { /* optional browser preference */ }
   }
-  async function toggleDetails() {
+  // The workspace toolbar calls this through its bound component instance.
+  export function toggleContext() {
     // A terminal opened beside the session takes the panel's place; Details has nothing to toggle until it closes.
     if (hasSide) return
-    if (docked) { dockedOpen = !dockedOpen; saveContext(); return }
-    sheetOpen = !sheetOpen
-    if (!sheetOpen) return
+    if (docked) dockedOpen = !dockedOpen; else sheetOpen = !sheetOpen
+    saveContext()
+    if (docked || !sheetOpen) return
     // Focus moves into the sheet (its Close details first), so it never stays on a control the sheet could cover.
-    await tick()
-    document.getElementById(`${id}-context`)?.querySelector<HTMLElement>('.close-details')?.focus()
+    void tick().then(() => document.getElementById(panelId)?.querySelector<HTMLElement>('.close-details')?.focus())
   }
   // The panel's own collapse control, and the sheet's Close details: the panel goes and focus returns to Details.
   async function collapseDetails() {
     if (docked) dockedOpen = false; else sheetOpen = false
     saveContext()
     await tick()
-    detailsButton?.focus()
+    oncontextclosed?.()
   }
   // Leaving the panel for the terminal only dismisses a sheet; a docked panel stays where the person put it.
-  function closeSheet() { if (!docked) sheetOpen = false }
+  function closeSheet() { if (!docked) { sheetOpen = false; saveContext() } }
   function closeDetails(event: KeyboardEvent) {
     if (event.key !== 'Escape' || docked || !sheetOpen) return
     event.preventDefault(); event.stopPropagation()
@@ -306,31 +315,12 @@
   function commitContextWidth(width: number) { contextWidth = clampContextWidth(width, contextRoom); saveContext() }
   function setContextResizing(active: boolean) { contextResizing = active; onresizing?.(active) }
 
-  // The actions menu: its ⋮ button, or Shift+F10 / the menu key on it. Arrow keys move, Escape closes and gives focus back.
-  let menu = $state<HTMLElement>(), menuButton = $state<HTMLButtonElement>()
-  let menuAt = $state<{ x: number; y: number } | null>(null)
-  async function openMenu(event: MouseEvent | KeyboardEvent) {
-    event.preventDefault()
-    const box = menuButton!.getBoundingClientRect()
-    menuAt = { x: Math.max(8, Math.min(box.right - 240, innerWidth - 248)), y: Math.max(8, Math.min(box.bottom + 4, innerHeight - 290)) }
-    await tick()
-    menu?.querySelector<HTMLElement>('[role=menuitem]:not(:disabled)')?.focus()
-  }
-  function closeMenu(focus = true) { menuAt = null; if (focus) menuButton?.focus() }
-  function menuKey(event: KeyboardEvent) {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMenu(); return }
-    if (event.key === 'Tab') { event.preventDefault(); closeMenu(false); tabFromMenu(menuButton, event.shiftKey); return }
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
-    event.preventDefault()
-    const items = [...menu!.querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled)')], at = items.indexOf(document.activeElement as HTMLElement)
-    items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
-  }
-  const menuKeyOpens = (event: KeyboardEvent) => event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')
-  function act(kind: 'rename' | 'end' | 'archive') { closeMenu(false); onaction(kind) }
-  function theatreView() { closeMenu(false); ontheatre() }
-  function continueSession() { if (!oncontinue) return; closeMenu(false); oncontinue() }
-  function openTerminal() { if (!onterminal) return; closeMenu(false); onterminal() }
-  function openSideTerminal() { if (!onside) return; closeMenu(false); onside() }
+  // Management actions live on the session toolbar, so each is one click away rather than behind a menu.
+  function act(kind: 'rename' | 'end' | 'archive') { onaction(kind) }
+  function theatreView() { ontheatre() }
+  function continueSession() { if (!oncontinue) return; oncontinue() }
+  function openTerminal() { if (!onterminal) return; onterminal() }
+  function openSideTerminal() { if (!onside) return; onside() }
 
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
   async function setMode(next: ApprovalMode) {
@@ -356,7 +346,6 @@
   }
   async function copyBranch() {
     const branch = session.worktreeBranch
-    closeMenu()
     if (!branch) return
     notice = (await copyText(branch)) ? { text: `Copied ${branch}.` } : { text: "Couldn't copy the branch. Select it in Where it's working instead.", bad: true }
   }
@@ -365,7 +354,6 @@
   function checkWorktree() {
     const t = target
     if (!t) return
-    closeMenu(false)
     removing = { position: 0, host: session.agentId, dir: '', tool: session.tool ?? '', model: session.model ?? '', state: 'started', code: '', sentence: '', sessionId: session.id,
       worktreePath: session.worktreePath ?? '', worktreeRepo: t.repo, worktreeBranch: session.worktreeBranch ?? '', worktreeRun: t.run, worktreeProject: t.project, sharesCheckout: false, attempt: 0 }
   }
@@ -374,13 +362,11 @@
   $effect(() => { if (session.id !== shownId) { shownId = session.id; notice = null } })
 </script>
 
-<svelte:window onpointerdown={event => { if (menuAt && !menu?.contains(event.target as Node) && !menuButton?.contains(event.target as Node)) closeMenu(false) }} />
-
 <!-- One grid: the header and status line, then the context panel, then the terminal, so the tab order is header → panel →
      terminal while the panel shows beside the terminal (right column) or over its edge (as a sheet below the header). -->
 <div class="session-screen" class:theatre class:keyboard class:focus={focusOn} class:resizing={contextResizing}
   bind:this={screen} style={`--context-width:${shownContextWidth}px`}>
-  <div class="body" class:context-docked={docked && contextOpen && !hasSide} class:context-sheet={!docked && contextOpen && !hasSide} bind:clientWidth={bodyWidth}>
+  <div class="body" class:context-docked={docked && effectiveOpen && !hasSide} class:context-sheet={!theatre && !docked && effectiveOpen && !hasSide} bind:clientWidth={bodyWidth}>
     <header class="head">
       <div class="identity-row">
       <a class="back" href="/sessions" aria-label="Back to sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
@@ -396,14 +382,6 @@
           onclick={() => void toggleFocus()}>
           <TerminalIcon name={focusOn ? 'contract' : 'expand'} /><span class="wide-label">{focusOn ? 'Exit focus' : 'Focus'}</span><span class="compact-label">{focusOn ? 'Exit' : 'Focus'}</span>
         </button>
-        <button type="button" class="theatre-button" aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Restore the session panels' : 'Hide the panels and focus on this session'} onclick={theatreView}>
-          <TerminalIcon name="theatre" /><span class="wide-label">{theatre ? 'Exit theatre' : 'Theatre view'}</span><span class="compact-label">{theatre ? 'Exit' : 'Theatre'}</span>
-        </button>
-        <button type="button" class="details" bind:this={detailsButton} aria-label="Details" aria-expanded={hasSide ? false : contextOpen} aria-controls={`${id}-context`} title={docked ? (dockedOpen ? 'Collapse session workspace' : 'Show session workspace') : 'Session details'} onclick={() => void toggleDetails()} onkeydown={closeDetails}><TerminalIcon name="panel" /><span>Details</span></button>
-        <button type="button" class="more" bind:this={menuButton} aria-label="Session actions" aria-haspopup="menu" aria-expanded={menuAt !== null}
-          onclick={event => { if (menuAt) closeMenu(); else void openMenu(event) }} onkeydown={event => { if (menuKeyOpens(event)) void openMenu(event) }}>
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg><span>More</span>
-        </button>
       </div>
       </div>
       <div class="session-tools" role="group" aria-label="Session controls" data-keeps-focus>
@@ -414,18 +392,31 @@
             title={yoloCanStart(switchGates) ? 'Answer every approval for this session' : 'Read why YOLO is not ready here'} onclick={yoloMode}>YOLO</button>
         </div>
       {:else if session.yolo}<span class="badge yolo">YOLO</span>{/if}
-      <!-- The pressed button is the TUI shown; the other switches to it (aria-disabled with its reason when it cannot now). -->
-      <div class="view" role="group" aria-label="View" aria-busy={modeSwitching}>
-        <button use:gafferTooltip type="button" class="chat" aria-pressed={chatView} aria-disabled={chatView ? modeSwitching || undefined : !canSwitch}
-          aria-describedby={!chatView && !canSwitch ? `${id}-switch-why` : undefined} title={!chatView && !canSwitch ? whyNot : undefined}
-          onclick={event => { if (!chatView) openSwitch(event.currentTarget) }}>Gaffer</button>
-        <button type="button" aria-pressed={!chatView} aria-disabled={chatView ? !canSwitch : modeSwitching || undefined}
-          aria-describedby={chatView && !canSwitch ? `${id}-switch-why` : undefined} title={chatView && !canSwitch ? whyNot : undefined}
-          onclick={event => { if (chatView) openSwitch(event.currentTarget) }}>{terminalLabel}</button>
-      </div>
-        <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
-        {#if live && onterminal}<button type="button" class="tool-action" disabled={busy || serverOff} onclick={openTerminal}><span aria-hidden="true">›_</span> Terminal here</button>{/if}
-        {#if live && onside}<button type="button" class="tool-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
+      <!-- One dropdown names the interface shown. When the session cannot switch, a plain label says which one it is. -->
+      {#if canSwitch || modeSwitching}
+        <label class="tui-picker">
+          <span class="vh">Session interface</span>
+          <select use:gafferTooltip aria-label="Session interface" value={chatView ? 'chat' : 'terminal'} aria-disabled={modeSwitching || undefined}
+            title={modeSwitching ? whyNot : 'Choose Gaffer or the agent TUI'}
+            onchange={event => { const pick = event.currentTarget.value, current = chatView ? 'chat' : 'terminal'; event.currentTarget.value = current; if (pick !== current && canSwitch) openSwitch(event.currentTarget) }}>
+            <option value="chat">Gaffer</option>
+            <option value="terminal">{terminalLabel}</option>
+          </select>
+        </label>
+      {:else}
+        <span class="tui-pill" use:gafferTooltip={chatView} title={whyNot} aria-label={`${chatView ? 'Gaffer' : terminalLabel}. ${whyNot}`}>{chatView ? 'Gaffer' : terminalLabel}</span>
+      {/if}
+      <span class="vh" id={`${id}-switch-why`}>{whyNot}</span>
+      <button type="button" class="theatre-button" aria-pressed={theatre} aria-label={theatre ? 'Exit theatre view' : 'Theatre view'} title={theatre ? 'Restore the session panels' : 'Hide the panels and focus on this session'} onclick={theatreView}>
+        <TerminalIcon name="theatre" /><span class="wide-label">{theatre ? 'Exit theatre' : 'Theatre view'}</span><span class="compact-label">{theatre ? 'Exit' : 'Theatre'}</span>
+      </button>
+      <button type="button" class="tool-action" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
+      {#if session.worktreeBranch}<button type="button" class="tool-action secondary-action" onclick={() => void copyBranch()}>Copy branch</button>{/if}
+      {#if live}<button type="button" class="tool-action danger" disabled={busy || serverOff} onclick={() => act('end')}>{session.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>{/if}
+      {#if terminalArchivable(session.state)}<button type="button" class="tool-action" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
+      {#if target}<button type="button" class="tool-action secondary-action" disabled={live || away} title={live ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(host) : undefined} onclick={checkWorktree}>Check and remove worktree…</button>{/if}
+        {#if live && onterminal}<button type="button" class="tool-action" aria-label="Terminal here" disabled={busy || serverOff} onclick={openTerminal}><span aria-hidden="true">›_</span><span class="here-label">Terminal here</span></button>{/if}
+        {#if live && onside}<button type="button" class="tool-action secondary-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
         {#if oncontinue}<button type="button" class="tool-action" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue with history' : 'Continue session'}</button>{/if}
       </div>
     </header>
@@ -438,13 +429,13 @@
         <ContextPanel {session} {host} {status} {project} {skills} {now} chat={insightChat} chatProgress={insightProgress} supported={!!machineCaps?.inspect}
           docked={docked}
           onterminal={() => { closeSheet(); void tick().then(() => stage?.querySelector<HTMLElement>('.xterm-helper-textarea, textarea.composer-input')?.focus()) }}
-          id={`${id}-context`} onkeydown={panelKey} onclose={() => void collapseDetails()} />
+          id={panelId} onkeydown={panelKey} onclose={() => void collapseDetails()} />
       {/key}
-      {#if docked && contextOpen}
+      {#if docked && effectiveOpen}
         <!-- The right panel's separator, the same control as every other panel: drag (pointer capture), Left widens,
              Right narrows, Home the narrowest, End the widest, double-click 360 px. -->
         <PanelResizer value={shownContextWidth} min={CONTEXT_MIN} max={contextMax} resetValue={CONTEXT_DEFAULT}
-          label="Resize session workspace" controls={`${id}-context`} side="right" mode="inline"
+          label="Resize session workspace" controls={panelId} side="right" mode="inline"
           position="grid-column: 2; grid-row: 1 / -1; margin: 0 -8px 0 0" extraClass="panel-separator context-separator"
           onchange={setContextWidth} oncommit={commitContextWidth} onresizing={setContextResizing} />
       {/if}
@@ -453,20 +444,8 @@
   </div>
 </div>
 
-{#if menuAt}
-  <!-- data-keeps-focus: a reconnecting terminal never takes focus out of the open menu. -->
-  <div class="menu" role="menu" aria-label={`Actions for ${session.title}`} tabindex="-1" data-keeps-focus bind:this={menu} style={`left:${menuAt.x}px;top:${menuAt.y}px`} onkeydown={menuKey}>
-    <button role="menuitem" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
-    {#if phone && chatView}<button role="menuitem" onclick={() => void toggleFocus()}>{focusOn ? 'Exit focus mode' : 'Focus mode'}</button>{/if}
-    {#if session.worktreeBranch}<button role="menuitem" onclick={() => void copyBranch()}>Copy branch</button>{/if}
-    {#if live}<button role="menuitem" class="danger" disabled={busy || serverOff} onclick={() => act('end')}>{session.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>
-    {/if}
-    {#if terminalArchivable(session.state)}<button role="menuitem" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
-    {#if target}<button role="menuitem" disabled={live || away} title={live ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(host) : undefined} onclick={checkWorktree}>Check and remove worktree…</button>{/if}
-  </div>
-{/if}
 {#if removing}
-  <WorktreeDialog member={removing} {host} opener={menuButton ?? null} onremoved={onrefresh} {onsignedout} onclose={() => (removing = null)} />
+  <WorktreeDialog member={removing} {host} opener={null} onremoved={onrefresh} {onsignedout} onclose={() => (removing = null)} />
 {/if}
 {#if switchAsk}
   <SwitchModeDialog to={switchAsk.to} agentTui={terminalLabel} machine={host} trust={switchAsk.trust}
@@ -504,6 +483,8 @@
   .tool-action:disabled { opacity: .5; cursor: default; }
   .focus-button { display: none; }
   .compact-label { display: none; }
+  .tool-action.danger { color: var(--bad); }
+  .tool-action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
   .theatre-button[aria-pressed=true] { border-color: var(--accent-text); background: var(--line-soft); color: var(--ink); }
   .tool-action:focus-visible, .theatre-button:focus-visible, .focus-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .heading { flex-grow: 1; min-width: 0; }
@@ -526,28 +507,16 @@
   .approvals button[aria-pressed=true]:last-child { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
   .approvals button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .approvals button:disabled { opacity: .5; cursor: default; }
-  .view { flex: none; display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-  .view button { padding: 7px 16px; border: 0; background: none; color: var(--muted); font: 400 14px var(--sans); cursor: pointer; }
-  .view button[aria-pressed=true] { background: var(--line-soft); color: var(--ink); font-weight: 500; cursor: default; }
-  .view button[aria-disabled=true] { cursor: not-allowed; }
-  .view[aria-busy=true] button { cursor: progress; }
-  .view button:focus-visible, .details:focus-visible, .more:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
-  .details { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--sans); cursor: pointer; }
-  .details[aria-expanded=true] { background: var(--line-soft); }
-  .more { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; }
-  .more:hover { background: var(--tint); color: var(--ink); }
-  .more svg { width: 20px; height: 20px; }
-  .more span { font: 500 14px var(--sans); }
+  .tui-picker { flex: none; display: inline-flex; align-items: center; min-width: 0; }
+  .tui-picker select { min-height: 36px; padding: 0 30px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
+  .tui-picker select:disabled, .tui-picker select[aria-disabled=true] { opacity: .55; cursor: progress; }
+  .tui-picker select:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .tui-pill { flex: none; display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--line-soft); color: var(--muted); font: 500 14px var(--sans); }
   .live p { margin: 0 28px 8px; font-size: 14px; color: var(--muted); }
   .live p.bad { color: var(--bad); }
   .stage { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-top: 1px solid var(--line-soft); }
-  .menu { position: fixed; z-index: 110; width: 240px; max-height: calc(100dvh - 16px); overflow: auto; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
-  .menu [role=menuitem] { display: block; min-height: 36px; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 400 14px var(--sans); text-align: left; cursor: pointer; }
-  .menu [role=menuitem]:hover:not(:disabled), .menu [role=menuitem]:focus-visible { background: var(--tint); outline: none; }
-  .menu [role=menuitem]:disabled { opacity: .45; cursor: default; }
-  .menu .danger { color: var(--bad); }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  @media (pointer: coarse) { .menu [role=menuitem] { min-height: 44px; } .more, .tool-action, .theatre-button { min-width: 44px; min-height: 44px; } .view button, .approvals button { min-height: 44px; } }
+  @media (pointer: coarse) { .tool-action, .theatre-button { min-width: 44px; min-height: 44px; } .tui-picker select, .approvals button { min-height: 44px; } }
   @container session-screen (max-width: 1099px) {
     .head { padding: 0 12px 8px; }
     .heading { flex: 1 1 0; }
@@ -560,14 +529,13 @@
     .head { padding: 0 6px 6px; }
     .identity-row { min-height: 52px; gap: 4px; }
     .header-actions { gap: 2px; }
-    .header-actions .theatre-button, .header-actions .details, .header-actions .more, .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; padding: 0; }
-    .header-actions .focus-button { display: inline-flex; }
+    .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; padding: 0; display: inline-flex; }
     .header-actions button { flex-direction: column; gap: 1px; }
     .header-actions button span { display: block; font: 500 14px/12px var(--sans); }
     .header-actions button .wide-label { display: none; }
     .header-actions :global(svg) { width: 19px; height: 19px; }
     .session-tools { gap: 6px; }
-    .view button { padding: 6px 10px; font-size: 14px; min-height: 44px; }
+    .tui-picker select { min-height: 44px; font-size: 14px; }
     .approvals button { padding: 6px 10px; font-size: 14px; min-height: 44px; }
     .tool-action { min-height: 44px; padding: 0 10px; }
     .heading { flex: 1 1 0; }
@@ -575,8 +543,6 @@
     .pill { height: 28px; padding: 0 10px; gap: 6px; font-size: 14px; }
     .pill .lk { display: none; }
     .badge { font-size: 14px; line-height: 18px; padding: 0 6px; }
-
-    .details { padding: 0 10px; }
   }
   /* Super focus on a phone: one slim identity row, then the conversation and composer with nothing competing for the room.
      The site chrome and workspace toolbar are hidden through data-session-focus and the workspace's own rule. */
@@ -589,9 +555,6 @@
     .session-screen.focus .identity-row > .pill { display: inline-flex; }
     .session-screen.focus .session-tools { display: none; }
     .session-screen.focus .header-actions { gap: 0; }
-    .session-screen.focus .header-actions .theatre-button,
-    .session-screen.focus .header-actions .details,
-    .session-screen.focus .header-actions .more { display: none; }
     .session-screen.focus .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; }
     .session-screen.focus .live p { margin: 0 8px 6px; }
     .session-screen.focus .stage { border-top: 0; }
@@ -605,13 +568,22 @@
     .session-screen.focus :global(.hint) { display: none; }
     .session-screen.focus :global(.tool-head) { min-height: 44px; }
   }
+  /* A very short viewport (a phone with the keyboard up, or held sideways): keep the controls on one scrolling row so
+     the terminal keeps the room it needs. */
+  @media (max-height: 500px) {
+    .session-tools { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  }
   /* In landscape keep the controls reachable and trim secondary metadata. */
   @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 4px 4px; }
-    .identity-row { flex: 1 1 190px; min-height: 44px; }
-    .heading { max-width: 100px; }
+    .head { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px 8px; padding: 0 4px 4px; }
+    .identity-row { flex: 1 1 190px; min-width: 0; min-height: 44px; }
+    .heading { max-width: 100px; min-width: 0; }
     .where-phone { display: none; }
-    .session-tools { flex: 0 1 auto; }
+    /* A landscape phone has no room for several wrapped rows: the primary controls stay in one row, secondary ones wait
+       for a roomier screen, and the row scrolls if the names are long. */
+    .session-tools { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+    .secondary-action { display: none; }
+    .here-label { display: none; }
   }
   /* With the phone keyboard up the site's chrome steps aside (keyboardChrome) and the slim header stays, as the mock-up's phone
      session draws it; the status line gives its row to the terminal. */

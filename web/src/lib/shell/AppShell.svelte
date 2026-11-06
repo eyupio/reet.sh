@@ -2,6 +2,8 @@
   import { onMount, tick, type Snippet } from 'svelte'
   import Logo from '../Logo.svelte'
   import WorkspaceSidebar from './WorkspaceSidebar.svelte'
+  import PanelResizer from './PanelResizer.svelte'
+  import { clampSidebarWidth, readCollapsed, readWidth, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, sidebarTrack } from './workspaceLayout'
   import { browserViewport, keyboardChrome, keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker } from '../terminal/sizing'
   import Bell from './Bell.svelte'
   import BottomTabs from './BottomTabs.svelte'
@@ -37,6 +39,35 @@
     jump: () => Promise<JumpItem[]>
     account?: Snippet
   } = $props()
+
+  // The workspace sidebar's width and fold, remembered in this browser. A missing or unreadable value falls back.
+  const savedSidebar = (() => {
+    try {
+      return {
+        width: readWidth(localStorage.getItem('reet.sidebar.width'), SIDEBAR_DEFAULT, clampSidebarWidth),
+        collapsed: readCollapsed(localStorage.getItem('reet.sidebar.collapsed')),
+      }
+    } catch { return { width: SIDEBAR_DEFAULT, collapsed: false } }
+  })()
+  let sidebarWidth = $state(savedSidebar.width)
+  let sidebarCollapsed = $state(savedSidebar.collapsed)
+  let sidebarToggle = $state<HTMLButtonElement>()
+  function setSidebarWidth(width: number) { sidebarWidth = clampSidebarWidth(width) }
+  function commitSidebarWidth(width: number) {
+    sidebarWidth = clampSidebarWidth(width)
+    try { localStorage.setItem('reet.sidebar.width', String(sidebarWidth)) } catch { /* The sidebar keeps its width for this page. */ }
+  }
+  function setSidebarCollapsed(collapsed: boolean) {
+    sidebarCollapsed = collapsed
+    try { localStorage.setItem('reet.sidebar.collapsed', collapsed ? '1' : '0') } catch { /* The sidebar still folds. */ }
+    // The fold button leaves with the sidebar, so the control that shows it again takes the focus.
+    if (collapsed) void tick().then(() => sidebarToggle?.focus())
+  }
+  // The page's content, the top bar and the sidebar itself all read this width.
+  $effect(() => {
+    document.documentElement.style.setProperty('--workspace-sidebar-width', `${sidebarTrack(sidebarCollapsed, sidebarWidth)}px`)
+    return () => { document.documentElement.style.removeProperty('--workspace-sidebar-width') }
+  })
 
   const overflow = $derived(tabs.filter(tab => !bar.some(b => b.href === tab.href)))
   let viewportWidth = $state(window.innerWidth)
@@ -135,10 +166,23 @@
 
 <svelte:window onkeydown={shortcut} bind:innerWidth={viewportWidth} />
 
-{#if showSidebar}<WorkspaceSidebar {tabs} {moreCurrent} {moreOpen} onmore={openMore} />{/if}
+{#if showSidebar && !sidebarCollapsed}<WorkspaceSidebar {tabs} {moreCurrent} {moreOpen} onmore={openMore} oncollapsed={() => setSidebarCollapsed(true)} />{/if}
+{#if showSidebar && !sidebarCollapsed}
+  <PanelResizer value={sidebarWidth} min={SIDEBAR_MIN} max={SIDEBAR_MAX} resetValue={SIDEBAR_DEFAULT} label="Resize the navigation"
+    position="left: calc(var(--workspace-sidebar-width, 228px) - 4px)" onchange={setSidebarWidth} oncommit={commitSidebarWidth} />
+{/if}
 <div class="shell-bar" class:compact class:workspace={showSidebar}>
   {#if showSidebar}
-    <div class="workspace-label"><span>{location.host}</span><span aria-hidden="true">›</span><strong>{tabs.find(tab => tab.current)?.label ?? more.find(tab => tab.current)?.label ?? 'Workspace'}</strong></div>
+    <button type="button" class="sidebar-toggle" bind:this={sidebarToggle} aria-label={sidebarCollapsed ? 'Show the navigation' : 'Hide the navigation'}
+      title={sidebarCollapsed ? 'Show the navigation' : 'Hide the navigation'} aria-expanded={!sidebarCollapsed}
+      onclick={() => setSidebarCollapsed(!sidebarCollapsed)}>
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h11M3 18h18" /></svg>
+    </button>
+    {#if sidebarCollapsed}
+      <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
+    {:else}
+      <div class="workspace-label"><span>{location.host}</span><span aria-hidden="true">›</span><strong>{tabs.find(tab => tab.current)?.label ?? more.find(tab => tab.current)?.label ?? 'Workspace'}</strong></div>
+    {/if}
   {:else}
     <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
     <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
@@ -165,7 +209,10 @@
 <style>
   .workspace-label { display: none; }
   @media (min-width: 1100px) {
-    .shell-bar.workspace { padding-left: 264px; gap: 20px; }
+    .shell-bar.workspace { padding-left: calc(var(--workspace-sidebar-width, 228px) + 36px); gap: 20px; }
+    .sidebar-toggle { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+    .sidebar-toggle:hover { background: var(--card); color: var(--ink); }
+    .sidebar-toggle svg { width: 18px; height: 18px; }
     .workspace-label { display: flex; align-items: center; gap: 13px; font-size: 14px; color: var(--muted); min-width: 0; }
     .workspace-label strong { color: var(--ink); font-weight: 500; white-space: nowrap; }
     .workspace-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }

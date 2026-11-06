@@ -3,6 +3,8 @@
   import type { FolderProject, ProjectGroup } from '../terminal/api'
   import { railState, worktreesInUse } from '../home'
   import { PROJECT_COLOURS, projectColour, projectColourHex, type ProjectColour } from '../projectColour'
+  import PanelResizer from '../shell/PanelResizer.svelte'
+  import { RAIL_DEFAULT, RAIL_MAX, RAIL_MIN } from '../shell/workspaceLayout'
 
   // The folder projects, in the person's order: one folder on one machine each, with a repository diamond or a folder icon,
   // the machine, the base branch when one is set, the state in words and the worktrees in use. Choosing a card puts that
@@ -15,6 +17,7 @@
   let { projects, groups = undefined, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
     selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, userId = 0, scope = null, onscope,
     collapsed = false, oncollapsed,
+    width = RAIL_DEFAULT, onwidth, onwidthcommit,
     onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour, onmanage,
     onarrange, ongroupadd, ongroupedit, ongroupremove, ongroupmove, ongroupcolour, ongroupmovebusy = false, onmovetogroup }: {
     projects: FolderProject[] | undefined
@@ -72,6 +75,10 @@
     /** The rail is folded to its strip. */
     collapsed?: boolean
     oncollapsed?: (collapsed: boolean) => void
+    /** The rail's width on a wide desktop; the drag handle beside it changes it. */
+    width?: number
+    onwidth?: (width: number) => void
+    onwidthcommit?: (width: number) => void
     /** A drag's whole rail order, each project with its version and group. */
     onarrange?: (order: { id: string; version: number; groupId: string }[]) => void
     ongroupadd?: (opener: HTMLElement) => void
@@ -431,6 +438,10 @@
 {/snippet}
 
 <aside class="rail" class:open={panelOpen} class:sessions={variant === 'sessions'} class:collapsed bind:this={aside} aria-labelledby={`${id}-title`}>
+  {#if variant === 'home' && wide && !collapsed && onwidth && onwidthcommit}
+    <PanelResizer value={width} min={RAIL_MIN} max={RAIL_MAX} resetValue={RAIL_DEFAULT} label="Resize the project rail" mode="absolute"
+      position="top: 0; bottom: 0; right: -4px" onchange={onwidth} oncommit={onwidthcommit} />
+  {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="full" id={`${id}-full`} bind:this={full} onkeydown={panelKeys} style:top={panelOpen ? `${panelTop}px` : undefined} style:height={panelOpen ? `calc(100dvh - ${panelTop}px)` : undefined}>
     <header>
@@ -620,7 +631,7 @@
 
 <style>
   /* The mock-up's rail: 272 px of content inside 14 px padding and a 1 px rule (301 px in all). */
-  .rail { border-right: 1px solid var(--line-soft); align-self: stretch; min-width: 0; line-height: 1.3; }
+  .rail { position: relative; border-right: 1px solid var(--line-soft); align-self: stretch; min-width: 0; line-height: 1.3; }
   .full { position: sticky; top: 0; max-height: 100dvh; overflow-y: auto; padding: 18px 14px; display: flex; flex-direction: column; gap: 12px; min-height: calc(100dvh - 61px); box-sizing: border-box; }
   header { display: flex; align-items: center; }
   h2 { flex-grow: 1; margin: 0; font: 600 14px/1.3 var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }

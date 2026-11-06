@@ -5,6 +5,7 @@
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText, titleFor } from '../agentLaunch'
   import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
+  import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import type { LaunchDefaults } from '../launchBar'
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import FleetStrip from './FleetStrip.svelte'
@@ -49,6 +50,17 @@
   let scope = $state<{ kind: 'project' | 'group'; id: string } | null>(null)
   // The rail folds to its strip on a wide desktop; the choice is remembered in this browser.
   let railCollapsed = $state(false)
+  // The rail's width on a wide desktop, also remembered in this browser.
+  const savedRailWidth = (() => {
+    try { return readWidth(localStorage.getItem('reet.rail.width'), RAIL_DEFAULT, width => clampRailWidth(width, innerWidth)) }
+    catch { return RAIL_DEFAULT }
+  })()
+  let railWidth = $state(savedRailWidth)
+  const setRailWidth = (width: number) => { railWidth = clampRailWidth(width, innerWidth) }
+  const commitRailWidth = (width: number) => {
+    railWidth = clampRailWidth(width, innerWidth)
+    try { localStorage.setItem('reet.rail.width', String(railWidth)) } catch { /* The rail keeps its width for this page. */ }
+  }
   // The terminal machines (with readiness and launch capabilities), read with the rest for Start an agent and every start.
   let terminals = $state<TerminalMachine[] | undefined>()
   let savedWaiting = $state(0)
@@ -335,7 +347,7 @@
   })
 </script>
 
-<div class="home" class:writer class:rail-collapsed={railCollapsed}>
+<div class="home" class:writer class:rail-collapsed={railCollapsed} style:--rail-width={`${railWidth}px`}>
 
   <!-- On a desktop the rail is the left column; on a tablet or phone it lives on the Sessions screen, and Home keeps only what
        adds a project from the launch sentence. -->
@@ -343,6 +355,7 @@
     <ProjectRailHost bind:this={host} rail={!narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
       chosen={launchProject ?? chosen} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected} onchoose={(project) => chooseProject(project)}
       {scope} onscope={(next) => (scope = next)} collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId}
+      width={railWidth} onwidth={setRailWidth} onwidthcommit={commitRailWidth}
       onnew={startProjectNow}
       signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={(n) => (savedWaiting = n)} onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)}
       onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}>
@@ -379,7 +392,7 @@
       {/if}
       {#if agentStart && terminals}
         <StartAgentDialog machines={terminals} snapshot={sync?.machines ?? []} projects={projects ?? []}
-          initialAgent={agentStart.project?.host ?? ''} initialDir={agentStart.project?.dir ?? ''} projectId={agentStart.project?.id ?? ''} honourProjectDefaults
+          initialAgent={agentStart.project?.host ?? ''} projectId={agentStart.project?.id ?? ''} honourProjectDefaults
           opener={agentStart.opener} onstarted={started} onleavefailed={leaveFailed}
           onaddmachine={() => location.assign(machinesAt(accounts ? 'add-machine' : 'connect-machine'))}
           onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}
@@ -410,8 +423,9 @@
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
   .home :global(p) { line-height: 1.55; }
-  /* The rail is the mock-up's 272 px of cards inside 14 px padding and a 1 px rule: 301 px. */
-  .home.writer { grid-template-columns: 301px minmax(0, 1fr); }
+  /* The rail is the mock-up's 272 px of cards inside 14 px padding and a 1 px rule: 301 px by default, and as wide as
+     the person drags it (Home hands it --rail-width). */
+  .home.writer { grid-template-columns: var(--rail-width, 301px) minmax(0, 1fr); }
   .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
   /* Name the two columns explicitly: the rail and the board are the page's two grid items, and an absolute heading
      must never leave either of them waiting for the next row. */

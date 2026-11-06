@@ -81,6 +81,6 @@
   .panel-resizer.absolute { position: absolute; }
   .grip { position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: transparent; transition: background .15s; }
   .panel-resizer:hover .grip, .panel-resizer:focus-visible .grip, .panel-resizer.dragging .grip { background: var(--accent); }
-  .panel-resizer:focus-visible { outline: none; }
-  .panel-resizer:focus-visible .grip { box-shadow: 0 0 0 1px var(--accent); width: 2px; }
+  .panel-resizer:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .panel-resizer:focus-visible .grip { background: var(--accent); width: 2px; }
 </style>

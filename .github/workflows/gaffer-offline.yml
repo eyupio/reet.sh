@@ -1,0 +1,52 @@
+name: Gaffer offline acceptance
+
+on:
+  pull_request:
+    paths: ['internal/api/**', 'internal/gaffer/**', 'internal/store/**', 'internal/terminalbroker/**', 'internal/terminalproto/**', 'web/**', 'go.mod', 'go.sum', 'Dockerfile', 'scripts/test-gaffer-offline.sh', 'scripts/gaffer-test.Dockerfile', '.github/workflows/gaffer-offline.yml']
+  push:
+    branches: [main]
+    paths: ['internal/api/**', 'internal/gaffer/**', 'internal/store/**', 'internal/terminalbroker/**', 'internal/terminalproto/**', 'web/**', 'go.mod', 'go.sum', 'Dockerfile', 'scripts/test-gaffer-offline.sh', 'scripts/gaffer-test.Dockerfile', '.github/workflows/gaffer-offline.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gaffer-offline-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [native, docker]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: web
+      - name: Prepare Chromium
+        run: |
+          cd web
+          npx playwright install --with-deps chromium
+          echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Exercise real HTTP, scheduler, private worker and browser
+        env:
+          REET_UI_SCREENSHOTS: ${{ runner.temp }}/gaffer-offline-${{ matrix.runtime }}
+        run: bash scripts/test-gaffer-offline.sh '${{ matrix.runtime }}'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gaffer-offline-${{ matrix.runtime }}
+          path: ${{ runner.temp }}/gaffer-offline-${{ matrix.runtime }}
+          if-no-files-found: ignore

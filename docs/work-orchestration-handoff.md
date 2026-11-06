@@ -237,7 +237,7 @@ permissions; the overview grants nothing and performs no model or worker call.
 
 ### Widget and reviewed setup (6 November 2026)
 
-[PR #625](https://github.com/eyupio/reet.sh/pull/625) starts from main `1ba62a7c`
+The owner merged [PR #625](https://github.com/eyupio/reet.sh/pull/625), which started from main `1ba62a7c`
 after the owner merged #620 and #623. The user requested matching floating-panel
 sizes, mascot treatment and predictable placement, plus a simpler activation
 process. They chose **one session setup, with advanced controls optional**.
@@ -247,6 +247,21 @@ revision checks and preservation of worker/MCP boundaries. This choice supersede
 older instructions requiring three separate permission dialogs before delegation.
 GM6's separate fake-backed native/Docker acceptance is being adapted to this flow.
 Real credentials, deployment and agent merges remain out of scope.
+
+### GM6: real-controller offline acceptance (6 November 2026)
+
+[PR #626](https://github.com/eyupio/reet.sh/pull/626),
+`test/gaffer-offline-integration`, now targets main after the owner merged widget/setup #625. The
+[acceptance contract](handoffs/gaffer-offline-acceptance.md) records the actual
+integration boundary and runner commands. Native/race (343 seconds) and non-root
+production-container-runtime (325 seconds) browser flows pass, including one-step
+setup, restart delivery without browser reads, approval waits, separate scopes,
+budget-preserving resume, hard limits, completion, revocation and ambiguity without
+replay. Model/worker endpoints are synthetic, and production routes are unchanged.
+This proves controller reconstruction/database reopen and container runtime, not
+OS service restart or full CLI packaging. Inspected UI captures and CI accompany
+the test slice. Final-head CI/review remains the merge gate; no real credentials,
+deployments or agent merges.
 
 ### Source-grounded feasibility and current gaps
 

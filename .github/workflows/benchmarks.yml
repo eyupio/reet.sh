@@ -8,6 +8,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'scripts/bench-gate.py'
+      - 'scripts/bench-compare.sh'
       - '.github/workflows/benchmarks.yml'
   workflow_dispatch:
 
@@ -42,28 +43,18 @@ jobs:
         run: |
           go install golang.org/x/perf/cmd/benchstat@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-      - name: Benchmark base
+      - name: Benchmark paired revisions
         shell: bash
         run: |
-          cd base
-          go test ./internal/api/ ./internal/store/ ./internal/terminalbroker/ \
-            -run '^$' -bench "$BENCH_REGEX" -benchmem -count=8 -benchtime=1s \
-            | tee /tmp/base.txt
-      - name: Benchmark pull request
-        shell: bash
-        run: |
-          cd pr
-          go test ./internal/api/ ./internal/store/ ./internal/terminalbroker/ \
-            -run '^$' -bench "$BENCH_REGEX" -benchmem -count=8 -benchtime=1s \
-            | tee /tmp/new.txt
+          bash pr/scripts/bench-compare.sh base pr "$RUNNER_TEMP/benchmarks"
       - name: Compare with benchstat
-        run: python3 pr/scripts/bench-gate.py /tmp/base.txt /tmp/new.txt 15
+        run: python3 pr/scripts/bench-gate.py "$RUNNER_TEMP/benchmarks/base.txt" "$RUNNER_TEMP/benchmarks/new.txt" 15
       - name: Keep the benchmark outputs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: benchmarks
           path: |
-            /tmp/base.txt
-            /tmp/new.txt
+            ${{ runner.temp }}/benchmarks/base.txt
+            ${{ runner.temp }}/benchmarks/new.txt
           retention-days: 7

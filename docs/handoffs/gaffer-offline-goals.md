@@ -1,7 +1,7 @@
 # Gaffer offline goals — GM4
 
 6 November 2026. Follow-on to merged #612, aligned with main `1b10a978` after the owner merged the plan in #617.
-Implementation is tracked in [PR #620](https://github.com/eyupio/reet.sh/pull/620).
+The owner merged the implementation in [PR #620](https://github.com/eyupio/reet.sh/pull/620).
 Only reet.sh changes. Local fake providers/workers; no real credentials or merge.
 
 The user selected 12 Gaffer reviews over 24 hours by default, with limits visible
@@ -12,8 +12,9 @@ communicates; the session's existing model performs implementation and PR work.
 
 - One explicit saved goal per owned structured-session companion; several selected
   sessions may be followed independently. General chat and ordinary sends create
-  no goal. Activation requires separately reviewed worker messaging and session
-  history/text sharing, plus provider policy; no grant is enabled implicitly.
+  no goal. The reviewed browser setup now saves explicitly disclosed worker messaging,
+  session history/text sharing, provider maxima and a goal together. See the
+  [widget/setup contract](gaffer-widget-setup.md); separate controls remain advanced.
 - Bind goal ID/revision, provider/revision/model, both grant revisions, expiry,
   budget, observed worker sequence and active review. Admission reserves the
   review and budget atomically with its existing durable Gaffer turn. At most one
@@ -72,7 +73,7 @@ web and all other packages except the same five unchanged terminal-host environm
 failures: three missing-tmux and two process-group cleanup tests. Later decision/
 shutdown guards have targeted race checks. Runtime head `1ce63151` passes all
 20 applicable CI checks, with four intentional skips and no unresolved review
-threads; #620 remains open. The 16 MCP compatibility checks pass; generated tools remain unchanged.
+threads; the owner subsequently merged #620. The 16 MCP compatibility checks pass; generated tools remain unchanged.
 
 The goal dialog and existing chat/context/worker/layout browser matrices pass on
 main `b68c84e9`; web check/build, vet, strict docs, 51-page validation and the 40-view

@@ -1,5 +1,24 @@
 # UI verification — 4 November 2026
 
+## Gaffer offline integration (6 November 2026)
+
+PR #626 exercises real HTTP, the production scheduler/store/provider transport,
+authenticated private WebSocket and broker. Only the external provider and worker
+are fake. The browser intercepts no API. Native/race and non-root Docker runtime
+flows pass reviewed setup, scoped goals, browser-free queued delivery after actual
+database reopen, approval waits without model calls, preserved resume budgets,
+hard limits, user completion, queued-grant revocation and uncertain delivery
+without replay. The final overview distinguishes reports from delivery evidence.
+
+These inspected captures are synthetic: desktop light setup and retained overview,
+plus phone dark overview from the container flow. The container runs the API test
+harness in the production runtime base/user; it does not validate CLI packaging or
+service installation. See the [acceptance contract](handoffs/gaffer-offline-acceptance.md).
+
+![Reviewed session setup](images/ui/gaffer-session-setup-native.png)
+![Native offline overview](images/ui/gaffer-offline-native.png)
+![Docker offline overview](images/ui/gaffer-offline-docker.png)
+
 ## Gaffer floating companion and one-step setup (6 November 2026)
 
 PR #625 uses one 56 px mascot launcher in the account's saved bottom corner.

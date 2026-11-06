@@ -46,6 +46,33 @@ Then check that:
 - No new dependency is added without a reason in the description. The binary stays small on purpose.
 - The UI still works in light and dark mode and at phone width.
 
+CI performance comparisons compile both revisions first, then interleave eight
+one-second samples with the starting revision reversed on alternate rounds. To
+run the same comparison locally, use `bash scripts/bench-compare.sh BASE_DIR
+PR_DIR OUTPUT_DIR`, with `benchstat` on PATH for
+`python3 scripts/bench-gate.py OUTPUT_DIR/base.txt OUTPUT_DIR/new.txt 15`.
+`BENCH_REGEX` can select a smaller benchmark set; CI retains its existing set
+and statistically significant 15% regression gate.
+
+## Gaffer offline acceptance
+
+After building `web/dist`, run `bash scripts/test-gaffer-offline.sh native`,
+`docker` or `all`. This starts an isolated test controller with synthetic account
+credentials, a local fake provider and a fake worker over the real authenticated
+private WebSocket. Playwright uses real HTTP and the production browser bundle;
+it does not intercept API requests or use configured providers. The runner needs
+Go, Node/web dependencies, Chromium and (for Docker) a Linux Docker daemon.
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` selects the browser; `REET_UI_SCREENSHOTS`
+selects the capture directory.
+
+The Docker gate compiles the API test harness for the production Dockerfile's
+runtime base and non-root user, with a read-only filesystem and temporary data.
+It validates that runtime environment, rather than production CLI packaging or
+service installation. Controller restart closes and reopens the database and
+reloads the sealed test key. Test control routes are compiled only into the test
+binary. Temporary processes, containers and the fixture image are cleaned up.
+See [the acceptance contract](docs/handoffs/gaffer-offline-acceptance.md).
+
 ## Style
 
 - **Go:** `gofmt`, small packages under `internal/`, errors returned rather than logged and ignored. Comments say why, not what.

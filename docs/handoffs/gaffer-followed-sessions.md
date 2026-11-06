@@ -2,7 +2,7 @@
 
 6 November 2026. [PR #623](https://github.com/eyupio/reet.sh/pull/623) follows the
 offline-goal runtime in [#620](https://github.com/eyupio/reet.sh/pull/620). The owner
-merged the GM4 plan in #617; the runtime and this overview remain separate changes.
+merged the GM4 plan in #617, runtime #620 and this overview #623.
 Only reet.sh changes, using local fake providers and workers.
 
 ## Contract

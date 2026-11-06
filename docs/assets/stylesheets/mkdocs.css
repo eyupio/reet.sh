@@ -127,7 +127,7 @@ body {
 .header .md-search-result__meta {
   background: var(--soft);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   height: 36px;
   line-height: 36px;
 }
@@ -237,10 +237,10 @@ body {
   padding-top: 10px;
 }
 .md-sidebar--secondary .md-nav {
-  font-size: 11px;
+  font-size: 12px;
 }
 .md-sidebar--secondary .md-nav__title {
-  font: 8px/1.7 var(--mono);
+  font: 12px/1.7 var(--mono);
   letter-spacing: 1.3px;
   color: var(--accent);
   padding-left: 10px;
@@ -410,7 +410,7 @@ body {
   margin: 25px 0;
 }
 .md-typeset .headerlink {
-  font-size: 0.6em;
+  font-size: max(12px, 0.6em);
   margin-left: 9px;
   color: var(--accent);
   opacity: 0;
@@ -424,10 +424,10 @@ body {
   margin-top: 5px;
 }
 .reet-doc .eyebrow {
-  font-size: 9px;
+  font-size: 12px;
 }
 .reet-doc .breadcrumbs {
-  font-size: 10px;
+  font-size: 12px;
   margin-bottom: 29px;
 }
 .md-typeset .breadcrumbs a {
@@ -440,7 +440,7 @@ body {
   text-decoration: none;
 }
 .md-typeset .doc-next .eyebrow {
-  font-size: 8px;
+  font-size: 12px;
 }
 .md-typeset .doc-next strong {
   font-size: 14px;
@@ -540,7 +540,7 @@ body {
   display: block;
 }
 .hub-search span > span {
-  font-size: 10px;
+  font-size: 12px;
   display: block;
   color: var(--muted);
   margin-top: 5px;
@@ -563,7 +563,7 @@ body {
   padding-top: 24px;
 }
 .docs-category .eyebrow {
-  font-size: 8px;
+  font-size: 12px;
 }
 .docs-category h2 {
   font-size: 28px;
@@ -645,7 +645,7 @@ body {
   scrollbar-width: thin;
 }
 .site-article .article-toc > a {
-  font-size: 11px;
+  font-size: 12px;
 }
 .site-article .md-typeset .tabbed-labels {
   background: var(--soft);
@@ -852,10 +852,10 @@ body {
     font-size: 19px;
   }
   .md-typeset code {
-    font-size: 11px;
+    font-size: 12px;
   }
   .md-typeset pre > code {
-    font-size: 11px;
+    font-size: 12px;
     padding: 18px 15px;
   }
   .md-typeset .admonition,
@@ -866,15 +866,15 @@ body {
     font-size: 12px;
   }
   .md-typeset table:not([class]) {
-    font-size: 11px;
+    font-size: 12px;
   }
   .md-typeset .breadcrumbs {
-    font-size: 9px;
+    font-size: 12px;
     gap: 8px;
     margin-bottom: 25px;
   }
   .md-typeset .eyebrow {
-    font-size: 8px;
+    font-size: 12px;
   }
   .md-content__button {
     display: none;
@@ -890,7 +890,7 @@ body {
     font-size: 14px;
   }
   .header .md-search-result__teaser {
-    font-size: 11px;
+    font-size: 12px;
   }
   .header .md-search__scrollwrap {
     max-height: 75vh;
@@ -911,7 +911,7 @@ body {
     font-size: 12px;
   }
   .hub-search span > span {
-    font-size: 9px;
+    font-size: 12px;
   }
   .docs-directory {
     display: block;
@@ -960,7 +960,7 @@ body {
     overflow: visible;
   }
   .site-article .article-toc > a {
-    font-size: 11px;
+    font-size: 12px;
     min-height: 34px;
     padding: 7px 14px 7px 0;
   }
@@ -1106,7 +1106,7 @@ body .md-typeset summary:before {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   padding: 10px 20px;
 }
@@ -1130,7 +1130,7 @@ body .md-typeset summary:before {
   background: var(--surface);
   border: 1px solid var(--line);
   color: var(--ink);
-  font-size: 10px;
+  font-size: 12px;
   padding: 7px 10px;
   border-radius: 4px;
 }
@@ -1239,7 +1239,7 @@ body .md-typeset .admonition .admonition-title:before {
   }
   #reet-navigation .reet-drawer-label {
     display: block;
-    font: 9px var(--mono);
+    font: 12px var(--mono);
     letter-spacing: 1.4px;
     color: var(--muted);
     padding: 24px 22px 12px;
@@ -1293,7 +1293,7 @@ body .md-typeset .admonition .admonition-title:before {
     min-height: 32px;
   }
   #reet-navigation .reet-drawer-footer p {
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--muted);
     margin: 0;

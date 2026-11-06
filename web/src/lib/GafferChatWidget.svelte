@@ -2,7 +2,7 @@
   import { onMount, tick, untrack } from 'svelte'
   import { ApiError, UnauthorizedError, cancelGafferAnswer, configureGafferConversation, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,
     type GafferConversationView, type GafferSettings, type GafferTurn } from './api'
-  import { gafferSessionContext } from './gafferContext'
+  import { gafferSessionContext, gafferChatEntry, gafferChatDock } from './gafferContext'
   import { gafferMessageBytes, gafferMessageId, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt, type PendingGafferSend } from './gafferChat'
   import GafferAvatar from './terminal/GafferAvatar.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -13,7 +13,7 @@
   import CopyButton from './CopyButton.svelte'
   import { shell } from './dialogShell'
   import { canAutoFocus } from './focus'
-  import { keepLauncherClear } from './floatingLauncher'
+  import { keepLauncherClear, alignToConversation } from './floatingLauncher'
   import { formatWhen } from './time'
   import { toolName } from './agentLaunch'
 
@@ -25,6 +25,7 @@
   let contextOpen = $state(false)
   let open = $state(false), phone = $state(false), expanded = $state(false), mode = $state('session')
   let panel = $state<HTMLDialogElement>(), launcher = $state<HTMLButtonElement>(), composer = $state<HTMLTextAreaElement>(), transcript = $state<HTMLDivElement>()
+  let inlineOpener: HTMLElement | undefined
   let settings = $state<GafferSettings | null>(null), view = $state<GafferConversationView | null>(null), loadedScope = $state<string | null>(null)
   let loading = $state(false), sending = $state(false), updating = $state(false), cancelling = $state(false), confirming = $state(false)
   let error = $state(''), notice = $state(''), streamError = $state(''), choicesOpen = $state(false)
@@ -45,13 +46,15 @@
   const contextLabel = $derived(current?.context?.needsReview ? 'Review context sharing' : current?.context?.grant && (current.context.grant.status || current.context.grant.history || current.context.grant.text) ? 'Selected context shared' : 'Context off · typed messages only')
 
   onMount(() => {
+    const entry = (opener: HTMLElement) => { inlineOpener = opener; open = true }
+    gafferChatEntry.set(entry)
     const arrival=new URL(location.href)
     if(arrival.pathname==='/sessions'&&arrival.searchParams.get('gaffer')==='1'){
       open=true;arrival.searchParams.delete('gaffer');history.replaceState(history.state,'',arrival)
     }
     const mq = matchMedia('(max-width: 559.98px)'); const resize = () => phone = mq.matches
     resize(); mq.addEventListener('change', resize)
-    return () => { mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
+    return () => { gafferChatEntry.update(current => current === entry ? null : current); mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
   })
   $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; if (shown) void load(key); else dispose() }) })
   $effect(() => {
@@ -123,7 +126,7 @@
       if (mine === epoch && stream === source && open) { stream = undefined; streamError = 'The reply connection paused. Reconnect to read Gaffer’s saved answer.' }
     }
   }
-  async function close() { open = false; confirming = false; historyOpen = false; choicesOpen = false; optionsOpen = false; dispose(); await tick(); launcher?.focus({preventScroll:true}) }
+  async function close() { open = false; confirming = false; historyOpen = false; choicesOpen = false; optionsOpen = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : $gafferChatDock ?? launcher)?.focus({preventScroll:true}) }
   function chooseProvider(value: string) { providerId = value; model = ''; manualModel = false; invalidateModels() }
   function invalidateModels() { modelEpoch++; modelRequest?.abort(); fetchingModels = false; models = []; modelsError = '' }
   async function fetchModels() {
@@ -212,13 +215,13 @@
   }
 </script>
 
-{#if !open}
+{#if !open && !$gafferChatDock}
   <button class="gaffer-launcher" use:keepLauncherClear bind:this={launcher} aria-label="Ask Gaffer" aria-haspopup="dialog" onclick={() => open = true}>
     <span class="launcher-portrait" aria-hidden="true"><GafferAvatar phase="idle" pose="tea" /></span><span>Ask Gaffer</span>
   </button>
 {/if}
 {#if open}
-  <dialog class="gaffer-chat" class:expanded bind:this={panel} use:phoneShell={phone} aria-labelledby="gaffer-chat-title" aria-modal={phone ? 'true' : 'false'} oncancel={event => {event.preventDefault(); void close()}} onkeydown={event => { if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); void close()} }}>
+  <dialog class="gaffer-chat" class:expanded bind:this={panel} use:phoneShell={phone} use:alignToConversation={$gafferChatDock} aria-labelledby="gaffer-chat-title" aria-modal={phone ? 'true' : 'false'} oncancel={event => {event.preventDefault(); void close()}} onkeydown={event => { if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); void close()} }}>
     <header class="chat-head" data-shell-head>
       <span class="portrait" aria-hidden="true"><GafferAvatar active={!!running} phase={running ? 'working' : last?.state === 'failed' ? 'error' : 'idle'} pose={running ? 'duty' : 'tea'} reaction={running ? 'scan' : ''} /></span>
       <div class="heading"><h2 id="gaffer-chat-title">Gaffer</h2><p class="scope-title" title={scopeTitle}>{scopeTitle}</p></div>
@@ -311,7 +314,7 @@
   .gaffer-launcher { position: fixed; z-index: 18; right: 24px; bottom: var(--launcher-clearance, calc(var(--bottom-chrome, 0px) + 20px)); min-height: 52px; display: flex; align-items: center; gap: 8px; padding: 4px 16px 4px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--card-raised); color: var(--ink); box-shadow: 0 5px 22px var(--scrim); font: 600 14px var(--sans); cursor: pointer; }
   .launcher-portrait { width: 38px; height: 38px; }
   .gaffer-launcher:hover { border-color: var(--accent); }
-  .gaffer-chat { position: fixed; z-index: 30; inset: auto 20px calc(var(--bottom-chrome, 0px) + 18px) auto; margin: 0; width: 450px; max-width: calc(100vw - 32px); height: min(770px, calc(100dvh - var(--bottom-chrome, 0px) - 48px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 16px 64px var(--scrim); overflow: hidden; }
+  .gaffer-chat { position: fixed; z-index: 30; inset: auto var(--gaffer-right, 20px) calc(var(--bottom-chrome, 0px) + 18px) auto; margin: 0; width: 450px; max-width: calc(100vw - 32px); height: min(770px, calc(100dvh - var(--bottom-chrome, 0px) - 48px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 16px 64px var(--scrim); overflow: hidden; }
   .gaffer-chat[open] { display: flex; flex-direction: column; }
   .gaffer-chat.expanded { width: 660px; }
   .gaffer-chat::backdrop { background: var(--scrim); }

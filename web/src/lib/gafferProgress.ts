@@ -2,6 +2,8 @@ import { isWorking, pendingPermissions, pendingQuestions, toolState, toolTarget,
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
 export type GafferPhase = 'starting' | 'planning' | 'reading' | 'searching' | 'editing' | 'running' | 'fetching' | 'working' | 'responding' | 'approval' | 'question' | 'waiting' | 'connecting' | 'reconnecting' | 'error' | 'cancelled' | 'ended' | 'idle'
+// Shared with Overview so replay and in-place reconnection have the same meaning in both views.
+export type ChatProgressState = { replayed: boolean; ended: boolean; sessionFailed: boolean; reattaching: boolean }
 export type GafferProgress = {
   phase: GafferPhase; label: string; target: string; visible: boolean; active: boolean
   turnKey: string; completed: number; running: number; failed: number; recent: Tool[]; partial: boolean

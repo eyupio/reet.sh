@@ -27,8 +27,10 @@ opening the panel does not start a model request or send any reet context.
 
 ## Talk to Gaffer
 
-Choose **Ask Gaffer** at the edge of your workspace. On a desktop the panel leaves
-the workspace usable; on a phone it fills the screen and stays above the keyboard.
+In a structured session, choose **Ask Gaffer** beside the conversation status at
+the top of the narrative. Elsewhere, use the launcher at the edge of the workspace.
+On a desktop the panel aligns with the conversation and leaves the workspace
+usable; on a phone it fills the screen and stays above the keyboard.
 The portrait follows your Gaffer animation and reduced-motion preferences.
 
 Outside a session, use **General Gaffer chat**. Inside a supported structured chat,

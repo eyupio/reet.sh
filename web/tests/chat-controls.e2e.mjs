@@ -80,14 +80,18 @@ try {
    await expect(region).toBeVisible()
    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
    expect(overflow).toBe(false)
-   // Gaffer's entry point follows the composer's actual height, including
-   // the durable queue, live controls and a multi-line worker instruction.
+   // A structured chat docks Gaffer's entry beside the conversation status, so the floating
+   // launcher is gone; the docked entry must stay in view above the composer docks, which grow
+   // with the durable queue, live controls and a multi-line worker instruction.
    await composer.fill('Keep the scope agreed.\n'.repeat(8))
+   const entry = page.getByRole('button', { name: 'Ask Gaffer', exact: true })
+   await expect(entry).toBeVisible()
    await expect.poll(() => page.evaluate(() => {
-    const launcher = document.querySelector('.gaffer-launcher')?.getBoundingClientRect()
+    const button = document.querySelector('.chat-status .ask-gaffer')?.getBoundingClientRect()
     const docks = [...document.querySelectorAll('[data-floating-clearance]')].map(node => node.getBoundingClientRect()).filter(r => r.width && r.height)
-    return !!launcher && docks.length > 0 && launcher.top >= 0 && docks.every(dock => launcher.left >= dock.right + 10 || launcher.right <= dock.left - 10 || launcher.bottom <= dock.top - 10)
+    return !!button && docks.length > 0 && button.top >= 0 && docks.every(dock => button.bottom <= dock.top || button.top >= dock.bottom)
    })).toBe(true)
+   await expect(page.locator('.gaffer-launcher')).toHaveCount(0)
    await composer.fill('')
    await page.screenshot({ path: `${process.env.REET_SCREENSHOT_DIR || "/tmp"}/live-chat-${theme}-${width}.png`, fullPage: true })
   }

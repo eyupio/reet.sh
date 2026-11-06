@@ -204,12 +204,13 @@ It is one screen:
 | **Folder** (only under **No project**) | **Home folder**, the project folders that machine has reported, and **Type a path…**. A typed path must be absolute. The machine decides whether it may start there: the folder must exist and be inside the home folder it was enrolled with. |
 | **Opening prompt** (optional) | Up to 8,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |
 
-Opening the dialog with a project applies that project's default agent, model and thinking;
-otherwise the account defaults apply, then a favourite marked for the agent. Changing the machine or
-the agent resets the model and folder to their defaults. Changing the project to one on another
-machine moves the machine with it; changing the machine leaves a project that belongs to another
-machine unset, so it is chosen again. The model list's status line and Refresh are
-honest about a cache read; a failed read never disables Start.
+Opening the dialog applies a model marked as the default for the chosen agent first; otherwise the
+project's default model applies (when the dialog has a project), then the account's. A project also
+supplies the default agent and thinking. Changing the machine or the agent resets the model and
+folder to their defaults. Changing the project to one on another machine moves the machine with it;
+changing the machine leaves a project that belongs to another machine unset, so it is chosen again.
+The model list's status line and Refresh are honest about a cache read; a failed read never disables
+Start.
 
 Below the fields, one line says exactly what will happen, for example "Starts Claude Code in
 /home/you/work/site on studio. Nothing runs until you press Start." When there is a prompt, it adds

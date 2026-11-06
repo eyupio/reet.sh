@@ -143,8 +143,9 @@ test('first choice comes from the project, account, favourite and agent defaults
   // The account applies only when the project names no agent; its model only with its agent.
   assert.deepEqual([initialChoice([reet], { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }).agent, initialChoice([reet], { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }).model], ['codex', 'gpt-5-codex'])
   assert.equal(initialChoice([reet], { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }).model, 'gpt-5-codex')
-  // A favourite marked for the agent fills an otherwise empty model.
+  // A favourite marked for the agent is the person's own choice for it, so it beats the project and account models.
   assert.equal(initialChoice([reet], profile, { favourites: [{ tool: 'claude', model: 'opus', agentDefault: true }] }).model, 'opus')
+  assert.equal(initialChoice([{ ...reet, defaultTool: 'claude', defaultModel: 'project-model' }], { defaultTool: 'claude', defaultModel: 'account-model' }, { favourites: [{ tool: 'claude', model: 'opus', agentDefault: true }] }).model, 'opus')
   assert.equal(initialChoice([reet], { defaultTool: 'codex', defaultModel: 'gpt-5-codex' }, { favourites: [{ tool: 'claude', model: 'opus', agentDefault: true }] }).model, 'gpt-5-codex')
   // First project's machine decides the first available agent.
   assert.equal(initialChoice([reet], profile, { machines: [machine('m-studio', 'studio', { tools: ['codex'] })] }).agent, 'codex')

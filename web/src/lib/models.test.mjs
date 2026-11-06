@@ -181,11 +181,20 @@ test('launch defaults follow the precedence chain and never take a mismatched de
     availableAgents: ['cline'],
   }), { agent: 'cline', model: 'account-model', effort: 'low' })
 
+  // A favourite marked as the default for the agent is the person's own choice for that agent, so it outranks both the
+  // account and the project default model.
   assert.deepEqual(resolveLaunchDefaults({
     account: { defaultTool: 'claude', defaultModel: 'account-model' },
     favouriteDefault: { tool: 'claude', model: 'favourite-model' },
     availableAgents: ['claude'],
-  }), { agent: 'claude', model: 'account-model', effort: '' })
+  }), { agent: 'claude', model: 'favourite-model', effort: '' })
+
+  assert.deepEqual(resolveLaunchDefaults({
+    project: { defaultTool: 'cline', defaultModel: 'project-model', defaultEffort: 'high' },
+    account: { defaultTool: 'cline', defaultModel: 'account-model', defaultEffort: 'low' },
+    favouriteDefault: { tool: 'cline', model: 'favourite-model' },
+    availableAgents: ['cline'],
+  }), { agent: 'cline', model: 'favourite-model', effort: 'high' })
 
   assert.deepEqual(resolveLaunchDefaults({
     favouriteDefault: { tool: 'claude', model: 'favourite-model' },

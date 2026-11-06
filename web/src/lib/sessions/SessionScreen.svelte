@@ -1,7 +1,7 @@
 <script lang="ts">
   import { gafferSessionContext } from '../gafferContext'
   import { gafferTooltip } from '../gafferTooltip'
-  import { onMount, tick, type Snippet } from 'svelte'
+  import { onMount, tick, untrack, type Snippet } from 'svelte'
   import { getSyncState, getYoloSetting, type SyncState, type YoloSetting } from '../api'
   import { copyText } from '../clipboard'
   import WorktreeDialog from '../WorktreeDialog.svelte'
@@ -264,7 +264,11 @@
     try { localStorage.setItem(contextKey, JSON.stringify(contextLayoutRecord(contextOpen, contextWidth))) } catch { /* optional browser preference */ }
   }
   // The toolbar's Details toggle changes the shared open state, so the choice is saved from here as well as from the panel.
-  $effect(() => { if (layoutLoaded) saveContext() })
+  // The width is written when the drag ends, so this only follows the open state.
+  $effect(() => {
+    void contextOpen
+    if (layoutLoaded) untrack(() => saveContext())
+  })
   // Opening the sheet from the toolbar moves focus into it, as the old in-header Details button did.
   let lastContextOpen = contextOpen
   $effect(() => {

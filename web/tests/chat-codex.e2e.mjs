@@ -64,6 +64,7 @@ try {
   await expect(dialog.getByText('you may not be asked', { exact: false })).toBeVisible()
   await expect(dialog.getByText('.opencode', { exact: false })).toHaveCount(0)
   await dialog.getByRole('textbox', { name: /Opening prompt/ }).fill('fix the failing build')
+  await dialog.getByRole('combobox', { name: 'Project', exact: true }).selectOption({ label: 'No project — start in a folder' })
   const readsBeforeChat = state.modelReads ?? 0
   state.created = true
   await dialog.getByRole('button', { name: 'Start', exact: true }).click()

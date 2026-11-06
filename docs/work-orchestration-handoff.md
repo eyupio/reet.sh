@@ -3,7 +3,8 @@
 Prepared: 1 November 2026. Updated: 5 November 2026. Active direction: the Gaffer
 session-companion MVP below. Product decisions and the initial HTTP provider
 foundation, provider settings and general/session companion chat are recorded
-here. Scoped context/message tools and offline coordination are not implemented.
+here. GM3A adds explicit retained-context sharing and scoped MCP reads. Worker
+messages and offline coordination remain subsequent slices.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -68,6 +69,60 @@ worker approval cards or turn on YOLO. A request about PR readiness does not by
 itself authorise merging; any merge instruction remains subject to the user's
 goal and the worker's existing authority.
 
+### GM3A: retained context and explicit read grants (5 November 2026)
+
+The owner merged #606 as `6f4abb45`; its final head had green checks. The next
+slice, [PR #608](https://github.com/eyupio/reet.sh/pull/608)
+(`feat/gaffer-context-reads`, based on main `9ab70f83`), implements passive context on explicit Gaffer
+sends and the same authorised projection through MCP. The detailed
+[conversation/access contract](handoffs/gaffer-conversations.md#gm3a-implemented-context-disclosure-and-scoped-mcp-reads)
+records field boundaries, lifecycle, API and recovery.
+
+- Context starts off per conversation/client/scope. Preview before sharing status,
+  event metadata or optional user/agent text. Gaffer also applies provider policy
+  and pins the grant to provider ID/revision/resolved model; edits require review.
+- General reads contain account aggregate counts; session reads stay within the
+  selected owned structured session. No global transcript search or live machine,
+  GitHub, file, approval, reasoning or raw tool payload reads are added.
+- Snapshots are at most 16 KiB / 20 projected events, identify source/read times and
+  retention/omissions, and consume the existing 64 KiB Gaffer history budget.
+  User/agent prose requires both session and code/log permission; masking is limited.
+- Hosted MCP, browser WebMCP and scoped stdio share `reet_list_context_access` and
+  `reet_get_context`. Existing shelf scopes grant no context; browser tools and
+  clients have separate grants. Legacy API-token/anonymous stdio stays shelf-only.
+- Changes use CAS, cancel the current Gaffer answer, invalidate stale sends, and
+  recheck access at egress/while streaming/finalisation. Revoked context-derived
+  Gaffer pairs are excluded from later provider history. Archives revoke grants.
+  Completed-turn receipts persist category/revision/source-time/sequence/digest.
+- Fake-backed domain/store/HTTP and browser tests exercise default-off consent,
+  provider and account boundaries, revocation, archive, retained counts, omitted
+  raw fields, bounds, restart receipts and independent MCP subjects. No paid call
+  or new dependency is needed.
+
+Verification at publication: targeted store/domain/HTTP context race tests and all
+16 MCP compatibility tests pass. Web check/build pass on the aligned main (two
+existing unused-selector warnings). Context sharing passes six width/theme views;
+existing chat, settings and MCP account browser suites pass. Strict docs, 51-page
+static checks and the 40-view docs browser smoke pass. Full repository race checks
+are being rerun on the aligned base; the first full run ended without a complete
+report. Final-head CI is the merge gate, not an assumed local pass. No merge was
+performed. See the PR for the latest check results.
+
+UX follow-up from the user's tablet screenshot: move Conversation into header
+history, put a compact model choice below the composer, and make narrative the
+main area. Provider editing opens in a separate dialog; Chat options carries
+worker identity/settings/removal, and reply receipts expand on demand. General
+and session drafts, exact delivery receipts, explicit context grants and worker
+approval boundaries stay under the same contracts. This updates #608 rather than
+starting the next automation slice. New width/theme geometry checks require more
+than 60% of the normal panel for messages, including the screenshot's 800×1280
+shape, with keyboard and focus-return coverage.
+
+This is the GM3 read half, not the whole supervision MVP. GM3B must add explicit
+worker-message grants and durable idempotent mapping to the existing queue before
+GM4 creates offline goals. Opening/closing the widget or enabling read sharing
+never starts supervision. The worker retains all coding, PR and approval authority.
+
 ### Source-grounded feasibility and current gaps
 
 Inspected local reet `d5485e12` and Zoomies `3c4d0962` on 5 November 2026.
@@ -122,8 +177,8 @@ this handoff with each implementation batch.
 | --- | --- |
 | GM0 | Finalise the session-companion contract: map verified structured-worker/provider capabilities, account/session grants, queue receipt mapping, retention, limits, backup/restore and ownership. |
 | GM1 | Adapt the provider foundation and account-owned configuration, secret storage and lifecycle, native/Docker availability, model discovery, test/default selection and polished settings UI. Verify adapters with local fake protocol servers. |
-| GM2 | Implement server-owned general and session-specific Gaffer conversations, streaming, provider/model overrides and bounded permitted context reads. Restore conversations without replaying calls. |
-| GM3 | Add the scoped MCP session read/message contract and an explicitly allowed Gaffer toolbox over the same operations. Prove consent, revocation, account/session separation and definition parity. |
+| GM2 | Implement server-owned general and session-specific Gaffer conversations, streaming and provider/model overrides; bounded context reads are delivered in GM3A. Restore conversations without replaying calls. |
+| GM3 | GM3A implements shared bounded read projections and explicit conversation/MCP grants. GM3B adds worker-message grants and queue receipts; model-requested tools require a separately verified loop. Prove consent, revocation, account/session separation and definition parity. |
 | GM4 | Implement durable per-session goals and background coordination through the existing worker queue. Prove restart reconciliation, uncertain delivery, concurrent sessions, pause/stop and bounded follow-up. |
 | GM5 | Finish the floating widget and session companion experience, evidence-linked summaries, action receipts and quirky personality across desktop/phone and light/dark themes. Validate the complete working flow. |
 | GM6 | Complete integrated recovery, permission, provider/deployment and operational checks; document actual limitations, backup/restore behaviour and delivery state. |

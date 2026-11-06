@@ -387,6 +387,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateContext(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateMachineModels(); err != nil {
 		db.Close()
 		return nil, err

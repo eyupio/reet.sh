@@ -20,8 +20,9 @@ related:
 Open **Account → Gaffer AI** to configure Gaffer's own provider and model. They
 belong to your account and are separate from the agent working in a session.
 Use **Ask Gaffer** for a private companion conversation after choosing a provider.
-This delivery uses only messages typed in that conversation; live activity/session
-reads and offline follow-up are still being implemented. Saving a provider or
+Chat starts with typed messages only. You can separately preview and enable
+retained reet or selected-session context as described below. Worker instructions
+and offline follow-up are still being implemented. Saving a provider or
 opening the panel does not start a model request or send any reet context.
 
 ## Talk to Gaffer
@@ -31,10 +32,13 @@ the workspace usable; on a phone it fills the screen and stays above the keyboar
 The portrait follows your Gaffer animation and reduced-motion preferences.
 
 Outside a session, use **General Gaffer chat**. Inside a supported structured chat,
-**This session** has its own conversation and draft. The panel names both the
-working agent/model and Gaffer's independent provider/model. A plain terminal
-explains why its session companion is unavailable and offers general chat.
-Changing scope never forwards the working agent's history to Gaffer.
+**This session** has its own conversation and draft. **Conversation history** in
+the header switches between general chat and this session, or opens a saved
+companion in its session workspace. The current conversation is named in the
+compact header. **Chat options** shows the working agent/model and Gaffer's
+independent provider/model. A plain terminal explains why its session companion is unavailable and offers general chat.
+Changing scope does not grant access to the working agent's history. Each
+conversation has its own sharing choices, off until you enable them.
 
 Write a message and choose **Send message**, or press Ctrl/Command+Enter. Replies
 stream from the controller and are saved there. **Close Gaffer** keeps the current
@@ -43,12 +47,16 @@ of Gaffer's answer and leaves the working agent alone. The final saved outcome
 shows completion, cancellation, interruption or failure. Provider usage is shown
 when reported, otherwise marked unknown. No automatic follow-up starts here.
 
-Use **Model** to choose Gaffer's provider and optional model override for this
-conversation. Fetch the provider's model list or enter an exact name. **Apply
-choice** saves it before your next message; that message shares this Gaffer
+Use the compact **Model** control below the message box to choose Gaffer's
+provider and optional model override. The picker opens separately, leaving the
+conversation area at its full size. Cancel discards unsaved changes. Fetch the
+provider's model list or enter an exact name. **Apply choice** saves it before your next message; that message shares this Gaffer
 conversation's completed history with the chosen provider. Working-agent defaults
 stay separate. Provider changes during an answer wait until it finishes or you
-cancel it. Connection tests and model protocol limits below still apply.
+cancel it. Connection tests and model protocol limits below still apply. Replies
+use readable paragraphs, lists and code; **Reply details** expands provider, usage
+and retained-context receipts. **Context** stays beside the model control, with
+a visible off/on/review state.
 
 If delivery is unconfirmed, choose **Check delivery**. Gaffer reads its saved
 receipt rather than sending the message again. **Send same message safely**, when
@@ -59,15 +67,15 @@ with its saved partial text and is never replayed automatically.
 
 Drafts stay in memory while the page is open, separately for each scope; a reload
 loses unsent drafts. Saved messages remain on the controller. Only receipt IDs,
-not drafts or message text, enter browser session storage. **Remove chat**
+not drafts or message text, enter browser session storage. **Chat options → Remove chat**
 deletes its messages and stops its current answer; it leaves the working agent
 running and cannot recover provider credits already used. Limits are 100 stored
 conversations per account, 100 turns per conversation, 8,000 bytes per question
 and 64 KiB per reply. The panel shows when a reply was cut short.
 
-**Saved chats** lists your conversation metadata and offers removal, including
-companions whose worker session has been archived. To read a session conversation,
-open that session's workspace. Archiving worker history does not silently delete
+**Conversation history** in the header lists saved conversations with links to
+available session workspaces. Unavailable sessions stay listed for removal,
+including companions whose worker session has been archived. Archiving worker history does not silently delete
 your Gaffer messages; the saved-chat cleanup remains available.
 
 ## Add a provider
@@ -127,12 +135,43 @@ can be cancelled by closing the form; changing its address or key discards older
 results. **Cancel test** stops the waiting request, although the provider may
 already have billed it.
 
-## Context and recovery
+## Choose what Gaffer can read
 
-The three permissions separately allow reet status/activity, followed-session
-conversations/tool results, and code/logs from those sessions. Code/logs require
-session context to be enabled. They are stored policy for forthcoming context tools. The current chat sends
-only the messages you type there and its own completed conversation history.
+Provider permissions set the maximum data that provider may receive; they do not
+start sharing. In a conversation, choose **Context**, select the categories and
+**Preview shared data**, then **Enable selected sharing**. The dialog names the
+destination provider/model and shows the actual bounded data shape. Opening it or
+previewing sends no model request. A later read may contain newer permitted events.
+
+- **Last-reported status:** general chat gets counts of your machines and
+  unarchived sessions. A session companion gets only that session's stored state,
+  worker type and update time. Requires the provider's status permission.
+- **Conversation event summaries:** recent roles, timestamps and tool kinds/states
+  for that selected session, without message text. Requires session permission.
+- **Message text and code:** bounded user/agent text, session title and opening-goal
+  excerpt. Requires both session and code/logs permissions, plus event summaries.
+  Text can contain code or secrets; automatic masking recognises some credentials
+  and cannot guarantee their removal. Check what you are comfortable sharing.
+
+The controller reads a fresh snapshot when you explicitly send a message. It
+sends at most 16 KiB of context and up to 20 projected events from the last 40
+retained records. The snapshot carries read/update times, retention bounds and
+omission markers. The answer shows when retained context was read. This is not
+live machine health, current PR checks or a full transcript: reasoning, approval
+prompts, raw tool arguments/output, files and diffs are excluded.
+
+Sharing continues for future messages until **Stop sharing**. Provider/model or
+data-policy changes require a fresh review. Changing sharing stops the current
+Gaffer answer and invalidates stale sends; the working agent keeps running.
+Already shared data cannot be recalled. Completed Gaffer replies derived from
+categories you revoke are excluded from later model history; they remain visible
+in your saved conversation. Archiving a worker session revokes its context grants.
+There are no worker messages, tool execution or background follow-up in this slice.
+
+[MCP context access](mcp.md#share-retained-reet-context) is granted separately per
+connection or browser tools. Giving Gaffer context does not grant it to MCP clients.
+
+## Recovery
 
 Instance database backups include provider settings and encrypted keys. Keep the
 instance key with your recovery material. If a restored key cannot be decrypted,

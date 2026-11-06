@@ -1,5 +1,61 @@
 # UI verification — 4 November 2026
 
+## Gaffer: give the conversation the room (5 November 2026)
+
+The user's 800×1280 tablet screenshot showed scope, worker identity, inline model
+settings and footer guidance consuming most of the widget. The header now has a
+compact current-conversation title and a **Conversation history** button. The
+bottom composer has one **Model** control and a compact Context state. Model
+settings open in a separate dialog; **Chat options** holds secondary identity,
+settings and removal. **Reply details** expands usage and context receipts.
+Paragraphs, lists, inline/fenced code and safe links use the existing escaped
+text parser. No HTML rendering or new dependency is introduced.
+
+`web/tests/gaffer-chat.e2e.mjs` passes at 1440, 800, 560, 390 and 320 px in both
+themes. Geometry assertions require over 60% of the normal panel for messages and
+place the model control below them; opening its picker leaves that area unchanged.
+The 800 px case uses a long session title/model and a touch pointer. Phone targets,
+430 px short screens, Escape and model focus return are checked. History switches
+preserve per-scope drafts; opening another session uses the existing workspace
+selector, with ordinary workspace navigation/reopening from elsewhere. Cancelling
+model edits restores the previous choice. Existing receipt/reconnect/cancel tests
+still pass, and formatted model text is checked for escaped HTML/unsafe links.
+
+Context-sharing and provider-settings browser suites pass. Web check/build and
+Go vet pass; local full race verification retains only the same five terminal-host
+environment failures (three missing-tmux and two process-group tests). Backend
+packages pass. Final-head CI is recorded on PR #608. Captures below were visually
+inspected; all provider/worker data are synthetic, with no physical-device or
+paid-provider claim.
+
+![Gaffer tablet, dark](images/ui/gaffer-chat-focused-tablet-dark.png)
+![Gaffer tablet, light](images/ui/gaffer-chat-focused-tablet-light.png)
+![Gaffer phone, dark](images/ui/gaffer-chat-focused-phone-dark.png)
+![Gaffer phone, light](images/ui/gaffer-chat-focused-phone-light.png)
+
+
+## Gaffer retained-context sharing (5 November 2026)
+
+The shared **Context** dialog starts with sharing off, names the Gaffer destination,
+and requires a preview before enabling selected categories. Provider maxima disable
+unavailable categories. MCP connection and browser grants use their own scope
+picker and do not inherit Gaffer sharing. Stop sharing needs no preview. This
+slice makes no worker writes and does not start offline supervision.
+
+`web/tests/gaffer-context.e2e.mjs` passes at 1440, 390 and 320 px in light/dark.
+It checks default-off, preview gating, provider policy, revision refresh before
+send, retained-context receipts, stop sharing, isolated MCP grants, escaped worker
+text and no worker queue writes. The four captures below were visually inspected:
+no horizontal overflow; the native modal scrolls on phone, keeps Close accessible
+and supports Escape. Synthetic data and fake providers only; no physical phone,
+real credentials or live PR checks were exercised.
+
+![Context sharing desktop light](images/ui/gaffer-context-1440-light.png)
+![Context sharing desktop dark](images/ui/gaffer-context-1440-dark.png)
+![Context sharing phone light](images/ui/gaffer-context-390-light.png)
+![Context sharing phone dark](images/ui/gaffer-context-390-dark.png)
+
+
 ## Gaffer floating companion chat (5 November 2026)
 
 **Ask Gaffer** now opens a modeless desktop panel or a modal phone sheet, with the

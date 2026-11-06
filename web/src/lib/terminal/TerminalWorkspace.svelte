@@ -206,6 +206,16 @@
     selectedSession=sessions.find(item=>item.agentId===id&&item.id===previous)?.id || sessions.find(item=>item.agentId===id&&item.state==='running')?.id || ''
     title=creations[id]?.title || '';error='';machineSearchOpen=false;remember()
   }
+  onMount(()=>{
+    const showSession=(event:Event)=>{
+      if(!(event instanceof CustomEvent)||typeof event.detail!=='string')return
+      const item=sessions.find(candidate=>candidate.id===event.detail&&candidate.structured)
+      if(!item)return
+      event.preventDefault();chooseSession(item)
+    }
+    window.addEventListener('reet:show-session',showSession)
+    return()=>window.removeEventListener('reet:show-session',showSession)
+  })
   function chooseSession(item: TerminalSession) { if(selectedAgent&&selectedSession)rememberedSessions.set(selectedAgent,selectedSession);selectedAgent=item.agentId;selectedSession=item.id;title=creations[selectedAgent]?.title||'Shell';error='';remember();closeDrawer() }
   async function refresh(signal?: AbortSignal) {
     if(disposed)return

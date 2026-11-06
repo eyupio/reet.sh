@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"unicode/utf8"
@@ -32,23 +33,24 @@ type GafferConversation struct {
 }
 
 type GafferTurn struct {
-	ID              string `json:"id"`
-	ConversationID  string `json:"conversationId"`
-	RequestRevision int64  `json:"requestRevision"`
-	Prompt          string `json:"prompt"`
-	Answer          string `json:"answer"`
-	State           string `json:"state"`
-	ProviderID      string `json:"providerId"`
-	ProviderName    string `json:"providerName"`
-	Model           string `json:"model"`
-	Error           string `json:"error,omitempty"`
-	InputTokens     int    `json:"inputTokens"`
-	OutputTokens    int    `json:"outputTokens"`
-	UsageReported   bool   `json:"usageReported"`
-	Cut             bool   `json:"cut"`
-	StartedAt       int64  `json:"startedAt"`
-	UpdatedAt       int64  `json:"updatedAt"`
-	FinishedAt      int64  `json:"finishedAt"`
+	Context         *ContextUse `json:"context,omitempty"`
+	ID              string      `json:"id"`
+	ConversationID  string      `json:"conversationId"`
+	RequestRevision int64       `json:"requestRevision"`
+	Prompt          string      `json:"prompt"`
+	Answer          string      `json:"answer"`
+	State           string      `json:"state"`
+	ProviderID      string      `json:"providerId"`
+	ProviderName    string      `json:"providerName"`
+	Model           string      `json:"model"`
+	Error           string      `json:"error,omitempty"`
+	InputTokens     int         `json:"inputTokens"`
+	OutputTokens    int         `json:"outputTokens"`
+	UsageReported   bool        `json:"usageReported"`
+	Cut             bool        `json:"cut"`
+	StartedAt       int64       `json:"startedAt"`
+	UpdatedAt       int64       `json:"updatedAt"`
+	FinishedAt      int64       `json:"finishedAt"`
 }
 
 func validGafferID(id string) bool {
@@ -82,7 +84,7 @@ func (s *Store) migrateGafferChats() error {
 }
 
 const gafferConversationColumns = `id,user_id,session_id,provider_id,model,revision,created_at,updated_at`
-const gafferTurnColumns = `id,conversation_id,request_revision,prompt,answer,state,provider_id,provider_name,model,error,input_tokens,output_tokens,usage_reported,cut,started_at,updated_at,finished_at`
+const gafferTurnColumns = `id,conversation_id,request_revision,prompt,answer,state,provider_id,provider_name,model,error,input_tokens,output_tokens,usage_reported,cut,started_at,updated_at,finished_at,context_json`
 
 func scanGafferConversation(row interface{ Scan(...any) error }) (GafferConversation, error) {
 	var c GafferConversation
@@ -94,7 +96,11 @@ func scanGafferConversation(row interface{ Scan(...any) error }) (GafferConversa
 }
 func scanGafferTurn(row interface{ Scan(...any) error }) (GafferTurn, error) {
 	var t GafferTurn
-	err := row.Scan(&t.ID, &t.ConversationID, &t.RequestRevision, &t.Prompt, &t.Answer, &t.State, &t.ProviderID, &t.ProviderName, &t.Model, &t.Error, &t.InputTokens, &t.OutputTokens, &t.UsageReported, &t.Cut, &t.StartedAt, &t.UpdatedAt, &t.FinishedAt)
+	var contextJSON string
+	err := row.Scan(&t.ID, &t.ConversationID, &t.RequestRevision, &t.Prompt, &t.Answer, &t.State, &t.ProviderID, &t.ProviderName, &t.Model, &t.Error, &t.InputTokens, &t.OutputTokens, &t.UsageReported, &t.Cut, &t.StartedAt, &t.UpdatedAt, &t.FinishedAt, &contextJSON)
+	if err == nil && contextJSON != "" {
+		err = json.Unmarshal([]byte(contextJSON), &t.Context)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -247,7 +253,15 @@ func (s *Store) StartGafferTurnFor(uid int64, t GafferTurn) (GafferTurn, bool, e
 		t.State = "running"
 		t.StartedAt = at
 		t.UpdatedAt = at
-		_, err = tx.Exec(`INSERT INTO gaffer_turns(conversation_id,id,request_revision,prompt,state,provider_id,provider_name,model,started_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, c.ID, t.ID, t.RequestRevision, t.Prompt, t.State, t.ProviderID, t.ProviderName, t.Model, at, at)
+		contextJSON := ""
+		if t.Context != nil {
+			raw, err := json.Marshal(t.Context)
+			if err != nil {
+				return err
+			}
+			contextJSON = string(raw)
+		}
+		_, err = tx.Exec(`INSERT INTO gaffer_turns(conversation_id,id,request_revision,prompt,state,provider_id,provider_name,model,started_at,updated_at,context_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, c.ID, t.ID, t.RequestRevision, t.Prompt, t.State, t.ProviderID, t.ProviderName, t.Model, at, at, contextJSON)
 		if err != nil {
 			return err
 		}

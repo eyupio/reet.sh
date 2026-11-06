@@ -68,6 +68,7 @@ defaults, mutation hints and return information. Successful calls return
 
 | Tools | Behavior |
 | --- | --- |
+| `list_context_access`, `get_context` | List only explicitly shared scopes, then read one bounded controller-retained snapshot. Requires a scoped MCP credential and separate per-client grants; legacy API-token/anonymous stdio context reads are unavailable. |
 | `list_skills`, `get_skill` | Search the personal shelf by text, stage, flag, tags, environment or machine. `compact: true` returns a small shape for paging large shelves. |
 | `find_duplicates` | Group skills by normalised name and upstream source, flag local/upstream pairs and suggest a canonical ID. Read-only. |
 | `add_skill`, `update_skill`, `remove_skill` | Capture references and edit personal flags/notes; remove entries, optionally ignoring future scanner imports. |
@@ -95,6 +96,24 @@ and `shelf` means neither. `liked` is independent. Updates preserve unspecified
 fields; personal notes and shared list notes are separate. Removing a shelf entry
 discards its personal notes and flags. Adding an existing reference can replace
 explicitly supplied fields and removes its ignored status.
+
+## Context sharing
+
+In **Account → MCP access**, choose **Context access** on the client connection.
+Select account counts or an owned structured session, choose categories, preview
+and enable. Shelf read/write scope alone gives no context access. Browser WebMCP
+has its own grants; Gaffer's provider/conversation permissions remain separate.
+
+Use `reet_list_context_access` to find the exact granted `sessionId`, then
+`reet_get_context` with `session_id` (empty for granted account counts).
+Status, event metadata and optional user/agent text are separate categories.
+Text may contain code or secrets despite limited masking. Reasoning, approvals,
+raw tool arguments/output, files and diffs are excluded. Snapshots have timestamps,
+retention bounds and omission markers, at most 16 KiB / 20 projected events.
+The limit is 60 reads per account/minute. They describe retained controller data,
+not live machine health, GitHub checks or full transcripts. No worker messages
+or actions are enabled. Stop sharing to revoke future reads; reads already made
+cannot be recalled. Pause/revoke, role changes and archive are rechecked server-side.
 
 ## Examples
 

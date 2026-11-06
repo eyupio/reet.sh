@@ -36,6 +36,7 @@ Every account, including viewers, has its own **MCP access** section:
 | Pause / resume a client | Blocks or restores that connection without changing its credential. |
 | Manage | Rename a connection, reduce its permissions, or change a manual token's expiry. Manual bearer permissions can also be increased within the account's role; reconnect OAuth clients to renew authorization. |
 | Replace token | Invalidates a manual bearer's old secret immediately and shows one replacement. OAuth clients reconnect through their own sign-in flow. |
+| Context access | Preview and grant retained account counts or selected-session context, separately from shelf permissions. Requires an account with write access. |
 | Revoke | Permanently blocks that connection and its OAuth refresh family. |
 | Revoke all connections | Blocks all OAuth and bearer connections; browser access has its own switch. |
 
@@ -82,6 +83,40 @@ explains when the current browser does not expose the API. No polyfill is used,
 and OAuth and bearer connections continue to work independently. Browser WebMCP
 does not start a remote server or require a bearer token.
 
+## Share retained reet context
+
+Signed-in accounts with write access can choose **Context access** beside a
+connection, or **Browser context access** for WebMCP. Choose account activity
+counts or one owned structured session, select categories, preview, then enable
+sharing. Existing connections start with no context grants. Read and management
+shelf scopes do not grant transcript access. Viewers cannot grant or read this data.
+
+`reet_list_context_access` returns only scopes explicitly granted to that client.
+`reet_get_context` reads one exact `session_id`; an empty ID selects granted account
+counts. Each client and browser tools have independent grants. Pausing/revoking a
+client, pausing account access, disabling browser tools, changing the account role
+or archiving the session prevents subsequent reads. The tools cannot grant access,
+send instructions, answer approvals or run commands.
+
+Status contains counts or canonical selected-session state, worker type and update
+time. Event summaries contain roles/times and tool kinds/states without prose.
+Optional message text includes bounded user/agent text, title and goal excerpt;
+it can contain code or secrets despite best-effort credential masking. Reasoning,
+approval prompts, raw tool arguments/output, files and diffs are always omitted.
+At most 16 KiB / 20 projected events are returned, with source timestamps,
+retention bounds and truncation/unavailable markers. Reads are limited to 60 per
+account per minute. This retained snapshot is not live machine health, current
+GitHub checks or the full transcript.
+
+**Stop sharing** revokes one scope. Previously read data cannot be recalled.
+Sharing persists until stopped; token replacement retains the same client's grants.
+Provider permissions apply to Gaffer conversations separately; an external MCP
+client controls its own provider and receives exactly the categories granted here.
+
+The stdio bridge forwards these tools only with a scoped `reet_mcp_` credential.
+Legacy general API-token and anonymous stdio clients keep their shelf behaviour
+and cannot read context; connect through scoped MCP access instead.
+
 ## OAuth implementation and limits
 
 The default flow uses OAuth authorization code with mandatory PKCE S256, public
@@ -97,8 +132,10 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 30 tool definitions are shared with the optional stdio package. Read-only
-connections discover eleven tools; management connections discover thirty.
+The 32 tool definitions are shared with the optional stdio package. For accounts
+with write access, read-only connections discover thirteen tools and management
+connections thirty-two, including the two separately granted context reads.
+Viewer accounts retain eleven shelf-read tools.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.
 `reet_list_skills` has `compact: true` (or `fields`) for large shelves; it

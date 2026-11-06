@@ -1,5 +1,95 @@
 [
   {
+    "name": "reet_list_context_access",
+    "title": "List granted context scopes",
+    "description": "List only this MCP connection’s explicitly granted account/session scopes and data categories. Existing shelf permissions grant no session access. Archived sessions are omitted. IDs are exact inputs to reet_get_context. Does not read a transcript or change anything. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_get_context",
+    "title": "Read granted reet context",
+    "description": "Read a bounded controller-retained snapshot for one explicitly granted scope. Empty session_id selects account activity counts; a session ID selects only that session. Includes read/source timestamps, omissions and truncation; it is not live machine health, current GitHub checks or the full transcript. No commands, worker messages or approvals are executed. Requires OAuth or an MCP bearer connection with explicit context grants. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "default": "",
+          "description": "Exact sessionId returned by reet_list_context_access, or empty for an explicitly granted account status scope.",
+          "type": "string",
+          "maxLength": 128
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
     "name": "reet_list_skills",
     "title": "Search the shelf",
     "description": "Search personal shelf names, IDs, descriptions and notes. Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, stage, liked, bookmarked, tags and environment_count; use it to page a large shelf. Does not change anything. Example: {stage:\"try\",compact:true,limit:100}. Returns {data: object} as structured content and text. Pages contain items, count, total_count, has_more and next_offset.",

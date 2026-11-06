@@ -1,6 +1,6 @@
 # Gaffer conversation and session-access contract
 
-5 November 2026. GM0 contract and GM2A implementation record. Read alongside
+5 November 2026. GM0 contract and GM2A/GM3A implementation record. Read alongside
 [the active companion roadmap](../work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026).
 This record uses the current broker, queue and account contracts; it does not
 authorise new adapters or turn an existing shelf MCP credential into session access.
@@ -9,13 +9,13 @@ authorise new adapters or turn an existing shelf MCP credential into session acc
 
 | Object | Binding and effective access |
 | --- | --- |
-| General Gaffer conversation | One per account, `sessionId` empty; private conversation history only |
+| General Gaffer conversation | One per account, `sessionId` empty; private conversation history plus explicitly granted retained account counts |
 | Session Gaffer conversation | One per account and immutable structured-session ID; independent of the worker transcript and other companions |
 | Provider choice | Owned, enabled provider; first creation selects the explicit provider or current default and pins its ID; changing the account default does not redirect an existing conversation |
 | Model choice | Optional conversation override; otherwise use that provider's current configured model; every turn records the actual requested model/provider name |
 | Worker access | Same account, unarchived structured session and current account write access; attaching a Gaffer conversation grants no worker reads or writes |
 | Future follow goal | Explicit user delegation, owner, immutable session, goal revision, provider/model choice, read/message grants and bounded follow-up policy |
-| Future MCP connection | Separate explicit grants for session read and message operations, bound to owner and selected session; existing shelf scopes are unchanged |
+| MCP connection | Explicit read grants per owner/client/scope; browser tools have a separate subject; existing shelf scopes are unchanged. Message operations remain GM3B. |
 
 The worker does coding, commands, PR creation, check fixes and conflict resolution.
 Gaffer may eventually read permitted evidence and request the next action through
@@ -53,27 +53,72 @@ message. Never automatically retry `sending`/`uncertain`, and leave an actionabl
 review path for the user. If a future explicit interrupt is selected, use the
 existing stop-and-send contract and its persisted stop intent.
 
-## Context disclosure for the next integration slice
+## GM3A: implemented context disclosure and scoped MCP reads
 
-GM2A reads **no** worker events, projects, machine inventory, repository status or
-GitHub data. Provider context switches are stored future policy. Explicitly typed
-Gaffer messages go to the provider the user selected, even with those switches off.
+`internal/store/store_context.go`, `internal/gaffer/context.go` and
+`internal/api/gaffer_context.go` implement the shared authorised read operation.
+The Gaffer runtime injects a passive JSON snapshot on explicit sends; hosted MCP,
+browser WebMCP and scoped stdio forwarding expose the same bounded projection.
+No provider-requested tool loop is enabled. No worker message or goal is created.
 
-For future tools, effective permission is the intersection of current account
-access, selected-session grant, active goal/connection scope where applicable,
-and current provider data policy. No cross-session/global transcript search.
-Use bounded existing reads from `store_chat_events.go` and broker subscriptions;
-retention is at most 1,000 events / 256 KiB, not the full native transcript. Record
-source session, observed sequence/time and truncation. Missing/stale/trimmed data
-must remain distinguishable from verified current evidence.
+Grants are durable, off by default and bound to owner, subject kind/ID and immutable
+scope (empty for account counts, exact structured-session ID otherwise). Subjects
+are a Gaffer conversation, MCP connection or browser tools, never caller-supplied
+identity. Shelf OAuth `mcp:read`/`mcp:write` does not imply context permission.
+Legacy API-token/anonymous stdio cannot read context. At most 100 active scopes per
+subject; edits use grant revision CAS. Removing a conversation removes its grants;
+archiving a session clears all of its grants and increments their revisions.
 
-Status/activity needs `allowStatus`; worker conversations/results need
-`allowSessions`; code, diff and raw log/tool payloads additionally need `allowCode`.
-These labels cannot be implemented by blindly forwarding an event's whole JSON:
-tool fields and prose can contain code, credentials or instructions. Specify
-allowlisted projections and disclosure in the next context-read slice, and do
-not expose that tool before its field-level tests. Treat all worker/tool text as
-untrusted evidence, never as approval or an instruction to expand Gaffer's tools.
+Gaffer additionally binds approval to provider ID, provider revision and resolved
+model. Changes require review. Effective access intersects current account role,
+owned unarchived structured session, grant and provider policy. Browser management
+requires canonical-origin write access; clients cannot self-grant. MCP reads check
+active client/master/browser switches, expiry, role, scope and revision before and
+after assembly. A read-only shelf connection can read explicitly granted context
+for a writer account; viewers cannot read or grant context. Subject visibility is
+checked before scope lookup and ungranted session IDs reveal no session existence.
+
+| Category | Projection | Gaffer provider maximum |
+| --- | --- | --- |
+| `status` | Account machine/unarchived-session counts and last report time, or selected-session canonical state, worker type and update time; no names/paths/text | `allowStatus` |
+| `history` | Recent event sequence/time/role, canonical tool kind/state and status; no prose | `allowSessions` |
+| `text` | User/agent text, selected-session title and opening-goal excerpt; requires `history` | `allowSessions` and `allowCode` |
+
+SQL projects allowlisted fields before loading events. Reasoning, approval prompts,
+raw tool arguments/output, files and diffs are never forwarded. User/agent prose
+may contain code or credentials, so it needs explicit code/log permission. Best-
+effort masking covers recognised keys, assignments, URL credentials and PEM blocks;
+it does not promise secret detection. Text is UTF-8 clipped and rendered escaped.
+
+A versioned snapshot includes `source: controller_retained_not_live`, scope/read
+and source-update timestamps, retention bounds, unavailable and truncation markers.
+Limits are 16 KiB JSON, 20 projected events from the latest 40 retained rows, 2 KiB
+per user/agent event. Existing retention remains at most 1,000 events / 256 KiB;
+this is not the native transcript. No machine/GitHub request is made. Omitted or
+old evidence never means checks passed or the goal is complete. MCP reads have a
+separate 60/account/minute limiter.
+
+The browser requires a preview before enabling categories and explains continuing
+sharing. Changing Gaffer sharing bumps its conversation revision, cancels its
+current answer and leaves the worker alone. The runtime checks account/session,
+provider policy and grant revision at assembly, just before provider egress, while
+streaming and at finalisation. Already sent context cannot be recalled. A turn
+stores only a versioned category/revision/time/sequence/digest receipt, not a second
+raw context copy. The context consumes the existing 64 KiB model-history budget.
+Completed message pairs derived from categories no longer granted (or unknown
+context versions) are excluded from later model history but remain in saved UI.
+
+Existing database backups include grants and receipts. A restored unavailable
+provider/key remains blocked under existing recovery rules; revoked restored MCP
+connections cannot use their old grants. Restart interrupts in-flight answers
+without replay, as before. No grants start polling or background provider calls.
+
+Browser routes: GET/PUT `.../context` and POST `.../context/preview` under
+`/api/v2/gaffer/conversations/{id}`, `/api/v2/mcp/connections/{id}` and
+`/api/v2/mcp/browser`. Gaffer scope comes from the conversation; MCP browser
+management uses `?sessionId=...`. MCP tools are `reet_list_context_access` and
+`reet_get_context`; a caller cannot choose a different subject. Context is
+read-only and does not broaden the existing worker approval/queue authority.
 
 ## GM2A: implemented durable conversation runtime
 
@@ -119,11 +164,11 @@ space. Stop and require explicit removal/new conversation at the storage limit;
 do not silently discard request receipts and make an old request eligible again.
 Only completed message pairs plus the current prompt enter model context, capped
 at 64 KiB. The system prompt discloses omitted/trimmed history and Gaffer's current
-lack of tools/live evidence. Empty answers, unsolicited tool calls and streams
+lack of actions/live evidence; GM3A adds explicitly granted passive snapshots. Empty answers, unsolicited tool calls and streams
 without a completion marker are failures, with partial text retained.
 
 GM2B connects the floating general/session UI to these routes; see the newer
-record in the orchestration handoff. No tools, scoped MCP session writes,
+record in the orchestration handoff. No model-requested tools, scoped MCP session writes,
 background goals, autonomous polling or PR actions are enabled. There is no
 automatic provider retry/fallback. No new dependency or paid provider was used.
 
@@ -155,6 +200,6 @@ final checks and PR state in the main companion handoff when publishing.
 
 GM2B now supplies the floating UI with scope, independent model identity,
 partial/error/restart states, explicit cancellation/removal and receipt recovery.
-Next: implement the bounded context projections and scoped MCP read/message
-grants above. Durable follow goals remain GM4, after the queue/grant integration
+GM3A supplies the bounded context projections and scoped MCP reads above.
+Next: GM3B adds explicit worker-message grants and durable queue receipts. Durable follow goals remain GM4, after the queue/grant integration
 is verified. Keep the existing worker composer and approval flow authoritative.

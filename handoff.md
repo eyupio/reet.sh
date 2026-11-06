@@ -39,24 +39,41 @@ GM1B and GM2A shipped in [merged PR #603](https://github.com/eyupio/reet.sh/pull
 that branch, then #603 merged into main as `b3b8e781`. It contains account-owned providers, encrypted keys,
 live model selection and Account → Gaffer AI, plus separate durable general/session
 conversations, versioned model choices, turn receipts, SSE, cancellation and
-restart recovery without replay. Only typed companion messages reach providers.
+restart recovery without replay. That initial chat slice sent only typed companion messages; GM3A below adds explicit retained-context sharing.
 The [conversation/access contract](docs/handoffs/gaffer-conversations.md) records
 worker eligibility, grants and queue receipt/recovery boundaries for later slices.
 
-GM2B is [open PR #606](https://github.com/eyupio/reet.sh/pull/606),
-`feat/gaffer-floating-chat`, now based on main after #603 merged. It carries the
-`d7bfa84e` review fix and the independent main-line Overview/sync changes.
-It supplies floating general/session chat, independent model choices, durable
-receipt recovery, scoped drafts, cancellation and history cleanup. Its browser CI
-exposed launcher overlaps with **Save draft** and worker **Queue** controls. The
-launcher now follows measured composer/action-dock bounds; both failing flows and
-the full Gaffer chat browser matrix pass locally. A subsequent phone-terminal
-collision is fixed too: the footer/extra-key controls remain reachable, and the
-launcher stays above an on-screen keyboard. Phone session, clipboard and upload
-flows pass. #603's final `d7bfa84e` GitHub checks are all green. See the companion record and
-[UI evidence](docs/ui-verification.md) for the widget scope and final checks. Do
-not merge #606 without owner direction. Scoped context tools, worker messages
-and durable offline supervision remain ahead; Gaffer has no coding or PR authority.
+GM2B shipped in [merged PR #606](https://github.com/eyupio/reet.sh/pull/606),
+merged by the owner as `6f4abb45`. Floating general/session chat includes independent
+model choices, durable receipt recovery, scoped drafts, cancellation and history
+cleanup. Its final CI was green, including the launcher/composer/keyboard fixes.
+
+GM3A is [PR #608](https://github.com/eyupio/reet.sh/pull/608) on
+`feat/gaffer-context-reads`, aligned with main `9ab70f83` after #607.
+Gaffer's **Context** dialog previews explicit, off-by-default retained status,
+event metadata and optional user/agent text under provider policy. Shared domain
+reads also back hosted MCP, browser tools and scoped stdio: grants are separate
+per conversation/client/scope, with CAS, provider/model binding, revocation and
+archive handling. Snapshots are bounded and timestamped, omit raw tool payloads,
+reasoning/approvals/files and make no live machine or GitHub requests. Durable turn
+receipts record the source/category/digest; revoked context-derived history cannot
+silently re-enter later provider prompts. See the updated
+[conversation/access contract](docs/handoffs/gaffer-conversations.md).
+
+The screenshot-led UX follow-up in #608 makes the narrative the main area: compact
+header with Conversation history, separate model picker opened from below the
+composer, Context beside it, and options/reply metadata on demand. History switches
+general/current conversations or links to other available session workspaces while
+preserving scoped drafts. The shared text parser renders paragraphs/lists/code as
+escaped content. The browser matrix includes the supplied 800×1280 touch-tablet
+shape, 560 px boundary, phones and desktop; normal layouts reserve over 60% for
+messages. See the latest UI evidence and the PR for final verification.
+
+Next is GM3B: explicit worker-message grants and queue receipt reconciliation.
+Durable goals and offline supervision remain GM4. Gaffer has no coding/PR authority;
+the working model performs those actions. No model-requested tools, worker writes,
+background polling or real provider credentials are enabled in GM3A. Final checks
+and PR state are recorded in the companion handoff and UI verification record.
 
 The 5 November #603 review follow-up fixes first-address-only provider dialing:
 try all validated literal addresses, with dual-stack fallback and bounded,

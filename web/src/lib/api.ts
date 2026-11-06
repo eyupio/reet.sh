@@ -250,11 +250,33 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
 
 export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
 export type GafferTurn = {
+  context?: ContextUse
   id: string; conversationId: string; requestRevision: number; prompt: string; answer: string
   state: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'; providerId: string; providerName: string; model: string
   error?: string; inputTokens: number; outputTokens: number; usageReported: boolean; cut: boolean; startedAt: number; updatedAt: number; finishedAt: number
 }
-export type GafferConversationView = { conversation: GafferConversation; turns: GafferTurn[] }
+export type ContextFlags = { status:boolean; history:boolean; text:boolean }
+export type ContextGrant = ContextFlags & { sessionId:string;revision:number;providerId?:string;providerRevision?:number;model?:string;updatedAt:number }
+export type ContextState = { grant:ContextGrant;allowed:ContextFlags;needsReview:boolean;reason?:string;providerId?:string;providerName?:string;providerRevision?:number;model?:string }
+export type ContextUse = ContextFlags & { version:number;grantRevision:number;readAt:number;firstSeq?:number;lastSeq?:number;lastEventAt?:number;truncated:boolean;digest:string }
+export type ContextSnapshot = {
+  version:number;sessionId:string;readAt:number;source:string;shared:ContextFlags;notRead:string[]
+  fleet?:{machines:number;sessions:Record<string,number>;lastReportedAt:number}
+  session?:{id:string;state?:string;worker?:string;updatedAt?:number;title?:string;goalExcerpt?:string;goalTruncated?:boolean}
+  history?:{events:{seq:number;at:number;kind:string;state?:string;toolKind?:string;status?:string;text?:string;truncated?:boolean}[];firstRetainedSeq:number;lastRetainedSeq:number;retainedCount:number;unavailable:boolean;truncated:boolean}
+}
+export type ContextSettingsResponse = { context:ContextState;scopes?:ContextGrant[];sessions?:{id:string;title:string}[] }
+export type GafferConversationView = { conversation: GafferConversation; turns: GafferTurn[]; context?:ContextState }
+export async function getContextSettings(path:string,signal?:AbortSignal):Promise<ContextSettingsResponse>{
+  return (await req(path,{signal,cache:'no-store'})).json()
+}
+export async function previewContext(path:string,flags:ContextFlags,signal?:AbortSignal):Promise<{context:ContextSnapshot}>{
+  const url=new URL(path,location.origin);url.pathname+='/preview'
+  return (await req(url.pathname+url.search,{method:'POST',body:JSON.stringify(flags),signal,cache:'no-store'})).json()
+}
+export async function saveContext(path:string,view:ContextState,flags:ContextFlags,signal?:AbortSignal):Promise<ContextSettingsResponse>{
+  return (await req(path,{method:'PUT',body:JSON.stringify({...flags,revision:view.grant.revision,providerId:view.providerId??'',providerRevision:view.providerRevision??0,model:view.model??''}),signal})).json()
+}
 const gafferConversationPath = (id: string) => `/api/v2/gaffer/conversations/${encodeURIComponent(id)}`
 const gafferSignal = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000)
 export async function listGafferConversations(signal?: AbortSignal): Promise<{conversations:GafferConversation[]}> {

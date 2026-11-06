@@ -104,7 +104,7 @@ try {
  await expect(laptop.getByText('Forget a report…')).toHaveCount(0)
  if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings.png`})
  await settings.getByRole('switch',{name:'Automatic updates'}).click()
- expect(writes.at(-1)).toEqual({path:'/api/v2/sync/agents',body:{id:'a',action:'auto-update-off'}})
+ await expect.poll(()=>writes.at(-1)).toEqual({path:'/api/v2/sync/agents',body:{id:'a',action:'auto-update-off'}})
  await expect(settings.getByRole('switch',{name:'Automatic updates'})).not.toBeChecked()
  await expect(settings).toContainText('v1.4.2')
  // Forgetting an install location lives in Settings too, and hands over to the usual confirmation.
@@ -123,7 +123,7 @@ try {
  const review=page.getByRole('dialog',{name:'Update reet on dev-laptop'})
  await expect(review.getByRole('radio',{name:/Development|development/})).toBeChecked()
  await review.getByRole('button',{name:'Update to the development build'}).click()
- expect(writes.at(-1)).toEqual({path:'/api/v2/sync/agents/update',body:{id:'a',version:'dev'}})
+ await expect.poll(()=>writes.at(-1)).toEqual({path:'/api/v2/sync/agents/update',body:{id:'a',version:'dev'}})
  await expect(page.getByRole('status').filter({hasText:'Switch to the development build queued for dev-laptop'})).toBeVisible()
  await expect(page.getByRole('dialog')).toHaveCount(0)
  writes.length=0
@@ -242,7 +242,7 @@ try {
  await expect(devQueued).toBeVisible()
  await devQueued.scrollIntoViewIfNeeded()
  await expect(devQueued).toBeInViewport()
- expect(writes.at(-1)).toEqual({path:'/api/v2/sync/jobs',body:{agentId:'a',targetId:'laptop-shared',kind:'auto'}})
+ await expect.poll(()=>writes.at(-1)).toEqual({path:'/api/v2/sync/jobs',body:{agentId:'a',targetId:'laptop-shared',kind:'auto'}})
  await expect(devJob.getByRole('button',{name:/run it/})).toHaveCount(0)
  failRetry=true
  const serverJob=page.locator('.activity-host').filter({hasText:'build-server'}).locator('.activity-job').filter({hasText:'Apply failed'})

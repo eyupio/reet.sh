@@ -116,6 +116,115 @@ export function batchFailedMember(batch: Pick<SoftwareBatch, 'members'>): Softwa
   return batch.members.find(member => member.state === 'failed')
 }
 
+/**
+ * The whole fleet in one sentence and one button. A person who opens Fleet software wants to know whether their machines
+ * are up to date and, if not, to press one thing. Choosing machines, ordering them and applying one by one stay available
+ * under "Machines" for the few who want them.
+ */
+export type FleetSoftwareState = 'empty' | 'ready' | 'blocked' | 'attention' | 'current' | 'working' | 'stopped' | 'finished'
+export type FleetSoftwareSummary = {
+  state: FleetSoftwareState
+  headline: string
+  /** What else is worth a short line. Never an instruction to read the rest of the page. */
+  detail: string
+  /** The label of the one button, or '' when there is nothing to press. */
+  button: string
+  /** The machines the button updates, in the order they are listed. */
+  ready: string[]
+}
+
+function machinesLabel(count: number): string {
+  return `${count} ${count === 1 ? 'machine' : 'machines'}`
+}
+
+/** "a", "a and b", "a, b and c", and a count once the list is too long to read as a sentence. */
+function nameList(names: string[]): string {
+  if (names.length > 3) return machinesLabel(names.length)
+  if (names.length <= 1) return names[0] ?? ''
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+function batchSummary(batch: SoftwareBatch): FleetSoftwareSummary {
+  const members = batch.members.filter(member => member.state !== 'excluded')
+  const nameOf = (member: SoftwareBatchMember) => member.host || member.agentId
+  const none = { button: '', ready: [] as string[] }
+  switch (batch.state) {
+    case 'pending':
+    case 'running': {
+      const done = members.filter(member => member.state === 'applied' || member.state === 'skipped').length
+      const current = members.find(member => member.state === 'running')
+      return { ...none, state: 'working', headline: current ? `Updating ${nameOf(current)}…` : 'Updating your machines…', detail: `${done} of ${members.length} done.` }
+    }
+    case 'stopped': {
+      const failed = batchFailedMember(batch)
+      return { ...none, state: 'stopped', headline: failed ? `Stopped on ${nameOf(failed)}.` : 'Stopped on a failure.', detail: (failed && batchMemberNote(failed)) || 'Retry it, skip it and carry on, or stop here.' }
+    }
+    case 'done': {
+      const applied = members.filter(member => member.state === 'applied').length
+      const skipped = members.filter(member => member.state === 'skipped').map(nameOf)
+      return {
+        ...none, state: 'finished',
+        headline: applied ? `Updated ${machinesLabel(applied)}.` : 'Nothing was updated.',
+        detail: skipped.length ? `${nameList(skipped)} ${skipped.length === 1 ? 'was' : 'were'} skipped.` : '',
+      }
+    }
+    default:
+      return { ...none, state: 'finished', headline: 'The batch was abandoned.', detail: '' }
+  }
+}
+
+/** The one button for these machines, and the machines it updates. */
+function pressFor(ready: FleetSoftwareRow[]): { button: string; ready: string[] } {
+  const installs = ready.filter(row => row.state === 'install').length
+  return {
+    button: installs === ready.length ? `Install on ${machinesLabel(ready.length)}` : `Update ${machinesLabel(ready.length)}`,
+    ready: ready.map(row => row.agentId),
+  }
+}
+
+/** One sentence for the fleet's software, and the one button that fixes what can be fixed now. */
+export function fleetSoftwareSummary(rows: FleetSoftwareRow[], batch: SoftwareBatch | null): FleetSoftwareSummary {
+  const ready = rows.filter(fleetSoftwareCanApply)
+  if (batch) {
+    const summary = batchSummary(batch)
+    // Once a batch has ended, whatever can still update is one press away again, without starting over first.
+    return summary.state === 'finished' && ready.length ? { ...summary, ...pressFor(ready) } : summary
+  }
+  if (!rows.length) return { state: 'empty', headline: 'No machines yet.', detail: '', button: '', ready: [] }
+  const blocked = rows.filter(row => (row.state === 'update' || row.state === 'install') && !fleetSoftwareCanApply(row))
+  const attention = rows.filter(row => row.state === 'unknown')
+  const names = (list: FleetSoftwareRow[]) => nameList(list.map(row => row.host))
+  const rest = [
+    blocked.length ? `${names(blocked)} can't be updated right now.` : '',
+    attention.length ? `${names(attention)} ${attention.length === 1 ? 'needs' : 'need'} a look.` : '',
+  ].filter(Boolean)
+
+  if (ready.length) {
+    const installs = ready.filter(row => row.state === 'install').length
+    const verb = installs === 0 ? 'updated' : installs === ready.length ? 'installed' : 'updated or installed'
+    const targets = new Set(ready.map(row => row.target ?? ''))
+    const target = targets.size === 1 ? [...targets][0] : ''
+    return {
+      state: 'ready',
+      headline: `OpenCode can be ${verb} on ${machinesLabel(ready.length)}.`,
+      detail: [`${names(ready)}${target ? `, to ${target}` : ''}.`, ...rest].join(' '),
+      ...pressFor(ready),
+    }
+  }
+  if (blocked.length) {
+    return {
+      state: 'blocked',
+      headline: `${machinesLabel(blocked.length)} can't be updated right now.`,
+      detail: blocked.length === 1 ? `${blocked[0].host}: ${fleetSoftwareWarning(blocked[0])}` : `${names(blocked)}. The reasons are listed under Machines.`,
+      button: '', ready: [],
+    }
+  }
+  if (attention.length) {
+    return { state: 'attention', headline: `${machinesLabel(attention.length)} ${attention.length === 1 ? 'needs' : 'need'} a look.`, detail: `Check ${names(attention)} below.`, button: '', ready: [] }
+  }
+  return { state: 'current', headline: 'Everything is up to date.', detail: '', button: '', ready: [] }
+}
+
 /** What a person should do about a machine whose software could not be reviewed. */
 export type SoftwareGuide = { title: string; why: string; found?: string; command?: string; then: string }
 

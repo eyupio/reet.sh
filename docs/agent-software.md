@@ -93,9 +93,17 @@ credentials live outside it, and a system installation is never touched.
 
 ## Fleet review
 
-Machines → **Software** opens a review across enrolled machines. Each row is
-built from stored evidence and names the machine's version, the plan it would run
-(install, update, none or needs attention), the target and source, and whether an
+Machines → **Software** opens with one sentence and one button. The sentence says
+whether OpenCode can be updated (*OpenCode can be updated on 2 machines.*), is up to
+date (*Everything is up to date.*) or is held back (*1 machine can't be updated right
+now.*). The button, **Update 2 machines**, starts one batch of every machine that can
+apply now, in the order listed, with no second confirmation. A machine that is not
+connected is skipped, so nothing waits on it, and once the batch ends the same button
+is offered again for whatever is still behind.
+
+Under **Machines** is the review itself, closed unless there is nothing to press. Each
+row is built from stored evidence and names the machine's version, the plan it would
+run (install, update, none or needs attention), the target and source, and whether an
 OpenCode session would make reet refuse the apply. The review reads no machine.
 **Apply plan** runs the same per-machine request for that one machine after a
 confirmation; other machines are untouched. Rollback and remove stay in a
@@ -103,9 +111,11 @@ machine's Settings.
 
 ## Batch apply
 
-The rows a machine can apply now also carry a checkbox. Chosen machines form an
-ordered batch; up and down move a machine in the order, and **Review batch** shows
-the machines, their actions, targets and sources before anything runs. The
+The one button starts a batch of every machine that can apply now. To choose which
+machines, or in what order, open **Machines**: the rows a machine can apply now carry
+a checkbox, chosen machines form an ordered batch, up and down move a machine in the
+order, and **Review batch** shows the machines, their actions, targets and sources
+before anything runs. The
 controller rebuilds each plan from stored evidence and freezes it, so a machine
 whose evidence no longer supports its plan is left out with the reason shown.
 

@@ -25,6 +25,7 @@
     fleetSoftwareCanApply,
     fleetSoftwareLabel,
     fleetSoftwareGuide,
+    fleetSoftwareSummary,
     fleetSoftwareWarning,
   } from './software'
 
@@ -53,6 +54,10 @@
       .filter((row): row is FleetSoftwareRow => !!row),
   )
   const batchActive = $derived(!!batch && batch.state !== 'done' && batch.state !== 'abandoned')
+  // The page leads with one sentence and one button. Choosing machines, their order and one-off updates sit under Machines.
+  const summary = $derived(fleetSoftwareSummary(rows, batch))
+  let machinesOpen = $state(false)
+  let machinesSeen = false
 
   async function load() {
     loading = true
@@ -67,6 +72,11 @@
           batch = await activeSoftwareBatch()
           queuePoll()
         } catch { /* the batch panel just stays hidden */ }
+      }
+      // With nothing to press, the list is the explanation, so it starts open then.
+      if (!machinesSeen) {
+        machinesSeen = true
+        machinesOpen = summary.state === 'blocked' || summary.state === 'attention'
       }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : "Couldn't read the fleet's software plans."
@@ -94,14 +104,16 @@
     batchDialog?.showModal()
   }
 
-  async function startBatch() {
-    if (batchBusy || !selection.length) return
+  // Starts one batch for these machines, in this order. The one button passes everything that can update; a hand-picked
+  // order passes its own list and closes its confirmation once the batch exists.
+  async function startBatch(ids: string[], created?: () => void) {
+    if (batchBusy || !ids.length) return
     batchBusy = true
     batchError = ''
     try {
-      batch = await createSoftwareBatch(crypto.randomUUID(), 'opencode', selection)
+      batch = await createSoftwareBatch(crypto.randomUUID(), 'opencode', ids)
       selection = []
-      batchDialog?.close()
+      created?.()
       await load()
       queuePoll()
     } catch (caught) {
@@ -238,7 +250,7 @@
       <div>
         <p class="eyebrow" data-shell-aside>Software</p>
         <h2 id={`${id}-title`}>Fleet software</h2>
-        <p class="lede" data-shell-aside>A plan for each machine, from stored evidence. Choose machines to apply in one ordered batch, or apply one on its own. Rollback and remove stay in a machine's Settings.</p>
+        <p class="lede" data-shell-aside>Keep OpenCode up to date on every machine. Rollback and remove stay in a machine's Settings.</p>
         {#if mirror}<p class="hint mirror-line">Artifact mirror: {mirror.enabled ? `on${mirror.cached ? ', cached' : ', not cached yet'}` : 'off'}. Owners and admins change it in Admin.</p>{/if}
       </div>
       <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close fleet software" data-shell-close>×</button>
@@ -250,6 +262,19 @@
       <p class="error" role="alert">{error}</p>
       <button class="btn" type="button" onclick={() => void load()}>Try again</button>
     {:else}
+      {#if rows.length > 0}
+        <div class="overview" data-state={summary.state} role="status" aria-live="polite">
+          <span class="overview-dot" aria-hidden="true"></span>
+          <div class="overview-text">
+            <strong>{summary.headline}</strong>
+            {#if summary.detail}<span>{summary.detail}</span>{/if}
+          </div>
+          {#if summary.button}<button class="btn primary" type="button" disabled={batchBusy} onclick={() => void startBatch(summary.ready)}>{batchBusy ? 'Starting…' : summary.button}</button>{/if}
+        </div>
+        {#if summary.button}<p class="hint">Machines that aren't connected are skipped, so nothing waits on them.</p>{/if}
+        {#if batchError && !batch}<p class="error" role="alert">{batchError}</p>{/if}
+      {/if}
+
       {#if batch}
         <section class="batch" aria-live="polite" aria-label="Batch progress">
           <div class="batch-head">
@@ -290,6 +315,8 @@
         </section>
       {/if}
 
+      <details class="machines" bind:open={machinesOpen}>
+      <summary>Machines · {rows.length}</summary>
       {#if !batchActive && selection.length > 0}
         <section class="selection" aria-label="Batch order">
           <div class="batch-head">
@@ -374,9 +401,10 @@
           {/each}
         </ul>
       {/if}
+      </details>
 
       <footer>
-        <p class="hint">{batchActive ? 'A batch is in progress. Finish or abandon it before starting another.' : "Choose machines to batch, or apply one on its own. Rollback and remove live in a machine's Settings."}</p>
+        <p class="hint">{batchActive ? 'An update is in progress. Finish or abandon it before starting another.' : "Under Machines you can choose which to update, in what order, or update one on its own. Rollback and remove live in a machine's Settings."}</p>
         <button class="btn" type="button" onclick={() => void load()} disabled={loading}>Refresh</button>
       </footer>
     {/if}
@@ -420,7 +448,7 @@
     {#if batchError}<p class="error">{batchError}</p>{/if}
     <div class="confirm-actions">
       <button class="btn" type="button" onclick={() => batchDialog?.close()} disabled={batchBusy}>Cancel</button>
-      <button class="btn primary" type="button" onclick={() => void startBatch()} disabled={batchBusy || selection.length === 0}>{batchBusy ? 'Starting…' : 'Start batch'}</button>
+      <button class="btn primary" type="button" onclick={() => void startBatch(selection, () => batchDialog?.close())} disabled={batchBusy || selection.length === 0}>{batchBusy ? 'Starting…' : 'Start batch'}</button>
     </div>
   </div>
 </dialog>
@@ -437,6 +465,21 @@
   .icon:hover { color: var(--ink); border-color: var(--muted); }
   .icon.small { width: 32px; height: 32px; font-size: 1rem; }
   .hint { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+  .overview { display: flex; align-items: center; gap: 16px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+  .overview-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
+  .overview[data-state='ready'] .overview-dot, .overview[data-state='working'] .overview-dot { background: var(--accent-text); }
+  .overview[data-state='working'] .overview-dot { animation: overview-pulse 1.4s ease-in-out infinite; }
+  .overview[data-state='current'] .overview-dot, .overview[data-state='finished'] .overview-dot { background: var(--good); }
+  .overview[data-state='blocked'] .overview-dot, .overview[data-state='attention'] .overview-dot, .overview[data-state='stopped'] .overview-dot { background: var(--warn); }
+  @keyframes overview-pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .overview[data-state='working'] .overview-dot { animation: none; } }
+  .overview-text { flex: 1; min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+  .overview-text strong { font: 500 clamp(1.15rem, 2.6vw, 1.4rem)/1.25 var(--serif); }
+  .overview-text span { color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
+  .overview .btn { flex: none; min-height: 44px; }
+  .machines > summary { cursor: pointer; padding: 6px 0; font-size: 0.9rem; font-weight: 600; }
+  .machines[open] > summary { margin-bottom: 10px; }
+  .machines { display: block; }
   .mirror-line { margin-top: 8px; }
   .error { margin: 0; color: var(--bad); font-size: 0.875rem; }
   .rows, .batch-members, .ordered { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -487,6 +530,9 @@
   .confirm-actions .btn { min-height: 38px; padding: 8px 14px; }
   .confirm-actions .primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
   @media (max-width: 560px) {
+    .overview { flex-wrap: wrap; padding: 14px; gap: 12px; }
+    .overview-text { flex-basis: calc(100% - 28px); }
+    .overview .btn { width: 100%; }
     .rows li, .batch-members li, .ordered li { padding: 10px 12px; flex-wrap: wrap; }
     .apply { width: 100%; }
     .order-actions, .batch-actions { width: 100%; }

@@ -3167,3 +3167,43 @@ that can sync does.
 - The controller side is covered by store and API tests: a shared name, a skill that
   cannot be stored, a machine-only skill on an offline machine, a copy waiting for a
   review, and the storage that used to fill for good. Each fails without its change.
+
+## One press, 5 November 2026
+
+Sync asked for a second click and a lot of reading. The Sync page now opens with one
+sentence ("Everything is in sync.", "1 machine needs syncing.", "Syncing your
+machines…") and one button. **Sync all machines** works in place from the Skills
+header, the toast after adding a skill and the notice after saving a written skill.
+Fleet software is one sentence and one **Update N machines** button.
+
+- `skills-sync-simple.e2e.mjs` checks the sentence for a machine that is behind, a
+  refusal, the syncing state with one machine off and one paused, in sync with a
+  machine off or paused, every machine off (it only promises to sync later), every
+  machine paused (no button), an empty fleet and a read-only account. It runs at
+  phone and desktop width in both themes.
+- `sync-in-place.e2e.mjs` presses each of the three buttons and checks that the page
+  stays where it is and the activity dock shows the fleet syncing. When there is
+  nothing to start, one line says "Everything is in sync."; a refusal reads as a toast
+  and the button is ready again. With no machine, or on a read-only account, the
+  entry points still open Sync. With the in-place behaviour switched off, five of its
+  sections fail.
+- `fleet-software.e2e.mjs` checks the one sentence and one button, that pressing it
+  starts one batch of exactly the machines that can update with no second
+  confirmation, that a machine which is not connected is skipped and the button is
+  offered again for it, that the states with nothing to press say why, that choosing
+  by hand keeps its confirmation, that a stopped batch names the machine, and that a
+  refused start says why. Two deliberate breakages each fail it.
+- `fleetSync.test.mjs` and `software.test.mjs` cover the sentences: a machine between
+  two of its folders is still syncing, automatic sync off outranks offline, and a
+  machine that cannot be updated right now is named and left out of the button.
+- `TestSyncAllMachinesTriesAgainAfterAFailedOrCancelledAttempt` pins that pressing
+  Sync tries a machine again after a failed or cancelled attempt while the machine's
+  own polls do not. It fails if the retry on press is removed.
+- `terminal-browser.yml` now runs `sync-left-out.e2e.mjs`, `sync-in-place.e2e.mjs` and
+  `fleet-software.e2e.mjs`; the first had been missing. `control.e2e.mjs` waits for
+  the request it asserts on instead of reading it straight after the click, which
+  made it fail intermittently.
+- `first-skills.e2e.mjs`, `navigation.e2e.mjs`, `empty-states.e2e.mjs`,
+  `skill-card.e2e.mjs`, `sync-activity.e2e.mjs` and the other Sync and Skills tests pass
+  unchanged. `sync-vocabulary.e2e.mjs` now expects the button where the notice used to
+  link.

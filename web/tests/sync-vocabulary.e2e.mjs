@@ -62,7 +62,8 @@ try {
     })).toBe(true)
     await page.locator('.save-dock').getByRole('button', { name: 'Save draft', exact: true }).click()
     await expect(page.getByText(/Ready for your machines/)).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Sync all machines', exact: true })).toHaveAttribute('href', `/sync?skill=${encodeURIComponent(`hosted/${new URL(base).host}/sam/reet-review`)}`)
+    // With a machine to sync to, the next step is the press itself, not a link to another page (sync-in-place.e2e.mjs follows it).
+    await expect(page.getByRole('button', { name: 'Sync all machines', exact: true })).toBeVisible()
 
     await page.goto(`${base}/skills`)
     await expect(page.getByRole('heading', { name: /Your drafts/ })).toBeVisible()

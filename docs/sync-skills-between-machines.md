@@ -18,7 +18,9 @@ layout: article
 
 # Sync skills between machines
 
-A skill that only exists on your laptop is not much use on the VPS. Reet keeps one shared library on your connected machines. Add a machine once; its first complete scan sets up sync. Add a skill or write a private draft; connected machines follow automatically. **Skills → Sync all machines** lets you bring the whole fleet up to date immediately.
+A skill that only exists on your laptop is not much use on the VPS. Reet keeps one shared library on your connected machines. Add a machine once; its first complete scan sets up sync. Add a skill or write a private draft; connected machines follow automatically. **Sync all machines** brings the whole fleet up to date immediately.
+
+The Sync page opens with one sentence and one button. The sentence says where the fleet stands (*Everything is in sync.*, *2 machines need syncing.*, *Syncing your machines…*) and the button, **Sync all machines**, does the rest. A machine that is switched off is not behind: it catches up when it reconnects, and the sentence says so. A paused machine is left alone and named. The same button is on the Skills page, in the toast after you add a skill and beside a saved written skill, and in each place it works where it is: the activity panel follows it live, and when nothing needs doing one line says where things stand. With no machine yet, or on a read-only account, those open the Sync page instead.
 
 The library combines your shelf and your own written skills. Written skills use private immutable revisions, including when they are published, so saving an edit changes the revision machines receive. Machine-only skills are copied privately through their enrolled source machine. Files needing review remain visible in Sync. Offline machines catch up when they reconnect; paused machines remain paused.
 

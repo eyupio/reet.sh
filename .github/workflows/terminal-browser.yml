@@ -111,6 +111,9 @@ jobs:
           node web/tests/sync-activity.e2e.mjs
           node web/tests/sync-remove.e2e.mjs
           node web/tests/skills-sync-simple.e2e.mjs
+          node web/tests/sync-left-out.e2e.mjs
+          node web/tests/sync-in-place.e2e.mjs
+          node web/tests/fleet-software.e2e.mjs
           node web/tests/machine-skill-sync.e2e.mjs
           node web/tests/machine-add-skill.e2e.mjs
           node web/tests/skill-card.e2e.mjs

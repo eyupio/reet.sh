@@ -566,6 +566,58 @@ func TestACopyThatIsStillWaitingDoesNotHoldBackTheMachine(t *testing.T) {
 	}
 }
 
+// Pressing Sync all machines is a person asking for another go. A machine whose last
+// attempt failed, or was cancelled, is tried again by that press, so the button is
+// never a dead end. The machine's own polls still leave it alone: a problem that
+// retrying cannot fix must not turn into a stream of failed jobs.
+func TestSyncAllMachinesTriesAgainAfterAFailedOrCancelledAttempt(t *testing.T) {
+	for _, outcome := range []string{"failed", "cancelled"} {
+		t.Run(outcome, func(t *testing.T) {
+			s, uid, _, desktop, desktopEnv := libraryPair(t)
+			requireDesktopSyncs(t, s, uid, desktop, desktopEnv)
+			attempts := func(statuses ...string) []SyncJob {
+				t.Helper()
+				jobs, err := s.SyncJobsFor(uid)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var out []SyncJob
+				for _, job := range jobs {
+					if job.AgentID == desktop.ID && slices.Contains(statuses, job.Status) {
+						out = append(out, job)
+					}
+				}
+				return out
+			}
+			// The attempt that Sync all machines started ends badly.
+			if _, err := s.db.Exec(`UPDATE sync_jobs SET status=?,message=? WHERE user_id=? AND agent_id=?`, outcome, "The machine could not write to its skills folder.", uid, desktop.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.Exec(`UPDATE sync_runs SET status=? WHERE user_id=? AND agent_id=?`, outcome, uid, desktop.ID); err != nil {
+				t.Fatal(err)
+			}
+			if got := attempts("queued", "running"); len(got) != 0 {
+				t.Fatalf("the fixture should have no attempt in progress: %+v", got)
+			}
+
+			desktop.KeepSynced = true
+			if err := s.MaintainSync(uid, "owner", desktop); err != nil {
+				t.Fatal(err)
+			}
+			if got := attempts("queued", "running"); len(got) != 0 {
+				t.Fatalf("the machine's own poll started a new attempt after a %s one: %+v", outcome, got)
+			}
+
+			if err := s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
+				t.Fatalf("Sync all machines failed: %v", err)
+			}
+			if got := attempts("queued", "running"); len(got) != 1 {
+				t.Fatalf("pressing Sync all machines should try the machine again after a %s attempt, but it queued %d: %+v", outcome, len(got), attempts("queued", "running", "failed", "cancelled"))
+			}
+		})
+	}
+}
+
 func writtenSkill(t *testing.T, s *Store, uid int64, slug string) HostedSkill {
 	t.Helper()
 	saved, err := s.SaveHostedSkill(uid, HostedSkill{Slug: slug, Content: "---\nname: " + slug + "\ndescription: Written\n---\nBody\n"})

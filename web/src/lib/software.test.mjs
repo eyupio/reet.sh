@@ -6,7 +6,7 @@ import ts from 'typescript'
 const { outputText } = ts.transpileModule(readFileSync(new URL('./software.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 })
-const { batchCanAbandon, batchFailedMember, batchMemberAction, batchMemberLabel, batchMemberNote, batchStateLabel, fleetSoftwareCanApply, fleetSoftwareGuide, fleetSoftwareLabel, fleetSoftwareWarning, softwareLine, softwarePlanActions } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { batchCanAbandon, batchFailedMember, batchMemberAction, batchMemberLabel, batchMemberNote, batchStateLabel, fleetSoftwareCanApply, fleetSoftwareGuide, fleetSoftwareLabel, fleetSoftwareSummary, fleetSoftwareWarning, softwareLine, softwarePlanActions } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const installed = { tool: 'opencode', state: 'installed', version: '1.19.5', manager: 'reet', package: 'opencode-ai', path: '/home/me/.reet/software/opencode/versions/1.19.5/opencode', platform: 'linux', arch: 'amd64', source: 'verified_tarball', managed: true, operations: ['plan_update', 'plan_remove'], checkedAt: 1 }
 const missing = { tool: 'opencode', state: 'missing', package: 'opencode-ai', source: 'npm', platform: 'linux', arch: 'amd64', reason: 'not_installed', operations: ['plan_install'], checkedAt: 1 }
@@ -124,4 +124,136 @@ test('an unreadable install says what the machine reported', () => {
   assert.doesNotMatch(fleetSoftwareGuide(row({ reason: 'managed_broken' })).then, /Settings and reinstall/)
   assert.match(fleetSoftwareGuide(row({ reason: 'platform_unsupported' }, 'no_plan')).found, /no reviewed OpenCode build/)
   assert.equal(fleetSoftwareGuide(row({ reason: 'unreadable' })).command, undefined)
+})
+
+// One machine's stored plan, and one place in a batch.
+const row = (host, state, extra = {}) => ({
+  agentId: `agent-${host}`, host, state, sessionsRunning: 0, canApply: true, sentence: '',
+  ...(state === 'update' ? { action: 'update', version: '1.18.0', target: '1.19.5' } : state === 'install' ? { action: 'install', target: '1.19.5' } : {}),
+  ...extra,
+})
+const member = (host, state, extra = {}) => ({ agentId: `agent-${host}`, host, state, ...extra })
+const batchOf = (state, ...members) => ({ id: 'b1', tool: 'opencode', state, createdAt: 1, updatedAt: 1, members: members.map((item, position) => ({ ...item, position })) })
+
+test('machines that can update are one sentence and one button that names how many', () => {
+  const summary = fleetSoftwareSummary([row('laptop', 'update'), row('build', 'update'), row('desk', 'none')], null)
+  assert.equal(summary.state, 'ready')
+  assert.equal(summary.headline, 'OpenCode can be updated on 2 machines.')
+  assert.equal(summary.detail, 'laptop and build, to 1.19.5.')
+  assert.equal(summary.button, 'Update 2 machines')
+  assert.deepEqual(summary.ready, ['agent-laptop', 'agent-build'])
+  const one = fleetSoftwareSummary([row('laptop', 'update')], null)
+  assert.equal(one.headline, 'OpenCode can be updated on 1 machine.')
+  assert.equal(one.button, 'Update 1 machine')
+})
+
+test('installing is named as installing, and a mix is not called only one of them', () => {
+  const installs = fleetSoftwareSummary([row('a', 'install'), row('b', 'install')], null)
+  assert.equal(installs.headline, 'OpenCode can be installed on 2 machines.')
+  assert.equal(installs.button, 'Install on 2 machines')
+  const mixed = fleetSoftwareSummary([row('a', 'install'), row('b', 'update'), row('c', 'update')], null)
+  assert.equal(mixed.headline, 'OpenCode can be updated or installed on 3 machines.')
+  assert.equal(mixed.button, 'Update 3 machines')
+})
+
+test('the version is named only when every machine is going to the same one, and long lists are counted', () => {
+  const differing = fleetSoftwareSummary([row('a', 'update'), row('b', 'update', { target: '1.20.0' })], null)
+  assert.equal(differing.detail, 'a and b.')
+  const many = fleetSoftwareSummary(['a', 'b', 'c', 'd', 'e'].map(name => row(name, 'update')), null)
+  assert.equal(many.detail, '5 machines, to 1.19.5.')
+})
+
+test('a machine that cannot be updated right now is left out of the button and named', () => {
+  const summary = fleetSoftwareSummary([row('laptop', 'update'), row('busy', 'update', { sessionsRunning: 2 })], null)
+  assert.equal(summary.state, 'ready')
+  assert.deepEqual(summary.ready, ['agent-laptop'])
+  assert.equal(summary.button, 'Update 1 machine')
+  assert.match(summary.detail, /busy can't be updated right now\./)
+  const old = fleetSoftwareSummary([row('laptop', 'update'), row('old', 'update', { canApply: false })], null)
+  assert.deepEqual(old.ready, ['agent-laptop'])
+})
+
+test('a machine that needs a look is named without stopping the rest', () => {
+  const summary = fleetSoftwareSummary([row('laptop', 'update'), row('odd', 'unknown', { reason: 'unreadable_install' })], null)
+  assert.equal(summary.state, 'ready')
+  assert.match(summary.detail, /odd needs a look\./)
+})
+
+test('with nothing to press, it says why in one sentence', () => {
+  const blocked = fleetSoftwareSummary([row('busy', 'update', { sessionsRunning: 1 }), row('desk', 'none')], null)
+  assert.equal(blocked.state, 'blocked')
+  assert.equal(blocked.headline, "1 machine can't be updated right now.")
+  assert.equal(blocked.button, '')
+  assert.deepEqual(blocked.ready, [])
+  const attention = fleetSoftwareSummary([row('odd', 'unknown'), row('other', 'unknown'), row('desk', 'none')], null)
+  assert.equal(attention.state, 'attention')
+  assert.equal(attention.headline, '2 machines need a look.')
+  const current = fleetSoftwareSummary([row('a', 'none'), row('b', 'none')], null)
+  assert.equal(current.state, 'current')
+  assert.equal(current.headline, 'Everything is up to date.')
+  assert.equal(current.button, '')
+  assert.equal(fleetSoftwareSummary([], null).state, 'empty')
+})
+
+test('while a batch runs it says which machine and how far along', () => {
+  const running = fleetSoftwareSummary([], batchOf('running', member('laptop', 'applied'), member('build', 'running'), member('desk', 'pending')))
+  assert.equal(running.state, 'working')
+  assert.equal(running.headline, 'Updating build…')
+  assert.equal(running.detail, '1 of 3 done.')
+  assert.equal(running.button, '')
+  const waiting = fleetSoftwareSummary([], batchOf('pending', member('laptop', 'pending'), member('build', 'pending')))
+  assert.equal(waiting.headline, 'Updating your machines…')
+  assert.equal(waiting.detail, '0 of 2 done.')
+  const withExcluded = fleetSoftwareSummary([], batchOf('running', member('a', 'running'), member('b', 'excluded')))
+  assert.equal(withExcluded.detail, '0 of 1 done.')
+})
+
+test('a batch that stopped names the machine and what happened on it', () => {
+  const stopped = fleetSoftwareSummary([], batchOf('stopped', member('laptop', 'applied'), member('build', 'failed', { code: 'download_failed' }), member('desk', 'pending')))
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(stopped.headline, 'Stopped on build.')
+  assert.equal(stopped.detail, "The machine couldn't download the reviewed artifact. Nothing was changed.")
+  assert.equal(fleetSoftwareSummary([], batchOf('stopped', member('build', 'failed'))).detail, 'Retry it, skip it and carry on, or stop here.')
+})
+
+test('a finished batch says what was updated and what was skipped', () => {
+  assert.equal(fleetSoftwareSummary([], batchOf('done', member('a', 'applied'), member('b', 'applied'))).headline, 'Updated 2 machines.')
+  assert.equal(fleetSoftwareSummary([], batchOf('done', member('a', 'applied'))).headline, 'Updated 1 machine.')
+  const skipped = fleetSoftwareSummary([], batchOf('done', member('a', 'applied'), member('desk', 'skipped', { code: 'offline' })))
+  assert.equal(skipped.state, 'finished')
+  assert.equal(skipped.headline, 'Updated 1 machine.')
+  assert.equal(skipped.detail, 'desk was skipped.')
+  const two = fleetSoftwareSummary([], batchOf('done', member('a', 'applied'), member('desk', 'skipped'), member('mini', 'skipped')))
+  assert.equal(two.detail, 'desk and mini were skipped.')
+  const none = fleetSoftwareSummary([], batchOf('done', member('desk', 'skipped')))
+  assert.equal(none.headline, 'Nothing was updated.')
+  assert.equal(none.detail, 'desk was skipped.')
+  assert.equal(fleetSoftwareSummary([], batchOf('abandoned', member('a', 'pending'))).headline, 'The batch was abandoned.')
+})
+
+test('once a batch has ended, whatever can still update is one press away again', () => {
+  // The machine that was skipped is still behind, so the same button is offered without starting over first.
+  const again = fleetSoftwareSummary([row('desk', 'update'), row('laptop', 'none')], batchOf('done', member('laptop', 'applied'), member('desk', 'skipped', { code: 'offline' })))
+  assert.equal(again.state, 'finished')
+  assert.equal(again.headline, 'Updated 1 machine.')
+  assert.equal(again.detail, 'desk was skipped.')
+  assert.equal(again.button, 'Update 1 machine')
+  assert.deepEqual(again.ready, ['agent-desk'])
+  assert.equal(fleetSoftwareSummary([row('desk', 'update')], batchOf('abandoned', member('desk', 'pending'))).button, 'Update 1 machine')
+  // Nothing left to do: no button.
+  const finished = fleetSoftwareSummary([row('desk', 'none'), row('laptop', 'none')], batchOf('done', member('laptop', 'applied'), member('desk', 'applied')))
+  assert.equal(finished.button, '')
+  assert.deepEqual(finished.ready, [])
+  // While a batch is still going, there is never a second button.
+  assert.equal(fleetSoftwareSummary([row('desk', 'update')], batchOf('running', member('laptop', 'running'))).button, '')
+  assert.equal(fleetSoftwareSummary([row('desk', 'update')], batchOf('stopped', member('laptop', 'failed'))).button, '')
+})
+
+test('the plain sentences stay plain: no internal words', () => {
+  const all = [
+    fleetSoftwareSummary([row('a', 'update'), row('busy', 'update', { sessionsRunning: 1 }), row('odd', 'unknown')], null),
+    fleetSoftwareSummary([row('a', 'none')], null), fleetSoftwareSummary([row('a', 'unknown')], null),
+    fleetSoftwareSummary([], batchOf('running', member('a', 'running'))), fleetSoftwareSummary([], batchOf('done', member('a', 'applied'), member('b', 'skipped'))),
+  ]
+  for (const summary of all) assert.ok(!/batch member|agentId|position|excluded|evidence|plan\b/i.test(`${summary.headline} ${summary.detail} ${summary.button}`), `${summary.headline} | ${summary.detail}`)
 })

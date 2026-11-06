@@ -60,6 +60,13 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
   await expect(app.page.locator('.session-card')).toHaveCount(entry.includes('?project=') ? 2 : 7)
   return { ...app, box }
 }
+// The board's New session now starts now in the Start an agent dialog; backlog items are planned from the Backlog column.
+async function openComposer(page) {
+  const board = page.getByRole('button', { name: /^Board/ })
+  if (await board.count() && await board.getAttribute('aria-pressed') !== 'true') await board.click()
+  await page.getByRole('button', { name: 'Add session to backlog', exact: true }).click()
+}
+
 try {
   await mkdir('../work/screenshots', { recursive: true })
   // Existing Sessions links and project handoffs open the launch modal, while a normal Home visit keeps the board as the
@@ -182,7 +189,7 @@ try {
   await page.screenshot({path:'../work/screenshots/session-board-filters.png',fullPage:true})
   await page.keyboard.press('Escape'); await expect(page.locator('.filter-panel')).toHaveCount(0)
   await page.getByRole('button', { name: 'Clear all', exact: true }).click()
-  await page.getByRole('button', { name: 'New session', exact: true }).click()
+  await openComposer(page)
   const composer = page.getByRole('dialog')
   await expect(composer).toBeVisible()
   // A new session asks which project before it can be saved; it does not pick the first one for you.
@@ -248,7 +255,7 @@ try {
   expect(box.starts).toHaveLength(startsBeforeOfflineDrag)
   await expect(page.locator('.backlog .session-card').filter({ hasText: 'Bring the case studies up to date' })).toHaveCount(1)
   // Launch options travel with a backlog item; YOLO is saved as intent and confirmed only at Start.
-  await page.getByRole('button', { name: 'New session', exact: true }).click()
+  await openComposer(page)
   const options = page.getByRole('dialog')
   await options.getByRole('textbox', { name: /^Prompt/ }).fill('Tighten the checkout copy')
   await options.getByLabel('Project', { exact: true }).selectOption('p1')
@@ -274,7 +281,7 @@ try {
   await page.getByRole('alertdialog').getByRole('button', { name: 'Start with YOLO' }).click()
   await expect.poll(() => box.starts.length).toBe(startsBefore + 1)
   // An idea is a placeholder, saved without a prompt. Start on it opens a dialog to refine it, then starts it.
-  await page.getByRole('button', { name: 'New session', exact: true }).click()
+  await openComposer(page)
   const ideaForm = page.getByRole('dialog')
   await ideaForm.getByLabel('Just capture an idea').check()
   await ideaForm.getByLabel('Project', { exact: true }).selectOption('p1')
@@ -301,7 +308,7 @@ try {
   await expect(ideaCard.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
   expect(box.starts).toHaveLength(startsAfterIdea)
   const captureIdea = async (title, projectId = 'p1') => {
-    await page.getByRole('button', { name: 'New session', exact: true }).click()
+    await openComposer(page)
     const form = page.getByRole('dialog')
     await form.getByLabel('Just capture an idea').check()
     if (projectId) await form.getByLabel('Project', { exact: true }).selectOption(projectId)
@@ -359,7 +366,7 @@ try {
     expect(await app.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     if(touch) expect(await app.page.evaluate(()=>innerWidth)).toBe(width)
     if(width===390) { expect(await app.page.getByRole('searchbox',{name:'Search sessions'}).evaluate(el=>parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16); await app.page.getByRole('button',{name:/^Active/}).click(); await app.page.screenshot({path:'../work/screenshots/session-mobile-focus.png',fullPage:false}) }
-    await app.page.getByRole('button', { name: 'New session', exact: true }).click()
+    await openComposer(app.page)
     await expect(app.page.getByRole('dialog')).toBeVisible()
     expect(await app.page.getByRole('dialog').evaluate(el => el.getBoundingClientRect().right <= innerWidth)).toBe(true)
     if(width===390) expect(await app.page.getByRole('dialog').getByRole('textbox',{name:'Prompt',exact:true}).evaluate(el=>parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16)
@@ -369,7 +376,7 @@ try {
   }
   // Existing persisted `chat` intent survives the new native-interface branding.
   const native = await workspace(390, 'dark', true)
-  await native.page.getByRole('button', { name: 'New session', exact: true }).click()
+  await openComposer(native.page)
   const form = native.page.getByRole('dialog')
   await form.getByLabel('Project', { exact: true }).selectOption('p1')
   await form.getByLabel('Agent', { exact: true }).selectOption('opencode')

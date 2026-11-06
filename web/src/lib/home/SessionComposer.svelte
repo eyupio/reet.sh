@@ -6,7 +6,7 @@
   import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, toolName, validateDir, validateModel, validatePrompt } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import { shell } from '../dialogShell'
-  import { installPrompt } from '../install'
+  import { useSkillPrompt } from '../install'
   import { defaultTitle } from '../launchBar'
   import { favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { saveDraft } from '../sessionBacklog'
@@ -217,8 +217,8 @@
     return efforts.map(value => ({ value, label: value || 'Agent default' }))
   }
   function useSkill(skill: Skill) {
-    const text = installPrompt(skill)
-    if (!text) { message = 'That skill has no source to run it from. Link one on the Skills page.'; return }
+    const text = useSkillPrompt(skill)
+    if (!text) { message = 'That skill has no name to use it by.'; return }
     const start = promptInput?.selectionStart ?? prompt.length
     const end = promptInput?.selectionEnd ?? start
     const inserted = insertSkillPrompt(prompt, text, start, end)

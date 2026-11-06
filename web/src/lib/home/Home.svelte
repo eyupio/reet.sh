@@ -281,6 +281,12 @@
     if (!terminals) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
     agentStart = { opener: from, project }
   }
+  // New session on the board starts now, in the same Start an agent dialog as the rail and the machine cards.
+  function startNewSession(opener: HTMLElement) {
+    if (!terminals) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
+    notice = null
+    agentStart = { opener }
+  }
   // A terminal session is a shell on the machine: no agent, no prompt, no project. It goes straight to the new session.
   // A request whose reply was lost is kept per machine and sent again with the same request id, exactly as the launch
   // bar's Start does, so choosing New terminal twice can never make a second shell.
@@ -379,7 +385,7 @@
       {/if}
       <SessionBoard {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
         scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
-        onchanged={() => load(true)} onstarted={started} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+        onchanged={() => load(true)} onstart={(opener) => startNewSession(opener)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       <details class="home-detail"><summary>Your machines <span>{cards.filter(reporting).length} of {cards.length} connected</span></summary>
         <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
           onnew={newSessionOn} onproject={newProjectOn} onterminal={startTerminalOn} />

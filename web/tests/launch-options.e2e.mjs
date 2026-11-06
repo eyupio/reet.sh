@@ -44,14 +44,16 @@ try {
    await expect(modal).toHaveCount(0)
    await page.waitForURL(new RegExp(`session=${S}`))
 
-   // Home Start a session modal.
+   // Home's New session opens the same Start an agent dialog as everywhere else.
    await page.goto(`${base}/`)
-   await page.getByRole('button',{name:'Start a session',exact:true}).first().click()
-   const start=page.getByRole('dialog',{name:'Start a session',exact:true})
-   await start.getByRole('textbox',{name:'Prompt',exact:true}).fill('Start with the selected model and effort')
-   await pickModel(start);await pickEffort(start)
+   await page.getByRole('button',{name:'New session',exact:true}).click()
+   const start=page.getByRole('dialog',{name:'Start an agent',exact:true})
+   await start.getByRole('combobox',{name:'Project',exact:true}).selectOption('project-options')
+   await start.getByRole('textbox',{name:/Opening prompt/}).fill('Start with the selected model and effort')
+   await pickModel(start)
+   await start.getByRole('combobox',{name:'Effort',exact:true}).selectOption('ultra')
    if(process.env.REET_UI_SCREENSHOTS) await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/start-session-options-${width}.png`,fullPage:true})
-   await start.getByRole('button',{name:/^Start( session)?$/}).click()
+   await start.getByRole('button',{name:'Start',exact:true}).click()
    await expect.poll(()=>requests.length).toBe(2)
    expect(requests.at(-1)).toMatchObject({model:'provider/two',effort:'ultra',structured:true})
    await expect(start).toHaveCount(0)
@@ -87,7 +89,7 @@ try {
 
    // Backlog creation and editing preserve both choices across a reload.
    await page.goto(`${base}/`)
-   await page.getByRole('button',{name:'New session',exact:true}).click()
+   await page.getByRole('button',{name:'Add session to backlog',exact:true}).click()
    const composer=page.getByRole('dialog',{name:'A little planning. Proper progress.',exact:true})
    await composer.getByLabel('Project',{exact:true}).selectOption('project-options')
    await composer.getByRole('textbox',{name:'Session title',exact:true}).fill('Saved native options')

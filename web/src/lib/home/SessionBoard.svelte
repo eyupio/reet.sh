@@ -14,7 +14,6 @@
   import { imagePrompt } from '../terminal/upload'
   import type { LaunchDefaults } from '../launchBar'
   import SessionComposer from './SessionComposer.svelte'
-  import StartSessionDialog from './StartSessionDialog.svelte'
   import BoardIcon from './BoardIcon.svelte'
   import DraftImagePreview from './DraftImagePreview.svelte'
   import ImageLightbox from '../terminal/ImageLightbox.svelte'
@@ -22,12 +21,12 @@
 
   let { userId, sessions, sessionsFailed = false, projects, machines, health, profile, now, initialProject = '', removeDefault = false,
     scopeIds = undefined, scopeKind = undefined, scopeName = '', onclearscope,
-    onchanged, onsignedout, onstarted }: {
+    onchanged, onsignedout, onstart }: {
     userId: number; sessions: TerminalSession[] | undefined; sessionsFailed?: boolean; projects: FolderProject[]; machines: TerminalMachine[]
     health: MachineHealth[]; profile: LaunchDefaults; now: number; initialProject?: string; removeDefault?: boolean
     /** The projects the board is narrowed to; undefined shows every project. */
     scopeIds?: string[]; scopeKind?: 'project' | 'group'; scopeName?: string; onclearscope?: () => void
-    onchanged: () => void | Promise<void>; onsignedout: () => void; onstarted?: (session: TerminalSession) => void
+    onchanged: () => void | Promise<void>; onsignedout: () => void; /** Opens the standard Start an agent dialog for a session that starts now. */ onstart: (opener: HTMLElement) => void
   } = $props()
   const id = $props.id()
   const life = new AbortController()
@@ -39,7 +38,6 @@
   let expanded = $state<string[]>([])
   // `start` opens an idea to be refined and started, rather than just edited.
   let composer = $state<{ draft: SessionDraft | null; opener: HTMLElement; start?: boolean } | null>(null)
-  let starting = $state<{ opener: HTMLElement } | null>(null)
   let removing = $state<SessionDraft | null>(null), deleteBusy = $state(false)
   let working = $state(''), phase = $state(''), loadingId = $state('')
   // Dragging a backlog card onto Active starts it. The source element is kept so a refined idea can return focus to it.
@@ -195,8 +193,6 @@
     if (intent.kind === 'refine') { void edit(draft, dragOpener ?? document.body, true); return }
     void activate(draft)
   }
-  function closeStart() { const opener = starting?.opener; starting = null; void tick().then(() => opener?.focus()) }
-  function startedHere(session: TerminalSession) { starting = null; if (onstarted) onstarted(session); else { notice = `Started “${session.title}”. You’ll find it in Active.`; void onchanged() } }
   function closeComposer() { const opener = composer?.opener; composer = null; void tick().then(() => opener?.focus()) }
   function saved(draft: SessionDraft) {
     const start = composer?.start
@@ -289,7 +285,7 @@
 <section class="session-board" aria-labelledby={`${id}-heading`}>
   <header class="heading">
     <h2 id={`${id}-heading`}>Your work, in good order.</h2>
-    <button class="btn primary new-session" aria-label="New session" onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" />New session</button>
+    <button class="btn primary new-session" aria-label="New session" onclick={e => onstart(e.currentTarget)}><BoardIcon name="plus" />New session</button>
   </header>
   <div class="viewbar">
     <div class="views" role="group" aria-label="Session view">
@@ -331,7 +327,7 @@
     {#each columns as stage}
       {@const items = filtered.filter(item => item.stage === stage.id)}
       <section class="stage {stage.id}" class:drop-target={stage.id === 'active' && !!dragDraft} class:drop-ready={stage.id === 'active' && dropActive} aria-labelledby={`${id}-${stage.id}`} ondragover={stage.id === 'active' ? activeOver : undefined} ondragleave={stage.id === 'active' ? activeLeave : undefined} ondrop={stage.id === 'active' ? activeDrop : undefined}>
-        <header class="stage-head"><span class="stage-mark"><BoardIcon name={stage.id} size={15}/></span><h3 id={`${id}-${stage.id}`}>{stage.label}</h3><span class="stage-count">{items.length}</span>{#if stage.id === 'backlog'}<button aria-label="Add session to backlog" onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" /></button>{:else if stage.id === 'active'}<button aria-label="Start a session" title="Start a session" onclick={e => starting = { opener: e.currentTarget }}><BoardIcon name="plus" /></button>{/if}</header>
+        <header class="stage-head"><span class="stage-mark"><BoardIcon name={stage.id} size={15}/></span><h3 id={`${id}-${stage.id}`}>{stage.label}</h3><span class="stage-count">{items.length}</span>{#if stage.id === 'backlog'}<button aria-label="Add session to backlog" onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" /></button>{:else if stage.id === 'active'}<button aria-label="Start a session" title="Start a session" onclick={e => onstart(e.currentTarget)}><BoardIcon name="plus" /></button>{/if}</header>
         <p class="stage-hint">{stage.id === 'active' && dropActive ? 'Drop to start it on its machine.' : stage.hint}</p>
         <div class="cards" aria-busy={stage.id === 'backlog' && drafts === undefined && !problem || stage.id !== 'backlog' && sessions === undefined && !sessionsFailed}>
           {#if stage.id !== 'backlog' && sessions === undefined && sessionsFailed}
@@ -339,7 +335,7 @@
           {:else if stage.id === 'backlog' && drafts === undefined && !problem || stage.id !== 'backlog' && sessions === undefined}
             <div class="empty"><span class="empty-icon"><BoardIcon name="clock" size={24}/></span><strong>Reading your sessions…</strong></div>
           {:else if !items.length}
-            <div class="empty"><span class="empty-icon"><BoardIcon name={hasFilters ? 'search' : stage.id} size={26}/></span><strong>{hasFilters ? 'Nowt matches just yet.' : scopeIds !== undefined ? `Nothing in ${scopeName} here yet.` : stage.id === 'backlog' ? 'Make room for your next idea.' : stage.id === 'active' ? 'Ready when you are.' : 'Good work will land here.'}</strong><p>{hasFilters ? 'Try another search or loosen your filters.' : scopeIds !== undefined ? 'Choose Show everything to see every project again.' : stage.id === 'backlog' ? 'Save a clear prompt, pick an agent, and leave it ready for later.' : stage.id === 'active' ? 'Start one now, or from your backlog.' : 'Sessions move here when they end, with their history close at hand.'}</p>{#if hasFilters}<button onclick={clear}>Clear filters</button>{:else if scopeIds !== undefined}<button onclick={resetScope}>Show everything</button>{:else if stage.id === 'backlog'}<button onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" size={14}/>Plan a session</button>{:else if stage.id === 'active'}<button onclick={e => starting = { opener: e.currentTarget }}><BoardIcon name="plus" size={14}/>Start a session</button>{/if}</div>
+            <div class="empty"><span class="empty-icon"><BoardIcon name={hasFilters ? 'search' : stage.id} size={26}/></span><strong>{hasFilters ? 'Nowt matches just yet.' : scopeIds !== undefined ? `Nothing in ${scopeName} here yet.` : stage.id === 'backlog' ? 'Make room for your next idea.' : stage.id === 'active' ? 'Ready when you are.' : 'Good work will land here.'}</strong><p>{hasFilters ? 'Try another search or loosen your filters.' : scopeIds !== undefined ? 'Choose Show everything to see every project again.' : stage.id === 'backlog' ? 'Save a clear prompt, pick an agent, and leave it ready for later.' : stage.id === 'active' ? 'Start one now, or from your backlog.' : 'Sessions move here when they end, with their history close at hand.'}</p>{#if hasFilters}<button onclick={clear}>Clear filters</button>{:else if scopeIds !== undefined}<button onclick={resetScope}>Show everything</button>{:else if stage.id === 'backlog'}<button onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" size={14}/>Plan a session</button>{:else if stage.id === 'active'}<button onclick={e => onstart(e.currentTarget)}><BoardIcon name="plus" size={14}/>Start a session</button>{/if}</div>
           {:else}
             {#each items as item, index (item.key)}
               {@const draft = item.draft}
@@ -375,7 +371,6 @@
   </div>
   <div class="board-foot"><span><BoardIcon name="finished" size={13}/>Saved to your account. Ready across your machines.</span><a href="/sessions">All session history<BoardIcon name="arrow" size={13}/></a></div>
 </section>
-{#if starting}<StartSessionDialog {projects} {machines} {profile} {initialProject} onstarted={startedHere} {onsignedout} onclose={closeStart}/>{/if}
 {#if yoloAsk}<YoloDialog gates={yoloGateList} tool={yoloAsk.tool} structured={yoloAsk.chat === true} machine={machineNames.get(yoloAsk.agentId) || 'the machine'} oncancel={cancelYolo} onstart={confirmYolo} />{/if}
 {#if composer}<SessionComposer draft={composer.draft} startNow={composer.start === true} {startCheck} {projects} {machines} {profile} {initialProject} onsaved={saved} onclose={closeComposer} onerror={error}/>{/if}
 {#if removing}<dialog class="delete-dialog" bind:this={deleteDialog} aria-labelledby={`${id}-delete`} oncancel={e => { if (deleteBusy) e.preventDefault(); else removing = null }}><h2 id={`${id}-delete`}>Delete this backlog item?</h2><p>“{removing.title}” and its saved images will be removed.</p><div><button class="btn" disabled={deleteBusy} onclick={() => removing = null}>Keep session</button><button class="btn primary" disabled={deleteBusy} aria-busy={deleteBusy} onclick={() => void remove()}>{deleteBusy ? 'Deleting…' : 'Delete item'}</button></div></dialog>{/if}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { listSkills, type Skill } from '../api'
-  import { installPrompt } from '../install'
+  import { sourceURL, useSkillPrompt } from '../install'
   import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
 
   // Search the person's shelf and hand back one skill to put into the prompt. The prompt itself is inserted as ordinary
@@ -23,15 +23,18 @@
 
   const rank = (group: string): number => ['In use', 'Saved', 'On your shelf'].indexOf(group)
   const options = $derived(skills.map(skill => {
-    const prompt = installPrompt(skill)
+    const prompt = useSkillPrompt(skill)
+    // A skill with no install source is one reet knows from a machine: reet is its source, and the agent is asked to use
+    // it by name because its files are already there.
+    const fromReet = !sourceURL(skill)
     return {
       value: skill.id,
       label: skill.name || skill.slug || skill.id,
       description: skill.description || '',
-      detail: skill.source || skill.url || '',
+      detail: fromReet ? 'reet' : skill.source || skill.url || '',
       group: skill.used ? 'In use' : skill.bookmarked ? 'Saved' : 'On your shelf',
       disabled: !prompt,
-      reason: prompt ? undefined : 'No source to run this skill from. Link one on the Skills page.',
+      reason: prompt ? undefined : 'This skill has no name to use it by.',
     } satisfies SlotOption
   }).sort((a, b) => rank(a.group ?? '') - rank(b.group ?? '') || a.label.localeCompare(b.label)))
 

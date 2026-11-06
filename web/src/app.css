@@ -121,7 +121,20 @@ textarea { width: 100%; resize: vertical; }
 :root{--gaffer-reserve:0px;--bottom-chrome:var(--gaffer-reserve)}
 html[data-gaffer-anchor]{--gaffer-reserve:112px}
 @media(min-width:768px){html[data-gaffer-anchor] main:not(.terminal-layout):not(.home-layout){padding-bottom:calc(56px + var(--gaffer-reserve))}}
-@media(max-width:767px){html[data-gaffer-anchor]{--gaffer-reserve:88px}}
+@media(max-width:767px){html[data-gaffer-anchor]{--gaffer-reserve:calc(60px + max(8px,env(safe-area-inset-bottom,0px)))}}
+html[data-gaffer-anchor][data-gaffer-editing]{--gaffer-reserve:0px}
+/* Wide workspaces have width to spare. Reserve the corner beside the terminal
+   instead of consuming rows, including on a short landscape phone. */
+@media(min-width:768px),(max-height:500px) and (pointer:coarse) and (orientation:landscape){
+  html[data-gaffer-anchor]:has([aria-label="Remote terminal workspace"]){--gaffer-reserve:0px}
+  html[data-gaffer-anchor]:not([data-gaffer-editing]) [aria-label="Remote terminal workspace"]{margin-right:88px}
+  html[data-gaffer-anchor=left]:not([data-gaffer-editing]) [aria-label="Remote terminal workspace"]{margin-left:88px;margin-right:0}
+}
+/* A narrow keyboard-sized viewport gives its remaining rows to the worker. */
+@media(max-width:767px) and (max-height:500px){
+  html[data-gaffer-anchor]:has([aria-label="Remote terminal workspace"]){--gaffer-reserve:0px}
+  html:has([aria-label="Remote terminal workspace"]) .gaffer-launcher{display:none}
+}
 
 /* The phone's bottom tab bar (shell/BottomTabs.svelte) is fixed over the page: the page keeps room for it at its foot, and
    anything else pinned to the bottom (toasts, the bulk bar, the save dock) sits above it. Same rule as PHONE_SCREEN. */

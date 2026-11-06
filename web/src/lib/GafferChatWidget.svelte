@@ -27,7 +27,7 @@
   let modelButton = $state<HTMLButtonElement>(), historyButton = $state<HTMLButtonElement>(), contextButton = $state<HTMLButtonElement>(), optionsButton = $state<HTMLButtonElement>()
   let modelBefore: {providerId:string;model:string;manual:boolean} | undefined
   let contextOpen = $state(false)
-  let open = $state(false), phone = $state(false), full = $state(false), mode = $state('session')
+  let open = $state(false), phone = $state(false), full = $state(false), mode = $state('session'), keyboardEditing=$state(false)
   let panelSize=$state<GafferPanelSize>('comfortable'),panelSide=$state<GafferPanelSide>('right')
   let layoutRevision=$state(0)
   const modal=$derived(phone||full)
@@ -53,16 +53,23 @@
 
   onMount(() => {
     try{const saved=readGafferLayout(localStorage.getItem(`reet.gaffer.layout.${userId}`));panelSize=saved.size;panelSide=saved.side}catch{/* optional layout preference */}
-    document.documentElement.setAttribute('data-gaffer-anchor','')
+    document.documentElement.setAttribute('data-gaffer-anchor',panelSide)
     const entry = (opener: HTMLElement) => { inlineOpener = opener; open = true }
     gafferChatEntry.set(entry)
     const arrival=new URL(location.href)
     if(arrival.pathname==='/sessions'&&arrival.searchParams.get('gaffer')==='1'){
       open=true;arrival.searchParams.delete('gaffer');history.replaceState(history.state,'',arrival)
     }
-    const mq = matchMedia('(max-width: 767px)'); const resize = () => phone = mq.matches
+    const mq = matchMedia('(max-width:767px), (max-height:500px) and (pointer:coarse) and (orientation:landscape)'); const resize = () => phone = mq.matches
     resize(); mq.addEventListener('change', resize)
-    return () => { document.documentElement.removeAttribute('data-gaffer-anchor');gafferChatEntry.update(current => current === entry ? null : current); mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
+    // Give the worker the whole keyboard-visible area while typing. Returning
+    // from the keyboard restores the same corner, rather than moving the mascot.
+    const vv=window.visualViewport,coarse=matchMedia('(pointer:coarse)')
+    let seenWidth=innerWidth,tallest=innerHeight,frame=0
+    const measureKeyboard=()=>{frame=0;if(innerWidth!==seenWidth){seenWidth=innerWidth;tallest=0}tallest=Math.max(tallest,innerHeight);const focus=document.activeElement;keyboardEditing=coarse.matches&&!!focus?.closest('.pane')&&((!!vv&&Math.abs(vv.scale-1)<.01&&vv.height<innerHeight*.85)||innerHeight<tallest*.85);document.documentElement.toggleAttribute('data-gaffer-editing',keyboardEditing)}
+    const scheduleKeyboard=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(measureKeyboard)}
+    measureKeyboard();window.addEventListener('resize',scheduleKeyboard);vv?.addEventListener('resize',scheduleKeyboard);document.addEventListener('focusin',scheduleKeyboard);document.addEventListener('focusout',scheduleKeyboard)
+    return () => { cancelAnimationFrame(frame);window.removeEventListener('resize',scheduleKeyboard);vv?.removeEventListener('resize',scheduleKeyboard);document.removeEventListener('focusin',scheduleKeyboard);document.removeEventListener('focusout',scheduleKeyboard);document.documentElement.removeAttribute('data-gaffer-editing');document.documentElement.removeAttribute('data-gaffer-anchor');gafferChatEntry.update(current => current === entry ? null : current); mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
   })
   $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; workerOpen=false;goalOpen=false;followedOpen=false;relay=false; if (shown) void load(key); else dispose() }) })
   $effect(() => {
@@ -72,7 +79,7 @@
     if (mobile) dialog.showModal(); else dialog.show()
     if (canAutoFocus()) void tick().then(() => { if (dialog.open && !mobile) composer?.focus({preventScroll:true}) })
   })
-  function layout(size=panelSize,side=panelSide){panelSize=size;panelSide=side;layoutRevision++;try{localStorage.setItem(`reet.gaffer.layout.${userId}`,JSON.stringify({size,side}))}catch{/* optional preference */}}
+  function layout(size=panelSize,side=panelSide){panelSize=size;panelSide=side;layoutRevision++;document.documentElement.setAttribute('data-gaffer-anchor',side);try{localStorage.setItem(`reet.gaffer.layout.${userId}`,JSON.stringify({size,side}))}catch{/* optional preference */}}
   function phoneShell(node: HTMLDialogElement, mobile: boolean) {
     let handle: ReturnType<typeof shell>
     function update(value: boolean) { handle?.destroy?.(); node.removeAttribute('data-shell'); if (value) handle = shell(node, {sheet:'full'}); else handle = undefined }
@@ -258,7 +265,7 @@
 </script>
 
 <div class="gaffer-anchor-space" data-gaffer-space aria-hidden="true"></div>
-{#if !open}
+{#if !open&&!keyboardEditing}
   <button class="gaffer-launcher" data-side={panelSide} bind:this={launcher} aria-label="Ask Gaffer" aria-expanded="false" aria-haspopup="dialog" title="Ask Gaffer" onclick={() => open = true}>
     <GafferCompanionAvatar size={56}/>
   </button>
@@ -438,8 +445,8 @@
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (pointer:coarse) { .icon { width:44px;min-height:44px; }.send-control { width:44px;min-height:44px; }.model-control,.context-control,.reply-details summary { min-height:44px; } }
-  @media (max-width:767px) {
-    .gaffer-launcher,.gaffer-chat{--gaffer-floor:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px) + 16px)}
+  @media (max-width:767px), (max-height:500px) and (pointer:coarse) and (orientation:landscape) {
+    .gaffer-launcher,.gaffer-chat{--gaffer-floor:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px) + max(8px,env(safe-area-inset-bottom,0px)))}
     .gaffer-launcher{right:12px}.gaffer-launcher[data-side=left]{left:12px}
     .gaffer-chat,.gaffer-chat[data-size],.gaffer-chat[data-side],.gaffer-chat[data-full]{inset:calc(var(--shell-top,0px) + 12px) auto auto 12px;width:calc(100vw - 24px);min-width:0;max-width:calc(100vw - 24px);height:calc(var(--shell-height,100dvh) - 24px);min-height:0;max-height:calc(var(--shell-height,100dvh) - 24px);resize:none}.expand,.panel-layout{display:none}
     .chat-head { padding:8px 10px;gap:8px; }.icon { width:40px;min-height:44px; }.transcript { padding:20px 16px; }.composer { padding:8px 12px; }

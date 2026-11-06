@@ -248,6 +248,21 @@ older instructions requiring three separate permission dialogs before delegation
 GM6's separate fake-backed native/Docker acceptance is being adapted to this flow.
 Real credentials, deployment and agent merges remain out of scope.
 
+### GM6: real-controller offline acceptance (6 November 2026)
+
+[PR #626](https://github.com/eyupio/reet.sh/pull/626),
+`test/gaffer-offline-integration`, is stacked on widget/setup #625. The
+[acceptance contract](handoffs/gaffer-offline-acceptance.md) records the actual
+integration boundary and runner commands. Native/race (343 seconds) and non-root
+production-container-runtime (325 seconds) browser flows pass, including one-step
+setup, restart delivery without browser reads, approval waits, separate scopes,
+budget-preserving resume, hard limits, completion, revocation and ambiguity without
+replay. Model/worker endpoints are synthetic, and production routes are unchanged.
+This proves controller reconstruction/database reopen and container runtime, not
+OS service restart or full CLI packaging. Inspected UI captures and CI accompany
+the test slice. Final-head CI/review remains the merge gate; no real credentials,
+deployments or agent merges.
+
 ### Source-grounded feasibility and current gaps
 
 Inspected local reet `d5485e12` and Zoomies `3c4d0962` on 5 November 2026.

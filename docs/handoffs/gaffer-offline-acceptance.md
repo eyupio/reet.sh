@@ -51,7 +51,10 @@ physical devices remain outside this gate.
 ## Verification record
 
 The real private-wire HTTP/scheduler/broker integration and queue-recovery race
-tests pass. The first native browser run passes browser-free queued recovery,
-approval waits, resume/budget limits and user completion. Final full native and
-Docker runs, inspected captures, docs and final-head CI/review are still in
-progress; record their actual outcomes before marking this slice ready.
+tests pass. Full browser flows pass in native with race detection (343 seconds)
+and the production container runtime (325 seconds), including the revocation and
+uncertain-delivery cases. Changed-package vet and shell syntax checks pass.
+Inspected captures use synthetic data: native/light desktop review and overview,
+Docker/dark phone overview. They are recorded in the UI verification page.
+Final-head CI/review remains the merge gate. This slice is
+[PR #626](https://github.com/eyupio/reet.sh/pull/626), stacked on widget/setup #625.

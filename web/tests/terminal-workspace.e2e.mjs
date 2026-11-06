@@ -56,8 +56,9 @@ const pane=page.locator('.pane'),screen=page.getByRole('region',{name:'Remote te
 async function live(){await expect(pane).toHaveAttribute('data-connection-state','live')}
 async function bounds(width,height){
  await page.setViewportSize({width,height})
- // Frequent session controls now stay visible; count their deliberate row with the usable terminal area.
- await expect.poll(async()=>page.evaluate(()=>{const terminal=document.querySelector('[aria-label="Remote terminal screen"]'),tools=document.querySelector('.session-tools');return Math.round((terminal?.getBoundingClientRect().height||0)+(tools?.getBoundingClientRect().height||0))})).toBeGreaterThan(height*(height<600?.2:width<650?.5:.6))
+ // Count the deliberate controls row against the viewport available above the
+ // reserved launcher/navigation area. Rendering and clipping are checked below.
+ await expect.poll(async()=>page.evaluate(()=>{const terminal=document.querySelector('[aria-label="Remote terminal screen"]'),tools=document.querySelector('.session-tools'),reserved=document.querySelector('[data-gaffer-space]')?.getBoundingClientRect().height||0;return ((terminal?.getBoundingClientRect().height||0)+(tools?.getBoundingClientRect().height||0))/Math.max(1,innerHeight-reserved)})).toBeGreaterThan(height<600?.2:width<650?.5:.6)
  await expect.poll(async()=>screen.evaluate(element=>Math.round(element.getBoundingClientRect().bottom))).toBeLessThanOrEqual(height+1)
  const b=await screen.boundingBox()
  // The renderer itself must fit, including its final row; outer bounds alone miss clipped content.
@@ -367,7 +368,8 @@ try{
  await expect(page.getByRole('navigation',{name:'Terminal sessions'})).toBeHidden()
  await expect(page.locator('.site-header')).toBeVisible()
  await expect(page.locator('.workspace-toolbar')).toBeHidden()
- expect((await screen.boundingBox()).width).toBeGreaterThan(1250)
+ // Theatre uses the available workspace, including its reserved Gaffer corner.
+ expect((await screen.boundingBox()).width).toBeGreaterThan((await page.locator('.workspace').boundingBox()).width*.92)
  await page.getByRole('button',{name:'Maximise',exact:true}).click()
  await expect(pane).toHaveClass(/maximised/)
  await page.getByRole('button',{name:'Restore size',exact:true}).click()

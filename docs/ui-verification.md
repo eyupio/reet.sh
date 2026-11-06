@@ -1,5 +1,24 @@
 # UI verification — 4 November 2026
 
+## Gaffer offline integration (6 November 2026)
+
+PR #626 exercises real HTTP, the production scheduler/store/provider transport,
+authenticated private WebSocket and broker. Only the external provider and worker
+are fake. The browser intercepts no API. Native/race and non-root Docker runtime
+flows pass reviewed setup, scoped goals, browser-free queued delivery after actual
+database reopen, approval waits without model calls, preserved resume budgets,
+hard limits, user completion, queued-grant revocation and uncertain delivery
+without replay. The final overview distinguishes reports from delivery evidence.
+
+These inspected captures are synthetic: desktop light setup and retained overview,
+plus phone dark overview from the container flow. The container runs the API test
+harness in the production runtime base/user; it does not validate CLI packaging or
+service installation. See the [acceptance contract](handoffs/gaffer-offline-acceptance.md).
+
+![Reviewed session setup](images/ui/gaffer-session-setup-native.png)
+![Native offline overview](images/ui/gaffer-offline-native.png)
+![Docker offline overview](images/ui/gaffer-offline-docker.png)
+
 ## Gaffer floating companion and one-step setup (6 November 2026)
 
 PR #625 uses one 56 px mascot launcher in the account's saved bottom corner.
@@ -17,13 +36,17 @@ goal. The default 12 reviews / 24 hours stays visible; Change limits and detaile
 permissions are optional. A single confirmed browser action commits access and
 the goal together. Resume retains its existing budget/deadline.
 
-The ten-view widget matrix covers 1440, 800, 767, 390 and 320 px in light/dark,
+The twelve-view widget matrix covers 1440, 800, 767, 390 and 320 px plus an
+844 × 390 landscape phone in light/dark,
 including presets, resetting temporary geometry, corner persistence, focus,
 drafts and launcher clearance. Existing chat geometry requires over 60% narrative
 space, including the supplied 800 × 1280 tablet shape. Landscape drawer geometry
 now measures modal dialogs in the browser's top layer, without clipping them to
 the terminal behind them; the save-dock check verifies its new clearance above
 the stable launcher. Captures below were visually inspected with synthetic data.
+The launcher steps aside while typing into a worker with the phone keyboard open,
+then restores its saved corner. Wider workspaces and landscape terminals reserve width instead of rows. Theatre
+checks use the available workspace width, keeping its reserved corner clear.
 Final-head CI/review and the separate real-controller native/Docker acceptance
 remain the delivery gates. No physical-phone or real-provider claim is made.
 

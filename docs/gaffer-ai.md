@@ -35,7 +35,10 @@ your account. Drag the desktop header or focus its mascot and use arrow keys
 (Shift moves farther); the resize grip changes the panel temporarily. Choosing a
 preset or reopening restores its saved corner. Full screen and the phone sheet
 stay above the keyboard. The mascot follows your animation and reduced-motion
-preferences.
+preferences. While typing into a worker with the phone keyboard open, the
+launcher and its reserved space step aside in keyboard-sized views; closing the keyboard restores the
+same corner. Wider workspaces, including landscape phones, reserve a narrow side strip beside the terminal
+instead of consuming terminal rows.
 
 Outside a session, use **General Gaffer chat**. Inside a supported structured chat,
 **This session** has its own conversation and draft. **Conversation history** in

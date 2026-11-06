@@ -11,7 +11,10 @@ alongside this UX change; real provider credentials remain for later settings.
 
 - A single 56 px circular Gaffer launcher stays in its saved bottom corner on
   general pages and session workspaces. Page action docks and the session viewport
-  reserve its space. The previous session-only inline entry is removed.
+  reserve its space. Wider workspaces and landscape phones reserve a side strip to preserve terminal
+  rows; while typing into the worker with its keyboard open, the launcher and
+  reserve step aside and restore afterward. Narrow keyboard-sized windows also
+  give their remaining rows to the worker. The previous inline entry is removed.
 - Compact (24 × 32 rem), Default (28 × 42 rem), Expanded (46 × 52 rem), modal Full
   screen and left/right placement follow the reference, clamped to the viewport.
   Desktop header dragging, arrow-key movement and the native resize grip are
@@ -48,7 +51,7 @@ source receipts and the prohibition on direct shell/GitHub/merge actions remain.
 The atomic HTTP test passes confirmation, late-CAS rollback, stale revisions,
 provider maximum changes, separate-session isolation, resume preservation and
 foreign-origin/MCP denial. Existing goal/store/API race selections pass after the
-transaction helper refactor. The widget matrix passes ten theme/width views with
+transaction helper refactor. The widget matrix passes twelve theme/width views, including a landscape phone with
 stable clearance, presets, resize reset, keyboard positioning, full screen, phone
 sheet, drafts and focus. Chat/context/worker/goal/settings/overview browser regressions also pass. Source UI captures were visually inspected; strict docs, 51-page static checks
 and the 40-view browser smoke pass. Final-head CI/review remains the publication

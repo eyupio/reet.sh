@@ -21,20 +21,20 @@ const routes={
   [`/api/v2/terminal/sessions/${sid}/chat/queue`]:{queue:[]},
 }
 try{
-  for(const theme of ['light','dark'])for(const width of [1440,800,767,390,320]){
-    const w=await openWorkspace(browser,{width,height:1000,theme,touch:width<1000,routes})
+  for(const theme of ['light','dark'])for(const [width,height] of [[1440,1000],[800,1000],[767,1000],[390,1000],[320,1000],[844,390]]){
+    const w=await openWorkspace(browser,{width,height,theme,touch:width<1000,routes})
     await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
     try{
       await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
       const launch=w.page.getByRole('button',{name:'Ask Gaffer',exact:true}),chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
       await expect(launch).toHaveCount(1)
-      const clear=await launch.evaluate(el=>{const a=el.getBoundingClientRect(),workspace=document.querySelector('[aria-label="Remote terminal workspace"]')?.getBoundingClientRect();return {width:a.width,height:a.height,inView:a.bottom<=innerHeight&&a.top>=0,clear:!workspace||a.top>=workspace.bottom-1}})
+      const clear=await launch.evaluate(el=>{const a=el.getBoundingClientRect(),workspace=document.querySelector('[aria-label="Remote terminal workspace"]')?.getBoundingClientRect();return {width:a.width,height:a.height,inView:a.bottom<=innerHeight&&a.top>=0,clear:!workspace||a.top>=workspace.bottom-1||a.left>=workspace.right+8||a.right<=workspace.left-8}})
       expect(clear.width).toBe(56);expect(clear.height).toBe(56);expect(clear.inView).toBe(true);expect(clear.clear).toBe(true)
       await launch.click();await expect(chat).toBeVisible()
       await expect(chat.getByRole('button',{name:'Conversation history',exact:true})).toBeVisible()
       await expect(chat.getByRole('button',{name:'Look after this session',exact:true})).toBeVisible()
       await chat.getByRole('textbox',{name:'Message Gaffer',exact:true}).fill('Preserve this draft while I resize')
-      if(width>=768){
+      if(width>=768&&height>500){
         for(const [name,remWidth,remHeight]of [['Compact',24,32],['Default',28,42],['Expanded',46,52]]){
           await chat.getByRole('button',{name,exact:true}).click()
           const rect=await chat.boundingBox();expect(Math.abs(rect.width-Math.min(remWidth*16,width-32))).toBeLessThan(2);expect(Math.abs(rect.height-Math.min(remHeight*16,936))).toBeLessThan(2)
@@ -59,9 +59,9 @@ try{
       await w.page.keyboard.press('Escape');await expect(launch).toBeFocused()
       const parked=await launch.boundingBox();await w.page.mouse.wheel(0,500);await expect.poll(async()=>(await launch.boundingBox()).y).toBeCloseTo(parked.y,0)
       await launch.click();await expect(chat.getByRole('textbox',{name:'Message Gaffer',exact:true})).toHaveValue('Preserve this draft while I resize')
-      if(width>=768){await expect(chat.getByRole('button',{name:'Default',exact:true})).toHaveAttribute('aria-pressed','true');expect(await chat.evaluate(el=>el.style.width)).toBe('')}
+      if(width>=768&&height>500){await expect(chat.getByRole('button',{name:'Default',exact:true})).toHaveAttribute('aria-pressed','true');expect(await chat.evaluate(el=>el.style.width)).toBe('')}
       expect(w.errors).toEqual([])
     }finally{await w.context.close()}
   }
-  console.log('Widget UX: ten width/theme views, stable clear 56 px launcher, mascot, three presets, native resize reset, left/right placement, keyboard move, modal full screen/phone, drafts and focus passed.')
+  console.log('Widget UX: twelve width/theme views, including a landscape phone, stable clear 56 px launcher, mascot, three presets, native resize reset, left/right placement, keyboard move, modal full screen/phone, drafts and focus passed.')
 }finally{await browser.close()}

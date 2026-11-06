@@ -5,7 +5,8 @@ session-companion MVP below. Product decisions and the initial HTTP provider
 foundation, provider settings and general/session companion chat are recorded
 here. GM3A adds explicit retained-context sharing and scoped MCP reads. GM3B adds
 separate worker-message grants and bounded queue receipts. GM4 adds explicit saved
-session goals and bounded offline follow-up.
+session goals and bounded offline follow-up. GM5 supplies the followed-session
+overview; the current UX slice unifies the floating companion and reviewed setup.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -50,7 +51,7 @@ explain what happened, what remains, what is blocked and what needs a decision.
 | General chat | Outside a session, a separate Zoomies-style Gaffer conversation for general reet questions and permitted activity reads |
 | Session chat | Each reet session has its own Gaffer conversation and context; changing sessions must not carry the previous session's conversation into the new one |
 | Several sessions | Gaffer can follow several explicitly selected sessions independently, each with its own goal, conversation and progress |
-| Activation | The user explicitly asks the session's Gaffer to look after it; opening the widget alone does not start background follow-up |
+| Activation | One reviewed session setup saves the selected provider/model access, this session's read/message grants and bounded goal together; advanced controls are optional. Opening the widget alone starts nothing |
 | Busy worker | Queue instructions for the next turn by default; offer an explicit interrupt option through supported session controls |
 | Eligible workers | Initially follow supported structured chats with a verified message channel to the existing model; clearly explain availability for other sessions |
 | Offline operation | Persist coordination on the controller; continue without the browser and reconcile after controller restart when the session is available |
@@ -179,12 +180,13 @@ such goal. No merge or deployment is part of this implementation.
 ### GM4: bounded offline session goals (6 November 2026)
 
 The owner merged #612 as `77892506` and the GM4 plan in #617. Runtime
-[PR #620](https://github.com/eyupio/reet.sh/pull/620) continues separately on
+[PR #620](https://github.com/eyupio/reet.sh/pull/620) was merged by the owner from
 `feat/gaffer-offline-runtime`, aligned with main `1b10a978`.
 The [goal contract](handoffs/gaffer-offline-goals.md) records the selected default:
 12 Gaffer reviews over 24 hours, triggered by new worker progress. The UI permits
 1–48 reviews over 1–168 hours; at most ten selected session goals are active per
-account. Goal activation never grants read/write permissions implicitly.
+account. The initial activation required separate grants; the reviewed setup below now
+saves explicitly disclosed access and the goal together.
 
 The controller stores the goal and pins its provider/model and both grants.
 Budget, observed cursor and review admission commit with the durable Gaffer turn.
@@ -217,12 +219,12 @@ only the five unchanged terminal-host environment failures. All 16 MCP checks,
 aligned web check/build, goal and existing companion/context/worker/layout browser
 matrices, vet, strict docs, 51-page checks and the 40-view docs smoke pass. Final-
 head `1ce63151` passed all 20 applicable CI checks, with four intentional skips
-and no unresolved review threads on #620. The PR remains open. No real credentials, deployment or merge
+and no unresolved review threads on #620. The owner merged #620. No real credentials, deployment or merge by this agent
 is authorised.
 
 ### GM5: followed-session job sheet (6 November 2026)
 
-The authorised next slice is implemented separately in
+The owner merged the overview implemented in
 [PR #623](https://github.com/eyupio/reet.sh/pull/623),
 `feat/gaffer-followed-sessions`, based on #620. The
 [overview contract](handoffs/gaffer-followed-sessions.md) records the bounded,
@@ -232,6 +234,19 @@ General and session chat expose the same secondary **Followed sessions** dialog.
 Gaffer's report is labelled separately from controller delivery and user-marked
 completion. Existing goal controls handle pause/resume/stop/completion with fresh
 permissions; the overview grants nothing and performs no model or worker call.
+
+### Widget and reviewed setup (6 November 2026)
+
+[PR #625](https://github.com/eyupio/reet.sh/pull/625) starts from main `1ba62a7c`
+after the owner merged #620 and #623. The user requested matching floating-panel
+sizes, mascot treatment and predictable placement, plus a simpler activation
+process. They chose **one session setup, with advanced controls optional**.
+The [implementation contract](handoffs/gaffer-widget-setup.md) records exact sizes,
+reserved launcher space, accessibility, the browser-only atomic setup transaction,
+revision checks and preservation of worker/MCP boundaries. This choice supersedes
+older instructions requiring three separate permission dialogs before delegation.
+GM6's separate fake-backed native/Docker acceptance is being adapted to this flow.
+Real credentials, deployment and agent merges remain out of scope.
 
 ### Source-grounded feasibility and current gaps
 

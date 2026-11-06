@@ -104,7 +104,9 @@ function measure({field, primary, last}) {
  const seen = el => {
   const r = box(el)
   let top = Math.max(r.top, band.top), bottom = Math.min(r.bottom, band.bottom), left = Math.max(r.left, 0), right = Math.min(r.right, vw)
-  for (let n = el.parentElement; n && n !== document.documentElement; n = n.parentElement) {
+  // A modal itself is already in the top layer. Its former ancestors cannot clip
+  // it either (notably a short terminal pane behind a landscape drawer).
+  for (let n = el.matches('dialog:modal') ? null : el.parentElement; n && n !== document.documentElement; n = n.parentElement) {
    const s = getComputedStyle(n), modal = n.matches('dialog:modal')
    if (s.overflowX === 'visible' && s.overflowY === 'visible') { if (modal) break; continue }
    const q = n.getBoundingClientRect()

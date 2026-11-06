@@ -80,7 +80,7 @@ GM4’s plan was merged by the owner in [PR #617](https://github.com/eyupio/reet
 The implementation is tracked separately in [PR #620](https://github.com/eyupio/reet.sh/pull/620),
 `feat/gaffer-offline-runtime`, aligned with main `1b10a978`. Its final head
 `1ce63151` passed all 20 applicable CI checks (four intentionally skipped) and has
-no unresolved review threads; the PR remains open. The
+no unresolved review threads; the owner has merged it. The
 [offline-goal contract](docs/handoffs/gaffer-offline-goals.md) records explicit
 per-session goals, the user's default of 12 reviews over 24 hours, progress-only
 reviews, atomic budget/turn admission, fresh goal/grant delivery checks, stop/
@@ -91,7 +91,7 @@ the working model performs those actions. No model-requested tools, worker write
 background polling or real provider credentials are enabled in GM3A. Final checks
 and PR state are recorded in the companion handoff and UI verification record.
 
-GM5 is implemented for review in [PR #623](https://github.com/eyupio/reet.sh/pull/623),
+GM5 shipped through owner-merged [PR #623](https://github.com/eyupio/reet.sh/pull/623),
 a separate followed-session overview on
 `feat/gaffer-followed-sessions`, based on runtime #620. It lists only the browser
 account's selected goals, prioritises decisions, preserves source/review times and
@@ -100,6 +100,19 @@ separates model reports from retained delivery receipts and user completion.
 crowding the narrative. Existing goal controls retain fresh permission checks;
 listing never calls a provider, wakes a worker or starts a goal. See the
 [overview handoff](docs/handoffs/gaffer-followed-sessions.md) for tests and PR state.
+
+The next UX slice is [PR #625](https://github.com/eyupio/reet.sh/pull/625),
+`feat/gaffer-companion-ux`. The user's selected **one reviewed session setup,
+with advanced controls optional** replaces the multi-dialog activation sequence.
+It atomically saves provider session/text maxima, only this conversation's grants
+and a bounded goal. General chat and MCP retain their separate authority.
+The single floating mascot has saved left/right placement, three reference-sized
+presets, temporary drag/resize and modal full screen/phone layouts. Page docks and
+session viewports reserve its corner. See the
+[widget/setup handoff](docs/handoffs/gaffer-widget-setup.md).
+GM6 continues separately with fake-backed real-controller/private-WebSocket
+acceptance in native and production-container-runtime environments. Neither
+PR merging nor real-provider setup is authorised by this handoff.
 
 The 5 November #603 review follow-up fixes first-address-only provider dialing:
 try all validated literal addresses, with dual-stack fallback and bounded,

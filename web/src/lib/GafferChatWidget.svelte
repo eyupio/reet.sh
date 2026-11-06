@@ -2,9 +2,10 @@
   import { onMount, tick, untrack } from 'svelte'
   import { ApiError, UnauthorizedError, cancelGafferAnswer, configureGafferConversation, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,getGafferGoal,
     type GafferConversationView, type GafferSettings, type GafferTurn } from './api'
-  import { gafferSessionContext, gafferChatEntry, gafferChatDock } from './gafferContext'
+  import { gafferSessionContext, gafferChatEntry } from './gafferContext'
   import { gafferMessageBytes, gafferMessageId, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt, type PendingGafferSend } from './gafferChat'
-  import GafferAvatar from './terminal/GafferAvatar.svelte'
+  import GafferCompanionAvatar from './GafferCompanionAvatar.svelte'
+  import {readGafferLayout,moveGafferPanel,type GafferPanelSize,type GafferPanelSide} from './gafferPanel'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import GafferChatHistory from './GafferChatHistory.svelte'
   import GafferProse from './GafferProse.svelte'
@@ -16,7 +17,6 @@
   import CopyButton from './CopyButton.svelte'
   import { shell } from './dialogShell'
   import { canAutoFocus } from './focus'
-  import { keepLauncherClear, alignToConversation } from './floatingLauncher'
   import { formatWhen } from './time'
   import { toolName } from './agentLaunch'
 
@@ -27,7 +27,10 @@
   let modelButton = $state<HTMLButtonElement>(), historyButton = $state<HTMLButtonElement>(), contextButton = $state<HTMLButtonElement>(), optionsButton = $state<HTMLButtonElement>()
   let modelBefore: {providerId:string;model:string;manual:boolean} | undefined
   let contextOpen = $state(false)
-  let open = $state(false), phone = $state(false), expanded = $state(false), mode = $state('session')
+  let open = $state(false), phone = $state(false), full = $state(false), mode = $state('session'), keyboardEditing=$state(false)
+  let panelSize=$state<GafferPanelSize>('comfortable'),panelSide=$state<GafferPanelSide>('right')
+  let layoutRevision=$state(0)
+  const modal=$derived(phone||full)
   let panel = $state<HTMLDialogElement>(), launcher = $state<HTMLButtonElement>(), composer = $state<HTMLTextAreaElement>(), transcript = $state<HTMLDivElement>()
   let inlineOpener: HTMLElement | undefined
   let settings = $state<GafferSettings | null>(null), view = $state<GafferConversationView | null>(null), loadedScope = $state<string | null>(null)
@@ -46,28 +49,37 @@
   const dirty = $derived(!!current && (current.conversation.providerId !== providerId || current.conversation.model !== model))
   const bytes = $derived(gafferMessageBytes(drafts[scope] ?? ''))
   const blocked = $derived(loadedScope !== scope || loading || sending || updating || !!running || !!pending || unavailable || !!streamError || !settings?.available || !provider?.enabled || dirty || !!current?.context?.needsReview || (manualModel && !model.trim()))
-  const last = $derived(current?.turns.at(-1))
   const contextLabel = $derived(current?.context?.needsReview ? 'Review context sharing' : current?.context?.grant && (current.context.grant.status || current.context.grant.history || current.context.grant.text) ? 'Selected context shared' : 'Context off · typed messages only')
 
   onMount(() => {
+    try{const saved=readGafferLayout(localStorage.getItem(`reet.gaffer.layout.${userId}`));panelSize=saved.size;panelSide=saved.side}catch{/* optional layout preference */}
+    document.documentElement.setAttribute('data-gaffer-anchor',panelSide)
     const entry = (opener: HTMLElement) => { inlineOpener = opener; open = true }
     gafferChatEntry.set(entry)
     const arrival=new URL(location.href)
     if(arrival.pathname==='/sessions'&&arrival.searchParams.get('gaffer')==='1'){
       open=true;arrival.searchParams.delete('gaffer');history.replaceState(history.state,'',arrival)
     }
-    const mq = matchMedia('(max-width: 559.98px)'); const resize = () => phone = mq.matches
+    const mq = matchMedia('(max-width:767px), (max-height:500px) and (pointer:coarse) and (orientation:landscape)'); const resize = () => phone = mq.matches
     resize(); mq.addEventListener('change', resize)
-    return () => { gafferChatEntry.update(current => current === entry ? null : current); mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
+    // Give the worker the whole keyboard-visible area while typing. Returning
+    // from the keyboard restores the same corner, rather than moving the mascot.
+    const vv=window.visualViewport,coarse=matchMedia('(pointer:coarse)')
+    let seenWidth=innerWidth,tallest=innerHeight,frame=0
+    const measureKeyboard=()=>{frame=0;if(innerWidth!==seenWidth){seenWidth=innerWidth;tallest=0}tallest=Math.max(tallest,innerHeight);const focus=document.activeElement;keyboardEditing=coarse.matches&&!!focus?.closest('.pane,.chat-pane')&&((!!vv&&Math.abs(vv.scale-1)<.01&&vv.height<innerHeight*.85)||innerHeight<tallest*.85);document.documentElement.toggleAttribute('data-gaffer-editing',keyboardEditing)}
+    const scheduleKeyboard=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(measureKeyboard)}
+    measureKeyboard();window.addEventListener('resize',scheduleKeyboard);vv?.addEventListener('resize',scheduleKeyboard);document.addEventListener('focusin',scheduleKeyboard);document.addEventListener('focusout',scheduleKeyboard)
+    return () => { cancelAnimationFrame(frame);window.removeEventListener('resize',scheduleKeyboard);vv?.removeEventListener('resize',scheduleKeyboard);document.removeEventListener('focusin',scheduleKeyboard);document.removeEventListener('focusout',scheduleKeyboard);document.documentElement.removeAttribute('data-gaffer-editing');document.documentElement.removeAttribute('data-gaffer-anchor');gafferChatEntry.update(current => current === entry ? null : current); mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
   })
   $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; workerOpen=false;goalOpen=false;followedOpen=false;relay=false; if (shown) void load(key); else dispose() }) })
   $effect(() => {
     if (!open || !panel) return
-    const mobile = phone, dialog = panel
+    const mobile = modal, dialog = panel
     if (dialog.open) dialog.close()
     if (mobile) dialog.showModal(); else dialog.show()
     if (canAutoFocus()) void tick().then(() => { if (dialog.open && !mobile) composer?.focus({preventScroll:true}) })
   })
+  function layout(size=panelSize,side=panelSide){panelSize=size;panelSide=side;layoutRevision++;document.documentElement.setAttribute('data-gaffer-anchor',side);try{localStorage.setItem(`reet.gaffer.layout.${userId}`,JSON.stringify({size,side}))}catch{/* optional preference */}}
   function phoneShell(node: HTMLDialogElement, mobile: boolean) {
     let handle: ReturnType<typeof shell>
     function update(value: boolean) { handle?.destroy?.(); node.removeAttribute('data-shell'); if (value) handle = shell(node, {sheet:'full'}); else handle = undefined }
@@ -130,7 +142,7 @@
       if (mine === epoch && stream === source && open) { stream = undefined; streamError = 'The reply connection paused. Reconnect to read Gaffer’s saved answer.' }
     }
   }
-  async function close() { open = false; confirming = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : $gafferChatDock ?? launcher)?.focus({preventScroll:true}) }
+  async function close() { open = false;full=false; confirming = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true}) }
   function chooseProvider(value: string) { providerId = value; model = ''; manualModel = false; invalidateModels() }
   function invalidateModels() { modelEpoch++; modelRequest?.abort(); fetchingModels = false; models = []; modelsError = '' }
   async function fetchModels() {
@@ -252,23 +264,25 @@
   }
 </script>
 
-{#if !open && !$gafferChatDock}
-  <button class="gaffer-launcher" use:keepLauncherClear bind:this={launcher} aria-label="Ask Gaffer" aria-haspopup="dialog" onclick={() => open = true}>
-    <span class="launcher-portrait" aria-hidden="true"><GafferAvatar phase="idle" pose="tea" /></span><span>Ask Gaffer</span>
+<div class="gaffer-anchor-space" data-gaffer-space aria-hidden="true"></div>
+{#if !open&&!keyboardEditing}
+  <button class="gaffer-launcher" data-side={panelSide} bind:this={launcher} aria-label="Ask Gaffer" aria-expanded="false" aria-haspopup="dialog" title="Ask Gaffer" onclick={() => open = true}>
+    <GafferCompanionAvatar size={56}/>
   </button>
 {/if}
 {#if open}
-  <dialog class="gaffer-chat" class:expanded bind:this={panel} use:phoneShell={phone} use:alignToConversation={$gafferChatDock} aria-labelledby="gaffer-chat-title" aria-modal={phone ? 'true' : 'false'} oncancel={event => {event.preventDefault(); void close()}} onkeydown={event => { if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); void close()} }}>
-    <header class="chat-head" data-shell-head>
-      <span class="portrait" aria-hidden="true"><GafferAvatar active={!!running} phase={running ? 'working' : last?.state === 'failed' ? 'error' : 'idle'} pose={running ? 'duty' : 'tea'} reaction={running ? 'scan' : ''} /></span>
+  <dialog class="gaffer-chat" data-size={panelSize} data-side={panelSide} data-full={full||undefined} bind:this={panel} use:phoneShell={modal} use:moveGafferPanel={{reset:`${panelSize}:${panelSide}:${full}:${phone}:${layoutRevision}`,modal}} aria-labelledby="gaffer-chat-title" aria-modal={modal ? 'true' : 'false'} oncancel={event => {event.preventDefault(); void close()}} onkeydown={event => { if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); void close()} }}>
+    <header class="chat-head" data-shell-head data-gaffer-drag>
+      <button class="move-face" type="button" data-gaffer-move disabled={modal} aria-label="Move Gaffer panel with arrow keys or by dragging"><GafferCompanionAvatar size={32} thinking={!!running}/></button>
       <div class="heading"><h2 id="gaffer-chat-title">Gaffer</h2><p class="scope-title" title={scopeTitle}>{scopeTitle}</p></div>
       <div class="head-actions">
         <button class="icon" bind:this={historyButton} aria-label="Conversation history" title="Conversation history" aria-haspopup="dialog" onclick={() => historyOpen = true}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7M12 7v5l3 2" /></svg></button>
         <button class="icon" bind:this={optionsButton} aria-label="Chat options" title="Chat options" aria-haspopup="dialog" onclick={() => optionsOpen=true}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-        <button class="icon expand" aria-label={expanded ? 'Compact Gaffer panel' : 'Expand Gaffer panel'} title={expanded ? 'Compact panel' : 'Expand panel'} onclick={() => expanded = !expanded}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d={expanded ? 'M4 10h6V4M20 14h-6v6M10 10 3 3m11 11 7 7' : 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7'} /></svg></button>
+        <button class="icon expand" aria-label={full ? 'Restore panel' : 'Full screen'} aria-pressed={full} title={full ? 'Restore panel' : 'Full screen'} onclick={() => full = !full}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d={full ? 'M4 10h6V4M20 14h-6v6M10 10 3 3m11 11 7 7' : 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7'} /></svg></button>
         <button class="icon" data-shell-close aria-label="Close Gaffer" title="Close the panel; keep the current answer running" onclick={() => void close()}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
       </div>
     </header>
+    <div class="panel-layout"><div class="panel-sizes" role="group" aria-label="Gaffer panel size">{#each [['compact','Compact'],['comfortable','Default'],['expanded','Expanded']] as [value,label]}<button type="button" aria-pressed={panelSize===value} disabled={full} onclick={()=>layout(value as GafferPanelSize)}>{label}</button>{/each}</div><div class="panel-position" role="group" aria-label="Panel position"><button type="button" aria-label="Place Gaffer on the left" aria-pressed={panelSide==='left'} disabled={full} onclick={()=>layout(panelSize,'left')}>←</button><button type="button" aria-label="Place Gaffer on the right" aria-pressed={panelSide==='right'} disabled={full} onclick={()=>layout(panelSize,'right')}>→</button></div></div>
     {#if unavailable}
       <div class="unavailable" data-shell-body><h3>This session uses a terminal.</h3><p>A session companion needs a supported structured chat. You can still talk to Gaffer in General chat.</p><button class="btn" onclick={() => mode = 'general'}>Open general chat</button></div>
     {:else}
@@ -276,11 +290,11 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrolling history must be reachable with a keyboard.) -->
       <div class="transcript" bind:this={transcript} data-shell-body onscroll={() => {if (transcript) stickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 90}} tabindex="0" role="region" aria-label="Gaffer conversation messages">
         {#if loading}<p class="empty" role="status">Finding our place…</p>
-        {:else if loadedScope === scope && !error && !current?.turns.length}<div class="welcome"><span class="welcome-mark" aria-hidden="true">“</span><h3>Reet. What’s on your mind?</h3><p>Talk it through, question the plan, or ask for a second pair of eyes.</p><p class="note">Choose Context to share retained reet or session data. In a structured session, use Chat options → Worker messages to relay an instruction. Use Session follow-up to save a bounded goal while you’re away.</p></div>{/if}
+        {:else if loadedScope === scope && !error && !current?.turns.length}<div class="welcome"><GafferCompanionAvatar size={112} sitting/><div class="welcome-copy"><h3>Ey up. I’m Gaffer.</h3><p>Talk it through, question the plan, or ask for a second pair of eyes.</p><p class="note">{scope?'Choose “Look after this session” to review access and set a goal in one place.':'A brew and a second pair of eyes. Open a working session when you’d like Gaffer to look after its progress.'}</p></div></div>{/if}
         {#if loadedScope === scope}{#each current?.turns ?? [] as turn (turn.id)}
           <article class="turn">
             <div class="user-message"><p class="speaker">{turn.goalId?'Goal review':'You'}</p><p class="message-text">{turn.prompt}</p></div>
-            <div class="gaffer-message"><div class="reply-head"><p class="speaker">Gaffer</p><span class="state" class:bad={turn.state === 'failed'}>{gafferTurnLabel(turn)}</span></div>
+            <div class="gaffer-message"><div class="reply-head"><p class="speaker"><GafferCompanionAvatar size={36} thinking={turn.state==='running'} seed={parseInt(turn.id.slice(-6),16)||0}/>Gaffer</p><span class="state" class:bad={turn.state === 'failed'}>{gafferTurnLabel(turn)}</span></div>
               {#if turn.answer}<GafferProse text={turn.answer} />{:else if turn.state === 'running'}<p class="thinking" role="status">Putting the thinking cap on…</p>{/if}
               {#if turn.error}<p class="turn-error" role="status">{turn.error}</p>{/if}
               {#if turn.cut}<p class="turn-error">This reply reached its output limit and may be incomplete.</p>{/if}
@@ -296,7 +310,7 @@
           </article>
         {/each}{/if}
       </div>
-      {#if current?.goal}<button class="goal-status quiet" type="button" onclick={()=>void goalChoices()}>{current.goal.state==='active'?'Gaffer following':current.goal.state==='needs_user'?'Goal needs you':current.goal.state==='limit'?'Goal limit reached':`Goal ${current.goal.state}`} · {current.goal.usedReviews}/{current.goal.maxReviews} reviews</button>{/if}
+
       {#if error}<div class="feedback bad" role="alert"><p>{error}</p><button class="quiet" onclick={() => void load()}>Reload conversation</button></div>{/if}
       {#if streamError}<div class="feedback" role="alert"><p>{streamError}</p><button class="btn" onclick={() => void load()}>Reconnect reply</button></div>{/if}
       {#if notice}<p class="notice" role="status">{notice}</p>{/if}
@@ -310,7 +324,7 @@
         <textarea id="gaffer-message" bind:this={composer} value={drafts[scope] ?? ''} oninput={event => drafts[scope] = event.currentTarget.value} disabled={sending || loading} rows="2" placeholder="Talk it through with Gaffer…" onkeydown={event => {if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) {event.preventDefault(); void send()}}}></textarea>
         <div class="compose-actions">
           <div class="compose-tools"><button class="model-control" bind:this={modelButton} type="button" aria-label="Model" aria-haspopup="dialog" title={`Gaffer: ${provider?.name || 'Choose a provider'} · ${model || provider?.model || 'Choose a model'}`} disabled={loading||sending||updating} onclick={openChoices}><span>{model || provider?.model || 'Choose model'}</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button>
-          <button class="context-control" bind:this={contextButton} class:attention={current?.context?.needsReview} class:shared={contextLabel==='Selected context shared'} type="button" aria-label="Context" aria-describedby={contextDescriptionId} aria-haspopup="dialog" title={contextLabel} disabled={loading||sending||updating||dirty} onclick={()=>void contextChoices()}><span class="context-dot" aria-hidden="true"></span><span>{current?.context?.needsReview?'Review context':contextLabel==='Selected context shared'?'Context on':'Context off'}</span></button><span id={contextDescriptionId} class="sr-only">{contextLabel}</span></div>
+          {#if scope&&!unavailable}<button class="context-control" class:shared={current?.goal?.state==='active'} type="button" aria-label={current?.goal?`${current.goal.state==='active'?'Gaffer following':current.goal.state==='needs_user'?'Goal needs you':current.goal.state==='limit'?'Goal limit reached':`Goal ${current.goal.state}`} · ${current.goal.usedReviews}/${current.goal.maxReviews} reviews`:'Look after this session'} title="Look after this session" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices()}><span class="context-dot" aria-hidden="true"></span><span>{current?.goal?(current.goal.state==='active'?'Following':current.goal.state==='needs_user'?'Needs you':current.goal.state==='limit'?'Limit reached':current.goal.state):'Look after'}</span></button>{:else}          <button class="context-control" bind:this={contextButton} class:attention={current?.context?.needsReview} class:shared={contextLabel==='Selected context shared'} type="button" aria-label="Context" aria-describedby={contextDescriptionId} aria-haspopup="dialog" title={contextLabel} disabled={loading||sending||updating||dirty} onclick={()=>void contextChoices()}><span class="context-dot" aria-hidden="true"></span><span>{current?.context?.needsReview?'Review context':contextLabel==='Selected context shared'?'Context on':'Context off'}</span></button>{/if}<span id={contextDescriptionId} class="sr-only">{contextLabel}</span></div>
           {#if running}<button class="send-control stop" type="button" aria-label="Cancel answer" title="Cancel Gaffer’s answer" disabled={cancelling || sending} onclick={() => void cancelAnswer()}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>{:else}<button class="send-control" aria-label="Send message" title="Send message · Ctrl / ⌘ Enter" disabled={blocked || !drafts[scope]?.trim() || bytes > 8000}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>{/if}
         </div>
         {#if bytes>7200||dirty}<p class="compose-hint" class:bad={bytes>8000}>{bytes>7200?`${bytes.toLocaleString()} / 8,000 bytes`:'Apply your model choice first'}</p>{/if}
@@ -345,9 +359,9 @@
   <div class="chat-options"><p><strong>{scopeTitle}</strong></p>
     {#if scope && $gafferSessionContext}<p>Working agent: {toolName($gafferSessionContext.tool)||'Agent'} · {$gafferSessionContext.model||'Model not reported'}</p>{/if}
     <p>Gaffer: {provider?.name||'Choose a provider'} · {model||provider?.model||'Choose a model'}</p>
-    <p>Your critical buddy, with a brew standing by. Closing the panel keeps the current answer running. In a structured session, Worker messages lets you enable one instruction for your next request. Use Session follow-up to save a bounded goal while you’re away.</p>
+    <p>Your critical buddy, with a brew standing by. Closing the panel keeps the current answer running.</p>
     <a class="btn" href="/account/gaffer">Gaffer settings</a>
-    {#if scope&&!unavailable}<button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void workerChoices()}>Worker messages</button><button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices()}>Session follow-up</button>{/if}
+    {#if scope&&!unavailable}<button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices()}>Look after this session</button><details><summary>Advanced session controls</summary><div class="chat-options"><button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void workerChoices()}>Worker messages</button><button class="btn" type="button" title={contextLabel} aria-describedby={contextDescriptionId} disabled={loading||sending||updating||dirty} onclick={()=>{optionsOpen=false;void contextChoices()}}>Context sharing</button></div></details>{/if}
     <button class="btn" type="button" onclick={()=>{optionsOpen=false;followedOpen=true}}>Followed sessions</button>
     {#if current}<button class="btn remove" aria-label="Remove conversation" disabled={sending||updating||loading} onclick={()=>{optionsOpen=false;confirming=true}}>Remove chat</button>{/if}
   </div>
@@ -358,17 +372,22 @@
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 
 <style>
-  .gaffer-launcher { position: fixed; z-index: 18; right: 24px; bottom: var(--launcher-clearance, calc(var(--bottom-chrome, 0px) + 20px)); min-height: 52px; display: flex; align-items: center; gap: 8px; padding: 4px 16px 4px 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card-raised); color: var(--ink); box-shadow: 0 5px 22px var(--scrim); font: 600 14px var(--sans); cursor: pointer; }
-  .launcher-portrait { width: 38px; height: 38px; }
-  .gaffer-launcher:hover { border-color: var(--accent); }
-  .gaffer-chat { position: fixed; z-index: 30; inset: auto var(--gaffer-right, 20px) calc(var(--bottom-chrome, 0px) + 18px) auto; margin: 0; width: 450px; max-width: calc(100vw - 32px); height: min(770px, calc(100dvh - var(--bottom-chrome, 0px) - 48px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: 0 16px 64px var(--scrim); overflow: hidden; }
-  .gaffer-chat[open] { display: flex; flex-direction: column; }
-  .gaffer-chat.expanded { width: 660px; }
-  .gaffer-chat::backdrop { background: var(--scrim); }
+  .gaffer-launcher,.gaffer-chat{--gaffer-floor:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px) + 40px)}
+  .gaffer-anchor-space{position:fixed;inset:auto 0 0;height:var(--bottom-chrome,0px);pointer-events:none;z-index:-1}
+  .gaffer-launcher{position:fixed;z-index:18;right:20px;bottom:var(--gaffer-floor);display:flex;width:56px;height:56px;padding:0;border:0;border-radius:50%;background:var(--card);box-shadow:0 5px 22px var(--scrim);cursor:pointer}
+  .gaffer-launcher[data-side=left]{right:auto;left:20px}
+  .gaffer-chat{box-sizing:border-box;position:fixed;z-index:30;inset:auto 16px var(--gaffer-floor) auto;margin:0;width:min(28rem,calc(100vw - 32px));height:min(42rem,calc(100dvh - var(--gaffer-floor) - 24px));min-width:min(22rem,calc(100vw - 32px));min-height:min(26rem,calc(100dvh - var(--gaffer-floor) - 24px));max-width:calc(100vw - 32px);max-height:calc(100dvh - var(--gaffer-floor) - 24px);padding:0;border:1px solid var(--line-strong);border-radius:12px;background:var(--card);color:var(--ink);box-shadow:0 16px 64px var(--scrim);overflow:hidden;resize:both}
+  .gaffer-chat[open]{display:flex;flex-direction:column}.gaffer-chat[data-side=left]{inset:auto auto var(--gaffer-floor) 16px}
+  .gaffer-chat[data-size=compact]{width:min(24rem,calc(100vw - 32px));height:min(32rem,calc(100dvh - var(--gaffer-floor) - 24px))}
+  .gaffer-chat[data-size=expanded]{width:min(46rem,calc(100vw - 32px));height:min(52rem,calc(100dvh - var(--gaffer-floor) - 24px))}
+  .gaffer-chat[data-full]{inset:16px; width:calc(100vw - 32px);height:calc(100dvh - 32px);max-height:calc(100dvh - 32px);resize:none}
+  .gaffer-chat::backdrop{background:var(--scrim)}
+  .move-face{display:grid;place-items:center;border:0;padding:0;background:none;cursor:grab;touch-action:none}.move-face:disabled{cursor:default}.chat-head{cursor:grab;touch-action:none}.chat-head:active{cursor:grabbing}
+  .panel-layout{display:flex;align-items:center;justify-content:space-between;padding:3px 12px;border-bottom:1px solid var(--line);flex:none}.panel-sizes,.panel-position{display:flex;align-items:center;gap:4px}
+  .panel-layout button{border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font:400 12px var(--sans);padding:6px 8px;min-height:36px;cursor:pointer}.panel-layout button[aria-pressed=true]{color:var(--accent-text);background:var(--tint);border-color:var(--accent)}.panel-layout button:disabled{opacity:.5;cursor:default}.panel-position button{width:36px;font-size:16px}
   .chat-head { display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none;background:var(--bg-sunk); }
-  .portrait { width:36px;height:36px;flex:none; }
   .heading { flex:1;min-width:0; }
-  h2 { font:600 23px/1.1 var(--serif);margin:0; }
+  h2 { font:600 18px/1.1 var(--serif);margin:0; }
   h3 { font:600 23px/1.25 var(--serif);margin:0 0 10px; }
   .scope-title { margin:3px 0 0;font-size:14px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
   .head-actions { display:flex;flex:none;gap:0; }
@@ -383,15 +402,15 @@
   .model-head,.model-actions { display:flex;align-items:center;justify-content:space-between;gap:10px; }
   .choices a { font-size:14px; }
   .note { font-size:14px;color:var(--muted);line-height:1.5;margin:4px 0; }
-  .transcript { overflow:auto;overscroll-behavior:contain;flex:1;min-height:80px;padding:20px;scrollbar-gutter:stable; }
-  .welcome { padding:24px 4px;max-width:34ch; }
-  .welcome-mark { font:64px/.7 var(--serif);color:var(--accent-text);display:block;margin:18px 0 10px; }
-  .welcome>p { font-size:15px;line-height:1.6; }
+  .transcript { overflow:auto;overscroll-behavior:contain;flex:1;min-height:80px;padding:22px 20px;scrollbar-gutter:stable; }
+  .welcome { padding:16px 4px;display:flex;align-items:flex-start;flex-wrap:wrap;gap:16px 20px; }.welcome-copy{flex:1 1 220px;min-width:0}
+  .welcome h3 { margin:0 0 10px; }
+  .welcome-copy>p { font-size:15px;line-height:1.6; }
   .welcome .note { margin-top:16px;font-size:14px; }
   .turn+.turn { margin-top:28px; }
   .user-message { background:var(--tint);border:1px solid var(--line-soft);border-radius:12px 12px 4px 12px;padding:12px 14px;margin:0 0 18px 24px; }
   .user-message .speaker { position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0); }
-  .speaker { margin:0 0 10px;font-size:14px;font-weight:600; }
+  .speaker { display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px;font-weight:600; }
   .message-text { margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.65; }
   .reply-head { display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px; }
   .state { color:var(--muted);font-size:14px;border-radius:6px; }
@@ -422,13 +441,14 @@
   .send-control:disabled { opacity:.45;cursor:default; }.send-control.stop { background:var(--ink);color:var(--card); }
   .compose-hint { font-size:14px;margin:4px 8px 0;color:var(--muted);font-variant-numeric:tabular-nums; }.compose-hint.bad { color:var(--bad); }
   .chat-options { display:grid;gap:14px;font-size:14px;line-height:1.5; }.chat-options p { margin:0;overflow-wrap:anywhere; }.chat-options .btn { text-align:center; }.remove { color:var(--bad); }
-  .goal-status { flex:none;text-align:left;margin:0 16px;min-height:32px;font-size:14px;font-variant-numeric:tabular-nums; }
   .request-mode { margin:0 0 6px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;color:var(--accent-text); }.worker-receipt { margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:8px; }.worker-receipt summary { cursor:pointer;font-size:14px; }.worker-receipt p { margin-top:8px; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (pointer:coarse) { .icon { width:44px;min-height:44px; }.send-control { width:44px;min-height:44px; }.model-control,.context-control,.reply-details summary { min-height:44px; } }
-  @media (max-width:559.98px) {
-    .gaffer-launcher { right:12px; }.gaffer-chat { inset:0;width:100%;max-width:100%;height:100dvh;border-radius:0; }.expand { display:none; }
+  @media (max-width:767px), (max-height:500px) and (pointer:coarse) and (orientation:landscape) {
+    .gaffer-launcher,.gaffer-chat{--gaffer-floor:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px) + max(8px,env(safe-area-inset-bottom,0px)))}
+    .gaffer-launcher{right:12px}.gaffer-launcher[data-side=left]{left:12px}
+    .gaffer-chat,.gaffer-chat[data-size],.gaffer-chat[data-side],.gaffer-chat[data-full]{inset:calc(var(--shell-top,0px) + 12px) auto auto 12px;width:calc(100vw - 24px);min-width:0;max-width:calc(100vw - 24px);height:calc(var(--shell-height,100dvh) - 24px);min-height:0;max-height:calc(var(--shell-height,100dvh) - 24px);resize:none}.expand,.panel-layout{display:none}
     .chat-head { padding:8px 10px;gap:8px; }.icon { width:40px;min-height:44px; }.transcript { padding:20px 16px; }.composer { padding:8px 12px; }
     .btn,.quiet,select,input { min-height:44px; }.model-control,.context-control { min-height:44px; }.send-control { width:44px;min-height:44px; }textarea { font-size:16px; }
   }

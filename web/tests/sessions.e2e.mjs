@@ -71,7 +71,9 @@ async function open(options={}) {
   '/api/v2/terminal/status': {configured:true,available:true,reason:''},
   '/api/v2/terminal/worktrees/status': request => { box.status.push(request.postDataJSON()); return {path:'/home/dev/.reet/worktrees/reet/reet/0f1e2d3c4b5a6978',branch:'reet/reet-0f1e2d3c4b5a6978',changed:options.changed ?? changedPaths.length,unpushed:0,paths:changedPaths.slice(0, options.changed ?? changedPaths.length),unreferenced:0,hidden:0,nested:false,incomplete:false} },
  }
- const opened = await openWorkspace(browser, {width:options.width ?? 1440, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
+ // The wide fixture keeps room for the docked details panel and Gaffer's saved
+ // corner. Explicit tablet/phone widths below still exercise the drawer layout.
+ const opened = await openWorkspace(browser, {width:options.width ?? 1536, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
  // An open session's terminal: a ticket, then a socket that says it is ready.
  await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => { box.sockets.push(socket); socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }) })
  // A Gaffer chat's stream: window.__chatStream.emit(type, data) plays the controller's events into the open chat. With

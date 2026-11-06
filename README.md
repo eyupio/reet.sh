@@ -121,27 +121,31 @@ Use **Lists** to browse My lists, Shared with me and Teams & organisations. **Co
 
 ### Accounts
 
-**Ask Gaffer** opens a private floating chat for signed-in accounts with write access.
-Outside a session it is general chat; in a structured session you can switch to that
-session's separate companion conversation. History lives in the header; the compact
-model/context controls sit below the message box, leaving the main area for chat.
-Gaffer's provider/model is independent of
-the agent doing your work. Replies stream and stay saved on the controller; closing
-the panel keeps the current answer running, while **Cancel answer** stops it. This
-chat starts with typed messages only. **Context** lets you preview and explicitly
-share retained account counts or selected-session status, event summaries and
-optional message text, within your provider permissions. In a supported structured
-session, **Chat options → Worker messages** lets you grant separate permission and
-enable one instruction for your next request. Gaffer queues it for the existing
-working model and shows a durable receipt; the model performs the work.
-**Session follow-up** saves an explicit goal that continues while you are away,
-with a default of 12 Gaffer reviews over 24 hours. Reviews follow new worker
-progress and pause for decisions, ambiguous outcomes or limits. See
-[Gaffer AI](docs/gaffer-ai.md#let-gaffer-look-after-a-session).
+The circular **Ask Gaffer** mascot opens a private floating chat for signed-in
+accounts with write access. Its saved bottom corner leaves primary actions clear.
+Choose Compact, Default, Expanded or Full screen, save left/right placement, or
+temporarily drag/resize the desktop panel. Phone layouts follow the viewport and
+step aside for the worker's keyboard. History lives in the header; the compact
+model control sits below the message box, leaving the main area for chat.
+
+Outside a session Gaffer is general chat; each supported structured session has a
+separate companion conversation. Its provider/model is independent of the working
+agent. Replies stream and stay saved on the controller; closing keeps the answer
+running, while **Cancel answer** stops it. Chat starts with typed messages only;
+**Context** can preview and explicitly share retained reet information.
+
+**Look after this session** reviews its provider/model, recent conversation access,
+worker messaging and agreed goal in one place, then saves them together. Defaults
+are **12 Gaffer reviews over 24 hours**, editable under Change limits. Selected
+goals continue on the controller while you are away, follow new worker progress
+and pause for decisions, uncertain delivery or limits. Advanced session controls
+keep detailed sharing and a separate one-request worker relay optional. Gaffer
+communicates; the existing session model performs the implementation and PR work
+under its own approvals. See [Gaffer AI](docs/gaffer-ai.md#let-gaffer-look-after-a-session).
 
 The default `REET_AUTH=accounts` creates one owner through the setup page on first visit, then signs people in with email and password. Each account has its own shelf. Roles are owner, admin, member and viewer; viewers are read-only. Shared lists are where people work together without sharing a shelf. Sessions are HttpOnly, SameSite=Lax cookies; passwords are stored with argon2id; sign-in is rate-limited.
 
-**Setups** lists and explains server-synced AI setup profiles. Run `reet setup profile` for the interactive create/push wizard; creation, push and pull remain CLI commands. Use the **Account** menu (inside **Menu** on smaller screens); it also switches the theme between light, dark and your device's setting. Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Agents** (the default agent, model and thinking for sessions outside a project, and favourite models), **Gaffer AI** ([independent provider/model settings](docs/gaffer-ai.md), live model lists and connection tests; independent companion chat with explicit retained-context sharing and separately granted worker instructions and bounded offline session goals, with a followed-session overview), **Sessions**, **Machines** (connect and inspect agent inventories), **Compare & sync** (comparison and reference snapshots), **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
+**Setups** lists and explains server-synced AI setup profiles. Run `reet setup profile` for the interactive create/push wizard; creation, push and pull remain CLI commands. Use the **Account** menu (inside **Menu** on smaller screens); it also switches the theme between light, dark and your device's setting. Its sections are **Profile** (name, theme, time zone and date order), **Password** (which ends every other session), **Agents** (the default agent, model and thinking for sessions outside a project, and favourite models), **Gaffer AI** ([independent provider/model settings](docs/gaffer-ai.md), live model lists and connection tests; independent companion chat with reviewed session access and bounded offline goals, with optional advanced sharing and worker controls, with a followed-session overview), **Sessions**, **Machines** (connect and inspect agent inventories), **Compare & sync** (comparison and reference snapshots), **API tokens** (shown once), **Backups** for your own shelf, and **Activity**. Admins get **Admin → Users** to invite people by link, reset passwords, disable accounts, change roles, revoke tokens and transfer ownership, and **Admin → Backups** for the instance. If `REET_TOKEN` is set it is required once on the setup page and works for `reet scan` only until a personal API token exists.
 
 - **Single sign-on:** set `REET_OIDC_ISSUER` and a client to let people sign in through the identity provider they already use, with roles from its groups and sign-out from it ending their sessions. Passwords, the owner and personal tokens keep working. [Setup and rules](docs/single-sign-on.md).
 - **Solo or trusted LAN:** `REET_AUTH=none` removes sign-in and maps everything to an implicit owner. Use it only on a network you trust.

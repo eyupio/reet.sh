@@ -17,7 +17,6 @@ import ImageLightbox from './ImageLightbox.svelte'
  import ChatPreview from './ChatPreview.svelte'
  import ChatStatus from './ChatStatus.svelte'
  import type { ChatProgressState } from '../gafferProgress'
- import { dockGafferChat, gafferChatEntry } from '../gafferContext'
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import ChatQueue from './ChatQueue.svelte'
@@ -641,7 +640,6 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
   <strong>{statusWord}</strong>
   {#if statusDetail && !failed}<span class="detail">{statusDetail}</span>{/if}
  </div>
- {#if $gafferChatEntry}<button type="button" class="ask-gaffer" use:dockGafferChat aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 3.5h10a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4.5 3v-3H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/><path d="M6.5 7h7m-7 3h4"/></svg>Ask Gaffer</button>{/if}
  </div>
  {#if reattaching}
   <!-- The status line above is the one live region while reconnecting; this note does not announce again. -->
@@ -1034,11 +1032,6 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  .chat-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; height: 100%; background: var(--bg); container: chat-pane / inline-size; }
  .chat-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--line-soft); font-size: 14px; color: var(--muted); background: var(--bg); }
  .chat-live { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
- .ask-gaffer { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 8px; min-height: 36px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
- .ask-gaffer svg { width: 17px; height: 17px; color: var(--accent-text); }
- .ask-gaffer:hover { color: var(--ink); border-color: var(--accent-text); background: var(--tint); }
- .ask-gaffer:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
- @media (pointer: coarse) { .ask-gaffer { min-height: 44px; } }
  .chat-status strong { font-weight: 500; color: var(--ink); }
  .chat-status .detail { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); flex: none; }

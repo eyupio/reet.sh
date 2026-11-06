@@ -25,10 +25,14 @@ type GoalInput struct {
 	Hours      int    `json:"hours"`
 }
 type GoalView struct {
-	Goal    *store.GafferGoal `json:"goal"`
-	Pins    GoalPins          `json:"pins"`
-	Allowed bool              `json:"allowed"`
-	Reason  string            `json:"reason,omitempty"`
+	Goal                   *store.GafferGoal `json:"goal"`
+	Pins                   GoalPins          `json:"pins"`
+	Allowed                bool              `json:"allowed"`
+	Reason                 string            `json:"reason,omitempty"`
+	SetupAllowed           bool              `json:"setupAllowed"`
+	ProviderName           string            `json:"providerName"`
+	RequiresProviderAccess bool              `json:"requiresProviderAccess"`
+	ConversationRevision   int64             `json:"conversationRevision"`
 }
 
 func (s *Service) Goal(uid int64, cid string) (GoalView, error) {
@@ -36,7 +40,7 @@ func (s *Service) Goal(uid int64, cid string) (GoalView, error) {
 	if err != nil {
 		return GoalView{}, err
 	}
-	v := GoalView{}
+	v := GoalView{ConversationRevision: c.Revision}
 	if c.SessionID == "" {
 		v.Reason = "Open a structured session to ask Gaffer to look after it."
 		return v, nil
@@ -50,6 +54,16 @@ func (s *Service) Goal(uid int64, cid string) (GoalView, error) {
 		return v, err
 	}
 	v.Pins = GoalPins{ProviderID: w.ProviderID, ProviderRevision: w.ProviderRevision, Model: w.Model, ContextRevision: sharing.Grant.Revision, WorkerRevision: w.Grant.Revision}
+	provider, providerErr := s.store.GafferProviderFor(uid, c.ProviderID)
+	row, rowErr := s.store.TerminalSessionFor(uid, c.SessionID)
+	principal, principalErr := s.chatPrincipal(uid)
+	if providerErr == nil && rowErr == nil && principalErr == nil {
+		caps, capsErr := s.store.RemoteCapabilitiesFor(uid, row.AgentID)
+		_, available := caps.Capabilities.ChatAgent(row.Tool)
+		v.ProviderName = provider.Name
+		v.RequiresProviderAccess = !provider.AllowSessions || !provider.AllowCode
+		v.SetupAllowed = s.Available() && s.worker != nil && (s.workerEnabled == nil || s.workerEnabled()) && provider.Enabled && (!provider.LocalOnly || principal.CanUseLocal) && row.State == terminalproto.Running && available && capsErr == nil && caps.Capabilities.ACPLiveControls
+	}
 	v.Allowed = w.Allowed && w.Grant.Enabled && !w.NeedsReview && !sharing.NeedsReview && sharing.Grant.History && sharing.Grant.Text && sharing.Allowed.Contains(sharing.Grant.ContextFlags)
 	if !v.Allowed {
 		v.Reason = "Review Worker messages and Context sharing for this session. Follow-up needs session event history and message text, under the chosen provider's permissions."
@@ -61,6 +75,52 @@ func (s *Service) Goal(uid int64, cid string) (GoalView, error) {
 		return v, err
 	}
 	return v, nil
+}
+
+type GoalSetupInput struct {
+	GoalInput
+	ConversationRevision int64  `json:"conversationRevision"`
+	Confirmed            bool   `json:"confirmed"`
+	Action               string `json:"action"`
+}
+
+func (s *Service) SetupGoal(uid int64, cid string, in GoalSetupInput) (GoalView, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.goalRecoveryErr != nil {
+		return GoalView{}, ErrUnavailable
+	}
+	v, err := s.Goal(uid, cid)
+	if err != nil {
+		return v, err
+	}
+	if !in.Confirmed || !v.SetupAllowed {
+		return v, invalid("goal", "Review the session, model, shared information and follow-up limits before continuing.")
+	}
+	if in.GoalPins != v.Pins || in.ConversationRevision != v.ConversationRevision {
+		return v, store.ErrGafferConflict
+	}
+	if in.Action != "start" && in.Action != "resume" {
+		return v, invalid("goal", "Choose start or resume for this session.")
+	}
+	if in.Action == "start" && (in.Hours < 1 || in.Hours > 168) {
+		return v, invalid("goal", "Choose between 1 and 168 hours of follow-up.")
+	}
+	id, err := newChatID()
+	if err != nil {
+		return v, err
+	}
+	g := store.GafferGoal{ID: id, ConversationID: cid, Text: in.Text, ProviderID: v.Pins.ProviderID, ProviderRevision: v.Pins.ProviderRevision, Model: v.Pins.Model, ContextRevision: v.Pins.ContextRevision, WorkerRevision: v.Pins.WorkerRevision, MaxReviews: in.MaxReviews, ExpiresAt: time.Now().Add(time.Duration(in.Hours) * time.Hour).UnixMilli(), LastSeq: -1}
+	if _, err = s.store.SetupGafferGoal(uid, in.ConversationRevision, in.Revision, g, in.Action == "resume"); err != nil {
+		return v, err
+	}
+	for _, job := range s.chatJobs {
+		if job.uid == uid && (job.conversation == cid || v.RequiresProviderAccess && job.provider == g.ProviderID) {
+			job.cancel(errGafferPolicy)
+		}
+	}
+	s.wakeGoals()
+	return s.Goal(uid, cid)
 }
 func (s *Service) SaveGoal(uid int64, cid string, in GoalInput) (GoalView, error) {
 	s.mu.Lock()

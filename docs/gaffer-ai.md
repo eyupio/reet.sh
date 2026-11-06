@@ -36,8 +36,8 @@ your account. Drag the desktop header or focus its mascot and use arrow keys
 preset or reopening restores its saved corner. Full screen and the phone sheet
 stay above the keyboard. The mascot follows your animation and reduced-motion
 preferences. While typing into a worker with the phone keyboard open, the
-launcher and its reserved space step aside; closing the keyboard restores the
-same corner. A landscape phone reserves a narrow side strip beside the terminal
+launcher and its reserved space step aside in keyboard-sized views; closing the keyboard restores the
+same corner. Wider workspaces, including landscape phones, reserve a narrow side strip beside the terminal
 instead of consuming terminal rows.
 
 Outside a session, use **General Gaffer chat**. Inside a supported structured chat,

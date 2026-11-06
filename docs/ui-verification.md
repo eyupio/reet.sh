@@ -26,7 +26,8 @@ now measures modal dialogs in the browser's top layer, without clipping them to
 the terminal behind them; the save-dock check verifies its new clearance above
 the stable launcher. Captures below were visually inspected with synthetic data.
 The launcher steps aside while typing into a worker with the phone keyboard open,
-then restores its saved corner. Landscape terminals reserve width instead of rows.
+then restores its saved corner. Wider workspaces and landscape terminals reserve width instead of rows. Theatre
+checks use the available workspace width, keeping its reserved corner clear.
 Final-head CI/review and the separate real-controller native/Docker acceptance
 remain the delivery gates. No physical-phone or real-provider claim is made.
 

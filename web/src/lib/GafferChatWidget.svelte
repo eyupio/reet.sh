@@ -446,7 +446,7 @@
   button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   @media (pointer:coarse) { .icon { width:44px;min-height:44px; }.send-control { width:44px;min-height:44px; }.model-control,.context-control,.reply-details summary { min-height:44px; } }
   @media (max-width:767px), (max-height:500px) and (pointer:coarse) and (orientation:landscape) {
-    .gaffer-launcher,.gaffer-chat{--gaffer-floor:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px) + 16px)}
+    .gaffer-launcher,.gaffer-chat{--gaffer-floor:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px) + max(8px,env(safe-area-inset-bottom,0px)))}
     .gaffer-launcher{right:12px}.gaffer-launcher[data-side=left]{left:12px}
     .gaffer-chat,.gaffer-chat[data-size],.gaffer-chat[data-side],.gaffer-chat[data-full]{inset:calc(var(--shell-top,0px) + 12px) auto auto 12px;width:calc(100vw - 24px);min-width:0;max-width:calc(100vw - 24px);height:calc(var(--shell-height,100dvh) - 24px);min-height:0;max-height:calc(var(--shell-height,100dvh) - 24px);resize:none}.expand,.panel-layout{display:none}
     .chat-head { padding:8px 10px;gap:8px; }.icon { width:40px;min-height:44px; }.transcript { padding:20px 16px; }.composer { padding:8px 12px; }

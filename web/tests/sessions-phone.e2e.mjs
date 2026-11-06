@@ -135,6 +135,8 @@ try {
    await page.evaluate(() => window.__keyboard(null))
    await expect(page.locator('.site-header')).toBeVisible()
    await expect(page.locator('html')).not.toHaveAttribute('data-chrome-aside','')
+   await expect(page.locator('html')).not.toHaveAttribute('data-gaffer-editing','')
+   await expect(page.getByRole('button',{name:'Ask Gaffer',exact:true})).toBeVisible()
    expect(errors).toEqual([])
    await context.close()
   }

@@ -86,6 +86,7 @@ plugins:
 extra_css:
   - assets/stylesheets/reet.css
   - assets/stylesheets/mkdocs.css
+  - assets/stylesheets/landing.css
 
 extra_javascript:
   - assets/javascripts/reet.js

@@ -18,7 +18,8 @@ roadmap. Gaffer relays instructions; the session's existing model does the work.
   provider continuation per request. No automatic tool/model retries.
 - Store the instruction receipt and existing queue item atomically before delivery.
   Bind stable request ID, subject/session, originating turn, text digest and grant
-  revision. An altered duplicate conflicts; a matching retry only reads its receipt.
+  revision. A fresh receipt cannot adopt an existing human queue entry. An altered
+  duplicate conflicts; a matching retry only reads its receipt.
 - Reuse the worker queue with `wait` intent. Recheck ownership, account role,
   session/archive, client switches/scope/expiry, grant and Gaffer provider policy
   at admission, queue claim and before handoff. Revocation removes unclaimed

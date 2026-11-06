@@ -2,6 +2,8 @@ package gaffer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -441,5 +443,29 @@ func TestWorkerInterruptRequiresCurrentControllerAccess(t *testing.T) {
 	queue, err := st.TerminalQueueFor(p.UserID, row.ID)
 	if err != nil || len(queue) != 1 || queue[0].Intent != "wait" || worker.enqueues.Load() != 1 {
 		t.Fatal("denied interrupt changed queue", queue, err)
+	}
+}
+
+func TestWorkerMessageCannotAdoptAnExistingHumanQueueEntry(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	row := runningWorkerSession(t, st, p)
+	worker := &fakeWorker{st: st}
+	s.SetWorker(worker)
+	subject := workerClient(t, s, st, p, row.ID, true)
+	id := strings.Repeat("e", 32)
+	hash := sha256.Sum256([]byte(strconv.FormatInt(p.UserID, 10) + "\x00mcp\x00" + subject + "\x00" + row.ID + "\x00" + id))
+	queueID := hex.EncodeToString(hash[:16])
+	if err := st.EnqueueTerminalFor(p.UserID, row.ID, queueID, "An existing human instruction.", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WorkerMessage(context.Background(), p.UserID, "mcp", subject, row.ID, id, "", "A different companion instruction."); !errors.Is(err, store.ErrChatQueueConflict) {
+		t.Fatal("adopted an unrelated queue entry", err)
+	}
+	if _, err := st.WorkerMessageFor(p.UserID, "mcp", subject, row.ID, id); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("failed admission retained a false receipt", err)
+	}
+	queue, err := st.TerminalQueueFor(p.UserID, row.ID)
+	if err != nil || len(queue) != 1 || queue[0].Origin != "" || queue[0].Text != "An existing human instruction." || worker.enqueues.Load() != 0 {
+		t.Fatal("failed admission changed the human instruction", queue, err)
 	}
 }

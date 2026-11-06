@@ -79,6 +79,11 @@ func enqueueTerminal(tx *sql.Tx, uid int64, session, id, text string, images []s
 		return err
 	}
 	if count > 0 {
+		// A new managed receipt must create its own queue entry. Ordinary wakeups
+		// may reuse an admitted ID, but admission cannot adopt another message.
+		if origin != "" {
+			return ErrChatQueueConflict
+		}
 		return nil
 	}
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND state NOT IN ('sent','removed')`, uid, session).Scan(&count); err != nil {

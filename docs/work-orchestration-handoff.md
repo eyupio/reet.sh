@@ -8,6 +8,15 @@ separate worker-message grants and bounded queue receipts. GM4 adds explicit sav
 session goals and bounded offline follow-up. GM5 supplies the followed-session
 overview; the current UX slice unifies the floating companion and reviewed setup.
 
+## Current pause checkpoint — 6 November 2026
+
+The user paused after owner-merged #625 (20 applicable checks passed) and #626
+(22 passed), each with four intentional skips. No unresolved inline threads;
+automated code review did not run because of account quota. The
+[resume checkpoint](handoffs/gaffer-resume.md) supersedes historical sequencing
+and records exact commits, implementation, evidence, limitations and authority.
+No further slice is selected. Preserve the wider KZ roadmap; do not restart GM0.
+
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
 This section records the user's latest decisions and takes precedence over older
@@ -245,7 +254,7 @@ The [implementation contract](handoffs/gaffer-widget-setup.md) records exact siz
 reserved launcher space, accessibility, the browser-only atomic setup transaction,
 revision checks and preservation of worker/MCP boundaries. This choice supersedes
 older instructions requiring three separate permission dialogs before delegation.
-GM6's separate fake-backed native/Docker acceptance is being adapted to this flow.
+GM6's fake-backed native/Docker acceptance shipped in owner-merged #626.
 Real credentials, deployment and agent merges remain out of scope.
 
 ### GM6: real-controller offline acceptance (6 November 2026)
@@ -367,19 +376,11 @@ work/plan/step/attempt/artifact/review domain. Link them explicitly when it exis
 do not equate a followed session, a Gaffer conversation or a green PR with accepted
 cross-session work.
 
-Next task: finish GM0 against the current structured-chat capability contract.
-The user selected supported structured chats with a verified message channel for
-the first MVP. Show an actionable availability reason for other sessions. This
-decision preserves experimental-adapter gates and excludes terminal keystroke
-automation. Provider/tool and deployment limitations above remain explicit.
-
-The scope realignment was documentation only. KZ0's live discovery measurements and remote
-overlap checks, KZ5A's remaining validation and the GM implementation gates remain
-incomplete. Validate this edit with local links/anchors and `git diff --check`.
-Implementation checks must additionally prove fake-backed provider/tool turns,
-session isolation, durable message receipts and restart behaviour, approval
-preservation, MCP compatibility and the responsive UI. Record live-provider and
-device evidence separately when actually obtained.
+Next task after the pause: reconcile the current capability/acceptance gaps with
+the [resume checkpoint](handoffs/gaffer-resume.md), then recommend and agree the
+smallest next slice. GM0 through the delivered GM6 acceptance slice must not be
+repeated. Live-provider/backend parity and operational/device evidence remain
+separate unverified gates; the broader KZ roadmap is not implemented implicitly.
 
 ### Implementation started: GM1A HTTP provider foundation (5 November 2026)
 
@@ -1008,7 +1009,8 @@ decisions and acceptance additionally live in the KZ work records.
 
 ## Delivery sequence and status
 
-The active first-release sequence is GM0-GM6 above; GM0 is the next design slice.
+The delivered first-release slices are recorded in the current pause checkpoint
+above. Older GM0-GM6 sequencing here is historical; no next slice is selected.
 The table below retains the broader durable-work roadmap. The original handoff
 started no stages. The branding follow-up contributes a bounded KZ5A probe; KZ0
 and KZ5A remain incomplete, and all other KZ stages remain **not started**. The

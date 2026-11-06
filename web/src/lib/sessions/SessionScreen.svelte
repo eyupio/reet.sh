@@ -411,12 +411,12 @@
         <TerminalIcon name="theatre" /><span class="wide-label">{theatre ? 'Exit theatre' : 'Theatre view'}</span><span class="compact-label">{theatre ? 'Exit' : 'Theatre'}</span>
       </button>
       <button type="button" class="tool-action" disabled={busy || serverOff} onclick={() => act('rename')}>Rename…</button>
-      {#if session.worktreeBranch}<button type="button" class="tool-action" onclick={() => void copyBranch()}>Copy branch</button>{/if}
+      {#if session.worktreeBranch}<button type="button" class="tool-action secondary-action" onclick={() => void copyBranch()}>Copy branch</button>{/if}
       {#if live}<button type="button" class="tool-action danger" disabled={busy || serverOff} onclick={() => act('end')}>{session.state === 'end_requested' ? 'Retry end request…' : 'End session…'}</button>{/if}
       {#if terminalArchivable(session.state)}<button type="button" class="tool-action" disabled={busy} onclick={() => act('archive')}>Remove from history…</button>{/if}
-      {#if target}<button type="button" class="tool-action" disabled={live || away} title={live ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(host) : undefined} onclick={checkWorktree}>Check and remove worktree…</button>{/if}
-        {#if live && onterminal}<button type="button" class="tool-action" disabled={busy || serverOff} onclick={openTerminal}><span aria-hidden="true">›_</span> Terminal here</button>{/if}
-        {#if live && onside}<button type="button" class="tool-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
+      {#if target}<button type="button" class="tool-action secondary-action" disabled={live || away} title={live ? 'End the session first: it is working in this worktree.' : away ? offlineSentence(host) : undefined} onclick={checkWorktree}>Check and remove worktree…</button>{/if}
+        {#if live && onterminal}<button type="button" class="tool-action" aria-label="Terminal here" disabled={busy || serverOff} onclick={openTerminal}><span aria-hidden="true">›_</span><span class="here-label">Terminal here</span></button>{/if}
+        {#if live && onside}<button type="button" class="tool-action secondary-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
         {#if oncontinue}<button type="button" class="tool-action" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue with history' : 'Continue session'}</button>{/if}
       </div>
     </header>
@@ -575,12 +575,15 @@
   }
   /* In landscape keep the controls reachable and trim secondary metadata. */
   @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 4px 4px; }
-    .identity-row { flex: 1 1 190px; min-height: 44px; }
-    .heading { max-width: 100px; }
+    .head { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px 8px; padding: 0 4px 4px; }
+    .identity-row { flex: 1 1 190px; min-width: 0; min-height: 44px; }
+    .heading { max-width: 100px; min-width: 0; }
     .where-phone { display: none; }
-    /* A landscape phone has no room for several wrapped rows: the controls keep their 44 px targets in one scrolling row. */
-    .session-tools { flex: 0 1 auto; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+    /* A landscape phone has no room for several wrapped rows: the primary controls stay in one row, secondary ones wait
+       for a roomier screen, and the row scrolls if the names are long. */
+    .session-tools { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+    .secondary-action { display: none; }
+    .here-label { display: none; }
   }
   /* With the phone keyboard up the site's chrome steps aside (keyboardChrome) and the slim header stays, as the mock-up's phone
      session draws it; the status line gives its row to the terminal. */

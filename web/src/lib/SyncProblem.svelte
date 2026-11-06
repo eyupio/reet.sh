@@ -12,6 +12,8 @@
     online = true,
     attempts = 1,
     onretry,
+    fixing = false,
+    onfix,
   }: {
     message: string
     host?: string
@@ -24,6 +26,9 @@
     /** How many jobs share this exact failure. */
     attempts?: number
     onretry?: () => void
+    fixing?: boolean
+    /** Adopt the source already installed on the machine and sync again. */
+    onfix?: () => void
   } = $props()
 
   const fix = $derived(explainSyncFailure(message, { host, site: site || location.origin, project }))
@@ -38,7 +43,7 @@
       {#if attempts > 1}<p class="repeat">The same failure on {attempts} jobs.</p>{/if}
     </div>
   </header>
-  {#if !online && (fix.commands.length || (onretry && fix.retry))}
+  {#if !online && (fix.commands.length || (onretry && fix.retry) || (onfix && fix.autoFix))}
     <p class="hint offline">{host || 'The machine'} is offline. The fix runs there, so reconnect it first.</p>
   {/if}
   {#if online && fix.commands.length}
@@ -53,10 +58,15 @@
       {#if fix.hint}<p class="hint">{fix.hint}</p>{/if}
     </div>
   {/if}
-  {#if (online && onretry && fix.retry) || fix.href}
+  {#if (online && onretry && fix.retry) || (online && onfix && fix.autoFix) || fix.href}
     <div class="actions">
+      {#if online && onfix && fix.autoFix}
+        <button class="btn primary" type="button" disabled={fixing} onclick={onfix} aria-busy={fixing}>
+          {fixing ? 'Fixing…' : 'Auto fix'}
+        </button>
+      {/if}
       {#if online && onretry && fix.retry}
-        <button class="btn primary" type="button" disabled={retrying} onclick={onretry} aria-busy={retrying}>
+        <button class="btn {fix.autoFix ? '' : 'primary'}" type="button" disabled={retrying} onclick={onretry} aria-busy={retrying}>
           {retrying ? 'Trying…' : fix.local ? 'I’ve run it — try again' : 'Fix and try again'}
         </button>
       {/if}

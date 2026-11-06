@@ -29,6 +29,8 @@ export type SyncProblem = {
   local: boolean
   /** A page that finishes the job when there is no command to run. */
   href?: string
+  /** Reet can adopt the source already installed on the machine in one click. */
+  autoFix?: boolean
 }
 
 export type SyncProblemContext = {
@@ -48,6 +50,7 @@ const scanBlocked = /scan incomplete|no changes allowed|cannot read target skill
 const stalePlan = /approved plan no longer matches|target identity or revision changed|controller target changed|local skills changed|desired revision changed|preview again/i
 const busy = /another sync may be running|cannot lock target/i
 const duplicateName = /More than one source uses the name/i
+const sharedAgentSource = /is shared with .+? from a different source|source conflict for .+?; inspect its local lock file/i
 const sharedSource = /has no linked install source yet|has no linked source|not in the saved sync source|no linked install source|is shared with|source conflict|local-only skill|no supported install source|has no supported install source|duplicate skill names/i
 const paused = /sync is paused/i
 const unconnected = /has no reet agent yet|no machine named|is connected\. refresh machines/i
@@ -73,6 +76,11 @@ function agentCommand(context: SyncProblemContext): string {
 /** True when a name conflict can be fixed by removing the extra shelf copy. */
 export function offersDedupe(message: string): boolean {
   return duplicateName.test(message ?? '')
+}
+
+/** True when Reet can follow the source already installed on the machine. */
+export function offersSourceFix(message: string): boolean {
+  return sharedAgentSource.test(message ?? '')
 }
 
 export function explainSyncFailure(message: string, context: SyncProblemContext = {}): SyncProblem {
@@ -218,13 +226,17 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
     }
   }
   if (sharedSource.test(text)) {
+    const autoFix = offersSourceFix(text)
     return {
       kind: 'source',
-      title: 'This skill needs a source decision',
-      detail: `${text} Link the skill to a source, or move the other copy aside, then retry.`,
+      title: autoFix ? 'This skill is installed from a different source' : 'This skill needs a source decision',
+      detail: autoFix
+        ? `${text} Auto fix follows the source already on the machine, then syncs again. No installed files are changed.`
+        : `${text} Link the skill to a source, or move the other copy aside, then retry.`,
       commands: [],
       retry: false,
       local: false,
+      autoFix,
       href: /linked|link.*source|saved sync source/.test(text) ? '/skills' : '/sync#sync-selection',
     }
   }

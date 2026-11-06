@@ -3,7 +3,7 @@
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import SyncSetup from './SyncSetup.svelte'
-  import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, updateSyncAgent, dedupeSyncLibrary, getSyncState, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob, type SyncEnvironment } from './api'
+  import { syncCandidates, listLists, getList, saveDesired, reconcileDesired, adoptSyncSkills, queueSyncJob, controlSyncJob, deleteSyncTarget, updateSyncAgent, dedupeSyncLibrary, resolveSyncSourceConflicts, getSyncState, type SyncState, type SyncSkill, type SharedList, type SyncTarget, type SyncJob, type SyncEnvironment } from './api'
   import { agentGroups, agentOnline, groupLabel, inventory, inventoryMachines } from './machines'
   import { elapsed } from './time'
   import ContentObservation from './ContentObservation.svelte'
@@ -15,7 +15,7 @@
   import { dedupeSkills, linked as isLinked, localDuplicates as findLocalDuplicates, sourceConflicts as findSourceConflicts } from './syncSelection'
   import { syncActivityOverview, type SyncActivityEntry, type SyncHostActivity } from './syncActivity'
   import { jobPlanCounts, syncJobStages } from './syncOverview'
-  import { offersDedupe } from './syncProblems'
+  import { offersDedupe, offersSourceFix } from './syncProblems'
   import { startSyncRun } from './api'
   let { snapshot, canWrite, onupdate, view = 'compare' }: { snapshot: SyncState; canWrite: boolean; onupdate: (s: SyncState) => void; view?: 'machines' | 'compare' } = $props()
   let source = $state('shelf'), selectedMachine = $state(''), selectedAgents = $state<string[]>([]), listId = $state(0), mode = $state('additive')
@@ -178,6 +178,67 @@
       }
     })
   }
+  function sourceFixDetails(changes: { name: string; agent: string; from: string; to: string }[]): string {
+    return changes.map(change => [
+      change.name,
+      `  on     ${change.agent || 'machine'}`,
+      `  from   ${change.from || 'unknown'}`,
+      `  follow ${change.to}`,
+    ].join('\n')).join('\n\n')
+  }
+  async function autoFixTarget(item: SyncTarget) {
+    await run(async () => {
+      const preview = await resolveSyncSourceConflicts([item.target.id], false)
+      if (!preview.changes.length) {
+        notice = 'No installed source conflict left to fix. Try a fresh preview.'
+        return
+      }
+      const count = preview.changes.length
+      confirm = {
+        title: 'Follow the installed source?',
+        body: `${item.target.host} already has ${count === 1 ? 'this skill' : 'these skills'} from another source. Reet will point the sync plan at the installed source so the shared folder is not overwritten, then sync again. No installed files are changed.`,
+        details: sourceFixDetails(preview.changes),
+        confirmLabel: 'Auto fix & sync',
+        action: () => run(async () => {
+          await resolveSyncSourceConflicts([item.target.id], true)
+          const agent = snapshot.agents?.find(a => a.host.toLowerCase() === item.target.host.toLowerCase())
+          if (agent) onupdate(await startSyncRun(agent.id, [item.target.id]))
+          else onupdate(await getSyncState())
+          notice = `Updated ${count} ${count === 1 ? 'skill source' : 'skill sources'}. ${agent ? 'Sync started.' : 'Preview when the machine reconnects.'}`
+        }),
+      }
+    })
+  }
+  async function autoFixEntry(entry: SyncActivityEntry) {
+    if (busy || !entry.job.targetId) return
+    const job = entry.job
+    const agent = snapshot.agents?.find(a => a.id === job.agentId)
+    fixingEntry = entry.key
+    try {
+      const preview = await resolveSyncSourceConflicts([job.targetId], false)
+      if (!preview.changes.length) {
+        notice = 'No installed source conflict left to fix. Try a fresh preview.'
+        return
+      }
+      const count = preview.changes.length
+      confirm = {
+        title: 'Follow the installed source?',
+        body: `${entry.host} already has ${count === 1 ? 'this skill' : 'these skills'} from another source. Reet will point the sync plan at the installed source so the shared folder is not overwritten, then sync again. No installed files are changed.`,
+        details: sourceFixDetails(preview.changes),
+        confirmLabel: 'Auto fix & sync',
+        action: () => run(async () => {
+          await resolveSyncSourceConflicts([job.targetId], true)
+          if (agent) onupdate(await startSyncRun(agent.id, [job.targetId]))
+          else onupdate(await getSyncState())
+          notice = `Updated ${count} ${count === 1 ? 'skill source' : 'skill sources'}. ${agent ? 'Sync started.' : 'Preview when the machine reconnects.'}`
+        }),
+      }
+    } catch (error) {
+      actionError = error instanceof Error ? error.message : String(error)
+    } finally {
+      fixingEntry = ''
+    }
+  }
   async function save(revisions: Map<string, string>, allowEmpty = false) {
     await run(async () => {
       if (!sourceLoaded) throw new Error('Load and review the source before saving.')
@@ -263,6 +324,7 @@
   }
   let retryResults = $state<Record<string, { text: string; bad: boolean }>>({})
   let retryingEntry = $state('')
+  let fixingEntry = $state('')
   function retryResult(key: string, text: string, bad = false) {
     retryResults = { ...retryResults, [key]: { text, bad } }
   }
@@ -498,7 +560,8 @@
       {/if}
       {#if entry.failed && entry.job.message}
         <SyncProblem message={entry.job.message} host={entry.host} site={location.origin} attempts={entry.jobs.length} online={online(entry.job)}
-          retrying={retryingEntry === entry.key} onretry={canWrite && !retried(entry.key) ? () => void retryEntry(entry) : undefined} />
+          retrying={retryingEntry === entry.key} onretry={canWrite && !retried(entry.key) ? () => void retryEntry(entry) : undefined}
+          fixing={fixingEntry === entry.key} onfix={canWrite ? () => void autoFixEntry(entry) : undefined} />
       {:else if entry.job.message}
         <p class="job-message">{entry.job.message}</p>
       {/if}
@@ -718,7 +781,7 @@
           <div class="scope-set">
             <div class="scope-title"><strong>{groupLabel(item.target)}</strong><span class="badge">{modeLabel(item.mode || 'mirror')} · {item.desired.length} {item.desired.length === 1 ? 'skill' : 'skills'}</span></div>
             <p>{item.sourceName}</p>
-            {#if item.problem}<p class="bad" role="status">{item.problem} {#if offersDedupe(item.problem)}<button class="btn quiet" type="button" disabled={busy} onclick={() => dedupeLibrary(item)}>Dedupe skills</button>{:else}<a href="/skills">Review skill sources</a>{/if}</p>{/if}
+            {#if item.problem}<p class="bad" role="status">{item.problem} {#if offersDedupe(item.problem)}<button class="btn quiet" type="button" disabled={busy} onclick={() => dedupeLibrary(item)}>Dedupe skills</button>{:else if offersSourceFix(item.problem)}<button class="btn quiet" type="button" disabled={busy} onclick={() => autoFixTarget(item)}>Auto fix</button>{:else}<a href="/skills">Review skill sources</a>{/if}</p>{/if}
             <p class:bad={!env?.complete || (env?.scannedAt ?? 0) < Date.now() - 14 * 86400000}>{env?.complete && env.scannedAt > Date.now() - 14 * 86400000 ? `${item.missing.length} to install · ${item.extra.length} extra${item.mode === 'additive' ? ' (kept)' : ' (review removals)'}` : 'Current differences unconfirmed — rescan required'}</p>
             <p class="hint">Last report: {env?.scannedAt ? ago(env.scannedAt) : 'none'} · {item.appliedRevision === item.revision ? 'Plan revision acknowledged' : 'Plan revision not yet acknowledged'}</p>
             {#if canWrite}

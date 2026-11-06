@@ -9,7 +9,7 @@ const transpile = (file) => ts.transpileModule(readFileSync(new URL(file, import
 const dataURL = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
 const machinesURL = dataURL(transpile('./machines.ts'))
 const setupURL = dataURL(transpile('./machineSetup.ts').replace("from './machines'", `from '${machinesURL}'`))
-const { explainSyncFailure, offersDedupe } = await import(dataURL(transpile('./syncProblems.ts').replace("from './machineSetup'", `from '${setupURL}'`)))
+const { explainSyncFailure, offersDedupe, offersSourceFix } = await import(dataURL(transpile('./syncProblems.ts').replace("from './machineSetup'", `from '${setupURL}'`)))
 
 const context = { host: 'studio', site: 'https://reet.example' }
 
@@ -59,6 +59,21 @@ test('an unknown failure keeps its own words and still allows a safe retry', () 
   assert.equal(problem.kind, 'other')
   assert.match(problem.detail, /something odd happened/)
   assert.equal(problem.retry, true)
+})
+
+test('a shared-agent source conflict offers the installed-source auto fix', () => {
+  assert.equal(offersSourceFix('reet-api-design is shared with claude from a different source; resolve it before syncing'), true)
+  assert.equal(offersSourceFix('source conflict for improve-animations; inspect its local lock file before syncing'), true)
+  assert.equal(offersSourceFix('improve-animations has no supported install source; link it before syncing'), false)
+
+  const problem = explainSyncFailure('reet-api-design is shared with claude from a different source; resolve it before syncing', context)
+  assert.equal(problem.kind, 'source')
+  assert.equal(problem.autoFix, true)
+  assert.equal(problem.retry, false)
+  assert.match(problem.detail, /follows the source already on the machine/i)
+
+  const unknown = explainSyncFailure('improve-animations is a local-only skill; back it up and remove it manually before mirroring', context)
+  assert.equal(unknown.autoFix, false)
 })
 
 test('a duplicate-name problem offers the shelf dedupe action', () => {

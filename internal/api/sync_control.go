@@ -20,6 +20,7 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/sync/candidates", s.syncCandidates)
 	mux.HandleFunc("POST /api/v2/sync/library", s.requireWriter(s.syncLibraryMachines))
 	mux.HandleFunc("POST /api/v2/sync/library/dedupe", s.requireWriter(s.dedupeSyncLibrary))
+	mux.HandleFunc("POST /api/v2/sync/source-conflicts/resolve", s.requireWriter(s.resolveSyncSourceConflicts))
 	mux.HandleFunc("PUT /api/v2/sync/desired", s.requireWriter(s.saveDesired))
 	mux.HandleFunc("POST /api/v2/sync/reconcile", s.requireWriter(s.reconcileDesired))
 	mux.HandleFunc("POST /api/v2/sync/adopt", s.requireWriter(s.adoptSyncSkills))
@@ -101,6 +102,27 @@ func (s *server) dedupeSyncLibrary(w http.ResponseWriter, r *http.Request) {
 		s.eventRequest(r, "sync-library-dedupe", "", map[string]any{"removed": removed})
 	}
 	writeJSON(w, 200, map[string]any{"groups": groups, "removed": removed})
+}
+
+func (s *server) resolveSyncSourceConflicts(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		TargetIDs []string `json:"targetIds"`
+		Confirm   bool     `json:"confirm"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	s.importMu.Lock()
+	changes, err := s.st.ResolveSyncSourceConflictsFor(s.uid(r), in.TargetIDs, !in.Confirm)
+	s.importMu.Unlock()
+	if err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	if in.Confirm && len(changes) > 0 {
+		s.eventRequest(r, "sync-source-fix", "", map[string]any{"targets": in.TargetIDs, "changed": len(changes)})
+	}
+	writeJSON(w, 200, map[string]any{"changes": changes})
 }
 
 func (s *server) saveDesired(w http.ResponseWriter, r *http.Request) {

@@ -189,6 +189,21 @@ func (s *Service) WorkerMessageReceipt(uid int64, kind, subject, session, id str
 	}
 	return m, nil
 }
+
+// Browser owners can review retained receipts even after disabling a grant.
+// Reconcile a previous controller's in-flight work without probing or waking it.
+func (s *Service) WorkerMessagesForReview(uid int64, kind, subject, session string) ([]store.WorkerMessage, error) {
+	if err := s.store.CheckWorkerSubject(uid, kind, subject, session, false); err != nil {
+		return nil, err
+	}
+	if s.worker != nil {
+		if err := s.worker.ReconcileWorkerQueue(uid, session); err != nil {
+			return nil, err
+		}
+	}
+	return s.store.WorkerMessagesFor(uid, kind, subject, session)
+}
+
 func (s *Service) InterruptWorker(uid int64, kind, subject, session, id string, revision int64) (store.WorkerMessage, error) {
 	v, err := s.WorkerSettings(uid, kind, subject, session)
 	if err != nil {

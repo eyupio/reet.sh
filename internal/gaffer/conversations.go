@@ -150,7 +150,7 @@ func (s *Service) Conversation(uid int64, id string) (ConversationView, error) {
 	}
 	messages := []store.WorkerMessage{}
 	if c.SessionID != "" {
-		messages, err = s.store.WorkerMessagesFor(uid, "gaffer", id, c.SessionID)
+		messages, err = s.WorkerMessagesForReview(uid, "gaffer", id, c.SessionID)
 	}
 	return ConversationView{Conversation: c, Turns: turns, Context: &sharing, Messages: messages}, err
 }

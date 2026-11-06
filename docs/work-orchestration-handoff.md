@@ -159,8 +159,14 @@ settings, account MCP and worker queue browser suites pass. Strict docs build,
 51-page validation and the 40-view browser smoke pass. The first full race run passed the changed backend packages but retained the
 five known terminal-host environment failures (three missing-tmux/two process-group
 checks); a concurrent UI rebuild also invalidated its embedded-web compilation.
-A stable-build rerun is in progress. Final-head GitHub checks remain the merge
-gate; see #612 for final check state. All provider and worker tests
+The stable-build rerun passes API (416 s), Gaffer (78 s), store (204 s),
+broker (51 s), embedded web and every other package except four unchanged
+terminal-host environment failures (three missing-tmux/one process-group check).
+The queue-ID guard has separate positive race coverage and a negative source-
+overlay proof. Review follow-up makes both browser receipt views reconcile
+foreign-owner sending states to uncertain without a worker probe, wake or replay;
+database-reopen/domain and HTTP tests cover it. Final-head GitHub checks remain
+the merge gate; see #612 for their final state. All provider and worker tests
 use fakes. GM4 is the next bounded slice: durable explicit goals,
 background follow-up budgets, multi-session fairness and restart/offline recovery.
 Opening/closing chat, saving read/write permission or a one-off relay creates no

@@ -469,3 +469,68 @@ func TestWorkerMessageCannotAdoptAnExistingHumanQueueEntry(t *testing.T) {
 		t.Fatal("failed admission changed the human instruction", queue, err)
 	}
 }
+
+func TestBrowserWorkerReceiptViewsReconcileReopenedDeliveryWithoutWorkerCalls(t *testing.T) {
+	for _, view := range []string{"conversation", "worker_review"} {
+		t.Run(view, func(t *testing.T) {
+			s, st, p := settingsFixture(t)
+			s.SetWorker(&fakeWorker{st: st})
+			c := grantWorker(t, s, p.UserID, workerConversation(t, s, st, p, "http://127.0.0.1:1"), true)
+			grant, err := s.WorkerSettings(p.UserID, "gaffer", c.Conversation.ID, c.Conversation.SessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := strings.Repeat("a", 32)
+			_, _, err = st.StartGafferTurnFor(p.UserID, store.GafferTurn{ID: id, ConversationID: c.Conversation.ID, RequestRevision: c.Conversation.Revision, Prompt: "Ask the worker.", ProviderID: c.Conversation.ProviderID, Model: "fake-model", WorkerGrantRevision: grant.Grant.Revision})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = st.AdmitWorkerMessageFor(p.UserID, "gaffer", c.Conversation.ID, store.WorkerMessage{ID: id, TurnID: id, SessionID: c.Conversation.SessionID, Text: "Check the PR.", GrantRevision: grant.Grant.Revision}, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			queue, err := st.TerminalQueueFor(p.UserID, c.Conversation.SessionID)
+			if err != nil || len(queue) != 1 {
+				t.Fatal(queue, err)
+			}
+			if claimed, err := st.TransitionTerminalQueueFor(p.UserID, c.Conversation.SessionID, queue[0], "sending", "wait", "", "previous-controller"); err != nil || !claimed {
+				t.Fatal(claimed, err)
+			}
+			if view == "worker_review" {
+				if _, err = s.ConfigureWorker(p.UserID, "gaffer", c.Conversation.ID, c.Conversation.SessionID, store.WorkerGrant{Enabled: false, Revision: grant.Grant.Revision}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.Close()
+			reopened, err := store.Open(st.Dir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reopened.Close()
+			next := New(reopened, s.sealer)
+			defer next.Close()
+			worker := &fakeWorker{st: reopened}
+			next.SetWorker(worker)
+			before, err := reopened.WorkerMessageFor(p.UserID, "gaffer", c.Conversation.ID, c.Conversation.SessionID, id)
+			if err != nil || before.State != "sending" {
+				t.Fatal("receipt was reconciled before the browser read", before, err)
+			}
+			var messages []store.WorkerMessage
+			if view == "conversation" {
+				result, err := next.Conversation(p.UserID, c.Conversation.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				messages = result.Messages
+			} else {
+				messages, err = next.WorkerMessagesForReview(p.UserID, "gaffer", c.Conversation.ID, c.Conversation.SessionID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(messages) != 1 || messages[0].State != "uncertain" || worker.probes.Load() != 0 || worker.enqueues.Load() != 0 {
+				t.Fatal("browser read did not reconcile passively", messages, worker.probes.Load(), worker.enqueues.Load())
+			}
+		})
+	}
+}

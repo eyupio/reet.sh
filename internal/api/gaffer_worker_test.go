@@ -101,10 +101,22 @@ func TestWorkerMessagingHTTPAndMCPRequireSeparateGrants(t *testing.T) {
 	if fake.enqueues.Load() != 2 {
 		t.Fatal("browser grant did not stay separate", fake.enqueues.Load())
 	}
+	queue, err := st.TerminalQueueFor(user.ID, session.ID)
+	if err != nil || len(queue) != 2 {
+		t.Fatal(queue, err)
+	}
+	if claimed, err := st.TransitionTerminalQueueFor(user.ID, session.ID, queue[0], "sending", "wait", "", "previous-controller"); err != nil || !claimed {
+		t.Fatal(claimed, err)
+	}
+	view := contextAPIJSON(t, browser, ts, "GET", path, nil, 200)
+	messages := view["messages"].([]any)
+	if len(messages) != 1 || messages[0].(map[string]any)["state"] != "uncertain" || fake.enqueues.Load() != 2 {
+		t.Fatal("browser read did not reconcile without dispatch", view)
+	}
 	contextAPIJSON(t, browser, ts, "PUT", path, map[string]any{"revision": 1, "enabled": false}, 200)
 	denied("reet_get_worker_message", map[string]any{"session_id": session.ID, "request_id": id})
 	receipt, err := st.WorkerMessageFor(user.ID, "mcp", fmt.Sprint(clientID), session.ID, id)
-	if err != nil || receipt.State != "removed" {
+	if err != nil || receipt.State != "uncertain" {
 		t.Fatal("revocation left a queued message", receipt, err)
 	}
 	if err = st.UpdateUserRole(user.ID, "viewer"); err != nil {
@@ -112,11 +124,11 @@ func TestWorkerMessagingHTTPAndMCPRequireSeparateGrants(t *testing.T) {
 	}
 	contextAPIJSON(t, browser, ts, "GET", "/api/v2/mcp/browser/worker?sessionId="+session.ID, nil, 403)
 	// Fresh role checks also apply to a real previously granted browser receipt.
-	messages, err := st.WorkerMessagesFor(user.ID, "browser", "browser", session.ID)
-	if err != nil || len(messages) != 1 {
-		t.Fatal(messages, err)
+	remaining, err := st.WorkerMessagesFor(user.ID, "browser", "browser", session.ID)
+	if err != nil || len(remaining) != 1 {
+		t.Fatal(remaining, err)
 	}
-	if err = st.CheckWorkerDelivery(user.ID, session.ID, messages[0].QueueID); err == nil {
+	if err = st.CheckWorkerDelivery(user.ID, session.ID, remaining[0].QueueID); err == nil {
 		t.Fatal("viewer delivery was allowed")
 	}
 }

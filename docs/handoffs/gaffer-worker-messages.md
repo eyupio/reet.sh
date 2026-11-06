@@ -58,7 +58,10 @@ The store owns separate grants and atomic receipt/queue admission. The Gaffer
 service owns the bounded model tool loop; API/MCP bind the authenticated subject.
 The broker reads stored provenance rather than trusting a caller's queue
 projection and rechecks controller policy plus stored authority before handoff.
-The browser keeps all worker controls in a secondary dialog.
+The browser keeps all worker controls in a secondary dialog. Both the conversation
+view and the worker-permission receipt list reconcile foreign-owner in-flight
+queue states before returning them, even if the worker is offline or the user
+stopped its grant. This is a passive read: no worker probe, wake or resubmission.
 
 Fake-backed race tests cover default-off/per-request intent, identity/scope,
 altered duplicates, grant revocation, provider/model/policy/role/archive changes,

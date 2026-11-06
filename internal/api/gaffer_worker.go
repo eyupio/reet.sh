@@ -42,7 +42,7 @@ func (s *server) workerSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	messages := []store.WorkerMessage{}
 	if session != "" {
-		messages, err = s.st.WorkerMessagesFor(s.uid(r), kind, subject, session)
+		messages, err = s.gafferProviders.WorkerMessagesForReview(s.uid(r), kind, subject, session)
 		if err != nil {
 			gafferError(w, err)
 			return

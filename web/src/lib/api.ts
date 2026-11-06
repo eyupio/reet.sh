@@ -278,6 +278,9 @@ export async function interruptWorkerMessage(path:string,message:WorkerMessage,s
 export type GoalPins={providerId:string;providerRevision:number;model:string;contextRevision:number;workerRevision:number}
 export type GafferGoal=GoalPins&{id:string;conversationId:string;sessionId:string;revision:number;text:string;state:string;note:string;maxReviews:number;usedReviews:number;expiresAt:number;createdAt:number;updatedAt:number;nextAt:number;lastSeq:number;lastObservedAt?:number;lastReviewedAt?:number;activeTurnId?:string;pendingId?:string;summary?:string;inputTokens:number;outputTokens:number;usageReported:boolean}
 export type GafferGoalView={goal:GafferGoal|null;pins:GoalPins;allowed:boolean;reason?:string}
+export type GafferGoalOverview={goal:GafferGoal;session?:{id:string;agentId:string;title:string;state:string};available:boolean;attention:boolean;reason?:string;delivery?:WorkerMessage}
+export type GafferGoalOverviewView={goals:GafferGoalOverview[];readAt:number}
+export async function listGafferGoals(signal?:AbortSignal):Promise<GafferGoalOverviewView>{return(await req('/api/v2/gaffer/goals',{signal,cache:'no-store'})).json()}
 const goalPath=(id:string)=>`/api/v2/gaffer/conversations/${encodeURIComponent(id)}/goal`
 export async function getGafferGoal(id:string,signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id),{signal,cache:'no-store'})).json()}
 export async function saveGafferGoal(id:string,input:GoalPins&{revision:number;text:string;maxReviews:number;hours:number},signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id),{method:'PUT',body:JSON.stringify(input),signal})).json()}

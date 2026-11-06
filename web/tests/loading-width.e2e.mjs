@@ -25,6 +25,7 @@ try {
     const staticBox = await shell.boundingBox()
     const staticContent = await shell.locator('.boot-page-head').boundingBox()
     const header = await page.locator('#boot .boot-bar-inner').boundingBox()
+    const bootLogo = await page.locator('#boot .boot-brand').boundingBox()
     expect(header.x).toBe(0)
     expect(header.width).toBe(width)
     const workspaceRail = width >= 1100 && !path.includes('view=terminal') && (path === '/' || path === '/machines' || path === '/sessions?view=list') ? 228 : 0
@@ -45,6 +46,11 @@ try {
     const homeChunkContent = path === '/' ? await page.locator('.workspace-content > .head').boundingBox() : null
     pageReady()
     await expect(page.locator('[data-loading-page]')).toHaveCount(0)
+    // The boot shell's logo must land exactly where the app draws it, or a refresh shows the logo resize as the shell hands over.
+    const finalLogo = await page.locator('.logo').first().boundingBox()
+    for (const edge of ['x', 'y', 'width', 'height']) {
+      expect(Math.abs(finalLogo[edge] - bootLogo[edge]), `${path} ${width}: logo ${edge} moved`).toBeLessThanOrEqual(0.6)
+    }
     if (path === '/') await expect(page.locator('.home.writer > .column')).toBeVisible()
     if (path === '/machines') await expect(page.locator('h1').first()).toContainText('Your machines')
     const loadedBox = await page.locator('#main-content').boundingBox()

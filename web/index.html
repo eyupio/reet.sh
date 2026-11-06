@@ -235,16 +235,26 @@
       @media (prefers-reduced-motion: reduce) { .boot-brand { animation: none; } }
 
       /* Signed-in chrome is full width, including while only HTML is available. */
-      html[data-boot='app'] .boot-bar-inner { max-width: none; height: 61px; padding: 0 24px; }
-      html[data-boot='app'] .boot-brand { width: 112px; animation: none; }
+      html[data-boot='app'] .boot-bar-inner { max-width: none; height: 60px; padding: 0 24px; }
+      html[data-boot='app'] .boot-brand { width: 120px; animation: none; }
+      /* The terminal's slim header, matching AppShell's compact bar: logo 120, 88 on a phone, with its own padding. */
+      html[data-boot='app'][data-boot-layout='workspace'] .boot-bar-inner { height: 56px; padding: 0 16px; }
+      html[data-boot='app'][data-boot-layout='workspace'] .boot-brand { width: 120px; }
       html[data-boot='app'][data-boot-layout='home'] .boot-main { max-width: none; padding: 20px 24px; margin-left: 301px; }
       html[data-boot='app'][data-boot-layout='home'][data-boot-rail='collapsed'] .boot-main { margin-left: 56px; }
       html[data-boot='app'][data-boot-layout='workspace'] .boot-main { max-width: none; padding: 8px 12px; }
       @media (max-width: 1239px) {
         html[data-boot='app'][data-boot-layout='home'] .boot-main { margin-left: 56px; }
       }
+      @media (min-width: 651px) and (max-width: 799px) {
+        html[data-boot='app']:not([data-boot-layout='workspace']) .boot-bar-inner { padding-inline: 16px; }
+      }
+      @media (max-width: 700px) {
+        html[data-boot='app'][data-boot-layout='workspace'] .boot-bar-inner { height: 54px; padding: 0 10px; }
+        html[data-boot='app'][data-boot-layout='workspace'] .boot-brand { width: 88px; }
+      }
       @media (max-width: 1099px) {
-        html[data-boot='app'] .boot-bar-inner { height: 65px; }
+        html[data-boot='app'] .boot-bar-inner { height: 64px; }
         html[data-boot='app'][data-boot-layout='home'] .boot-main,
         html[data-boot='app'][data-boot-layout='home'][data-boot-rail='collapsed'] .boot-main { margin-left: 0; }
       }
@@ -252,7 +262,7 @@
         html[data-boot='app'][data-boot-layout='workspace'] .boot-main { padding: 4px 6px; }
       }
       @media (max-width: 650px) {
-        html[data-boot='app'] .boot-bar-inner { height: 57px; padding-inline: 16px; }
+        html[data-boot='app'] .boot-bar-inner { height: 56px; padding-inline: 16px; }
         html[data-boot='app'][data-boot-layout='home'] .boot-main { padding: 14px 16px; }
       }
 
@@ -278,7 +288,7 @@
         .boot-workspace-sidebar .links { display: grid; gap: 22px; position: absolute; top: 123px; left: 30px; width: 166px; }
         .boot-workspace-sidebar .links i { display: block; height: 15px; border-radius: 4px; background: var(--boot-line); }
         html[data-workspace-shell] #boot .boot-bar-inner { padding-left: 264px; }
-        html[data-workspace-shell] #boot .boot-brand { position: fixed; top: 26px; left: 29px; width: 134px; z-index: 1; }
+        html[data-workspace-shell] #boot .boot-brand { position: fixed; top: 24px; left: 28px; width: 134px; z-index: 1; }
         html[data-workspace-shell] #boot .boot-main { max-width: none; margin-left: 228px; margin-right: 0; width: calc(100% - 228px); }
         html[data-workspace-shell][data-boot-layout='home'] #boot .boot-main { margin-left: calc(228px + var(--boot-project-rail, 56px)); width: calc(100% - 228px - var(--boot-project-rail, 56px)); }
       }

@@ -19,8 +19,9 @@
   import type { ChatProgressState } from '../gafferProgress'
   import SwitchModeDialog from './SwitchModeDialog.svelte'
   import TerminalIcon from '../terminal/TerminalIcon.svelte'
+  import PanelResizer from '../shell/PanelResizer.svelte'
   import { PHONE_SCREEN } from '../terminal/sizing'
-  import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextKeyWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
+  import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
 
   // The session screen: identity and persistent layout actions above a wrapping toolbar for interface, approvals
   // and terminal creation. The menu contains management actions only, the live terminal the workspace hosts here (children),
@@ -298,31 +299,12 @@
     items[at < 0 ? 0 : (at + (event.shiftKey ? -1 : 1) + items.length) % items.length].focus()
   }
 
-  // Dragging the right separator: the pointer is captured, so leaving the handle keeps the drag. Moving left widens the
-  // panel. The terminal holds its size and refits once when the drag ends, exactly as it does for the sessions panel.
-  let contextDrag: { x: number; width: number } | null = null, contextResizing = $state(false)
-  function contextSeparatorDown(event: PointerEvent) {
-    if (event.pointerType === 'mouse' && event.button !== 0) return
-    event.preventDefault()
-    const handle = event.currentTarget as HTMLElement
-    handle.setPointerCapture(event.pointerId); handle.focus({ preventScroll: true })
-    contextDrag = { x: event.clientX, width: shownContextWidth }
-    contextResizing = true; onresizing?.(true)
-  }
-  function contextSeparatorMove(event: PointerEvent) {
-    if (!contextDrag || !(event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) return
-    contextWidth = clampContextWidth(contextDrag.width - (event.clientX - contextDrag.x), contextRoom)
-  }
-  function contextSeparatorEnd() {
-    if (!contextDrag) return
-    contextDrag = null; contextResizing = false; onresizing?.(false); saveContext()
-  }
-  function contextSeparatorKey(event: KeyboardEvent) {
-    const next = contextKeyWidth(event.key, shownContextWidth, contextRoom)
-    if (next === null) return
-    event.preventDefault(); contextWidth = next; saveContext()
-  }
-  function contextSeparatorReset() { contextWidth = CONTEXT_DEFAULT; saveContext() }
+  // Dragging the right separator: the shared PanelResizer captures the pointer, so leaving the handle keeps the drag, and
+  // moving left widens this panel. The terminal holds its size and refits once when the drag ends.
+  let contextResizing = $state(false)
+  function setContextWidth(width: number) { contextWidth = clampContextWidth(width, contextRoom) }
+  function commitContextWidth(width: number) { contextWidth = clampContextWidth(width, contextRoom); saveContext() }
+  function setContextResizing(active: boolean) { contextResizing = active; onresizing?.(active) }
 
   // The actions menu: its ⋮ button, or Shift+F10 / the menu key on it. Arrow keys move, Escape closes and gives focus back.
   let menu = $state<HTMLElement>(), menuButton = $state<HTMLButtonElement>()
@@ -459,13 +441,12 @@
           id={`${id}-context`} onkeydown={panelKey} onclose={() => void collapseDetails()} />
       {/key}
       {#if docked && contextOpen}
-        <!-- The right panel's separator, the same control as the sessions panel's: drag (pointer capture), Left widens,
+        <!-- The right panel's separator, the same control as every other panel: drag (pointer capture), Left widens,
              Right narrows, Home the narrowest, End the widest, double-click 360 px. -->
-        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-        <div class="panel-separator context-separator" role="separator" tabindex="0" aria-label="Resize session workspace" aria-controls={`${id}-context`} aria-orientation="vertical"
-          aria-valuemin={CONTEXT_MIN} aria-valuemax={contextMax} aria-valuenow={shownContextWidth} aria-valuetext={`${shownContextWidth} pixels`}
-          title="Drag to resize · double-click resets" onpointerdown={contextSeparatorDown} onpointermove={contextSeparatorMove} onpointerup={contextSeparatorEnd}
-          onpointercancel={contextSeparatorEnd} onlostpointercapture={contextSeparatorEnd} onkeydown={contextSeparatorKey} ondblclick={contextSeparatorReset}></div>
+        <PanelResizer value={shownContextWidth} min={CONTEXT_MIN} max={contextMax} resetValue={CONTEXT_DEFAULT}
+          label="Resize session workspace" controls={`${id}-context`} side="right" mode="inline"
+          position="grid-column: 2; grid-row: 1 / -1; margin: 0 -8px 0 0" extraClass="panel-separator context-separator"
+          onchange={setContextWidth} oncommit={commitContextWidth} onresizing={setContextResizing} />
       {/if}
     {/if}
     <div class="stage" bind:this={stage}>{@render children()}</div>
@@ -509,14 +490,6 @@
   .body.context-docked > :global(.context-panel) { display: flex; grid-column: 3; }
   .body.context-sheet > :global(.context-panel) { display: flex; grid-column: 1; grid-row: 3; justify-self: end; position: relative; z-index: 20; width: min(340px, 100%); box-shadow: var(--shadow); }
   .body.context-sheet > :global(.context-panel .close-details) { display: inline-flex; align-items: center; }
-  /* The separator's 8 px track plus 8 px either side, the same control and 24 px hit area as the sessions panel's. */
-  .context-separator { grid-column: 2; grid-row: 1 / -1; }
-  .panel-separator { position: relative; z-index: 3; margin: 0 -8px; display: flex; align-items: center; justify-content: center; cursor: col-resize; touch-action: none; outline: 0; }
-  .panel-separator::after { content: ''; width: 4px; height: 40px; border-radius: 2px; background: var(--line); }
-  /* The chat column's scrollbar sits flush against this track, so the hit area must not overlap it: extend only into the panel. */
-  .context-separator { margin: 0 -8px 0 0; }
-  .panel-separator:hover::after, .session-screen.resizing .panel-separator::after { background: var(--accent); height: 64px; }
-  .panel-separator:focus-visible::after { background: var(--accent); height: 64px; outline: 2px solid var(--accent); outline-offset: 3px; }
   .session-screen.resizing { cursor: col-resize; user-select: none; }
   .side-terminal { grid-column: 2; grid-row: 1 / -1; width: 340px; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line-soft); background: var(--bg-sunk); }
   .side-terminal :global(.pane) { flex: 1; min-height: 0; }
@@ -579,7 +552,6 @@
     .head { padding: 0 12px 8px; }
     .heading { flex: 1 1 0; }
   }
-  @media (pointer: coarse) { .context-separator::before { content: ''; position: absolute; top: 50%; left: calc(50% - 4px); width: 44px; height: 88px; transform: translateY(-50%); } }
   /* Phones retain every control. Layout actions use 44 px icons; the toolbar wraps instead of hiding choices. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .sub, .identity-row > .pill { display: none; }

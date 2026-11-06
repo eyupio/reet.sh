@@ -57,7 +57,17 @@ try{
       expect(await chat.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       if(width===1440||width===390)await chat.screenshot({path:`${shots}/gaffer-widget-${width}-${theme}.png`})
       await w.page.keyboard.press('Escape');await expect(launch).toBeFocused()
-      const parked=await launch.boundingBox();await w.page.mouse.wheel(0,500);await expect.poll(async()=>(await launch.boundingBox()).y).toBeCloseTo(parked.y,0)
+      const parked=await launch.boundingBox()
+      if(width===390){
+        await w.page.locator('.chat-pane .composer textarea').focus()
+        await w.page.evaluate(()=>{const vv=window.visualViewport;Object.defineProperty(vv,'height',{configurable:true,get:()=>Math.floor(innerHeight*.55)});vv.dispatchEvent(new Event('resize'))})
+        await expect(launch).toHaveCount(0)
+        await expect.poll(()=>w.page.locator('[data-gaffer-space]').evaluate(el=>el.getBoundingClientRect().height)).toBe(0)
+        await w.page.evaluate(()=>{const vv=window.visualViewport;delete vv.height;vv.dispatchEvent(new Event('resize'))})
+        await expect(launch).toBeVisible()
+        await expect.poll(async()=>(await launch.boundingBox()).y).toBeCloseTo(parked.y,0)
+      }
+      await w.page.mouse.wheel(0,500);await expect.poll(async()=>(await launch.boundingBox()).y).toBeCloseTo(parked.y,0)
       await launch.click();await expect(chat.getByRole('textbox',{name:'Message Gaffer',exact:true})).toHaveValue('Preserve this draft while I resize')
       if(width>=768&&height>500){await expect(chat.getByRole('button',{name:'Default',exact:true})).toHaveAttribute('aria-pressed','true');expect(await chat.evaluate(el=>el.style.width)).toBe('')}
       expect(w.errors).toEqual([])

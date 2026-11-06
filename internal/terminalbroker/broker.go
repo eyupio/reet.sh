@@ -30,16 +30,17 @@ type key struct {
 	agent string
 }
 type Broker struct {
-	mu           sync.Mutex
-	wg           sync.WaitGroup
-	st           *store.Store
-	peers        map[key]*Peer
-	tickets      map[string]ticket
-	bridges      map[string]*Bridge
-	chats        map[chatKey]*chatLog
-	queueWorkers map[chatKey]bool
-	queueOwner   string
-	queueStop    chan struct{}
+	mu                     sync.Mutex
+	wg                     sync.WaitGroup
+	st                     *store.Store
+	peers                  map[key]*Peer
+	tickets                map[string]ticket
+	bridges                map[string]*Bridge
+	chats                  map[chatKey]*chatLog
+	queueWorkers           map[chatKey]bool
+	workerMessagingEnabled func() bool
+	queueOwner             string
+	queueStop              chan struct{}
 	// approvals holds the permission signatures a person allowed for the rest
 	// of one chat. It is controller state only and never reaches the machine.
 	approvals map[chatKey]map[string]bool

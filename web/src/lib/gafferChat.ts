@@ -1,6 +1,6 @@
 import type { GafferTurn } from './api'
 
-export type PendingGafferSend = { conversationId: string; id: string; revision: number; text?: string }
+export type PendingGafferSend = { conversationId: string; id: string; revision: number; text?: string;relay?:boolean }
 const receiptKey = (user: number, scope: string) => `reet-gaffer-pending:${user}:${scope}`
 const idShape = /^[a-f0-9]{32}$/
 
@@ -12,13 +12,13 @@ export function readGafferReceipt(user: number, scope: string): PendingGafferSen
     if (!raw || raw.length > 512) return null
     const value = JSON.parse(raw)
     if (idShape.test(value.conversationId) && idShape.test(value.id) && Number.isSafeInteger(value.revision) && value.revision > 0)
-      return { conversationId: value.conversationId, id: value.id, revision: value.revision }
+      return { conversationId: value.conversationId, id: value.id, revision: value.revision,...(value.relay===true?{relay:true}:{}) }
   } catch { /* Storage is optional; the server still owns every admitted turn. */ }
   return null
 }
 export function writeGafferReceipt(user: number, scope: string, pending: PendingGafferSend | null): void {
   try {
-    if (pending) sessionStorage.setItem(receiptKey(user, scope), JSON.stringify({ conversationId: pending.conversationId, id: pending.id, revision: pending.revision }))
+    if (pending) sessionStorage.setItem(receiptKey(user, scope), JSON.stringify({ conversationId: pending.conversationId, id: pending.id, revision: pending.revision,...(pending.relay?{relay:true}:{}) }))
     else sessionStorage.removeItem(receiptKey(user, scope))
   } catch { /* Never persist message text as a fallback. */ }
 }

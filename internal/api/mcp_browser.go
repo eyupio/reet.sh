@@ -49,6 +49,9 @@ func (s *server) mcpBrowserTools(w http.ResponseWriter, r *http.Request) {
 	}
 	tools := []any{}
 	for _, tool := range mcpToolDefinitions {
+		if mcpWorkerTool(tool.Name) && !access.canWrite() {
+			continue
+		}
 		if mcpContextTool(tool.Name) && access.User.Role == "viewer" {
 			continue
 		}

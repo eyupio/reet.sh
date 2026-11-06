@@ -250,6 +250,7 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
 
 export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
 export type GafferTurn = {
+  workerGrantRevision?:number
   context?: ContextUse
   id: string; conversationId: string; requestRevision: number; prompt: string; answer: string
   state: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted'; providerId: string; providerName: string; model: string
@@ -266,7 +267,14 @@ export type ContextSnapshot = {
   history?:{events:{seq:number;at:number;kind:string;state?:string;toolKind?:string;status?:string;text?:string;truncated?:boolean}[];firstRetainedSeq:number;lastRetainedSeq:number;retainedCount:number;unavailable:boolean;truncated:boolean}
 }
 export type ContextSettingsResponse = { context:ContextState;scopes?:ContextGrant[];sessions?:{id:string;title:string}[] }
-export type GafferConversationView = { conversation: GafferConversation; turns: GafferTurn[]; context?:ContextState }
+export type WorkerGrant = {sessionId:string;enabled:boolean;revision:number;providerId?:string;providerRevision?:number;model?:string}
+export type WorkerMessage = {id:string;sessionId:string;queueId:string;turnId?:string;text:string;state:string;note?:string;revision:number;grantRevision:number;createdAt:number}
+export type WorkerSettings = {grant:WorkerGrant;allowed:boolean;needsReview:boolean;reason?:string;providerId?:string;providerRevision?:number;model?:string}
+export type WorkerSettingsResponse = {worker:WorkerSettings;messages:WorkerMessage[];sessions?:{id:string;title:string}[];scopes?:WorkerGrant[]}
+export async function getWorkerSettings(path:string,signal?:AbortSignal):Promise<WorkerSettingsResponse>{return(await req(path,{signal,cache:'no-store'})).json()}
+export async function saveWorkerSettings(path:string,view:WorkerSettings,enabled:boolean,signal?:AbortSignal):Promise<{worker:WorkerSettings}>{return(await req(path,{method:'PUT',body:JSON.stringify({sessionId:view.grant.sessionId,revision:view.grant.revision,enabled,providerId:view.providerId??'',providerRevision:view.providerRevision??0,model:view.model??''}),signal})).json()}
+export async function interruptWorkerMessage(path:string,message:WorkerMessage,signal?:AbortSignal):Promise<{message:WorkerMessage}>{const url=new URL(path,location.origin);url.pathname+=`/messages/${encodeURIComponent(message.id)}/interrupt`;return(await req(url.pathname+url.search,{method:'POST',body:JSON.stringify({revision:message.revision,confirm:true}),signal})).json()}
+export type GafferConversationView = { conversation: GafferConversation; turns: GafferTurn[]; context?:ContextState;messages?:WorkerMessage[] }
 export async function getContextSettings(path:string,signal?:AbortSignal):Promise<ContextSettingsResponse>{
   return (await req(path,{signal,cache:'no-store'})).json()
 }
@@ -291,8 +299,8 @@ export async function createGafferConversation(sessionId: string, providerId: st
 export async function configureGafferConversation(c: GafferConversation, providerId: string, model: string, signal?: AbortSignal): Promise<GafferConversationView> {
   return (await req(gafferConversationPath(c.id), {method:'PATCH',body:json({revision:c.revision,sessionId:c.sessionId,providerId,model}),signal:gafferSignal(signal)})).json()
 }
-export async function sendGafferMessage(c: GafferConversation, id: string, text: string, signal?: AbortSignal): Promise<GafferTurn> {
-  return (await req(`${gafferConversationPath(c.id)}/turns`, {method:'POST',body:json({id,revision:c.revision,text}),signal:gafferSignal(signal)})).json()
+export async function sendGafferMessage(c: GafferConversation, id: string, text: string, signal?: AbortSignal,relay=false): Promise<GafferTurn> {
+  return (await req(`${gafferConversationPath(c.id)}/turns`, {method:'POST',body:json({id,revision:c.revision,text,...(relay?{relay:true}:{})}),signal:gafferSignal(signal)})).json()
 }
 export async function cancelGafferAnswer(c: GafferConversation, id: string, signal?: AbortSignal): Promise<void> {
   await req(`${gafferConversationPath(c.id)}/turns/${encodeURIComponent(id)}/cancel`, {method:'POST',body:'{}',signal:gafferSignal(signal)})

@@ -354,6 +354,8 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 		log.Printf("machine health: "+format, args...)
 	}})
 	s.terminals = terminalbroker.New(st)
+	s.terminals.SetWorkerMessagingPolicy(s.terminalEnabled)
+	s.gafferProviders.SetWorker(s.terminals, s.terminalEnabled)
 	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
 	s.runs = s.newProjectRuns()
 	s.softwareRuns = s.newSoftwareRuns()

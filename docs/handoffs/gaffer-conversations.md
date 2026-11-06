@@ -1,6 +1,6 @@
 # Gaffer conversation and session-access contract
 
-5 November 2026. GM0 contract and GM2A/GM3A implementation record. Read alongside
+6 November 2026. GM0 contract and GM2A/GM3A/GM3B implementation record. Read alongside
 [the active companion roadmap](../work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026).
 This record uses the current broker, queue and account contracts; it does not
 authorise new adapters or turn an existing shelf MCP credential into session access.
@@ -15,10 +15,10 @@ authorise new adapters or turn an existing shelf MCP credential into session acc
 | Model choice | Optional conversation override; otherwise use that provider's current configured model; every turn records the actual requested model/provider name |
 | Worker access | Same account, unarchived structured session and current account write access; attaching a Gaffer conversation grants no worker reads or writes |
 | Future follow goal | Explicit user delegation, owner, immutable session, goal revision, provider/model choice, read/message grants and bounded follow-up policy |
-| MCP connection | Explicit read grants per owner/client/scope; browser tools have a separate subject; existing shelf scopes are unchanged. Message operations remain GM3B. |
+| MCP connection | Explicit read grants per owner/client/scope; browser tools have a separate subject; existing shelf scopes are unchanged. Separate GM3B message grants require management access. |
 
 The worker does coding, commands, PR creation, check fixes and conflict resolution.
-Gaffer may eventually read permitted evidence and request the next action through
+Gaffer reads explicitly permitted evidence and can relay one requested instruction through
 the existing queue. It cannot answer approval cards, enable YOLO, broaden scope,
 run a shell or acquire a second GitHub-write path. Interrupting the worker remains
 an explicit separate action. Generic chat, closing a panel and receiving a quiet
@@ -59,7 +59,8 @@ existing stop-and-send contract and its persisted stop intent.
 `internal/api/gaffer_context.go` implement the shared authorised read operation.
 The Gaffer runtime injects a passive JSON snapshot on explicit sends; hosted MCP,
 browser WebMCP and scoped stdio forwarding expose the same bounded projection.
-No provider-requested tool loop is enabled. No worker message or goal is created.
+GM3A alone enables no provider-requested tool loop, worker message or goal.
+GM3B adds the explicitly enabled, bounded instruction loop below.
 
 Grants are durable, off by default and bound to owner, subject kind/ID and immutable
 scope (empty for account counts, exact structured-session ID otherwise). Subjects
@@ -172,6 +173,31 @@ record in the orchestration handoff. No model-requested tools, scoped MCP sessio
 background goals, autonomous polling or PR actions are enabled. There is no
 automatic provider retry/fallback. No new dependency or paid provider was used.
 
+## GM3B: explicit worker messages
+
+The [worker-message contract](gaffer-worker-messages.md) records the implemented
+operation, separate grants and atomic queue receipts. Ordinary chat remains
+read-only. Only a user-enabled request (`relay: true`) advertises `message_worker`,
+with one complete validated instruction and at most one provider continuation.
+The fixed conversation supplies the destination; the model cannot choose a session
+or interrupt. A continuation failure retains the committed receipt.
+
+Browser grants bind provider/revision/resolved model and the exact owned structured
+session; MCP and browser tools have independent client/session grants and require
+management access. Current authority is rechecked at admission, queue claim and
+before handoff. Revocation removes queued items. A controller restart reconciles
+in-flight delivery to uncertain without replay. Acceptance does not prove task or
+goal completion. Explicit browser-only stop-and-send uses a confirmed queued
+receipt; managed queue items cannot use generic edit/retry/promote controls.
+
+Worker browser settings use `GET/PUT /{id}/worker`; the explicit confirmed
+interrupt is `POST /{id}/worker/messages/{messageId}/interrupt` with
+`{revision,confirm:true}`. MCP management uses equivalent paths under
+`/api/v2/mcp/connections/{id}` and `/api/v2/mcp/browser`, with a selected `sessionId`.
+Tools are `reet_list_worker_access`, `reet_send_worker_message` and
+`reet_get_worker_message`. Legacy stdio cannot use them. Receipt reads do not wake
+the queue or request a provider answer. No durable follow goal is created.
+
 ## Browser API
 
 All paths are under `/api/v2/gaffer/conversations` and require a browser account
@@ -186,7 +212,7 @@ the existing JSON envelope. Message bodies and keys never enter Activity.
 | `GET /{id}` | Conversation metadata and its bounded turns |
 | `PATCH /{id}` | `{revision,sessionId,providerId,model?}`; retain original scope; explicit provider/model change applies to future calls with this conversation's history |
 | `DELETE /{id}` | `{revision}`; remove conversation/turns and cancel its active call |
-| `POST /{id}/turns` | `{id,revision,text}`; 32 lowercase hex ID; return 202 with durable receipt; never auto-retry with a new ID |
+| `POST /{id}/turns` | `{id,revision,text,relay?}`; relay defaults false; 32 lowercase hex ID; return 202 with durable receipt; never auto-retry with a new ID |
 | `GET /{id}/turns/{turnId}/events` | SSE `turn` events containing the latest persisted turn; terminal event closes the stream |
 | `POST /{id}/turns/{turnId}/cancel` | `{}`; acknowledge cancellation request; observe the receipt for its final outcome |
 
@@ -201,5 +227,5 @@ final checks and PR state in the main companion handoff when publishing.
 GM2B now supplies the floating UI with scope, independent model identity,
 partial/error/restart states, explicit cancellation/removal and receipt recovery.
 GM3A supplies the bounded context projections and scoped MCP reads above.
-Next: GM3B adds explicit worker-message grants and durable queue receipts. Durable follow goals remain GM4, after the queue/grant integration
-is verified. Keep the existing worker composer and approval flow authoritative.
+GM3B supplies explicit worker-message grants and durable queue receipts. Durable
+follow goals remain GM4, after the queue/grant integration is verified. Keep the existing worker composer and approval flow authoritative.

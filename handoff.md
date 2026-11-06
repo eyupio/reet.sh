@@ -48,7 +48,7 @@ merged by the owner as `6f4abb45`. Floating general/session chat includes indepe
 model choices, durable receipt recovery, scoped drafts, cancellation and history
 cleanup. Its final CI was green, including the launcher/composer/keyboard fixes.
 
-GM3A is [PR #608](https://github.com/eyupio/reet.sh/pull/608) on
+GM3A shipped in [merged PR #608](https://github.com/eyupio/reet.sh/pull/608) on
 `feat/gaffer-context-reads`, aligned with main `9ab70f83` after #607.
 Gaffer's **Context** dialog previews explicit, off-by-default retained status,
 event metadata and optional user/agent text under provider policy. Shared domain
@@ -69,7 +69,11 @@ escaped content. The browser matrix includes the supplied 800×1280 touch-tablet
 shape, 560 px boundary, phones and desktop; normal layouts reserve over 60% for
 messages. See the latest UI evidence and the PR for final verification.
 
-Next is GM3B: explicit worker-message grants and queue receipt reconciliation.
+GM3B is implemented for review on `feat/gaffer-worker-messages`, based on main
+`6c5638cf` after merged #608/#609. The concrete
+[worker-message plan](docs/handoffs/gaffer-worker-messages.md) records separate
+permissions, one explicitly enabled request, atomic queue receipts and delivery
+checks. It preserves the working model and user approval boundary.
 Durable goals and offline supervision remain GM4. Gaffer has no coding/PR authority;
 the working model performs those actions. No model-requested tools, worker writes,
 background polling or real provider credentials are enabled in GM3A. Final checks

@@ -1,5 +1,33 @@
 # UI verification — 4 November 2026
 
+## Gaffer worker messages (6 November 2026)
+
+**Chat options → Worker messages** keeps permission and receipts in a secondary
+native dialog. The conversation remains the widget's main area. A grant starts
+off; saving it sends no instruction. **Enable one worker message for next request**
+adds a cancellable composer notice, consumed by that one request. The next normal
+message returns to read-only chat. Replies show a collapsed instruction receipt;
+accepted means worker acceptance rather than completed work.
+
+`web/tests/gaffer-worker.e2e.mjs` passes at 1440, 800, 390 and 320 px in light/dark,
+with touch pointers on smaller views. It checks default-off permission, saving the
+fresh conversation revision, explicit per-request relay, no automatic instruction,
+read-only subsequent chat, escaped instruction text, bounded dialog width,
+separate interrupt confirmation, updated receipts, revocation, Escape and focus
+return. Independent MCP/client and browser grants are also checked at desktop and
+phone widths. The
+existing chat, context and settings browser suites pass. Only synthetic worker
+and provider data are used; there is no live model, PR or device claim.
+
+The four captures below were visually inspected: touch-sized controls, wrapping
+instruction text, readable light/dark colours and a scrollable phone dialog. The
+HTML-looking receipt is an escaping probe rendered as text.
+
+![Worker messages desktop light](images/ui/gaffer-worker-1440-light.png)
+![Worker messages desktop dark](images/ui/gaffer-worker-1440-dark.png)
+![Worker messages phone light](images/ui/gaffer-worker-390-light.png)
+![Worker messages phone dark](images/ui/gaffer-worker-390-dark.png)
+
 ## Gaffer: give the conversation the room (5 November 2026)
 
 The user's 800×1280 tablet screenshot showed scope, worker identity, inline model

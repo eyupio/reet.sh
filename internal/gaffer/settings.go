@@ -165,6 +165,9 @@ type activeProbe struct {
 	cancel   context.CancelFunc
 }
 type Service struct {
+	worker          WorkerMessenger
+	workerEnabled   func() bool
+	workerLimiter   *auth.Limiter
 	store           *store.Store
 	sealer          *sealed.Sealer
 	limiter         *auth.Limiter
@@ -182,7 +185,7 @@ type Service struct {
 }
 
 func New(st *store.Store, s *sealed.Sealer) *Service {
-	return &Service{store: st, sealer: s, limiter: auth.NewLimiter(12, time.Minute), writes: auth.NewLimiter(30, time.Minute), sealSlots: make(chan struct{}, 2), active: map[uint64]activeProbe{}, chatJobs: map[string]*chatJob{}, chatLimiter: auth.NewLimiter(12, time.Minute), contextLimiter: auth.NewLimiter(60, time.Minute), chatRecoveryErr: st.RecoverGafferTurns()}
+	return &Service{workerLimiter: auth.NewLimiter(12, time.Minute), store: st, sealer: s, limiter: auth.NewLimiter(12, time.Minute), writes: auth.NewLimiter(30, time.Minute), sealSlots: make(chan struct{}, 2), active: map[uint64]activeProbe{}, chatJobs: map[string]*chatJob{}, chatLimiter: auth.NewLimiter(12, time.Minute), contextLimiter: auth.NewLimiter(60, time.Minute), chatRecoveryErr: st.RecoverGafferTurns()}
 }
 func (s *Service) Available() bool { return s != nil && s.sealer != nil }
 

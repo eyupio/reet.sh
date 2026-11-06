@@ -54,6 +54,7 @@ try{
    await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
    await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
    const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
+   await expect(chat.getByRole('button',{name:'Look after this session',exact:true})).toBeVisible()
    const access=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();const options=w.page.getByRole('dialog',{name:'Chat options',exact:true});await options.getByText('Advanced session controls',{exact:true}).click();return options.getByRole('button',{name:'Context sharing',exact:true})}
    let accessButton=await access()
    await expect(accessButton).toHaveAttribute('title','Context off · typed messages only')

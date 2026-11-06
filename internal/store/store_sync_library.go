@@ -370,7 +370,10 @@ func (s *Store) prepareLibraryTargets(uid int64, role string, agent SyncAgent, r
 	// A settled machine does not need its entire library rebuilt merely to
 	// discover that all its folders were already prepared.
 	var pending int
-	if err = s.db.QueryRow(`SELECT count(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND status IN ('queued','running','awaiting-approval')`, uid, agent.ID).Scan(&pending); err != nil {
+	// A queued binary update is not skill work. Counting it here left a machine
+	// that was offline when an update was queued with no shared-library plan for
+	// as long as that update waited.
+	if err = s.db.QueryRow(`SELECT count(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind<>'update' AND status IN ('queued','running','awaiting-approval')`, uid, agent.ID).Scan(&pending); err != nil {
 		return err
 	}
 	if pending > 0 {

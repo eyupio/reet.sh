@@ -105,7 +105,19 @@ func (s *Store) RequestMachineSkillSync(uid int64, skillID, destination, sourceI
 	if sourceAgent == nil {
 		return RemoteImport{}, errors.New("connect reet on the source machine to transfer its skill")
 	}
-	return s.CreateRemoteImportFor(uid, RemoteImportCreate{FollowShelf: followShelf, RequestKey: requestKey, AgentID: sourceAgent.ID, EnvironmentID: source.ID, Name: sk.Slug, SyncSkillID: skillID, DestinationID: target.ID})
+	// A skill captured before keeps the bundle it was bound to. Appending a
+	// revision there reuses one slot; starting a fresh bundle for every capture
+	// is what let repeated imports fill an account with duplicates of the same
+	// skill and then refuse every new one as storage full.
+	var bundleID, expectedBase string
+	err = s.db.QueryRow(`SELECT s.bundle_id,b.head FROM sync_private_sources s JOIN private_skill_bundles b ON b.user_id=s.user_id AND b.id=s.bundle_id WHERE s.user_id=? AND s.skill_id=?`, uid, skillID).Scan(&bundleID, &expectedBase)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return RemoteImport{}, err
+	}
+	if bundleID != "" && expectedBase == "" {
+		bundleID = ""
+	}
+	return s.CreateRemoteImportFor(uid, RemoteImportCreate{FollowShelf: followShelf, RequestKey: requestKey, AgentID: sourceAgent.ID, EnvironmentID: source.ID, Name: sk.Slug, SyncSkillID: skillID, DestinationID: target.ID, BundleID: bundleID, ExpectedBase: expectedBase})
 }
 
 // AdvanceMachineSkillSyncs is driven by agent polls as well as browser reads.
@@ -187,7 +199,7 @@ func (s *Store) advanceMachineSkillSync(uid int64, role string, r RemoteImport) 
 	// Serialize destination work, including reviews. Updating a desired
 	// revision while a prior transfer applies would invalidate its plan.
 	var busy int
-	e = s.db.QueryRow(`SELECT count(*) FROM sync_jobs j JOIN sync_agents a ON a.id=j.agent_id JOIN environments e ON e.user_id=a.user_id AND e.host=a.host COLLATE NOCASE WHERE e.id=? AND a.user_id=? AND j.status IN ('queued','running','awaiting-approval')`, r.DestinationID, uid).Scan(&busy)
+	e = s.db.QueryRow(`SELECT count(*) FROM sync_jobs j JOIN sync_agents a ON a.id=j.agent_id JOIN environments e ON e.user_id=a.user_id AND e.host=a.host COLLATE NOCASE WHERE e.id=? AND a.user_id=? AND j.kind<>'update' AND j.status IN ('queued','running','awaiting-approval')`, r.DestinationID, uid).Scan(&busy)
 	if e != nil {
 		return e
 	}

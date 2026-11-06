@@ -151,19 +151,21 @@ func dropUnusedBlobs(tx *sql.Tx, uid int64) error {
 // unused.
 const deadHostedGraceMillis = 10 * 60 * 1000
 
-// freeDeadHostedBundles frees whole bundles that only ever held a written skill's
-// synced bytes and that nothing uses any more. Deleting or renaming a written skill
+// freeDeadHostedBundles frees whole bundles that only ever held bytes copied from
+// a skill and that nothing uses any more. Deleting or renaming a written skill
 // drops its binding but leaves its bundle behind (a bundle's name is immutable, so
-// a rename starts a fresh one), and nothing can delete a bundle. Each such bundle
-// kept a slot against the bound for good, until an account that renamed or deleted
-// enough skills could not sync a new one.
+// a rename starts a fresh one), and a machine capture that started a new bundle
+// instead of reusing the skill's own leaves the older one behind. Nothing can
+// delete a bundle, so each kept a slot against the bound for good, until an
+// account that renamed, deleted or re-captured enough skills could not sync a new
+// one.
 //
 // These bundles are copies of a skill's bytes, not something a person saved, so
 // they are the one kind of bundle that is freed, and only when a slot is needed:
 // oldest first, and no more than `need`, so as much of a deleted skill's last
 // bytes as possible survives. A bundle is left alone when it is bound to a
-// written skill, has any revision that is pinned, received, planned or in a job,
-// was not made by syncing a written skill, or is recent.
+// written skill or a captured machine skill, has any revision that is pinned,
+// received, planned or in a job, was not made by copying a skill, or is recent.
 func freeDeadHostedBundles(tx *sql.Tx, uid int64, need int) (int, error) {
 	if need <= 0 {
 		return 0, nil
@@ -175,8 +177,9 @@ func freeDeadHostedBundles(tx *sql.Tx, uid int64, need int) (int, error) {
 	rows, err := tx.Query(`SELECT b.id FROM private_skill_bundles b
  WHERE b.user_id=?
  AND NOT EXISTS (SELECT 1 FROM hosted_sync_sources h WHERE h.user_id=b.user_id AND h.bundle_id=b.id)
+ AND NOT EXISTS (SELECT 1 FROM sync_private_sources s WHERE s.user_id=b.user_id AND s.bundle_id=b.id)
  AND EXISTS (SELECT 1 FROM private_skill_revisions r WHERE r.user_id=b.user_id AND r.bundle_id=b.id)
- AND NOT EXISTS (SELECT 1 FROM private_skill_revisions r WHERE r.user_id=b.user_id AND r.bundle_id=b.id AND coalesce(json_extract(r.origin,'$.reference'),'')<>'hosted:'||b.name)
+ AND NOT EXISTS (SELECT 1 FROM private_skill_revisions r WHERE r.user_id=b.user_id AND r.bundle_id=b.id AND NOT (coalesce(json_extract(r.origin,'$.reference'),'')='hosted:'||b.name OR json_extract(r.origin,'$.kind')='import'))
  AND (SELECT max(r.created_at) FROM private_skill_revisions r WHERE r.user_id=b.user_id AND r.bundle_id=b.id)<?
  ORDER BY (SELECT max(r.created_at) FROM private_skill_revisions r WHERE r.user_id=b.user_id AND r.bundle_id=b.id),b.created_at,b.id`, uid, now()-deadHostedGraceMillis)
 	if err != nil {

@@ -53,7 +53,7 @@ try {
     await page.goto(`${base}/sessions?agent=a1&session=${session.id}`)
     const narrative = page.locator('.chat-pane')
     const strip = narrative.locator('[aria-label="Conversation status"]')
-    const entry = narrative.getByRole('button', { name: 'Ask Gaffer', exact: true })
+    const entry = page.getByRole('button', { name: 'Ask Gaffer', exact: true })
     const overview = page.getByRole('complementary', { name: 'Session context' })
     const card = overview.getByRole('region', { name: 'Gaffer’s work update' })
     await expect(strip).toHaveAttribute('data-phase', 'editing')
@@ -65,16 +65,15 @@ try {
     await expect(strip.locator('.spinning svg')).toBeVisible()
     expect(await strip.locator('.spinning svg').evaluate(el => getComputedStyle(el).animationName)).toBe('none')
     await expect(narrative.locator('.gaffer-avatar')).toHaveCount(0)
-    await expect(page.locator('.gaffer-launcher')).toHaveCount(0)
+    await expect(page.locator('.gaffer-launcher')).toHaveCount(1)
     expect(providerReads).toBe(0)
     await entry.focus(); await page.keyboard.press('Enter')
     const companion = page.getByRole('dialog', { name: 'Gaffer', exact: true })
     await expect(companion).toBeVisible()
     await expect(companion.getByRole('link', { name: 'Set up Gaffer' })).toBeVisible()
     if (width >= 1100) {
-      const edge = (await narrative.boundingBox()).x + (await narrative.boundingBox()).width
       const panel = await companion.boundingBox()
-      expect(Math.abs(panel.x + panel.width - (edge - 12))).toBeLessThan(3)
+      expect(Math.abs(panel.x + panel.width - (width - 16))).toBeLessThan(3)
     }
     await page.keyboard.press('Escape'); await expect(companion).toHaveCount(0); await expect(entry).toBeFocused()
     if (shots && width === 375) await page.screenshot({ path: `${shots}/gaffer-narrative-${width}-${theme}.png` })
@@ -126,5 +125,5 @@ try {
     expect(errors).toEqual([])
     await context.close()
   }
-  console.log('Gaffer layout: Overview placement, mascot-free status, nearby launcher, focus return, eight responsive/theme checks, approvals, questions, reconnect and handover passed.')
+  console.log('Gaffer layout: Overview placement, mascot-free status, floating launcher, focus return, eight responsive/theme checks, approvals, questions, reconnect and handover passed.')
 } finally { await browser.close() }

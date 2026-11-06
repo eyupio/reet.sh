@@ -122,6 +122,14 @@ textarea { width: 100%; resize: vertical; }
 html[data-gaffer-anchor]{--gaffer-reserve:112px}
 @media(min-width:768px){html[data-gaffer-anchor] main:not(.terminal-layout):not(.home-layout){padding-bottom:calc(56px + var(--gaffer-reserve))}}
 @media(max-width:767px){html[data-gaffer-anchor]{--gaffer-reserve:88px}}
+html[data-gaffer-anchor][data-gaffer-editing]{--gaffer-reserve:0px}
+/* A sideways phone has width to spare. Reserve the corner beside its terminal
+   instead of consuming terminal rows in the short viewport. */
+@media(max-height:500px) and (pointer:coarse) and (orientation:landscape){
+  html[data-gaffer-anchor]:has([aria-label="Remote terminal workspace"]){--gaffer-reserve:0px}
+  html[data-gaffer-anchor]:not([data-gaffer-editing]) [aria-label="Remote terminal workspace"]{margin-right:88px}
+  html[data-gaffer-anchor=left]:not([data-gaffer-editing]) [aria-label="Remote terminal workspace"]{margin-left:88px;margin-right:0}
+}
 
 /* The phone's bottom tab bar (shell/BottomTabs.svelte) is fixed over the page: the page keeps room for it at its foot, and
    anything else pinned to the bottom (toasts, the bulk bar, the save dock) sits above it. Same rule as PHONE_SCREEN. */

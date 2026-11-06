@@ -540,7 +540,7 @@
     // The shell hides and shows the site's chrome (keyboardChrome) after this measure has set the session focus: measure again
     // whenever it does, so the height is never one taken while the top bar was aside.
     const chrome=new MutationObserver(measure)
-    chrome.observe(document.documentElement,{attributes:true,attributeFilter:['data-chrome-aside','data-bottom-tabs','data-session-focus','data-gaffer-anchor']})
+    chrome.observe(document.documentElement,{attributes:true,attributeFilter:['data-chrome-aside','data-bottom-tabs','data-session-focus','data-gaffer-anchor','data-gaffer-editing']})
     // A docked panel that would become a drawer (a narrower window, a phone) closes rather than cover the terminal.
     const viewportChanged=()=>{const wasDocked=panelView==='docked';viewportWidth=innerWidth;screenSide=readScreen();if(wasDocked&&!panelDocks(viewportWidth,pinned,phone))mode='closed'}
     window.addEventListener('resize',viewportChanged)

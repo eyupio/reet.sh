@@ -187,16 +187,16 @@
 
 <style>
   .gaffer-settings { display: grid; gap: 20px; margin-top: 24px; }
-  .intro { display: flex; align-items: center; gap: 24px; padding: 26px; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(120deg, var(--card), color-mix(in srgb, var(--tint) 55%, var(--card))); }
+  .intro { display: flex; align-items: center; gap: 24px; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .portrait { width: 100px; min-width: 100px; align-self: stretch; display: grid; align-items: center; }
-  .eyebrow, .provider-kind { margin: 0 0 6px; font-size: 14px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+  .eyebrow, .provider-kind { margin: 0 0 6px; font-size: 14px; color: var(--muted); }
   h2 { margin: 0; font: 600 1.85rem/1.15 var(--serif); letter-spacing: -.025em; }
   h3 { margin: 0; font: 600 1.15rem/1.3 var(--sans); overflow-wrap: anywhere; }
   .quip { margin: 8px 0; color: var(--accent-text); font-size: 1rem; }
   .intro-copy, .note, .field-help, small { color: var(--muted); font-size: 14px; line-height: 1.5; }
   .intro-copy { margin: 0; max-width: 58ch; }
   .note { margin: 0; }
-  .feedback { border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 0; background: var(--card); overflow-wrap: anywhere; }
+  .feedback { border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 0; background: var(--card); overflow-wrap: anywhere; }
   .feedback p { margin: 0 0 8px; }
   .feedback.good { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); }
   .feedback.bad, .bad { color: var(--bad); }
@@ -204,14 +204,14 @@
   .empty { text-align: center; padding: 40px 16px 24px; color: var(--muted); }
   .empty h3 { color: var(--ink); margin-top: 14px; }
   .empty p { margin: 10px auto 0; max-width: 44ch; }
-  .empty-mark { display: inline-grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 13px; font: 600 1.7rem var(--serif); background: var(--bg-sunk); color: var(--accent-text); }
+  .empty-mark { display: inline-grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 12px; font: 600 1.7rem var(--serif); background: var(--bg-sunk); color: var(--accent-text); }
   .providers { margin: 0; padding: 0; list-style: none; display: grid; gap: 16px; }
-  .providers li { margin-top: 18px; border: 1px solid var(--line); border-radius: 12px; padding: 20px; min-width: 0; background: var(--card-raised); }
+  .providers li { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; padding: 20px; min-width: 0; background: var(--card-raised); }
   .providers li + li { margin-top: 0; }
   .provider-head { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
-  .provider-kind { font-size: 14px; letter-spacing: .035em; }
+  .provider-kind { font-size: 14px; }
   .badges { display: flex; gap: 6px; flex-wrap: wrap; }
-  .badge { padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; font-size: 14px; color: var(--muted); background: var(--bg); }
+  .badge { padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; color: var(--muted); background: var(--bg); }
   .badge.default { background: var(--tint); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
   .badge.off { background: var(--bg-sunk); }
   .model-name { font-family: var(--mono); font-size: 14px; margin: 15px 0 5px; overflow-wrap: anywhere; }
@@ -223,26 +223,26 @@
   .result-dot { width: 7px; height: 7px; flex: none; background: var(--good); border-radius: 50%; }
   .failed .result-dot { background: var(--bad); }
   .untested { color: var(--muted); margin: 16px 0 0; font-size: 14px; }
-  .provider-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+  .provider-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
   .remove { margin-left: auto; color: var(--bad); }
   .footnote { margin: 16px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
   dialog { border: 0; padding: 0; width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; background: transparent; color: var(--ink); }
   dialog::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
-  .provider-form { padding: 26px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+  .provider-form { padding: 24px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
   .provider-form header .note { margin-top: 10px; }
-  form { display: grid; gap: 18px; margin-top: 20px; }
-  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 14px; }
+  form { display: grid; gap: 16px; margin-top: 20px; }
+  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 16px; }
   label { display: grid; gap: 7px; font-size: 14px; font-weight: 600; min-width: 0; }
   label small { font-weight: 400; }
   input:not([type='checkbox']), select { min-width: 0; width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink); padding: 10px 12px; font: 400 14px/1.4 var(--sans); }
   input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .check { display: flex; align-items: center; gap: 10px; min-height: 36px; font-weight: 400; }
   .check input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
   .field-help { margin: -4px 0 0; }
   .model-section { border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 10px; }
   .field-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
-  .context-permissions { border: 1px solid var(--line); padding: 14px; border-radius: 10px; display: grid; gap: 8px; background: var(--bg-sunk); }
+  .context-permissions { border: 1px solid var(--line); padding: 16px; border-radius: 8px; display: grid; gap: 8px; background: var(--bg-sunk); }
   .context-permissions h3 { font-size: 14px; }
   .context-permissions .field-help { margin: 0; }
   .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 16px; border-top: 1px solid var(--line); }

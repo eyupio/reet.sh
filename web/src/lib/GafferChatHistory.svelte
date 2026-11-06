@@ -40,17 +40,17 @@
 </dialog>
 {#if removing}<ConfirmDialog title="Remove this saved Gaffer chat?" body="This deletes its messages and stops any current Gaffer answer. Your working agent keeps running. Provider credits already used cannot be recovered." confirmLabel="Remove saved chat" danger onconfirm={()=>void remove()} oncancel={()=>removing=null}/>{/if}
 <style>
- dialog{width:min(580px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line-strong);border-radius:14px;background:var(--card);color:var(--ink)}
+ dialog{width:min(580px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line-strong);border-radius:12px;background:var(--card);color:var(--ink)}
  dialog::backdrop{background:var(--scrim)}
- header{display:flex;align-items:flex-start;gap:16px;padding:22px;border-bottom:1px solid var(--line)}
+ header{display:flex;align-items:flex-start;gap:16px;padding:20px;border-bottom:1px solid var(--line)}
  h2{margin:0;font:600 26px var(--serif)}
  header p{margin:8px 0 0;color:var(--muted);font-size:14px;line-height:1.5}
  header button{flex:none}
- .body{padding:18px 22px;overflow:auto;max-height:65dvh;font-size:14px}
+ .body{padding:16px 20px;overflow:auto;max-height:65dvh;font-size:14px}
  ul{list-style:none;padding:0;margin:0}
- .scope-choices{display:grid;gap:8px;margin-bottom:24px}.scope-choice{display:grid;gap:5px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;min-height:44px;cursor:pointer}.scope-choice span{color:var(--muted);font-size:14px;overflow-wrap:anywhere}.scope-choice.current{border-color:var(--accent);background:var(--tint)}h3{font:600 14px var(--sans);color:var(--muted);margin:0 0 8px}.saved-chat{min-width:0}.saved-chat strong{overflow-wrap:anywhere}.open-chat{display:block;text-align:left;background:none;border:0;padding:0;color:var(--ink);font:inherit;cursor:pointer;min-height:36px;text-decoration:underline;text-underline-offset:3px}button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+ .scope-choices{display:grid;gap:8px;margin-bottom:24px}.scope-choice{display:grid;gap:5px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;min-height:44px;cursor:pointer}.scope-choice span{color:var(--muted);font-size:14px;overflow-wrap:anywhere}.scope-choice.current{border-color:var(--accent);background:var(--tint)}h3{font:600 14px var(--sans);color:var(--muted);margin:0 0 8px}.saved-chat{min-width:0}.saved-chat strong{overflow-wrap:anywhere}.open-chat{display:block;text-align:left;background:none;border:0;padding:0;color:var(--ink);font:inherit;cursor:pointer;min-height:36px;text-decoration:underline;text-underline-offset:3px}button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
  li{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:12px 0}
- li p{color:var(--muted);margin:4px 0 0;font-size:14px}
+ li p{color:var(--muted);margin:4px 0 0;font-size:14px;font-variant-numeric:tabular-nums}
  .remove,.error{color:var(--bad)}
- @media(max-width:559.98px){header{padding:14px;flex-wrap:wrap}h2{font-size:24px}.body{padding:14px;max-height:calc(var(--shell-height,100dvh) - 150px)}.btn{min-height:44px}}
+ @media(max-width:559.98px){header{padding:16px;flex-wrap:wrap}h2{font-size:24px}.body{padding:16px;max-height:calc(var(--shell-height,100dvh) - 150px)}.btn{min-height:44px}}
 </style>

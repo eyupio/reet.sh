@@ -393,7 +393,7 @@
   .spaces-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
   .search { flex: 1 1 260px; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
@@ -406,8 +406,8 @@
   .identity { min-width: 0; display: grid; gap: 3px; }
   .group-name { display: block; margin: 0; font: 500 1.2rem/1.3 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .kind, .members { color: var(--muted); font-size: 0.875rem; }
-  .members { white-space: nowrap; }
-  .role { padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
+  .members { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .role { padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
   .role.manage { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
   .chev { width: 7px; height: 7px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); }
   .group[open] > summary .chev { transform: rotate(-135deg); }

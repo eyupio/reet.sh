@@ -86,7 +86,7 @@
   })
 </script>
 
-<PageHeader eyebrow="Good finds, kept together" title="Lists." lede="Curate a toolkit, share it with the right people, and keep personal collections private.">
+<PageHeader eyebrow="Good finds, kept together" title="Lists" lede="Curate a toolkit, share it with the right people, and keep personal collections private.">
   {#snippet actions()}
     {#if canWrite}<button class="btn primary" type="button" onclick={() => (creating = true)}>Create a list</button>{/if}
     <a class="btn" href="/community">Explore community</a>
@@ -171,7 +171,7 @@
   .search { flex: 1 1 260px; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
   .search input { width: 100%; }
   .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
@@ -185,9 +185,9 @@
   h2 { margin: 0 0 4px; font: 500 1.2rem/1.3 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
   .description p { margin: 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .metadata { display: grid; width: 100%; justify-items: end; gap: 5px; }
-  .meta-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 5px 14px; color: var(--muted); font-size: 0.875rem; text-align: right; }
+  .meta-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 5px 14px; color: var(--muted); font-size: 0.875rem; text-align: right; font-variant-numeric: tabular-nums; }
   .meta-row > * { flex: none; }
-  .badge { border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--ink); font-size: 0.875rem; white-space: nowrap; }
+  .badge { border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: var(--ink); font-size: 0.875rem; white-space: nowrap; }
   .go { width: 7px; height: 7px; border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
 
   .cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; padding-top: 14px; }

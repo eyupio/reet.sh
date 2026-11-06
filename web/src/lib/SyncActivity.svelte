@@ -325,7 +325,7 @@
     backdrop-filter: blur(14px); color: var(--ink);
   }
   .sync-dock.expanded { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; max-height: min(72vh, 660px); }
-  .accent { height: 3px; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--info) 70%, var(--accent)), var(--accent)); background-size: 200% 100%; }
+  .accent { height: 3px; background: var(--accent); }
   .working .accent { animation: glide 2.8s linear infinite; }
   @keyframes glide { to { background-position: -200% 0; } }
   .collapsed { display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 8px; }
@@ -346,7 +346,7 @@
   .working .spin { animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .dock-copy { display: grid; gap: 2px; min-width: 0; }
-  .dock-copy p { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .dock-copy p { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; }
   .dock-copy h2 { margin: 0; font: 500 1.12rem/1.25 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
   .dock-copy small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .dock-control { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font-size: 1.15rem; line-height: 1; cursor: pointer; }
@@ -357,8 +357,8 @@
   .run-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 0.875rem; }
   .run-meta strong { color: var(--ink); font-variant-numeric: tabular-nums; }
   .run small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
-  .track { height: 6px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--line) 70%, transparent); }
-  .track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--info)); transition: width 0.5s var(--ease-out); }
+  .track { height: 6px; overflow: hidden; border-radius: 4px; background: color-mix(in srgb, var(--line) 70%, transparent); }
+  .track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.5s var(--ease-out); }
   .dock-body { display: grid; gap: 10px; padding: 2px 16px 12px; overflow: auto; overscroll-behavior: contain; }
   .job { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--bg) 55%, var(--card)); }
   .job.done { border-color: color-mix(in srgb, var(--good) 32%, var(--line)); }
@@ -367,16 +367,16 @@
   .job-head > div { display: grid; gap: 1px; min-width: 0; }
   .job-head strong { font-size: 0.875rem; overflow-wrap: anywhere; }
   .job-head small { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
-  .job-state { flex: none; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; font-weight: 600; }
+  .job-state { flex: none; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .job-state.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
   .job-state.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
   .job-state.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
   .job-state.work { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
   .steps { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0; padding: 0; }
   .steps li { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: 0.875rem; }
-  .step-dot { display: block; height: 4px; border-radius: 999px; background: var(--line); }
+  .step-dot { display: block; height: 4px; border-radius: 4px; background: var(--line); }
   .steps li.active { color: var(--accent-text); font-weight: 600; }
-  .steps li.active .step-dot { background: linear-gradient(90deg, var(--accent), var(--info)); animation: pulse 1.4s ease-in-out infinite; }
+  .steps li.active .step-dot { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
   .steps li.done { color: var(--ink-soft); }
   .steps li.done .step-dot { background: var(--good); }
   .steps li.failed { color: var(--bad); }
@@ -384,19 +384,19 @@
   .steps li.review { color: var(--warn); }
   .steps li.review .step-dot { background: var(--warn); }
   @keyframes pulse { 50% { opacity: 0.45; } }
-  .plan-count { margin: 0; color: var(--muted); font-size: 0.875rem; }
-  .plan-list { list-style: none; display: grid; gap: 3px; margin: 0; padding: 0; font-size: 0.875rem; }
+  .plan-count { margin: 0; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+  .plan-list { list-style: none; display: grid; gap: 3px; margin: 0; padding: 0; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .plan-list li { display: flex; gap: 7px; align-items: baseline; min-width: 0; }
-  .plan-list li span { flex: none; width: 10px; color: var(--good); font-weight: 700; }
+  .plan-list li span { flex: none; width: 10px; color: var(--good); font-weight: 600; }
   .plan-list li.remove span { color: var(--bad); }
   .plan-list li.more { color: var(--muted); }
   .job-message { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
   .review { justify-self: start; min-height: 36px; padding: 6px 12px; font-size: 0.875rem; }
-  .more-jobs { color: var(--accent-text); font-size: 0.875rem; font-weight: 600; text-decoration: none; }
+  .more-jobs { color: var(--accent-text); font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; text-decoration: none; }
   .more-jobs:hover { text-decoration: underline; }
   .dock-empty { margin: 0; padding: 8px 0; color: var(--muted); font-size: 0.875rem; }
   .dock-error { margin: 0; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: 8px; color: var(--bad); font-size: 0.875rem; }
-  .dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 35%, var(--card)); color: var(--muted); font-size: 0.875rem; }
+  .dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 35%, var(--card)); color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .dock-foot a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
   .dock-foot a:hover { text-decoration: underline; }
   @media (max-width: 650px) {

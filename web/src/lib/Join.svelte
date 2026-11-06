@@ -3,6 +3,7 @@
   import { onMount } from 'svelte'
   import { getInvite, joinAccount, type Invite, type User } from './api'
   import AuthCard from './AuthCard.svelte'
+  import { canAutoFocus } from './focus'
   import PasswordInput from './PasswordInput.svelte'
 
   let { token, onsuccess }: { token: string; onsuccess: (user: User) => Promise<void> | void } = $props()
@@ -14,6 +15,11 @@
   let confirm = $state('')
   let error = $state('')
   let busy = $state(false)
+  let nameInput = $state<HTMLInputElement>()
+
+  $effect(() => {
+    if (invite && canAutoFocus()) nameInput?.focus()
+  })
 
   onMount(async () => {
     if (!token) {
@@ -63,7 +69,7 @@
     <p class="role">Role: <strong>{invite.role}</strong></p>
     <form onsubmit={submit} aria-busy={busy} aria-describedby={error ? "join-error" : undefined}>
       <label for="join-name">Your name</label>
-      <input id="join-name" bind:value={name} autocomplete="name" placeholder="Sam" />
+      <input id="join-name" bind:this={nameInput} bind:value={name} autocomplete="name" placeholder="Sam" />
       <label for="join-password">Password</label>
       <PasswordInput id="join-password" bind:value={password} autocomplete="new-password" placeholder="At least 8 characters" minlength={8} />
       <label for="join-confirm">Confirm password</label>
@@ -77,8 +83,8 @@
 <style>
   .muted { margin: 16px 0 0; color: var(--muted); }
   .muted a { color: var(--accent-text); }
-  .role { margin: 14px 0 0; color: var(--muted); font-size: 0.9rem; }
-  form { display: grid; gap: 8px; margin-top: 18px; }
+  .role { margin: 12px 0 0; color: var(--muted); font-size: 0.9rem; }
+  form { display: grid; gap: 8px; margin-top: 16px; }
   label { font-weight: 600; font-size: 0.9rem; }
   input { width: 100%; }
   .submit { width: 100%; margin-top: 4px; }

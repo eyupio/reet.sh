@@ -186,15 +186,15 @@
 
 <style>
   .fleet { min-width: 0; }
-  .cards { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+  .cards { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
   .slot { position: relative; display: flex; flex: 1 0 220px; min-width: 0; }
   .card {
-    flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
-    border: 1px solid var(--line); border-radius: 13px; background: var(--card); color: var(--ink); text-decoration: none;
+    flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); text-decoration: none;
   }
   .card:hover { border-color: var(--line-strong); }
   .head { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 60px; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
   .dot.online { background: var(--good); }
   /* Shape as well as colour: offline is a hollow ring, reconnecting a half-filled one, paused a grey square. */
   .dot.offline { background: transparent; border: 2px solid var(--muted); }
@@ -206,29 +206,30 @@
   .status.online { color: var(--good); }
   .status.reconnecting { color: var(--warn); }
   .os { margin-left: auto; flex-shrink: 4; font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .pills { display: flex; flex-wrap: wrap; gap: 5px; }
-  .pill { padding: 1px 8px; border: 1px solid var(--line-mid); border-radius: 99px; font-size: 14px; line-height: 1.5; color: var(--ink-soft); white-space: nowrap; }
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { padding: 1px 8px; border: 1px solid var(--line-mid); border-radius: 6px; font-size: 14px; line-height: 1.5; color: var(--ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .pill.empty { color: var(--muted); border-color: var(--line-soft); }
   .sessions { display: flex; align-items: baseline; gap: 6px; }
-  .figure { font: 600 28px/1 var(--serif); }
+  .figure { font: 600 28px/1 var(--serif); font-variant-numeric: tabular-nums; }
   .unit { color: var(--muted); }
   .ending { color: var(--muted); white-space: nowrap; }
-  .caption { margin-top: -6px; font-size: 14px; color: var(--muted); }
+  .caption { margin-top: -4px; font-size: 14px; color: var(--muted); }
   .unavailable { color: var(--muted); font-size: 14px; line-height: 1.5; }
   .resources { display: grid; gap: 6px; }
-  .metric { display: grid; gap: 3px; }
+  .metric { display: grid; gap: 4px; }
   .reading { display: flex; flex-wrap: wrap; gap: 2px 8px; justify-content: space-between; font-size: 14px; color: var(--muted); }
+  .reading .value { font-variant-numeric: tabular-nums; }
   .cpu .value { color: var(--ink); }
-  .bar { display: block; height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; }
-  .bar > span { display: block; height: 100%; border-radius: 3px; background: var(--good); }
+  .bar { display: block; height: 6px; border-radius: 4px; background: var(--line-soft); overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 4px; background: var(--good); }
   .bar.warn > span { background: var(--warn); }
   .foot { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 14px; color: var(--muted); }
   .skills { font-size: 14px; color: var(--muted); }
   .skills.good { color: var(--good); }
   .skills.warn { color: var(--warn); }
   .quick, .more {
-    position: absolute; top: 10px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
-    border: 1px solid var(--line); border-radius: 7px; background: var(--card-raised); color: var(--ink-soft); cursor: pointer;
+    position: absolute; top: 8px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--card-raised); color: var(--ink-soft); cursor: pointer;
   }
   .quick { right: 12px; }
   .more { right: 44px; }
@@ -242,8 +243,8 @@
   .add:hover { color: var(--ink); }
   .none { margin: 8px 0 0; color: var(--muted); }
   .chip-note { display: none; }
-  .menu { position: fixed; z-index: 30; min-width: 188px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: 0 12px 30px var(--scrim); }
-  .menu button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+  .menu { position: fixed; z-index: 30; min-width: 188px; display: flex; flex-direction: column; padding: 4px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card-raised); box-shadow: 0 12px 30px var(--scrim); }
+  .menu button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
   .menu button:hover, .menu button:focus-visible { background: var(--line-soft); }
 
   /* Tablet: the cards keep their width and scroll sideways; each shows its name, the count and the skills line. */
@@ -266,17 +267,17 @@
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .cards { gap: 8px; margin-right: -16px; padding-right: 16px; mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); -webkit-mask-image: linear-gradient(90deg, var(--ink) 85%, transparent); }
     .slot { flex: none; }
-    .card { flex-direction: row; align-items: center; gap: 8px; min-height: 44px; padding: 0 48px 0 14px; border-radius: 999px; }
+    .card { flex-direction: row; align-items: center; gap: 8px; min-height: 44px; padding: 0 48px 0 16px; border-radius: 8px; }
     .foot, .caption, .status.online, .resources, .unavailable, .pills, .more { display: none; }
     .status { white-space: nowrap; }
     .sessions { gap: 4px; color: var(--muted); font-size: 14px; }
-    .figure { font: inherit; color: var(--muted); }
+    .figure { font: inherit; font-variant-numeric: tabular-nums; color: var(--muted); }
     .unit { white-space: nowrap; }
     .chip-note { display: inline; font-size: 14px; color: var(--muted); white-space: nowrap; }
     .dot { width: 8px; height: 8px; }
     .quick { top: 50%; right: 2px; transform: translateY(-50%); width: 44px; height: 44px; }
     .head { padding-right: 0; }
-    .add { flex: none; flex-direction: row; padding: 0 14px; }
+    .add { flex: none; flex-direction: row; padding: 0 16px; }
     .add svg { width: 16px; height: 16px; }
   }
 </style>

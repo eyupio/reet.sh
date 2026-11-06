@@ -37,19 +37,20 @@
 </section>
 
 <style>
-  .consent { max-width:640px; margin:clamp(24px,6vw,64px) auto; padding:clamp(22px,4vw,40px); border:1px solid var(--line); background:var(--card); border-radius:16px; }
-  h1 { font:500 clamp(1.8rem,4vw,2.4rem)/1.15 var(--serif); letter-spacing:-.035em; margin:12px 0 18px; overflow-wrap:anywhere; }
-  p { line-height:1.65; }
-  .lede,.muted,.details,.callback { color:var(--muted); }
-  .permissions { margin:26px 0; }
-  .label { font-size:0.875rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
-  .choice { display:flex; align-items:flex-start; gap:12px; padding:16px; border:1px solid var(--line); border-radius:10px; margin-top:10px; cursor:pointer; }
-  .choice:has(input:checked) { border-color:var(--accent); background:var(--tint); }
-  input { flex:none; width:16px; height:16px; margin-top:3px; accent-color:var(--accent); }
-  small { display:block; color:var(--muted); font-size:0.875rem; line-height:1.6; margin-top:5px; }
-  .details,.callback { font-size:0.875rem; }
-  .callback { padding-top:16px; border-top:1px solid var(--line); overflow-wrap:anywhere; }
-  .actions { margin-top:28px; display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
-  .error { border:1px solid var(--bad); padding:14px; border-radius:8px; }
-  @media(max-width:480px) { .actions { flex-direction:column-reverse; } .actions button { width:100%; } }
+  .consent { max-width: 640px; margin: clamp(24px, 6vw, 64px) auto; padding: clamp(24px, 4vw, 40px); border: 1px solid var(--line); background: var(--card); border-radius: 16px; }
+  .eyebrow { margin: 0; color: var(--accent-text); font: 500 14px/1.5 var(--mono); letter-spacing: 0.01em; }
+  h1 { font: 600 clamp(1.8rem, 4vw, 2.4rem)/1.15 var(--serif); letter-spacing: -0.03em; margin: 12px 0 16px; overflow-wrap: anywhere; }
+  p { line-height: 1.65; }
+  .lede, .muted, .details, .callback { color: var(--muted); }
+  .permissions { margin: 24px 0; }
+  .label { margin: 0; font-size: 0.875rem; font-weight: 600; letter-spacing: 0.01em; color: var(--muted); }
+  .choice { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; cursor: pointer; }
+  .choice:has(input:checked) { border-color: var(--accent); background: var(--tint); }
+  input { flex: none; width: 16px; height: 16px; margin-top: 4px; accent-color: var(--accent); }
+  small { display: block; color: var(--muted); font-size: 0.875rem; line-height: 1.6; margin-top: 4px; }
+  .details, .callback { font-size: 0.875rem; }
+  .callback { padding-top: 16px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+  .actions { margin-top: 24px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  .error { border: 1px solid var(--bad); padding: 16px; border-radius: 8px; }
+  @media(max-width: 480px) { .actions { flex-direction: column-reverse; } .actions button { width: 100%; } }
 </style>

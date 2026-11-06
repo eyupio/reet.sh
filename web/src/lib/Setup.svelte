@@ -78,12 +78,12 @@
 </AuthCard>
 
 <style>
-  form { display: grid; gap: 8px; margin-top: 22px; }
+  form { display: grid; gap: 8px; margin-top: 20px; }
   label { font-weight: 600; font-size: 0.9rem; }
   input { width: 100%; }
   .submit { width: 100%; margin-top: 4px; }
   .error { margin: 0; color: var(--bad); font-size: 0.9rem; }
   .hint { margin: 0; color: var(--muted); font-size: 0.875rem; }
   .hint code { font-size: 0.875rem; color: var(--ink); overflow-wrap: anywhere; }
-  .setup-next { margin: 20px 0 0; padding-top: 17px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; line-height: 1.8; }
+  .setup-next { margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; line-height: 1.7; }
 </style>

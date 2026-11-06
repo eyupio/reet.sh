@@ -7,7 +7,6 @@
   import CopyButton from './CopyButton.svelte'
   import { copyText } from './clipboard'
   import { eventLabel, eventTitle } from './events'
-  import TrendSparkline from './TrendSparkline.svelte'
   import { installCommand, installPrompt, sourceURL, readInstallKind, writeInstallKind, type InstallKind } from './install'
   import { fmt, moves, stageTitle, type Stage } from './shelf'
   import { elapsed, isOldEnvironment, isStale, sinceLabel } from './time'
@@ -272,7 +271,6 @@
     <span class="stage-label">{stageTitle(stage)}</span>
     {#if skill.installs > 0}<span class="metric" title="Total installs reported by skills.sh">{fmt(skill.installs)} installs</span>{/if}
     {#if skill.installsWeek > 0}<span class="metric">{fmt(skill.installsWeek)}/week{#if weeklyChange !== null}<span class="change" class:down={weeklyChange < 0}>{weeklyChange > 0 ? '↑' : '↓'} {Math.abs(weeklyChange)}%</span>{/if}</span>{/if}
-    {#if trend.length > 1}<TrendSparkline values={trend} name={skill.name} />{/if}
     {#if machines.length}<span class="metric" title="Machines in your reported inventory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>{machines.length} {machines.length === 1 ? 'machine' : 'machines'}</span>{/if}
     {#if tags.length}<span class="metric">{tags.length} {tags.length === 1 ? 'tag' : 'tags'}</span>{/if}
     {#if lists.length}<span class="metric">{lists.length} {lists.length === 1 ? 'list' : 'lists'}</span>{/if}
@@ -318,13 +316,13 @@
       {#each moves(stage) as m, i}
         <button type="button" class="chip" class:move={m.primary && !leadWithInstall} data-act={'m' + i} onclick={() => onpatch(skill, m.flags, 'm' + i)}>{m.label}</button>
       {/each}
-      <button type="button" class="chip heart" data-act="like" aria-label={`Like ${skill.name}`} aria-pressed={skill.liked} onclick={() => onpatch(skill, { liked: !skill.liked }, 'like')}><span aria-hidden="true">{skill.liked ? '♥' : '♡'}</span>Like</button>
+      <button type="button" class="chip heart" data-act="like" aria-label={`Like ${skill.name}`} aria-pressed={skill.liked} onclick={() => onpatch(skill, { liked: !skill.liked }, 'like')}><svg viewBox="0 0 16 16" width="14" height="14" fill={skill.liked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 13.7s-5.5-3.4-5.5-7.2A3.2 3.2 0 0 1 8 4.3a3.2 3.2 0 0 1 5.5 2.2c0 3.8-5.5 7.2-5.5 7.2Z"/></svg>Like</button>
     {/if}
     {#if command}<CopyButton text={command} label="Copy install" ariaLabel={`Copy install command for ${skill.name}`} compact primary={leadWithInstall} oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
     {#if !command && !installedSomewhere && canWrite}<button type="button" class="chip" onclick={() => { linking = true; onexpand(true) }}>Link source to sync</button>{/if}
     {#if prompt}<CopyButton text={prompt} label="Copy prompt" ariaLabel={`Copy prompt for ${skill.name}`} compact oncopy={() => void recordInstallCopy(skill.id).catch(() => {})} />{/if}
     {#if canWrite}
-      <button type="button" class="chip menu-trigger" bind:this={menuButton} aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`More actions for ${skill.name}`} title="More actions" onclick={openMenuFromButton}><span aria-hidden="true">⋯</span></button>
+      <button type="button" class="chip menu-trigger" bind:this={menuButton} aria-haspopup="menu" aria-expanded={menuOpen} aria-label={`More actions for ${skill.name}`} title="More actions" onclick={openMenuFromButton}><svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>
     {/if}
   </div>
 
@@ -560,7 +558,7 @@
   .installation-summary { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; }
   .installation-summary:hover { border-color: var(--muted); color: var(--ink); }
   .installation-summary > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
-  .installation-summary .summary-action { flex: none; color: var(--accent-text); font-weight: 650; }
+  .installation-summary .summary-action { flex: none; color: var(--accent-text); font-weight: 600; }
   .installation-badges { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 10px 0 0; }
   .installation-badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--muted); font-size: 0.875rem; }
   .installation-badge .host { overflow-wrap: anywhere; min-width: 0; }
@@ -577,7 +575,7 @@
   .installation-badge.installed { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); background: color-mix(in srgb, var(--good) 5%, var(--card)); }
   .installation-badge.missing { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: color-mix(in srgb, var(--warn) 5%, var(--card)); }
   .installation-badge.unknown { border-style: dashed; }
-  .install-now { flex: none; min-height: 28px; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: 5px; background: var(--card); color: var(--ink); font: inherit; font-size: 0.875rem; font-weight: 650; cursor: pointer; }
+  .install-now { flex: none; min-height: 28px; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); border-radius: 5px; background: var(--card); color: var(--ink); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
   .install-now:hover:not(:disabled) { border-color: var(--ink); }
   .install-now.unknown { border-color: color-mix(in srgb, var(--muted) 55%, var(--line)); }
   .remove-from { color: var(--muted); font-size: 0.875rem; text-decoration: underline; text-underline-offset: 2px; }
@@ -585,7 +583,7 @@
   .install-now:disabled { opacity: 0.6; cursor: wait; }
   .menu-trigger { min-width: 40px; justify-content: center; font-size: 1rem; line-height: 1; color: var(--muted); }
   .quick-menu { position: fixed; z-index: 80; display: grid; min-width: 240px; max-width: min(300px, calc(100vw - 24px)); padding: 6px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card-raised); box-shadow: var(--shadow); }
-  .quick-menu-title { margin: 4px 8px 6px; color: var(--muted); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .quick-menu-title { margin: 4px 8px 6px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .quick-menu a, .quick-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 0.875rem; text-align: left; text-decoration: none; cursor: pointer; }
   .quick-menu a:hover, .quick-menu button:hover:not(:disabled) { background: var(--tint); }
   .quick-menu button:disabled { opacity: 0.55; cursor: wait; }
@@ -597,7 +595,7 @@
   .collapsed .source-link code { overflow: hidden; text-overflow: ellipsis; }
   .change { font-variant-numeric: tabular-nums; color: var(--good); }
   .change.down { color: var(--bad); }
-  .stale { font-style: italic; }
+  .stale { color: var(--muted); }
   code { overflow-wrap: anywhere; }
   .desc { margin: 6px 0 0; color: var(--muted); max-width: 70ch; font-size: 0.875rem; }
   .desc.clamp { display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -608,14 +606,14 @@
   .more:hover { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
   .tagrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
   .tag {
-    display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; min-height: 28px;
-    border: 1px solid var(--line); border-radius: 999px; background: transparent;
+    display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; min-height: 28px;
+    border: 1px solid var(--line); border-radius: 6px; background: transparent;
     color: var(--muted); font-size: 0.875rem; cursor: pointer;
   }
   .tag:hover { color: var(--ink); border-color: var(--muted); }
   .tag.add { border-style: dashed; border-color: var(--accent); color: var(--accent-text); }
   .tag.add[aria-expanded='true'] { background: var(--tint); color: var(--ink); }
-  .tag.remove span { color: var(--bad); font-weight: 700; }
+  .tag.remove span { color: var(--bad); font-weight: 600; }
   .tag-edit { margin-top: 8px; padding: 12px; display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .tag-help, .tag-error { margin: 0; font-size: 0.875rem; color: var(--muted); }
   .tag-error { color: var(--bad); }
@@ -630,7 +628,7 @@
   }
   .envchip:hover { color: var(--ink); border-color: var(--muted); }
   .envchip.old { opacity: 0.5; }
-  .envdot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); opacity: 0.75; flex: none; }
+  .envdot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0.75; flex: none; }
   .listrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .listchip {
     display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; min-height: 28px;
@@ -648,11 +646,11 @@
   .history time { flex: none; font-variant-numeric: tabular-nums; }
   .notes { margin: 12px 0 0; padding: 4px 0 4px 14px; border-left: 2px solid var(--accent); font: italic 1rem/1.5 var(--serif); white-space: pre-wrap; }
   .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; align-items: center; }
-  .chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 4px 14px; cursor: pointer; min-height: 36px; color: var(--ink); }
+  .chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 6px 12px; cursor: pointer; min-height: 36px; color: var(--ink); }
   .chip:hover { border-color: var(--muted); }
   .chip.move { border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
   .chip.move:hover { background: color-mix(in srgb, var(--tint) 55%, var(--card)); }
-  .chip.heart { color: var(--muted); padding: 4px 12px; }
+  .chip.heart { color: var(--muted); padding: 6px 12px; font-variant-numeric: tabular-nums; }
   .chip.heart[aria-pressed='true'] { color: var(--heart); border-color: var(--heart); font-weight: 600; }
   .actions .btn.quiet { padding-left: 7px; padding-right: 7px; }
   .install { margin-top: 6px; }

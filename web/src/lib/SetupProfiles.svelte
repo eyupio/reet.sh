@@ -224,7 +224,7 @@
 
 <PageHeader
   eyebrow="Agent setups"
-  title="Setups."
+  title="Setups"
   lede="Keep a portable record of your agent settings, skills and supported memory. Review coverage before restoring on another machine."
 >
  {#snippet actions()}{#if canWrite}<button class="btn primary" onclick={() => creating = !creating} aria-expanded={creating}>Create a setup</button>{/if}{/snippet}
@@ -565,7 +565,7 @@ reet setup profile push work</code></pre>
 
 <style>
   .coverage {margin:20px 0;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--tint)}
-  .coverage-count {font-size:1.05rem;font-weight:600;margin:8px 0}
+  .coverage-count {font-size:1.05rem;font-weight:600;margin:8px 0;font-variant-numeric:tabular-nums}
   .scope-controls {display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}.scope-controls label {display:grid;gap:6px;font-size:0.875rem;min-width:0;flex:1}.scope-controls select,.scope-controls input {max-width:100%;min-width:0}
   .prepare,.technical,.revision-diff {border-top:1px solid var(--line);padding:14px 0;margin-top:12px} .prepare summary,.technical summary,.revision-diff summary {cursor:pointer;font-weight:600;font-size:.9rem}.prepare ol {padding-left:22px}.prepare li {margin:16px 0;font-size:0.875rem}.prepare p {color:var(--muted)}
   .profiles { display: grid; grid-template-columns: minmax(200px, 0.55fr) minmax(0, 1.6fr); gap: 18px; align-items: start; }
@@ -583,9 +583,9 @@ reet setup profile push work</code></pre>
   .profile-row:hover { background: color-mix(in srgb, var(--tint) 45%, transparent); }
   .profile-row.active { background: var(--tint); box-shadow: inset 3px 0 0 var(--accent); }
   .profile-row:disabled { opacity: 0.65; cursor: default; }
-  .name { font-weight: 650; overflow-wrap: anywhere; }
-  .revision { color: var(--accent-text); font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
-  .updated { grid-column: 1 / -1; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .name { font-weight: 600; overflow-wrap: anywhere; }
+  .revision { color: var(--accent-text); font-size: 0.875rem; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .updated { grid-column: 1 / -1; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .profile-detail { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 20px; min-width: 0; }
   .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .detail-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -598,32 +598,32 @@ reet setup profile push work</code></pre>
   .rename-form textarea { width: 100%; box-sizing: border-box; margin: 4px 0 8px; font: inherit; }
   .override-kinds { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 4px 0 10px; font-size: 0.875rem; }
   .override-kinds label { display: flex; align-items: center; gap: 4px; margin: 0; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; }
   h2 { margin: 4px 0 6px; font: 500 1.7rem/1.1 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
-  h3 { margin: 22px 0 8px; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  h3 { margin: 22px 0 8px; font-size: 0.875rem; font-weight: 600; color: var(--muted); }
   .muted { color: var(--muted); overflow-wrap: anywhere; }
   .small { font-size: 0.875rem; }
   .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 18px 0 0; }
   .facts div { min-width: 0; }
   dt { color: var(--muted); font-size: 0.875rem; margin-bottom: 2px; }
-  dd { margin: 0; overflow-wrap: anywhere; font-size: 0.875rem; }
+  dd { margin: 0; overflow-wrap: anywhere; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   code { font-size: 0.875rem; }
   .notice { margin-top: 16px; }
   .overrides p { margin: 6px 0; font-size: 0.875rem; overflow-wrap: anywhere; }
   .history-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
   .history-head h3 { margin-bottom: 8px; }
   .stored { margin-top: 18px; }
-  .stored-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; cursor: pointer; padding: 8px 0; color: var(--ink); font-size: 0.875rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.08em; }
+  .stored-summary { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; cursor: pointer; padding: 8px 0; color: var(--ink); font-size: 0.875rem; font-weight: 600; }
   .stored-summary::before { content: ""; flex: 0 0 auto; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform 150ms ease; }
   .stored[open] .stored-summary::before { transform: rotate(90deg); }
-  .stored-summary .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .stored-summary .muted { font-weight: 400; font-variant-numeric: tabular-nums; }
   .stored-body { margin-top: 4px; }
   .agent-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 10px; }
   .agent-head, .component-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
   .component { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; min-width: 0; }
   .component code { display: block; margin-top: 4px; overflow-wrap: anywhere; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; background: var(--bg); font-size: 0.875rem; overflow-wrap: anywhere; }
+  .chip { border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; background: var(--bg); font-size: 0.875rem; overflow-wrap: anywhere; }
   .mono { font-family: var(--mono); }
   .fieldline { margin: 6px 0 0; font-size: 0.875rem; overflow-wrap: anywhere; }
   .tag.warn { color: var(--muted); border-color: var(--line); }
@@ -640,11 +640,11 @@ reet setup profile push work</code></pre>
   .not-stored h3, .software h3 { margin-bottom: 4px; }
   .software { margin-top: 16px; }
   .history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .history li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 14px; align-items: baseline; padding: 6px 8px; border-radius: 6px; font-size: 0.875rem; }
+  .history li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px 14px; align-items: baseline; padding: 6px 8px; border-radius: 6px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .history li > .muted { grid-column: 3; text-align: right; }
   .history button { font-size: 0.875rem; }
   .history li.current { background: var(--tint); }
-  .rev { color: var(--accent-text); font-weight: 650; }
+  .rev { color: var(--accent-text); font-weight: 600; }
   .empty-state { border: 1px dashed var(--line); border-radius: 12px; padding: 24px; }
   .empty-state h2 { margin-top: 0; }
   .empty-state p { color: var(--muted); max-width: 60ch; }

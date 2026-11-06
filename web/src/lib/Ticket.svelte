@@ -108,23 +108,23 @@
   .back { display: inline-flex; min-height: 44px; align-items: center; color: var(--muted); font-size: 0.875rem; text-decoration: none; }
   .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
   .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: 8px 0 20px; }
-  .eyebrow { color: var(--muted); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .eyebrow { color: var(--muted); font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   h1 { margin: 4px 0 6px; font: 500 clamp(1.8rem, 3vw, 2.6rem)/1.15 var(--serif); letter-spacing: -0.03em; overflow-wrap: anywhere; }
-  .meta { margin: 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
-  .state { flex: none; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; }
+  .meta { margin: 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .state { flex: none; padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 0.875rem; }
   .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.waiting { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
   .state.closed { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
-  .thread { display: grid; gap: 10px; margin: 0 0 20px; }
+  .thread { display: grid; gap: 12px; margin: 0 0 20px; }
   .thread article { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 16px; }
   .thread article.admin { border-left: 3px solid var(--accent); }
   .thread article.team { border-left: 3px solid var(--good); }
   .thread article.hidden { display: none; }
   .who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-bottom: 8px; }
   .who strong { font-size: 0.9rem; }
-  .who span, .who time { color: var(--muted); font-size: 0.875rem; }
+  .who span, .who time { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .thread p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
-  .card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 18px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 16px; }
   h2 { margin: 0; font: 500 1.3rem/1.2 var(--serif); }
   form { display: grid; gap: 10px; margin-top: 12px; }
   textarea { width: 100%; min-height: 120px; resize: vertical; }

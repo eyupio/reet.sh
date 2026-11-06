@@ -26,7 +26,7 @@
         <span class="version" title={build.commit !== 'unknown' ? `commit ${build.commit}` : undefined}>{build.version}</span>
       {/if}
       <span class="descriptor">A reet good home for your AI fleet</span>
-      <span class="meaning">reet: Yorkshire for “right”.</span>
+      <span class="meaning">reet: Yorkshire for “right”</span>
     </span>
     <span class="end">
       {#if !signedIn}
@@ -51,14 +51,14 @@
 <style>
   footer { color: var(--muted); font-size: 0.875rem; padding: 0 40px; }
   .inner {
-    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px;
-    max-width: calc(var(--content-width) - 80px); margin: 0 auto; padding: 22px 0 32px; border-top: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+    max-width: calc(var(--content-width) - 80px); margin: 0 auto; padding: 24px 0 32px; border-top: 1px solid var(--line);
   }
   .brand { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
   .name { font-weight: 600; color: var(--ink); }
-  .version { color: var(--muted); font-size: 0.875rem; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+  .version { color: var(--muted); font-size: 0.875rem; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
   .meaning { font-size: 0.875rem; }
-  .descriptor { letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.875rem; }
+  .descriptor { letter-spacing: 0.01em; font-size: 0.875rem; }
   .end { display: inline-flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .public-links { display: inline-flex; flex-wrap: wrap; gap: 4px 16px; }
   .public-links a { color: var(--muted); font-weight: 500; text-underline-offset: 3px; }

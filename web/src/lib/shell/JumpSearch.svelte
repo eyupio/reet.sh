@@ -102,7 +102,7 @@
 <style>
   .jump {
     position: relative; display: flex; align-items: center; gap: 8px; width: clamp(200px, 25vw, 326px); height: 36px; padding: 0 12px;
-    border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--muted);
+    border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--muted);
   }
   .jump:focus-within { border-color: var(--line-strong); }
   @media (pointer: coarse) { .jump { height: 44px; } }
@@ -117,25 +117,25 @@
   .jump:has(input:focus-visible) { outline: 2px solid var(--accent-text); outline-offset: 1px; }
   .close {
     display: grid; place-items: center; flex: none; width: 44px; height: 44px; margin-right: -8px; padding: 0;
-    border: 0; border-radius: 10px; background: none; color: var(--muted); cursor: pointer;
+    border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer;
   }
   .close svg { width: 20px; height: 20px; }
   .results {
-    position: absolute; left: -1px; right: -1px; top: calc(100% + 6px); z-index: 30; max-height: min(60vh, 420px, var(--room, 100vh)); overflow: auto;
-    padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-raised);
+    position: absolute; left: -1px; right: -1px; top: calc(100% + 8px); z-index: 30; max-height: min(60vh, 420px, var(--room, 100vh)); overflow: auto;
+    padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-raised);
     box-shadow: 0 12px 28px color-mix(in srgb, var(--bg) 70%, transparent);
   }
   .results[hidden] { display: none; }
   [role='listbox'] { display: grid; gap: 2px; }
   [role='option'] {
-    display: grid; gap: 1px; min-height: 44px; align-content: center; padding: 6px 10px; border-radius: 8px;
+    display: grid; gap: 2px; min-height: 44px; align-content: center; padding: 8px 12px; border-radius: 8px;
     color: var(--ink); text-decoration: none; min-width: 0;
   }
   [role='option']:hover, [role='option']:focus { background: var(--tint); outline: none; }
   [role='option']:focus-visible { box-shadow: inset 0 0 0 2px var(--accent-text); }
   .label { font-weight: 500; overflow-wrap: anywhere; }
   .detail { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
-  .note { margin: 0; padding: 10px; color: var(--muted); font-size: 0.875rem; }
+  .note { margin: 0; padding: 8px 12px; color: var(--muted); font-size: 0.875rem; }
   /* Tablet and phone: a row under the top bar, opened by the search button; 16 px text so focusing never zooms. */
   @media (max-width: 1099.98px) {
     .jump { display: none; }

@@ -222,16 +222,16 @@
   h2 { margin: 0; font: 500 1.4rem/1.2 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
   .muted, .empty { color: var(--muted); font-size: 0.875rem; line-height: 1.6; }
   .muted { margin: 8px 0 0; }
-  .empty { margin: 18px 0 0; padding: 18px; border: 1px dashed var(--line); border-radius: 10px; text-align: center; font-family: var(--serif); font-size: 1.05rem; }
+  .empty { margin: 16px 0 0; padding: 16px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; font-family: var(--serif); font-size: 1.05rem; }
 
   .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 
   .feed { display: grid; }
-  .notification { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 14px 2px; border: 0; border-top: 1px solid var(--line-soft); background: transparent; text-align: left; color: inherit; cursor: pointer; }
+  .notification { width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 16px 2px; border: 0; border-top: 1px solid var(--line-soft); background: transparent; text-align: left; color: inherit; cursor: pointer; }
   .notification:first-child { border-top: 0; }
   .notification:hover { background: color-mix(in srgb, var(--tint) 45%, transparent); }
   .notification.unread { background: color-mix(in srgb, var(--tint) 28%, transparent); }
@@ -240,9 +240,9 @@
   .unread .dot { background: var(--accent); border-color: var(--accent); }
   .main { min-width: 0; flex: 1; display: grid; gap: 2px; }
   .main strong { overflow-wrap: anywhere; }
-  .unread .main strong { font-weight: 650; }
+  .unread .main strong { font-weight: 600; }
   .body { color: var(--muted); font-size: 0.875rem; line-height: 1.45; overflow-wrap: anywhere; }
-  .main small { color: var(--muted); font-size: 0.875rem; }
+  .main small { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .go { flex: none; width: 7px; height: 7px; margin-top: 7px; border-top: 2px solid var(--muted); border-right: 2px solid var(--muted); transform: rotate(45deg); }
 
   .state { padding: 24px 0 16px; max-width: 58ch; }
@@ -250,7 +250,7 @@
   .state p { margin: 6px 0 12px; color: var(--muted); }
   .error p { color: var(--ink); }
 
-  fieldset { margin: 14px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+  fieldset { margin: 16px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
   legend { padding: 0 5px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .pref { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 10px 0; border-top: 1px solid var(--line); align-items: start; }
   .pref:first-of-type { border-top: 0; }
@@ -259,7 +259,7 @@
   .check input { width: 18px; height: 18px; min-height: 0; margin-top: 1px; flex: none; }
   .check span { display: grid; gap: 2px; }
   .check small { color: var(--muted); font-weight: 400; line-height: 1.4; }
-  .badge { align-self: start; border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
+  .badge { align-self: start; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
   .mode { display: grid; gap: 4px; color: var(--muted); font-size: 0.875rem; min-width: 160px; }
   .mode select { width: 100%; }
   .source { grid-column: 2; color: var(--muted); font-size: 0.875rem; text-align: right; }

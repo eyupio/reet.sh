@@ -54,20 +54,20 @@
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 4px 12px; }
   h2 { margin: 0; font: 600 1.15rem/1.3 var(--serif); }
   .close {
-    display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px;
+    display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 8px;
     background: none; color: var(--muted); cursor: pointer;
   }
   .close:hover { background: var(--tint); color: var(--ink); }
   .close svg { width: 20px; height: 20px; }
   nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 8px; }
   section { min-width: 0; }
-  h3 { margin: 4px 12px 6px; color: var(--muted); font-size: 0.875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  h3 { margin: 4px 12px 8px; color: var(--muted); font-size: 0.875rem; font-weight: 600; letter-spacing: 0.01em; }
   a:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     nav { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   }
   a {
-    display: flex; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 10px;
+    display: flex; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 8px;
     color: var(--ink); font-size: 0.95rem; text-decoration: none;
   }
   a:hover { background: var(--tint); }

@@ -320,17 +320,18 @@
 
 <style>
   .muted { margin: 4px 0 0; color: var(--muted); }
-  .summary { margin: 16px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .summary { margin: 16px 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+  .summary .badge { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 0.875rem; }
   .summary p { margin: 8px 0 0; overflow-wrap: anywhere; }
-  .summary small { display: block; margin-top: 6px; color: var(--muted); font-size: 0.875rem; }
+  .summary small { display: block; margin-top: 6px; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .problem, .result.bad p { color: var(--bad); }
-  form { display: grid; gap: 12px; margin: 18px 0; }
+  form { display: grid; gap: 12px; margin: 16px 0; }
   .pair { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
   label { display: grid; gap: 5px; color: var(--muted); font-size: 0.875rem; min-width: 0; }
   label.wide { grid-column: span 2; }
   label small { color: var(--muted); font-size: 0.875rem; line-height: 1.4; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-  .result { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .result { margin: 16px 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
   .result.good { border-color: var(--good); }
   .result.bad { border-color: var(--bad); }
   .result h3 { margin: 0 0 8px; font-size: 0.9rem; }
@@ -338,21 +339,21 @@
   .outbox-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
   .search { flex: 1 1 240px; }
   .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
+  .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
   .scope[aria-pressed='true'] { background: var(--tint); border-color: var(--accent); color: var(--ink); font-weight: 600; }
   .scope small { margin-left: 5px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .messages { list-style: none; margin: 0; padding: 0; display: grid; }
-  .messages > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 12px; padding: 14px 2px; border-top: 1px solid var(--line-soft); }
+  .messages > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 12px; padding: 16px 2px; border-top: 1px solid var(--line-soft); }
   .messages > li:first-child { border-top: 0; }
   .messages > li.failing { background: color-mix(in srgb, var(--bad) 4%, transparent); }
   .message-main { display: grid; gap: 3px; min-width: 0; }
   .message-main strong { overflow-wrap: anywhere; }
   .message-main small { color: var(--muted); font-size: 0.875rem; line-height: 1.4; overflow-wrap: anywhere; }
-  .message-meta { display: grid; gap: 3px; justify-items: start; min-width: 0; color: var(--muted); font-size: 0.875rem; }
+  .message-meta { display: grid; gap: 3px; justify-items: start; min-width: 0; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .message-meta small { font-size: 0.875rem; overflow-wrap: anywhere; }
   .message-action { justify-self: end; }
-  .state { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
+  .state { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
   .state.queued, .state.sending { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.delivered { border-color: color-mix(in srgb, var(--good) 35%, var(--line)); color: var(--good); }
   .state.held { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }

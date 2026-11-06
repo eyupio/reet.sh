@@ -464,14 +464,14 @@
 </dialog>
 
 <style>
-  dialog { width: min(720px, calc(100vw - 32px)); max-height: min(88vh, 820px); padding: 0; border: 1px solid var(--line); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 30px 90px color-mix(in srgb, var(--ink) 28%, transparent); }
+  dialog { width: min(720px, calc(100vw - 32px)); max-height: min(88vh, 820px); padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: 0 30px 90px color-mix(in srgb, var(--ink) 28%, transparent); }
   dialog::backdrop { background: color-mix(in srgb, var(--ink) 45%, transparent); backdrop-filter: blur(2px); }
   .sheet { display: grid; gap: 18px; padding: clamp(20px, 4vw, 30px); overflow: auto; max-height: inherit; }
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+  .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; }
   h2 { margin: 5px 0 0; font: 500 clamp(1.5rem, 3vw, 2rem)/1.1 var(--serif); letter-spacing: -0.025em; }
   .lede { margin: 8px 0 0; max-width: 54ch; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
-  .icon { width: 38px; height: 38px; flex: none; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--muted); font-size: 1.25rem; cursor: pointer; }
+  .icon { width: 38px; height: 38px; flex: none; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); font-size: 1.25rem; cursor: pointer; }
   .icon:hover { color: var(--ink); border-color: var(--muted); }
   .icon.small { width: 32px; height: 32px; font-size: 1rem; }
   .hint { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
@@ -487,7 +487,7 @@
   .overview-text strong { font: 500 clamp(1.15rem, 2.6vw, 1.4rem)/1.25 var(--serif); }
   .overview-text span { color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
   .overview .btn { flex: none; min-height: 44px; }
-  .machines > summary { cursor: pointer; padding: 6px 0; font-size: 0.9rem; font-weight: 600; }
+  .machines > summary { cursor: pointer; padding: 6px 0; font-size: 0.9rem; font-weight: 600; font-variant-numeric: tabular-nums; }
   .machines[open] > summary { margin-bottom: 10px; }
   .machines { display: block; }
   .mirror-line { margin-top: 8px; }
@@ -496,7 +496,7 @@
   .rows li, .batch-members li, .ordered li { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .copy { display: grid; gap: 3px; min-width: 0; flex: 1 1 auto; }
   .copy strong { font-size: 0.9rem; }
-  .copy code { font-size: 0.875rem; }
+  .copy code { font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .copy small { color: var(--muted); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
   .copy .label { color: var(--ink); font-weight: 600; }
   .copy .warn { color: var(--warn); }
@@ -513,7 +513,7 @@
   .batch-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .batch-head strong { font-size: 0.92rem; }
   .batch-head .label { color: var(--accent-text); font-weight: 600; margin-left: 8px; font-size: 0.875rem; }
-  .pos { flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+  .pos { flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .batch-members li[data-state='applied'] .label { color: var(--good); }
   .batch-members li[data-state='failed'] { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
   .batch-members li[data-state='excluded'] { opacity: 0.8; }

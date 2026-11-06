@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import AuthCard from './AuthCard.svelte'
   import { setToken } from './api'
+  import { canAutoFocus } from './focus'
 
   let { onattempt }: { onattempt: () => Promise<string | null> } = $props()
 
@@ -11,7 +12,7 @@
   let field = $state<HTMLInputElement>()
 
   $effect(() => {
-    field?.focus()
+    if (canAutoFocus()) field?.focus()
   })
 
   async function submit(e: SubmitEvent) {
@@ -73,17 +74,17 @@
 </AuthCard>
 
 <style>
-  form { display: grid; gap: 8px; margin-top: 22px; }
+  form { display: grid; gap: 8px; margin-top: 20px; }
   label { font-weight: 600; font-size: 0.9rem; }
   input:not(.vh) { width: 100%; }
   .submit { width: 100%; margin-top: 4px; }
   .error { margin: 0; color: var(--bad); font-size: 0.9rem; }
-  .help { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .help { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
   .help summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; width: fit-content; }
   .help summary:hover { color: var(--ink); }
-  .help p { margin: 10px 0 6px; color: var(--muted); font-size: 0.9rem; }
+  .help p { margin: 8px 0; color: var(--muted); font-size: 0.9rem; }
   .help code {
-    display: block; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+    display: block; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px;
     background: var(--bg); font-size: 0.875rem; overflow-wrap: anywhere;
   }
 </style>

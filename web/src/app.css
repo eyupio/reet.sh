@@ -83,16 +83,16 @@ input[aria-invalid='true'] { border-color: var(--bad); }
 /* A field already turns its border to the accent on focus, so the outline joins that border rather than floating beside it as a second ring. */
 input:not([type='checkbox']):not([type='radio']):focus-visible, select:focus-visible, textarea:focus-visible { outline-offset: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
-input:not([type='checkbox']):not([type='radio']), select, textarea { background: var(--card); border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 12px; min-height: 42px; min-width: 0; }
+input:not([type='checkbox']):not([type='radio']), select, textarea { background: var(--card); border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 12px; min-height: 40px; min-width: 0; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 textarea { width: 100%; resize: vertical; }
 
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line-strong); background: var(--card); border-radius: 8px; padding: 9px 14px; cursor: pointer; min-height: 42px; text-decoration: none; color: var(--ink); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line-strong); background: var(--card); border-radius: 8px; padding: 8px 16px; cursor: pointer; min-height: 40px; text-decoration: none; color: var(--ink); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 /* A button that is doing what it was asked: a small ring turns beside its label, which already says what is happening
    ("Saving…"). Spinners live here and nowhere else; content that is on its way shows a Skeleton instead. */
 .btn[aria-busy="true"] { cursor: progress; }
-.btn[aria-busy="true"]::before { content: ""; flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; opacity: 0.8; }
+.btn[aria-busy="true"]::before { content: ""; flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; opacity: 0.8; }
 .btn.primary[aria-busy="true"]:disabled { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); opacity: 0.85; }
 /* A disabled primary must stop shouting: a neutral fill, not a faded orange. */
 .btn.primary:disabled { opacity: 1; background: var(--line-soft); border-color: var(--line); color: var(--muted); }
@@ -102,7 +102,7 @@ textarea { width: 100%; resize: vertical; }
 .btn.quiet { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.quiet:hover:not(:disabled) { color: var(--ink); text-decoration: underline; }
 .btn.danger:hover { color: var(--bad); }
-.badge { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; color: var(--muted); font-size: 0.875rem; }
+.badge { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: no-preference) {
   .btn[aria-busy="true"]::before { animation: btn-spin 0.8s linear infinite; }
@@ -110,7 +110,7 @@ textarea { width: 100%; resize: vertical; }
   .btn { transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 160ms var(--ease-out); }
   .btn:active:not(:disabled) { transform: scale(0.97); }
 }
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 650px) {
   .btn, input:not([type='checkbox']):not([type='radio']), select, textarea, .filters button { min-height: 44px; }
 }
 @media (max-width: 560px) {
@@ -133,15 +133,15 @@ textarea { width: 100%; resize: vertical; }
 }
 
 /* Searchable dropdown list (see lib/combobox.ts): the one list every select and suggestion field opens. */
-.cbx { position: fixed; inset: auto; margin: 0; z-index: 1000; display: flex; flex-direction: column; gap: 6px; padding: 6px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); box-shadow: 0 12px 30px var(--scrim); font-size: 14px; line-height: 1.3; }
-.cbx-filter { flex: none; width: 100%; min-height: 38px; padding: 6px 10px; }
+.cbx { position: fixed; inset: auto; margin: 0; z-index: 1000; display: flex; flex-direction: column; gap: 8px; padding: 8px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); box-shadow: 0 12px 30px var(--scrim); font-size: 14px; line-height: 1.3; }
+.cbx-filter { flex: none; width: 100%; min-height: 40px; padding: 8px 12px; }
 .cbx-list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.cbx-group { position: sticky; top: 0; padding: 6px 10px 2px; background: var(--card-raised, var(--card)); font-size: 14px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.cbx-option { padding: 7px 10px; min-height: 34px; display: flex; align-items: center; border-radius: 8px; cursor: pointer; overflow-wrap: anywhere; }
+.cbx-group { position: sticky; top: 0; padding: 8px 12px 4px; background: var(--card-raised, var(--card)); font-size: 14px; font-weight: 600; letter-spacing: 0.01em; color: var(--muted); }
+.cbx-option { padding: 8px 12px; min-height: 36px; display: flex; align-items: center; border-radius: 8px; cursor: pointer; overflow-wrap: anywhere; }
 .cbx-option.active { background: var(--line-soft, var(--tint)); }
 .cbx-option[aria-selected='true'] { box-shadow: inset 3px 0 0 var(--accent-text, var(--accent)); font-weight: 600; }
 .cbx-option[aria-disabled='true'] { color: var(--muted); cursor: default; }
-.cbx-empty { margin: 0; padding: 8px 10px; font-size: 14px; color: var(--muted); }
+.cbx-empty { margin: 0; padding: 8px 12px; font-size: 14px; color: var(--muted); }
 @media (pointer: coarse) { .cbx-option { min-height: 48px; font-size: 15px; } .cbx-filter { font-size: 16px; min-height: 44px; } }
 /* Fields that suggest values get the same chevron a select has. */
 input[data-combo-list] { padding-right: 32px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4.5l4 4 4-4' fill='none' stroke='%238a8a8a' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 12px; }

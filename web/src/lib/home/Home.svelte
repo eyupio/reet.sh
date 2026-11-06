@@ -372,10 +372,10 @@
   {/if}
   <div class="column">
     <header class="workspace-heading">
-      <p class="eyebrow">YOUR WORKSPACE / {location.host}</p>
+      <p class="eyebrow">Your workspace · {location.host}</p>
       <h1>All reet{name.trim() ? ', ' + name.trim().split(/\s+/)[0] : ''}.</h1>
       <p class="welcome-note">Your ideas, ongoing work and finished sessions. Pick up the thread.</p>
-      <div class="workspace-summary"><span><i></i>{cards.filter(reporting).length} machines connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}</div>
+      <div class="workspace-summary"><span><i></i>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}</div>
     </header>
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
@@ -418,13 +418,13 @@
 
 <style>
   .workspace-heading { padding: 8px 0 0; }
-  .workspace-heading .eyebrow { font: 14px var(--mono); letter-spacing: .1em; color: var(--accent-text); margin: 0 0 8px; overflow-wrap: anywhere; }
+  .workspace-heading .eyebrow { font: 500 14px var(--mono); letter-spacing: 0.01em; color: var(--accent-text); margin: 0 0 8px; overflow-wrap: anywhere; }
   .workspace-heading h1 { font: 600 clamp(30px, 3.2vw, 42px)/1.08 var(--serif); letter-spacing: -.04em; margin: 0 0 8px; }
   .welcome-note { color: var(--muted); font-size: 14px; margin: 0; }
-  .workspace-summary { display: flex; flex-wrap: wrap; gap: 24px; color: var(--muted); font-size: 14px; margin-top: 10px; }
-  .workspace-summary span { display: inline-flex; align-items: center; gap: 7px; }
+  .workspace-summary { display: flex; flex-wrap: wrap; gap: 24px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  .workspace-summary span { display: inline-flex; align-items: center; gap: 8px; }
   .workspace-summary i { width: 5px; height: 5px; background: var(--good); border-radius: 50%; }
-  @media (max-width: 650px) { .workspace-heading { padding-top: 8px; } .workspace-heading h1 { font-size: 34px; } .workspace-heading .eyebrow { font-size: 14px; margin-bottom: 6px; } .workspace-summary { margin-top: 10px; } }
+  @media (max-width: 650px) { .workspace-heading { padding-top: 8px; } .workspace-heading h1 { font-size: 34px; } .workspace-heading .eyebrow { font-size: 14px; margin-bottom: 8px; } .workspace-summary { margin-top: 8px; } }
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -438,16 +438,16 @@
   .home.writer > :global(aside.rail) { grid-column: 1; grid-row: 1; }
   .home.writer > .column { grid-column: 2; grid-row: 1; }
   .home:not(.writer) > .column { grid-column: 1; grid-row: 1; }
-  .column { min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 18px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
+  .column { min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
   .home:not(.writer) .column { padding-bottom: 36px; }
-  .problem, .notice { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .problem, .notice { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
   .problem { border-color: var(--warn); }
   .notice { border-color: var(--good); }
   .notice.bad { border-color: var(--bad); }
-  .home-detail { border-top: 1px solid var(--line); padding: 14px 0; }
+  .home-detail { border-top: 1px solid var(--line); padding: 12px 0; }
   .home-detail > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
-  .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 14px; }
-  .home-detail[open] > summary { margin-bottom: 14px; }
+  .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .home-detail[open] > summary { margin-bottom: 12px; }
   .attention-detail > summary { color: var(--warn); }
   .start-chosen { min-height: 34px; padding: 4px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: var(--accent-ink); font: 600 14px var(--sans); cursor: pointer; }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
@@ -465,6 +465,6 @@
   /* Phone: one column with 16 px gutters; the launch bar sits above the tab bar. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .home { --top: 57px; }
-    .column { padding: 14px 16px 0; gap: 14px; }
+    .column { padding: 12px 16px 0; gap: 12px; }
   }
 </style>

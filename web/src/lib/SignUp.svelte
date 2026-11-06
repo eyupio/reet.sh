@@ -69,7 +69,7 @@
 </AuthCard>
 
 <style>
-  form { display: grid; gap: 8px; margin-top: 22px; }
+  form { display: grid; gap: 8px; margin-top: 20px; }
   label { font-weight: 600; font-size: 0.9rem; }
   input { width: 100%; }
   .submit { width: 100%; margin-top: 4px; }

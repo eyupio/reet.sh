@@ -76,15 +76,15 @@
   header { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
   .mark {
     display: grid; place-items: center; width: 22px; height: 22px; flex: none;
-    border: 1px solid color-mix(in srgb, var(--bad) 50%, var(--line)); border-radius: 50%;
-    color: var(--bad); font-size: 0.875rem; font-weight: 700;
+    border: 1px solid color-mix(in srgb, var(--bad) 50%, var(--line)); border-radius: 6px;
+    color: var(--bad); font-size: 0.875rem; font-weight: 600;
   }
   .copy { display: grid; gap: 3px; min-width: 0; }
-  .title { margin: 0; color: var(--ink); font-size: 0.88rem; font-weight: 650; line-height: 1.35; }
+  .title { margin: 0; color: var(--ink); font-size: 0.88rem; font-weight: 600; line-height: 1.35; }
   .detail { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.55; overflow-wrap: anywhere; }
-  .repeat { margin: 0; color: var(--bad); font-size: 0.875rem; font-weight: 600; line-height: 1.45; }
+  .repeat { margin: 0; color: var(--bad); font-size: 0.875rem; font-weight: 600; line-height: 1.45; font-variant-numeric: tabular-nums; }
   .commands { display: grid; gap: 6px; }
-  .label { margin: 0; color: var(--muted); font-size: 0.875rem; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
+  .label { margin: 0; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
   .command {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
     padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);

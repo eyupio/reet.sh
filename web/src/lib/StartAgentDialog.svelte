@@ -651,7 +651,7 @@
    <h2 id={`${id}-title`}>Start an agent</h2>
    <p class="lede" data-shell-aside>Right then: pick a project and a machine, then an agent. It starts in a new terminal session you can come back to.</p>
   </div>
-  <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close" data-shell-close>Close ×</button>
+  <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close" data-shell-close>Close <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
  </header>
  <form class="sheet" oninput={edited} onsubmit={(event) => { event.preventDefault(); void start() }}>
   <!-- While everything is locked there is nothing to tab to in here, so the scrolling part takes focus itself and can be read. -->
@@ -739,7 +739,7 @@
     <label for={`${id}-model`}>Model <span class="optional">optional</span></label>
     <button id={`${id}-model`} type="button" class="picker" bind:this={modelButton} disabled={!chosenTool}
       aria-haspopup="dialog" aria-label={`Model: ${modelLabel}`} onclick={openPicker}>
-     <span class="value">{modelLabel}</span><span class="chev" aria-hidden="true">⌄</span>
+     <span class="value">{modelLabel}</span><svg class="chev" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
     </button>
     {#if modelChoice === OTHER && modelError}<p class="reason" id={`${id}-model-error`}>{modelError}</p>{/if}
     {#if structured}<p class="hint">Gaffer uses this model. Leave it at {chatToolName(chosenTool)}’s configured model to keep {chatToolName(chosenTool)}’s own; choose effort below when this machine offers it.</p>{/if}
@@ -760,16 +760,16 @@
    <div class="field">
     <div class="label-row">
      <label for={`${id}-prompt`}>Opening prompt <span class="optional">optional</span></label>
-     <button type="button" class="linklike skill-add" bind:this={skillButton} disabled={!chosenTool} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button>
+     <button type="button" class="linklike skill-add" bind:this={skillButton} disabled={!chosenTool} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>Use a skill</button>
     </div>
     <textarea id={`${id}-prompt`} bind:this={promptInput} bind:value={prompt} rows="3" disabled={!chosenTool} onpaste={pasted} aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
     <div class="prompt-tools">
-     <label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={locked || !chosenTool} onchange={(event) => { addImages(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} /></label>
+     <label class="attach">Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={locked || !chosenTool} onchange={(event) => { addImages(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} /></label>
     </div>
     {#if attachments.length}
      <ul class="attachments" aria-label="Images to attach">
       {#each attachments as item (item.id)}
-       <li><img src={item.preview} alt="" /><span>{item.file.name || 'image'} · {formatImageSize(item.file.size)}</span><button type="button" aria-label={`Remove ${item.file.name || 'image'}`} disabled={locked} onclick={() => removeImage(item.id)}>×</button></li>
+       <li><img src={item.preview} alt="" /><span>{item.file.name || 'image'} · {formatImageSize(item.file.size)}</span><button type="button" aria-label={`Remove ${item.file.name || 'image'}`} disabled={locked} onclick={() => removeImage(item.id)}><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button></li>
       {/each}
      </ul>
     {/if}
@@ -817,24 +817,24 @@
  dialog { width: min(640px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); padding: 0; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
  dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
  dialog::backdrop { background: rgb(20 18 15 / 0.45); }
- header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; padding: 22px; border-bottom: 1px solid var(--line); }
+ header { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--line); }
  header > div { min-width: 0; }
  h2 { margin: 4px 0 0; font: 500 1.65rem/1.2 var(--serif); overflow-wrap: anywhere; }
- .eyebrow { margin: 0; color: var(--accent-text); text-transform: uppercase; font-size: 0.875rem; letter-spacing: .1em; }
+ .eyebrow { margin: 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; }
  .lede { margin: 8px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.5; }
- header .btn { flex: none; white-space: nowrap; }
+ header .btn { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
  /* The fields scroll; the footer with the status line and Start sits below them, outside the scrolling part, so it never covers a field. */
  .sheet { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
- .body { display: grid; gap: 16px; padding: 22px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
- fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 18px; }
+ .body { display: grid; gap: 16px; padding: 20px 24px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
+ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 16px; }
  .field { display: grid; gap: 6px; min-width: 0; }
  label { font-size: 0.875rem; font-weight: 600; }
  .label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
  .label-row .skill-add { min-height: 28px; padding: 0; }
  label.sub { font-weight: 500; margin-top: 4px; }
  .optional { color: var(--muted); font-weight: 400; font-size: 0.875rem; }
- select, input:not([type=radio]), textarea { min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
- .picker { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; width: 100%; min-height: 42px; padding: 8px 10px; font: inherit; color: var(--ink); text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+ select, input:not([type=radio]), textarea { min-width: 0; width: 100%; min-height: 42px; padding: 8px 12px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+ .picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; width: 100%; min-height: 42px; padding: 8px 12px; font: inherit; color: var(--ink); text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
  .picker:disabled { opacity: .55; cursor: default; }
  .picker .value { min-width: 0; overflow-wrap: anywhere; }
  .picker .chev { flex: none; color: var(--muted); }
@@ -849,7 +849,7 @@
  .approval-choices label.off { opacity: .55; cursor: not-allowed; }
  .approval-choices label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
  .hint, small { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
- .prompt-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+ .prompt-tools { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
  .attach { position: relative; align-self: start; padding: 4px 0; color: var(--accent-text); font-size: 0.875rem; font-weight: 600; cursor: pointer; }
  .attach input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
  .attach:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -858,16 +858,17 @@
  .attachments li { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.875rem; }
  .attachments img { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
  .attachments span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
- .attachments button { min-width: 28px; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; }
+ .attachments button { min-width: 28px; display: inline-grid; place-items: center; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; }
  .attachments button:disabled { cursor: default; opacity: .55; }
+ .count { font-variant-numeric: tabular-nums; }
  .count.over { color: var(--bad); }
  .reason { margin: 0; color: var(--bad); font-size: 0.875rem; line-height: 1.5; }
  .chat-choice code { font-size: max(0.875rem, .9em); }
- .sentence { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); font-size: 0.875rem; line-height: 1.5; }
+ .sentence { margin: 0; padding: 12px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); font-size: 0.875rem; line-height: 1.5; }
  .status { flex: 1 0 100%; margin: 0; font-size: 0.875rem; line-height: 1.5; }
  .status.bad { color: var(--bad); }
  .linklike { justify-self: start; padding: 4px 0; min-height: 32px; font: inherit; font-size: 0.875rem; color: var(--accent-text); background: none; border: 0; text-decoration: underline; cursor: pointer; text-align: left; }
  /* Always in view below the scrolling fields, so Start is reachable on a short screen. */
- footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 22px 22px; border-top: 1px solid var(--line); background: var(--card); overflow-wrap: anywhere; }
+ footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 16px 24px 20px; border-top: 1px solid var(--line); background: var(--card); overflow-wrap: anywhere; }
  @media (max-width: 500px) { header { padding: 16px; } .body { padding: 16px; } footer { padding: 12px 16px 16px; } h2 { font-size: 1.35rem; } footer .btn { width: 100%; } }
 </style>

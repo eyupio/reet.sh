@@ -111,10 +111,10 @@
   h2 { margin: 0 0 6px; font: 500 1.5rem/1.2 var(--serif); letter-spacing: -0.025em; }
   .muted { margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
   .note { margin: 0; color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
-  fieldset { margin: 14px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+  fieldset { margin: 16px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
   fieldset:first-of-type { margin-top: 0; }
   legend { padding: 0 5px; color: var(--muted); font-size: 0.875rem; font-weight: 600; }
-  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; border-top: 1px solid var(--line); }
   .row:first-of-type { border-top: 0; }
   .what { flex: 1 1 220px; min-width: 0; display: grid; gap: 2px; }
   .what strong { font-size: 0.875rem; overflow-wrap: anywhere; }

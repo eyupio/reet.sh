@@ -31,7 +31,7 @@
 </dl>
 
 <style>
-  .where{display:grid;gap:8px;margin:0;font-size:14px}
+  .where{display:grid;gap:8px;margin:0;font-size:14px;font-variant-numeric:tabular-nums}
   .where>div{display:flex;justify-content:space-between;align-items:center;gap:12px;min-width:0;min-height:24px}
   dt{color:var(--muted);flex:none}
   dd{margin:0;min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;overflow:hidden;white-space:nowrap;text-align:right}

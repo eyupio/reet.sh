@@ -271,8 +271,8 @@
 <dialog bind:this={dialog} use:shell aria-labelledby={`${id}-heading`} oncancel={e => { e.preventDefault(); close() }}>
   <form onsubmit={save}>
     <header data-shell-head>
-      <div><span class="eyebrow">{startNow ? 'READY WHEN YOU ARE' : 'PLAN YOUR NEXT MOVE'}</span><h2 id={`${id}-heading`}>{startNow ? 'Turn this idea into a session' : draft ? 'Edit session' : 'A little planning. Proper progress.'}</h2><p data-shell-aside>{startNow ? 'Add the brief, check who’s on the job, then start it.' : 'Give your agent a clear brief. Start it when you’re ready.'}</p></div>
-      <button type="button" class="close" data-shell-close aria-label="Close session composer" onclick={close} disabled={busy || reading}>×</button>
+      <div><span class="eyebrow">{startNow ? 'Ready when you are' : 'Plan your next move'}</span><h2 id={`${id}-heading`}>{startNow ? 'Turn this idea into a session' : draft ? 'Edit session' : 'A little planning. Proper progress.'}</h2><p data-shell-aside>{startNow ? 'Add the brief, check who’s on the job, then start it.' : 'Give your agent a clear brief. Start it when you’re ready.'}</p></div>
+      <button type="button" class="close" data-shell-close aria-label="Close session composer" onclick={close} disabled={busy || reading}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
     </header>
     <div class="body" data-shell-body>
       {#if confirmClose}
@@ -285,8 +285,8 @@
         {#if !startNow}<label class="idea-toggle"><input type="checkbox" bind:checked={idea} /> <span><strong>Just capture an idea</strong><small>A placeholder so you don’t forget. Choose Start on it later and you’ll add the prompt then.</small></span></label>{/if}
         <label class="field"><span>Session title <small>{idea ? 'Required if there’s no note' : 'Optional · suggested from your prompt'}</small></span><input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
         <label class="field"><span>{idea ? 'Note' : 'Prompt'} <em>{idea ? 'Optional' : 'Required'}</em></span><textarea bind:this={promptInput} aria-label="Prompt" bind:value={prompt} rows="6" required={!idea} placeholder={idea ? 'A rough note is plenty. You can turn it into a full prompt later.' : 'What should the agent do? Include the context, the outcome you want, and anything it should keep in mind.'} onpaste={e => { const files = Array.from(e.clipboardData?.files ?? []); if (files.length) { e.preventDefault(); void attach(files) } }}></textarea></label>
-        <div class="prompt-foot"><div class="prompt-actions"><label class="attach">＋ Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button></div><span class:over={bytes > MAX_PROMPT_BYTES}>{bytes.toLocaleString()} / {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes</span></div>
-        {#if images.length}<div class="images">{#each images as image, i}<div class="image"><img src={image.data} alt={image.name} /><span>{image.name}</span><button type="button" aria-label={`Remove ${image.name}`} onclick={() => images = images.filter((_, index) => index !== i)}>×</button></div>{/each}</div>{/if}
+        <div class="prompt-foot"><div class="prompt-actions"><label class="attach"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>Use a skill</button></div><span class="count" class:over={bytes > MAX_PROMPT_BYTES}>{bytes.toLocaleString()} / {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes</span></div>
+        {#if images.length}<div class="images">{#each images as image, i}<div class="image"><img src={image.data} alt={image.name} /><span>{image.name}</span><button type="button" aria-label={`Remove ${image.name}`} onclick={() => images = images.filter((_, index) => index !== i)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18" /></svg></button></div>{/each}</div>{/if}
         <div class="section-title">Where should it work?</div>
         <div class="mode" role="group" aria-label="Session location"><button type="button" class:on={mode === 'project'} onclick={() => changeMode('project')}>In a project</button><button type="button" class:on={mode === 'folder'} onclick={() => changeMode('folder')}>Machine & folder</button></div>
         {#if mode === 'project'}
@@ -300,8 +300,8 @@
         {/if}
         <div class="section-title">Who’s on the job?</div>
         <div class="settings"><label class="field"><span>Agent</span><select aria-label="Agent" bind:value={tool} onchange={() => { model = ''; effort = '' }}>{#each enabled as agent}<option value={agent.id}>{agent.name}</option>{/each}</select></label>
-        <div class="field"><span>Model</span><button type="button" class="picker" bind:this={modelButton} aria-label={`Model: ${model || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} disabled={busy || reading || !tool} onclick={() => modelOpen = !modelOpen}><span class="value">{model || 'Agent default'}</span><span class="chev" aria-hidden="true">▾</span></button></div>
-        <div class="field"><span>Effort</span><button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={busy || reading || !takesEffort && !effort} title={effortHelp(tool, machine?.capabilities, rules.chat)} onclick={() => effortOpen = !effortOpen}><span class="value">{effort || 'Agent default'}</span>{#if takesEffort}<span class="chev" aria-hidden="true">▾</span>{/if}</button></div></div>
+        <div class="field"><span>Model</span><button type="button" class="picker" bind:this={modelButton} aria-label={`Model: ${model || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} disabled={busy || reading || !tool} onclick={() => modelOpen = !modelOpen}><span class="value">{model || 'Agent default'}</span><span class="chev" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg></span></button></div>
+        <div class="field"><span>Effort</span><button type="button" class="picker" bind:this={effortButton} aria-label={`Effort: ${effort || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={effortOpen} disabled={busy || reading || !takesEffort && !effort} title={effortHelp(tool, machine?.capabilities, rules.chat)} onclick={() => effortOpen = !effortOpen}><span class="value">{effort || 'Agent default'}</span>{#if takesEffort}<span class="chev" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg></span>{/if}</button></div></div>
         <p class="hint effort-hint">{effortHelp(tool, machine?.capabilities, rules.chat)}</p>
         <div class="section-title">How should it run?</div>
         <div class="options">
@@ -336,64 +336,69 @@
 </dialog>
 
 <style>
-  dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: hidden; padding: 0; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 24px 100px color-mix(in srgb, var(--ink) 18%, transparent); }
+  dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: hidden; padding: 0; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card); color: var(--ink); box-shadow: 0 24px 100px color-mix(in srgb, var(--ink) 18%, transparent); }
   dialog[open] { display: grid; grid-template-rows: minmax(0, 1fr); }
   dialog::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
   /* Only the fields scroll. The frame and the form take the same height, so no second scrollbar appears on the dialog. */
   form { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; max-height: 90dvh; }
-  header { display: flex; justify-content: space-between; gap: 20px; padding: 26px 28px 20px; border-bottom: 1px solid var(--line); }
-  .eyebrow { font-size: 14px; font-weight: 650; letter-spacing: .13em; color: var(--accent-text); }
+  header { display: flex; justify-content: space-between; gap: 20px; padding: 24px 28px 20px; border-bottom: 1px solid var(--line); }
+  .eyebrow { font-size: 14px; font-weight: 600; letter-spacing: 0.01em; color: var(--accent-text); }
   h2 { font: 500 27px/1.2 var(--serif); margin: 8px 0; letter-spacing: -.025em; }
   header p { margin: 0; color: var(--muted); font-size: 14px; }
-  .close { align-self: start; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 24px; cursor: pointer; }
-  .body { padding: 22px 28px; overflow-y: auto; min-height: 0; }
+  .close { align-self: start; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+  .close svg { width: 16px; height: 16px; }
+  .body { padding: 24px 28px; overflow-y: auto; min-height: 0; }
   fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-  .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 17px; font-size: 14px; font-weight: 600; min-width: 0; }
+  .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; font-size: 14px; font-weight: 600; min-width: 0; }
   .field small { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 6px; }
   .field em { font-size: 14px; font-style: normal; font-weight: 400; color: var(--muted); margin-left: 8px; }
   input, textarea, select { width: 100%; box-sizing: border-box; font-size: 14px; font-weight: 400; color: var(--ink); }
   textarea { resize: vertical; min-height: 130px; line-height: 1.65; }
-  .prompt-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: -10px; color: var(--muted); font-size: 14px; }
-  .prompt-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
-  .skill-add { border: 0; background: none; padding: 7px 0; color: var(--accent-text); font: 600 14px var(--sans); cursor: pointer; }
+  .prompt-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: -8px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .prompt-foot .count { font-variant-numeric: tabular-nums; }
+  .prompt-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; min-width: 0; }
+  .skill-add { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 8px 0; color: var(--accent-text); font: 600 14px var(--sans); cursor: pointer; }
+  .skill-add svg, .attach svg { width: 14px; height: 14px; flex: none; }
   .skill-add:hover { text-decoration: underline; }
   .skill-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-  .attach { position: relative; padding: 7px 0; color: var(--accent-text); font-weight: 600; cursor: pointer; }
+  .attach { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 8px 0; color: var(--accent-text); font-weight: 600; cursor: pointer; }
   .attach input { position: absolute; width: 100%; height: 100%; inset: 0; opacity: 0; cursor: pointer; }
   .attach:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
   .images { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .image { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 5px; font-size: 14px; max-width: 220px; }
+  .image { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 4px; font-size: 14px; max-width: 220px; }
   .image img { width: 38px; height: 38px; object-fit: cover; border-radius: 4px; }
   .image span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .image button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 20px; min-width: 30px; }
-  .section-title { margin: 24px 0 12px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 14px; font-weight: 650; }
+  .image button { display: grid; place-items: center; border: 0; background: none; color: var(--muted); cursor: pointer; min-width: 30px; min-height: 30px; padding: 0; }
+  .image button svg { width: 14px; height: 14px; }
+  .section-title { margin: 24px 0 12px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 14px; font-weight: 600; }
   .mode { display: inline-flex; align-self: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 3px; background: var(--bg-sunk); margin-bottom: 16px; }
-  .mode button { padding: 8px 14px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); font: 500 14px var(--sans); cursor: pointer; }
+  .mode button { padding: 8px 12px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: 500 14px var(--sans); cursor: pointer; }
   .mode button.on { background: var(--card); color: var(--ink); border-color: var(--line); box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 6%, transparent); }
   .location { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; margin-top: -8px; }
   .location span { color: var(--line-strong); padding: 0 6px; }
   .folder { display: flex; gap: 8px; }
   .folder input { flex: 1; min-width: 0; }
   .settings { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 12px; }
-  .picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); font: 400 14px var(--sans); text-align: left; cursor: pointer; }
+  .picker { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 42px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--ink); font: 400 14px var(--sans); text-align: left; cursor: pointer; }
   .picker:disabled { opacity: .55; cursor: default; }
   .picker .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .picker .chev { flex: none; color: var(--muted); }
+  .picker .chev { flex: none; display: inline-flex; align-items: center; color: var(--muted); }
+  .picker .chev svg { width: 14px; height: 14px; }
   .hint { font-size: 14px; color: var(--muted); margin: 0; line-height: 1.6; }
-  .idea-toggle { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); font-size: 14px; cursor: pointer; }
+  .idea-toggle { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 16px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-sunk); font-size: 14px; cursor: pointer; }
   .idea-toggle input { width: auto; margin-top: 3px; }
-  .idea-toggle strong { display: block; font-weight: 650; }
+  .idea-toggle strong { display: block; font-weight: 600; }
   .idea-toggle small { display: block; margin-top: 2px; font-size: 14px; font-weight: 400; color: var(--muted); }
-  .effort-hint { margin: -9px 0 12px; }
+  .effort-hint { margin: -8px 0 12px; }
   .options { display: grid; gap: 4px; }
   .options .mode { margin-bottom: 0; }
-  .check { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 14px; font-size: 14px; }
+  .check { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px; font-size: 14px; }
   .check input { width: auto; margin-top: 2px; }
   .yolo-hint { color: var(--warn); margin-bottom: 8px; }
-  footer { display: flex; align-items: center; gap: 8px; padding: 18px 28px; border-top: 1px solid var(--line); background: var(--bg); }
+  footer { display: flex; align-items: center; gap: 8px; padding: 16px 28px; border-top: 1px solid var(--line); background: var(--bg); }
   footer > span { flex: 1; font-size: 14px; color: var(--muted); }
   .error, .discard, .blocked { border: 1px solid var(--warn); padding: 12px; border-radius: 8px; color: var(--warn); font-size: 14px; }
-  .discard, .blocked { margin-bottom: 18px; background: var(--card); }.discard div { display: flex; gap: 8px; margin-top: 10px; }
+  .discard, .blocked { margin-bottom: 16px; background: var(--card); }.discard div { display: flex; gap: 8px; margin-top: 8px; }
   .over { color: var(--bad); }
-  @media (max-width: 650px) { input, textarea, select, .picker { font-size: 16px; } header, .body, footer { padding: 18px; } h2 { font-size: 23px; } .settings { grid-template-columns: 1fr; gap: 0; } .field small { display: block; margin: 2px 0 0; } footer > span { display: none; } footer { justify-content: flex-end; } .skill-add { min-height: 44px; } }
+  @media (max-width: 650px) { input, textarea, select, .picker { font-size: 16px; } header, .body, footer { padding: 16px; } h2 { font-size: 23px; } .settings { grid-template-columns: 1fr; gap: 0; } .field small { display: block; margin: 2px 0 0; } footer > span { display: none; } footer { justify-content: flex-end; } .skill-add { min-height: 44px; } }
 </style>

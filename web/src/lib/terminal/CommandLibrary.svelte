@@ -108,10 +108,10 @@
  </div>
 </WorkspaceDialog>
 <style>
- .library{display:grid;gap:14px;min-width:0}
- .eyebrow{font-size:0.875rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent-text);margin:0 0 8px}
+ .library{display:grid;gap:12px;min-width:0}
+ .eyebrow{font-size:0.875rem;letter-spacing:0.01em;color:var(--accent-text);margin:0 0 8px}
  .intro{font-size:0.875rem;line-height:1.6;color:var(--muted);margin:0}
- .target{font-size:0.875rem;margin:10px 0 0;padding:8px 10px;border-radius:6px;background:var(--bg);color:var(--muted);overflow-wrap:anywhere}
+ .target{font-size:0.875rem;margin:8px 0 0;padding:8px 10px;border-radius:6px;background:var(--bg);color:var(--muted);overflow-wrap:anywhere}
  .target strong{color:var(--ink)}
  .command-toolbar{display:flex;align-items:center;gap:6px}
  .new-command{flex:1;min-height:38px;font-size:0.875rem}
@@ -120,46 +120,46 @@
  .search-field:focus-within{border-color:var(--accent);outline:2px solid color-mix(in srgb,var(--accent) 24%,transparent);outline-offset:1px}
  .search-field input{flex:1;min-width:0;width:100%;min-height:38px;padding:8px 0;border:0;background:transparent;font-size:0.875rem}
  .search-field input:focus,.search-field input:focus-visible{outline:0;border:0}
- .command-list{display:grid;gap:0;list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+ .command-list{display:grid;gap:0;list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
  .command-list li{padding:10px 12px;border-bottom:1px solid var(--line);min-width:0}
  .command-list li:last-child{border-bottom:0}
  .command-list li:hover,.command-list li:focus-within{background:var(--bg)}
  .command-main{display:flex;align-items:flex-start;gap:8px}
- .command-copy{display:grid;gap:3px;flex:1;min-width:0}
- .command-heading{display:flex;align-items:center;gap:7px;min-width:0}
+ .command-copy{display:grid;gap:4px;flex:1;min-width:0}
+ .command-heading{display:flex;align-items:center;gap:8px;min-width:0}
  .command-heading strong{font-size:0.875rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .tag{flex:none;padding:1px 5px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:0.875rem;letter-spacing:.04em;text-transform:uppercase}
+ .tag{flex:none;padding:1px 6px;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:0.875rem;letter-spacing:0.01em}
  .description{margin:0;color:var(--muted);font-size:0.875rem;line-height:1.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .command-preview{display:block;padding:0;border:0;background:none;color:color-mix(in srgb,var(--good) 72%,var(--ink));font:0.875rem/1.5 var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .row-actions{display:flex;align-items:center;gap:2px;flex:none}
- .row-actions .btn{min-height:30px;padding:4px 9px;font-size:0.875rem}
+ .row-actions .btn{min-height:30px;padding:4px 8px;font-size:0.875rem}
  .insert{color:var(--accent-text);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
- .more{min-width:30px;padding:0 7px;font-size:1rem;line-height:1}
+ .more{min-width:30px;padding:0 8px;font-size:1rem;line-height:1}
  .footnote{font-size:0.875rem;line-height:1.55;color:var(--muted);margin:0}
- .message{font-size:0.875rem;padding:10px;border-radius:6px;background:var(--tint);margin:0;overflow-wrap:anywhere}
- .message button{display:block;margin-top:7px;border:0;background:transparent;color:inherit;text-decoration:underline;cursor:pointer}
+ .message{font-size:0.875rem;padding:8px 10px;border-radius:6px;background:var(--tint);margin:0;overflow-wrap:anywhere}
+ .message button{display:block;margin-top:8px;border:0;background:transparent;color:inherit;text-decoration:underline;cursor:pointer}
  .bad{color:var(--bad)}
- .empty{text-align:center;padding:22px 10px;color:var(--muted);font-size:0.875rem}
+ .empty{text-align:center;padding:24px 12px;color:var(--muted);font-size:0.875rem}
  .empty>span{font:2.5rem var(--mono);color:var(--accent-text)}
  .empty h3{font:500 1.3rem var(--serif);color:var(--ink);margin:12px 0}
  .empty p{line-height:1.6}
  .empty .btn{margin-top:8px}
  form{display:grid;gap:16px}
- form label{display:grid;gap:7px;font-size:0.875rem}
+ form label{display:grid;gap:8px;font-size:0.875rem}
  form input,form textarea{width:100%;font-size:0.875rem}
  form textarea[aria-label="Saved command text"]{font-family:var(--mono);line-height:1.65;resize:vertical}
  .optional{color:var(--muted);font-size:0.875rem}
  .form-actions{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
  .form-actions .btn{font-size:0.875rem}
- .detail{display:grid;gap:14px;min-width:0}
+ .detail{display:grid;gap:12px;min-width:0}
  .detail h3{margin:0;font:500 1.2rem var(--serif);color:var(--ink);overflow-wrap:anywhere}
  .full-command{white-space:pre-wrap;overflow-wrap:anywhere;font:0.875rem/1.6 var(--mono);padding:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:0;max-height:320px;overflow:auto}
  .delete-preview{white-space:pre-wrap;overflow-wrap:anywhere;font:0.875rem/1.6 var(--mono);padding:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:0;max-height:240px;overflow:auto}
  .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
  .menu-backdrop{position:fixed;inset:0;z-index:40;padding:0;border:0;background:transparent;cursor:default}
- .command-menu{position:fixed;z-index:41;display:grid;gap:2px;width:200px;max-height:calc(100dvh - 16px);overflow:auto;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 16px 40px -16px rgb(0 0 0 / .45)}
- .menu-title{margin:5px 8px 6px;color:var(--muted);font-size:0.875rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .command-menu button{display:flex;align-items:center;width:100%;min-height:34px;padding:6px 9px;border:0;border-radius:6px;background:transparent;color:var(--ink);font-size:0.875rem;text-align:left;cursor:pointer}
+ .command-menu{position:fixed;z-index:41;display:grid;gap:2px;width:200px;max-height:calc(100dvh - 16px);overflow:auto;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--card);box-shadow:0 16px 40px -16px rgb(0 0 0 / .45)}
+ .menu-title{margin:4px 8px 6px;color:var(--muted);font-size:0.875rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .command-menu button{display:flex;align-items:center;width:100%;min-height:34px;padding:6px 8px;border:0;border-radius:6px;background:transparent;color:var(--ink);font-size:0.875rem;text-align:left;cursor:pointer}
  .command-menu button:hover:not(:disabled),.command-menu button:focus-visible{background:var(--tint);outline:0}
  .command-menu button:disabled{opacity:.45;cursor:default}
  .command-menu .danger{color:var(--bad)}

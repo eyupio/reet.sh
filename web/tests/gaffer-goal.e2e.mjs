@@ -10,11 +10,12 @@ function fixture(){
  const session={id:sid,agentId:'a1',title:'Prepare the release',tool:'opencode',model:'working-model',structured:true,state:'running',createdAt:now,updatedAt:now,exitCode:null,dir:'/work'}
  const pins={providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},box={allowed:false,starts:[],controls:[],workerWrites:0}
  const view={conversation:{id:cid,sessionId:sid,providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[],messages:[]}
- const goalView=()=>({goal:view.goal??null,pins,allowed:box.allowed,reason:box.allowed?'':'Review Worker messages and Context sharing before enabling follow-up.'})
+ const goalView=()=>({goal:view.goal??null,pins,allowed:!!view.goal&&box.allowed,setupAllowed:box.allowed,providerName:'Workshop Gaffer',conversationRevision:view.conversation.revision,requiresProviderAccess:!view.goal})
  const routes={
   '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
   '/api/v2/gaffer/conversations':()=>view,
-  [`/api/v2/gaffer/conversations/${cid}/goal`]:request=>{if(request.method()==='PUT'){const in_=request.postDataJSON();expect(in_.revision).toBe(view.goal?.revision??0);for(const [key,value]of Object.entries(pins))expect(in_[key]).toBe(value);box.starts.push(in_);view.goal={...pins,id:'b'.repeat(32),conversationId:cid,sessionId:sid,revision:(view.goal?.revision??0)+1,text:in_.text,state:'active',note:'Waiting for new worker progress. No model request was made.',maxReviews:in_.maxReviews,usedReviews:0,createdAt:now,updatedAt:now,expiresAt:now+in_.hours*3600000,nextAt:now,lastSeq:-1,inputTokens:0,outputTokens:0,usageReported:true}}return goalView()},
+  [`/api/v2/gaffer/conversations/${cid}/goal`]:()=>goalView(),
+  [`/api/v2/gaffer/conversations/${cid}/goal/setup`]:request=>{const in_=request.postDataJSON();expect(in_.confirmed).toBe(true);expect(in_.conversationRevision).toBe(view.conversation.revision);if(in_.action==='resume'){box.controls.push(in_);view.goal.state='active';view.goal.revision++;return goalView()}if(in_.action==='start'){expect(in_.revision).toBe(view.goal?.revision??0);for(const [key,value]of Object.entries(pins))expect(in_[key]).toBe(value);box.starts.push(in_);view.goal={...pins,id:'b'.repeat(32),conversationId:cid,sessionId:sid,revision:(view.goal?.revision??0)+1,text:in_.text,state:'active',note:'Waiting for new worker progress. No model request was made.',maxReviews:in_.maxReviews,usedReviews:0,createdAt:now,updatedAt:now,expiresAt:now+in_.hours*3600000,nextAt:now,lastSeq:-1,inputTokens:0,outputTokens:0,usageReported:true}}return goalView()},
   [`/api/v2/gaffer/conversations/${cid}/goal/control`]:request=>{const in_=request.postDataJSON();expect(in_.revision).toBe(view.goal.revision);if(in_.action==='resume')expect(in_.confirmed).toBe(true);box.controls.push(in_);view.goal.state={pause:'paused',resume:'active',complete:'completed',stop:'stopped'}[in_.action];view.goal.revision++;view.goal.note=in_.action==='complete'?'You marked this goal complete.':'Goal updated.';return goalView()},
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
   '/api/v2/terminal/sessions':{sessions:[session]},
@@ -33,7 +34,8 @@ try{
   try{
    await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`);await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
    const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true}),goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
-   const openGoal=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Session follow-up',exact:true}).click()}
+   await expect(chat.getByRole('button',{name:'Look after this session',exact:true})).toBeVisible()
+   const openGoal=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Look after this session',exact:true}).click()}
    await openGoal();await expect(goal.getByRole('button',{name:'Start follow-up',exact:true})).toBeDisabled();expect(f.box.starts).toHaveLength(0)
    await w.page.keyboard.press('Escape');await expect(chat.getByRole('button',{name:'Chat options',exact:true})).toBeFocused()
    f.box.allowed=true;await openGoal();await expect(goal.getByLabel('Review budget',{exact:true})).toHaveValue('12');await expect(goal.getByLabel('Follow for (hours)',{exact:true})).toHaveValue('24')

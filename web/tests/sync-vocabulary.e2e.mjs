@@ -58,7 +58,7 @@ try {
     await expect.poll(() => page.evaluate(() => {
       const launcher = document.querySelector('.gaffer-launcher')?.getBoundingClientRect()
       const dock = document.querySelector('.save-dock')?.getBoundingClientRect()
-      return !!launcher && !!dock && launcher.bottom <= dock.top - 10
+      return !!launcher && !!dock && dock.bottom <= launcher.top - 10 && launcher.bottom <= innerHeight
     })).toBe(true)
     await page.locator('.save-dock').getByRole('button', { name: 'Save draft', exact: true }).click()
     await expect(page.getByText(/Ready for your machines/)).toBeVisible()

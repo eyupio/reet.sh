@@ -92,7 +92,7 @@ try{
  const w=await open();await w.page.goto(base+'/')
  expect(w.box.posts).toHaveLength(0);expect(w.box.creates).toHaveLength(0);expect(w.box.providerReads).toBe(0)
  await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
- await expect(panel(w.page).getByRole('heading',{name:'Reet. What’s on your mind?'})).toBeVisible()
+ await expect(panel(w.page).getByRole('heading',{name:'Ey up. I’m Gaffer.'})).toBeVisible()
  // A desktop companion stays modeless so the workspace can still be used.
  expect(await w.page.evaluate(()=>document.querySelector('.gaffer-chat').matches(':modal'))).toBe(false)
  await panel(w.page).getByLabel('Message Gaffer').fill('Think this through with me')

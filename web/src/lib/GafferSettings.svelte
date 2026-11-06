@@ -104,7 +104,7 @@
     <div><p class="eyebrow">Your critical buddy</p><h2>Gaffer AI</h2><p class="quip">Pick the brains. I’ll put the kettle on.</p>
       <p class="intro-copy">Choose who Gaffer talks to. His model is separate from the agent doing your work, and these providers belong to your account.</p></div>
   </header>
-  <p class="note">Choose a provider, then use Ask Gaffer for a natter. Use Context in the chat to preview and share retained reet or session data. Worker instructions and offline follow-up are coming next.</p>
+  <p class="note">Choose a provider, then use Ask Gaffer for a natter. In a working session, “Look after this session” reviews access and saves your goal in one step.</p>
   {#if notice}<p class="feedback good" role="status">{notice}</p>{/if}
   {#if error}<div class="feedback bad" role="alert"><p>{error}</p><button class="btn quiet" onclick={() => void load()} disabled={!!busy}>Reload providers</button></div>{/if}
   {#if data && !data.available}<p class="feedback bad" role="alert">The controller’s provider-key storage is unavailable. Ask an administrator to check the instance key configuration.</p>{/if}
@@ -170,11 +170,11 @@
             {#if modelsError}<p class="field-help bad" role="status">{modelsError} You can also enter the model name.</p>{:else if models.length}<p class="field-help" role="status">Read {models.length} models from this provider. Test your choice after saving.</p>{:else}<p class="field-help">Fetch the provider’s live list, or enter a model name.</p>{/if}
           </div>
           {#if kind !== 'anthropic'}<label>Reasoning effort<select bind:value={effort}><option value="">Provider default</option><option value="none">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><small>Supported values depend on the model. Test connection checks your choice.</small></label>{/if}
-          <section class="context-permissions" aria-label="Provider context permissions"><h3>What may Gaffer share?</h3><p class="field-help">These set the maximum data this provider may receive. Choose and preview sharing separately in each Gaffer conversation. Saving them sends no context.</p>
+          <details class="context-permissions"><summary>Advanced provider permissions</summary><p class="field-help">Session access is normally reviewed when you choose “Look after this session”. These controls set provider-wide data limits. Saving them sends no context.</p>
             <label class="check"><input type="checkbox" bind:checked={allowStatus} />Reet status and activity</label>
             <label class="check"><input type="checkbox" bind:checked={allowSessions} onchange={event => { if (!event.currentTarget.checked) allowCode = false }} />Followed-session conversations and tool results</label>
             <label class="check"><input type="checkbox" bind:checked={allowCode} disabled={!allowSessions} />Code and logs from followed sessions</label>
-          </section>
+          </details>
           <label class="check"><input type="checkbox" bind:checked={enabled} onchange={event => { if (!event.currentTarget.checked) makeDefault = false }} />Enable this provider</label>
           {#if !editing}<label class="check"><input type="checkbox" bind:checked={makeDefault} disabled={!enabled} />Make this Gaffer’s default</label>{/if}
         </fieldset>
@@ -243,7 +243,7 @@
   .model-section { border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 10px; }
   .field-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
   .context-permissions { border: 1px solid var(--line); padding: 14px; border-radius: 10px; display: grid; gap: 8px; background: var(--bg-sunk); }
-  .context-permissions h3 { font-size: 14px; }
+  .context-permissions summary { font-size: 14px; cursor: pointer; min-height: 44px; align-content: center; }
   .context-permissions .field-help { margin: 0; }
   .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
   .btn { min-height: 40px; }

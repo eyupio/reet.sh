@@ -122,6 +122,7 @@ try {
   release()
   await expect(pending.getByRole('button',{name:'Fetch models'})).toBeEnabled()
   await expect(pending.getByLabel('Model',{exact:true}).getByRole('option',{name:'model-alpha',exact:true})).toHaveCount(0)
+  await pending.getByText('Advanced provider permissions',{exact:true}).click()
   await pending.getByLabel('Followed-session conversations and tool results').check()
   await pending.getByLabel('Code and logs from followed sessions').check()
   await pending.getByLabel('Followed-session conversations and tool results').uncheck()

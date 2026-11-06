@@ -524,14 +524,15 @@
     if(viewportMeta&&viewportContent!==null&&!/interactive-widget/.test(viewportContent))viewportMeta.setAttribute('content',`${viewportContent}, interactive-widget=resizes-content`)
     let frame=0
     const coarse=matchMedia('(pointer:coarse)'),narrow=matchMedia(PHONE_SCREEN)
-    const editing=()=>{const focus=document.activeElement;return focus instanceof HTMLElement&&!!focus.closest('.pane')&&focus.matches('textarea,input,[contenteditable]:not([contenteditable="false"])')}
+    const editing=()=>{const focus=document.activeElement;return focus instanceof HTMLElement&&!!focus.closest('.pane,.chat-pane')&&focus.matches('textarea,input,[contenteditable]:not([contenteditable="false"])')}
     const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
       if(!workspace)return
       const usable=pageViewport.read(browserViewport())
       const typing=editing()
       chromeFocus.session=typing
       keyboard=keyboardLikelyOpen(usable.shrink,{coarse:coarse.matches,narrow:narrow.matches,editing:typing,scale:window.visualViewport?.scale??1})
-      workspaceHeight=Math.max(120,usable.height-Math.max(0,workspace.getBoundingClientRect().top-usable.top)-8)
+      const reserved=document.querySelector<HTMLElement>('[data-gaffer-space]')?.getBoundingClientRect().height??0
+      workspaceHeight=Math.max(120,usable.height-Math.max(0,workspace.getBoundingClientRect().top-usable.top)-reserved-8)
       if(viewportDebug){const visual=window.visualViewport;debugReading=`visualViewport.height ${visual?Math.round(visual.height):'none'} · offsetTop ${visual?Math.round(visual.offsetTop):'none'}\ninnerHeight ${innerHeight} · screen.height ${screen.height}\nused height ${Math.round(usable.height)} · keyboard ${keyboard?'open':'closed'}\ninnerWidth ${innerWidth} · visualViewport.width ${visual?Math.round(visual.width):'none'} · scale ${visual?Math.round(visual.scale*100)/100:'none'} · offsetLeft ${visual?Math.round(visual.offsetLeft):'none'}\nclientWidth ${document.documentElement.clientWidth} · scrollWidth ${document.documentElement.scrollWidth} · screen.width ${screen.width} · dpr ${devicePixelRatio}\nmeta ${viewportMeta?.getAttribute('content')??'none'}`}
     })}
     const observer=new ResizeObserver(measure),header=document.querySelector('.site-header')
@@ -539,7 +540,7 @@
     // The shell hides and shows the site's chrome (keyboardChrome) after this measure has set the session focus: measure again
     // whenever it does, so the height is never one taken while the top bar was aside.
     const chrome=new MutationObserver(measure)
-    chrome.observe(document.documentElement,{attributes:true,attributeFilter:['data-chrome-aside','data-bottom-tabs','data-session-focus']})
+    chrome.observe(document.documentElement,{attributes:true,attributeFilter:['data-chrome-aside','data-bottom-tabs','data-session-focus','data-gaffer-anchor','data-gaffer-editing']})
     // A docked panel that would become a drawer (a narrower window, a phone) closes rather than cover the terminal.
     const viewportChanged=()=>{const wasDocked=panelView==='docked';viewportWidth=innerWidth;screenSide=readScreen();if(wasDocked&&!panelDocks(viewportWidth,pinned,phone))mode='closed'}
     window.addEventListener('resize',viewportChanged)

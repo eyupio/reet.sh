@@ -16,6 +16,10 @@
 Home organises session work into **Backlog**, **Active**, and **Finished**. Use
 Board to see all three columns, or choose a stage to focus on that stage alone.
 View, sort order, and compact cards are remembered in this browser per account.
+**New session** starts now and opens the standard **Start an agent** dialog, the
+same one the project rail, the machine cards, Machines and Sessions use; a
+session to plan instead is added from the Backlog column's **+** or
+**Plan a session**.
 
 - **Backlog** contains account-saved prompts that have not reserved a terminal
   session. Create, edit, or delete an item without connecting to its machine.
@@ -45,8 +49,11 @@ are appended to the prompt. The complete launch prompt must fit the existing
 the machine's list, favourites, suggestions, `Other…`, and an honest status line,
 with effort offered only for an agent whose catalogue row takes it. The prompt
 also has **Use a skill**, which searches the account's shelf and inserts that
-skill's ready-to-run prompt at the caret. The inserted text is ordinary prompt
-text, so the person can edit it, add around it, or delete it.
+skill's ready-to-run prompt at the caret. A skill with an install source gets the
+fetch-and-run command; a local skill with no source is used by name (`Use the
+<name> skill.`) and shows reet as its source, because its files are already on
+the machine. The inserted text is ordinary prompt text, so the person can edit
+it, add around it, or delete it.
 
 An item can be saved as an **idea**: a title or a note, with no prompt yet, kept
 so it isn't forgotten. Start on an idea opens a dialog to turn it into a session.

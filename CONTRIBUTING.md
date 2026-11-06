@@ -46,6 +46,14 @@ Then check that:
 - No new dependency is added without a reason in the description. The binary stays small on purpose.
 - The UI still works in light and dark mode and at phone width.
 
+CI performance comparisons compile both revisions first, then interleave eight
+one-second samples with the starting revision reversed on alternate rounds. To
+run the same comparison locally, use `bash scripts/bench-compare.sh BASE_DIR
+PR_DIR OUTPUT_DIR`, with `benchstat` on PATH for
+`python3 scripts/bench-gate.py OUTPUT_DIR/base.txt OUTPUT_DIR/new.txt 15`.
+`BENCH_REGEX` can select a smaller benchmark set; CI retains its existing set
+and statistically significant 15% regression gate.
+
 ## Gaffer offline acceptance
 
 After building `web/dist`, run `bash scripts/test-gaffer-offline.sh native`,

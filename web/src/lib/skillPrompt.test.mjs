@@ -45,3 +45,23 @@ test('a missing caret falls back to the end of the prompt, and out-of-range valu
   assert.equal(insertSkillPrompt('Prompt', RUN, -4, 0).text, `${RUN}\n\nPrompt`)
   assert.equal(insertSkillPrompt('Prompt', RUN, 500, 900).text, `Prompt\n\n${RUN}`)
 })
+
+const installSource = readFileSync(new URL('./install.ts', import.meta.url), 'utf8')
+const installCompiled = ts.transpileModule(installSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const { useSkillPrompt } = await import(`data:text/javascript;base64,${Buffer.from(installCompiled).toString('base64')}`)
+
+const skill = over => ({ id: 'local/unslop', name: 'unslop', slug: 'unslop', source: 'local', sourceType: 'local', url: '', ...over })
+
+test('a skill with no source is used by name, with reet as its source', () => {
+  assert.equal(useSkillPrompt(skill()), 'Use the unslop skill.')
+  assert.equal(useSkillPrompt(skill({ name: '', slug: 'from-the-slug' })), 'Use the from-the-slug skill.')
+})
+
+test('a skill with an install source keeps the fetch-and-run prompt', () => {
+  assert.match(useSkillPrompt(skill({ source: 'demo/toolkit', sourceType: 'github' })), /^Run `npx skills use "https:\/\/github\.com\/demo\/toolkit" --skill "unslop"`/)
+  assert.match(useSkillPrompt(skill({ source: '', sourceType: 'hosted', url: 'https://reet.test/demo' })), /^Run `npx skills use "https:\/\/reet\.test\/demo"/)
+})
+
+test('a skill with neither a source nor a name cannot be used', () => {
+  assert.equal(useSkillPrompt(skill({ name: '', slug: '' })), null)
+})

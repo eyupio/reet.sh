@@ -57,4 +57,11 @@ uncertain-delivery cases. Changed-package vet and shell syntax checks pass.
 Inspected captures use synthetic data: native/light desktop review and overview,
 Docker/dark phone overview. They are recorded in the UI verification page.
 Final-head CI/review remains the merge gate. This slice is
-[PR #626](https://github.com/eyupio/reet.sh/pull/626), stacked on widget/setup #625.
+[PR #626](https://github.com/eyupio/reet.sh/pull/626), now targeting main after the owner merged widget/setup #625.
+
+The performance comparison now compiles both revisions before sampling and
+interleaves eight one-second samples, reversing the starting revision each round.
+It retains the existing benchmark set and statistically significant 15% gate.
+This avoids measuring all base samples several minutes before all PR samples on
+a shared runner. The identical-store-code local control uses all eight samples
+per side; its original gate passes with the paired workflow.

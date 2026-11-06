@@ -38,3 +38,13 @@ export function installPrompt(skill: Skill): string | null {
   if (!url) return null
   return `Run \`npx skills use "${url}" --skill "${skill.slug}"\` and follow the generated skill instructions now. Read its complete output, redirecting it to a temporary file first if necessary. Resolve relative paths from the supporting-files directory it provides.`
 }
+
+/** The text to put in a prompt to use a skill. A skill with an install source is fetched and run; one without a source
+ *  (a local copy reet knows about) is already on the machine, so the agent is asked to use it by name. reet is the source
+ *  for a sourceless skill. */
+export function useSkillPrompt(skill: Skill): string | null {
+  const url = sourceURL(skill)
+  if (url) return installPrompt(skill)
+  const name = (skill.name || skill.slug || '').trim()
+  return name ? `Use the ${name} skill.` : null
+}

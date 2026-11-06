@@ -3,7 +3,7 @@
  import { onMount, tick, untrack } from 'svelte'
  import { shell } from './dialogShell'
  import { UnauthorizedError, addModelFavourite, getProfile, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type Machine, type Skill, type YoloSetting } from './api'
- import { installPrompt } from './install'
+ import { useSkillPrompt } from './install'
  import { insertSkillPrompt } from './skillPrompt'
  import SkillPromptPicker from './home/SkillPromptPicker.svelte'
  import { CATALOGUE } from './catalogue'
@@ -431,8 +431,8 @@
  }
  let skillOpen = $state(false), skillButton = $state<HTMLButtonElement>(), promptInput = $state<HTMLTextAreaElement>()
  function useSkill(skill: Skill) {
-  const text = installPrompt(skill)
-  if (!text) { failed = true; message = 'That skill has no source to run it from. Link one on the Skills page.'; invalidMessage = true; return }
+  const text = useSkillPrompt(skill)
+  if (!text) { failed = true; message = 'That skill has no name to use it by.'; invalidMessage = true; return }
   const at = promptInput?.selectionStart ?? prompt.length, end = promptInput?.selectionEnd ?? at
   const inserted = insertSkillPrompt(prompt, text, at, end)
   prompt = inserted.text

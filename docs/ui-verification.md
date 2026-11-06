@@ -3358,3 +3358,31 @@ in one wording. This replaces the "no second confirmation" in the entry above.
   label (*Update 2 machines*, *Install on 1 machine*).
 - On a phone the question keeps each machine's number beside its name instead of on a
   line of its own.
+
+## Home New session, and local skills in Use a skill (6 November 2026)
+
+The board's **New session** button used to open the backlog composer ("A little
+planning. Proper progress."). It now starts now in the standard **Start an agent**
+dialog, the same one the project rail, machine cards, Machines and Sessions open.
+Planning stays on the Backlog column's **+** and **Plan a session**. The board's
+Active column **Start a session** uses the same dialog.
+
+**Use a skill** no longer disables a skill that has no install source. A local
+skill is inserted as `Use the <name> skill.` and its source reads `reet`; a skill
+with a source keeps the fetch-and-run command. The inserted text stays ordinary
+prompt text.
+
+Validation:
+
+- `web/tests/session-board.e2e.mjs` passes at desktop and phone widths, in light
+  and dark: backlog planning now goes through the Backlog column, and the board
+  remains inside the viewport with no browser errors.
+- `web/tests/launch-options.e2e.mjs` passes on desktop and phone: Home's
+  **New session** opens **Start an agent**, and its model and effort reach the
+  session request.
+- `skillPrompt.test.mjs` covers the sourceless prompt, the fetch-and-run prompt
+  for a sourced skill, and a skill with no name.
+- `npm test`, `svelte-check` (0 errors), and `npm run build` pass.
+
+**Not checked.** No physical phone or screen reader. The local-skill path was
+checked in unit tests; no live machine was scanned for one.

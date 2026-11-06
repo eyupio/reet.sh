@@ -237,7 +237,7 @@ permissions; the overview grants nothing and performs no model or worker call.
 
 ### Widget and reviewed setup (6 November 2026)
 
-[PR #625](https://github.com/eyupio/reet.sh/pull/625) starts from main `1ba62a7c`
+The owner merged [PR #625](https://github.com/eyupio/reet.sh/pull/625), which started from main `1ba62a7c`
 after the owner merged #620 and #623. The user requested matching floating-panel
 sizes, mascot treatment and predictable placement, plus a simpler activation
 process. They chose **one session setup, with advanced controls optional**.
@@ -251,7 +251,7 @@ Real credentials, deployment and agent merges remain out of scope.
 ### GM6: real-controller offline acceptance (6 November 2026)
 
 [PR #626](https://github.com/eyupio/reet.sh/pull/626),
-`test/gaffer-offline-integration`, is stacked on widget/setup #625. The
+`test/gaffer-offline-integration`, now targets main after the owner merged widget/setup #625. The
 [acceptance contract](handoffs/gaffer-offline-acceptance.md) records the actual
 integration boundary and runner commands. Native/race (343 seconds) and non-root
 production-container-runtime (325 seconds) browser flows pass, including one-step

@@ -101,7 +101,7 @@ crowding the narrative. Existing goal controls retain fresh permission checks;
 listing never calls a provider, wakes a worker or starts a goal. See the
 [overview handoff](docs/handoffs/gaffer-followed-sessions.md) for tests and PR state.
 
-The next UX slice is [PR #625](https://github.com/eyupio/reet.sh/pull/625),
+The owner merged the UX slice in [PR #625](https://github.com/eyupio/reet.sh/pull/625),
 `feat/gaffer-companion-ux`. The user's selected **one reviewed session setup,
 with advanced controls optional** replaces the multi-dialog activation sequence.
 It atomically saves provider session/text maxima, only this conversation's grants
@@ -110,7 +110,7 @@ The single floating mascot has saved left/right placement, three reference-sized
 presets, temporary drag/resize and modal full screen/phone layouts. Page docks and
 session viewports reserve its corner. See the
 [widget/setup handoff](docs/handoffs/gaffer-widget-setup.md).
-GM6 is [PR #626](https://github.com/eyupio/reet.sh/pull/626), stacked on #625.
+GM6 is [PR #626](https://github.com/eyupio/reet.sh/pull/626), now targeting main after #625 merged.
 Fake-backed real-controller/private-WebSocket browser acceptance passes in native
 with race detection and the production container runtime/non-root user, including
 restart, limits, approvals, revocation and uncertain delivery. Its

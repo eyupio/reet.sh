@@ -12,6 +12,7 @@
   import ManageProjectsDialog from './ManageProjectsDialog.svelte'
   import ProjectGroupDialog from './ProjectGroupDialog.svelte'
   import ProjectRail from './ProjectRail.svelte'
+  import { RAIL_DEFAULT } from '../shell/workspaceLayout'
   import ProjectWorktrees from './ProjectWorktrees.svelte'
 
   // The project rail with everything its cards and menus do: Add and Edit (the folder dialog), Remove from reet (confirmed),
@@ -21,7 +22,8 @@
   // region (`onnotice`). Nothing is stored in the browser.
   let { projects, groups = undefined, failed = false, savedWaiting = 0, sessions, sessionsFailed = false, reporting, running, known, worktrees, chosen = '',
     selecting = false, selected = [], onselecting, ontoggle, onchoose, onnew, signal, onsettle, onsettlegroups, onwaiting, onmachines, onnotice, onreload, onsignedout,
-    variant = 'home', selectAction, rail = true, userId = 0, scope = null, onscope, collapsed = false, oncollapsed }: {
+    variant = 'home', selectAction, rail = true, userId = 0, scope = null, onscope, collapsed = false, oncollapsed,
+    width = RAIL_DEFAULT, onwidth, onwidthcommit }: {
     projects: FolderProject[] | undefined
     /** The account's project groups, in rail order. */
     groups?: ProjectGroup[] | undefined
@@ -68,6 +70,10 @@
     /** The user has folded the rail to its strip (desktop). */
     collapsed?: boolean
     oncollapsed?: (collapsed: boolean) => void
+    /** The rail's width on a wide desktop (Home's grid column). */
+    width?: number
+    onwidth?: (width: number) => void
+    onwidthcommit?: (width: number) => void
   } = $props()
 
   const refused = (e: unknown) => e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)
@@ -358,6 +364,7 @@
 
 {#if rail}<ProjectRail {projects} {groups} {failed} {reporting} {running} {known} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
   {selecting} {selected} {onselecting} {ontoggle} {variant} {selectAction} {userId} {scope} {onscope} {collapsed} {oncollapsed}
+  {width} {onwidth} {onwidthcommit}
   {onnew} onadd={(opener) => void openAdd(opener)} onmanage={(opener) => void openManage(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
   onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour}
   onarrange={(order) => void arrange(order)} ongroupadd={openGroupAdd} ongroupedit={openGroupEdit}

@@ -2,7 +2,11 @@
   import Logo from '../Logo.svelte'
   import type { Tab } from './tabs'
   import { DOCS_URL } from '../links'
-  let { tabs, moreCurrent, moreOpen, onmore }: { tabs: Tab[]; moreCurrent: boolean; moreOpen: boolean; onmore: (opener: HTMLElement) => void } = $props()
+  let { tabs, moreCurrent, moreOpen, onmore, oncollapsed }: {
+    tabs: Tab[]; moreCurrent: boolean; moreOpen: boolean; onmore: (opener: HTMLElement) => void
+    /** Folds the sidebar away, leaving its reopen control in the top bar. */
+    oncollapsed: () => void
+  } = $props()
   const icons: Record<string, string> = {
     '/': 'M3 11l9-8 9 8v10H3zM9 21v-8h6v8',
     '/sessions': 'M4 6h16M4 12h16M4 18h10',
@@ -13,7 +17,12 @@
 </script>
 
 <aside class="workspace-sidebar" aria-label="This Reet installation">
-  <a class="brand" href="/" aria-label="Reet workspace home"><Logo /></a>
+  <div class="brand-row">
+    <a class="brand" href="/" aria-label="Reet workspace home"><Logo /></a>
+    <button type="button" class="fold" aria-label="Fold the navigation" title="Fold the navigation" onclick={() => oncollapsed()}>
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l-7 7 7 7" /></svg>
+    </button>
+  </div>
   <p class="label">YOUR WORKSPACE</p>
   <nav aria-label="Main navigation">
     {#each tabs as tab (tab.href)}
@@ -30,9 +39,13 @@
 <style>
   .workspace-sidebar { display: none; }
   @media (min-width: 1100px) {
-    .workspace-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; display: flex; flex-direction: column; width: 228px; overflow-y: auto; background: var(--bg-sunk); border-right: 1px solid var(--line); padding: 27px 17px 20px; }
-    .brand { display: block; color: inherit; text-decoration: none; padding: 0 11px 35px; }
-    .brand :global(.logo) { width: 134px; }
+    .workspace-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; display: flex; flex-direction: column; width: var(--workspace-sidebar-width, 228px); min-width: 0; overflow-y: auto; background: var(--bg-sunk); border-right: 1px solid var(--line); padding: 27px 17px 20px; }
+    .brand-row { display: flex; align-items: center; gap: 6px; padding: 0 4px 35px 11px; }
+    .brand { display: block; flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+    .brand :global(.logo) { width: 134px; max-width: 100%; }
+    .fold { flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+    .fold:hover { background: var(--card); color: var(--ink); }
+    .fold svg { width: 15px; height: 15px; }
     .label { font: 14px var(--mono); letter-spacing: .08em; color: var(--muted); margin: 0 12px 12px; }
     nav { display: grid; gap: 4px; }
     nav a, nav button { display: flex; align-items: center; gap: 12px; padding: 11px 12px; min-height: 44px; border-radius: 5px; color: var(--muted); font: 400 14px var(--sans); text-decoration: none; border: 0; background: none; cursor: pointer; text-align: left; }

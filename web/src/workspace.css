@@ -3,8 +3,8 @@
   --workspace-rail: var(--bg-sunk);
 }
 @media (min-width: 1100px) {
-  html[data-workspace-shell] #main-content { margin-left: 228px; margin-right: 0; width: calc(100% - 228px); max-width: none; }
-  html[data-workspace-shell] #main-content ~ footer { margin-left: 228px; width: calc(100% - 228px); }
+  html[data-workspace-shell] #main-content { margin-left: var(--workspace-sidebar-width, 228px); margin-right: 0; width: calc(100% - var(--workspace-sidebar-width, 228px)); max-width: none; }
+  html[data-workspace-shell] #main-content ~ footer { margin-left: var(--workspace-sidebar-width, 228px); width: calc(100% - var(--workspace-sidebar-width, 228px)); }
 }
 .session-board .heading h2 { font-size: clamp(25px, 2.1vw, 33px); letter-spacing: -.035em; }
 .session-board .session-card { border-radius: 8px; background: var(--card); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 2%, transparent); }

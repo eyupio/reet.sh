@@ -1,7 +1,7 @@
 # Gaffer offline goals — GM4
 
-6 November 2026. Follow-on to merged #612, aligned with main `b68c84e9`.
-Implementation is tracked in [PR #617](https://github.com/eyupio/reet.sh/pull/617).
+6 November 2026. Follow-on to merged #612, aligned with main `1b10a978` after the owner merged the plan in #617.
+Implementation is tracked in [PR #620](https://github.com/eyupio/reet.sh/pull/620).
 Only reet.sh changes. Local fake providers/workers; no real credentials or merge.
 
 The user selected 12 Gaffer reviews over 24 hours by default, with limits visible
@@ -75,5 +75,5 @@ gate. The 16 MCP compatibility checks pass; generated tools remain unchanged.
 
 The goal dialog and existing chat/context/worker/layout browser matrices pass on
 main `b68c84e9`; web check/build, vet, strict docs, 51-page validation and the 40-view
-docs browser smoke pass. Captures use only synthetic data. PR #617 records the
+docs browser smoke pass. Captures use only synthetic data. PR #620 records the
 final immutable head, review and CI state. No paid provider, deployment or merge.

@@ -76,9 +76,9 @@ is aligned with main `6c40c7fb` after #610/#611. The concrete
 [worker-message plan](docs/handoffs/gaffer-worker-messages.md) records separate
 permissions, one explicitly enabled request, atomic queue receipts and delivery
 checks. It preserves the working model and user approval boundary.
-GM4 is implemented for review in [PR #617](https://github.com/eyupio/reet.sh/pull/617),
-`feat/gaffer-offline-goals`, aligned with main
-`b68c84e9` after the owner merged #612 (`77892506`). The
+GM4’s plan was merged by the owner in [PR #617](https://github.com/eyupio/reet.sh/pull/617).
+The implementation is tracked separately in [PR #620](https://github.com/eyupio/reet.sh/pull/620),
+`feat/gaffer-offline-runtime`, aligned with main `1b10a978`. The
 [offline-goal contract](docs/handoffs/gaffer-offline-goals.md) records explicit
 per-session goals, the user's default of 12 reviews over 24 hours, progress-only
 reviews, atomic budget/turn admission, fresh goal/grant delivery checks, stop/
@@ -89,7 +89,7 @@ the working model performs those actions. No model-requested tools, worker write
 background polling or real provider credentials are enabled in GM3A. Final checks
 and PR state are recorded in the companion handoff and UI verification record.
 
-The user also authorised the next slice after #617: a followed-session overview
+The user also authorised the next slice after GM4: a followed-session overview
 with grounded “what happened / what remains / needs you” information and clear
 source times, as a separate reviewable change. Keep goal/worker permissions and
 normal chat's narrative-led layout under the same boundaries.

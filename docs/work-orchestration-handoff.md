@@ -178,8 +178,9 @@ such goal. No merge or deployment is part of this implementation.
 
 ### GM4: bounded offline session goals (6 November 2026)
 
-The owner merged #612 as `77892506`. [PR #617](https://github.com/eyupio/reet.sh/pull/617) continues on
-`feat/gaffer-offline-goals`, aligned with main `b68c84e9` after #613/#614/#616.
+The owner merged #612 as `77892506` and the GM4 plan in #617. Runtime
+[PR #620](https://github.com/eyupio/reet.sh/pull/620) continues separately on
+`feat/gaffer-offline-runtime`, aligned with main `1b10a978`.
 The [goal contract](handoffs/gaffer-offline-goals.md) records the selected default:
 12 Gaffer reviews over 24 hours, triggered by new worker progress. The UI permits
 1–48 reviews over 1–168 hours; at most ten selected session goals are active per
@@ -215,7 +216,7 @@ confirmation, escaping and focus. The local full race run passes API/Gaffer/stor
 only the five unchanged terminal-host environment failures. All 16 MCP checks,
 aligned web check/build, goal and existing companion/context/worker/layout browser
 matrices, vet, strict docs, 51-page checks and the 40-view docs smoke pass. Final-
-head CI and review are recorded on #617. No real credentials, deployment or merge
+head CI and review are recorded on #620. No real credentials, deployment or merge
 is authorised.
 
 ### Source-grounded feasibility and current gaps

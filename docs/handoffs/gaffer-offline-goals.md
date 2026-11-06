@@ -70,8 +70,9 @@ free restart, interrupted review recovery and instance restore. The full local
 race run passes API (404 s), Gaffer (103 s), store (174 s), broker (43 s), embedded
 web and all other packages except the same five unchanged terminal-host environment
 failures: three missing-tmux and two process-group cleanup tests. Later decision/
-shutdown guards have targeted race checks; final-head CI remains the publication
-gate. The 16 MCP compatibility checks pass; generated tools remain unchanged.
+shutdown guards have targeted race checks. Runtime head `1ce63151` passes all
+20 applicable CI checks, with four intentional skips and no unresolved review
+threads; #620 remains open. The 16 MCP compatibility checks pass; generated tools remain unchanged.
 
 The goal dialog and existing chat/context/worker/layout browser matrices pass on
 main `b68c84e9`; web check/build, vet, strict docs, 51-page validation and the 40-view

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // Overview contains retained evidence, never a newly generated report or live
@@ -59,7 +60,9 @@ func (s *Service) Goals(uid int64) (GoalOverviewView, error) {
 			row.Attention = row.Attention || g.State == "active"
 		} else {
 			if g.State == "active" {
-				if g.ExpiresAt <= time.Now().UnixMilli() {
+				if session.State != terminalproto.Running {
+					row.Reason = "The working session has ended or is unavailable. Review its outcome before choosing further work."
+				} else if g.ExpiresAt <= time.Now().UnixMilli() {
 					row.Reason = "The time limit has passed. No further goal instructions are authorised."
 				} else if err := s.store.CheckGafferGoal(uid, g.ConversationID, g.ID, g.Revision, ""); err != nil {
 					row.Reason = "Goal permissions changed. Review the session and its permissions before resuming."
@@ -79,7 +82,7 @@ func (s *Service) Goals(uid int64) (GoalOverviewView, error) {
 				}
 				if err == nil {
 					row.Delivery = &m
-					row.Attention = row.Attention || m.State == "uncertain" || m.State == "blocked"
+					row.Attention = row.Attention || m.State == "uncertain" || m.State == "blocked" || m.State == "removed" && g.State == "active"
 				} else {
 					row.Attention = true
 					row.Reason = "The last instruction's receipt is unavailable. Check the working conversation before continuing."

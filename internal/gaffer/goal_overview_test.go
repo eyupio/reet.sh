@@ -127,4 +127,16 @@ func TestGoalOverviewPutsDecisionsBeforeActiveWorkWithoutChangingGoals(t *testin
 	if after.Revision != a.Revision || after.UsedReviews != 0 || after.LastSeq != a.LastSeq {
 		t.Fatal("overview mutated goal authority or budget", after)
 	}
+	if err := st.ObserveTerminalStateFor(p.UserID, first.AgentID, a.SessionID, 1, terminalproto.Exited, nil); err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.Goals(p.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range v.Goals {
+		if row.Goal.ID == a.ID && (!row.Attention || !strings.Contains(row.Reason, "ended") || row.Goal.State != "active") {
+			t.Fatal("ended worker falsely shown as following", row)
+		}
+	}
 }

@@ -38,12 +38,16 @@ type TurnInput struct {
 	Text     string `json:"text"`
 }
 type ConversationView struct {
+	Goal         *store.GafferGoal        `json:"goal,omitempty"`
 	Conversation store.GafferConversation `json:"conversation"`
 	Turns        []store.GafferTurn       `json:"turns"`
 	Messages     []store.WorkerMessage    `json:"messages,omitempty"`
 	Context      *ContextState            `json:"context,omitempty"`
 }
 type chatJob struct {
+	goalID         string
+	goalRevision   int64
+	goalText       string
 	uid            int64
 	provider       string
 	conversation   string
@@ -152,7 +156,13 @@ func (s *Service) Conversation(uid int64, id string) (ConversationView, error) {
 	if c.SessionID != "" {
 		messages, err = s.WorkerMessagesForReview(uid, "gaffer", id, c.SessionID)
 	}
-	return ConversationView{Conversation: c, Turns: turns, Context: &sharing, Messages: messages}, err
+	var goal *store.GafferGoal
+	if g, e := s.store.GafferGoalFor(uid, id); e == nil {
+		goal = &g
+	} else if !errors.Is(e, store.ErrNotFound) {
+		return ConversationView{}, e
+	}
+	return ConversationView{Conversation: c, Turns: turns, Context: &sharing, Messages: messages, Goal: goal}, err
 }
 func (s *Service) CreateConversation(uid int64, in ConversationInput) (ConversationView, error) {
 	in.Model = strings.TrimSpace(in.Model)
@@ -279,6 +289,9 @@ func (s *Service) CancelTurn(uid int64, conversation, id string) error {
 }
 
 func (s *Service) StartTurn(uid int64, id string, in TurnInput) (store.GafferTurn, error) {
+	return s.startTurn(uid, id, in, nil)
+}
+func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.GafferGoal) (store.GafferTurn, error) {
 	if len(in.ID) != 32 || strings.Trim(in.ID, "0123456789abcdef") != "" || in.Revision < 1 {
 		return store.GafferTurn{}, invalid("id", "Use a fresh 32-character lowercase hexadecimal message ID and the viewed conversation revision.")
 	}
@@ -295,7 +308,7 @@ func (s *Service) StartTurn(uid int64, id string, in TurnInput) (store.GafferTur
 		return store.GafferTurn{}, err
 	}
 	if old, err := s.store.GafferTurnFor(uid, id, in.ID); err == nil {
-		if old.Prompt != in.Text || old.RequestRevision != in.Revision || (old.WorkerGrantRevision > 0) != in.Relay {
+		if old.Prompt != in.Text || old.RequestRevision != in.Revision || (old.WorkerGrantRevision > 0) != in.Relay || (goal == nil && old.GoalID != "") || (goal != nil && (old.GoalID != goal.ID || old.GoalRevision != goal.Revision)) {
 			return old, store.ErrGafferConflict
 		}
 		return old, nil
@@ -363,13 +376,24 @@ func (s *Service) StartTurn(uid int64, id string, in TurnInput) (store.GafferTur
 	if snapshot != nil {
 		used = contextUse(*snapshot, sharing.Grant.Revision)
 	}
-	turn, created, err := s.store.StartGafferTurnFor(uid, store.GafferTurn{ID: in.ID, ConversationID: id, RequestRevision: in.Revision, Prompt: in.Text, ProviderID: row.ID, ProviderName: row.Name, Model: input.Model, Context: used, WorkerGrantRevision: workerRevision})
+	var goalID string
+	var goalRevision int64
+	if goal != nil {
+		goalID = goal.ID
+		goalRevision = goal.Revision
+	}
+	turn, created, err := s.store.StartGafferTurnFor(uid, store.GafferTurn{ID: in.ID, ConversationID: id, RequestRevision: in.Revision, Prompt: in.Text, ProviderID: row.ID, ProviderName: row.Name, Model: input.Model, Context: used, WorkerGrantRevision: workerRevision, GoalID: goalID, GoalRevision: goalRevision})
 	if err != nil || !created {
 		client.CloseIdleConnections()
 		return turn, err
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	job := &chatJob{uid: uid, provider: row.ID, conversation: id, turn: turn.ID, cancel: cancel, workerRevision: workerRevision, context: snapshot, grantRevision: sharing.Grant.Revision}
+	if goal != nil {
+		job.goalID = goal.ID
+		job.goalRevision = goal.Revision
+		job.goalText = goal.Text
+	}
 	s.chatJobs[id] = job
 	s.wg.Add(1)
 	go s.runTurn(ctx, job, c, row, backend, client, turn)
@@ -438,6 +462,9 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 		turn.Error = strings.ToValidUTF8(turn.Error[:1000], "") + "…"
 	}
 	_ = s.store.UpdateGafferTurnFor(job.uid, turn)
+	if job.goalID != "" {
+		_ = s.store.FinishGafferGoal(job.uid, c.ID, job.goalID, job.goalRevision, turn.ID)
+	}
 	delete(s.chatJobs, c.ID)
 	s.mu.Unlock()
 	stop()
@@ -465,6 +492,11 @@ func (s *Service) turnAccess(uid int64, c store.GafferConversation, row store.Ga
 	return nil
 }
 func (s *Service) contextTurnAccess(job *chatJob, c store.GafferConversation) error {
+	if job.goalID != "" {
+		if err := s.store.CheckGafferGoal(job.uid, c.ID, job.goalID, job.goalRevision, job.turn); err != nil {
+			return err
+		}
+	}
 	if err := s.workerTurnAccess(job, c); err != nil {
 		return err
 	}

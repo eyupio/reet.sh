@@ -165,6 +165,9 @@ type activeProbe struct {
 	cancel   context.CancelFunc
 }
 type Service struct {
+	goalCancel      context.CancelFunc
+	goalWake        chan struct{}
+	goalRecoveryErr error
 	worker          WorkerMessenger
 	workerEnabled   func() bool
 	workerLimiter   *auth.Limiter
@@ -192,6 +195,9 @@ func (s *Service) Available() bool { return s != nil && s.sealer != nil }
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true
+	if s.goalCancel != nil {
+		s.goalCancel()
+	}
 	for _, job := range s.chatJobs {
 		job.cancel(errGafferStopped)
 	}

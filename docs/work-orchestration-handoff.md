@@ -4,8 +4,8 @@ Prepared: 1 November 2026. Updated: 6 November 2026. Active direction: the Gaffe
 session-companion MVP below. Product decisions and the initial HTTP provider
 foundation, provider settings and general/session companion chat are recorded
 here. GM3A adds explicit retained-context sharing and scoped MCP reads. GM3B adds
-separate worker-message grants and bounded queue receipts. Offline coordination
-remains GM4.
+separate worker-message grants and bounded queue receipts. GM4 adds explicit saved
+session goals and bounded offline follow-up.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -175,6 +175,49 @@ use fakes. GM4 is the next bounded slice: durable explicit goals,
 background follow-up budgets, multi-session fairness and restart/offline recovery.
 Opening/closing chat, saving read/write permission or a one-off relay creates no
 such goal. No merge or deployment is part of this implementation.
+
+### GM4: bounded offline session goals (6 November 2026)
+
+The owner merged #612 as `77892506` and the GM4 plan in #617. Runtime
+[PR #620](https://github.com/eyupio/reet.sh/pull/620) continues separately on
+`feat/gaffer-offline-runtime`, aligned with main `1b10a978`.
+The [goal contract](handoffs/gaffer-offline-goals.md) records the selected default:
+12 Gaffer reviews over 24 hours, triggered by new worker progress. The UI permits
+1–48 reviews over 1–168 hours; at most ten selected session goals are active per
+account. Goal activation never grants read/write permissions implicitly.
+
+The controller stores the goal and pins its provider/model and both grants.
+Budget, observed cursor and review admission commit with the durable Gaffer turn.
+Existing conversation/account concurrency limits still apply, with bounded fair
+candidate scanning. Busy/quiet/unavailable workers spend no model requests. Idle
+reviews relay one next-turn instruction or ask the user; a prose-only review needs
+attention. Two identical instructions per goal are allowed before stopping for
+review. Gaffer has no shell, GitHub, approval or interrupt operation.
+
+Pausing/stopping/replacing invalidates stale proposals and removes unclaimed goal
+instructions while preserving manual messages and claimed work. Goal authority is
+checked at provider egress, message admission, queue claim and handoff. Resume
+keeps the remaining budget/expiry and waits for fresh progress. Unchanged active
+goals survive browser closure and controller restart. Interrupted reviews and
+uncertain delivery require reconciliation and are never replayed. Instance-copy
+adaptation pauses goals because external effects may be newer than the snapshot.
+
+The goal dialog keeps the current dock and narrative-led widget. It exposes the
+agreed goal, controls, source sequence/time, actual review finish time and usage;
+editor/renewal settings are secondary. Only a user can mark the goal complete.
+Worker stops/failures and human approvals need the user. Future PR/check monitoring
+is delegated to the existing worker, not polled by Gaffer from unchanged evidence.
+
+Fake-backed tests cover consent/pins, atomic multi-handle admission and budgets,
+fresh/idle progress, several sessions, queued/in-flight revocation, missing human
+input, repeat limits, actual DB reopen and restore, and explicit completion. Goal
+browser checks pass eight width/theme views with default limits, reload, Unicode,
+confirmation, escaping and focus. The local full race run passes API/Gaffer/store/broker and embedded web, with
+only the five unchanged terminal-host environment failures. All 16 MCP checks,
+aligned web check/build, goal and existing companion/context/worker/layout browser
+matrices, vet, strict docs, 51-page checks and the 40-view docs smoke pass. Final-
+head CI and review are recorded on #620. No real credentials, deployment or merge
+is authorised.
 
 ### Source-grounded feasibility and current gaps
 

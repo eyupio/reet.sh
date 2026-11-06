@@ -1,5 +1,29 @@
 # UI verification — 4 November 2026
 
+## Gaffer saved session goals (6 November 2026)
+
+**Chat options → Session follow-up** opens a secondary native dialog for an
+explicit goal and budget. Defaults are 12 reviews over 24 hours. Existing goals
+show their current state, used reviews, deadline, latest review, source event/time
+and review finish time; the editor is collapsed behind **Edit goal or start a new
+budget**. Normal chat keeps its narrative, compact model/context controls and the
+current dock. Automatic turns say **Goal review**. Pausing is immediate; resuming,
+replacing, stopping and marking complete use their stated confirmation paths.
+
+`web/tests/gaffer-goal.e2e.mjs` passes at 1440, 800, 390 and 320 px in light/dark.
+It checks separate-grant gating, the selected defaults, UTF-8 bounds, goal storage
+across close/reload, automatic review labels, escaped summaries, preserved budget
+on resume, explicit confirmation, no direct worker writes, width and focus return.
+The four captures below were visually inspected. The HTML-looking summary is an
+escaping probe rendered as text. All API/model/worker evidence is synthetic; no
+physical phone, real provider, live PR or deployment is claimed.
+
+![Gaffer goal desktop light](images/ui/gaffer-goal-1440-light.png)
+![Gaffer goal desktop dark](images/ui/gaffer-goal-1440-dark.png)
+![Gaffer goal phone light](images/ui/gaffer-goal-390-light.png)
+![Gaffer goal phone dark](images/ui/gaffer-goal-390-dark.png)
+
+
 ## Gaffer worker messages (6 November 2026)
 
 **Chat options → Worker messages** keeps permission and receipts in a secondary

@@ -138,7 +138,9 @@ receipts per account and 12 new instructions per account/minute.
 All three tools require scoped management access and a separate grant. They are
 unavailable to read-only and legacy API-token/anonymous connections. They cannot
 self-grant, interrupt or answer approvals. The browser offers separately confirmed
-stop-and-send for a queued receipt. No offline Gaffer goal is created.
+stop-and-send for a queued receipt. No offline Gaffer goal is created by these tools. A signed-in user separately
+activates a bounded goal in the session companion; these credentials cannot
+start or grant background supervision.
 
 ## Examples
 

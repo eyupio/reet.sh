@@ -250,6 +250,7 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
 
 export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
 export type GafferTurn = {
+ goalId?:string;goalRevision?:number;goalNeedsUser?:boolean
   workerGrantRevision?:number
   context?: ContextUse
   id: string; conversationId: string; requestRevision: number; prompt: string; answer: string
@@ -274,7 +275,14 @@ export type WorkerSettingsResponse = {worker:WorkerSettings;messages:WorkerMessa
 export async function getWorkerSettings(path:string,signal?:AbortSignal):Promise<WorkerSettingsResponse>{return(await req(path,{signal,cache:'no-store'})).json()}
 export async function saveWorkerSettings(path:string,view:WorkerSettings,enabled:boolean,signal?:AbortSignal):Promise<{worker:WorkerSettings}>{return(await req(path,{method:'PUT',body:JSON.stringify({sessionId:view.grant.sessionId,revision:view.grant.revision,enabled,providerId:view.providerId??'',providerRevision:view.providerRevision??0,model:view.model??''}),signal})).json()}
 export async function interruptWorkerMessage(path:string,message:WorkerMessage,signal?:AbortSignal):Promise<{message:WorkerMessage}>{const url=new URL(path,location.origin);url.pathname+=`/messages/${encodeURIComponent(message.id)}/interrupt`;return(await req(url.pathname+url.search,{method:'POST',body:JSON.stringify({revision:message.revision,confirm:true}),signal})).json()}
-export type GafferConversationView = { conversation: GafferConversation; turns: GafferTurn[]; context?:ContextState;messages?:WorkerMessage[] }
+export type GoalPins={providerId:string;providerRevision:number;model:string;contextRevision:number;workerRevision:number}
+export type GafferGoal=GoalPins&{id:string;conversationId:string;sessionId:string;revision:number;text:string;state:string;note:string;maxReviews:number;usedReviews:number;expiresAt:number;createdAt:number;updatedAt:number;nextAt:number;lastSeq:number;lastObservedAt?:number;lastReviewedAt?:number;activeTurnId?:string;pendingId?:string;summary?:string;inputTokens:number;outputTokens:number;usageReported:boolean}
+export type GafferGoalView={goal:GafferGoal|null;pins:GoalPins;allowed:boolean;reason?:string}
+const goalPath=(id:string)=>`/api/v2/gaffer/conversations/${encodeURIComponent(id)}/goal`
+export async function getGafferGoal(id:string,signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id),{signal,cache:'no-store'})).json()}
+export async function saveGafferGoal(id:string,input:GoalPins&{revision:number;text:string;maxReviews:number;hours:number},signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id),{method:'PUT',body:JSON.stringify(input),signal})).json()}
+export async function controlGafferGoal(id:string,revision:number,action:string,pins:GoalPins,confirmed:boolean,signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id)+'/control',{method:'POST',body:JSON.stringify({revision,action,pins,confirmed}),signal})).json()}
+export type GafferConversationView = { conversation: GafferConversation; turns: GafferTurn[]; context?:ContextState;messages?:WorkerMessage[];goal?:GafferGoal }
 export async function getContextSettings(path:string,signal?:AbortSignal):Promise<ContextSettingsResponse>{
   return (await req(path,{signal,cache:'no-store'})).json()
 }

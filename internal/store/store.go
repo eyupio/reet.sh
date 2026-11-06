@@ -391,7 +391,7 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	for _, c := range []struct{ table, column, ddl string }{{"terminal_chat_queue", "origin", "origin TEXT NOT NULL DEFAULT ''"}, {"gaffer_turns", "worker_grant_revision", "worker_grant_revision INTEGER NOT NULL DEFAULT 0"}} {
+	for _, c := range []struct{ table, column, ddl string }{{"terminal_chat_queue", "origin", "origin TEXT NOT NULL DEFAULT ''"}, {"gaffer_turns", "worker_grant_revision", "worker_grant_revision INTEGER NOT NULL DEFAULT 0"}, {"gaffer_turns", "goal_id", "goal_id TEXT NOT NULL DEFAULT ''"}, {"gaffer_turns", "goal_revision", "goal_revision INTEGER NOT NULL DEFAULT 0"}, {"gaffer_turns", "goal_needs_user", "goal_needs_user INTEGER NOT NULL DEFAULT 0"}} {
 		exists, err := hasColumn(st.db, c.table, c.column)
 		if err != nil {
 			db.Close()
@@ -405,6 +405,10 @@ func Open(dir string) (*Store, error) {
 		}
 	}
 	if err := st.migrateWorkerMessages(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := st.migrateGafferGoals(); err != nil {
 		db.Close()
 		return nil, err
 	}

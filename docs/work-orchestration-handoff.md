@@ -1,10 +1,11 @@
 # Reet work orchestration and Eli: staged implementation handoff
 
-Prepared: 1 November 2026. Updated: 5 November 2026. Active direction: the Gaffer
+Prepared: 1 November 2026. Updated: 6 November 2026. Active direction: the Gaffer
 session-companion MVP below. Product decisions and the initial HTTP provider
 foundation, provider settings and general/session companion chat are recorded
-here. GM3A adds explicit retained-context sharing and scoped MCP reads. Worker
-messages and offline coordination remain subsequent slices.
+here. GM3A adds explicit retained-context sharing and scoped MCP reads. GM3B adds
+separate worker-message grants and bounded queue receipts. Offline coordination
+remains GM4.
 
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
@@ -118,10 +119,62 @@ starting the next automation slice. New width/theme geometry checks require more
 than 60% of the normal panel for messages, including the screenshot's 800×1280
 shape, with keyboard and focus-return coverage.
 
-This is the GM3 read half, not the whole supervision MVP. GM3B must add explicit
-worker-message grants and durable idempotent mapping to the existing queue before
+This is the GM3 read half; the following GM3B slice supplies worker messages before
 GM4 creates offline goals. Opening/closing the widget or enabling read sharing
 never starts supervision. The worker retains all coding, PR and approval authority.
+
+### GM3B: explicit worker instructions (6 November 2026)
+
+[PR #612](https://github.com/eyupio/reet.sh/pull/612),
+`feat/gaffer-worker-messages`, starts from main `6c5638cf` after merged #608
+(`95eb8822`)/#609, and is aligned with main `6c40c7fb` after #610/#611. The
+[worker-message contract](handoffs/gaffer-worker-messages.md) records the concrete
+plan and implementation. Gaffer remains the critical buddy; the existing session
+model remains responsible for all implementation, commands, PRs and checks.
+
+- Separate off-by-default grants bind a conversation/provider/model or MCP client
+  to one owned structured session. Context or shelf grants never imply messaging.
+- In **Chat options → Worker messages**, save permission, then enable one worker
+  instruction for the next request. Ordinary chat stays read-only. One complete,
+  validated tool call can queue one instruction and make one provider continuation.
+- Stable request ID, originating turn, body digest, grant revision and existing
+  `wait` queue item commit together. Matching retries read receipts; altered
+  duplicates conflict. No automatic model or delivery retry is introduced.
+- Delivery rechecks controller access, current account/client/session/grant and
+  Gaffer's provider policy at claim and before handoff. Revoked queued instructions
+  are removed. Foreign-owner in-flight delivery becomes uncertain on reconciliation.
+- Read queued/sending/accepted/blocked/uncertain/removed receipts in the secondary
+  dialog or expanded reply. Accepted is not completed. A failed continuation can
+  still have a committed instruction. Explicit confirmed browser stop-and-send is
+  separate; neither the model nor MCP can interrupt or answer approvals.
+- Hosted/browser/scoped-stdio share three management-only tools. Management now
+  discovers 35 tools; read-only writers retain 13 and viewers 11. Credentials cannot
+  self-grant. Browser WebMCP retains its existing write confirmation.
+
+Verification: new domain/API/broker race tests pass, including real queue dispatch
+with a fake structured peer, policy/model/role/archive fences, partial provider
+failure, malformed tools and database-reopen uncertainty. All 16 MCP compatibility
+tests pass. Web unit/type/build, the new worker UI matrix, existing chat/context/
+settings, account MCP and worker queue browser suites pass. Strict docs build,
+51-page validation and the 40-view browser smoke pass. The first full race run passed the changed backend packages but retained the
+five known terminal-host environment failures (three missing-tmux/two process-group
+checks); a concurrent UI rebuild also invalidated its embedded-web compilation.
+The stable-build rerun passes API (416 s), Gaffer (78 s), store (204 s),
+broker (51 s), embedded web and every other package except four unchanged
+terminal-host environment failures (three missing-tmux/one process-group check).
+The queue-ID guard has separate positive race coverage and a negative source-
+overlay proof. Review follow-up makes both browser receipt views reconcile
+foreign-owner sending states to uncertain without a worker probe, wake or replay;
+database-reopen/domain and HTTP tests cover it. Final-head GitHub checks remain
+the merge gate; see #612 for their final state. All 20 checks passed on `79f93135`
+before main advanced through #610; the combined layout/worker, companion/context
+browser matrices, web check/build, vet and strict docs also pass locally. The #610 alignment retains the
+Overview progress card and narrative chat dock while resetting one-request worker
+intent on close and returning focus to the current entry. All provider and worker tests
+use fakes. GM4 is the next bounded slice: durable explicit goals,
+background follow-up budgets, multi-session fairness and restart/offline recovery.
+Opening/closing chat, saving read/write permission or a one-off relay creates no
+such goal. No merge or deployment is part of this implementation.
 
 ### Source-grounded feasibility and current gaps
 
@@ -178,7 +231,7 @@ this handoff with each implementation batch.
 | GM0 | Finalise the session-companion contract: map verified structured-worker/provider capabilities, account/session grants, queue receipt mapping, retention, limits, backup/restore and ownership. |
 | GM1 | Adapt the provider foundation and account-owned configuration, secret storage and lifecycle, native/Docker availability, model discovery, test/default selection and polished settings UI. Verify adapters with local fake protocol servers. |
 | GM2 | Implement server-owned general and session-specific Gaffer conversations, streaming and provider/model overrides; bounded context reads are delivered in GM3A. Restore conversations without replaying calls. |
-| GM3 | GM3A implements shared bounded read projections and explicit conversation/MCP grants. GM3B adds worker-message grants and queue receipts; model-requested tools require a separately verified loop. Prove consent, revocation, account/session separation and definition parity. |
+| GM3 | GM3A implements shared bounded read projections. GM3B supplies separate worker-message grants, a one-request bounded tool loop and durable queue receipts. Prove consent, revocation, account/session separation and definition parity before GM4. |
 | GM4 | Implement durable per-session goals and background coordination through the existing worker queue. Prove restart reconciliation, uncertain delivery, concurrent sessions, pause/stop and bounded follow-up. |
 | GM5 | Finish the floating widget and session companion experience, evidence-linked summaries, action receipts and quirky personality across desktop/phone and light/dark themes. Validate the complete working flow. |
 | GM6 | Complete integrated recovery, permission, provider/deployment and operational checks; document actual limitations, backup/restore behaviour and delivery state. |

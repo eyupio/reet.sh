@@ -38,13 +38,15 @@
    <li>
     <p class="text">{item.text || 'Image only'}{#if item.images.length} <small>· {item.images.length} image{item.images.length === 1 ? '' : 's'}</small>{/if}</p>
     {#if item.note}<p class:uncertain={item.state === 'uncertain'} role="status">{item.note}</p>{/if}
-    {#if item.state === 'uncertain'}<label><input type="checkbox" bind:checked={confirmed[item.id]} /> I checked the chat. Retrying may send this twice.</label>{/if}
+    {#if item.origin}<p class="origin">Gaffer/MCP instruction · Manage through Worker messages</p>{/if}
+    {#if !item.origin&&item.state === 'uncertain'}<label><input type="checkbox" bind:checked={confirmed[item.id]} /> I checked the chat. Retrying may send this twice.</label>{/if}
     {#if editing === item.id}
      <label>Edit message<textarea aria-label="Edit queued message" maxlength="2000" bind:value={editText}></textarea></label>
      <button disabled={busy} onclick={() => void change(item, 'edit')}>Save message</button>
      <button disabled={busy} onclick={() => { editing = '' }}>Cancel edit</button>
     {:else if item.state !== 'sending'}
      <div class="actions">
+      {#if !item.origin}
       {#if item.state === 'queued'}
        {#if canSteer && active}<button disabled={busy} onclick={() => void change(item, 'send')}>Send now</button>{/if}
        {#if controls?.working && active}<button disabled={busy || controls.configuring || item.intent === 'stopping'} onclick={() => void change(item, 'stop')}>Stop and send</button>{/if}
@@ -52,6 +54,7 @@
        <button disabled={busy || !active || item.state === 'uncertain' && !confirmed[item.id]} onclick={() => void change(item, 'retry')}>Retry</button>
       {/if}
       {#if item.state !== 'uncertain'}<button disabled={busy} onclick={() => { editing = item.id; editText = item.text }}>Edit</button>{/if}
+      {/if}
       <button disabled={busy} onclick={() => void change(item, 'remove')}>Remove</button>
      </div>
     {/if}

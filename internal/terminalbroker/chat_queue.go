@@ -9,6 +9,21 @@ import (
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
+// Installed once before the broker is published. The callback reads the current
+// controller switch, so an MCP/tool path cannot bypass the browser route guard.
+func (b *Broker) SetWorkerMessagingPolicy(enabled func() bool) { b.workerMessagingEnabled = enabled }
+func (b *Broker) workerDelivery(uid int64, session, id string) error {
+	if b.workerMessagingEnabled == nil || !b.workerMessagingEnabled() {
+		return ErrOffline
+	}
+	return b.st.CheckWorkerDelivery(uid, session, id)
+}
+
+// Reconciliation is read-only with respect to the worker: no queue is started
+// and uncertain deliveries are never automatically resubmitted.
+func (b *Broker) ReconcileWorkerQueue(uid int64, session string) error {
+	return b.st.RecoverTerminalQueueFor(uid, session, b.queueOwner)
+}
 func (b *Broker) queueSupported(uid int64, session string) error {
 	s, err := b.st.TerminalSessionFor(uid, session)
 	if err != nil {
@@ -136,6 +151,12 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		return
 	}
 	q := list[0]
+	if q.Origin == "companion" && b.workerDelivery(uid, session, q.ID) != nil {
+		if q.State == "queued" {
+			_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "removed", q.Intent, "Worker messaging permission no longer allows delivery.", b.queueOwner)
+		}
+		return
+	}
 	if q.State != "queued" {
 		return
 	}
@@ -152,6 +173,9 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 	if c.Configuring {
 		return
 	}
+	if q.Origin == "companion" && b.workerDelivery(uid, session, q.ID) != nil {
+		return
+	}
 	if q.Intent == "stop" && c.Working {
 		// Persist the cancellation intent first. On a controller restart we
 		// wait for the actual turn to end rather than issuing another stop.
@@ -161,6 +185,10 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		}
 		q.Revision++
 		q.Intent = "stopping"
+		if q.Origin == "companion" && b.workerDelivery(uid, session, q.ID) != nil {
+			_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "failed", "wait", "Permission changed before interruption.", b.queueOwner)
+			return
+		}
 		if err := b.CancelChat(ctx, uid, session); err != nil {
 			_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "failed", "wait", "The stop was not confirmed. Check the conversation before retrying.", b.queueOwner)
 		}
@@ -194,6 +222,10 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 	q.State = "sending"
 	finish := func(state, note string) {
 		_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, state, "wait", note, b.queueOwner)
+	}
+	if q.Origin == "companion" && b.workerDelivery(uid, session, q.ID) != nil {
+		finish("failed", "Permission changed before delivery.")
+		return
 	}
 	if steer {
 		answer, err := b.ChatControl(ctx, uid, session, terminalproto.ACPControl{Action: "steer", Text: q.Text, Images: q.Images})

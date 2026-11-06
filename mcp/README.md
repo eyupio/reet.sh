@@ -68,6 +68,7 @@ defaults, mutation hints and return information. Successful calls return
 
 | Tools | Behavior |
 | --- | --- |
+| `list_worker_access`, `send_worker_message`, `get_worker_message` | Management-only, separately granted instructions to one owned structured session, queued for the next turn with a stable 32-hex request ID. Matching retries read the same delivery receipt; acceptance is not completion. No interrupt, approval or shell operation. Scoped credentials only; legacy API-token/anonymous stdio messaging is unavailable. |
 | `list_context_access`, `get_context` | List only explicitly shared scopes, then read one bounded controller-retained snapshot. Requires a scoped MCP credential and separate per-client grants; legacy API-token/anonymous stdio context reads are unavailable. |
 | `list_skills`, `get_skill` | Search the personal shelf by text, stage, flag, tags, environment or machine. `compact: true` returns a small shape for paging large shelves. |
 | `find_duplicates` | Group skills by normalised name and upstream source, flag local/upstream pairs and suggest a canonical ID. Read-only. |
@@ -111,9 +112,33 @@ Text may contain code or secrets despite limited masking. Reasoning, approvals,
 raw tool arguments/output, files and diffs are excluded. Snapshots have timestamps,
 retention bounds and omission markers, at most 16 KiB / 20 projected events.
 The limit is 60 reads per account/minute. They describe retained controller data,
-not live machine health, GitHub checks or full transcripts. No worker messages
-or actions are enabled. Stop sharing to revoke future reads; reads already made
+not live machine health, GitHub checks or full transcripts. Context sharing grants
+no messaging authority. Stop sharing to revoke future reads; reads already made
 cannot be recalled. Pause/revoke, role changes and archive are rechecked server-side.
+
+## Worker messaging
+
+A management connection can separately use **Worker access** in Account → MCP
+access to grant one owned structured session. Browser tools have their own grant.
+`reet_list_worker_access` lists exact granted sessions. Use
+`reet_send_worker_message` with `session_id`, a stable 32-character lowercase hex
+`request_id` and `text` of at most 8,000 UTF-8 bytes. The worker receives it on its
+next turn under its existing permissions. No direct shell/PR execution occurs in
+this bridge. Read `reet_get_worker_message` with the same session and request ID
+for delivery metadata; responses omit instruction text and worker history.
+
+Matching retries read the original receipt; altered duplicates conflict. Queued,
+sending, accepted, blocked, uncertain and removed are distinct states. Acceptance
+is not completion; review uncertain delivery in the working conversation instead
+of automatically resending. Account/controller/client/session/grant checks run
+again at delivery. Revocation removes unclaimed instructions; already claimed or
+accepted work cannot be recalled. Limits are 100 enabled scopes per client, 500
+receipts per account and 12 new instructions per account/minute.
+
+All three tools require scoped management access and a separate grant. They are
+unavailable to read-only and legacy API-token/anonymous connections. They cannot
+self-grant, interrupt or answer approvals. The browser offers separately confirmed
+stop-and-send for a queued receipt. No offline Gaffer goal is created.
 
 ## Examples
 

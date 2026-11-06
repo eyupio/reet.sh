@@ -83,6 +83,9 @@ func (s *server) hostedMCP(api http.Handler) http.Handler {
 			}
 		})
 		for _, tool := range mcpToolDefinitions {
+			if mcpWorkerTool(tool.Name) && !access.canWrite() {
+				continue
+			}
 			if mcpContextTool(tool.Name) && access.User.Role == "viewer" {
 				continue
 			}
@@ -331,6 +334,9 @@ func (s *server) executeMCPMachines(ctx context.Context, api http.Handler, acces
 }
 
 func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAccess, origin, name string, args map[string]any) (map[string]any, error) {
+	if mcpWorkerTool(name) {
+		return s.executeMCPWorker(ctx, access, name, args)
+	}
 	if mcpContextTool(name) {
 		return s.executeMCPContext(access, name, args)
 	}

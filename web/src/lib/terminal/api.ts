@@ -519,7 +519,7 @@ export async function chatControls(id: string, signal?: AbortSignal): Promise<Ch
 export async function chatSetting(id: string, configId: string, value: string): Promise<ChatControlAnswer> {
  return (await terminalRequest(`${chatURL(id)}/controls`, { method: 'POST', body: JSON.stringify({ action: 'set', configId, value }) })).json()
 }
-export type ServerQueuedMessage = { id: string; text: string; images: string[]; state: 'queued' | 'sending' | 'uncertain' | 'failed'; intent: string; note: string; revision: number }
+export type ServerQueuedMessage = { origin?:string;id: string; text: string; images: string[]; state: 'queued' | 'sending' | 'uncertain' | 'failed'; intent: string; note: string; revision: number }
 export async function chatQueue(id: string, signal?: AbortSignal): Promise<ServerQueuedMessage[]> {
  return (await (await terminalRequest(`${chatURL(id)}/queue`, { signal })).json()).queue
 }

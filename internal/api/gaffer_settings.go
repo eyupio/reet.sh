@@ -143,12 +143,15 @@ func gafferError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, 404, "That Gaffer provider is not available.")
-	case errors.Is(err, store.ErrGafferConflict), errors.Is(err, store.ErrGafferLimit), errors.Is(err, store.ErrGafferChatBusy), errors.Is(err, store.ErrGafferChatFull):
+	case errors.Is(err, store.ErrGafferConflict), errors.Is(err, store.ErrGafferLimit), errors.Is(err, store.ErrGafferChatBusy), errors.Is(err, store.ErrGafferChatFull), errors.Is(err, store.ErrWorkerGrantFull), errors.Is(err, store.ErrWorkerMessageFull), errors.Is(err, store.ErrChatQueueConflict), errors.Is(err, store.ErrChatQueueFull):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, store.ErrGafferName):
 		writeErrCode(w, 422, "invalid_provider", "name", err.Error(), "")
 	case errors.As(err, &invalid):
 		code := "invalid_provider"
+		if invalid.Field == "worker" {
+			code = "invalid_worker"
+		}
 		if invalid.Field == "context" {
 			code = "invalid_context"
 		}

@@ -21,8 +21,9 @@ Open **Account → Gaffer AI** to configure Gaffer's own provider and model. The
 belong to your account and are separate from the agent working in a session.
 Use **Ask Gaffer** for a private companion conversation after choosing a provider.
 Chat starts with typed messages only. You can separately preview and enable
-retained reet or selected-session context as described below. Worker instructions
-and offline follow-up are still being implemented. Saving a provider or
+retained reet or selected-session context as described below. In a supported
+structured session, you can separately enable one instruction to its working model.
+Offline Gaffer supervision is still to come. Saving a provider or
 opening the panel does not start a model request or send any reet context.
 
 ## Talk to Gaffer
@@ -79,6 +80,44 @@ and 64 KiB per reply. The panel shows when a reply was cut short.
 available session workspaces. Unavailable sessions stay listed for removal,
 including companions whose worker session has been archived. Archiving worker history does not silently delete
 your Gaffer messages; the saved-chat cleanup remains available.
+
+## Ask the working model to act
+
+In a structured session, open **Chat options → Worker messages**. Allow Gaffer to
+queue messages for this session, then **Save worker permission**. This is separate
+from Context sharing and requires a provider allowing session data. Changing the
+provider, model or provider policy requires reviewing the permission again.
+
+Choose **Enable one worker message for next request**, then write what you want:
+“Ask the working model to raise a PR, fix its checks and leave merging to me.” The
+composer shows that this request can send one instruction; **Cancel** removes that
+choice. The following ordinary message returns to read-only chat. Gaffer can
+relay one instruction, then report its receipt; the existing session model does
+the implementation, commands and PR work under its own permissions. Choosing a
+permission or closing the widget does not create a background follow goal.
+
+Expand **Worker instruction** in the reply or reopen **Worker messages** to read
+the saved instruction and delivery state. **Queued** waits for the next worker
+turn. **Accepted by worker** means the channel accepted it, not that the work is
+finished. A blocked receipt means it was not sent, for example because the worker
+needs a human approval or its channel is unavailable. Check the working conversation
+before deciding what to do with an uncertain receipt; Gaffer never retries it
+automatically. A failed Gaffer answer can still have a committed instruction, so
+read its receipt before asking again.
+
+For a queued instruction, **Stop worker and send** offers a separate confirmation.
+It uses the worker's existing stop-and-send action. Only you can request that
+interrupt in the browser; the model cannot. Worker approval cards still need your
+decision. The session's ordinary queue can remove a managed instruction, but cannot
+edit or retry it. Stop worker permission to remove instructions still queued;
+already claimed or accepted work cannot be recalled. Cancelling Gaffer's answer
+is separate from cancelling a committed worker instruction.
+
+Messaging checks current ownership, account role, session state, controller worker
+access and provider policy before delivery. Archived sessions and revoked
+permissions block subsequent delivery. Instructions are limited to 8,000 UTF-8
+bytes, with 500 retained receipts per account. MCP clients may have 100 enabled
+session scopes each. Use a supported structured chat with a verified message channel.
 
 ## Add a provider
 
@@ -168,7 +207,8 @@ Gaffer answer and invalidates stale sends; the working agent keeps running.
 Already shared data cannot be recalled. Completed Gaffer replies derived from
 categories you revoke are excluded from later model history; they remain visible
 in your saved conversation. Archiving a worker session revokes its context grants.
-There are no worker messages, tool execution or background follow-up in this slice.
+Context sharing alone grants no worker messaging. Enable an instruction separately
+as described above; offline Gaffer follow-up is still to come.
 
 [MCP context access](mcp.md#share-retained-reet-context) is granted separately per
 connection or browser tools. Giving Gaffer context does not grant it to MCP clients.

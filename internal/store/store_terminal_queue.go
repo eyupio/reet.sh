@@ -15,6 +15,7 @@ var ErrChatQueueFull = errors.New("the queue is full; send or remove a message f
 // their idempotency key until the session is deleted, so a lost HTTP reply can
 // never turn a repeated enqueue into a second delivery.
 type TerminalQueuedMessage struct {
+	Origin   string   `json:"origin,omitempty"`
 	ID       string   `json:"id"`
 	Text     string   `json:"text"`
 	Images   []string `json:"images"`
@@ -28,7 +29,7 @@ func (s *Store) TerminalQueueFor(uid int64, session string) ([]TerminalQueuedMes
 	if _, err := s.TerminalSessionFor(uid, session); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT id,text,images,state,intent,note,revision FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND state NOT IN ('sent','removed') ORDER BY (intent IN ('send','stop','stopping')) DESC, seq`, uid, session)
+	rows, err := s.db.Query(`SELECT id,text,images,state,intent,note,revision,origin FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND state NOT IN ('sent','removed') ORDER BY (intent IN ('send','stop','stopping')) DESC, seq`, uid, session)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +38,7 @@ func (s *Store) TerminalQueueFor(uid int64, session string) ([]TerminalQueuedMes
 	for rows.Next() {
 		var q TerminalQueuedMessage
 		var images string
-		if err := rows.Scan(&q.ID, &q.Text, &images, &q.State, &q.Intent, &q.Note, &q.Revision); err != nil {
+		if err := rows.Scan(&q.ID, &q.Text, &images, &q.State, &q.Intent, &q.Note, &q.Revision, &q.Origin); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(images), &q.Images); err != nil {
@@ -55,35 +56,44 @@ func (s *Store) EnqueueTerminalFor(uid int64, session, id, text string, images [
 	if images == nil {
 		images = []string{}
 	}
+	return s.withTx(func(tx *sql.Tx) error { return enqueueTerminal(tx, uid, session, id, text, images, "") })
+}
+func enqueueTerminal(tx *sql.Tx, uid int64, session, id, text string, images []string, origin string) error {
+	if images == nil {
+		images = []string{}
+	}
 	encoded, _ := json.Marshal(images)
-	return s.withTx(func(tx *sql.Tx) error {
-		var count int
-		// Acquire the write lock before counting, including across Store handles.
-		if _, err := tx.Exec(`UPDATE terminal_sessions SET id=id WHERE id=? AND user_id=?`, session, uid); err != nil {
-			return err
-		}
-		// Ownership is checked inside the mutation transaction too.
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM terminal_sessions WHERE user_id=? AND id=? AND structured=1 AND state='running' AND NOT EXISTS(SELECT 1 FROM terminal_session_archives WHERE session_id=terminal_sessions.id)`, uid, session).Scan(&count); err != nil {
-			return err
-		}
-		if count != 1 {
-			return ErrRemoteNotFound
-		}
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND id=?`, uid, session, id).Scan(&count); err != nil {
-			return err
-		}
-		if count > 0 {
-			return nil
-		}
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND state NOT IN ('sent','removed')`, uid, session).Scan(&count); err != nil {
-			return err
-		}
-		if count >= 10 {
-			return ErrChatQueueFull
-		}
-		_, err := tx.Exec(`INSERT INTO terminal_chat_queue(user_id,session_id,id,text,images,state,intent,note,revision,owner) VALUES(?,?,?,?,?,'queued','wait','',1,'')`, uid, session, id, text, string(encoded))
+	var count int
+	// Acquire the write lock before counting, including across Store handles.
+	if _, err := tx.Exec(`UPDATE terminal_sessions SET id=id WHERE id=? AND user_id=?`, session, uid); err != nil {
 		return err
-	})
+	}
+	// Ownership is checked inside the mutation transaction too.
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM terminal_sessions WHERE user_id=? AND id=? AND structured=1 AND state='running' AND NOT EXISTS(SELECT 1 FROM terminal_session_archives WHERE session_id=terminal_sessions.id)`, uid, session).Scan(&count); err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrRemoteNotFound
+	}
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND id=?`, uid, session, id).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		// A new managed receipt must create its own queue entry. Ordinary wakeups
+		// may reuse an admitted ID, but admission cannot adopt another message.
+		if origin != "" {
+			return ErrChatQueueConflict
+		}
+		return nil
+	}
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND state NOT IN ('sent','removed')`, uid, session).Scan(&count); err != nil {
+		return err
+	}
+	if count >= 10 {
+		return ErrChatQueueFull
+	}
+	_, err := tx.Exec(`INSERT INTO terminal_chat_queue(user_id,session_id,id,text,images,state,intent,note,revision,owner,origin) VALUES(?,?,?,?,?,'queued','wait','',1,'',?)`, uid, session, id, text, string(encoded), origin)
+	return err
 }
 
 // ChangeTerminalQueueFor uses optimistic revisions so two tabs cannot edit or
@@ -94,14 +104,17 @@ func (s *Store) ChangeTerminalQueueFor(uid int64, session, id string, revision i
 		if _, err := tx.Exec(`UPDATE terminal_chat_queue SET revision=revision WHERE user_id=? AND session_id=? AND id=?`, uid, session, id); err != nil {
 			return err
 		}
-		var state, intent string
+		var state, intent, origin string
 		var current int64
-		err := tx.QueryRow(`SELECT state,intent,revision FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND id=?`, uid, session, id).Scan(&state, &intent, &current)
+		err := tx.QueryRow(`SELECT state,intent,revision,origin FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND id=?`, uid, session, id).Scan(&state, &intent, &current, &origin)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrRemoteNotFound
 		}
 		if err != nil {
 			return err
+		}
+		if origin != "" && action != "remove" {
+			return ErrChatQueueConflict
 		}
 		terminalState := state == "sending" || state == "sent" || state == "removed"
 		if current != revision || terminalState {
@@ -161,10 +174,27 @@ func (s *Store) TransitionTerminalQueueFor(uid int64, session string, q Terminal
 		images = []string{}
 	}
 	encoded, _ := json.Marshal(images)
-	r, err := s.db.Exec(`UPDATE terminal_chat_queue SET state=?,intent=?,note=?,owner=?,text=?,images=?,revision=revision+1 WHERE user_id=? AND session_id=? AND id=? AND revision=? AND state=?`, state, intent, note, owner, text, string(encoded), uid, session, q.ID, q.Revision, q.State)
-	if err != nil {
-		return false, err
-	}
-	n, err := r.RowsAffected()
-	return n == 1, err
+	var changed bool
+	err := s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE terminal_chat_queue SET revision=revision WHERE user_id=? AND session_id=? AND id=?`, uid, session, q.ID); err != nil {
+			return err
+		}
+		var origin string
+		if err := tx.QueryRow(`SELECT origin FROM terminal_chat_queue WHERE user_id=? AND session_id=? AND id=?`, uid, session, q.ID).Scan(&origin); err != nil {
+			return err
+		}
+		if origin == "companion" && state == "sending" {
+			if err := workerDelivery(tx, uid, session, q.ID); err != nil {
+				return err
+			}
+		}
+		r, err := tx.Exec(`UPDATE terminal_chat_queue SET state=?,intent=?,note=?,owner=?,text=?,images=?,revision=revision+1 WHERE user_id=? AND session_id=? AND id=? AND revision=? AND state=?`, state, intent, note, owner, text, string(encoded), uid, session, q.ID, q.Revision, q.State)
+		if err != nil {
+			return err
+		}
+		n, err := r.RowsAffected()
+		changed = n == 1
+		return err
+	})
+	return changed, err
 }

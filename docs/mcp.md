@@ -37,6 +37,7 @@ Every account, including viewers, has its own **MCP access** section:
 | Manage | Rename a connection, reduce its permissions, or change a manual token's expiry. Manual bearer permissions can also be increased within the account's role; reconnect OAuth clients to renew authorization. |
 | Replace token | Invalidates a manual bearer's old secret immediately and shows one replacement. OAuth clients reconnect through their own sign-in flow. |
 | Context access | Preview and grant retained account counts or selected-session context, separately from shelf permissions. Requires an account with write access. |
+| Worker access | Separately allow a management connection to queue instructions for one selected structured session and inspect delivery receipts. |
 | Revoke | Permanently blocks that connection and its OAuth refresh family. |
 | Revoke all connections | Blocks all OAuth and bearer connections; browser access has its own switch. |
 
@@ -117,6 +118,38 @@ The stdio bridge forwards these tools only with a scoped `reet_mcp_` credential.
 Legacy general API-token and anonymous stdio clients keep their shelf behaviour
 and cannot read context; connect through scoped MCP access instead.
 
+## Send a worker instruction
+
+Choose **Worker access** beside a management connection, or **Browser worker
+access** for WebMCP. Select an owned structured session, enable its permission and
+save. Each client and browser tools have separate grants, off by default; context
+and shelf permissions grant no messaging authority. You can enable at most 100
+session scopes per client.
+
+`reet_list_worker_access` lists that client's granted sessions.
+`reet_send_worker_message` takes an exact `session_id`, a stable 32-character
+lowercase hexadecimal `request_id` and `text` of up to 8,000 UTF-8 bytes. It queues
+for the next worker turn through the existing channel. The working model performs
+the work under its existing permissions. `reet_get_worker_message` reads the same
+request's delivery receipt. Responses contain delivery metadata, not instruction
+text or a worker transcript. Matching retries read the original receipt; changing
+the text for that ID is rejected. There is no automatic resubmission.
+
+Queued, sending, accepted, blocked, uncertain and removed are distinct outcomes.
+Accepted means channel acceptance, not task completion. An uncertain outcome needs
+review in the working conversation. A waiting human approval or unavailable
+channel blocks admission. Account, controller, client, session and grant checks
+run again at delivery. Revoking permission removes unclaimed instructions; work
+already claimed or accepted cannot be recalled. Receipts are bounded to 500 per
+account; archive finished sessions or remove old Gaffer conversations for cleanup.
+
+These three tools require management access and a signed-in account with write
+access. They cannot grant themselves permission, interrupt a worker, answer an
+approval or change its settings. The browser offers a separately confirmed
+**Stop worker and send** action for a queued receipt. Browser WebMCP also uses its
+existing write confirmation. Legacy API-token/anonymous stdio cannot send worker
+messages; use a scoped MCP connection. No offline Gaffer follow goal is created.
+
 ## OAuth implementation and limits
 
 The default flow uses OAuth authorization code with mandatory PKCE S256, public
@@ -132,9 +165,10 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 32 tool definitions are shared with the optional stdio package. For accounts
+The 35 tool definitions are shared with the optional stdio package. For accounts
 with write access, read-only connections discover thirteen tools and management
-connections thirty-two, including the two separately granted context reads.
+connections thirty-five, including the two separately granted context reads and
+three management-only worker messaging tools.
 Viewer accounts retain eleven shelf-read tools.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.

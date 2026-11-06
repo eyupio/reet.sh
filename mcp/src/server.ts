@@ -68,6 +68,19 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     session_id: z.string().max(128).default('').describe('Exact sessionId returned by reet_list_context_access, or empty for an explicitly granted account status scope.'),
   }, contextConnectionRequired);
 
+  const workerConnectionRequired = async (): Promise<JsonObject> => {
+    throw new Error('Worker messaging requires a scoped MCP management connection and an explicit session grant from Account → MCP access. Legacy API tokens cannot message sessions.');
+  };
+  tool('list_worker_access', 'List worker messaging scopes', 'List only this client’s explicitly granted worker sessions. Requires management scope and a writer account; shelf/context scopes alone grant no messaging. No transcript is read. Does not grant or change access.', {}, workerConnectionRequired);
+  tool('send_worker_message', 'Queue a worker instruction', 'Queue one instruction for the existing model in an explicitly granted structured session, for its next turn. Requires management scope and separate per-client messaging permission. Supply a stable 32-character lowercase hex request_id: identical retries read the receipt, altered duplicates conflict. Sent means worker acceptance, not completed work. Blocked/uncertain outcomes must be reviewed; never retry under a new ID automatically. Cannot interrupt, answer approvals, change YOLO or execute shell/GitHub actions.', {
+    session_id:z.string().min(16).max(128).describe('Exact sessionId from reet_list_worker_access.'),
+    request_id:z.string().regex(/^[a-f0-9]{32}$/).describe('Stable request ID; preserve it when checking or retrying an unconfirmed call.'),
+    text:z.string().min(1).max(8000).describe('Instruction requested by the user; server limit is 8,000 UTF-8 bytes.'),
+  }, workerConnectionRequired, {write:true,idempotent:true});
+  tool('get_worker_message', 'Read a worker instruction receipt', 'Read this client’s exact instruction receipt without sending it again. Reconciles queued/sending/sent/blocked/uncertain/removed; sent does not establish task or PR completion. Requires current explicit messaging permission and management scope. No transcript, worker output or approval body is returned.', {
+    session_id:z.string().min(16).max(128),request_id:z.string().regex(/^[a-f0-9]{32}$/),
+  }, workerConnectionRequired);
+
   tool('list_skills', 'Search the shelf', 'Search personal shelf names, IDs, descriptions and notes. Filters combine with AND; #tag syntax is supported by q. compact=true returns only id, name, source, sourceType, stage, liked, bookmarked, tags and environment_count; use it to page a large shelf. Does not change anything. Example: {stage:"try",compact:true,limit:100}.', {
     ...pagination,
     q: z.string().max(500).optional().describe('Search text, e.g. testing #development.'),

@@ -1,6 +1,7 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
   import ContextSharing from './ContextSharing.svelte'
+  import WorkerMessaging from './WorkerMessaging.svelte'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { onMount } from 'svelte'
   import CopyButton from './CopyButton.svelte'
@@ -10,6 +11,7 @@
 
   let { timeZone = '', dateFormat = 'locale' }: { timeZone?: string; dateFormat?: string } = $props()
 
+  let workerClient = $state<{path:string;name:string}|null>(null)
   let contextClient = $state<{path:string;name:string}|null>(null)
   let access = $state<MCPAccess | null>(null)
   let error = $state('')
@@ -173,7 +175,7 @@
               <div class="connection-head"><div><strong>{connection.name}</strong><span class="kind">{connection.kind === 'oauth' ? 'OAuth' : 'Bearer token'}</span></div><span class="state" class:live={status(connection) === 'Active'}>{status(connection)}</span></div>
               <p class="connection-meta">{connection.scope === 'write' && access.canWrite ? 'Read & manage' : 'Read only'} · Last used: {when(connection.lastUsedAt)}<br />Expires {when(connection.expiresAt)}</p>
               <div class="actions"><button type="button" class="btn quiet" disabled={busy} onclick={() => edit(connection)}>Manage</button><button type="button" class="btn quiet" disabled={busy} onclick={() => void act(async () => { await updateMCPConnection(connection.id, { enabled: !connection.enabled }) }, connection.enabled ? 'Connection paused.' : 'Connection resumed.')}>{connection.enabled ? 'Pause' : 'Resume'}</button>{#if connection.kind === 'bearer'}<button type="button" class="btn quiet" disabled={busy} onclick={() => rotate(connection)}>Replace token</button>{/if}<button type="button" class="btn quiet danger" disabled={busy} onclick={() => revoke(connection)}>Revoke</button></div>
-              {#if access.canWrite}<button class="btn quiet context-access" type="button" disabled={busy} onclick={()=>contextClient={path:`/api/v2/mcp/connections/${connection.id}/context`,name:connection.name}}>Context access</button>{/if}
+              {#if access.canWrite}<button class="btn quiet context-access" type="button" disabled={busy} onclick={()=>contextClient={path:`/api/v2/mcp/connections/${connection.id}/context`,name:connection.name}}>Context access</button><button class="btn quiet" type="button" disabled={busy} onclick={()=>workerClient={path:`/api/v2/mcp/connections/${connection.id}/worker`,name:connection.name}}>Worker access</button>{/if}
               {#if editing === connection.id}
                 <form class="edit-form" onsubmit={(e) => saveEdit(e, connection)}>
                   <label>Name<input bind:value={editName} required maxlength="100" autocomplete="off" /></label>
@@ -196,7 +198,7 @@
       <div class="rowhead"><div><h3 id="browser-mcp-title">Browser WebMCP</h3><p class="muted">Let a browser assistant work with the reet.sh page you have open.</p></div><span class="badge subtle">{browserSupported ? 'Available in this browser' : 'Requires a compatible browser'}</span></div>
       <p class="hint">Uses your signed-in session. Read-only by default; when management is allowed, each change asks for your confirmation on this page. Tools are removed when you sign out.</p>
       <div class="browser-options"><label class="check"><input type="checkbox" checked={access.browserEnabled} disabled={busy || !access.enabled} onchange={(e) => setting({ browserEnabled: e.currentTarget.checked }, e.currentTarget.checked ? 'Browser tools enabled in compatible browsers.' : 'Browser tools disabled.')} />Enable browser tools</label><label>Permission<select aria-label="Browser permission" value={access.browserScope} disabled={busy || !access.enabled || !access.browserEnabled} onchange={(e) => setting({ browserScope: e.currentTarget.value as 'read' | 'write' }, 'Browser permission updated.')}><option value="read">Read only</option>{#if access.canWrite}<option value="write">Read & manage, with confirmation</option>{/if}</select></label></div>
-      {#if access.canWrite}<button class="btn quiet" type="button" disabled={busy} onclick={()=>contextClient={path:'/api/v2/mcp/browser/context',name:'Browser WebMCP'}}>Browser context access</button><p class="hint">Session context needs separate explicit grants. Enabling shelf tools does not share it.</p>{/if}
+      {#if access.canWrite}<button class="btn quiet" type="button" disabled={busy} onclick={()=>contextClient={path:'/api/v2/mcp/browser/context',name:'Browser WebMCP'}}>Browser context access</button><button class="btn quiet" type="button" disabled={busy} onclick={()=>workerClient={path:'/api/v2/mcp/browser/worker',name:'Browser WebMCP'}}>Browser worker access</button><p class="hint">Session context needs separate explicit grants. Enabling shelf tools does not share it.</p>{/if}
       {#if !browserSupported}<p class="hint">Your browser does not expose WebMCP yet. The OAuth and bearer-token connections above work independently.</p>{/if}
     </section>
 
@@ -274,3 +276,5 @@
   @media(max-width:640px) { .fields,.edit-form { grid-template-columns:1fr; } .endpoint { align-items:flex-start; } .heading > button { width:100%; } .browser-options > label { width:100%; } }
   @media (pointer:coarse) { .scope, .connection-search input { min-height:44px; } }
 </style>
+
+{#if workerClient}<WorkspaceDialog title={`Worker access for ${workerClient.name}`} onclose={()=>workerClient=null}><WorkerMessaging path={workerClient.path} {timeZone} {dateFormat}/></WorkspaceDialog>{/if}

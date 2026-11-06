@@ -372,3 +372,86 @@ func TestSyncAllMachinesSucceedsWhenANameIsShared(t *testing.T) {
 		t.Fatalf("the copy that was left out is not reported: %s", response)
 	}
 }
+
+// A skill another agent already holds from a different source used to stop
+// sync with no way forward. The endpoint adopts the installed source and the
+// next preview installs it without overwriting the other agent's copy.
+func TestResolveSourceConflictEndpointFollowsInstalledCopy(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	uid, _ := st.DefaultOwner()
+	if _, err = st.CreateAPIToken(uid, "owner", auth.HashToken("source-fix-owner")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = st.EnrollSyncAgent(uid, "laptop", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.TouchEnvironmentFor(uid, "laptop", "agents", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	target := store.EnvironmentIDFor(uid, "laptop", "agents", "")
+	if err = st.RecordInventoryFor(uid, target, true, store.MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.TouchEnvironmentFor(uid, "laptop", "claude", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	claude := store.EnvironmentIDFor(uid, "laptop", "claude", "")
+	if err = st.RecordInventoryFor(uid, claude, true, store.MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	installedRef, _ := ref.Parse("x/y/one")
+	installed, err := st.UpsertFor(uid, installedRef, store.Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = st.RecordEnvironmentFor(uid, installed.ID, "laptop", "claude", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	wantedRef, _ := ref.Parse("a/b/one")
+	if _, err = st.UpsertFor(uid, wantedRef, store.Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := st.SyncCandidatesFor(uid, "owner", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := ""
+	for _, candidate := range candidates {
+		if candidate.ID == "a/b/one" {
+			selected = candidate.ID
+		}
+	}
+	if err = st.SaveDesiredFor(uid, "owner", store.DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{selected}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts)))
+	defer srv.Close()
+
+	body := `{"targetIds":["` + target + `"]}`
+	code, response := doClient(t, srv.Client(), srv, "POST", "/api/v2/sync/source-conflicts/resolve", body, "X-Reet-Token", "source-fix-owner")
+	if code != 200 {
+		t.Fatal(code, response)
+	}
+	var preview struct {
+		Changes []store.SyncSourceFix `json:"changes"`
+	}
+	if err = json.Unmarshal([]byte(response), &preview); err != nil {
+		t.Fatal(err, response)
+	}
+	if len(preview.Changes) != 1 || preview.Changes[0].From != "a/b" || preview.Changes[0].To != "x/y" || preview.Changes[0].Agent != "claude" {
+		t.Fatalf("unexpected preview: %+v", preview)
+	}
+
+	code, response = doClient(t, srv.Client(), srv, "POST", "/api/v2/sync/source-conflicts/resolve", `{"targetIds":["`+target+`"],"confirm":true}`, "X-Reet-Token", "source-fix-owner")
+	if code != 200 {
+		t.Fatal(code, response)
+	}
+	targets, err := st.SyncTargetsFor(uid)
+	if err != nil || len(targets) != 1 || targets[0].Desired[0].Source != "x/y" {
+		t.Fatalf("plan not resolved: %+v %v", targets, err)
+	}
+}

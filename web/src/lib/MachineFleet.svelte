@@ -5,7 +5,7 @@
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
   import type { Machine, SyncAgent, SyncEnvironment, SyncJob, SyncState } from './api'
-  import { controlSyncAgent, controlSyncJob, dedupeSyncLibrary, forgetEnvironment, forgetMachine, getSyncState, queueSyncJob, startSyncRun, updateSyncAgent } from './api'
+  import { controlSyncAgent, controlSyncJob, dedupeSyncLibrary, forgetEnvironment, forgetMachine, getSyncState, queueSyncJob, resolveSyncSourceConflicts, startSyncRun, updateSyncAgent } from './api'
   import { agentBuild, agentGroups, agentUpdateTarget, groupLabel, machineMatchesSearch, updateJobFor } from './machines'
   import { machineStatus, scanOnlyAgents, supportedAgents } from './machineSetup'
   import MachineCommands from './MachineCommands.svelte'
@@ -20,7 +20,7 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import Icon from './Icon.svelte'
   import { agoLabel, machineSyncOverview } from './syncOverview'
-  import { offersDedupe } from './syncProblems'
+  import { offersDedupe, offersSourceFix } from './syncProblems'
   import { formatWhen } from './time'
 
   let {
@@ -292,6 +292,43 @@
       busy = ''
     }
   }
+  async function autoFix(machine: Machine, agent: SyncAgent) {
+    if (busy) return
+    const ids = savedTargets(machine).map(item => item.target.id)
+    if (!ids.length) return
+    busy = `fix-${machine.host}`
+    try {
+      const preview = await resolveSyncSourceConflicts(ids, false)
+      if (!preview.changes.length) {
+        onnotice('No installed source conflict left to fix. Try a fresh preview.')
+        return
+      }
+      const details = preview.changes.map(change => [
+        change.name,
+        `  on     ${change.agent || 'machine'}`,
+        `  from   ${change.from || 'unknown'}`,
+        `  follow ${change.to}`,
+      ].join('\n')).join('\n\n')
+      const count = preview.changes.length
+      confirm = {
+        title: 'Follow the installed source?',
+        body: `${machine.host} already has ${count === 1 ? 'this skill' : 'these skills'} from another source. Reet will point the sync plan at the installed source so the shared folder is not overwritten, then sync again. No installed files are changed.`,
+        details,
+        confirmLabel: 'Auto fix & sync',
+        action: async () => {
+          await run(`fix-${machine.host}`, async () => {
+            const result = await resolveSyncSourceConflicts(ids, true)
+            onnotice(`Updated ${result.changes.length} ${result.changes.length === 1 ? 'skill source' : 'skill sources'}. Sync started.`)
+            return startSyncRun(agent.id, ids)
+          })
+        },
+      }
+    } catch (error) {
+      onerror(error)
+    } finally {
+      busy = ''
+    }
+  }
   async function syncNow(machine: Machine, agent: SyncAgent) {
     if (await run(`sync-${agent.id}`, () => startSyncRun(agent.id, savedTargets(machine).map(item => item.target.id)))) {
       onnotice(`Automatic sync started for ${machine.host}. Additive plans apply on their own; removals wait for review.`)
@@ -469,6 +506,8 @@
           <div class="sync-cta">
             {#if offersDedupe(sync.detail)}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); void dedupe(machine) }}>{busy === `dedupe-${machine.host}` ? 'Checking…' : 'Dedupe skills'}</button>
+            {:else if offersSourceFix(sync.detail)}
+              <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void autoFix(machine, enrolled) }}>{busy === `fix-${machine.host}` ? 'Checking…' : 'Auto fix'}</button>
             {:else if sync.canSync}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void syncNow(machine, enrolled) }}>{busy === `sync-${enrolled?.id}` ? 'Starting…' : 'Sync now'}</button>
             {:else if sync.tone === 'working'}

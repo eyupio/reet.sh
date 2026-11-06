@@ -1169,6 +1169,8 @@ export async function syncLibraryMachines(): Promise<SyncState> { return (await 
 export async function syncLibraryMachine(agentId: string): Promise<SyncState> { return (await req('/api/v2/sync/library', { method: 'POST', body: json({ agentId }) })).json() }
 export type SyncDuplicate = { slug: string; keep: SyncSkill; remove: SyncSkill[] }
 export async function dedupeSyncLibrary(confirm = false): Promise<{ groups: SyncDuplicate[]; removed: string[] }> { return (await req('/api/v2/sync/library/dedupe', { method: 'POST', body: json({ confirm }) })).json() }
+export type SyncSourceFix = { targetId: string; id: string; name: string; slug: string; from: string; to: string; agent: string }
+export async function resolveSyncSourceConflicts(targetIds: string[], confirm = false): Promise<{ changes: SyncSourceFix[] }> { return (await req('/api/v2/sync/source-conflicts/resolve', { method: 'POST', body: json({ targetIds, confirm }) })).json() }
 export async function updateSyncAgent(id: string, version = 'latest'): Promise<SyncState> { return (await req('/api/v2/sync/agents/update', { method: 'POST', body: json({ id, version }) })).json() }
 
 export async function listSetupProfiles(): Promise<{ profiles: SetupProfileSummary[] }> {

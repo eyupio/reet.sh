@@ -30,6 +30,7 @@ try {
    await page.goto(`${base}/sessions?agent=${A}`)
    await page.getByRole('button',{name:/New agent session|Start a new agent session/}).first().click()
    const modal=page.getByRole('dialog',{name:'Start an agent',exact:true})
+   await modal.getByRole('combobox',{name:'Project',exact:true}).selectOption({label:'No project — start in a folder'})
    await modal.getByRole('combobox',{name:'Agent',exact:true}).selectOption('codex')
    await expect(modal.getByRole('combobox',{name:'Session',exact:true})).toHaveValue('reet')
    await pickModel(modal)

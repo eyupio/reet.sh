@@ -152,7 +152,7 @@
 {/if}
 
 {#if starting && machines && snapshot}
-  <StartAgentDialog {machines} snapshot={snapshot} projects={projects ?? []} initialAgent={starting.project.host} initialDir={starting.project.dir} projectId={starting.project.id} honourProjectDefaults opener={starting.opener} onstarted={started} onleavefailed={leaveFailed} onaddmachine={() => location.assign(addMachine)} onclose={() => (starting = null)} {onsignedout} />
+  <StartAgentDialog {machines} snapshot={snapshot} projects={projects ?? []} initialAgent={starting.project.host} projectId={starting.project.id} honourProjectDefaults opener={starting.opener} onstarted={started} onleavefailed={leaveFailed} onaddmachine={() => location.assign(addMachine)} onclose={() => (starting = null)} {onsignedout} />
 {/if}
 
 <style>

@@ -123,6 +123,7 @@ await page.addInitScript(()=>{
 
 const dialog=()=>page.getByRole('dialog',{name:'Start an agent',exact:true})
 const parts=d=>({
+ project:d.getByRole('combobox',{name:'Project',exact:true}),
  machine:d.getByRole('combobox',{name:'Machine',exact:true}),
  model:d.getByRole('button',{name:/^Model:/}),
  folder:d.getByRole('combobox',{name:'Folder',exact:true}),
@@ -166,15 +167,23 @@ const locked=async p=>{
  for(const field of [p.machine,p.model,p.folder,p.prompt,p.agent])await expect(field).toBeDisabled()
  for(const field of [p.effort,p.path])if(await field.count())await expect(field).toBeDisabled()
 }
-const openFromSidebar=async()=>{await sidebarEntry().click();const d=dialog();await expect(d).toBeVisible();return d}
+// The project is a required choice. A start that is not opened from a project must choose No project before the folder
+// fields appear; this helper does that, leaving the machine selection as the entry point supplied it.
+const useFolder=async d=>{const p=parts(d);if(await p.folder.count()===0){await p.project.selectOption({label:'No project — start in a folder'});await expect(p.folder).toBeVisible()}}
+const openFromSidebar=async(folder=true)=>{await sidebarEntry().click();const d=dialog();await expect(d).toBeVisible();if(folder)await useFolder(d);return d}
+const openFromCard=async(host,folder=true)=>{await cardEntry(host).click();const d=dialog();await expect(d).toBeVisible();if(folder)await useFolder(d);return d}
 
 try{
- // ── From the Terminals workspace: the machine you came from is preselected and focused. ──
+ // ── From the Terminals workspace: the machine you came from is preselected, the project is still a deliberate choice. ──
  await page.goto(`${base}/sessions?agent=${A}`)
  await expect(sidebarEntry()).toBeEnabled()
- let d=await openFromSidebar(),p=parts(d)
+ let d=await openFromSidebar(false),p=parts(d)
  await expect(p.machine).toHaveValue(A)
- await expect(p.machine).toBeFocused()
+ await expect(p.project).toHaveValue('')
+ await expect(p.project).toBeFocused()
+ await expect(p.start).toBeDisabled()
+ await expect(d.locator('p.reason')).toContainText('Choose a project')
+ await useFolder(d)
  await texts(d)
  // Agents: what the machine reports, the rest listed and disabled with the reason.
  await p.chosen('Claude Code')
@@ -471,11 +480,11 @@ try{
  await p.close.click()
  await expect(d).toHaveCount(0)
  await expect(sidebarEntry()).toBeFocused()
- // The machine you came from is not ready: said plainly, another is chosen.
+ // The machine you came from is not ready: it stays chosen, with its own sentence, rather than another being picked.
  await page.goto(`${base}/sessions?agent=${C}`)
  d=await openFromSidebar();p=parts(d)
- await expect(p.machine).toHaveValue(A)
- await expect(p.machine).toHaveAccessibleDescription("spare-box isn't ready, so dev-laptop is selected.")
+ await expect(p.machine).toHaveValue(C)
+ await expect(p.machine).toHaveAccessibleDescription('The machine is reconnecting. Existing shells will be kept.')
  await page.keyboard.press('Escape')
  // Nothing ready: the existing readiness sentence and no Start.
  for(const m of tmachines)m.ready=false
@@ -497,8 +506,7 @@ try{
  // Not ready: disabled, with the plain readiness sentence.
  await expect(cardEntry('spare-box')).toBeDisabled()
  await expect(cardEntry('spare-box')).toHaveAccessibleDescription('The machine is reconnecting. Existing shells will be kept.')
- await cardEntry('old-box').click()
- d=dialog();p=parts(d)
+ d=await openFromCard('old-box');p=parts(d)
  await expect(p.machine).toHaveValue(B)
  await p.close.click()
  await expect(cardEntry('old-box')).toBeFocused()
@@ -527,8 +535,7 @@ try{
  await expect(add).toHaveCount(0)
  await expect(cardEntry('dev-laptop')).toBeFocused()
  // The simplest start: only the tool is sent, and the Terminals page opens on the new session.
- await cardEntry('dev-laptop').click()
- d=dialog();p=parts(d)
+ d=await openFromCard('dev-laptop');p=parts(d)
  await expect(p.machine).toHaveValue(A)
  await p.pick('Gemini CLI')
  await p.start.click()
@@ -548,8 +555,7 @@ try{
  await page.goto(`${base}/machines`)
  const onlyTerminals=url=>new URL(url).pathname==='/sessions'
  await page.route(onlyTerminals,route=>route.fulfill({status:204,body:''}))
- await cardEntry('dev-laptop').click()
- d=dialog();p=parts(d)
+ d=await openFromCard('dev-laptop');p=parts(d)
  await expect(p.machine).toHaveValue(A)
  const postsBefore=posts.length
  await expect(p.start).toBeEnabled()
@@ -572,8 +578,7 @@ try{
 
  // A 401 from the card's dialog hands over to the sign-in card, as the page's other dialogs do.
  await page.goto(`${base}/machines`)
- await cardEntry('dev-laptop').click()
- d=dialog();p=parts(d)
+ d=await openFromCard('dev-laptop');p=parts(d)
  answers.push({status:401,json:{error:'unauthorized'}})
  await p.start.click()
  await expect(page.getByRole('heading',{name:'Sign in to your workspace'})).toBeVisible()
@@ -603,15 +608,20 @@ try{
  await expect(projectEntry).toBeEnabled()
  await projectEntry.click()
  d=dialog();p=parts(d)
+ await expect(p.project).toHaveValue(PROJECT_ID)
  await expect(p.machine).toHaveValue(A)
+ await expect(p.folder).toHaveCount(0)
  await p.chosen('Cline')
- await expect(p.folder).toHaveValue(PROJECT_DIR)
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('high')
+ // A machine change leaves the project, because the project belongs to another machine: it is chosen again.
  await p.machine.selectOption(B)
+ await expect(p.project).toHaveValue('')
+ await expect(p.folder).toHaveCount(0)
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.effort).toHaveCount(0)
- await p.machine.selectOption(A)
+ await p.project.selectOption(PROJECT_ID)
+ await expect(p.machine).toHaveValue(A)
  await p.chosen('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('high')
@@ -621,7 +631,6 @@ try{
  await p.pick('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('high')
- await p.folder.selectOption(PROJECT_DIR)
  await p.effort.selectOption('medium')
  await p.start.click()
  await expect(page).toHaveURL(/\/sessions\?/)
@@ -637,8 +646,9 @@ try{
  await expect(projectPlus).toBeEnabled()
  await projectPlus.click()
  d=dialog();p=parts(d)
+ await expect(p.project).toHaveValue(PROJECT_ID)
  await expect(p.machine).toHaveValue(A)
- await expect(p.folder).toHaveValue(PROJECT_DIR)
+ await expect(p.folder).toHaveCount(0)
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await p.start.click()
  await expect(page).toHaveURL(/\/sessions\?/)
@@ -650,8 +660,7 @@ try{
  // ── The account's defaults reach the dialog without a project, from a machine card and from the workspace. ──
  profileDefaults={defaultTool:'cline',defaultModel:'anthropic/claude-sonnet-4-5',defaultEffort:'medium'}
  await page.goto(`${base}/machines`)
- await cardEntry('dev-laptop').click()
- d=dialog();p=parts(d)
+ d=await openFromCard('dev-laptop');p=parts(d)
  await p.chosen('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('medium')
@@ -667,8 +676,7 @@ try{
  // ── A star in the picker writes a favourite, stays open, and can be undone. ──
  favourites=[]
  await page.goto(`${base}/machines`)
- await cardEntry('dev-laptop').click()
- d=dialog();p=parts(d)
+ d=await openFromCard('dev-laptop');p=parts(d)
  await p.pick('Claude Code')
  list=await openModel(d)
  await list.getByRole('button',{name:'Star anthropic/claude-sonnet-4-5 for Claude Code',exact:true}).click()
@@ -685,8 +693,7 @@ try{
  // ── A failed model read is only a status line: suggestions stay and Start still works without a model. ──
  modelsFail=true
  await page.goto(`${base}/machines`)
- await cardEntry('dev-laptop').click()
- d=dialog();p=parts(d)
+ d=await openFromCard('dev-laptop');p=parts(d)
  list=await openModel(d)
  await expect(list.locator('..').getByRole('status')).toContainText('Couldn’t read dev-laptop’s models just now. Favourites and suggestions still work.')
  await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^sonnet/})).toBeVisible()
@@ -704,8 +711,7 @@ try{
  await page.setViewportSize({width:390,height:800})
  await page.goto(`${base}/machines`)
  await page.evaluate(()=>{window.__forceTouch=true})
- await cardEntry('dev-laptop').click()
- d=dialog();p=parts(d)
+ d=await openFromCard('dev-laptop');p=parts(d)
  await p.model.click()
  const modelSheet=page.getByRole('dialog',{name:'Model',exact:true})
  await expect(modelSheet).toBeVisible()
@@ -779,8 +785,7 @@ try{
  // Long names, from the card: the select shows what fits and the whole value is in the option and in the sentence, which wraps.
  await page.keyboard.press('Escape')
  await page.goto(`${base}/machines`)
- await cardEntry(LONG_HOST).click()
- d=dialog();p=parts(d)
+ d=await openFromCard(LONG_HOST);p=parts(d)
  await expect(p.machine).toHaveValue(LONG_ID)
  await expect(p.machine.locator('option:checked')).toHaveText(LONG_HOST)
  await expect(p.agentWhy).toContainText('Codex · Not installed on '+LONG_HOST)
@@ -797,7 +802,8 @@ try{
 
  // The machine you came from is not ready; then nothing is ready.
  d=await openAt(C);p=parts(d)
- await expect(p.machine).toHaveAccessibleDescription("spare-box isn't ready, so dev-laptop is selected.")
+ await expect(p.machine).toHaveValue(C)
+ await expect(p.machine).toHaveAccessibleDescription('The machine is reconnecting. Existing shells will be kept.')
  await sweep('a machine not ready',[p.start,p.machine])
  await page.keyboard.press('Escape')
  for(const m of tmachines)m.ready=false
@@ -898,8 +904,7 @@ try{
  for(const c of COMBOS){
   await setCombo(c)
   const sent=posts.length
-  await cardEntry(LONG_HOST).click()
-  d=dialog();p=parts(d)
+  d=await openFromCard(LONG_HOST);p=parts(d)
   await p.prompt.fill('fix the failing build please')
   await page.keyboard.press('Escape')
   await expect(d).toHaveCount(0)
@@ -921,8 +926,7 @@ try{
  expect((await moving()).moving.length).toBeGreaterThan(0)
  await page.keyboard.press('Escape')
  await page.emulateMedia({reducedMotion:'reduce'})
- await cardEntry('dev-laptop').click()
- d=dialog();p=parts(d)
+ d=await openFromCard('dev-laptop');p=parts(d)
  await p.prompt.fill('fix the failing build please')
  await p.start.hover()
  expect(await moving()).toEqual({moving:[],running:0})

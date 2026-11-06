@@ -22,17 +22,17 @@
  // folder and a prompt; the machine decides the program and its flags. Nothing here is kept in browser storage or the URL, and
  // the prompt lives only in this component: it is cleared when the dialog closes.
  // opener is the element the person pressed to open this, which gets focus back on close.
- let { machines, snapshot, projects = [], initialAgent = '', initialDir = '', projectId = '', honourProjectDefaults = false, opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
+ let { machines, snapshot, projects = [], initialAgent = '', projectId = '', honourProjectDefaults = false, opener = null, onstarted, onleavefailed, onaddmachine, onsignedout, onclose }: {
   /** The machines from /api/v2/terminal/machines, with their readiness and launch capabilities. */
   machines: TerminalMachine[]
   /** The machines' reported folders (from the sync state), or undefined while they are unknown: the home folder and a typed path still work. */
   snapshot: Machine[] | undefined
-  /** The folder projects the person can start in: choosing one fills in its machine and folder. */
+  /** The folder projects the person can choose. A project fills in its machine and supplies the folder, so the folder
+   *  fields only appear under the explicit "No project" choice. */
   projects?: FolderProject[]
-  /** The machine this was opened from, preselected when it is ready. */
+  /** The machine an action named, preselected as given (even when it is not ready, so its own sentence shows). Empty when
+   *  the dialog was opened without naming a machine: the choice is then the person's. */
   initialAgent?: string
-  /** A folder to start in on that machine (a folder project's), filled in when that machine is the one preselected. */
-  initialDir?: string
   /** The folder project the folder belongs to: sent with the start while the machine and folder are still that project's,
    *  so the session is listed under it. */
   projectId?: string
@@ -53,19 +53,21 @@
  } = $props()
 
  const id = $props.id()
- const OTHER = '\u0000other', TYPED = '\u0000typed'
- let dialog = $state<HTMLDialogElement>(), machineSelect = $state<HTMLSelectElement>(), modelButton = $state<HTMLButtonElement>(), effortSelect = $state<HTMLSelectElement>()
+ const OTHER = '\u0000other', TYPED = '\u0000typed', NO_PROJECT = '\u0000folder'
+ let dialog = $state<HTMLDialogElement>(), projectSelect = $state<HTMLSelectElement>(), machineSelect = $state<HTMLSelectElement>(), modelButton = $state<HTMLButtonElement>(), effortSelect = $state<HTMLSelectElement>()
  let startButton = $state<HTMLButtonElement>()
+ // The project is a required choice. An action that starts from a project opens with it already chosen; every other
+ // opening starts on the placeholder, and "No project" is an explicit choice that reveals the folder fields.
+ // svelte-ignore state_referenced_locally
+ const openingProject = projectId ? projects.find(p => p.id === projectId) : undefined
  // svelte-ignore state_referenced_locally
  let projectSel = $state(projectId)
  const pickedProject = $derived(projects.find(p => p.id === projectSel))
- const curAgent = $derived(pickedProject ? pickedProject.host : initialAgent)
- const curDir = $derived(pickedProject ? pickedProject.dir : projectSel === projectId ? initialDir : '')
  // svelte-ignore state_referenced_locally
- const opening = preselect(machines, initialAgent)
+ const opening = preselect(machines, openingProject?.host || initialAgent || '')
  let agentId = $state(opening.agentId)
- // Said once, while the machine chosen for you is the one shown: why it is not the one you came from.
- const switchedNote = $derived(agentId === opening.agentId ? opening.note : '')
+ const usingProject = $derived(!!pickedProject)
+ const folderVisible = $derived(projectSel === NO_PROJECT)
  let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state(''), structured = $state(false), sessionTouched = $state(false)
  // Images pasted or picked before a start live only in this dialog; each is uploaded to the machine as the
  // session starts and its path joins the opening prompt.
@@ -133,13 +135,6 @@
    explicitModel = false; explicitEffort = false
    modelChoice = next.model; effort = next.effort ?? ''; folderChoice = next.folder; modelOther = ''; typedDir = ''
    tool = defaults.agent
-   // The project's folder is the start for its own machine, including after a machine or agent change.
-   const projectDir = projectSel && agentId === curAgent ? curDir : ''
-   if (projectDir) {
-    const listed = folderChoices(machines.find(m => m.agentId === agentId), snapshot).some(f => f.path === projectDir)
-    folderChoice = listed ? projectDir : TYPED
-    if (!listed) typedDir = projectDir
-   }
   })
  })
  // A late project, profile or favourites read fills the defaults only while the person has not chosen that field.
@@ -202,9 +197,11 @@
   return { label: 'Refresh', onclick: () => void refreshModels(), disabled: modelLoading }
  })
  const folders = $derived(folderChoices(machine, snapshot))
- const dir = $derived(folderChoice === TYPED ? typedDir : folders.some(f => f.path === folderChoice) ? folderChoice : '')
+ const adHocDir = $derived(folderChoice === TYPED ? typedDir : folders.some(f => f.path === folderChoice) ? folderChoice : '')
+ const dir = $derived(usingProject ? pickedProject!.dir : folderVisible ? adHocDir : '')
  const promptBytes = $derived(new TextEncoder().encode(prompt).length)
- // Why nothing can start on this machine, in the existing plain readiness words first.
+ // Why nothing can start, in the order the choices are made: the project first, then the machine it runs on.
+ const projectBlocked = $derived(!projectSel ? 'Choose a project, or choose No project to start in a folder.' : projectSel !== NO_PROJECT && !pickedProject ? 'Choose a project.' : '')
  const blocked = $derived.by(() => {
   if (!machine) return machines.some(m => m.ready) ? 'Choose a machine.' : 'No machine is ready for terminals right now.'
   const why = readiness(machine)
@@ -214,7 +211,7 @@
   return ''
  })
  const modelError = $derived(modelChoice === OTHER ? (cleanModel(modelOther) === '' ? (attempted ? 'Type a model name, or choose Agent default.' : '') : validateModel(modelOther) ?? '') : '')
- const dirError = $derived(folderChoice === TYPED && (attempted || typedDir !== '') ? validateDir(typedDir) ?? '' : '')
+ const dirError = $derived(folderVisible && folderChoice === TYPED && (attempted || typedDir !== '') ? validateDir(typedDir) ?? '' : '')
  const promptError = $derived(chosenTool ? validatePrompt(chosenTool, prompt) ?? '' : '')
  const locked = $derived(busy || operation !== null)
  // Why attached images cannot be sent: the machine has to accept uploads. A machine with none listed is an older reet.
@@ -406,19 +403,30 @@
  }
  function openPicker() { if (locked || !chosenTool) return; pickerOpen = true }
  function pickModel(value: string) { explicitModel = true; modelChoice = value; modelOther = ''; edited() }
- // Choosing a project moves to its machine and folder and borrows its defaults; "No project" leaves the machine as it is.
+ // Choosing a project moves to its machine and borrows its defaults. "No project" is an explicit choice that keeps the
+ // machine as it is and reveals the folder fields. A machine change leaves a project that belongs elsewhere, so the
+ // project is chosen again rather than silently starting on the wrong one.
  const projectReady = (item: FolderProject) => machines.some(m => m.agentId === item.host && m.ready)
  function pickProject(next: string) {
   if (locked) return
   projectSel = next
+  folderChoice = ''; typedDir = ''
+  if (next === NO_PROJECT) { void loadProject(''); edited(); return }
   const item = projects.find(p => p.id === next)
   void loadProject(next)
-  if (!item) { folderChoice = ''; typedDir = ''; edited(); return }
-  if (!projectReady(item)) { projectSel = ''; void loadProject(''); return }
+  if (!item) { edited(); return }
+  if (!projectReady(item)) { projectSel = ''; void loadProject(''); edited(); return }
   agentId = item.host
-  const listed = folderChoices(machines.find(m => m.agentId === item.host), snapshot).some(f => f.path === item.dir)
-  folderChoice = listed ? item.dir : TYPED
-  typedDir = listed ? '' : item.dir
+  edited()
+ }
+ function pickMachine(next: string) {
+  if (locked) return
+  agentId = next
+  if (pickedProject && pickedProject.host !== next) {
+   projectSel = ''
+   projectReadSeq++
+   projectData = null
+  }
   edited()
  }
  let skillOpen = $state(false), skillButton = $state<HTMLButtonElement>(), promptInput = $state<HTMLTextAreaElement>()
@@ -483,6 +491,7 @@
  // Focus after the fieldset and button are enabled again, so it never drops to the page.
  async function focusAfter(target: () => HTMLElement | null | undefined) { await tick(); if (!life.signal.aborted) (target() ?? startButton)?.focus() }
  function focusFor(where: string) {
+  if (where === 'project') return projectSelect
   if (where === 'machine') return field('machine')
   if (where === 'tool') return field('tool')
   if (where === 'model') return modelButton
@@ -496,7 +505,7 @@
   pickerOpen = false
   attempted = true
   if (!operation) {
-   if (blocked || !machine) return
+   if (projectBlocked || blocked || !machine) return
    // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
    const invalid = modelError ? ['model', modelError] : effortError ? ['effort', effortError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
    if (invalid) { failed = true; message = invalid[1]; invalidMessage = true; field(invalid[0])?.focus(); return }
@@ -508,11 +517,11 @@
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
    if (yoloChosen && !yoloWhy) launch.yolo = true
-   const onProject = !!projectSel && machine.agentId === curAgent && dir === curDir
-   if (onProject) launch.projectId = projectSel
+   const chosenProject = pickedProject
+   const onProject = !!chosenProject && machine.agentId === chosenProject.host && dir === chosenProject.dir
+   if (onProject) launch.projectId = chosenProject.id
    // Home's rail + and a machine's New session give a project's own defaults the same weight the launch bar did: a
    // repository that asks for a worktree (or inherits the account's default) starts in one, from its own base branch.
-   const chosenProject = pickedProject
    if (honourProjectDefaults && onProject && !structured && chosenProject?.isRepo) {
     const worktree = chosenProject.worktreeDefault === 'yes' ? true : chosenProject.worktreeDefault === 'no' ? false : accountDefaults?.worktreesByDefault !== false
     if (worktree && machine.capabilities?.worktree) {
@@ -620,7 +629,7 @@
 
  onMount(() => {
   dialog?.showModal()
-  machineSelect?.focus()
+  projectSelect?.focus()
   // A phone opens the picker as the shared bottom sheet; a mouse gets the popover.
   const coarse = matchMedia('(pointer: coarse)')
   const readPointer = () => { touch = coarse.matches }
@@ -640,7 +649,7 @@
   <div>
    <p class="eyebrow" data-shell-aside>Sessions</p>
    <h2 id={`${id}-title`}>Start an agent</h2>
-   <p class="lede" data-shell-aside>Right then: pick a machine, an agent and a folder. It starts in a new terminal session you can come back to.</p>
+   <p class="lede" data-shell-aside>Right then: pick a project and a machine, then an agent. It starts in a new terminal session you can come back to.</p>
   </div>
   <button type="button" class="btn" onclick={close} disabled={busy} aria-label="Close" data-shell-close>Close ×</button>
  </header>
@@ -649,26 +658,45 @@
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="body" data-shell-body tabindex={locked ? 0 : undefined} role={locked ? 'region' : undefined} aria-label={locked ? 'Your choices' : undefined}>
   <fieldset disabled={locked}>
-   {#if projects.length}
-    <div class="field">
-     <label for={`${id}-project`}>Project <span class="optional">optional</span></label>
-     <select id={`${id}-project`} value={projectSel} onchange={(event) => pickProject((event.currentTarget as HTMLSelectElement).value)}>
-      <option value="">No project</option>
-      {#each projects as item (item.id)}<option value={item.id} disabled={item.id !== projectSel && !projectReady(item)}>{item.name}{item.machine ? ` · ${item.machine}` : ''}{projectReady(item) ? '' : ' · machine not ready'}</option>{/each}
-     </select>
-    </div>
-   {/if}
+   <div class="field">
+    <label for={`${id}-project`}>Project</label>
+    <select id={`${id}-project`} bind:this={projectSelect} value={projectSel} aria-required="true" aria-describedby={[projectBlocked ? `${id}-project-error` : '', usingProject ? `${id}-project-dir` : ''].filter(Boolean).join(' ') || undefined} onchange={(event) => pickProject((event.currentTarget as HTMLSelectElement).value)}>
+     <option value="" disabled>Choose a project</option>
+     {#each projects as item (item.id)}<option value={item.id} disabled={item.id !== projectSel && !projectReady(item)}>{item.name}{item.machine ? ` · ${item.machine}` : ''}{projectReady(item) ? '' : ' · machine not ready'}</option>{/each}
+     <option value={NO_PROJECT}>No project — start in a folder</option>
+    </select>
+    {#if projectBlocked}
+     <p class="reason" id={`${id}-project-error`}>{projectBlocked}</p>
+    {:else if usingProject}
+     <p class="hint" id={`${id}-project-dir`}>Starts in {pickedProject!.dir}.</p>
+    {/if}
+   </div>
 
    <div class="field">
     <label for={`${id}-machine`}>Machine</label>
-    <select id={`${id}-machine`} bind:this={machineSelect} bind:value={agentId} aria-describedby={[switchedNote ? `${id}-switched` : '', blocked ? `${id}-blocked` : ''].filter(Boolean).join(' ') || undefined}>
+    <select id={`${id}-machine`} bind:this={machineSelect} value={agentId} aria-required="true" aria-describedby={blocked ? `${id}-blocked` : undefined} onchange={(event) => pickMachine((event.currentTarget as HTMLSelectElement).value)}>
      {#if !machine}<option value="" disabled>Choose a machine</option>{/if}
      {#each machines as item (item.agentId)}<option value={item.agentId} disabled={!item.ready}>{item.host}{item.ready ? '' : ' · not ready'}</option>{/each}
     </select>
-    {#if switchedNote}<p class="hint" id={`${id}-switched`}>{switchedNote}</p>{/if}
     {#if blocked}<p class="reason" id={`${id}-blocked`}>{blocked}</p>{/if}
     {#if onaddmachine}<button type="button" class="linklike" onclick={addMachine}>Not listed? Add a machine</button>{/if}
    </div>
+
+   {#if folderVisible}
+    <div class="field">
+     <label for={`${id}-folder`}>Folder</label>
+     <select id={`${id}-folder`} bind:value={folderChoice}>
+      {#each folders as folder (folder.path)}<option value={folder.path}>{folder.label}</option>{/each}
+      <option value={TYPED}>Type a path…</option>
+     </select>
+     {#if folderChoice === TYPED}
+      <label for={`${id}-dir`} class="sub">Folder path</label>
+      <input id={`${id}-dir`} bind:value={typedDir} autocomplete="off" spellcheck="false" placeholder="/home/you/work/site" aria-invalid={dirError ? 'true' : undefined} aria-describedby={dirError ? `${id}-dir-error ${id}-dir-hint` : `${id}-dir-hint`} />
+      {#if dirError}<p class="reason" id={`${id}-dir-error`}>{dirError}</p>{/if}
+      <p class="hint" id={`${id}-dir-hint`}>The machine decides whether it can start there. It must be inside the home folder it was enrolled with.</p>
+     {/if}
+    </div>
+   {/if}
 
    <div class="field">
     <label for={`${id}-tool`}>Agent</label>
@@ -730,20 +758,6 @@
    {/if}
 
    <div class="field">
-    <label for={`${id}-folder`}>Folder</label>
-    <select id={`${id}-folder`} bind:value={folderChoice}>
-     {#each folders as folder (folder.path)}<option value={folder.path}>{folder.label}</option>{/each}
-     <option value={TYPED}>Type a path…</option>
-    </select>
-    {#if folderChoice === TYPED}
-     <label for={`${id}-dir`} class="sub">Folder path</label>
-     <input id={`${id}-dir`} bind:value={typedDir} autocomplete="off" spellcheck="false" placeholder="/home/you/work/site" aria-invalid={dirError ? 'true' : undefined} aria-describedby={dirError ? `${id}-dir-error ${id}-dir-hint` : `${id}-dir-hint`} />
-     {#if dirError}<p class="reason" id={`${id}-dir-error`}>{dirError}</p>{/if}
-     <p class="hint" id={`${id}-dir-hint`}>The machine decides whether it can start there. It must be inside the home folder it was enrolled with.</p>
-    {/if}
-   </div>
-
-   <div class="field">
     <div class="label-row">
      <label for={`${id}-prompt`}>Opening prompt <span class="optional">optional</span></label>
      <button type="button" class="linklike skill-add" bind:this={skillButton} disabled={!chosenTool} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>＋ Use a skill</button>
@@ -782,7 +796,7 @@
   <footer data-shell-foot>
    <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
    <small data-shell-aside>reet.sh never sends a command line. The machine starts the agent itself.</small>
-   <button class="btn primary" type="submit" disabled={busy || (!operation && (!!blocked || !!imageReason))} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
+   <button class="btn primary" type="submit" disabled={busy || (!operation && (!!projectBlocked || !!blocked || !!imageReason))} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>
  {#if yoloOpen && machine}

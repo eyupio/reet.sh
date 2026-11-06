@@ -148,7 +148,7 @@
   // New session asks what to start before showing either form: an agent session, or a plain shell.
   let newSessionOpen=$state(false)
   // The Start an agent dialog, with the button that opened it, and the folders the machines have reported (read when it opens).
-  let agentStart=$state<{agent:string;opener:HTMLElement|null;dir?:string;projectId?:string}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
+  let agentStart=$state<{agent:string;opener:HTMLElement|null;projectId?:string}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
   // Add a project from the session panel: the same dialog as Home, without leaving the terminal.
   let addingProject=$state<{opener:HTMLElement|null}|null>(null)
   let action = $state<'rename'|'end'|'archive'|null>(null), actionSession = $state(''), rename = $state(''), actionTitle = $state(''), actionState = $state<TerminalSession['state']>('ended'), actionBusy = $state(false)
@@ -272,7 +272,7 @@
   async function chooseNewSession(kind:'agent'|'terminal'){
     newSessionOpen=false
     await tick()
-    if(kind==='agent'){const agent=selectedAgent||(machines.find(m=>m.ready)??machines[0]).agentId;openAgentStart(agent,null);return}
+    if(kind==='agent'){openAgentStart(selectedAgent,null);return}
     openTerminalStart()
   }
   function submitCreate(){void create()}
@@ -314,7 +314,7 @@
   function startInProject(project:FolderProject,opener:HTMLElement){
     if(accessDenied||agentStart||!machines.length)return
     openAgentStart(project.host,opener)
-    agentStart={agent:project.host,opener,dir:project.dir,projectId:project.id}
+    agentStart={agent:project.host,opener,projectId:project.id}
   }
   function openAddProject(opener:HTMLElement){
     if(accessDenied||addingProject)return
@@ -673,7 +673,7 @@
   </div>
 </WorkspaceDialog>{/if}
 {#if showCreate}<WorkspaceDialog title="New terminal session" onclose={() => showCreate = false}><p class="dialog-copy">Choose where your terminal will run.</p>{#if error}<p class="dialog-copy" role="alert">{error}</p>{/if}{@render createForm()}</WorkspaceDialog>{/if}
-{#if agentStart}<StartAgentDialog {machines} {projects} snapshot={agentFolders} initialAgent={agentStart.agent} initialDir={agentStart.dir ?? ''} projectId={agentStart.projectId ?? ''} honourProjectDefaults={!!agentStart.projectId} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
+{#if agentStart}<StartAgentDialog {machines} {projects} snapshot={agentFolders} initialAgent={agentStart.agent} projectId={agentStart.projectId ?? ''} honourProjectDefaults={!!agentStart.projectId} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
 {#if addingProject}<AddProjectDialog {machines} opener={addingProject.opener} onadded={projectAdded} onsignedout={()=>{accessDenied=true;addingProject=null}} onclose={()=>addingProject=null} />{/if}
 {#if detailsOpen}<WorkspaceDialog title="Machine & terminal details" onclose={() => detailsOpen = false}>
   <p class="dialog-copy">{machine?.host || 'No machine selected'}{machine?.capabilities?.osUser ? ` · Shell user ${machine.capabilities.osUser}` : ''}</p>

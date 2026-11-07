@@ -58,7 +58,7 @@ async function bounds(width,height){
  await page.setViewportSize({width,height})
  // Count the deliberate controls row against the viewport available above the
  // reserved launcher/navigation area. Rendering and clipping are checked below.
- await expect.poll(async()=>page.evaluate(()=>{const terminal=document.querySelector('[aria-label="Remote terminal screen"]'),tools=document.querySelector('.session-tools'),reserved=document.querySelector('[data-gaffer-space]')?.getBoundingClientRect().height||0;return ((terminal?.getBoundingClientRect().height||0)+(tools?.getBoundingClientRect().height||0))/Math.max(1,innerHeight-reserved)})).toBeGreaterThan(height<600?.2:width<650?.5:.6)
+ await expect.poll(async()=>page.evaluate(()=>{const terminal=document.querySelector('[aria-label="Remote terminal screen"]'),tools=document.querySelector('.session-screen .head'),reserved=document.querySelector('[data-gaffer-space]')?.getBoundingClientRect().height||0;return ((terminal?.getBoundingClientRect().height||0)+(tools?.getBoundingClientRect().height||0))/Math.max(1,innerHeight-reserved)})).toBeGreaterThan(height<600?.2:width<650?.5:.6)
  await expect.poll(async()=>screen.evaluate(element=>Math.round(element.getBoundingClientRect().bottom))).toBeLessThanOrEqual(height+1)
  const b=await screen.boundingBox()
  // The renderer itself must fit, including its final row; outer bounds alone miss clipped content.
@@ -66,7 +66,7 @@ async function bounds(width,height){
  console.log(`Screen ${width}x${height}: top=${Math.round(b.y)}, height=${Math.round(b.height)} (${Math.round(b.height/height*100)}%)`)
  // The session screen's header (title, state, Chat | Terminal) sits above the pane by design; the pane starts right under it.
  const head=await page.evaluate(()=>{const h=document.querySelector('.session-screen .head');return h&&h.getClientRects().length?h.getBoundingClientRect().height:0})
- const tools=await page.locator('.session-tools').evaluate(el=>el.getBoundingClientRect().height)
+ const tools=await page.locator('.session-screen .header-actions').evaluate(el=>el.getBoundingClientRect().height)
  expect(head).toBeLessThanOrEqual(68+tools)
  expect((await pane.boundingBox()).y).toBeLessThan(160+head)
  expect(b.y).toBeLessThan(240+head)
@@ -363,7 +363,8 @@ try{
  await page.getByRole('button',{name:'Focus terminal',exact:true}).click();await page.keyboard.press('Shift+PageUp')
  await expect(output).toBeVisible();await page.getByRole('button',{name:'Back to live ↓',exact:true}).click()
  expect(inputs.length).toBe(beforeScroll)
- await page.getByRole('button',{name:'Theatre view',exact:true}).click()
+ await page.getByRole('button',{name:'Session actions',exact:true}).click()
+ await page.getByRole('dialog',{name:'Session actions',exact:true}).getByRole('button',{name:'Theatre view',exact:true}).click()
  await expect(page.locator('.workspace')).toHaveClass(/theatre/)
  await expect(page.getByRole('navigation',{name:'Terminal sessions'})).toBeHidden()
  await expect(page.locator('.site-header')).toBeVisible()
@@ -373,7 +374,8 @@ try{
  await page.getByRole('button',{name:'Maximise',exact:true}).click()
  await expect(pane).toHaveClass(/maximised/)
  await page.getByRole('button',{name:'Restore size',exact:true}).click()
- await page.getByRole('button',{name:'Exit theatre view',exact:true}).click()
+ await page.getByRole('button',{name:'Session actions',exact:true}).click()
+ await page.getByRole('dialog',{name:'Session actions',exact:true}).getByRole('button',{name:'Exit theatre view',exact:true}).click()
  await expect(page.locator('.workspace-toolbar')).toBeVisible()
  expect(await page.locator('.workspace-actions').getByRole('button',{name:/^(Sessions|Show sessions)/}).getAttribute('aria-expanded')).toBe(sidebarBefore)
  expect(websockets).toBe(beforeViews);expect(inputs.length).toBe(beforeScroll)

@@ -70,6 +70,7 @@ type AgentConfig struct {
 	acpImages          bool
 	acpApproval        bool
 	sessionMode        bool
+	nativeView         bool
 	chatReattach       bool
 	chatReattachDetail bool
 	acpAgentReattach   bool
@@ -780,6 +781,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
 	// session-mode-v1 stands on chats, their history and launches; it is
 	// never claimed without all three.
+	cfg.nativeView = terminalproto.SupportsNativeView(advertised) && cfg.acp && cfg.launch
 	cfg.sessionMode = terminalproto.SupportsSessionMode(advertised) && cfg.acp && cfg.acpHistory && cfg.launch
 	// chat-reattach-v1 stands on chats and their history; it is never
 	// claimed without both.
@@ -883,6 +885,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpApproval {
 		features = append(features, terminalproto.ACPApprovalFeature)
+	}
+	if cfg.nativeView {
+		features = append(features, terminalproto.NativeViewFeature)
 	}
 	if cfg.sessionMode {
 		features = append(features, terminalproto.SessionModeFeature)
@@ -1104,6 +1109,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// Only on a connection that negotiated session-mode-v1, with chats and
 		// their history, and only when OpenCode can be launched in a
 		// terminal: a switch opens the OpenCode TUI.
+		NativeView:  acp && cfg.nativeView && launch && slices.Contains(tools, "opencode"),
 		SessionMode: acp && cfg.acpHistory && cfg.sessionMode && launch && slices.Contains(tools, "opencode"),
 		// Only on a connection that negotiated chat-reattach-v1, with chats and
 		// their history, and for an agent that can reopen its stored

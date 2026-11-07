@@ -487,7 +487,7 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		started.Store(true)
 	}
 	process, err := h.sup.start(startCtx, acpagent.Options{
-		Agent: spec, Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Effort: in.Effort, Trust: in.Trust, Resume: in.ResumeACP,
+		Agent: spec, NativeTerminal: in.Tool == "opencode", Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Effort: in.Effort, Trust: in.Trust, Resume: in.ResumeACP,
 		BaseEnv: os.Environ(),
 		// Start calls OnReady after the replay and before its own closes of
 		// interrupted tool calls and its first idle status, which the

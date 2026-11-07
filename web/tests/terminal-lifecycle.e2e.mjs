@@ -191,7 +191,8 @@ try{
  const beforePendingRemoval=operations.length,beforePendingEnd=mutations.filter(m=>m.kind==='end').length
  await page.goto(`${base}/sessions?agent=${agentA}&session=${pending.id}`)
  await expect(pane).toHaveAttribute('data-connection-state','ending')
- await page.getByRole('button',{name:'Remove from history…',exact:true}).click()
+ await page.getByRole('button',{name:'Session actions',exact:true}).click()
+ await page.getByRole('dialog',{name:'Session actions',exact:true}).getByRole('button',{name:'Remove from history…',exact:true}).click()
  await expect(page.getByRole('dialog')).toContainText('without confirming that it has stopped')
  await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click()
  await expect.poll(()=>archived.has(pending.id)).toBe(true)

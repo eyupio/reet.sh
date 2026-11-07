@@ -28,8 +28,9 @@ try{
       await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
       const launch=w.page.getByRole('button',{name:'Ask Gaffer',exact:true}),chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
       await expect(launch).toHaveCount(1)
-      const clear=await launch.evaluate(el=>{const a=el.getBoundingClientRect(),workspace=document.querySelector('[aria-label="Remote terminal workspace"]')?.getBoundingClientRect();return {width:a.width,height:a.height,inView:a.bottom<=innerHeight&&a.top>=0,clear:!workspace||a.top>=workspace.bottom-1||a.left>=workspace.right+8||a.right<=workspace.left-8}})
-      expect(clear.width).toBe(56);expect(clear.height).toBe(56);expect(clear.inView).toBe(true);expect(clear.clear).toBe(true)
+      // Workspace bounds are published on the next animation frame after mount.
+      // Poll the same geometry contract rather than reading before measurement.
+      await expect.poll(()=>launch.evaluate(el=>{const a=el.getBoundingClientRect(),workspace=document.querySelector('[aria-label="Remote terminal workspace"]')?.getBoundingClientRect();return {width:a.width,height:a.height,inView:a.bottom<=innerHeight&&a.top>=0,clear:!workspace||a.top>=workspace.bottom-1||a.left>=workspace.right+8||a.right<=workspace.left-8}}),{message:`${theme} ${width}x${height}: launcher fits and clears the measured workspace`}).toEqual({width:56,height:56,inView:true,clear:true})
       await launch.click();await expect(chat).toBeVisible()
       for(const name of ['New conversation','Conversation history','Chat options','Close Gaffer'])await expect(chat.getByRole('button',{name,exact:true})).toBeVisible()
       await expect(chat.getByRole('group',{name:'Gaffer panel tools',exact:true})).toHaveCount(1)

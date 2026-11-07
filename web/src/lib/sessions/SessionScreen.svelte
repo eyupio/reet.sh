@@ -20,6 +20,8 @@
   import SwitchModeDialog from './SwitchModeDialog.svelte'
   import TerminalIcon from '../terminal/TerminalIcon.svelte'
   import PanelResizer from '../shell/PanelResizer.svelte'
+  import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
+  import SessionViewSwitch from './SessionViewSwitch.svelte'
   import { PHONE_SCREEN } from '../terminal/sizing'
   import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
 
@@ -29,7 +31,8 @@
   // state word and where that word came from.
   let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy, insightChat, insightProgress,
     onaction, ontheatre, onrefresh, onmode, onsignedout, oncontinue, onterminal, onside, side, showSide = false, contextKey = 'reet-session-context-panel', onresizing, children,
-    contextOpen = $bindable(true), contextId, oncontextclosed }: {
+    contextOpen = $bindable(false), contextId, oncontextclosed, contextControls, view, nativeAvailable = false, nativePending = false, nativeReason = '', onview }: {
+    view?: 'chat' | 'terminal'; nativeAvailable?: boolean; nativePending?: boolean; nativeReason?: string; onview?: (view: 'chat' | 'terminal') => void
     session: TerminalSession; sessions: TerminalSession[]
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
     theatre?: boolean; keyboard?: boolean; busy?: boolean
@@ -39,6 +42,8 @@
     contextOpen?: boolean
     /** The element id the toolbar's Details toggle controls. */
     contextId?: string
+    /** The workspace's Details toggle stays beside the session identity. */
+    contextControls?: Snippet
     /** Where focus goes when the panel is closed from inside it. */
     oncontextclosed?: () => void
     /** Whether the right panel's separator is being dragged, so the terminal holds its size until it ends. */
@@ -149,7 +154,7 @@
   let stage = $state<HTMLElement>(), connection = $state('')
   $effect(() => {
     if (!stage) return
-    const read = () => { connection = stage?.querySelector('.pane')?.getAttribute('data-connection-state') ?? '' }
+    const read = () => { connection = stage?.querySelector('[data-session-presentation]:not([hidden]) .pane, :scope > .pane')?.getAttribute('data-connection-state') ?? '' }
     read()
     const watch = new MutationObserver(read)
     watch.observe(stage, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-connection-state'] })
@@ -196,6 +201,7 @@
     void getYoloSetting().then(value => { if (!yoloLife.signal.aborted) yoloSetting = value }).catch(() => { if (!yoloLife.signal.aborted) yoloSetting = null })
   })
 
+  // Legacy process-changing interface switch; the header's Chat / Terminal control only changes the shared view.
   // Gaffer | agent TUI switch (switchModeState says where the inactive button goes and why it may not). A switch
   // stops one process on the machine and starts the other, which can take minutes: until the machine answers, both buttons
   // wait and the status line says so. No client deadline is set; the request ends when the controller answers. Each session
@@ -246,9 +252,9 @@
   // Read before the first paint: the waiting skeleton draws the panel at this width, not at a default that moves later.
   const initialContext = (() => { try { return readContextLayout(localStorage.getItem(contextKey) ?? '') } catch { return readContextLayout(null) } })()
   let contextWidth = $state(initialContext.width ?? CONTEXT_DEFAULT), bodyWidth = $state(0), layoutLoaded = $state(true)
-  // Docked and sheet have their own open state: a docked panel is open by default, a sheet only when asked for.
-  let dockedOpen = $state(initialContext.open ?? true), sheetOpen = $state(false)
-  try { localStorage.setItem('reet.workspace.context', JSON.stringify(contextLayoutRecord(initialContext.open ?? true, initialContext.width ?? CONTEXT_DEFAULT))) } catch { /* optional browser preference */ }
+  // Docked and sheet have their own open state: a docked panel starts closed until asked for, a sheet only when asked for.
+  let dockedOpen = $state(initialContext.open ?? false), sheetOpen = $state(false)
+  try { localStorage.setItem('reet.workspace.context', JSON.stringify(contextLayoutRecord(initialContext.open ?? false, initialContext.width ?? CONTEXT_DEFAULT))) } catch { /* optional browser preference */ }
   const docked = $derived(!theatre && screenWidth > 1099)
   const hasSide = $derived(showSide && !!side)
   const effectiveOpen = $derived(docked ? dockedOpen : sheetOpen)
@@ -314,12 +320,21 @@
   function commitContextWidth(width: number) { contextWidth = clampContextWidth(width, contextRoom); saveContext() }
   function setContextResizing(active: boolean) { contextResizing = active; onresizing?.(active) }
 
-  // Management actions live on the session toolbar, so each is one click away rather than behind a menu.
-  function act(kind: 'rename' | 'end' | 'archive') { onaction(kind) }
-  function theatreView() { ontheatre() }
-  function continueSession() { if (!oncontinue) return; oncontinue() }
-  function openTerminal() { if (!onterminal) return; onterminal() }
-  function openSideTerminal() { if (!onside) return; onside() }
+  // Infrequent session controls share one sheet. Close it before another confirmation opens, keeping focus on the
+  // persistent header button rather than a control that is about to unmount.
+  let actionsOpen = $state(false), actionsButton = $state<HTMLButtonElement>()
+  function closeActions() { actionsOpen = false; void tick().then(() => actionsButton?.focus()) }
+  function leaveActions() { actionsOpen = false; actionsButton?.focus() }
+
+  function act(kind: 'rename' | 'end' | 'archive') { leaveActions(); onaction(kind) }
+  function theatreView() {
+    actionsOpen = false
+    ontheatre()
+    void tick().then(() => actionsButton?.focus())
+  }
+  function continueSession() { if (!oncontinue) return; leaveActions(); oncontinue() }
+  function openTerminal() { if (!onterminal) return; leaveActions(); onterminal() }
+  function openSideTerminal() { if (!onside) return; leaveActions(); onside() }
 
   let notice = $state<{ text: string; bad?: boolean } | null>(null)
   async function setMode(next: ApprovalMode) {
@@ -333,9 +348,10 @@
       notice = { text: e instanceof Error && e.message ? e.message : 'That approval mode was not changed.', bad: true }
     } finally { modeBusy = false }
   }
-  function askMode() { if (approvalMode === 'yolo') void setMode('ask') }
+  function askMode() { if (approvalMode === 'yolo') { leaveActions(); void setMode('ask') } }
   function yoloMode() {
     if (approvalMode === 'yolo' || modeBusy) return
+    leaveActions()
     yoloOpen = true
   }
   function turnOnYolo() {
@@ -346,6 +362,7 @@
   async function copyBranch() {
     const branch = session.worktreeBranch
     if (!branch) return
+    leaveActions()
     notice = (await copyText(branch)) ? { text: `Copied ${branch}.` } : { text: "Couldn't copy the branch. Select it in Where it's working instead.", bad: true }
   }
   // Check and remove worktree: the existing sheet, which reads the worktree's state first and removes nothing unsaved.
@@ -353,12 +370,13 @@
   function checkWorktree() {
     const t = target
     if (!t) return
+    leaveActions()
     removing = { position: 0, host: session.agentId, dir: '', tool: session.tool ?? '', model: session.model ?? '', state: 'started', code: '', sentence: '', sessionId: session.id,
       worktreePath: session.worktreePath ?? '', worktreeRepo: t.repo, worktreeBranch: session.worktreeBranch ?? '', worktreeRun: t.run, worktreeProject: t.project, sharesCheckout: false, attempt: 0 }
   }
   // A new session's screen starts with its own words: the last one's notice does not carry over.
   let shownId = ''
-  $effect(() => { if (session.id !== shownId) { shownId = session.id; notice = null } })
+  $effect(() => { if (session.id !== shownId) { shownId = session.id; notice = null; actionsOpen = false } })
 </script>
 
 <!-- One grid: the header and status line, then the context panel, then the terminal, so the tab order is header → panel →
@@ -372,10 +390,15 @@
       <div class="heading">
         <h2 class="title" title={session.title}>{session.title}</h2>
         <p class="sub">{headerMeta(session, session.createdAt, now)}</p>
+        <p class="location">{[project, host].filter(Boolean).join(' · ')}</p>
         <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>
       <span class="pill" data-status={statusKind} title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       <div class="header-actions">
+        {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason} {onview} onunavailable={text => notice = { text }} />{/if}
+        {@render contextControls?.()}
+        <button type="button" class="actions-button" data-keeps-focus bind:this={actionsButton} aria-label="Session actions" aria-haspopup="dialog" aria-expanded={actionsOpen}
+          title="Session actions" onclick={() => actionsOpen = true}><span aria-hidden="true">···</span></button>
         <button type="button" class="focus-button" bind:this={focusButton} aria-pressed={focusOn}
           aria-label={focusOn ? 'Exit focus mode' : 'Focus mode'} title={focusOn ? 'Show the full session screen' : 'Focus on the conversation and composer'}
           onclick={() => void toggleFocus()}>
@@ -383,6 +406,9 @@
         </button>
       </div>
       </div>
+      {#if actionsOpen}
+      <WorkspaceDialog title="Session actions" onclose={closeActions}>
+      <p class="actions-context">{session.title} · {host}</p>
       <div class="session-tools" role="group" aria-label="Session controls" data-keeps-focus>
       {#if canSwitchApproval}
         <div class="approvals" role="group" aria-label="Approvals">
@@ -391,7 +417,8 @@
             title={yoloCanStart(switchGates) ? 'Answer every approval for this session' : 'Read why YOLO is not ready here'} onclick={yoloMode}>YOLO</button>
         </div>
       {:else if session.yolo}<span class="badge yolo">YOLO</span>{/if}
-      <!-- One dropdown names the interface shown. When the session cannot switch, a plain label says which one it is. -->
+      <p class="legacy-label">Restart in another interface</p>
+      <p class="legacy-note">This legacy action stops one agent process and starts another. Use Chat / Terminal in the header to change a supported view without restarting.</p>
       {#if canSwitch || modeSwitching}
         <label class="tui-picker">
           <span class="vh">Session interface</span>
@@ -418,6 +445,8 @@
         {#if live && onside}<button type="button" class="tool-action secondary-action" disabled={busy || serverOff || showSide} onclick={openSideTerminal}><TerminalIcon name="panel" />{showSide ? 'Terminal open beside' : 'Terminal beside'}</button>{/if}
         {#if oncontinue}<button type="button" class="tool-action" disabled={busy} onclick={continueSession}>{session.structured ? 'Continue with history' : 'Continue session'}</button>{/if}
       </div>
+      </WorkspaceDialog>
+      {/if}
     </header>
     <!-- Always rendered (empty takes no room), so the first message in it is announced. -->
     <div class="live" role="status">{#if notice}<p class:bad={notice.bad}>{notice.text}</p>{/if}</div>
@@ -474,9 +503,16 @@
   .side-terminal :global(.pane > header), .side-terminal :global(.pane > footer) { display: none; }
   /* Identity stays separate from controls, so long session names never push frequent actions into a menu. */
   .head { min-width: 0; padding: 0 20px 8px; box-sizing: border-box; }
-  .identity-row { display: flex; align-items: center; gap: 12px; min-height: 58px; min-width: 0; }
+  .identity-row { display: flex; align-items: center; gap: 12px; min-height: 88px; min-width: 0; }
   .header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
-  .session-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+  .session-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
+  .legacy-label { flex-basis: 100%; margin: 0; font-size: 14px; font-weight: 600; }
+  .legacy-note { flex-basis: 100%; margin: -4px 0 4px; font-size: 13px; line-height: 1.6; color: var(--muted); }
+  .actions-context { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+  .actions-button { display: inline-grid; place-items: center; min-width: 36px; min-height: 36px; border: 1px solid transparent; border-radius: 7px; background: none; color: var(--muted); font: 600 20px/1 var(--sans); cursor: pointer; }
+  @media (pointer: coarse) { .header-actions :global(button) { min-width: 44px; min-height: 44px; } }
+  .actions-button:hover { background: var(--line-soft); color: var(--ink); }
+  .actions-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .tool-action, .theatre-button, .focus-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
   .tool-action:hover:not(:disabled), .theatre-button:hover, .focus-button:hover { background: var(--tint); color: var(--ink); }
   .tool-action:disabled { opacity: .5; cursor: default; }
@@ -491,12 +527,13 @@
   .back { display: none; flex: none; width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--ink-soft); border-radius: 8px; }
   .back svg { width: 22px; height: 22px; }
   .back:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
-  .title { margin: 0; font: 600 21px/1.3 var(--serif); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .title { margin: 0; font: 500 20px/1.3 var(--sans); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .location { margin: 3px 0 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sub, .where-phone { margin: 0; font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .where-phone { display: none; }
   .pill { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 6px; box-sizing: border-box;
-    background: var(--status-wash); border: 1px solid var(--status-edge); color: var(--status); font-size: 14px; font-weight: 600; white-space: nowrap; }
-  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    background: none; border: 0; color: var(--muted); font-size: 13px; font-weight: 400; white-space: nowrap; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status); }
   .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
   .approvals { flex: none; display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
@@ -522,12 +559,15 @@
   }
   /* Phones retain every control. Layout actions use 44 px icons; the toolbar wraps instead of hiding choices. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .sub, .identity-row > .pill { display: none; }
+    .sub, .location, .identity-row > .pill { display: none; }
     .where-phone { display: block; font-size: 14px; }
     .back { display: flex; }
     .head { padding: 0 6px 6px; }
-    .identity-row { min-height: 52px; gap: 4px; }
+    .identity-row { min-height: 52px; gap: 4px; flex-wrap: wrap; padding-bottom: 6px; }
+    .header-actions { width: 100%; justify-content: flex-end; }
+    .header-actions :global(.view-switch) { margin-right: auto; }
     .header-actions { gap: 2px; }
+    .header-actions .actions-button { min-width: 44px; min-height: 44px; }
     .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; padding: 0; display: inline-flex; }
     .header-actions button { flex-direction: column; gap: 1px; }
     .header-actions button span { display: block; font: 500 14px/12px var(--sans); }
@@ -543,16 +583,19 @@
     .pill .lk { display: none; }
     .badge { font-size: 14px; line-height: 18px; padding: 0 6px; }
   }
+  @media (max-width: 380px) {
+    .header-actions :global(.view-switch svg) { display: none; }
+  }
   /* Super focus on a phone: one slim identity row, then the conversation and composer with nothing competing for the room.
      The site chrome and workspace toolbar are hidden through data-session-focus and the workspace's own rule. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .session-screen.focus .head { padding: 0 6px; padding-top: env(safe-area-inset-top, 0px); }
     .session-screen.focus .identity-row { min-height: 50px; gap: 6px; }
-    .session-screen.focus .heading { min-width: 0; max-width: none; flex: 1 1 auto; }
+    .session-screen.focus .heading { min-width: 0; max-width: none; flex: 1 1 100px; }
     .session-screen.focus .title { font: 600 16px/1.25 var(--sans); }
     .session-screen.focus .sub, .session-screen.focus .where-phone { display: none; }
     .session-screen.focus .identity-row > .pill { display: inline-flex; }
-    .session-screen.focus .session-tools { display: none; }
+    .session-screen.focus .actions-button { display: none; }
     .session-screen.focus .header-actions { gap: 0; }
     .session-screen.focus .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; }
     .session-screen.focus .live p { margin: 0 8px 6px; }
@@ -570,18 +613,19 @@
   /* A very short viewport (a phone with the keyboard up, or held sideways): keep the controls on one scrolling row so
      the terminal keeps the room it needs. */
   @media (max-height: 500px) {
-    .session-tools { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+    .identity-row { min-height: 54px; }
   }
   /* In landscape keep the controls reachable and trim secondary metadata. */
   @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .head { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px 8px; padding: 0 4px 4px; }
-    .identity-row { flex: 1 1 190px; min-width: 0; min-height: 44px; }
+    .head { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px 8px; padding: 0 4px 2px; }
+    .identity-row { flex: 1 1 190px; min-width: 0; min-height: 44px; flex-wrap: nowrap; padding-bottom: 0; }
+    .header-actions { width: auto; margin-left: auto; }
     .heading { max-width: 100px; min-width: 0; }
     .where-phone { display: none; }
     /* A landscape phone has no room for several wrapped rows: the primary controls stay in one row, secondary ones wait
        for a roomier screen, and the row scrolls if the names are long. */
     .session-tools { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
-    .secondary-action { display: none; }
+    .secondary-action { display: inline-flex; }
     .here-label { display: none; }
   }
   /* With the phone keyboard up the site's chrome steps aside (keyboardChrome) and the slim header stays, as the mock-up's phone

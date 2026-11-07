@@ -368,7 +368,8 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 	// the replay is dropped here and only events after startup are forwarded.
 	var restored atomic.Bool
 	process, err := s.start(startCtx, acpagent.Options{
-		Agent: spec, Binary: binary, Dir: dir, Home: s.opts.Home, Model: rec.Model, Effort: rec.Effort, Trust: rec.Trust, Resume: rec.ACPSID,
+		NativeTerminal: rec.Tool == "opencode",
+		Agent:          spec, Binary: binary, Dir: dir, Home: s.opts.Home, Model: rec.Model, Effort: rec.Effort, Trust: rec.Trust, Resume: rec.ACPSID,
 		BaseEnv: os.Environ(),
 		OnEvent: func(event acpagent.Event) {
 			if restored.Load() {

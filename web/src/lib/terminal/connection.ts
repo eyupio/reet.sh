@@ -2,7 +2,7 @@ import { terminalSessions, terminalTicket, TerminalError } from './api'
 
 export type ConnectionState = 'connecting' | 'resynchronising' | 'live' | 'reconnecting' | 'detached' | 'taken_over' | 'ending' | 'ended' | 'lost' | 'access_denied'
 export type Renderer = { write: (bytes: Uint8Array, reset: boolean, done: () => void) => void }
-export type ConnectionOptions = { session: string; renderer: Renderer; dimensions: () => { cols: number; rows: number }; onstate: (state: ConnectionState, message: string) => void }
+export type ConnectionOptions = { nativeView?: boolean; session: string; renderer: Renderer; dimensions: () => { cols: number; rows: number }; onstate: (state: ConnectionState, message: string) => void }
 const frameLimit = 32 * 1024, queueLimit = 256 * 1024
 
 // One connection controller per visible logical session. It never creates a
@@ -51,7 +51,7 @@ export class TerminalConnection {
         this.set('ended', `This shell ${session.state === 'exited' ? 'exited' : 'ended'}.`); return
       }
       const size = this.options.dimensions()
-      const ticket = await terminalTicket(this.options.session, size.cols, size.rows, takeover, request.signal)
+      const ticket = await terminalTicket(this.options.session, size.cols, size.rows, takeover, request.signal, this.options.nativeView === true)
       if (epoch !== this.epoch || this.disposed) return
       const url = new URL('/api/v2/terminal/socket', location.origin); url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
       const socket = new WebSocket(url); this.socket = socket; socket.binaryType = 'arraybuffer'

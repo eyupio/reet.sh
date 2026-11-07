@@ -2,6 +2,7 @@
  import { structuredAgent } from './api'
  import type { ChatState } from '../chat'
  import type { ChatProgressState } from '../gafferProgress'
+  import { nativeTerminalView, type NativeViewInfo } from './api'
   import { onMount, tick, untrack } from 'svelte'
   import {getProfile,getSyncState,saveProfile,type Machine} from '../api'
   import { titleFor, validateDir } from '../agentLaunch'
@@ -47,7 +48,7 @@
   const readScreen=()=>screenShortSide(window.screen,innerWidth,innerHeight)
   let viewportWidth=$state(innerWidth),screenSide=$state(readScreen()),bodyWidth=$state(0),resizing=$state(false),contextResizing=$state(false)
   // The right-hand session details panel, toggled from the same toolbar row as the sessions panel.
-  let contextOpen=$state(true),contextButton=$state<HTMLButtonElement>(),sessionScreen=$state<{toggleContext?:()=>void}>()
+  let contextOpen=$state(false),contextButton=$state<HTMLButtonElement>(),sessionScreen=$state<{toggleContext?:()=>void}>()
   const savedLayout=(()=>{try{return readLayout(localStorage.getItem(preferenceKey))}catch{return readLayout(null)}})()
   const initialMode=panelMode(innerWidth,savedLayout.mode,savedLayout.pinned,isPhone(innerWidth,readScreen())),initialWidth=savedLayout.width??defaultPanelWidth(innerWidth)
   // The waiting skeleton reads the same record, so the panel never changes width as the real workspace takes over.
@@ -174,6 +175,26 @@
   const accountActive = $derived(sessions.filter(item=>['creating','running','end_requested'].includes(item.state)).length)
   const createAtQuota=$derived(createActive>=8||accountActive>=32)
   const session = $derived(ownSessions.find(item=>item.id===selectedSession))
+  let presentations=$state<Record<string,'chat'|'terminal'>>({}), terminalMounted=$state<Record<string,boolean>>({})
+  let nativeInfo=$state<{key:string;pending:boolean;info:NativeViewInfo}>({key:'',pending:false,info:{available:false}})
+  const nativeKey=$derived(session?.structured ? JSON.stringify([session.id,session.state,session.acpSessionId,machine?.capabilities?.nativeView,machine?.ready]) : '')
+  const presentation=$derived(session?.structured ? presentations[session.id] ?? 'chat' : 'terminal')
+  $effect(()=>{
+    const key=nativeKey
+    if(!key){nativeInfo={key,pending:false,info:{available:false}};return}
+    const [id,state,,supported,ready]=JSON.parse(key)
+    if(state!=='running'||!supported||!ready){nativeInfo={key,pending:false,info:{available:false,reason:'This running agent has no shared native terminal. Update reet on the machine and start a supported OpenCode chat.'}};return}
+    const request=new AbortController()
+    nativeInfo={key,pending:true,info:{available:false}}
+    void nativeTerminalView(id,request.signal).then(info=>{if(!request.signal.aborted)nativeInfo={key,pending:false,info}}).catch(()=>{if(!request.signal.aborted)nativeInfo={key,pending:false,info:{available:false,reason:'Could not check the native terminal. Reconnect the machine or reload this session.'}}})
+    return ()=>request.abort()
+  })
+  function choosePresentation(next:'chat'|'terminal'){
+    if(!session?.structured || next==='terminal' && !nativeInfo.info.available)return
+    presentations={...presentations,[session.id]:next}
+    if(next==='terminal')terminalMounted={...terminalMounted,[session.id]:true}
+  }
+
   const machineStatus = $derived(health.machines.find(item=>item.agentId===selectedAgent))
   const setup = $derived(readiness(machine))
   const serverNow = $derived(health.serverNow+elapsed)
@@ -520,7 +541,10 @@
     } catch(e){if(!disposed)error=e instanceof Error?e.message:'Action could not be confirmed. Retry the same action.'}
     finally{actionBusy=false}
   }
-  onMount(() => {
+  $effect(() => {
+    // Loading initially renders a skeleton: install measurement only once the
+    // real workspace is bound, and tear it down if that surface is removed.
+    if (!workspace) return
     // The layout was read above, before the first paint.
     // Only this workspace asks Android browsers to resize the page for the keyboard; other pages keep the default.
     const viewportMeta=document.querySelector<HTMLMetaElement>('meta[name="viewport"]'),viewportContent=viewportMeta?.getAttribute('content')??null
@@ -600,17 +624,24 @@
   </form>
 {/snippet}
 
+{#snippet sessionDetailsControl()}
+  <button class="btn details-toggle" bind:this={contextButton} aria-expanded={sideSession ? false : contextOpen} aria-controls="session-details-panel" aria-label="Session details panel"
+    title={sideSession ? 'Close the terminal beside the session to use details' : contextOpen ? 'Hide session details' : 'Show session details'} disabled={!!sideSession}
+    onclick={() => sessionScreen?.toggleContext?.()}><TerminalIcon name="panelRight"/><span>Details</span></button>
+{/snippet}
+
+
 {#if loading}
   <WorkspaceSkeleton label="Loading your sessions" context={!theatre && (!!selectedSession || !!selectedAgent)} />
 {:else}
 <section class="workspace" class:theatre class:keyboard class:resizing bind:this={workspace} style={`--workspace-height:${workspaceHeight}px;--sidebar-width:${sidebarWidth}px;--panel-width:${shown==='mini'?MINI_WIDTH:panelWidth}px`} aria-label="Remote terminal workspace">
   <header class="workspace-toolbar">
-    <div class="workspace-title"><a href="/sessions" aria-label="Back to sessions">←</a><h1>Sessions</h1></div>
+    <div class="workspace-title"><a href="/sessions" aria-label="Back to sessions">←</a>{#if !session}<h1>Sessions</h1>{/if}</div>
     {#if panelView==='closed'}<button class="btn quick-machine" aria-label={selectedAgent ? `New terminal on ${machine?.host || 'selected machine'}` : 'Choose a machine for a new terminal'} title={selectedAgent ? 'Start a terminal on this machine' : 'Choose a machine for a new terminal'} disabled={selectedAgent ? !canCreateFor(selectedAgent) : !machines.length} onclick={()=>openTerminalStart()}>+</button>{/if}
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <!-- The session screen's tabs share this row, so the terminal keeps its height. -->
     {#if session && !loading && !accessDenied && !phone}<SessionTabs tabs={tabSessions} current={session.id} onselect={chooseSession} onclose={closeSessionTab} />{/if}
-    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button>{#if session && !loading && !accessDenied}<button class="btn panel-toggle" bind:this={contextButton} aria-expanded={sideSession ? false : contextOpen} aria-controls="session-details-panel" aria-label="Session details panel" title={sideSession ? 'Close the terminal beside the session to use details' : contextOpen?'Hide session details':'Show session details'} disabled={!!sideSession} onclick={() => sessionScreen?.toggleContext?.()}><TerminalIcon name="panel"/></button>{/if}<button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
+    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
   </header>
   {#if preferenceError}<p class="workspace-notice bad" role="status">{preferenceError}</p>{/if}
   {#if statusError}<p class="workspace-notice bad" role="status">{statusError} <button onclick={()=>void refresh()}>Retry status</button></p>{/if}
@@ -632,7 +663,7 @@
       {:else if session}
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
         <SessionScreen bind:this={sessionScreen} {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
-          contextKey={`${preferenceKey}:context`} contextId="session-details-panel" bind:contextOpen oncontextclosed={() => contextButton?.focus()} onresizing={active => contextResizing = active}
+          view={presentation} onview={choosePresentation} nativeAvailable={nativeInfo.key === nativeKey && nativeInfo.info.available} nativePending={nativeInfo.pending} nativeReason={nativeInfo.info.reason} contextControls={sessionDetailsControl} contextKey={`${preferenceKey}:context`} contextId="session-details-panel" bind:contextOpen oncontextclosed={() => contextButton?.focus()} onresizing={active => contextResizing = active}
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
           insightChat={insightChat?.id === session.id ? insightChat.state : undefined}
           insightProgress={insightChat?.id === session.id ? insightChat.progress : undefined}
@@ -659,7 +690,15 @@
           {#key session.id + ':' + (session.structured ? 'chat' : 'term')}
             {#if session.structured}
               {@const reattachable = reconnectable(session)}
+              <div class="session-presentation" data-session-presentation="chat" hidden={presentation !== 'chat'} inert={presentation !== 'chat'}>
               <ChatPane {session} liveControls={machine?.capabilities?.acpLiveControls??false} reattach={reattach[session.id]} onreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false }) : undefined} ontrustreattach={reattachable || reattach[session.id] ? () => void reattachSession(session, { auto: false, trust: true }) : undefined} continuation={continuing[session.id]} oncontinue={continueOffered(session) && canContinueChat(session,machine)?()=>void continueSession(session):undefined} continueOff={actionBusy||accountActive>=32||!machine?.ready||machine?.serverEnabled===false} onnewchat={opener=>openAgentStart(session.agentId,opener)} newChatOff={actionBusy||!machines.length||accountActive>=32} onstate={(state, progress) => { insightChat = { id: session.id, state, progress } }} onbusy={busy => { chatBusy = { id: session.id, busy } }} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} acpImages={structuredAgent(machine?.capabilities, session.tool)?.images??false} acpModel={structuredAgent(machine?.capabilities, session.tool)?.model??false} agentModes={structuredAgent(machine?.capabilities, session.tool)?.modes??[]} />
+              </div>
+              {#if terminalMounted[session.id]}
+                <div class="session-presentation" data-session-presentation="terminal" hidden={presentation !== 'terminal'} inert={presentation !== 'terminal'}>
+                  <TerminalPane nativeView visible={presentation === 'terminal'} {keyboard} headerTheatre historySupported={false} uploadsSupported={false} holdSize={resizing || contextResizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre {session} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} />
+                </div>
+              {/if}
+
             {:else}
               <TerminalPane {keyboard} headerTheatre footnote={phone ? '' : `Approvals: ${session.yolo ? 'YOLO' : 'Ask me'}`} holdSize={resizing || contextResizing} sessionsVisible={shown!=='closed'} onsessions={paneSessions} bind:theatre bind:this={terminalPane} {session} historySupported={machine?.capabilities?.commandHistory??false} uploadsSupported={machine?.capabilities?.uploads??false} uploadsOff={machine?.capabilities?.uploadsOff??false} host={machine?.host || 'Unavailable machine'} user={machine?.capabilities?.osUser || ''} onrename={() => openAction('rename')} onend={() => openAction('end')} onarchive={() => openAction('archive')} archiveDisabled={actionBusy} actionDisabled={actionBusy || machine?.serverEnabled === false} />
             {/if}
@@ -717,7 +756,8 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .side-terminal-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.875rem; }
   .side-terminal-head button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: 0.875rem; }
   @media (max-width:650px){.workspace:has(:global(.session-screen)) .workspace-title>a{display:none}}
-  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:0.875rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:0.875rem;border-radius:6px;background:var(--tint);padding:1px 6px;font-variant-numeric:tabular-nums}.workspace-actions .panel-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.workspace-actions .panel-toggle:hover{color:var(--ink)}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:0.875rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:0.875rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:0.875rem;color:var(--muted);line-height:1.5;margin:0 0 16px;font-variant-numeric:tabular-nums}.workspace-notice{margin:0;padding:8px 12px;background:var(--tint);font-size:0.875rem;flex-shrink:0;display:flex;align-items:center;gap:8px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:0.875rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:12px;border-radius:8px}.setup-notice pre{font-size:0.875rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:0.875rem;margin:0 0 8px}.shortcut-help p+p{margin-top:8px}
+  .session-presentation{display:flex;flex:1;min-height:0;min-width:0;flex-direction:column}.session-presentation[hidden]{display:none}
+  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:0;border-radius:0;background:var(--bg);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:0.875rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:0.875rem;border-radius:6px;background:var(--tint);padding:1px 6px;font-variant-numeric:tabular-nums}.details-toggle{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:6px 10px;font-size:13px;border-color:var(--line-soft);background:none;color:var(--muted)}.workspace-actions .panel-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.workspace-actions .panel-toggle:hover{color:var(--ink)}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:0.875rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:0.875rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:0.875rem;color:var(--muted);line-height:1.5;margin:0 0 16px;font-variant-numeric:tabular-nums}.workspace-notice{margin:0;padding:8px 12px;background:var(--tint);font-size:0.875rem;flex-shrink:0;display:flex;align-items:center;gap:8px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:0.875rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:12px;border-radius:8px}.setup-notice pre{font-size:0.875rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:0.875rem;margin:0 0 8px}.shortcut-help p+p{margin-top:8px}
   .creation-error{color:var(--bad)!important}.find-machine{font-size:0.875rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:0.875rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:4px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:0.875rem;color:var(--muted)}
   .new-session-choice{display:grid;gap:8px}.new-session-option{display:grid;gap:4px;text-align:left;padding:12px 16px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.new-session-option:hover,.new-session-option:focus-visible{border-color:var(--accent)}.new-session-option strong{font-size:.9rem}.new-session-option span{font-size:0.875rem;color:var(--muted);line-height:1.5}
   .end-options{display:grid;gap:12px;margin-top:16px;font-size:0.875rem}.end-options .option{display:grid;gap:4px}.end-options label{display:flex;align-items:flex-start;gap:8px;line-height:1.5;cursor:pointer}.end-options input{flex:none;width:16px;height:16px;min-height:0;margin:2px 0 0;padding:0;border:0;background:none;accent-color:var(--accent)}.end-options p,.end-options a{margin:0;font-size:0.875rem;line-height:1.6;color:var(--muted)}.end-options p{margin-left:24px}.end-options a{justify-self:start;color:var(--accent-text)}
@@ -735,4 +775,8 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   @media(pointer:coarse){.workspace-actions .btn{min-height:40px;min-width:40px}.quick-machine{min-width:40px}.workspace-toolbar .find-machine{min-height:40px}.workspace-title>a{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;box-sizing:border-box}}
   /* A touch tablet (wider than a phone, not a phone held sideways): the toolbar's targets are 44 px, as everything around the session screen. */
   @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px){.workspace-actions .btn,.workspace-toolbar .find-machine,.quick-machine{min-height:44px;min-width:44px}.workspace-title>a{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;box-sizing:border-box}}
+
+ @media(max-width:650px){.details-toggle{min-width:44px;min-height:44px;padding:0;justify-content:center}.details-toggle span{display:none}}
+ @media(pointer:coarse){.details-toggle{min-height:44px}}
+
 </style>

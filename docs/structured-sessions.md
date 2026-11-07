@@ -178,9 +178,8 @@ default; choose **OpenCode TUI** for the terminal UI. The **Model** control choo
 first message. The dialog states that the folder's `.opencode` plugins run when it starts, and that a chat can be
 restored after reet restarts on the machine.
 
-The session appears in the usual list with its title and state. Its screen opens on **Gaffer**. The header's **OpenCode
-TUI** button switches the same live session to OpenCode's own terminal UI, and back, on a machine that negotiated
-`session-mode-v1` ([below](#switching-between-gaffer-and-the-opencode-tui)); otherwise it is disabled with the reason.
+The session appears in the usual list with its title and state. Its screen opens on **Chat**. The header's **Chat / Terminal** control preserves the running agent where the connector and session support shared native views (currently the pinned OpenCode 1.19.5 path). Unsupported sessions explain why Terminal is unavailable. Details honours saved layout; infrequent controls live in **Session actions**.
+
 Closing the tab or **End session** ends the reet session and its process. Losing the
 control connection detaches it without killing the agent; the next connection adopts the running session. If the agent
 closes its protocol output or sends an oversized frame, reet ends that process
@@ -467,13 +466,9 @@ the mode as it was.
 
 ## Switching between Gaffer and the OpenCode TUI
 
-A running OpenCode session can move between Gaffer and the OpenCode TUI under the same session row. The session
-header's **Gaffer** | **OpenCode TUI** pair shows the one in use; the other one switches (on a phone, the session's
-actions menu has **Switch to Gaffer…** or **Switch to the OpenCode TUI…**). A confirmation says what happens: the
-machine stops one process and starts the other on the same OpenCode conversation in the same folder, terminal scrollback
-is not kept, and the switch can take a few minutes. Until the machine answers, both buttons wait and the status line says
-**Switching to the …**; the browser sets no deadline of its own. Then the pane changes to the chat or the terminal, and
-the status pill, the **Approvals** line and the context panel's decisions follow the new mode.
+The primary **Chat / Terminal** header control is a view change, independent of runtime mode. For a supported chat, it attaches a disposable native client to the existing worker and conversation. Returning to Chat preserves its draft and stream. Closing the terminal client leaves the worker running. Service credentials remain local to the connector.
+
+The separate **Restart in another interface** control in Session actions uses the legacy mode-change API. It stops one process and starts another on the same saved conversation, requires confirmation, loses terminal scrollback and can take a few minutes. The restrictions below apply to that explicit restart operation, not the primary view switch.
 
 - **Only reet-started sessions return to Gaffer.** Going to Gaffer needs OpenCode's session id, which reet
   records only for a session that started (or has been) in Gaffer. A session started in the OpenCode TUI keeps the

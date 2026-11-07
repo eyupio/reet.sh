@@ -12,6 +12,8 @@ import (
 type Options struct {
 	// Agent is the adapter profile from the registry.
 	Agent Spec
+	// NativeTerminal enables a reviewed same-process native TUI companion.
+	NativeTerminal bool
 	// Binary overrides the spec command (tests and explicit installs).
 	Binary string
 	Dir    string

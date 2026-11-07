@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import { getProfile, getSyncState, UnauthorizedError, type SyncState } from '../api'
+  import { getProfile, getSyncState, listGafferGoals, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
+  import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText, titleFor } from '../agentLaunch'
@@ -79,6 +80,10 @@
   let agentStart = $state<{ opener: HTMLElement | null; project?: FolderProject } | null>(null)
   let now = $state(Date.now())
   let problem = $state('')
+  let followups = $state<GafferGoalOverviewView | undefined>()
+  let followupsFailed = $state(false)
+  const followupsNeedReview = $derived(followups?.goals.filter(row => row.attention).length ?? 0)
+  const following = $derived(followups?.goals.filter(row => row.goal.state === 'active' && !row.attention).length ?? 0)
   let readOnce = false
   const life = new AbortController()
   const bounded = () => AbortSignal.any([life.signal, AbortSignal.timeout(POLL_MS)])
@@ -140,7 +145,7 @@
     loading = true
     const signOut = () => { life.abort(); onsignedout(new UnauthorizedError()) }
     try {
-      const [h, y, s, p, g, t] = await Promise.allSettled([
+      const [h, y, s, p, g, t, f] = await Promise.allSettled([
         healthReadable ? machineHealth(bounded()) : Promise.resolve(undefined),
         getSyncState(bounded()),
         writer ? terminalSessions(bounded()) : Promise.resolve(undefined),
@@ -148,9 +153,10 @@
         writer ? listProjectGroups(bounded()) : Promise.resolve(undefined),
         // The launch bar's machines: readiness and launch capabilities change while Home stays open, so they are read with the rest.
         writer ? terminalMachines(bounded()) : Promise.resolve(undefined),
+        writer && accounts ? listGafferGoals(bounded()) : Promise.resolve(undefined),
       ])
       if (stale()) return
-      if ([h, y, s, p, g, t].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
+      if ([h, y, s, p, g, t, f].some(r => r.status === 'rejected' && refused(r.reason, r !== y))) return signOut()
       const at = Date.now()
       let failed = false
       if (y.status === 'fulfilled') sync = y.value; else failed = true
@@ -160,6 +166,10 @@
       // A health read that failed for a passing reason keeps the cards as last read.
       else failed = true
       if (writer) {
+        if (accounts) {
+          if (f.status === 'fulfilled' && f.value) { followups = f.value; followupsFailed = false }
+          else followupsFailed = true
+        }
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
         if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
         if (g.status === 'fulfilled' && g.value) { groups = g.value; groupsFailed = false } else { failed = true; groupsFailed = groups === undefined }
@@ -348,6 +358,8 @@
     const launchAtHash = () => { if (location.hash === '#launch') launchOpen = true }
     launchAtHash()
     window.addEventListener('hashchange', launchAtHash)
+    const goalsChanged = () => { void load(true) }
+    window.addEventListener(GAFFER_GOALS_CHANGED, goalsChanged)
     if (moved) void tick().then(() => { movedShown = true })
     void load()
     // The profile read gives up after 10 seconds, so the bar never waits on it for good (it then uses each project's own base).
@@ -366,7 +378,7 @@
     // it reads everything again. (The launch bar unlocks itself.)
     const restored = (e: PageTransitionEvent) => { if (e.persisted) void load(true) }
     window.addEventListener('pageshow', restored)
-    return () => { clearTimeout(giveUpTimer); query.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); window.removeEventListener('hashchange', launchAtHash); life.abort() }
+    return () => { clearTimeout(giveUpTimer); query.removeEventListener('change', resized); clearInterval(timer); document.removeEventListener('visibilitychange', shown); window.removeEventListener('pageshow', restored); window.removeEventListener('hashchange', launchAtHash); window.removeEventListener(GAFFER_GOALS_CHANGED, goalsChanged); life.abort() }
   })
 </script>
 
@@ -391,7 +403,11 @@
     <header class="workspace-heading">
       <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
       {#if writer}<div class="home-controls"><button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Expand the project names and groups' : 'Keep projects in a compact strip'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
-      <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}</div>
+      <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
+        {#if writer && accounts && (followupsNeedReview || following || followupsFailed)}<button type="button" class="followups" disabled={!$gafferChatEntry} aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget, 'followed')}>
+          {#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'follow-up needs' : 'follow-ups need'} review{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if followupsFailed}Gaffer follow-ups unavailable{/if}{#if followupsFailed && (followupsNeedReview || following)}{' · last read'}{/if}
+        </button>{/if}
+      </div>
     </header>
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
@@ -455,6 +471,9 @@
   @media (min-width: 1240px) { .home-projects { display: inline-flex; align-items: center; } }
   .home-start { min-height: 44px; padding: 8px 14px; border-radius: 8px; font: 500 14px var(--sans); white-space: nowrap; }
   .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .workspace-summary:has(.followups) { align-items: center; gap: 0 18px; }
+  .followups { min-height: 44px; padding: 8px 0; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .followups:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }

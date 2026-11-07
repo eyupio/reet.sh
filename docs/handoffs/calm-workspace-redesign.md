@@ -210,3 +210,7 @@ The user identified the projects column as the main space problem. It now defaul
 ## 16. Session end and Gaffer follow-up repair
 
 #641 merged after all six workflows passed, completing the compact Home projects slice. The next repair addresses the reported stopped-session foreground and general Gaffer capability confusion. Read [Session end and Gaffer follow-up](session-end-gaffer-followup.md) for lifecycle, scope, permission and acceptance contracts. The branch is `fix/session-end-gaffer-context`, based on main after #641. A stopped view can dismiss without deleting its history; a general Gaffer conversation can choose a session without implicitly granting access.
+
+## 17. Home follow-up discoverability
+
+#642 merged as `3952c332` after seven green workflows, including the cross-machine end-selection regression and real-terminal lifecycle. Deployment remains unverified. The next independent slice adds a compact Home summary entry for existing Gaffer follow-ups needing review or actively following a session. It reuses Followed sessions and its explicit controls; opening it changes no grant or goal and starts no model turn. Read [Home follow-up entry](home-gaffer-followups.md) for scope and acceptance. Broader attention unification and navigation remain separate refinements.

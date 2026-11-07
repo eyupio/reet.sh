@@ -1,8 +1,8 @@
 # Calm workspace redesign handoff
 
-Status: proposed, awaiting design review. Date: 7 November 2026.
+Status: design approved; implementation in progress on `feat/calm-session-workspace`. Date: 7 November 2026. Design PR #635 is merged. The implementation PR is a draft and must not be treated as release-ready.
 
-This handoff and its standalone prototype are review materials. They do not authorise implementation of the production UI. Agree the direction in the design PR before starting feature work. Prototype interactions use fictional data and never connect to an agent, machine or API.
+The user approved implementation and explicitly requires true Chat / Terminal view switching that preserves the running agent. Prototype interactions use fictional data and never connect to an agent, machine or API. The prototype predates this requirement; the implementation and contracts below supersede its restart-only terminal presentation.
 
 ## Outcome
 
@@ -56,7 +56,9 @@ Keep Machines, Skills and grouped More destinations. Lists, Setups, Sync, Teams,
 
 `SessionScreen.svelte` currently derives chat from `session.structured`. `SwitchModeDialog.svelte` explains that switching the supported OpenCode session mode stops one process and starts another, can stop current work, loses terminal scrollback and may require folder trust. A view preference is not a runtime mode change.
 
-For the first slice, keep the current capability checks and explicit switch confirmation. Name it **Switch to agent terminal…** or **Switch to conversation…** in More when supported. Do not introduce a cosmetic Conversation / Terminal tab that calls the mode-change API. Unsupported agents retain their working terminal and an honest capability explanation. A future non-disruptive dual view requires a separate technical proposal and backend evidence before its UI is promised.
+The primary **Chat / Terminal** control changes presentation only. It must preserve the running worker, conversation, working directory, drafts, stream subscription and mounted terminal attachment. It never calls the runtime mode-change endpoint. Unsupported agents show an accessible explanation instead of implying support.
+
+The draft implements the shared native service path for exactly OpenCode 1.19.5. A connector-negotiated `native-chat-view-v1` capability and a per-session readiness check gate it. The local ACP worker hosts an authenticated loopback service; a disposable native TUI client attaches to its existing conversation. Credentials stay on the connector. Existing restart-based interface changes remain explicitly labelled in Session actions with their confirmation.
 
 ### Attention and actions
 
@@ -106,7 +108,7 @@ Review the desktop and phone captures in both themes, Home hierarchy, Details be
 
 ### B. Session-only presentation PR
 
-Consolidate session header/rows and apply quiet surfaces using existing data and APIs. Preserve runtime mode-change semantics. Reuse attention and context models, retain focus mode and controls, and avoid unrelated Home or machine-management changes. Keep changes reversible at component/token boundaries; do not migrate stored data or invalidate saved preferences.
+Consolidate session header/rows and apply quiet surfaces using existing data and APIs. Preserve the explicitly labelled legacy runtime mode-change semantics; implement the separate same-process view contract above. Reuse attention and context models, retain focus mode and controls, and avoid unrelated Home or machine-management changes. Keep changes reversible at component/token boundaries; do not migrate stored data or invalidate saved preferences.
 
 Acceptance: a user can identify task, machine and next action; read/respond; inspect Details; reach all existing session actions; return to another session without losing context.
 
@@ -130,11 +132,45 @@ Rollback is a revert of the presentation PR; preserve backend contracts, old dee
 
 | Decision | Proposal | Approval state |
 | --- | --- | --- |
-| First scope | Session presentation only | Pending |
-| Details default | Closed for new/unset preference; honour existing saved choice | Pending |
-| Home | Continue-first optional view; Planning board stays prominent | Pending |
-| Companion | Compact, static by default in this reference; retain user animation setting in production | Pending |
-| Terminal access | Explicit capability-aware runtime switch; dual-view design deferred | Pending |
-| Navigation | Home, Sessions, Machines, Skills and grouped More remain reachable | Pending |
+| First scope | Session presentation and shared native-view foundation | Implementation approved |
+| Details default | Closed for new/unset preference; honour existing saved choice | Direction approved; acceptance pending |
+| Home | Continue-first optional view; Planning board stays prominent | Direction approved; acceptance pending |
+| Companion | Compact, static by default in this reference; retain user animation setting in production | Direction approved; acceptance pending |
+| Terminal access | Primary same-process Chat / Terminal switch; legacy restart action stays explicit | Required by user |
+| Navigation | Home, Sessions, Machines, Skills and grouped More remain reachable | Direction approved; acceptance pending |
 
-No production implementation should begin until this direction is reviewed. The design PR contains this document, the isolated prototype and preview captures only.
+The merged design PR contains the original reference. The implementation draft adds runtime and presentation changes; no deployment or merge is requested yet.
+
+
+## 8. Implementation checkpoint and architecture lessons
+
+The draft consolidates the session header, moves infrequent controls into Session actions, makes Details closed only for unset preferences, quietens the session rail and composer, and retains saved layout before first paint from #634. Both chat and native terminal stay mounted after initial attachment; hidden panes do not take focus or resize the visible terminal.
+
+Use each agent's native conversation identity and supported transport rather than scraping rendered terminal output into chat. Keep a capability matrix per agent/version: a shared local service, ACP stream and transcript file have different authority and recovery semantics. Native user records and service events supplement the ACP stream, with bounded history and de-duplication of chat-origin messages. Approval requests retain one identity and must retire across both interfaces after either answers. Never infer success from a visual transition. Preserve manual view selection during streaming and reconnects. These rules matter more than matching surface styling.
+
+Code map: `SessionViewSwitch.svelte`, `SessionScreen.svelte`, `TerminalWorkspace.svelte` and `TerminalPane.svelte` own presentation; `internal/acpagent/native_view.go` owns the local service and reconciliation; `terminalproto`, `terminalbroker`, `terminalagent` and `terminalhost` own capability negotiation, authorization, tickets and disposable PTY attachment. No native endpoint or password is returned to the browser.
+
+## 9. Coordination with #636
+
+Reviewed #636 at `f91945fb47db3f49225e23c5b691d04e3a3afbab` (`feat/session-worktree-isolation`), based on main `e1c4ed9b`. It is not merged into this branch. A `git merge-tree --write-tree HEAD origin/pr-636` simulation merged textually without conflicts; this does not establish runtime compatibility.
+
+Both views must use the same existing worktree and exact worker directory. Switching views must never launch a session, allocate a run token, create a branch or create/remove a worktree. Preserve #636's archive confirmation callback, fingerprint/count checks, active-session refusal and branch-retention semantics. Overlaps are `internal/api/terminal.go`, `TerminalWorkspace.svelte` and terminal `api.ts`.
+
+At that reviewed head, isolation injects worktree/project fields into structured creates, while the structured Create validation and launcher do not yet accept/prepare that combination. Resolve and test that integration with #636 before claiming structured worktree launches work. Re-check its current head and review fixes before integration; do not silently merge an outdated snapshot. The real native attachment probe uses an isolated-worktree-shaped directory and asserts the native client uses the ACP worker's directory, but does not replace combined launch/archive tests.
+
+## 10. Verification and remaining merge gates
+
+Passed on the rebased implementation: Svelte check (zero errors/warnings), production build, `go vet ./...`, and focused race tests for native views/capabilities/tickets across acpagent, terminalproto, terminalbroker, terminalagent and agenthealth. The real pinned OpenCode probe starts ACP and the actual native TUI, verifies worker PID stability, and verifies killing the disposable client leaves the worker alive. It makes no provider/model request. Browser fixtures exercise layout, actions, saved Details, drafts and a mocked native socket without calling the mode endpoint; final browser results belong in the PR description.
+
+The unchanged-source baseline full `go test -race ./...` did not pass: API package timed out at the default ten-minute limit, terminalhost tests lacked tmux, and the model timeout process-group test reported a surviving child. These are not a passing full regression suite.
+
+Before marking ready:
+
+- Exercise actual terminal-origin prompts and bidirectional streamed output, concurrent approvals/questions, native replies retiring chat cards, duplicate and late responses, and model/mode reconciliation.
+- Harden native SSE reconnect and stale busy-state recovery, bounded echo cleanup after failed prompts, and permission ledger races; current foundation needs these tests.
+- Verify the complete API/broker/host attachment path, lease renewal, takeover, reconnect and process teardown with tmux installed. The direct native probe covers only the worker/client lifecycle.
+- Update existing sessions/chat browser tests to open Session actions while retaining every previous contract. Run terminal sizing/paste, phone keyboard, focus, attention and offline Gaffer acceptance suites. New fixture tests do not replace those suites.
+- Integrate the current #636 safely and test structured worktree creation, retry identity, archive confirmation and same-directory dual views together.
+- Resolve or reproduce baseline full race failures and record exact outcomes. Do not claim every agent supports shared views; the current implementation is pinned to OpenCode 1.19.5.
+
+Home and broader navigation redesign remain deferred. Rollback is a revert of the implementation commits; no stored data migration is introduced.

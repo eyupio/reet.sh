@@ -18,6 +18,8 @@ One Go binary. One SQLite file. No telemetry.
 [![Container](https://img.shields.io/badge/ghcr.io-eyupio%2Freet.sh-1d1c1a.svg)](https://github.com/eyupio/reet.sh/pkgs/container/reet.sh)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-c2410c.svg)](CONTRIBUTING.md)
 
+Session controls put Chat / Terminal, optional Details and Session actions beside the task. Shared native views preserve the running agent where supported; the current implementation targets OpenCode 1.19.5. See [the implementation handoff](docs/handoffs/calm-workspace-redesign.md) for availability and remaining acceptance checks.
+
 [Quick start](#quick-start) · [Features](#features) · [Adding skills](#adding-skills) · [Configuration](#settings-env) · [Contributing](CONTRIBUTING.md)
 
 <br>

@@ -126,5 +126,26 @@ try {
     await expect(page.getByRole('button',{name:/follow-ups? needs? review/})).toHaveCount(0)
     expect(foldedWorkspace.errors).toEqual([]);expect(foldedWorkspace.state.unexpected).toEqual([])
   } finally {await foldedWorkspace.context.close()}
-  console.log('Home follow-ups: six theme/width views, a goal folded into its session card (counted once), standalone overview, no implicit writes/provider reads, explicit control refresh, stale read/retry, focus, empty and viewer/open-mode boundaries passed.')
+  // The only goal that needs review is on a session with an approval card, with nothing else followed: it is folded into
+  // that card, yet Home keeps its direct entry to Followed sessions, now saying where the goal went.
+  const only=fixture();only.box.rows=only.box.rows.slice(0,1)
+  only.routes['/api/v2/terminal/sessions']=folded.routes['/api/v2/terminal/sessions']
+  const onlyWorkspace=await openWorkspace(browser,{width:390,terminalStatus:{configured:true,available:true,reason:''},routes:only.routes})
+  try {
+    const page=onlyWorkspace.page
+    await page.goto(base+'/')
+    const needs=page.locator('#needs-you')
+    await expect(needs.locator('.card')).toHaveCount(1)
+    await expect(needs.locator('.card',{hasText:'Release review'}).getByText('Gaffer follow-up also needs review',{exact:true})).toHaveCount(1)
+    await expect(needs.locator('.count')).toHaveText('1')
+    await expect(page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
+    await expect(page).toHaveTitle(/^\(1\) /)
+    const entry=page.getByRole('button',{name:'Gaffer: 1 follow-up is in Needs you',exact:true})
+    await expect(entry).toBeVisible()
+    await expect(page.getByRole('button',{name:/follow-ups? needs? review/})).toHaveCount(0)
+    await entry.click()
+    await expect(page.getByRole('dialog',{name:'Followed sessions',exact:true}).getByRole('listitem')).toHaveCount(1)
+    expect(onlyWorkspace.errors).toEqual([]);expect(onlyWorkspace.state.unexpected).toEqual([])
+  } finally {await onlyWorkspace.context.close()}
+  console.log('Home follow-ups: six theme/width views, a goal folded into its session card (counted once, entry kept), standalone overview, no implicit writes/provider reads, explicit control refresh, stale read/retry, focus, empty and viewer/open-mode boundaries passed.')
 } finally {await browser.close()}

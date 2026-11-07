@@ -427,7 +427,7 @@ export function foldGafferGoals(cards: NeedCard[], goals: readonly GafferGoalOve
     else unfolded++
   }
   if (!folded.size) return { cards, unfolded }
-  return { cards: cards.map(c => folded.has(c.sessionId) ? { ...c, reasons: [...c.reasons, 'gaffer'] } : c), unfolded }
+  return { cards: cards.map(c => folded.has(c.sessionId) && !c.reasons.includes('gaffer') ? { ...c, reasons: [...c.reasons, 'gaffer'] } : c), unfolded }
 }
 
 /**

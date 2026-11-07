@@ -99,6 +99,9 @@
   const folded = $derived(foldGafferGoals(needsYou(sessions ?? [], now, owners, health ?? []), followups?.goals))
   const needs = $derived(folded.cards)
   const followupsNeedReview = $derived(folded.unfolded)
+  // Goals that need review but sit on a Needs you card keep Home's entry to Followed sessions when nothing else would show it.
+  const attentionGoals = $derived(followups?.goals.filter(row => row.attention).length ?? 0)
+  const foldedGoals = $derived(Math.max(0, attentionGoals - followupsNeedReview))
 
   async function markSeen(sessionId: string) {
     sessions = (sessions ?? []).map(s => s.id === sessionId ? { ...s, changedSinceSeen: false, attention: s.attention === 'waiting' && !hasPending(s) ? 'working' : s.attention } : s)
@@ -408,8 +411,8 @@
       <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
       {#if writer}<div class="home-controls"><button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Expand the project names and groups' : 'Keep projects in a compact strip'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
       <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
-        {#if writer && accounts && (followupsNeedReview || following || followupsFailed)}<button type="button" class="followups" disabled={!$gafferChatEntry} aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget, 'followed')}>
-          {#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'follow-up needs' : 'follow-ups need'} review{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if followupsFailed}Gaffer follow-ups unavailable{/if}{#if followupsFailed && (followupsNeedReview || following)}{' · last read'}{/if}
+        {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed)}<button type="button" class="followups" disabled={!$gafferChatEntry} aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget, 'followed')}>
+          {#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'follow-up needs' : 'follow-ups need'} review{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if foldedGoals}Gaffer: {foldedGoals} {foldedGoals === 1 ? 'follow-up is' : 'follow-ups are'} in Needs you{:else if followupsFailed}Gaffer follow-ups unavailable{/if}{#if followupsFailed && (followupsNeedReview || following || foldedGoals)}{' · last read'}{/if}
         </button>{/if}
       </div>
     </header>

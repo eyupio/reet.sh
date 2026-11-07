@@ -485,3 +485,12 @@ test('a Gaffer goal for a carded session folds into that card once, and the rest
   assert.deepEqual(h.foldGafferGoals(cards, [goal(undefined)]).cards, cards)
   assert.deepEqual(h.foldGafferGoals([], [goal('c1'), goal('c2')]), { cards: [], unfolded: 2 })
 })
+
+test('folding twice leaves a single gaffer reason', () => {
+  const cards = needsYou([session('c1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - MIN, changedSinceSeen: true, pendingPermission: { permissionId: 'p1', title: 'go test' } })], NOW)
+  const goals = [{ goal: { id: 'g1' }, session: { id: 'c1', agentId: 'a1', title: 't', state: 'running' }, available: true, attention: true }]
+  const once = h.foldGafferGoals(cards, goals)
+  const twice = h.foldGafferGoals(once.cards, goals)
+  assert.deepEqual(twice.cards[0].reasons, ['approval', 'gaffer'])
+  assert.equal(twice.unfolded, 0)
+})

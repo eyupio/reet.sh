@@ -1,5 +1,6 @@
 import type { FolderProject, MachineHealth, TerminalMachine, TerminalSession, SessionState } from './terminal/api'
 import type { SyncJob, SyncState } from './api'
+import { ATTENTION_WINDOW_MS } from './attention'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
 // No DOM, no fetch. Every figure is labelled with what it measures and comes from a record that exists today:
@@ -64,7 +65,7 @@ export type NeedCard = {
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR
 const LIVE: ReadonlySet<SessionState> = new Set(['creating', 'running', 'end_requested'])
 /** A finished session stays in In flight this long after its last state change, then only Sessions lists it. */
-export const FINISHED_KEPT_MS = DAY
+export const FINISHED_KEPT_MS = ATTENTION_WINDOW_MS
 
 const live = (s: Pick<TerminalSession, 'state'>): boolean => LIVE.has(s.state)
 

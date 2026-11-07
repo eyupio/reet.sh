@@ -95,5 +95,17 @@ try {
     await expect(page.getByRole('dialog',{name:'Gaffer',exact:true})).toBeVisible()
     expect(historyWorkspace.errors).toEqual([]);expect(historyWorkspace.state.unexpected).toEqual([])
   } finally {await historyWorkspace.context.close()}
+  const last=fixture();last.box.rows=last.box.rows.slice(0,1)
+  const finalWorkspace=await openWorkspace(browser,{width:390,routes:last.routes})
+  try {
+    const page=finalWorkspace.page
+    await page.goto(base+'/');await page.getByRole('button',{name:'Gaffer: 1 follow-up needs review',exact:true}).click()
+    await page.getByRole('dialog',{name:'Followed sessions',exact:true}).getByRole('button',{name:'Review goal',exact:true}).click()
+    await page.getByRole('dialog',{name:'Look after this session',exact:true}).getByRole('button',{name:'Stop goal',exact:true}).click()
+    await page.getByRole('dialog',{name:'Stop this goal?',exact:true}).getByRole('button',{name:'Stop goal',exact:true}).click()
+    await expect(page.locator('.workspace-summary .followups')).toHaveCount(0)
+    await page.keyboard.press('Escape');await page.keyboard.press('Escape')
+    await expect(page.getByRole('button',{name:'Ask Gaffer',exact:true})).toBeFocused()
+  } finally {await finalWorkspace.context.close()}
   console.log('Home follow-ups: six theme/width views, standalone overview, no implicit writes/provider reads, explicit control refresh, stale read/retry, focus, empty and viewer/open-mode boundaries passed.')
 } finally {await browser.close()}

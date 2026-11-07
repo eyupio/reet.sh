@@ -108,6 +108,9 @@
     return { update, destroy() { handle?.destroy?.() } }
   }
   function dispose() { epoch++; request?.abort(); modelRequest?.abort(); modelEpoch++; stream?.close(); stream = undefined }
+  function focusEntry(button?: HTMLElement) {
+    (button?.isConnected ? button : inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true})
+  }
   function message(e: unknown): string { if (e instanceof UnauthorizedError) onerror?.(e); return e instanceof Error ? e.message : 'Gaffer could not reach the controller just now.' }
   function remember(key: string, value: PendingGafferSend | null) {
     if (value) pendingMemory.set(key, value); else pendingMemory.delete(key)
@@ -364,7 +367,7 @@
 
   </dialog>
 {/if}
-{#if historyOpen}<GafferChatHistory {timeZone} {dateFormat} activeSession={$gafferSessionContext} currentScope={scope} onselect={value=>{mode=value;historyOpen=false;open=true}} onerror={message} onclose={()=>{historyOpen=false;void tick().then(()=>(open ? historyButton : inlineOpener)?.focus({preventScroll:true}))}} onremoved={c => { if (current?.conversation.id === c.id || pending?.conversationId === c.id) { remember(scope, null); drafts[scope] = ''; void load() } }} />{/if}
+{#if historyOpen}<GafferChatHistory {timeZone} {dateFormat} activeSession={$gafferSessionContext} currentScope={scope} onselect={value=>{mode=value;historyOpen=false;open=true}} onerror={message} onclose={()=>{historyOpen=false;void tick().then(()=>focusEntry(open ? historyButton : undefined))}} onremoved={c => { if (current?.conversation.id === c.id || pending?.conversationId === c.id) { remember(scope, null); drafts[scope] = ''; void load() } }} />{/if}
 {#if confirming && current}<ConfirmDialog title="Remove this Gaffer conversation?" body="This deletes its messages and stops its current answer. Your working agent keeps running. Provider credits already used cannot be recovered." confirmLabel="Remove conversation" danger oncancel={() => confirming = false} onconfirm={() => void removeConversation()} />{/if}
 {#if freshConfirm && current}<ConfirmDialog title="Start a new Gaffer conversation?" body="This clears the saved messages, shared context and any session goal for this chat, and stops its current answer. Your working agent keeps running. Provider credits already used cannot be recovered." confirmLabel="Start fresh chat" danger oncancel={() => {freshConfirm = false; void tick().then(() => freshButton?.focus({preventScroll:true}))}} onconfirm={() => void removeConversation(true)} />{/if}
 
@@ -401,7 +404,7 @@
 
 {#if sessionPickerOpen}<GafferSessionPicker onclose={()=>{sessionPickerOpen=false;void tick().then(()=>composer?.focus({preventScroll:true}))}} onselect={()=>{mode='session';sessionPickerOpen=false}} />{/if}
 {#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {timeZone} {dateFormat} onchanged={goalChanged}/></WorkspaceDialog>{/if}
-{#if followedOpen}<GafferFollowedSessions {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(open&&scope&&current)await goalChanged();else window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))}} onselect={()=>{mode='session';followedOpen=false;open=true}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>(open ? optionsButton : inlineOpener)?.focus({preventScroll:true}))}}/>{/if}
+{#if followedOpen}<GafferFollowedSessions {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(open&&scope&&current)await goalChanged();else window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))}} onselect={()=>{mode='session';followedOpen=false;open=true}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>focusEntry(open ? optionsButton : undefined))}}/>{/if}
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 
 <style>

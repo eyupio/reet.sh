@@ -182,3 +182,11 @@ The user authorized merging these PRs once ready and green, and continuing imple
 ## 13. Remaining plan
 
 The session workspace and shared native-view implementation are complete pending final combined CI and review. Attention ownership for this native path is covered above; broader cross-surface attention consistency remains a separate slice. Home Continue-first layout, broader navigation and supporting-page refinements remain future presentation work, preserving Planning board, existing routes and saved defaults. Finish these release gates before starting that slice. Keep this handoff and the continuation prompt current as PRs merge.
+
+## 14. Optional Home Continue working view
+
+The next presentation slice is on `feat/home-continue-view`, stacked on #638 until that release merges. Home now offers Continue working and Planning board. Planning board remains the default when no explicit Home choice exists; the new per-account browser preference does not alter the board's own saved view, sort or density. The board stays mounted across switches, preserving in-memory filters and drafts.
+
+Continue working reuses the existing InFlight rows, project/machine/state grouping, session actions, state/source phrases and offline explanations. It respects the rail's project/group scope and provides Show all projects. Start a session opens the existing Start an agent dialog; changing Home views never creates a session. Existing Needs you and machine workflows remain available, and read-only Home receives no new session controls.
+
+Svelte check and the production build passed. The eight desktop/phone/light/dark browser cases verify the unchanged initial default, explicit-choice persistence through reload, board search preservation, offline evidence, no sideways scrolling and opening/cancelling Start without a create. The full Home and planning-board regression suites passed. Check the exact new PR head and its CI before merging this separate slice. Broader navigation and cross-surface attention refinements remain future work.

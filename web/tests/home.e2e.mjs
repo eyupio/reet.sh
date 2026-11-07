@@ -189,6 +189,35 @@ const launchStatus = page => launchBar(page).locator('.status')
 const openLaunch = async page => { const d = page.getByRole('dialog',{name:'Start a session'}); if (await d.count()) return; await page.evaluate(() => { location.hash = 'launch' }); await d.waitFor({timeout:5000}) }
 
 try {
+ if (run('Continue working preserves the planning board and saves only an explicit choice')) {
+  for (const theme of ['light','dark']) for (const [width,height] of [[1440,1000],[390,844],[320,568],[844,390]]) {
+   const {context,page,errors,box}=await home({width,height,theme,touch:width<1000})
+   await page.goto(base)
+   const views=page.getByRole('group',{name:'Home view',exact:true}),board=views.getByRole('button',{name:'Planning board',exact:true}),resume=views.getByRole('button',{name:'Continue working',exact:true})
+   await expect(board).toHaveAttribute('aria-pressed','true')
+   expect(await page.evaluate(()=>localStorage.getItem('reet.home.view.1'))).toBeNull()
+   const search=page.getByRole('searchbox',{name:'Search sessions',exact:true})
+   await search.fill('release')
+   await resume.click()
+   const list=page.getByRole('region',{name:'Continue working',exact:true})
+   await expect(list.getByRole('link',{name:/Refactor the store layer/})).toBeVisible()
+   await expect(list).toContainText('desk is not reporting')
+   await expect(search).toBeHidden()
+   expect(await noSideways(page)).toBe(true)
+   if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/home-continue-${theme}-${width}.png`,fullPage:true})
+   await page.getByRole('button',{name:'Start a session',exact:true}).click()
+   const start=page.getByRole('dialog',{name:'Start an agent',exact:true})
+   await expect(start).toBeVisible()
+   await page.keyboard.press('Escape');await expect(start).toHaveCount(0)
+   await board.click();await expect(search).toHaveValue('release')
+   await resume.click();await page.reload()
+   await expect(resume).toHaveAttribute('aria-pressed','true')
+   await expect(list).toBeVisible()
+   expect(box.created).toBeNull()
+   expect(errors).toEqual([])
+   await context.close()
+  }
+ }
  // Each card names the machine, its connection word, the live sessions on it (never "agents"), CPU labelled CPU and the
  // skills line from the last finished check, and opens that machine on Machines.
  if (run('fleet strip shows CPU, sessions running and the skills line with their labels')) {

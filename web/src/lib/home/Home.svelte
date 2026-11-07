@@ -4,11 +4,12 @@
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText, titleFor } from '../agentLaunch'
-  import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, needsYou, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
+  import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import type { LaunchDefaults } from '../launchBar'
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import FleetStrip from './FleetStrip.svelte'
+  import InFlight from './InFlight.svelte'
   import SessionBoard from './SessionBoard.svelte'
   import NeedsYou from './NeedsYou.svelte'
   import ProjectRailHost from './ProjectRailHost.svelte'
@@ -175,6 +176,17 @@
   const NARROW = '(max-width: 1099px)'
   let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
 
+  let homeView = $state<'board' | 'continue'>('board')
+  let continueGroup = $state<'project' | 'machine' | 'state'>('project')
+  function chooseHomeView(view: 'board' | 'continue') {
+    homeView = view
+    try { localStorage.setItem(`reet.home.view.${userId}`, view) } catch { /* The view still works for this visit. */ }
+  }
+  const continueSessions = $derived((sessions ?? []).filter(s => scopedIds === undefined || scopedIds.includes(s.projectId ?? '')))
+  const continueGroups = $derived(inFlight(continueSessions, owners, health ?? [], continueGroup, now))
+  const continueOffline = $derived((health ?? []).filter(m => m.state !== 'connected' && continueSessions.some(s => s.agentId === m.agentId)).map(m => ({agentId: m.agentId, host: m.host})))
+  const projectColours = $derived(new Map((projects ?? []).map(p => [p.id, p.colour])))
+
   let notice = $state<{ text: string; href?: string; bad?: boolean } | null>(null)
   // The board's scope: a project shows its sessions, a group its projects' sessions.
   const scopedIds = $derived.by(() => {
@@ -326,7 +338,10 @@
   // The redirect note goes into its live region after the page is drawn, so it is announced.
   let movedShown = $state(false)
   onMount(() => {
-    try { railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1' } catch { /* Open by default. */ }
+    try {
+      railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1'
+      if (localStorage.getItem(`reet.home.view.${userId}`) === 'continue') homeView = 'continue'
+    } catch { /* Open by default. */ }
     // The session screen's + and the Sessions page's New session arrive at /#launch: the bar opens in its modal.
     const launchAtHash = () => { if (location.hash === '#launch') launchOpen = true }
     launchAtHash()
@@ -383,9 +398,23 @@
       {#if needs.length}
         <details class="home-detail attention-detail" open><summary>Needs you <span>{needs.length}</span></summary><NeedsYou cards={needs} onseen={markSeen} onanswered={answered} /></details>
       {/if}
+      <div class="home-views" role="group" aria-label="Home view">
+        <button type="button" aria-pressed={homeView === 'continue'} onclick={() => chooseHomeView('continue')}>Continue working</button>
+        <button type="button" aria-pressed={homeView === 'board'} onclick={() => chooseHomeView('board')}>Planning board</button>
+      </div>
+      {#if homeView === 'continue'}<div>
+        <div class="continue-heading"><p>Pick up a session or start something new.</p><button type="button" class="btn primary" onclick={event => startNewSession(event.currentTarget)}>Start a session</button></div>
+        {#if scope}<p class="continue-scope">{scopeName} <button type="button" class="btn" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
+        <InFlight heading="Continue working" groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
+          groupBy={continueGroup} onchoose={value => (continueGroup = value)} {projectColours} terminals={terminals ?? []} {removeDefault}
+          onchanged={() => load(true)} onnotice={value => (notice = value)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+      </div>
+      {/if}
+      <div hidden={homeView !== 'board'}>
       <SessionBoard {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
         scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
         onchanged={() => load(true)} onstart={(opener) => startNewSession(opener)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
+      </div>
       <details class="home-detail"><summary>Your machines <span>{cards.filter(reporting).length} of {cards.length} connected</span></summary>
         <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
           onnew={newSessionOn} onproject={newProjectOn} onterminal={startTerminalOn} />
@@ -444,6 +473,14 @@
   .problem { border-color: var(--warn); }
   .notice { border-color: var(--good); }
   .notice.bad { border-color: var(--bad); }
+  .home-views { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+  .home-views button { min-height: 44px; padding: 8px 14px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--muted); font: 500 14px var(--sans); cursor: pointer; }
+  .home-views button[aria-pressed=true] { border-color: var(--line); background: var(--card); color: var(--ink); }
+  .home-views button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+  .continue-heading { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin: 8px 0 20px; }
+  .continue-heading p { margin: 0; color: var(--muted); }
+  .continue-heading button, .continue-scope button { min-height: 44px; }
+  .continue-scope { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); }
   .home-detail { border-top: 1px solid var(--line); padding: 12px 0; }
   .home-detail > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
   .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 14px; font-variant-numeric: tabular-nums; }

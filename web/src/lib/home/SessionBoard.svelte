@@ -19,9 +19,10 @@
   import ImageLightbox from '../terminal/ImageLightbox.svelte'
   import SessionActions from '../sessions/SessionActions.svelte'
 
-  let { userId, sessions, sessionsFailed = false, projects, machines, health, profile, now, initialProject = '', removeDefault = false,
+  let { embedded = false, userId, sessions, sessionsFailed = false, projects, machines, health, profile, now, initialProject = '', removeDefault = false,
     scopeIds = undefined, scopeKind = undefined, scopeName = '', onclearscope,
     onchanged, onsignedout, onstart }: {
+    embedded?: boolean
     userId: number; sessions: TerminalSession[] | undefined; sessionsFailed?: boolean; projects: FolderProject[]; machines: TerminalMachine[]
     health: MachineHealth[]; profile: LaunchDefaults; now: number; initialProject?: string; removeDefault?: boolean
     /** The projects the board is narrowed to; undefined shows every project. */
@@ -282,10 +283,10 @@
 
 <svelte:window onpointerdown={outside} onkeydown={keydown} />
 
-<section class="session-board" aria-labelledby={`${id}-heading`}>
-  <header class="heading">
-    <h2 id={`${id}-heading`}>Your work, in good order.</h2>
-    <button class="btn primary new-session" aria-label="New session" onclick={e => onstart(e.currentTarget)}><BoardIcon name="plus" />New session</button>
+<section class="session-board" class:embedded aria-labelledby={`${id}-heading`}>
+  <header class="heading" class:embedded>
+    <h2 class:vh={embedded} id={`${id}-heading`}>Your work, in good order.</h2>
+    {#if !embedded}<button class="btn primary new-session" aria-label="New session" onclick={e => onstart(e.currentTarget)}><BoardIcon name="plus" />New session</button>{/if}
   </header>
   <div class="viewbar">
     <div class="views" role="group" aria-label="Session view">
@@ -384,6 +385,8 @@
 <SessionActions bind:this={actions} machines={health} {offline} terminals={machines} {removeDefault} {onsignedout} {onchanged} onnotice={n => notice = n?.text ?? ''}/>
 
 <style>
+  .heading.embedded { min-height: 0; margin: 0; padding: 0; }
+
   .session-board { min-width: 0; }
   .heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 0 0 16px; }
   h2 { font: 500 clamp(22px, 2vw, 28px)/1.15 var(--serif); letter-spacing: -.035em; margin: 0; }
@@ -460,6 +463,11 @@
   @media (min-width: 1800px) { .session-card { padding: 16px; }h4 { font-size: 15px; }.prompt-preview { font-size: 14px; }.agent-meta, .machine-line, .age, .status { font-size: 14px; } }
   @media (max-width: 1400px) { .board { gap: 12px; }.stage { padding: 12px 8px 8px; }.session-card { padding: 12px; }.card-foot { flex-wrap: wrap; }.card-actions { gap: 8px; } }
   @media (max-width: 850px) { .board { grid-template-columns: minmax(0, 1fr); gap: 16px; }.cards { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }.stage { min-height: 0; }.stage-hint { font-size: 14px; }.stage-head h3 { font-size: 14px; }.session-card h4 { font-size: 14px; }.agent-meta, .machine-line, .card-actions button, .status, .open-session, .age { font-size: 14px; }.card-actions button, .open-session { min-height: 30px; }.filter-panel { right: 0; width: min(480px, calc(100vw - 54px)); }.display select { max-width: 120px; }.viewbar { flex-wrap: wrap; }.views { flex: 1; }.display { margin-left: auto; } }
+  .embedded .stage:not(.drop-ready) { background: transparent; border-radius: 8px; }
+  .embedded .session-card { box-shadow: none; }
+  .embedded .session-card[data-status='waiting'], .embedded .session-card[data-status='failed'] { box-shadow: inset 2px 0 var(--status); }
+  .embedded .status { padding: 2px 0; border: 0; background: transparent; }
+  .embedded .stage-count, .embedded .view-count { border: 0; background: transparent; }
   @media (max-width: 650px) { .disclosure-text { display: none; }.disclosure { margin-right: -2px; }.scope { flex-wrap: wrap; padding: 8px 12px; } .scope p { flex-wrap: wrap; row-gap: 2px; } .scope-reset { margin-left: 0; width: 100%; justify-content: center; min-height: 40px; } .heading { margin: 0 0 16px; gap: 12px; align-items: center; }h2 { font-size: 22px; }.new-session { font-size: 14px; }.views { gap: 1px; justify-content: space-between; width: 100%; overflow-x: auto; scrollbar-width: none; }.views::-webkit-scrollbar { display: none; }.views button { flex: 0 0 auto; padding: 8px 6px; font-size: 14px; gap: 6px; min-height: 42px; }.views button :global(svg) { width: 14px; }.divider { margin: 0 2px; }.view-count { font-size: 14px; min-width: 14px; padding: 1px 2px; }.viewbar { gap: 8px; padding-bottom: 8px; }.display { width: 100%; justify-content: space-between; }.display select { max-width: none; padding-left: 0; font-size: 16px; }.filterbar { gap: 8px; padding: 12px 0; flex-wrap: wrap; }.search { max-width: none; min-width: 0; }.search input { min-height: 42px; font-size: 16px; }.filter-button { min-height: 44px; }.result-count { display: none; }.filter-panel { position: fixed; top: 15dvh; left: 16px; right: 16px; width: auto; max-height: 70dvh; box-sizing: border-box; }.filter-groups { gap: 16px; }.filter-groups label { padding: 8px 0; }.board-foot { align-items: start; font-size: 14px; }.board-foot span { max-width: 180px; }.board-foot span :global(svg) { flex-shrink: 0; }.focused .cards, .cards { grid-template-columns: minmax(0, 1fr); }.card-foot { flex-wrap: nowrap; }.empty { padding: 24px 12px; }.prompt-preview { font-size: 14px; } }
   @media (max-width: 380px) { .views button:not(:first-child) :global(svg) { display: none; } }
   @media (pointer: coarse) { .disclosure { min-height: 40px; padding: 8px; } }

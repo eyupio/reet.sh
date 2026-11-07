@@ -533,7 +533,7 @@
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>
     </button>
     <button type="button" class="manage" bind:this={opener} aria-label={collapsed ? 'Expand the project rail' : toggleName} title={collapsed ? 'Expand the project rail' : toggleName}
-      aria-expanded={collapsed || panelOpen} aria-controls={`${id}-full`} onclick={() => {
+      aria-expanded={panelOpen} aria-controls={`${id}-full`} onclick={() => {
         if (collapsed && wide) { expandRail(); return }
         openPanel()
       }}>

@@ -5,7 +5,7 @@ const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const release = []
 try {
-  for (const width of [375, 1200, 1440, 1920]) for (const path of ['/', '/machines', '/sessions', '/sessions/', '/terminals/', '/sessions?view=list', '/machines?view=terminal']) for (const collapsed of path === '/' ? [false, true] : [false]) {
+  for (const width of [375, 1200, 1440, 1920]) for (const path of ['/', '/machines', '/sessions', '/sessions/', '/terminals/', '/sessions?view=list', '/machines?view=terminal']) for (const collapsed of path === '/' ? [null, false, true] : [false]) {
     let bundleReady, authReady, pageReady
     const bundleGate = new Promise(resolve => (bundleReady = resolve))
     const authGate = new Promise(resolve => (authReady = resolve))
@@ -14,7 +14,8 @@ try {
     const { context, page, errors } = await openWorkspace(browser, { width, gates: { '/api/v2/auth/status': authGate } })
     await context.addInitScript(collapsed => {
       localStorage.setItem('reet-token', 'boot-fixture')
-      localStorage.setItem('reet.rail.collapsed', collapsed ? '1' : '0')
+      if(collapsed === null)localStorage.removeItem('reet.rail.collapsed')
+      else localStorage.setItem('reet.rail.collapsed', collapsed ? '1' : '0')
     }, collapsed)
     await page.route('**/assets/index-*.js', async route => { await bundleGate; await route.continue() })
     const chunk = path === '/' ? 'Home' : path === '/sessions?view=list' ? 'SessionsPage' : 'Machines'
@@ -29,7 +30,7 @@ try {
     expect(header.x).toBe(0)
     expect(header.width).toBe(width)
     const workspaceRail = width >= 1100 && !path.includes('view=terminal') && (path === '/' || path === '/machines' || path === '/sessions?view=list') ? 228 : 0
-    const rail = path === '/' ? width >= 1240 && !collapsed ? 301 : width >= 1100 ? 56 : 0 : 0
+    const rail = path === '/' ? width >= 1240 && collapsed === false ? 301 : width >= 1100 ? 56 : 0 : 0
     if (path === '/') {
       expect(staticBox.x).toBe(workspaceRail + rail)
       expect(staticBox.width).toBe(width - workspaceRail - rail)

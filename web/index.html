@@ -48,9 +48,10 @@
         var bootPath = location.pathname
         if (/^\/projects(?:\/[^/]+)?\/?$/.test(bootPath) || /^\/control\/?$/.test(bootPath)) bootPath = '/'
         if (/^\/(sessions|terminals)\/?$/.test(bootPath)) bootPath = '/sessions'
+        document.documentElement.dataset.bootRail = 'collapsed'
         try {
-          if (localStorage.getItem('reet.rail.collapsed') === '1') document.documentElement.dataset.bootRail = 'collapsed'
-        } catch (e) { /* Use the default expanded rail when storage is blocked. */ }
+          if (localStorage.getItem('reet.rail.collapsed') === '0') delete document.documentElement.dataset.bootRail
+        } catch (e) { /* Keep projects compact when storage is blocked. */ }
         document.documentElement.dataset.bootLayout = bootPath === '/' ? 'home'
           : ((bootPath === '/sessions' || bootPath === '/terminals') && bootQuery.get('view') !== 'list')
             || (['/machines', '/account/machines', '/account/sync'].indexOf(bootPath) !== -1 && bootQuery.get('view') === 'terminal') ? 'workspace'

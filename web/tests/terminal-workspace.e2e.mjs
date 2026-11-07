@@ -66,7 +66,7 @@ async function bounds(width,height){
  console.log(`Screen ${width}x${height}: top=${Math.round(b.y)}, height=${Math.round(b.height)} (${Math.round(b.height/height*100)}%)`)
  // The session screen's header (title, state, Chat | Terminal) sits above the pane by design; the pane starts right under it.
  const head=await page.evaluate(()=>{const h=document.querySelector('.session-screen .head');return h&&h.getClientRects().length?h.getBoundingClientRect().height:0})
- const tools=await page.locator('.session-tools').evaluate(el=>el.getBoundingClientRect().height)
+ const tools=await page.locator('.session-screen .header-actions').evaluate(el=>el.getBoundingClientRect().height)
  expect(head).toBeLessThanOrEqual(68+tools)
  expect((await pane.boundingBox()).y).toBeLessThan(160+head)
  expect(b.y).toBeLessThan(240+head)

@@ -386,6 +386,8 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusConflict, "yolo_refused", "", "That machine doesn't accept YOLO sessions.", "")
 	case errors.Is(err, terminalbroker.ErrPromptUnsupported):
 		writeErrCode(w, http.StatusUnprocessableEntity, "prompt_unsupported", "prompt", "Write the opening prompt as at least two words.", "")
+	case errors.Is(err, terminalbroker.ErrACPWorktreeUnsupported):
+		writeErrCode(w, http.StatusConflict, "acp_worktree_unsupported", "", "Update reet on that machine to start chats in isolated worktrees.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeUnsupported):
 		writeErrCode(w, http.StatusConflict, "worktree_unsupported", "", "Update reet on that machine to start agents with worktrees.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeRefused):

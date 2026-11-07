@@ -57,7 +57,8 @@ type chatSession struct {
 	yolo      bool
 	// trust is the folder trust the chat was opened with; a swap that has to
 	// restore this chat reopens it the same way.
-	trust bool
+	trust                      bool
+	worktreePath, worktreeRepo string
 	// quiet is set once a mode swap has taken this chat over: its end and any
 	// late events are never told to the controller, whose row stays running.
 	quiet bool
@@ -392,9 +393,10 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 			return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 		}
 		state, exit, acpID := cs.state, cs.exit, cs.acpID
+		worktreePath, worktreeRepo := cs.worktreePath, cs.worktreeRepo
 		history := h.link.history
 		h.sup.mu.Unlock()
-		return terminalproto.SessionChanged{State: state, ExitCode: exit, ACPSessionID: reportedACP(in.Tool, acpID, history)}, nil
+		return terminalproto.SessionChanged{State: state, ExitCode: exit, ACPSessionID: reportedACP(in.Tool, acpID, history), WorktreePath: worktreePath, WorktreeRepo: worktreeRepo}, nil
 	}
 	// For a reattach (dropReplay), a session that appeared under the id since
 	// reattach checked is another start in flight for it.
@@ -443,8 +445,30 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	if err != nil {
 		return terminalproto.SessionChanged{}, err
 	}
+	git := h.sup.opts.Git
+	if git == nil {
+		git = terminalhost.ExecGit
+	}
+	var worktree terminalhost.Worktree
+	if in.Worktree != "" {
+		worktree, err = terminalhost.PrepareWorktree(h.sup.ctx, h.sup.opts.Home, dir, in.Project, in.Worktree, in.Base, git)
+		if err != nil {
+			return terminalproto.SessionChanged{}, err
+		}
+		dir = worktree.Path
+		defer func() {
+			if !succeeded {
+				undoCtx, cancel := context.WithTimeout(context.WithoutCancel(h.sup.ctx), 5*time.Second)
+				defer cancel()
+				_ = worktree.Undo(undoCtx, git)
+			}
+		}()
+	}
 	h.sup.mu.Lock()
 	cs.dir, cs.model = dir, in.Model
+	if worktree.Path != "" {
+		cs.worktreePath, cs.worktreeRepo = worktree.Path, filepath.Base(filepath.Dir(worktree.Path))
+	}
 	h.sup.mu.Unlock()
 	spec, binary, err := h.sup.chatBinary(in.Tool)
 	if err != nil {
@@ -520,7 +544,7 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		h.sup.publish(cs, acpagent.Event{Kind: "user", Text: in.Prompt})
 		h.startPrompt(cs, in.Prompt, nil)
 	}
-	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(in.Tool, acpID, h.link.history)}, nil
+	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(in.Tool, acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}, nil
 }
 
 // reportedACP is the native session id sent to the controller. It is sent only
@@ -848,7 +872,7 @@ func (h *chatHost) end(sessionID string) (terminalproto.SessionChanged, error) {
 	cs.process.Close()
 	h.sup.forgetRecord(sessionID)
 	h.sup.ended(cs, 0)
-	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.tool, cs.acpID, h.link.history)}, nil
+	return terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: cs.exit, ACPSessionID: reportedACP(cs.tool, cs.acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}, nil
 }
 
 func (h *chatHost) ended(cs *chatSession, code int) { h.sup.ended(cs, code) }
@@ -865,7 +889,7 @@ func (s *chatSupervisor) announceRunning(cs *chatSession) {
 		return
 	}
 	_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
-		Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(cs.tool, acpID, link.history)}})
+		Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(cs.tool, acpID, link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}})
 }
 
 func (s *chatSupervisor) ended(cs *chatSession, code int) {
@@ -886,7 +910,7 @@ func (s *chatSupervisor) ended(cs *chatSession, code int) {
 			return
 		}
 		_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), SessionID: cs.id,
-			Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: exit, ACPSessionID: reportedACP(cs.tool, acpID, link.history)}})
+			Generation: link.generation, Body: &terminalproto.SessionChanged{State: terminalproto.Exited, ExitCode: exit, ACPSessionID: reportedACP(cs.tool, acpID, link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}})
 	})
 }
 

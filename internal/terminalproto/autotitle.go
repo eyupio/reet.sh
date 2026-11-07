@@ -58,14 +58,29 @@ var (
 	titleSkillLine = regexp.MustCompile(`(?i)^use the .+ skill\.?$`)
 	// A heading, quote or list marker at the start of a line.
 	titleMarker = regexp.MustCompile(`^(?:[#>*-]+ )+`)
+	// The `Image:` / `Images:` line the Start dialog appends for uploads. It
+	// is matched after cleanTitleLine, so tabs are spaces and runs are folded.
+	titleImageLine = regexp.MustCompile(`(?i)^images?: (?:[^ ]+\.(?:png|jpe?g|gif|webp)(?: +|$))+$`)
 )
 
 // PromptTitle is a short name for the work a prompt asks for, or "" when the
 // prompt says nothing a name could be made from. It takes the first line that
 // says something, without greetings or "please", up to the end of its first
-// sentence, and at most 60 characters (cut at a word, with an ellipsis).
+// sentence, and at most 60 characters (cut at a word, with an ellipsis). A
+// final `Image:` / `Images:` line of image paths is not task text.
 func PromptTitle(prompt string) string {
-	for _, line := range strings.Split(prompt, "\n") {
+	lines := strings.Split(prompt, "\n")
+	// Only the last non-empty line counts, so an Image line at the top or in
+	// the middle of a prompt is never dropped.
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := cleanTitleLine(lines[i]); line != "" {
+			if titleImageLine.MatchString(line) {
+				lines = lines[:i]
+			}
+			break
+		}
+	}
+	for _, line := range lines {
 		line = cleanTitleLine(line)
 		if skipTitleLine(line) {
 			continue

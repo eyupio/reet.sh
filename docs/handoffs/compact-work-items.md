@@ -89,7 +89,7 @@ Where it lives: `title_origin` and `retitle_tries` on `terminal_sessions`; `term
 
 Known limits (deliberate):
 
-- A launch with no typed task but an attached image is stored as `manual` and never auto-renamed. The controller sees the appended "Image:" lines as the prompt, so the client's `fallback` claim does not match. This is the safe direction; a follow-up could make the server ignore appended Image: lines. Tracked in https://github.com/eyupio/reet.sh/issues/648.
+- A trailing `Image:`/`Images:` path line (appended for uploads) is ignored when deriving a title, so image-only launches are stored `fallback` and stay renameable (issue #648). An `Image:` line anywhere but last is still ordinary text.
 - `PromptTitle` strips only a fixed list of greetings and fillers, so a first message that is just "thanks" yields the title "Thanks" and ends eligibility. This is existing `PromptTitle` behaviour, not changed here.
 - A message relayed into a worker session by a Gaffer conversation (queue origin `companion`) can name a fallback-titled Chat session, since it is still the first real task that session receives.
 - "Continue" of an ended fallback Chat starts the new session with the old title and no claim, so it is stored `manual` and keeps the generic name.

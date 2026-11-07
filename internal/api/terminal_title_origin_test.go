@@ -21,6 +21,8 @@ func TestCreateStoresResolvedTitleOrigin(t *testing.T) {
 		{"blank title and prompt", map[string]any{"tool": "claude", "dir": "/home/tester/app"}, "Claude Code · app", terminalproto.TitleFallback},
 		{"blank title and a task", map[string]any{"tool": "claude", "dir": "/home/tester/app", "prompt": task}, taskTitle, terminalproto.TitlePrompt},
 		{"a greeting yields no title", map[string]any{"tool": "claude", "dir": "/home/tester/app", "prompt": "hey there!"}, "Claude Code · app", terminalproto.TitleFallback},
+		{"image-only prompt keeps the fallback claim", map[string]any{"tool": "claude", "dir": "/home/dev/site", "prompt": "Image: /tmp/x.png", "title": "Claude Code · site", "titleOrigin": "fallback"}, "Claude Code · site", terminalproto.TitleFallback},
+		{"task then image line is a prompt title", map[string]any{"tool": "claude", "dir": "/home/dev/site", "prompt": "Fix the login redirect loop\n\nImage: /tmp/x.png", "title": "Fix the login redirect loop", "titleOrigin": "prompt"}, "Fix the login redirect loop", terminalproto.TitlePrompt},
 		{"auto title claimed as fallback", map[string]any{"tool": "claude", "dir": "/home/tester/app", "title": "Claude Code · app", "titleOrigin": "fallback"}, "Claude Code · app", terminalproto.TitleFallback},
 		{"auto title claimed as prompt", map[string]any{"tool": "claude", "dir": "/home/tester/app", "prompt": task, "title": taskTitle, "titleOrigin": "prompt"}, taskTitle, terminalproto.TitlePrompt},
 		{"claim that does not match the prompt", map[string]any{"tool": "claude", "dir": "/home/tester/app", "prompt": task, "title": taskTitle, "titleOrigin": "fallback"}, taskTitle, terminalproto.TitleManual},

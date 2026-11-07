@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"net/http"
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/store"
@@ -53,5 +55,20 @@ func TestIsolateWorktreeOnlyTouchesRepoLaunches(t *testing.T) {
 		if s.isolateWorktree(u.ID, "laptop", "req", &in) {
 			t.Errorf("%s: should be left alone", name)
 		}
+	}
+}
+
+func TestReleaseSessionWorktreeHolds(t *testing.T) {
+	s := &server{}
+	// No worktree: nothing to hold the removal.
+	if h := s.releaseSessionWorktree(context.Background(), 1, store.TerminalSession{State: terminalproto.Ended}, worktreeConfirm{}); h != nil {
+		t.Fatalf("held a session with no worktree: %+v", h)
+	}
+	// A session that is not closed keeps its worktree in use, so the removal is held before the machine is asked.
+	run := worktreeRunToken("r")
+	sess := store.TerminalSession{ID: "s", AgentID: "m", State: terminalproto.EndRequested, WorktreeRepo: "reet", WorktreePath: "/home/a/.reet/worktrees/reet/reet/" + run}
+	h := s.releaseSessionWorktree(context.Background(), 1, sess, worktreeConfirm{})
+	if h == nil || h.Code != "session_running" || h.Status != http.StatusConflict {
+		t.Fatalf("running session not held: %+v", h)
 	}
 }

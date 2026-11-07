@@ -35,4 +35,10 @@ Scan and clean need an account browser session, like the other terminal routes.
 
 A session started in a saved git repository always gets a worktree of its own. The controller adds one when the request has none (a project set to "no worktrees" included), so two agents never share a checkout. The run token comes from the request id, so a retried start adopts the worktree it already made. Reopening an earlier conversation (resume) and sessions already inside a reet worktree are left as they are.
 
-When a session is removed from history, its worktree is removed too if nothing in it is unsaved. A worktree with uncommitted changes, unreferenced commits or any other refusal is kept, logged as `worktree-kept` in Activity, and stays in the Maintenance scan for review. The branch is always kept.
+A session is never removed from history while its worktree stays behind. Removing it removes the worktree first:
+
+- Nothing unsaved: the worktree is removed at once. The branch is always kept.
+- Uncommitted changes: the removal is refused (`worktree_unsaved`) with the changed files and a fingerprint. Only a repeat of the request that confirms those exact changes (`discard`, the counts and the fingerprint) deletes them. The web UI asks with a warning.
+- Anything else (the session not yet stopped, the machine offline or failing, unreferenced commits, hidden changes, a nested repository): the removal is refused and the session stays, with nothing lost.
+
+Ending a session with "remove from history" keeps a session that has a worktree in history, so it goes through the same check when you remove it.

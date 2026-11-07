@@ -24,7 +24,7 @@
   import { continuationFailureInPane, offersContinueAfterReattach, quietReattachRefusal, reattachTrust, recoveryInFlight, shouldAutoReattach } from './reattachState'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import HealthHistory from './HealthHistory.svelte'
-  import { renameTerminal, endTerminal, terminalArchiveBody, archiveTerminal, terminalClosed } from './api'
+  import { renameTerminal, endTerminal, terminalArchiveBody, archiveTerminal, confirmDiscardWorktree, terminalClosed } from './api'
   import { TerminalError, reattachChat, validTerminalTitle } from './api'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalCommandReference from './TerminalCommandReference.svelte'
@@ -508,7 +508,7 @@
     try {
       if(kind==='rename'){if(!validTerminalTitle(rename.trim())){error='Use a session name of 1–80 characters without control characters.';return}await renameTerminal(id,rename.trim())}
       else if(kind==='archive'){
-        await archiveTerminal(id)
+        await archiveTerminal(id,confirmDiscardWorktree)
         if(disposed)return
         sessions=sessions.filter(item=>item.id!==id)
         for(const [agent,selected] of rememberedSessions)if(selected===id)rememberedSessions.delete(agent)

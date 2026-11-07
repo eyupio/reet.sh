@@ -174,3 +174,9 @@ Before marking ready:
 - Resolve or reproduce baseline full race failures and record exact outcomes. Do not claim every agent supports shared views; the current implementation is pinned to OpenCode 1.19.5.
 
 Home and broader navigation redesign remain deferred. Rollback is a revert of the implementation commits; no stored data migration is introduced.
+
+## 11. CI repair checkpoint
+
+The first #637 CI run exposed four concrete regressions: the controller feature-list assertion omitted `native-chat-view-v1`; workspace measurement started before the loading skeleton was replaced, allowing the companion launcher to overlap; legacy interface tests did not open Session actions; and the terminal size assertion still counted the removed inline controls rather than the current header. The repair updates these contracts, installs measurement when the workspace is bound, restores focus after the theatre action, and preserves 44 px touch targets with compact labels at 320 px. The new calm-session browser suite is now included in CI.
+
+The API feature regression test, full ACP package race tests, structured chat browser suite, twelve widget views, Svelte check and build passed locally. A full phone-dialog development-server run cleared all switch-dialog failures but reported one keyboard-layout hit-test failure; the isolated production-build reproduction passed. Broad browser verification continues; a passing focused test must not be reported as a passing complete workflow. The unchanged two-second synthetic terminal continuation performance gate has also fluctuated under concurrent local browser load. Check fresh CI before marking #637 ready. The native offline acceptance job passed in the original CI run; other complete workflow outcomes must be checked independently.

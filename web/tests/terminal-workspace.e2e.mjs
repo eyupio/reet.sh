@@ -58,7 +58,7 @@ async function bounds(width,height){
  await page.setViewportSize({width,height})
  // Count the deliberate controls row against the viewport available above the
  // reserved launcher/navigation area. Rendering and clipping are checked below.
- await expect.poll(async()=>page.evaluate(()=>{const terminal=document.querySelector('[aria-label="Remote terminal screen"]'),tools=document.querySelector('.session-tools'),reserved=document.querySelector('[data-gaffer-space]')?.getBoundingClientRect().height||0;return ((terminal?.getBoundingClientRect().height||0)+(tools?.getBoundingClientRect().height||0))/Math.max(1,innerHeight-reserved)})).toBeGreaterThan(height<600?.2:width<650?.5:.6)
+ await expect.poll(async()=>page.evaluate(()=>{const terminal=document.querySelector('[aria-label="Remote terminal screen"]'),tools=document.querySelector('.session-screen .head'),reserved=document.querySelector('[data-gaffer-space]')?.getBoundingClientRect().height||0;return ((terminal?.getBoundingClientRect().height||0)+(tools?.getBoundingClientRect().height||0))/Math.max(1,innerHeight-reserved)})).toBeGreaterThan(height<600?.2:width<650?.5:.6)
  await expect.poll(async()=>screen.evaluate(element=>Math.round(element.getBoundingClientRect().bottom))).toBeLessThanOrEqual(height+1)
  const b=await screen.boundingBox()
  // The renderer itself must fit, including its final row; outer bounds alone miss clipped content.

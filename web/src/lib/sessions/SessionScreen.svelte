@@ -327,7 +327,11 @@
   function leaveActions() { actionsOpen = false; actionsButton?.focus() }
 
   function act(kind: 'rename' | 'end' | 'archive') { leaveActions(); onaction(kind) }
-  function theatreView() { leaveActions(); ontheatre() }
+  function theatreView() {
+    actionsOpen = false
+    ontheatre()
+    void tick().then(() => actionsButton?.focus())
+  }
   function continueSession() { if (!oncontinue) return; leaveActions(); oncontinue() }
   function openTerminal() { if (!onterminal) return; leaveActions(); onterminal() }
   function openSideTerminal() { if (!onside) return; leaveActions(); onside() }
@@ -393,7 +397,7 @@
       <div class="header-actions">
         {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason} {onview} onunavailable={text => notice = { text }} />{/if}
         {@render contextControls?.()}
-        <button type="button" class="actions-button" bind:this={actionsButton} aria-label="Session actions" aria-haspopup="dialog" aria-expanded={actionsOpen}
+        <button type="button" class="actions-button" data-keeps-focus bind:this={actionsButton} aria-label="Session actions" aria-haspopup="dialog" aria-expanded={actionsOpen}
           title="Session actions" onclick={() => actionsOpen = true}><span aria-hidden="true">···</span></button>
         <button type="button" class="focus-button" bind:this={focusButton} aria-pressed={focusOn}
           aria-label={focusOn ? 'Exit focus mode' : 'Focus mode'} title={focusOn ? 'Show the full session screen' : 'Focus on the conversation and composer'}
@@ -506,6 +510,7 @@
   .legacy-note { flex-basis: 100%; margin: -4px 0 4px; font-size: 13px; line-height: 1.6; color: var(--muted); }
   .actions-context { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
   .actions-button { display: inline-grid; place-items: center; min-width: 36px; min-height: 36px; border: 1px solid transparent; border-radius: 7px; background: none; color: var(--muted); font: 600 20px/1 var(--sans); cursor: pointer; }
+  @media (pointer: coarse) { .header-actions :global(button) { min-width: 44px; min-height: 44px; } }
   .actions-button:hover { background: var(--line-soft); color: var(--ink); }
   .actions-button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   .tool-action, .theatre-button, .focus-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
@@ -577,6 +582,9 @@
     .pill { height: 28px; padding: 0 10px; gap: 6px; font-size: 14px; }
     .pill .lk { display: none; }
     .badge { font-size: 14px; line-height: 18px; padding: 0 6px; }
+  }
+  @media (max-width: 380px) {
+    .header-actions :global(.view-switch svg) { display: none; }
   }
   /* Super focus on a phone: one slim identity row, then the conversation and composer with nothing competing for the room.
      The site chrome and workspace toolbar are hidden through data-session-focus and the workspace's own rule. */

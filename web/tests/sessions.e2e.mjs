@@ -74,6 +74,11 @@ async function open(options={}) {
  // The wide fixture keeps room for the docked details panel and Gaffer's saved
  // corner. Explicit tablet/phone widths below still exercise the drawer layout.
  const opened = await openWorkspace(browser, {width:options.width ?? 1536, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
+ // These legacy context tests explicitly keep Details open; the unset default
+ // and saved-preference behavior are exercised by calm-session.e2e.mjs.
+ await opened.page.addInitScript(() => {
+  if (location.search.includes('session=')) localStorage.setItem('reet-terminal-layout:1:context', JSON.stringify({open:true,width:320}))
+ })
  // An open session's terminal: a ticket, then a socket that says it is ready.
  await opened.context.routeWebSocket('**/api/v2/terminal/socket', socket => { box.sockets.push(socket); socket.onMessage(message => { if (typeof message === 'string' && JSON.parse(message).ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('ready> ')) } }) })
  // A Gaffer chat's stream: window.__chatStream.emit(type, data) plays the controller's events into the open chat. With
@@ -502,6 +507,14 @@ try {
  const tabTitles = async page => (await tabs(page).locator('a.tab .name').allInnerTexts()).map(t => t.trim())
  const sidebarRow = (page, title) => page.getByRole('navigation',{name:'Terminal sessions'}).getByRole('button',{name:new RegExp(`^${title}`)}).first()
  const panel = page => page.getByRole('complementary',{name:'Session context'})
+ const actions = page => page.getByRole('dialog',{name:'Session actions',exact:true})
+ const openActions = async page => {
+  if(await actions(page).count()) return
+  const exit=screen(page).getByRole('button',{name:'Exit focus mode',exact:true})
+  if(await exit.count()) await exit.click()
+  await screen(page).getByRole('button',{name:'Session actions',exact:true}).click()
+ }
+ const closeActions = async page => { if(await actions(page).count()) await actions(page).getByRole('button',{name:'Close Session actions',exact:true}).click() }
  const tuiSelect = page => screen(page).locator('.tui-picker select')
  const tuiPill = page => screen(page).locator('.tui-pill')
  const fact = (page, name) => panel(page).locator('.where div').filter({has:page.locator('dt',{hasText:new RegExp(`^${name}$`)})}).locator('dd').first()
@@ -672,16 +685,21 @@ try {
   const {context,page,errors} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines()})
   // An OpenCode session started in the OpenCode TUI has no conversation for Gaffer to load, so no switch is offered.
   await page.goto(`${base}/sessions?agent=a1&session=s7`)
+  await openActions(page)
   await expect(tuiSelect(page)).toHaveCount(0)
   const label = tuiPill(page)
   await expect(label).toHaveText('OpenCode TUI')
   await expect(label).toHaveAttribute('title','This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
   // One reet started and switched to the OpenCode TUI can go back.
+  await closeActions(page)
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
+  await openActions(page)
   await expect(tuiSelect(page)).toHaveValue('terminal')
   await expect(tuiSelect(page)).toBeEnabled()
   // Another agent cannot switch between Gaffer and its TUI.
+  await closeActions(page)
   await sidebarRow(page, 'Add browse-v1 protocol').click()
+  await openActions(page)
   await expect(tuiSelect(page)).toHaveCount(0)
   const other = tuiPill(page)
   await expect(other).toHaveText('Claude Code TUI')
@@ -697,7 +715,7 @@ try {
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toHaveCount(0)
   await expect(screen(page).locator('.approvals')).toHaveText('Approvals: Ask me')
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
-  // Management actions are on the toolbar rather than behind a menu.
+  // Management actions remain reachable in the named actions sheet.
   await expect(screen(page).getByRole('button',{name:'Rename…',exact:true})).toBeVisible()
   await expect(screen(page).getByRole('button',{name:'Copy branch',exact:true})).toBeVisible()
   await expect(screen(page).getByRole('button',{name:'End session…',exact:true})).toBeVisible()
@@ -713,12 +731,14 @@ try {
  if (run('phone interface control says why switching is disabled')) {
   const {context,page,errors,box} = await open({width:390, height:844, touch:true, sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines()})
   await page.goto(`${base}/sessions?agent=a1&session=s7`)
+  await openActions(page)
   await expect(tuiSelect(page)).toHaveCount(0)
   const item = tuiPill(page)
   await expect(item).toBeVisible()
   await expect(item).toHaveText('OpenCode TUI')
   await expect(item).toHaveAttribute('title','This session started in the OpenCode TUI, so Gaffer cannot pick up its conversation.')
   await page.goto(`${base}/sessions?agent=a1&session=s8`)
+  await openActions(page)
   const offered = tuiSelect(page)
   await expect(offered).toBeVisible()
   await expect(offered).toBeEnabled()
@@ -742,25 +762,29 @@ try {
     await exitFocus.click()
     await expect(screen(page)).not.toHaveClass(/focus/)
    }
+   await openActions(page)
    const head = screen(page).locator('.head')
-   await expect(head.getByRole('button',{name:'Theatre view',exact:true})).toBeVisible()
+   const tools = actions(page)
+   await expect(tools.getByRole('button',{name:'Theatre view',exact:true})).toBeVisible()
    await expect(page.getByRole('button',{name:'Theatre view',exact:true})).toHaveCount(1)
-   await expect(head.getByLabel('Session interface',{exact:true})).toBeVisible()
-   await expect(head.getByRole('group',{name:'Approvals'})).toBeVisible()
-   await expect(head.getByRole('button',{name:'Terminal here',exact:true})).toBeVisible()
+   await expect(tools.getByLabel('Session interface',{exact:true})).toBeVisible()
+   await expect(tools.getByRole('group',{name:'Approvals'})).toBeVisible()
+   await expect(tools.getByRole('button',{name:'Terminal here',exact:true})).toBeVisible()
    await page.waitForFunction(() => window.__chatStream)
    const original = await page.evaluate(() => {window.__originalChat=window.__chatStream;return !!window.__originalChat})
    expect(original).toBe(true)
-   await head.getByRole('button',{name:'Theatre view',exact:true}).click()
-   const exit = head.getByRole('button',{name:'Exit theatre view',exact:true})
+   await tools.getByRole('button',{name:'Theatre view',exact:true}).click()
+   await expect(head.getByRole('button',{name:'Session actions',exact:true})).toBeFocused()
+   await openActions(page)
+   const exit = tools.getByRole('button',{name:'Exit theatre view',exact:true})
    await expect(exit).toHaveAttribute('aria-pressed','true')
-   await expect(exit).toBeFocused()
    expect(await page.evaluate(() => window.__originalChat === window.__chatStream)).toBe(true)
    // Management actions are direct toolbar buttons now.
-   await expect(head.getByRole('button',{name:'Rename…',exact:true})).toBeVisible()
-   await expect(head.getByRole('button',{name:'End session…',exact:true})).toBeVisible()
+   await expect(tools.getByRole('button',{name:'Rename…',exact:true})).toBeVisible()
+   await expect(tools.getByRole('button',{name:'End session…',exact:true})).toBeVisible()
    await exit.click()
-   await expect(head.getByRole('button',{name:'Theatre view',exact:true})).toHaveAttribute('aria-pressed','false')
+   await openActions(page)
+   await expect(tools.getByRole('button',{name:'Theatre view',exact:true})).toHaveAttribute('aria-pressed','false')
    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
    for (const button of await head.getByRole('button').all()) {
     if (!await button.isVisible()) continue
@@ -782,6 +806,7 @@ try {
   let finish
   box.mode = () => new Promise(resolve => { finish = resolve })
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  await openActions(page)
   const tui = tuiSelect(page)
   await expect(tui).toHaveValue('chat')
   await expect(page.locator('.chat-pane')).toBeVisible()
@@ -847,6 +872,7 @@ try {
  if (run('switch is disabled while an approval card waits')) {
   const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  await openActions(page)
   await expect(tuiSelect(page)).toBeEnabled()
   await page.waitForFunction(() => !!window.__chatStream)
   await page.evaluate(() => window.__chatStream.emit('chat', {seq:1, kind:'permission', permissionId:'p1', toolCallId:'c1', title:'Run the tests', toolKind:'execute', command:'go test ./...'}))
@@ -872,6 +898,7 @@ try {
   const BUSY = 'Wait for the agent to finish or answer what it is asking.'
   const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions().map(x => x.id === 's9' ? {...x, attention:'waiting', attentionSource:'chat'} : x)], machines:switchMachines(), chat:true, chatHold:true})
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  await openActions(page)
   await expect(page.locator('.chat-pane')).toBeVisible()
   await page.waitForFunction(() => !!window.__chatStream)
   await expect(tuiSelect(page)).toHaveCount(0)
@@ -902,11 +929,14 @@ try {
   let finish
   box.mode = (body, find) => find().id === 's9' ? new Promise(resolve => { finish = resolve }) : null
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  await openActions(page)
   await tuiSelect(page).selectOption('terminal')
   await page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'}).getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
   // B, while A is still switching: its switch is offered and its request is sent.
+  await closeActions(page)
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
+  await openActions(page)
   await expect(tuiSelect(page)).toHaveValue('terminal')
   await expect(tuiSelect(page)).toBeEnabled()
   await tuiSelect(page).selectOption('chat')
@@ -915,7 +945,9 @@ try {
   await expect(tuiSelect(page)).toHaveValue('chat')
   await expect(page.locator('.chat-pane')).toBeVisible()
   // A is still switching: back on it, its switch waits and says why.
+  await closeActions(page)
   await sidebarRow(page, 'Chat about the store').click()
+  await openActions(page)
   await expect(tuiSelect(page)).toHaveValue('chat')
   await expect(tuiSelect(page)).toHaveAttribute('aria-disabled','true')
   await expect(tuiSelect(page)).toHaveAttribute('title','Switching to the OpenCode TUI…')
@@ -935,6 +967,7 @@ try {
   let finish
   box.mode = () => new Promise(resolve => { finish = resolve })
   await page.goto(`${base}/sessions?agent=a1&session=s9`)
+  await openActions(page)
   await tuiSelect(page).selectOption('terminal')
   await page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'}).getByRole('button',{name:'Switch to the OpenCode TUI'}).click()
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(1)
@@ -947,12 +980,16 @@ try {
   await expect(screen(page).locator('.pill')).toContainText('Ended')
   await expect(page.locator('.ended-banner')).toContainText('This session has ended.')
   // Away from it: a failure for a session no longer shown still reads the list again, so its row is not stale.
+  await closeActions(page)
   await sidebarRow(page, 'Chat moved to the OpenCode TUI').click()
+  await openActions(page)
   box.mode = (body, find) => find().id === 's8' ? new Promise(resolve => { finish = resolve }) : null
   await tuiSelect(page).selectOption('chat')
   await page.getByRole('alertdialog',{name:'Switch to Gaffer?'}).getByRole('button',{name:'Switch to Gaffer'}).click()
   await expect.poll(() => box.writes.filter(w => w.kind === 'mode').length).toBe(2)
+  await closeActions(page)
   await sidebarRow(page, 'Add browse-v1 protocol').click()
+  await openActions(page)
   await expect(screen(page).getByRole('heading',{name:'Add browse-v1 protocol',level:2})).toBeVisible()
   await page.waitForTimeout(300)
   lists = box.lists
@@ -969,6 +1006,7 @@ try {
   const PLUGINS = 'This folder has agent extensions: .opencode/plugin/audit.ts. Start a chat only in a folder you trust.'
   box.mode = body => body.trust ? null : {status:409, json:{error:'This folder has OpenCode plugins. Start only in a folder you trust.', code:'acp_trust_required', detail:PLUGINS}}
   await page.goto(`${base}/sessions?agent=a1&session=s8`)
+  await openActions(page)
   await expect(tuiSelect(page)).toHaveValue('terminal')
   await tuiSelect(page).selectOption('chat')
   const dialog = page.getByRole('alertdialog',{name:'Switch to Gaffer?'})
@@ -1004,6 +1042,7 @@ try {
    const next = await open({width, height, touch:width < 600, theme, sessions:[...sessions(), ...opencodeSessions()], machines:switchMachines(), chat:true})
    next.box.mode = box.mode
    await next.page.goto(`${base}/sessions?agent=a1&session=s8`)
+   await openActions(next.page)
    await tuiSelect(next.page).selectOption('chat')
    const d = next.page.getByRole('alertdialog',{name:'Switch to Gaffer?'})
    await d.getByRole('button',{name:'Switch to Gaffer'}).click()
@@ -1024,13 +1063,16 @@ try {
   const {context,page,errors} = await open()
   await page.goto(`${base}/sessions?agent=a2&session=s4`)
   await expect(screen(page).getByRole('heading',{name:'Speed up the runner pool',level:2})).toBeVisible()
+  await openActions(page)
   await expect(screen(page).locator('.head .badge.yolo')).toHaveText('YOLO')
+  await closeActions(page)
   await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.decisions')).toContainText('YOLO: the agent asked not to be prompted; the launch is audited.')
   await expect(panel(page).locator('.decisions').getByRole('link')).toHaveAttribute('href','/activity')
   await expect(screen(page).locator('.approvals')).toHaveText('Approvals: YOLO')
   // A session that is not YOLO says the terminal asks.
   await sidebarRow(page, 'Add browse-v1 protocol').click()
+  await openActions(page)
   await expect(screen(page).locator('.head .badge.yolo')).toHaveCount(0)
   await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
@@ -1088,7 +1130,7 @@ try {
    await expect(panel(page).getByRole('button',{name:'Close details'})).toBeFocused()
    expect(await focusedUncovered(page), `${width}px`).toBe(true)
    // The sheet never lies over the header's Details and ⋮.
-   for (const target of [page.getByRole('button',{name:'Session details panel',exact:true}), screen(page).getByRole('button',{name:'Rename…',exact:true})]) {
+   for (const target of [page.getByRole('button',{name:'Session details panel',exact:true}), screen(page).getByRole('button',{name:'Session actions',exact:true})]) {
     const b = await target.boundingBox()
     expect(await page.evaluate(([x,y]) => !document.elementFromPoint(x,y)?.closest('.context-panel'), [b.x+b.width/2, b.y+b.height/2]), `header control covered at ${width}px`).toBe(true)
    }

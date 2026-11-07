@@ -43,7 +43,7 @@ const ended = {'/api/v2/terminal/sessions': {sessions:sessions.map(s => ({...s, 
 const moved = {...sessions[0], id:'session-switch000000001', title:'OpenCode chat moved to its TUI', tool:'opencode', dir:'/home/dev/work/site', acpSessionId:'ses_moved00000000000000000001'}
 const switchable = {'/api/v2/terminal/sessions': {sessions:[moved, ...sessions]},
  '/api/v2/terminal/machines': {machines:tmachines.map(m => m.agentId === moved.agentId ? {...m, capabilities:{...m.capabilities, tools:[...m.capabilities.tools, 'opencode'], acp:true, acpHistory:true, sessionMode:true}} : m)}}
-const switchTui = async page => { await page.locator('.session-screen .tui-picker select').selectOption('chat') }
+const switchTui = async page => { await page.getByRole('button',{name:'Session actions',exact:true}).click(); await page.getByRole('dialog',{name:'Session actions',exact:true}).getByLabel('Session interface',{exact:true}).selectOption('chat') }
 // field: the text field typed into with the keyboard open. primary: the main action, when it is not the dialog's
 // button.primary or submit button. sheet: how it sits on an upright phone.
 // upright: the dialog has no way in on a phone held sideways (there the session screen's header gives its rows to the terminal).

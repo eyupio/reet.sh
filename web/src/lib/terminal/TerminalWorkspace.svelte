@@ -541,7 +541,10 @@
     } catch(e){if(!disposed)error=e instanceof Error?e.message:'Action could not be confirmed. Retry the same action.'}
     finally{actionBusy=false}
   }
-  onMount(() => {
+  $effect(() => {
+    // Loading initially renders a skeleton: install measurement only once the
+    // real workspace is bound, and tear it down if that surface is removed.
+    if (!workspace) return
     // The layout was read above, before the first paint.
     // Only this workspace asks Android browsers to resize the page for the keyboard; other pages keep the default.
     const viewportMeta=document.querySelector<HTMLMetaElement>('meta[name="viewport"]'),viewportContent=viewportMeta?.getAttribute('content')??null

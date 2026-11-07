@@ -44,7 +44,9 @@ export class TerminalError extends Error {
 /** What to start instead of a plain shell. Only the fields that are set are sent; the machine decides the program and flags. */
 export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: string; yolo?: boolean; resume?: boolean; worktree?: string; project?: string; structured?: boolean; trust?: boolean; resumeAcp?: string
   /** The folder project the session belongs to (checked by the controller, never sent to the machine). */
-  projectId?: string }
+  projectId?: string
+  /** Who named the session, sent only with a tool launch: `prompt` when the title comes from the task, `fallback` when it is the generic agent and folder name. */
+  titleOrigin?: 'prompt' | 'fallback' }
 export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(title)}
 // Interactive terminals intentionally use only the browser cookie, never the
 // generic API helper's localStorage API token or a capability in a URL.
@@ -180,6 +182,7 @@ export async function createTerminal(agentId: string, requestId: string, title: 
   if (launch?.structured) body.structured = true
   if (launch?.trust) body.trust = true
   if (launch?.resumeAcp) body.resumeAcp = launch.resumeAcp
+  if (launch?.tool && launch.titleOrigin) body.titleOrigin = launch.titleOrigin
   return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', signal, body: JSON.stringify(body) })).json()
 }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal, nativeView = false): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover, ...(nativeView ? { nativeView: true } : {}) }), signal })).json()).ticket }

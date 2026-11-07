@@ -9,7 +9,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
 const source = compile('./agentLaunch.ts').replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`)
 const m = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
-const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor, promptTitle, notStartedText } = m
+const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor, promptTitle, titleOriginFor, notStartedText } = m
 // The controller's cases (internal/terminalproto/testdata/autotitle.json): the same file drives its Go tests, so the
 // name the dialog suggests is the name the controller would give.
 const autoTitles = JSON.parse(readFileSync(new URL('../../../internal/terminalproto/testdata/autotitle.json', import.meta.url), 'utf8'))
@@ -157,6 +157,11 @@ test('prompt titles agree with the controller', () => {
 test('automatic titles agree with the controller', () => {
   assert.ok(autoTitles.auto.length >= 10, 'the shared cases are loaded')
   for (const c of autoTitles.auto) assert.equal(promptTitle(c.prompt) || titleFor(c.tool, c.dir), c.want, c.name)
+})
+
+test('title origins agree with the controller', () => {
+  assert.ok(autoTitles.origin.length >= 4, 'the shared cases are loaded')
+  for (const c of autoTitles.origin) assert.equal(titleOriginFor(c.prompt), c.want, c.name)
 })
 
 test('refusal sentences', () => {

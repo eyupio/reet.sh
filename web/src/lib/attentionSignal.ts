@@ -25,8 +25,9 @@ function runHandlers(): void {
 
 export function signalAttentionChanged(): void {
   runHandlers()
-  // One pending trailing call at most: signals inside the window are covered by it.
-  if (trailing !== undefined) return
+  // One pending trailing call at most, timed from the latest signal: an answer that follows an earlier signal by less
+  // than SETTLE_MS still gets its full settle time.
+  if (trailing !== undefined) clearTimeout(trailing)
   trailing = setTimeout(() => { trailing = undefined; runHandlers() }, SETTLE_MS)
   // A timer must not hold a Node process open (tests); browsers return a number and have no unref.
   ;(trailing as { unref?: () => void }).unref?.()

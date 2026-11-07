@@ -15,16 +15,19 @@ const failed=()=>session('contract-fail-0001','Docs pass',{state:'exited',exitCo
 const stale=()=>session('contract-done-0001','Old release notes',{state:'exited',exitCode:0,attention:'finished',attentionSource:'terminal',updatedAt:now-25*HOUR,changedSinceSeen:true})
 // A terminal bell the person has already seen: nothing to resolve, so it does not count.
 const bell=()=>session('contract-bell-0001','Tail the logs',{attention:'waiting',attentionSource:'terminal',bellAt:now-10*MIN,changedSinceSeen:false})
+// A busy shell: running, never counted, but the server calls it unseen again whenever the terminal moves.
+const busy=()=>session('contract-busy-0001','Build watcher',{attention:'working',attentionSource:'terminal',changedSinceSeen:false})
 const machine={agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalControl:true,terminalEnabled:true,readiness:'ready',acp:true,acpHistory:true,acpLiveControls:true}}
 
 async function fixture(){
- const box={sessions:[chat(),failed(),stale(),bell()],failNext:0,failed:0,hold:null,reads:0,seen:[],answers:[]}
+ const box={sessions:[chat(),failed(),stale(),bell(),busy()],busy:false,failNext:0,failed:0,hold:null,reads:0,seen:[],answers:[]}
  const routes={
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
   '/api/v2/terminal/machines':{machines:[machine]},
   '/api/v2/terminal/sessions':async()=>{
    box.reads++
    if(box.failNext>0){box.failNext--;box.failed++;return{status:500,json:{error:'down'}}}
+   if(box.busy)box.sessions.find(x=>x.id==='contract-busy-0001').changedSinceSeen=true
    const then={sessions:structuredClone(box.sessions)}
    if(box.hold){const wait=box.hold;box.hold=null;await wait}
    return then
@@ -189,6 +192,16 @@ try{
  await sidebarCount(page,1)
  // What is left is the failed session, which has no row to answer.
  await expect(sidebar(page).locator('li.needs')).toHaveCount(0)
+ // A busy shell is unseen again whenever its terminal moves, but it is never counted: opening it marks it seen once and
+ // signals nothing, so the refresh does not re-mark it in a loop.
+ box.busy=true
+ await page.goto(`${base}/sessions?agent=a1&session=contract-busy-0001`)
+ await expect(page.locator('.session-screen .title')).toHaveText('Build watcher')
+ await expect.poll(()=>box.seen.filter(id=>id==='contract-busy-0001').length).toBeGreaterThan(0)
+ const readsAtOpen=box.reads
+ await page.waitForTimeout(3500)
+ expect(box.seen.filter(id=>id==='contract-busy-0001').length).toBeLessThanOrEqual(2)
+ expect(box.reads-readsAtOpen).toBeLessThanOrEqual(2)
  expect(w.errors).toEqual([])
  await w.context.close()
  console.log('Attention contract: Home header, Needs you, bell and title agree at 2 with the Sessions list, another page and the workspace sidebar; a seen bell does not count and an opened bell clears; an opened blocked chat stays counted without a flicker; answering from the bell and opening an unseen bell in the workspace drop every surface to 1 without a poll; a failed list read keeps the last count.')

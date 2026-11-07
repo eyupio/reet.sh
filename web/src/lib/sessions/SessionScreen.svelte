@@ -14,6 +14,7 @@
   import YoloDialog from '../launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from '../launchBar'
   import { signalAttentionChanged } from '../attentionSignal'
+  import { attentionRuleOf } from '../attention'
   import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
@@ -135,9 +136,10 @@
     if (!sid || (sid === lastMarkedId && !session.changedSinceSeen && session.attention !== 'waiting')) return
     lastMarkedId = sid
     if (session.changedSinceSeen || session.attention === 'waiting') {
-      // Read before the await: only clearing something unseen changes what the surfaces count. The refreshed list then says
-      // changedSinceSeen false, so this does not signal again. A failed mark signals nothing.
-      const wasUnseen = !!session.changedSinceSeen
+      // Read before the await: only clearing something the surfaces were counting changes what they show. A busy shell is
+      // "unseen" again a second later (terminal activity moves the change time) but is never counted, so it must not signal
+      // each time, or the refresh would re-mark it in a loop. A failed mark signals nothing.
+      const wasUnseen = !!session.changedSinceSeen && attentionRuleOf(session, Date.now()) !== null
       void markSessionSeen(sid).then(() => { if (wasUnseen) signalAttentionChanged() }, () => {})
     }
   })

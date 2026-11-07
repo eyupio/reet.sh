@@ -94,6 +94,20 @@ test('signals inside the window each call now, and share one trailing call', () 
   off()
 })
 
+test('a later signal moves the trailing call, so it is never closer than the settle delay to the latest one', () => {
+  let n = 0
+  const off = onAttentionChanged(() => { n++ })
+  signalAttentionChanged()
+  mock.timers.tick(800)
+  signalAttentionChanged()
+  assert.equal(n, 2)
+  mock.timers.tick(SETTLE_MS - 1)
+  assert.equal(n, 2)
+  mock.timers.tick(1)
+  assert.equal(n, 3)
+  off()
+})
+
 test('a signal after the trailing call starts a new window', () => {
   let n = 0
   const off = onAttentionChanged(() => { n++ })

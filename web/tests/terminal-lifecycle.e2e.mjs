@@ -255,7 +255,7 @@ try{
  await seenArrived;releaseSeen()
  await page.reload()
  await expect(pane).toHaveAttribute('data-connection-state','lost')
- // Opening it marks it seen, and the card clears.
+ // The reload reopens an already-seen shell, so this stays a no-op mark; the card stays cleared (the held answer above is what proved it counted once).
  await expect.poll(()=>seen).toContain(lostId)
  await needs(0)
  await expect(pane).toContainText('No replacement was created')

@@ -140,7 +140,12 @@ try {
   // The header offers Continue with history directly only where the chat cannot reconnect in place.
   const continueItem = page.locator('.session-screen .head').getByRole('button', { name: 'Continue with history', exact: true })
   const headerContinue = async present => {
+    const exit=page.getByRole('button',{name:'Exit focus mode',exact:true})
+    if(await exit.count()) await exit.click()
+    await page.getByRole('button',{name:'Session actions',exact:true}).click()
+    const actions=page.getByRole('dialog',{name:'Session actions',exact:true})
     await expect(continueItem).toHaveCount(present ? 1 : 0)
+    await actions.getByRole('button',{name:'Close Session actions',exact:true}).click()
   }
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
 

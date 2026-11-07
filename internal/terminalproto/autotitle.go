@@ -114,6 +114,52 @@ func AutoTitle(tool, prompt, dir string) string {
 	return title
 }
 
+// TitleOrigin says who owns a session's title: a person (manual), the first
+// prompt's own name (prompt), or the generic agent-and-folder name (fallback).
+// Only a fallback title may later be replaced from the first Chat message.
+type TitleOrigin string
+
+const (
+	TitleManual   TitleOrigin = "manual"
+	TitlePrompt   TitleOrigin = "prompt"
+	TitleFallback TitleOrigin = "fallback"
+)
+
+// ValidTitleOrigin reports whether s is exactly one of the three origins.
+func ValidTitleOrigin(s string) bool {
+	switch TitleOrigin(s) {
+	case TitleManual, TitlePrompt, TitleFallback:
+		return true
+	}
+	return false
+}
+
+// PromptOrigin is the origin AutoTitle gives a session started with this
+// prompt: prompt when the prompt has a name of its own, otherwise fallback.
+func PromptOrigin(prompt string) TitleOrigin {
+	if PromptTitle(prompt) != "" {
+		return TitlePrompt
+	}
+	return TitleFallback
+}
+
+// ResolveTitle settles the title and its origin for a create request. A blank
+// title (after trimming) is named by AutoTitle. A supplied title keeps the
+// origin the client claims only when it is exactly what AutoTitle would have
+// chosen and the claim matches PromptOrigin; any other title, or a missing or
+// mismatched claim, is the person's own and manual.
+func ResolveTitle(title, claim, tool, prompt, dir string) (string, TitleOrigin) {
+	auto := AutoTitle(tool, prompt, dir)
+	origin := PromptOrigin(prompt)
+	if strings.TrimSpace(title) == "" {
+		return auto, origin
+	}
+	if title == auto && (claim == string(TitlePrompt) || claim == string(TitleFallback)) && claim == string(origin) {
+		return title, origin
+	}
+	return title, TitleManual
+}
+
 // cleanTitleLine turns tabs into spaces, drops control and format characters
 // and the two Unicode line separators, and folds runs of spaces into one.
 func cleanTitleLine(line string) string {

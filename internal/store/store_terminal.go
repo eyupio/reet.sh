@@ -85,7 +85,10 @@ func (s *Store) migrateTerminal() error {
 			return err
 		}
 	}
-	return s.migrateAttention()
+	if err := s.migrateAttention(); err != nil {
+		return err
+	}
+	return s.migrateTitleOrigin()
 }
 
 func (s *Store) migrateTerminalTables() error {
@@ -630,9 +633,13 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		if project.Valid {
 			t.ProjectID = &project.String
 		}
+		origin := in.TitleOrigin
+		if !terminalproto.ValidTitleOrigin(string(origin)) {
+			origin = terminalproto.TitleManual
+		}
 		// The prompt is written here and nowhere else, so a retry (which returns
 		// the recorded session above) can never change it.
-		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id,dir,structured,acp_session_id,prompt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project, t.Dir, t.Structured, t.ACPSessionID, in.Prompt); err != nil {
+		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id,dir,structured,acp_session_id,prompt,title_origin) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project, t.Dir, t.Structured, t.ACPSessionID, in.Prompt, origin); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,parameters,created_at,updated_at) VALUES(?,?,?,?,'create','pending',?,?,?)`, requestID, uid, agentID, t.ID, string(parameters), t.CreatedAt, t.UpdatedAt); err != nil {
@@ -1091,7 +1098,7 @@ func (s *Store) RenameTerminalFor(uid int64, sessionID, title string) error {
 	if !terminalproto.ValidTitle(title) {
 		return terminalproto.ErrInvalid
 	}
-	r, err := s.db.Exec(`UPDATE terminal_sessions SET title=?,updated_at=? WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, title, now(), sessionID, uid, uid)
+	r, err := s.db.Exec(`UPDATE terminal_sessions SET title=?,title_origin='manual',updated_at=? WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, title, now(), sessionID, uid, uid)
 	if err != nil {
 		return err
 	}

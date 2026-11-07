@@ -20,7 +20,7 @@
   // the launch bar opens in a modal for Select and an address that hands over projects.
   // SessionBoard owns backlog reads; these loaders supply sessions and the fleet.
   // Both refresh every 15 seconds and retain the last successful read on failure.
-  let { userId, writer, canAdd, accounts, name = '', moved = false, legacyProject = '', onsignedout, onattention }: {
+  let { userId, writer, canAdd, accounts, moved = false, legacyProject = '', onsignedout, onattention }: {
     userId: number
     name?: string
     /** A writer in accounts mode: the full Home. Otherwise the read-only Home. */
@@ -49,8 +49,10 @@
   let groups = $state<ProjectGroup[] | undefined>()
   // The project or group the board is narrowed to (null: everything).
   let scope = $state<{ kind: 'project' | 'group'; id: string } | null>(null)
-  // The rail folds to its strip on a wide desktop; the choice is remembered in this browser.
-  let railCollapsed = $state(false)
+  // Projects use a compact strip unless an expanded rail was explicitly saved. The choice stays in this browser.
+  let railCollapsed = $state((() => {
+    try { return localStorage.getItem('reet.rail.collapsed') !== '0' } catch { return true }
+  })())
   // The rail's width on a wide desktop, also remembered in this browser.
   const savedRailWidth = (() => {
     try { return readWidth(localStorage.getItem('reet.rail.width'), RAIL_DEFAULT, width => clampRailWidth(width, innerWidth)) }
@@ -339,9 +341,9 @@
   let movedShown = $state(false)
   onMount(() => {
     try {
-      railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1'
+      railCollapsed = localStorage.getItem('reet.rail.collapsed') !== '0'
       if (localStorage.getItem(`reet.home.view.${userId}`) === 'continue') homeView = 'continue'
-    } catch { /* Open by default. */ }
+    } catch { /* Keep projects compact when storage is unavailable. */ }
     // The session screen's + and the Sessions page's New session arrive at /#launch: the bar opens in its modal.
     const launchAtHash = () => { if (location.hash === '#launch') launchOpen = true }
     launchAtHash()
@@ -387,23 +389,21 @@
   {/if}
   <div class="column">
     <header class="workspace-heading">
-      <p class="eyebrow">Your workspace · {location.host}</p>
-      <h1>All reet{name.trim() ? ', ' + name.trim().split(/\s+/)[0] : ''}.</h1>
-      <p class="welcome-note">Your ideas, ongoing work and finished sessions. Pick up the thread.</p>
-      <div class="workspace-summary"><span><i></i>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}</div>
+      <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
+      {#if writer}<div class="home-controls"><button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Expand the project names and groups' : 'Keep projects in a compact strip'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
+      <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}</div>
     </header>
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
       {#if needs.length}
-        <details class="home-detail attention-detail" open><summary>Needs you <span>{needs.length}</span></summary><NeedsYou cards={needs} onseen={markSeen} onanswered={answered} /></details>
+        <details class="home-detail attention-detail" open><summary>Needs you <span>{needs.length}</span></summary><NeedsYou calm cards={needs} onseen={markSeen} onanswered={answered} /></details>
       {/if}
       <div class="home-views" role="group" aria-label="Home view">
         <button type="button" aria-pressed={homeView === 'continue'} onclick={() => chooseHomeView('continue')}>Continue working</button>
         <button type="button" aria-pressed={homeView === 'board'} onclick={() => chooseHomeView('board')}>Planning board</button>
       </div>
       {#if homeView === 'continue'}<div>
-        <div class="continue-heading"><p>Pick up a session or start something new.</p><button type="button" class="btn primary" onclick={event => startNewSession(event.currentTarget)}>Start a session</button></div>
         {#if scope}<p class="continue-scope">{scopeName} <button type="button" class="btn" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
         <InFlight heading="Continue working" groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
           groupBy={continueGroup} onchoose={value => (continueGroup = value)} {projectColours} terminals={terminals ?? []} {removeDefault}
@@ -411,7 +411,7 @@
       </div>
       {/if}
       <div hidden={homeView !== 'board'}>
-      <SessionBoard {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
+      <SessionBoard embedded {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
         scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
         onchanged={() => load(true)} onstart={(opener) => startNewSession(opener)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>
@@ -446,14 +446,15 @@
 </div>
 
 <style>
-  .workspace-heading { padding: 8px 0 0; }
-  .workspace-heading .eyebrow { font: 500 14px var(--mono); letter-spacing: 0.01em; color: var(--accent-text); margin: 0 0 8px; overflow-wrap: anywhere; }
-  .workspace-heading h1 { font: 600 clamp(30px, 3.2vw, 42px)/1.08 var(--serif); letter-spacing: -.04em; margin: 0 0 8px; }
-  .welcome-note { color: var(--muted); font-size: 14px; margin: 0; }
-  .workspace-summary { display: flex; flex-wrap: wrap; gap: 24px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 8px; }
-  .workspace-summary span { display: inline-flex; align-items: center; gap: 8px; }
-  .workspace-summary i { width: 5px; height: 5px; background: var(--good); border-radius: 50%; }
-  @media (max-width: 650px) { .workspace-heading { padding-top: 8px; } .workspace-heading h1 { font-size: 34px; } .workspace-heading .eyebrow { font-size: 14px; margin-bottom: 8px; } .workspace-summary { margin-top: 8px; } }
+  .workspace-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; padding: 8px 0 12px; }
+  .home-identity { min-width: 0; }
+  .workspace-heading h1 { font: 600 24px/1.3 var(--sans); letter-spacing: -.025em; margin: 0; }
+  .welcome-note { color: var(--muted); font-size: 14px; margin: 4px 0 0; }
+  .home-controls { display: flex; align-items: center; gap: 8px; }
+  .home-projects { display: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
+  @media (min-width: 1240px) { .home-projects { display: inline-flex; align-items: center; } }
+  .home-start { min-height: 44px; padding: 8px 14px; border-radius: 8px; font: 500 14px var(--sans); white-space: nowrap; }
+  .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -464,6 +465,8 @@
   .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
   /* Name the two columns explicitly: the rail and the board are the page's two grid items, and an absolute heading
      must never leave either of them waiting for the next row. */
+  .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked)) { border-color: transparent; border-radius: 8px; background: transparent; }
+  .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked):hover) { background: var(--line-soft); }
   .home.writer > :global(aside.rail) { grid-column: 1; grid-row: 1; }
   .home.writer > .column { grid-column: 2; grid-row: 1; }
   .home:not(.writer) > .column { grid-column: 1; grid-row: 1; }
@@ -473,13 +476,11 @@
   .problem { border-color: var(--warn); }
   .notice { border-color: var(--good); }
   .notice.bad { border-color: var(--bad); }
-  .home-views { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+  .home-views { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 4px; }
   .home-views button { min-height: 44px; padding: 8px 14px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--muted); font: 500 14px var(--sans); cursor: pointer; }
   .home-views button[aria-pressed=true] { border-color: var(--line); background: var(--card); color: var(--ink); }
   .home-views button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-  .continue-heading { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin: 8px 0 20px; }
-  .continue-heading p { margin: 0; color: var(--muted); }
-  .continue-heading button, .continue-scope button { min-height: 44px; }
+  .continue-scope button { min-height: 44px; }
   .continue-scope { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--muted); }
   .home-detail { border-top: 1px solid var(--line); padding: 12px 0; }
   .home-detail > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-soft); }

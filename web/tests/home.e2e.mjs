@@ -127,6 +127,9 @@ async function home(options={}) {
   ...(options.routes ?? {}),
  }
  const opened = await openWorkspace(browser, {width:1440, sync:makeSync(), routes, ...options, routes})
+ // Existing project-management cases exercise an explicitly expanded rail.
+ // The Continue matrix opts out to verify the new compact default and persistence.
+ if(options.railExpanded !== false)await opened.page.addInitScript(()=>{if(localStorage.getItem('reet.rail.collapsed')===null)localStorage.setItem('reet.rail.collapsed','0')})
  // #288 moved machines, Needs you and Quick launch into expandable sections; open them after each navigation.
  const openSections = async () => {
   await opened.page.locator('details.home-detail > summary').first().waitFor({state:'attached', timeout:10000}).catch(() => {})
@@ -191,11 +194,25 @@ const openLaunch = async page => { const d = page.getByRole('dialog',{name:'Star
 try {
  if (run('Continue working preserves the planning board and saves only an explicit choice')) {
   for (const theme of ['light','dark']) for (const [width,height] of [[1440,1000],[390,844],[320,568],[844,390]]) {
-   const {context,page,errors,box}=await home({width,height,theme,touch:width<1000})
+   const {context,page,errors,box}=await home({width,height,theme,touch:width<1000,railExpanded:false})
    await page.goto(base)
    const views=page.getByRole('group',{name:'Home view',exact:true}),board=views.getByRole('button',{name:'Planning board',exact:true}),resume=views.getByRole('button',{name:'Continue working',exact:true})
    await expect(board).toHaveAttribute('aria-pressed','true')
+   await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
+   await expect(page.getByRole('button',{name:'New session',exact:true})).toHaveCount(1)
+   expect((await page.locator('.workspace-heading').boundingBox()).height).toBeLessThanOrEqual(130)
    expect(await page.evaluate(()=>localStorage.getItem('reet.home.view.1'))).toBeNull()
+   if(width>=1240){
+    const projects=page.locator('.workspace-heading').getByRole('button',{name:'Projects',exact:true}),projectRail=rail(page)
+    expect((await projectRail.boundingBox()).width).toBeLessThanOrEqual(64)
+    await expect(projectRail.getByRole('button',{name:'Expand the project rail',exact:true})).toHaveAttribute('aria-expanded','false')
+    expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBeNull()
+    await projects.click();await expect(projects).toHaveAttribute('aria-expanded','true')
+    expect((await projectRail.boundingBox()).width).toBeGreaterThanOrEqual(240)
+    await page.reload();await expect(projects).toHaveAttribute('aria-expanded','true')
+    await projects.click();await expect(projects).toHaveAttribute('aria-expanded','false')
+    expect((await projectRail.boundingBox()).width).toBeLessThanOrEqual(64)
+   }
    const search=page.getByRole('searchbox',{name:'Search sessions',exact:true})
    await search.fill('release')
    await resume.click()
@@ -203,9 +220,16 @@ try {
    await expect(list.getByRole('link',{name:/Refactor the store layer/})).toBeVisible()
    await expect(list).toContainText('desk is not reporting')
    await expect(search).toBeHidden()
+   const actions=list.getByRole('button',{name:'Actions for Refactor the store layer',exact:true})
+   expect((await actions.boundingBox()).width).toBeGreaterThanOrEqual(44)
+   expect((await actions.boundingBox()).height).toBeGreaterThanOrEqual(44)
+   await actions.click()
+   const menu=page.getByRole('menu',{name:'Actions for Refactor the store layer',exact:true})
+   await expect(menu.getByRole('menuitem',{name:'Rename…',exact:true})).toBeVisible()
+   await page.keyboard.press('Escape');await expect(menu).toHaveCount(0);await expect(actions).toBeFocused()
    expect(await noSideways(page)).toBe(true)
    if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/home-continue-${theme}-${width}.png`,fullPage:true})
-   await page.getByRole('button',{name:'Start a session',exact:true}).click()
+   await page.getByRole('button',{name:'New session',exact:true}).click()
    const start=page.getByRole('dialog',{name:'Start an agent',exact:true})
    await expect(start).toBeVisible()
    await page.keyboard.press('Escape');await expect(start).toHaveCount(0)
@@ -488,7 +512,8 @@ try {
  // A waiting Gaffer chat shows its earliest approval on the Needs you card and in the bell, with Allow once and Deny; an
  // answer is sent to the chat, the card leaves once the session no longer waits, and a cut-short command cannot be allowed.
  if (run('Needs you approvals: Allow once and Deny from the card and the bell')) {
-  const {context,page,errors,box} = await home()
+  for(const [width,theme] of [[1440,'light'],[390,'dark'],[320,'light']]) {
+  const {context,page,errors,box} = await home({width,theme,touch:width<1000})
   const answers = []
   await page.route('**/api/v2/terminal/sessions/*/chat/permissions/*', route => {
    const request = route.request(), parts = new URL(request.url()).pathname.split('/')
@@ -511,6 +536,8 @@ try {
   await expect(cut.getByRole('button',{name:'Allow once'})).toBeDisabled()
   await expect(cut.getByRole('button',{name:'Deny'})).toBeEnabled()
   await expect(cut).toContainText('Open the chat to read it all')
+  expect(await noSideways(page)).toBe(true)
+  if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/home-attention-${theme}-${width}.png`,fullPage:true})
   // The bell carries the same approval.
   await page.getByRole('button',{name:'Needs you: 2',exact:true}).click()
   const pop = page.getByRole('banner').getByRole('region',{name:'Needs you'})
@@ -524,6 +551,7 @@ try {
   await expect(needs(page)).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
+  }
  }
 
  // A waiting chat with a typed question shows what was asked and sends the person to the chat to answer it: the card has
@@ -1190,7 +1218,7 @@ try {
   for (const [width,touch] of [[1440,false],[834,true],[390,true],[320,true]]) {
    const {context,page,errors} = await home({width,touch})
    await page.goto(base)
-   await expect(page.getByRole('heading',{name:'Your work, in good order.'})).toBeVisible()
+   await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
    await expect(page.getByRole('region',{name:'Active'})).toBeVisible()
    if (width >= 1100) await expect(rail(page)).toBeVisible()
    else await expect(page.locator('main aside.rail')).toHaveCount(0)

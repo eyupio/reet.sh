@@ -5,6 +5,8 @@ import { modelList, modelFavourites } from './helpers/workspace.mjs'
 const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const context=await browser.newContext({viewport:{width:1360,height:900}})
+// The project-specific launch cases exercise an explicitly expanded rail.
+await context.addInitScript(()=>{if(localStorage.getItem('reet.rail.collapsed')===null)localStorage.setItem('reet.rail.collapsed','0')})
 const page=await context.newPage()
 const errors=[],posts=[],unmocked=[],urls=[],uploads=[]
 page.on('pageerror',e=>errors.push(e.message))

@@ -34,7 +34,7 @@ try {
   await page.getByLabel('Confirm password',{exact:true}).fill('correct-horse-battery')
   await page.getByRole('button',{name:'Create account'}).click()
   await page.waitForURL(`${base}/`)
-  await expect(page.getByRole('heading',{name:'Your work, in good order.',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
   expect(await page.title()).toBe('Home · reet.sh')
   expect(errors).toEqual([])
   await context.close()
@@ -45,7 +45,7 @@ try {
   const {context,page} = await open({width:1440})
   await page.goto(`${base}${path}`)
   await page.waitForURL(`${base}/`)
-  await expect(page.getByRole('heading',{name:'Your work, in good order.',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
   await context.close()
  }
 
@@ -57,7 +57,7 @@ try {
   expect(await page.title()).toContain('Page not found')
   await expect(page.getByRole('heading',{name:'Skills',exact:true})).toHaveCount(0)
   await page.getByRole('link',{name:'Back to Home'}).click()
-  await expect(page.getByRole('heading',{name:'Your work, in good order.',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('heading',{name:'Skills',exact:true})).toBeVisible()
   await context.close()

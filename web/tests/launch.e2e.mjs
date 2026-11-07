@@ -90,6 +90,8 @@ async function launch(options={}) {
   ...(options.routes ?? {}),
  }
  const opened = await openWorkspace(browser, {width:1440, height:900, sync:sync(), ...options, routes})
+ // Project-management fixtures retain an explicitly expanded desktop rail.
+ await opened.page.addInitScript(()=>{if(localStorage.getItem('reet.rail.collapsed')===null)localStorage.setItem('reet.rail.collapsed','0')})
  await opened.page.exposeFunction('__recordStorage', (op, key, value) => { box.storage.push({op, key, value}) })
  await opened.page.addInitScript(() => {
   for (const area of ['localStorage','sessionStorage']) {

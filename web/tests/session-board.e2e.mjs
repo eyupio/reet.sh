@@ -55,7 +55,7 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
   const app = await openWorkspace(browser, { width, height: 1000, theme, touch, terminalMachines: machines, terminalStatus: { configured: true, available: true, reason: '' }, routes,
     skills: [skill('brainstorm'), skill('polish')] })
   await app.page.goto(new URL(entry, base).href)
-  await expect(app.page.getByRole('heading', { name: 'Your work, in good order.' })).toBeVisible()
+  await expect(app.page.getByRole('region', { name: 'Your work, in good order.' })).toBeVisible()
   // An address naming one project narrows the board to that project's sessions.
   await expect(app.page.locator('.session-card')).toHaveCount(entry.includes('?project=') ? 2 : 7)
   return { ...app, box }

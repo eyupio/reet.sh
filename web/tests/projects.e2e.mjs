@@ -94,7 +94,7 @@ try {
   await expect.poll(() => box.requests.includes('GET /api/v2/folder-projects?legacy=nope')).toBe(true)
   await expect(page).toHaveURL(`${base}/`)
   // An id that made no project leaves nothing chosen, so no card is marked.
-  await expect(rail.locator('.card[aria-current="true"]')).toHaveCount(0)
+  await expect(rail.locator('.card[aria-current="true"], .mini[aria-current="true"]')).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
  }

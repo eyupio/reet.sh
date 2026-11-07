@@ -4,7 +4,8 @@
   import { worktreeStatus } from '../terminal/api'
   import Approval from '../shell/Approval.svelte'
 
-  let { cards, onseen, onanswered }: {
+  let { calm = false, cards, onseen, onanswered }: {
+    calm?: boolean
     cards: NeedCard[]
     onseen?: (sessionId: string) => void | Promise<void>
     onanswered?: () => void | Promise<void>
@@ -43,7 +44,7 @@
   }
 </script>
 
-<section id="needs-you" class="needs" aria-labelledby={`${id}-title`}>
+<section id="needs-you" class="needs" class:calm aria-labelledby={`${id}-title`}>
   <header>
     <h2 id={`${id}-title`}>Needs you</h2>
     <span class="count" class:waiting={count > 0}>{count}</span>
@@ -111,4 +112,12 @@
   @media (max-width: 1099px) {
     h2 { font-size: 21px; }
   }
+  .calm > header { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .calm .list { gap: 0; }
+  .calm .card { min-height: 0; padding: 12px 0; border: 0; border-bottom: 1px solid var(--line-soft); border-radius: 0; background: transparent; }
+  .calm .card:last-child { border-bottom: 0; }
+  .calm .kind { border: 0; padding: 0; background: transparent; font-weight: 500; }
+  .calm .title { font-weight: 600; }
+  .calm .btn.open { border: 1px solid var(--line); background: transparent; color: var(--ink); }
+  .calm .btn { min-height: 44px; }
 </style>

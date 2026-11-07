@@ -11,7 +11,7 @@
   const query = new URLSearchParams(location.search)
   const context = query.get('theatre') !== '1' && !!(query.get('session') || query.get('agent'))
   const railCollapsed = (() => {
-    try { return localStorage.getItem('reet.rail.collapsed') === '1' } catch { return false }
+    try { return localStorage.getItem('reet.rail.collapsed') !== '0' } catch { return true }
   })()
   onMount(() => {
     const timer = setTimeout(() => (slow = true), 10000)

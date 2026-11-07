@@ -114,12 +114,7 @@
   // The panel's saved width and open state, and the room the screen actually gives it (the container query's 1100 px
   // is measured on this element, so the docked decision matches what CSS used to decide).
   onMount(() => {
-    let saved = ''
-    try { saved = localStorage.getItem(contextKey) ?? '' } catch { /* optional browser preference */ }
-    const layout = readContextLayout(saved)
-    contextWidth = layout.width ?? CONTEXT_DEFAULT
-    dockedOpen = layout.open ?? true
-    layoutLoaded = true
+    // The saved width was read above, before the first paint, so the waiting skeleton and the panel agree.
     if (!screen) return
     const measure = () => { screenWidth = screen!.clientWidth }
     const observer = new ResizeObserver(measure)
@@ -248,9 +243,12 @@
   // theatre view, Details opens it as a sheet over the terminal's edge. Docked it can also be collapsed and resized, and
   // its open state and width are remembered in this browser for the person.
   let screen = $state<HTMLElement>(), screenWidth = $state(0)
-  let contextWidth = $state(CONTEXT_DEFAULT), bodyWidth = $state(0), layoutLoaded = $state(false)
+  // Read before the first paint: the waiting skeleton draws the panel at this width, not at a default that moves later.
+  const initialContext = (() => { try { return readContextLayout(localStorage.getItem(contextKey) ?? '') } catch { return readContextLayout(null) } })()
+  let contextWidth = $state(initialContext.width ?? CONTEXT_DEFAULT), bodyWidth = $state(0), layoutLoaded = $state(true)
   // Docked and sheet have their own open state: a docked panel is open by default, a sheet only when asked for.
-  let dockedOpen = $state(true), sheetOpen = $state(false)
+  let dockedOpen = $state(initialContext.open ?? true), sheetOpen = $state(false)
+  try { localStorage.setItem('reet.workspace.context', JSON.stringify(contextLayoutRecord(initialContext.open ?? true, initialContext.width ?? CONTEXT_DEFAULT))) } catch { /* optional browser preference */ }
   const docked = $derived(!theatre && screenWidth > 1099)
   const hasSide = $derived(showSide && !!side)
   const effectiveOpen = $derived(docked ? dockedOpen : sheetOpen)
@@ -266,7 +264,8 @@
   const contextMax = $derived(widestContext(contextRoom))
   function saveContext() {
     if (!layoutLoaded) return
-    try { localStorage.setItem(contextKey, JSON.stringify(contextLayoutRecord(dockedOpen, contextWidth))) } catch { /* optional browser preference */ }
+    const record = JSON.stringify(contextLayoutRecord(dockedOpen, contextWidth))
+    try { localStorage.setItem(contextKey, record); localStorage.setItem('reet.workspace.context', record) } catch { /* optional browser preference */ }
   }
   // The workspace toolbar calls this through its bound component instance.
   export function toggleContext() {

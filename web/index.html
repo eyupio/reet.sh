@@ -55,6 +55,42 @@
           : ((bootPath === '/sessions' || bootPath === '/terminals') && bootQuery.get('view') !== 'list')
             || (['/machines', '/account/machines', '/account/sync'].indexOf(bootPath) !== -1 && bootQuery.get('view') === 'terminal') ? 'workspace'
           : 'content'
+        // The terminal workspace keeps its saved panel and details widths in this browser. Read them before painting so
+        // the boot skeleton, the app's skeletons and the real workspace all reserve the same room.
+        try {
+          // A layout saved before this shared record existed still lives under its person's key. Carry it over, so the
+          // first load after the change keeps the person's own panel and details widths too.
+          var legacyPanel = null, legacyContext = null
+          for (var bootKeyIndex = 0; bootKeyIndex < localStorage.length; bootKeyIndex++) {
+            var bootKey = localStorage.key(bootKeyIndex) || ''
+            if (bootKey.indexOf('reet-terminal-layout:') !== 0) continue
+            if (/:context$/.test(bootKey)) legacyContext = localStorage.getItem(bootKey)
+            else legacyPanel = localStorage.getItem(bootKey)
+          }
+          if (legacyPanel && !localStorage.getItem('reet.workspace.panel')) localStorage.setItem('reet.workspace.panel', legacyPanel)
+          if (legacyContext && !localStorage.getItem('reet.workspace.context')) localStorage.setItem('reet.workspace.context', legacyContext)
+          var bootPanel = JSON.parse(localStorage.getItem('reet.workspace.panel') || '{}')
+          var bootPanelWidth = typeof bootPanel.width === 'number' ? Math.min(480, Math.max(240, Math.round(bootPanel.width))) : (innerWidth < 960 ? 240 : 280)
+          var bootPanelMode = bootPanel.mode === 'mini' || bootPanel.mode === 'closed' ? bootPanel.mode : 'full'
+          var shortScreen = Math.min(window.screen && window.screen.width || innerWidth, window.screen && window.screen.height || innerHeight)
+          if (innerWidth < 600 || shortScreen < 600) bootPanelMode = 'closed'
+          else if (bootPanelMode === 'full' && innerWidth < 768 && bootPanel.pinned !== true) bootPanelMode = 'closed'
+          else if (bootPanelMode === 'full' && innerWidth < 960 && bootPanel.pinned === false) bootPanelMode = 'closed'
+          var bootGaffer = matchMedia('(min-width: 768px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape)').matches
+          var bootBodyWidth = Math.max(0, innerWidth - (innerWidth <= 700 ? 16 : 24) - (bootGaffer ? 88 : 0) - 2)
+          var bootWidestPanel = bootBodyWidth > 0 ? Math.min(480, Math.floor((bootBodyWidth - 8) * 0.4)) : 480
+          bootPanelWidth = Math.min(bootWidestPanel, Math.max(240, bootPanelWidth))
+          document.documentElement.style.setProperty('--boot-ws-panel', bootPanelWidth + 'px')
+          document.documentElement.dataset.bootPanel = bootPanelMode
+          var bootContext = JSON.parse(localStorage.getItem('reet.workspace.context') || '{}')
+          var bootContextWidth = typeof bootContext.width === 'number' ? Math.min(520, Math.max(300, Math.round(bootContext.width))) : 360
+          var bootPanelTrack = bootPanelMode === 'closed' ? 0 : (bootPanelMode === 'mini' ? 64 : bootPanelWidth) + 8
+          var bootAreaWidth = Math.max(0, bootBodyWidth - bootPanelTrack)
+          var bootWidestContext = bootAreaWidth > 0 ? Math.min(520, Math.floor((bootAreaWidth - 8) * 0.4)) : 520
+          bootContextWidth = Math.min(bootWidestContext, Math.max(300, bootContextWidth))
+          document.documentElement.style.setProperty('--boot-ws-context', bootContextWidth + 'px')
+          if (bootContext.open === false || bootQuery.get('theatre') === '1' || (!bootQuery.get('session') && !bootQuery.get('agent'))) document.documentElement.setAttribute('data-boot-context', 'off')
+        } catch (e) { /* first visit or storage blocked: the defaults below hold */ }
         // Reserve the installed app's navigation rail before its bundle or account response arrives.
         // This selects layout only; authentication still comes from the server.
         var phoneLayout = matchMedia('(max-width:650px), (max-height:500px) and (pointer:coarse) and (orientation:landscape)').matches
@@ -295,6 +331,113 @@
       @media (min-width: 1240px) {
         html[data-workspace-shell][data-boot-layout='home']:not([data-boot-rail='collapsed']) { --boot-project-rail: 301px; }
       }
+
+      /* The terminal workspace's boot shape: the same card, toolbar, sessions panel, session screen and details panel
+         the real workspace draws, at the widths read above. A slow workspace therefore holds still. */
+      html[data-boot='app'][data-boot-layout='workspace'] #boot .boot-main[data-boot='app'] { max-width:none; margin:0; padding:8px 12px; height:calc(100dvh - 57px); display:flex; flex-direction:column; }
+      html[data-boot-layout='workspace'] .boot-main .boot-page { display:none; }
+      .boot-workspace { display:none; }
+      html[data-boot-layout='workspace'] .boot-workspace { display:flex; flex-direction:column; flex:1; min-height:0; }
+      @media (min-width:768px), (max-height:500px) and (pointer:coarse) and (orientation:landscape) {
+        html[data-boot-layout='workspace'] .boot-workspace { margin-right:88px; }
+        html[data-boot-layout='workspace'][data-gaffer-anchor='left'] .boot-workspace { margin-left:88px; margin-right:0; }
+      }
+      .boot-ws { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; border:1px solid var(--boot-line); border-radius:12px; background:var(--boot-card); }
+      .boot-ws-toolbar { display:flex; align-items:center; gap:12px; height:55px; padding:8px 12px; border-bottom:1px solid var(--boot-line); flex:none; }
+      .boot-ws-toolbar .actions { display:flex; align-items:center; gap:8px; margin-left:auto; }
+      .boot-ws i { display:block; background:var(--boot-line); border-radius:6px; }
+      .boot-ws .back { width:26px; height:26px; border-radius:7px; }
+      .boot-ws .name { width:106px; height:18px; border-radius:7px; }
+      .boot-ws .find { width:54px; height:30px; border-radius:8px; margin-left:4px; }
+      .boot-ws .button { width:40px; height:32px; border-radius:8px; }
+      .boot-ws .button.small { width:34px; }
+      .boot-ws .button.primary { width:92px; }
+      .boot-ws-body { display:grid; grid-template-columns:var(--boot-ws-panel, 280px) 8px minmax(0,1fr); flex:1; min-height:0; }
+      html[data-boot-panel='mini'] .boot-ws-body { grid-template-columns:64px 8px minmax(0,1fr); }
+      html[data-boot-panel='closed'] .boot-ws-body { grid-template-columns:minmax(0,1fr); }
+      html[data-boot-panel='closed'] .boot-ws-panel, html[data-boot-panel='closed'] .boot-ws-separator { display:none; }
+      .boot-ws-panel { display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--boot-card); }
+      .boot-ws-panel-head { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--boot-line); }
+      .boot-ws-panel-head .label { width:90px; height:13px; }
+      .boot-ws-panel-head .tools { display:flex; gap:8px; margin-left:auto; }
+      .boot-ws-panel-head .tools i { width:16px; height:16px; }
+      .boot-ws-items { display:grid; align-content:start; gap:6px; padding:10px; }
+      .boot-ws-session { display:flex; align-items:center; gap:10px; padding:12px 10px; border:1px solid transparent; border-radius:9px; }
+      .boot-ws-session:nth-child(2) { border-color:var(--boot-line); background:var(--boot-bg); }
+      .boot-ws-session .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+      .boot-ws-session > div { display:grid; gap:8px; flex:1; min-width:0; }
+      .boot-ws-session .line { width:86%; height:11px; }
+      .boot-ws-session .line.short { width:58%; height:9px; }
+      .boot-ws-panel-foot { display:grid; gap:10px; margin-top:auto; padding:14px; border-top:1px solid var(--boot-line); }
+      .boot-ws-panel-foot i { width:46%; height:10px; }
+      html[data-boot-panel='mini'] .boot-ws-panel-head { justify-content:center; padding:12px 8px; }
+      html[data-boot-panel='mini'] .boot-ws-panel-head .label,
+      html[data-boot-panel='mini'] .boot-ws-panel-head .tools i:not(:first-child),
+      html[data-boot-panel='mini'] .boot-ws-session > div,
+      html[data-boot-panel='mini'] .boot-ws-panel-foot { display:none; }
+      html[data-boot-panel='mini'] .boot-ws-session { justify-content:center; padding:12px 8px; }
+      .boot-ws-separator { min-width:0; }
+      .boot-ws-area { min-width:0; min-height:0; container-type:inline-size; }
+      .boot-ws-grid { display:grid; grid-template-columns:minmax(0,1fr); height:100%; min-width:0; min-height:0; }
+      .boot-ws-stage { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:var(--boot-bg); }
+      .boot-ws-identity { display:flex; align-items:center; gap:12px; min-height:50px; padding:8px 16px; }
+      .boot-ws-identity .avatar { width:32px; height:32px; border-radius:9px; flex:none; }
+      .boot-ws-identity .copy { display:grid; gap:8px; flex:1; min-width:0; }
+      .boot-ws-identity .heading { width:min(280px,52%); height:20px; border-radius:7px; }
+      .boot-ws-identity .sub { width:min(190px,36%); height:10px; }
+      .boot-ws-identity .status { width:96px; height:28px; border-radius:999px; flex:none; }
+      .boot-ws-tools-row { display:flex; align-items:center; gap:8px; min-height:52px; padding:8px 16px; border-top:1px solid var(--boot-line); }
+      .boot-ws-tools-row .tool { width:72px; height:29px; border-radius:8px; }
+      .boot-ws-tools-row .tool.wide { width:104px; }
+      .boot-ws-screen { display:flex; flex-direction:column; flex:1; min-height:0; margin:0 10px 10px; border:1px solid var(--boot-line); border-radius:9px; background:var(--boot-card); overflow:hidden; }
+      .boot-ws-screen-head { display:flex; align-items:center; gap:12px; min-height:44px; padding:0 14px; border-bottom:1px solid var(--boot-line); }
+      .boot-ws-screen-head .title { width:140px; height:12px; }
+      .boot-ws-screen-head .meta { width:92px; height:9px; }
+      .boot-ws-screen-head .screen-action { width:74px; height:28px; margin-left:auto; border-radius:8px; }
+      .boot-ws-lines { display:grid; gap:14px; align-content:start; flex:1; padding:22px 18px; }
+      .boot-ws-lines i { height:10px; }
+      .boot-ws-lines .w1 { width:44%; } .boot-ws-lines .w2 { width:68%; } .boot-ws-lines .w3 { width:56%; }
+      .boot-ws-area-separator { display:none; min-width:0; }
+      .boot-ws-details { display:none; flex-direction:column; min-width:0; min-height:0; border-left:1px solid var(--boot-line); background:var(--boot-card); }
+      .boot-ws-details-head { display:flex; align-items:center; gap:10px; padding:14px; border-bottom:1px solid var(--boot-line); }
+      .boot-ws-details-head .label { width:100px; height:13px; }
+      .boot-ws-details-head .status { width:64px; height:10px; margin-left:auto; border-radius:4px; }
+      .boot-ws-tabs { display:flex; gap:12px; padding:12px 14px; border-bottom:1px solid var(--boot-line); }
+      .boot-ws-tabs i { width:54px; height:10px; }
+      .boot-ws-card { margin:14px; height:96px; border:1px solid var(--boot-line); border-radius:9px; background:var(--boot-bg); }
+      .boot-ws-card.short { height:54px; }
+      @container (min-width:1100px) {
+        .boot-ws-grid { grid-template-columns:minmax(0,1fr) 8px var(--boot-ws-context, 360px); }
+        .boot-ws-area-separator, .boot-ws-details { display:flex; }
+      }
+      html[data-boot-context='off'] .boot-ws-grid { grid-template-columns:minmax(0,1fr); }
+      html[data-boot-context='off'] .boot-ws-area-separator, html[data-boot-context='off'] .boot-ws-details { display:none; }
+      @media (prefers-reduced-motion: no-preference) {
+        #boot .boot-ws i, #boot .boot-ws-card { background:linear-gradient(90deg,var(--boot-line) 0%,var(--boot-line-soft) 50%,var(--boot-line) 100%); background-size:200% 100%; animation:boot-shimmer 1.8s ease-in-out infinite; }
+      }
+      @media (max-width:700px) {
+        html[data-boot='app'][data-boot-layout='workspace'] #boot .boot-main[data-boot='app'] { height:calc(100dvh - 55px); padding:4px 8px; }
+        .boot-ws-toolbar { padding:6px 8px; gap:6px; }
+        .boot-ws .name { width:68px; }
+        .boot-ws .find, .boot-ws .button.small { display:none; }
+        .boot-ws .button.primary { width:62px; }
+      }
+      @media (max-width:650px) {
+        html[data-boot='app'][data-boot-layout='workspace'] #boot .boot-main[data-boot='app'] { height:calc(100dvh - 57px); }
+        .boot-ws { border-radius:8px; }
+        .boot-ws-toolbar { padding:5px 6px; }
+        .boot-ws .name { width:54px; height:15px; }
+        .boot-ws .button { height:30px; }
+        .boot-ws-body, html[data-boot-panel='mini'] .boot-ws-body { grid-template-columns:minmax(0,1fr); }
+        .boot-ws-panel, .boot-ws-separator { display:none; }
+        .boot-ws-identity { padding:7px 10px; }
+        .boot-ws-identity .heading { width:62%; }
+        .boot-ws-identity .sub, .boot-ws-identity .status, .boot-ws-tools-row { display:none; }
+        .boot-ws-screen { margin:0 6px 6px; }
+        .boot-ws-screen-head { padding:0 10px; }
+        .boot-ws-screen-head .title { width:100px; }
+        .boot-ws-details { display:none !important; }
+      }
     </style>
   </head>
   <body>
@@ -322,6 +465,38 @@
             <div class="boot-row"><div class="boot-line slim"></div><div class="boot-line slim"></div></div>
           </div>
         </div>
+        <div class="boot-workspace"><div class="boot-ws">
+          <div class="boot-ws-toolbar"><i class="back"></i><i class="name"></i><i class="find"></i><span class="actions"><i class="button small"></i><i class="button primary"></i><i class="button"></i></span></div>
+          <div class="boot-ws-body">
+            <div class="boot-ws-panel">
+              <div class="boot-ws-panel-head"><i class="label"></i><span class="tools"><i></i><i></i><i></i></span></div>
+              <div class="boot-ws-items">
+                <div class="boot-ws-session"><i class="dot"></i><div><i class="line"></i><i class="line short"></i></div></div>
+                <div class="boot-ws-session"><i class="dot"></i><div><i class="line"></i><i class="line short"></i></div></div>
+                <div class="boot-ws-session"><i class="dot"></i><div><i class="line"></i><i class="line short"></i></div></div>
+                <div class="boot-ws-session"><i class="dot"></i><div><i class="line"></i><i class="line short"></i></div></div>
+              </div>
+              <div class="boot-ws-panel-foot"><i></i><i></i></div>
+            </div>
+            <div class="boot-ws-separator"></div>
+            <div class="boot-ws-area"><div class="boot-ws-grid">
+              <div class="boot-ws-stage">
+                <div class="boot-ws-identity"><i class="avatar"></i><div class="copy"><i class="heading"></i><i class="sub"></i></div><i class="status"></i></div>
+                <div class="boot-ws-tools-row"><i class="tool wide"></i><i class="tool"></i><i class="tool"></i><i class="tool"></i></div>
+                <div class="boot-ws-screen">
+                  <div class="boot-ws-screen-head"><i class="title"></i><i class="meta"></i><i class="screen-action"></i></div>
+                  <div class="boot-ws-lines"><i class="w1"></i><i class="w2"></i><i class="w3"></i><i class="w1"></i></div>
+                </div>
+              </div>
+              <div class="boot-ws-area-separator"></div>
+              <div class="boot-ws-details">
+                <div class="boot-ws-details-head"><i class="label"></i><i class="status"></i></div>
+                <div class="boot-ws-tabs"><i></i><i></i><i></i><i></i></div>
+                <div class="boot-ws-card"></div><div class="boot-ws-card short"></div>
+              </div>
+            </div></div>
+          </div>
+        </div></div>
       </div>
       <!--boot-app:end-->
       <!--boot-auth:start-->

@@ -5,13 +5,14 @@ const base=process.env.REET_UI_URL||'http://127.0.0.1:4173'
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const pid='a'.repeat(32),cid='b'.repeat(32),now=Date.now()
 const make=(id,title)=>({id,agentId:'a1',title,structured:true,tool:'opencode',model:'worker-model',state:'running',dir:'/work',createdAt:now,updatedAt:now,exitCode:null})
-async function fixture(width){
+async function fixture(width,crossMachine=false){
  const box={sessions:[make('regression-session-001','First worker'),make('regression-session-002','Second worker')],writes:[],pending:false,refuse:false}
+ if(crossMachine){box.sessions[1].agentId='a2';box.sessions.push(make('regression-session-003','Workshop survivor'))}
  const provider={id:pid,revision:1,name:'Gaffer fixture',kind:'openai_compatible',baseUrl:'https://example.test/v1',model:'gaffer-model',enabled:true,isDefault:true,localOnly:false,allowSessions:true,hasKey:true,createdAt:now,updatedAt:now}
  const routes={
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
   '/api/v2/terminal/sessions':()=>({sessions:box.sessions}),
-  '/api/v2/terminal/machines':{machines:[{agentId:'a1',host:'Workshop',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'test',terminalControl:true,terminalEnabled:true,readiness:'ready',acp:true,acpHistory:true,acpLiveControls:true}}]},
+  '/api/v2/terminal/machines':{machines:[['a1','Workshop'],['a2','Builder']].map(([agentId,host])=>({agentId,host,ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'test',terminalControl:true,terminalEnabled:true,readiness:'ready',acp:true,acpHistory:true,acpLiveControls:true}}))},
   '/api/v2/gaffer/providers':{providers:[provider],available:true,canUseLocal:true,presets:[]},
   '/api/v2/gaffer/conversations':request=>({conversation:{id:cid,sessionId:new URL(request.url()).searchParams.get('sessionId')||'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}),
   [`/api/v2/gaffer/conversations/${cid}/goal`]:{goal:null,pins:{providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},allowed:true},
@@ -80,6 +81,20 @@ try{
   await expect(q.getByText('This reet session has ended.',{exact:true})).toBeVisible()
   expect(e.errors).toEqual([]);await e.context.close()
  }
+ const cross=await fixture(1440,true),cp=cross.page
+ await cp.goto(`${base}/sessions?agent=a1&session=regression-session-001`)
+ await expect(cp.locator('.session-screen .title')).toHaveText('First worker')
+ await cp.evaluate(()=>window.dispatchEvent(new CustomEvent('reet:show-session',{detail:'regression-session-002',cancelable:true})))
+ await expect(cp.locator('.session-screen .title')).toHaveText('Second worker')
+ await cp.evaluate(()=>window.dispatchEvent(new CustomEvent('reet:show-session',{detail:'regression-session-001',cancelable:true})))
+ await expect(cp.locator('.session-screen .title')).toHaveText('First worker')
+ await stop(cp);await expect(cp.locator('.session-screen .title')).toHaveText('Second worker')
+ await cp.getByRole('button',{name:'Find machine',exact:true}).click()
+ await cp.getByLabel('Machine or shell user').fill('Workshop')
+ await cp.getByRole('navigation',{name:'Matching machines'}).getByRole('button',{name:/^Workshop/}).click()
+ await expect(cp.locator('.session-screen .title')).toHaveText('Workshop survivor')
+ expect(cross.box.sessions[1].state).toBe('running')
+ expect(cross.errors).toEqual([]);await cross.context.close()
  const uncertain=await fixture(1440),up=uncertain.page
  await up.goto(`${base}/sessions?agent=a1&session=regression-session-001`)
  await expect(up.locator('.session-screen .title')).toHaveText('First worker')

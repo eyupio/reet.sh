@@ -247,7 +247,8 @@
       if (!wasSelected) continue
       const eligible = (item: TerminalSession) => next.tabs.includes(item.id) && !terminalClosed(item.state)
       const target = sessions.find(item => item.id === next.next && eligible(item)) || sessions.find(eligible)
-      if (target) chooseSession(target)
+      // A replacement must not remember the outgoing, dismissed session again.
+      if (target) { selectedSession = ''; chooseSession(target) }
       else { selectedSession = ''; remember(); location.assign('/sessions?view=list') }
     }
   }

@@ -52,7 +52,7 @@ Local validation is not PR CI or deployed acceptance. Inspect the final pushed h
 
 Implementation PR: [#644 — Keep Home work lists compact and name sessions from tasks](https://github.com/eyupio/reet.sh/pull/644). Branch `feat/compact-work-items`, base main after #643. Runtime changes and local acceptance were committed as `6f6040e0e13684c7bde6c16819c5d6f84f93ec8c`. The following handoff update changes documentation only; use the current GitHub PR head, not the earlier source hash, when reading CI or merging.
 
-At this handoff the PR is open and has not been merged. Local checks listed above passed. Fresh CI and review remain pending, and deployment remains unverified. The user explicitly requested a fully current handoff and a continuation prompt for a new session; do not restart the design or ask again whether the approved mock should be implemented.
+At this handoff the PR was open and had not been merged (it has since merged; see Merge outcome below). Local checks listed above passed. Fresh CI and review remain pending, and deployment remains unverified. The user explicitly requested a fully current handoff and a continuation prompt for a new session; do not restart the design or ask again whether the approved mock should be implemented.
 
 Next session:
 
@@ -68,4 +68,8 @@ The original checkout is untouched. This worktree should have no tracked uncommi
 
 - `phone-dialogs` failed in `web/tests/launch-options.e2e.mjs`: it clicked backlog **Edit** directly, but compact rows keep Edit/Delete/Start behind the **Details** disclosure by design. This suite was not in the local validation list. The test now opens "Show details for <title>" before Edit (both places; the card is collapsed again after a reload). The product behaviour is unchanged; the approved layout is not weakened.
 - Codex review never completed on this PR (usage limit); there were no review threads or findings, so no review-driven change was made.
-- Merge outcome: pending the new head's CI. Record it below once merged.
+- The fix was pushed as `d10efd84`. Exact-head CI then passed: all 20 check runs were green or intentionally skipped (publish, verify and deploy are skipped on PRs), including `test`, `terminal-browser`, `phone-dialogs`, `phone-zoom`, both offline suites, `gaffer-settings`, `web`, `build` and CodeQL. There were no review threads or reviews, and the PR was mergeable/clean. `main` had not moved past the PR base (`7f948d39`), so the merged tree is the tested tree.
+
+## Merge outcome
+
+PR #644 was merged on 2026-11-07 as merge commit `9e9372bf1713eece6af049a14041fee49b0a045e` (head `d10efd84`, merge method: merge commit, pinned to the verified head) under the standing authorization. Post-merge `main` workflows (release, image, terminal browser, docs, Gaffer) had only just started when this was recorded and are not verified here. **Deployment is still unverified**: controller/web rollout needs its own check, and no connector upgrade is required for this slice. Later-message retitling and broader attention identity/navigation remain separate, unscoped work.

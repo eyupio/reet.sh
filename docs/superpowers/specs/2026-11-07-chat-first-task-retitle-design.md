@@ -60,7 +60,7 @@ That store method is one transaction:
 1. Do nothing unless the session is structured Chat, owned by `uid`, `title_origin='fallback'` and `retitle_tries < 3`.
 2. Increment `retitle_tries`.
 3. Compute `terminalproto.PromptTitle(text)`. If it is empty or invalid, stop (the session keeps waiting).
-4. Otherwise run `UPDATE terminal_sessions SET title=?, title_origin='prompt', updated_at=? WHERE id=? AND user_id=? AND title_origin='fallback'` and publish the normal session-update event.
+4. Otherwise run `UPDATE terminal_sessions SET title=?, title_origin='prompt', updated_at=? WHERE id=? AND user_id=? AND title_origin='fallback'`. There is no title push channel; open views read the new title from the session list on their next refresh.
 
 Properties:
 
@@ -72,7 +72,7 @@ Properties:
 
 ### 5. What the person sees
 
-The title changes through the existing session-update event stream. Home, the Sessions list and the session header already render `title`; no component change is needed beyond the create request. The rename happens at most once per session, so a name never changes mid-conversation after it is set.
+The title is returned by the session list, so open views show it on their next refresh (Home polls every 15 seconds); a person may see the generic name for up to that long after the first message. No push channel for titles exists and none is added. Home, the Sessions list and the session header already render `title`; no component change is needed beyond the create request. The rename happens at most once per session, so a name never changes mid-conversation after it is set.
 
 ### 6. Preserved behaviour
 

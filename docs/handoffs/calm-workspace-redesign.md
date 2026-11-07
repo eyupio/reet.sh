@@ -183,7 +183,7 @@ The API feature regression test, full ACP package race tests, structured chat br
 
 ## 12. Shared native-view reconciliation follow-up
 
-The follow-up branch `feat/shared-view-reconciliation` is stacked on #637, not on #636. Its runtime changes are limited to the native adapter:
+The follow-up [PR #638](https://github.com/eyupio/reet.sh/pull/638), branch `feat/shared-view-reconciliation`, is stacked on #637, not on #636. Its runtime changes are limited to the native adapter:
 
 - Establish the event subscription, then read the native session status and bounded user-message history before advertising the optional view. On a stream gap, withdraw availability until a fresh subscription and both reads succeed. Recover a missed idle transition from `/session/status`; failed, null or unknown status snapshots do not invent idle state. The same worker and directory remain intact.
 - Pass the actual `session/prompt` request error to the echo-ledger cleanup instead of unconditionally passing success. Bound outstanding prompt expectations to 128 at insertion, expire them after five minutes, and evict oldest entries deterministically even if no native messages arrive. Very delayed native records beyond that retention window remain a transcript reconciliation limitation.
@@ -191,3 +191,18 @@ The follow-up branch `feat/shared-view-reconciliation` is stacked on #637, not o
 Validation: the full ACP package race suite passed; the focused native race suite also passed with the real pinned OpenCode binary after the final status-validation changes. Added tests cover failed-request cleanup, insertion bounds without incoming events, age expiry, busy/idle recovery, failed/null/unknown snapshots, withdrawal of availability during reconnect, restoration after reconciliation and cancellation teardown. The actual native client probe still verifies same worker/directory and client-detach continuity without a provider turn. Go vet passed.
 
 This closes the specific bounded-ledger and missed-idle recovery gaps in section 10, not the complete shared-view release gate. Real provider-backed bidirectional turns, concurrent questions/permissions, late replies, model/mode synchronization, and end-to-end broker/host lifecycle coverage remain required. #636 is unchanged at the reviewed head and still needs its combined structured-worktree integration verified. No merge or deployment is part of this checkpoint.
+
+## 13. Plan status for the next session
+
+| Plan item | Status | Still outstanding |
+| --- | --- | --- |
+| Design reference and handoff | Approved; #635 merged | Revisit only when behavior or scope changes. |
+| Session presentation | Implemented in draft #637 | Fresh complete CI and browser acceptance; no deployment yet. |
+| Same-process Chat / Terminal | Foundation in #637; reconnect/ledger follow-up in #638 | Real bidirectional turns, shared approvals/questions, state-ordering races, model/settings sync, full broker/host lifecycle. Support remains pinned to OpenCode 1.19.5. |
+| Worktree isolation coordination | #636 reviewed; text merge simulation passed | Combined structured launch, request retry, archive confirmation and same-directory view tests; resolve structured Create preparation/validation gap. |
+| Attention consistency | Existing models preserved | Complete shared request ownership and pending/resolved/failure behavior across Home, bell and sessions. |
+| Continue-first Home | Not started | Optional Continue/Needs you/Start view, retaining Planning board and saved defaults. |
+| Broader navigation and supporting chrome | Not started | Incremental calmer styling while preserving destinations, permissions and deep links. |
+| Release validation | In progress | All required suites and fresh CI green, review remaining gates, then separate merge/deployment decision. |
+
+Additional browser evidence from this session: the complete session-workspace suite passed, including changes, previews, folders, CI, stale evidence, sidebar signals, context resizing/collapse and phone/tablet focus. The updated calm-session production-preview suite also passed. These results do not imply the entire terminal-browser workflow has passed.

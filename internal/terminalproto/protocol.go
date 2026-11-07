@@ -483,6 +483,9 @@ type Create struct {
 	// It is the controller's own record: never encoded, so never sent to a
 	// machine nor stored with the create's parameters.
 	ProjectID string `json:"-"`
+	// TitleOrigin is who owns Title (see TitleOrigin). Like ProjectID it is
+	// the controller's own record: never encoded.
+	TitleOrigin TitleOrigin `json:"-"`
 	// LaunchSession opens the tool's terminal on that native session id (for
 	// OpenCode, `--session`). Never encoded: the connector builds the Create
 	// locally. Incompatible with Resume and Structured.

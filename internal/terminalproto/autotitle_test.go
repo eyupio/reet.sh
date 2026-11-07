@@ -23,6 +23,11 @@ type autoTitleFixture struct {
 		Dir    string `json:"dir"`
 		Want   string `json:"want"`
 	} `json:"auto"`
+	Origin []struct {
+		Name   string `json:"name"`
+		Prompt string `json:"prompt"`
+		Want   string `json:"want"`
+	} `json:"origin"`
 }
 
 func loadAutoTitleFixture(t *testing.T) autoTitleFixture {
@@ -35,8 +40,8 @@ func loadAutoTitleFixture(t *testing.T) autoTitleFixture {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Prompt) < 30 || len(f.Auto) < 10 {
-		t.Fatalf("fixture is too small to trust: %d prompt cases, %d auto cases", len(f.Prompt), len(f.Auto))
+	if len(f.Prompt) < 30 || len(f.Auto) < 10 || len(f.Origin) < 5 {
+		t.Fatalf("fixture is too small to trust: %d prompt cases, %d auto cases, %d origin cases", len(f.Prompt), len(f.Auto), len(f.Origin))
 	}
 	return f
 }
@@ -90,6 +95,58 @@ func TestEveryLaunchToolHasADisplayName(t *testing.T) {
 	for id := range agentOptions {
 		if toolNames[id] == "" {
 			t.Errorf("tool %q has no display name in toolNames", id)
+		}
+	}
+}
+
+func TestPromptOriginFixture(t *testing.T) {
+	for _, c := range loadAutoTitleFixture(t).Origin {
+		if got := string(PromptOrigin(c.Prompt)); got != c.Want {
+			t.Errorf("%s: PromptOrigin(%q) = %q, want %q", c.Name, c.Prompt, got, c.Want)
+		}
+	}
+}
+
+func TestResolveTitle(t *testing.T) {
+	const fixPrompt = "Please fix session end navigation"
+	const fixTitle = "Fix session end navigation"
+	cases := []struct {
+		name                            string
+		title, claim, tool, prompt, dir string
+		wantTitle                       string
+		wantOrigin                      TitleOrigin
+	}{
+		{"blank title takes the prompt", "", "", "claude", fixPrompt, "/home/dev/app", fixTitle, TitlePrompt},
+		{"blank title and prompt falls back", "", "", "claude", "", "/home/dev/app", "Claude Code · app", TitleFallback},
+		{"whitespace-only title is blank", " \t ", "", "claude", "", "/home/dev/app", "Claude Code · app", TitleFallback},
+		{"whitespace-only title takes the prompt", "   ", "", "claude", fixPrompt, "/home/dev/app", fixTitle, TitlePrompt},
+		{"suggested prompt title with a matching claim", fixTitle, "prompt", "claude", fixPrompt, "/home/dev/app", fixTitle, TitlePrompt},
+		{"suggested prompt title with a mismatched claim", fixTitle, "fallback", "claude", fixPrompt, "/home/dev/app", fixTitle, TitleManual},
+		{"suggested prompt title with no claim", fixTitle, "", "claude", fixPrompt, "/home/dev/app", fixTitle, TitleManual},
+		{"suggested fallback title with a matching claim", "Claude Code · app", "fallback", "claude", "hi", "/home/dev/app", "Claude Code · app", TitleFallback},
+		{"fallback-form title typed by a person", "Claude Code · app", "manual", "claude", "hi", "/home/dev/app", "Claude Code · app", TitleManual},
+		{"any other title is manual", "My own name", "prompt", "claude", fixPrompt, "/home/dev/app", "My own name", TitleManual},
+		{"any other title is manual with a fallback claim", "My own name", "fallback", "claude", "", "/home/dev/app", "My own name", TitleManual},
+		{"the supplied title is compared exactly", " " + fixTitle, "prompt", "claude", fixPrompt, "/home/dev/app", " " + fixTitle, TitleManual},
+	}
+	for _, c := range cases {
+		gotTitle, gotOrigin := ResolveTitle(c.title, c.claim, c.tool, c.prompt, c.dir)
+		if gotTitle != c.wantTitle || gotOrigin != c.wantOrigin {
+			t.Errorf("%s: ResolveTitle(%q, %q, %q, %q, %q) = (%q, %q), want (%q, %q)",
+				c.name, c.title, c.claim, c.tool, c.prompt, c.dir, gotTitle, gotOrigin, c.wantTitle, c.wantOrigin)
+		}
+	}
+}
+
+func TestValidTitleOrigin(t *testing.T) {
+	for _, s := range []string{"manual", "prompt", "fallback"} {
+		if !ValidTitleOrigin(s) {
+			t.Errorf("ValidTitleOrigin(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"", "Manual", "auto", " prompt"} {
+		if ValidTitleOrigin(s) {
+			t.Errorf("ValidTitleOrigin(%q) = true, want false", s)
 		}
 	}
 }

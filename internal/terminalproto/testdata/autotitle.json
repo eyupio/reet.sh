@@ -291,5 +291,32 @@
    "dir": "/srv",
    "want": "Check disk usage on the backup volume"
   }
+ ],
+ "origin": [
+  {
+   "name": "a task prompt names the session",
+   "prompt": "Please fix session end navigation",
+   "want": "prompt"
+  },
+  {
+   "name": "a greeting alone is a fallback",
+   "prompt": "hi",
+   "want": "fallback"
+  },
+  {
+   "name": "an empty prompt is a fallback",
+   "prompt": "",
+   "want": "fallback"
+  },
+  {
+   "name": "a skills-picker line is a fallback",
+   "prompt": "Use the reet skill.",
+   "want": "fallback"
+  },
+  {
+   "name": "a greeting then a task on the second line names the session",
+   "prompt": "Hi there\nRefactor the session list",
+   "want": "prompt"
+  }
  ]
 }

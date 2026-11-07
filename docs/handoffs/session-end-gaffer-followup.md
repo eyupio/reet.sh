@@ -22,6 +22,8 @@ The full Gaffer backend race suite passed. The real fake-provider integration ch
 
 ## Coordination and continuation
 
+PR [#642](https://github.com/eyupio/reet.sh/pull/642) merged on 2026-11-07 as `3952c332` after all seven workflows passed for head `0b68aa7b`. The reviewed cross-machine fix and its regression were included. The merge tree matched the tested head tree. Deployment has not been independently verified.
+
 The Home projects PR #641 merged after all six workflows passed (`0f98e31d`). This repair is based on that main and keeps its compact projects behavior. It introduces no database or protocol migration and does not change worker/model selection, native view switching or worktree/archive contracts.
 
-Continue branch `fix/session-end-gaffer-context` in `/workspace/work/reet-session-regressions`. If this environment survives, activate `/workspace/.reet-tools/activate.sh`. Never commit the untracked node_modules symlink. Read current PR/checks and this handoff, inspect final logs under `/workspace/work/redesign-review/session-regressions-*`, and finish remaining combined checks. The user has authorized merging ready, green changes; do not merge a pending/failing head. Do not confuse this ordinary-chat guidance with authorization to send worker instructions or enable goals automatically.
+The repair checkout remains `fix/session-end-gaffer-context` in `/workspace/work/reet-session-regressions`; final logs are under `/workspace/work/redesign-review/session-regressions-*`. Continue the separate Home follow-up entry slice using [the continuation prompt](calm-workspace-continuation.md). The user has authorized merging ready, green changes; do not merge a pending/failing head. Do not confuse ordinary-chat guidance with authorization to send worker instructions or enable goals automatically.

@@ -5,6 +5,7 @@
   import AppShell from './lib/shell/AppShell.svelte'
   import ProgressBar from './lib/shell/ProgressBar.svelte'
   import type { JumpItem, Tab } from './lib/shell/tabs'
+  import { onAttentionChanged, signalAttentionChanged } from './lib/attentionSignal'
   import { listFolderProjects, markSessionSeen, sessionHref, terminalMachines, terminalSessions, type FolderProject } from './lib/terminal/api'
   import { attentionCount, needsYou, sessionOwners, titleWithAttention, type NeedCard } from './lib/home'
   import { groupLabel, installationReports, inventoryMachines } from './lib/machines'
@@ -408,6 +409,7 @@
       onMarkSeen = async (sessionId: string) => {
         try {
           await markSessionSeen(sessionId)
+          signalAttentionChanged()
           await loadAttention()
         } catch { /* next poll recovers */ }
       }
@@ -428,7 +430,8 @@
     const timer = setInterval(() => (inventoryNow = Date.now()), 60000)
     const notifications = setInterval(() => { if (authenticated) void loadNotificationCount() }, 60000)
     const attentionPoll = setInterval(() => { if (authenticated && document.visibilityState === 'visible') void loadAttention() }, 15000)
-    return () => { clearInterval(timer); clearInterval(notifications); clearInterval(attentionPoll); window.removeEventListener('reet-shelf-changed', changed) }
+    const offAttention = onAttentionChanged(() => { void loadAttention() })
+    return () => { offAttention(); clearInterval(timer); clearInterval(notifications); clearInterval(attentionPoll); window.removeEventListener('reet-shelf-changed', changed) }
   })
 
   function chooseView(next: 'list' | 'board') {

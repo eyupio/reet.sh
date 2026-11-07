@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, getSyncState, listGafferGoals, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
@@ -107,6 +108,7 @@
     sessions = (sessions ?? []).map(s => s.id === sessionId ? { ...s, changedSinceSeen: false, attention: s.attention === 'waiting' && !hasPending(s) ? 'working' : s.attention } : s)
     try {
       await markSessionSeen(sessionId, bounded())
+      signalAttentionChanged()
       void load(true)
     } catch (e) {
       if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()) }

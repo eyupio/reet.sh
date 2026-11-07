@@ -62,3 +62,10 @@ Next session:
 4. Record the actual merge and any verified deployment outcome. Keep later-message retitling and broader attention/navigation refinements separate unless their ownership/scope is explicitly established.
 
 The original checkout is untouched. This worktree should have no tracked uncommitted changes after the final handoff push; `web/node_modules` is an intentional untracked symlink and must never be committed. Logs are under `/workspace/work/redesign-review/compact-*`. The continuation prompt uses repository paths so it can be used even if this local environment is replaced.
+
+
+## CI follow-up on PR head `cf92445d`
+
+- `phone-dialogs` failed in `web/tests/launch-options.e2e.mjs`: it clicked backlog **Edit** directly, but compact rows keep Edit/Delete/Start behind the **Details** disclosure by design. This suite was not in the local validation list. The test now opens "Show details for <title>" before Edit (both places; the card is collapsed again after a reload). The product behaviour is unchanged; the approved layout is not weakened.
+- Codex review never completed on this PR (usage limit); there were no review threads or findings, so no review-driven change was made.
+- Merge outcome: pending the new head's CI. Record it below once merged.

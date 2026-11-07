@@ -150,3 +150,19 @@ func TestValidTitleOrigin(t *testing.T) {
 		}
 	}
 }
+
+// Create.TitleOrigin is controller-side state resolved from the web client's
+// claim; it must never be marshalled onto the wire to the connector.
+func TestCreateTitleOriginIsNotSerialized(t *testing.T) {
+	for _, origin := range []TitleOrigin{TitleManual, TitleFallback} {
+		raw, err := json.Marshal(Create{Title: "OpenCode · app", TitleOrigin: origin, Cols: 80, Rows: 24})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, leaked := range []string{"titleOrigin", "TitleOrigin"} {
+			if strings.Contains(string(raw), leaked) {
+				t.Fatalf("Create with origin %q marshals %q: %s", origin, leaked, raw)
+			}
+		}
+	}
+}

@@ -1,6 +1,6 @@
 # Name Chat sessions from their first real task
 
-Status: design for review. No code is written. Follows [Compact work items and meaningful names](../../handoffs/compact-work-items.md), which shipped prompt-based names for sessions started *with* a task and left naming from a *later* message to this contract.
+Status: approved design, implemented on this branch (PR #647); not yet deployed or verified in production. Follows [Compact work items and meaningful names](../../handoffs/compact-work-items.md), which shipped prompt-based names for sessions started *with* a task and left naming from a *later* message to this contract.
 
 ## Problem
 

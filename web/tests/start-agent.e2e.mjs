@@ -1053,7 +1053,9 @@ try{
  await expect.poll(()=>posts.length).toBe(blankPosts+1)
  expect(JSON.parse(posts.at(-1))).toMatchObject({tool:'claude',dir:SITE,title:'Claude Code \u00b7 site',titleOrigin:'fallback'})
  expect(JSON.parse(posts.at(-1)).prompt).toBeUndefined()
- // An image with no typed task still counts as a fallback title: the path the prompt gains is not a task.
+ // For an image-only launch the CLIENT claims titleOrigin 'fallback': the path the prompt gains is not a task. The real
+ // controller sees the appended "Image:" lines as the prompt and stores 'manual'; this mocked test only records what the
+ // client sends.
  d=await openFromSidebar();p=parts(d)
  await p.folder.selectOption(SITE)
  await page.evaluate(() => {

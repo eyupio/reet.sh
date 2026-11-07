@@ -85,11 +85,11 @@ Contract:
 - The first of a session's first three accepted Chat prompts that yields a title (`terminalproto.PromptTitle`) names a `fallback` session once.
 - A manual rename always wins; a rename racing the first message keeps the manual title.
 
-Where it lives: `title_origin` and `retitle_tries` on `terminal_sessions`; `terminalproto.ResolveTitle` at create (the web client sends `titleOrigin`); `store.RetitleChatFromPrompt`, called from `PromptChat` only after the agent acknowledges a prompt, which also covers the queue drain. Open views show a new title on their next session-list refresh (Home polls every 15 seconds); there is no title push channel.
+Where it lives: `title_origin` and `retitle_tries` on `terminal_sessions`; `terminalproto.ResolveTitle` at create (the web client sends `titleOrigin`); `store.RetitleChatFromPrompt`, called from `PromptChat` only after the agent acknowledges a prompt (which also covers the queue drain) and from the queue drain's steered `injected` delivery in `internal/terminalbroker/chat_queue.go`. Open views show a new title on their next session-list refresh (Home polls every 15 seconds); there is no title push channel.
 
 Known limits (deliberate):
 
-- A launch with no typed task but an attached image is stored as `manual` and never auto-renamed. The controller sees the appended "Image:" lines as the prompt, so the client's `fallback` claim does not match. This is the safe direction; a follow-up could make the server ignore appended Image: lines.
+- A launch with no typed task but an attached image is stored as `manual` and never auto-renamed. The controller sees the appended "Image:" lines as the prompt, so the client's `fallback` claim does not match. This is the safe direction; a follow-up could make the server ignore appended Image: lines. Tracked in https://github.com/eyupio/reet.sh/issues/648.
 - `PromptTitle` strips only a fixed list of greetings and fillers, so a first message that is just "thanks" yields the title "Thanks" and ends eligibility. This is existing `PromptTitle` behaviour, not changed here.
 - A message relayed into a worker session by a Gaffer conversation (queue origin `companion`) can name a fallback-titled Chat session, since it is still the first real task that session receives.
 - "Continue" of an ended fallback Chat starts the new session with the old title and no claim, so it is stored `manual` and keeps the generic name.

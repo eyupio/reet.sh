@@ -391,18 +391,24 @@
     try { unreadNotifications = (await getNotificationCount()).unread } catch { /* a count is not worth an error banner */ }
   }
 
+  // A slow earlier load must not overwrite a newer one (an answer's refresh can overtake the poll's).
+  let attentionGeneration = 0
   async function loadAttention() {
     if (!authenticated || needsAuth || !sessionsAccess || isHome || isSessions) return
+    const mine = ++attentionGeneration
     try {
       const sessions = await terminalSessions()
+      if (mine !== attentionGeneration) return
       let projects: FolderProject[] = []
       const hosts = environments.map(e => ({ agentId: e.id, host: e.host }))
       if (sessions.length > 0) {
         const [p, m] = await Promise.allSettled([sessions.some(s => s.projectId) ? listFolderProjects() : Promise.resolve([]), terminalMachines()])
+        if (mine !== attentionGeneration) return
         if (p.status === 'fulfilled') projects = p.value
         if (m.status === 'fulfilled') for (const tm of m.value) hosts.push({ agentId: tm.agentId, host: tm.host })
       }
       const cards = needsYou(sessions, Date.now(), sessionOwners(sessions, projects), hosts)
+      if (mine !== attentionGeneration) return
       attention = attentionCount(cards)
       needsCards = cards
       onAnswered = () => loadAttention()

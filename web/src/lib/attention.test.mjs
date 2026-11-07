@@ -70,3 +70,20 @@ test('attentionRuleOf: no attention is nothing', () => {
   assert.equal(attentionRuleOf(s({ attention: '', changedSinceSeen: true }), NOW), null)
   assert.equal(attentionRuleOf(s({ attention: undefined }), NOW), null)
 })
+
+test('attentionRuleOf: exactly the window old and unseen failed is still failed', () => {
+  assert.equal(attentionRuleOf(s({ attention: 'failed', changedSinceSeen: true, updatedAt: NOW - ATTENTION_WINDOW_MS }), NOW), 'failed')
+})
+
+test('attentionRuleOf: one millisecond past the window and unseen failed is nothing', () => {
+  assert.equal(attentionRuleOf(s({ attention: 'failed', changedSinceSeen: true, updatedAt: NOW - ATTENTION_WINDOW_MS - 1 }), NOW), null)
+})
+
+test('attentionRuleOf: unseen and in the window but working or quiet is nothing', () => {
+  assert.equal(attentionRuleOf(s({ attention: 'working', changedSinceSeen: true }), NOW), null)
+  assert.equal(attentionRuleOf(s({ attention: 'quiet', changedSinceSeen: true }), NOW), null)
+})
+
+test('attentionRuleOf: a failed session that also holds a pending item is still failed', () => {
+  assert.equal(attentionRuleOf(s({ attention: 'failed', changedSinceSeen: true, pendingPermission: perm }), NOW), 'failed')
+})

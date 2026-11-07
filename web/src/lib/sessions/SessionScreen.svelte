@@ -13,6 +13,7 @@
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from '../launchBar'
+  import { signalAttentionChanged } from '../attentionSignal'
   import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
@@ -134,7 +135,10 @@
     if (!sid || (sid === lastMarkedId && !session.changedSinceSeen && session.attention !== 'waiting')) return
     lastMarkedId = sid
     if (session.changedSinceSeen || session.attention === 'waiting') {
-      void markSessionSeen(sid).catch(() => {})
+      // Read before the await: only clearing something unseen changes what the surfaces count. The refreshed list then says
+      // changedSinceSeen false, so this does not signal again. A failed mark signals nothing.
+      const wasUnseen = !!session.changedSinceSeen
+      void markSessionSeen(sid).then(() => { if (wasUnseen) signalAttentionChanged() }, () => {})
     }
   })
 

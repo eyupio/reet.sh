@@ -167,7 +167,29 @@ try{
  await poll(page);await page.waitForTimeout(300)
  await sidebarCount(page,1)
  await surfaces(page,1,'Fix the build · studio')
+ // An unseen terminal bell comes in (the count goes 1 to 2); clicking its row in the workspace sidebar opens it, which marks it
+ // seen. The polls are still frozen, so the sidebar badge, the bell and the title can only drop to 1 because opening the
+ // session told them.
+ // Let any trailing refresh from the answer above run out first, so it cannot stand in for the signal under test.
+ await page.waitForTimeout(1300)
+ // (Opening it earlier on Home marked it seen and, as the server does, took it off waiting, so it rings again.)
+ Object.assign(box.sessions.find(s=>s.id==='contract-bell-0001'),{changedSinceSeen:true,attention:'waiting',bellAt:Date.now()})
+ await poll(page)
+ await sidebarCount(page,2)
+ await surfaces(page,2,'Fix the build · studio')
+ const bellRow=sidebar(page).locator('li.needs',{hasText:'Tail the logs'})
+ await expect(bellRow).toHaveCount(1)
+ const seenBefore=box.seen.filter(id=>id==='contract-bell-0001').length
+ await bellRow.locator('button.session-row').click()
+ await expect(page.locator('.session-screen .title')).toHaveText('Tail the logs')
+ await expect.poll(()=>box.seen.filter(id=>id==='contract-bell-0001').length).toBeGreaterThan(seenBefore)
+ await expect(sidebar(page).locator('header .need-badge')).toHaveText('1',{timeout:2000})
+ await expect(bellButton(page,1)).toBeVisible({timeout:2000})
+ await expect.poll(()=>page.title(),{timeout:2000}).toBe('(1) Tail the logs · studio · reet.sh')
+ await sidebarCount(page,1)
+ // What is left is the failed session, which has no row to answer.
+ await expect(sidebar(page).locator('li.needs')).toHaveCount(0)
  expect(w.errors).toEqual([])
  await w.context.close()
- console.log('Attention contract: Home header, Needs you, bell and title agree at 2 with the Sessions list, another page and the workspace sidebar; a seen bell does not count and an opened bell clears; an opened blocked chat stays counted without a flicker; answering from the bell drops every surface to 1 without a poll; a failed list read keeps the last count.')
+ console.log('Attention contract: Home header, Needs you, bell and title agree at 2 with the Sessions list, another page and the workspace sidebar; a seen bell does not count and an opened bell clears; an opened blocked chat stays counted without a flicker; answering from the bell and opening an unseen bell in the workspace drop every surface to 1 without a poll; a failed list read keeps the last count.')
 }finally{await browser.close()}

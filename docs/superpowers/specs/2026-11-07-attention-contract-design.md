@@ -55,7 +55,7 @@ On Home, for each Gaffer goal whose `attention` is true and whose linked session
 
 ### 5. One source, no staleness
 
-Keep each page's own list and 15-second poll (the workspace sidebar's list carries the stale-poll fencing and #642 holds, so it is not replaced). Make them converge by sharing the rule (section 2) and a small refresh signal: answering an approval or question from any surface (Home card, bell, in-chat card) or marking a session seen signals every mounted loader (the bell's `loadAttention`, the workspace list) to refresh immediately. A failed read keeps the last good value, as today. A single shared store is deferred to the server-owned version.
+Keep each page's own list and 15-second poll (the workspace sidebar's list carries the stale-poll fencing and #642 holds, so it is not replaced). Make them converge by sharing the rule (section 2) and a small refresh signal: answering an approval or question from any surface (Home card, bell, in-chat card) or marking a session seen signals every mounted loader (the bell's `loadAttention`, the workspace list) to refresh immediately. A failed read keeps the last good value, as today. The signal also schedules one trailing refresh about a second later: on a real controller the pending item is cleared by a later event than the machine's OK reply, so the immediate refresh can still read the session as blocked. A single shared store is deferred to the server-owned version.
 
 ## Behaviour changes a person will see
 

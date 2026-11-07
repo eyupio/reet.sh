@@ -28,7 +28,12 @@
   let modelBefore: {providerId:string;model:string;manual:boolean} | undefined
   let contextOpen = $state(false)
   let open = $state(false), phone = $state(false), full = $state(false), mode = $state('session'), keyboardEditing=$state(false)
-  let panelSize=$state<GafferPanelSize>('comfortable'),panelSide=$state<GafferPanelSide>('right')
+  // The saved corner is read while the widget is created, so the workspace reserves Gaffer's space in the same frame the
+  // launcher can first be seen. Waiting for onMount left a frame where the panel overlapped the workspace.
+  const savedGafferLayout=(()=>{try{return readGafferLayout(localStorage.getItem(`reet.gaffer.layout.${userId}`))}catch{return readGafferLayout(null)}})()
+  let panelSize=$state<GafferPanelSize>(savedGafferLayout.size),panelSide=$state<GafferPanelSide>(savedGafferLayout.side)
+  try{document.documentElement.setAttribute('data-gaffer-anchor',savedGafferLayout.side)}catch{/* no document outside a browser */}
+
   let layoutRevision=$state(0)
   const modal=$derived(phone||full)
   let panel = $state<HTMLDialogElement>(), launcher = $state<HTMLButtonElement>(), composer = $state<HTMLTextAreaElement>(), transcript = $state<HTMLDivElement>()
@@ -52,7 +57,6 @@
   const contextLabel = $derived(current?.context?.needsReview ? 'Review context sharing' : current?.context?.grant && (current.context.grant.status || current.context.grant.history || current.context.grant.text) ? 'Selected context shared' : 'Context off · typed messages only')
 
   onMount(() => {
-    try{const saved=readGafferLayout(localStorage.getItem(`reet.gaffer.layout.${userId}`));panelSize=saved.size;panelSide=saved.side}catch{/* optional layout preference */}
     document.documentElement.setAttribute('data-gaffer-anchor',panelSide)
     const entry = (opener: HTMLElement) => { inlineOpener = opener; open = true }
     gafferChatEntry.set(entry)

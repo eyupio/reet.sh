@@ -214,3 +214,8 @@ The user identified the projects column as the main space problem. It now defaul
 ## 17. Home follow-up discoverability
 
 #642 merged as `3952c332` after seven green workflows, including the cross-machine end-selection regression and real-terminal lifecycle. Deployment remains unverified. The next independent slice adds a compact Home summary entry for existing Gaffer follow-ups needing review or actively following a session. It reuses Followed sessions and its explicit controls; opening it changes no grant or goal and starts no model turn. Read [Home follow-up entry](home-gaffer-followups.md) for scope and acceptance. Broader attention unification and navigation remain separate refinements.
+
+
+## 18. Compact work at large volumes
+
+#643 merged with six green workflows as `7f948d39`. The user then approved [the compact-item mock](previews/compact-work-items-mock.png): meaningful task titles, slim rows and expandable detail, plus bounded lists when there are many records. Read [Compact work items and meaningful names](compact-work-items.md). The independent implementation branch is `feat/compact-work-items`, based on #643. It preserves explicit density preferences and the Planning board default, and keeps full attention counts and approval access. Launch naming uses the task prompt before attachment paths; existing manual names remain intact. Verify final browser acceptance and exact-head CI/reviews before merge.

@@ -4,15 +4,16 @@
   import { worktreeStatus } from '../terminal/api'
   import Approval from '../shell/Approval.svelte'
 
-  let { calm = false, cards, onseen, onanswered }: {
+  let { calm = false, cards, totalCount, onseen, onanswered }: {
     calm?: boolean
     cards: NeedCard[]
+    totalCount?: number
     onseen?: (sessionId: string) => void | Promise<void>
     onanswered?: () => void | Promise<void>
   } = $props()
 
   const id = $props.id()
-  const count = $derived(attentionCount(cards))
+  const count = $derived(totalCount ?? attentionCount(cards))
 
   // For a worktree session that finished ("Ready to review"), ask the machine once per (sessionId, at) how many files
   // changed in the worktree (R11).

@@ -33,10 +33,14 @@
   const life = new AbortController()
   const signal = () => AbortSignal.any([life.signal, AbortSignal.timeout(30_000)])
   let drafts = $state<SessionDraft[] | undefined>(), problem = $state(''), notice = $state('')
-  let view = $state<BoardView>('board'), sort = $state('newest'), compact = $state(false)
+  let view = $state<BoardView>('board'), sort = $state('newest'), compact = $state(true)
   let filters = $state(emptyFilters()), filtersOpen = $state(false)
   // Cards start as a scan-friendly summary of their core details; only the card's own prompt or branch needs opening.
   let expanded = $state<string[]>([])
+  const PAGE_SIZE = 5
+  let visible = $state<Record<string, number>>({backlog: PAGE_SIZE, active: PAGE_SIZE, finished: PAGE_SIZE})
+  const windowKey = $derived(JSON.stringify({filters, sort, scopeIds, view}))
+  $effect(() => { void windowKey; visible = {backlog: PAGE_SIZE, active: PAGE_SIZE, finished: PAGE_SIZE} })
   // `start` opens an idea to be refined and started, rather than just edited.
   let composer = $state<{ draft: SessionDraft | null; opener: HTMLElement; start?: boolean } | null>(null)
   let removing = $state<SessionDraft | null>(null), deleteBusy = $state(false)
@@ -90,6 +94,12 @@
       if (life.signal.aborted || mine !== generation) return
       error(e); problem = drafts ? "Couldn't refresh the backlog. Showing your last saved items." : "Couldn't read the backlog just now."
     }
+  }
+  async function showItems(stage: string, amount: number, opener: HTMLButtonElement) {
+    const panel = opener.closest('.list-window')
+    visible[stage] = amount
+    await tick()
+    if (!opener.isConnected) panel?.querySelector('button')?.focus()
   }
   function preferences() {
     try { localStorage.setItem(`reet.sessionBoard.${userId}`, JSON.stringify({ view, sort, compact })) } catch { /* The view still works without storage. */ }
@@ -271,7 +281,7 @@
       const p = JSON.parse(localStorage.getItem(`reet.sessionBoard.${userId}`) || '{}')
       if (['board', 'backlog', 'active', 'finished'].includes(p.view)) view = p.view
       if (['newest', 'oldest', 'title'].includes(p.sort)) sort = p.sort
-      compact = p.compact === true
+      if (typeof p.compact === 'boolean') compact = p.compact
     } catch { /* Default to the full board. */ }
     void load()
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, 15_000)
@@ -338,28 +348,29 @@
           {:else if !items.length}
             <div class="empty"><span class="empty-icon"><BoardIcon name={hasFilters ? 'search' : stage.id} size={26}/></span><strong>{hasFilters ? 'Nowt matches just yet.' : scopeIds !== undefined ? `Nothing in ${scopeName} here yet.` : stage.id === 'backlog' ? 'Make room for your next idea.' : stage.id === 'active' ? 'Ready when you are.' : 'Good work will land here.'}</strong><p>{hasFilters ? 'Try another search or loosen your filters.' : scopeIds !== undefined ? 'Choose Show everything to see every project again.' : stage.id === 'backlog' ? 'Save a clear prompt, pick an agent, and leave it ready for later.' : stage.id === 'active' ? 'Start one now, or from your backlog.' : 'Sessions move here when they end, with their history close at hand.'}</p>{#if hasFilters}<button onclick={clear}>Clear filters</button>{:else if scopeIds !== undefined}<button onclick={resetScope}>Show everything</button>{:else if stage.id === 'backlog'}<button onclick={e => composer = { draft: null, opener: e.currentTarget }}><BoardIcon name="plus" size={14}/>Plan a session</button>{:else if stage.id === 'active'}<button onclick={e => onstart(e.currentTarget)}><BoardIcon name="plus" size={14}/>Start a session</button>{/if}</div>
           {:else}
-            {#each items as item, index (item.key)}
+            {#each items.slice(0, visible[stage.id]) as item, index (item.key)}
               {@const draft = item.draft}
               {@const session = item.session}
               {@const project = projects.find(p => p.id === item.projectId)}
               {@const word = session ? stateWord(session) : null}
               {@const reason = draft ? startReason(draft) : null}
-              {@const detailText = draft ? draft.prompt || (draft.idea ? 'Just an idea so far.' : '') : session?.worktreeBranch || ''}
-              {@const hasDetails = detailText !== ''}
+              {@const detailText = draft ? draft.prompt || (draft.idea ? 'Just an idea so far.' : '') : session?.promptExcerpt || ''}
+              {@const hasDetails = true}
               {@const detailOpen = expanded.includes(item.key)}
               {@const detailId = `${id}-${stage.id}-${index}-details`}
-              <article class="session-card" class:attention={session?.attention === 'waiting'} class:starting={working === draft?.id} class:dragging={!!draft && dragDraft === draft.id} data-status={session ? sessionStatus(session) : undefined} draggable={draft ? !draft.starting && !working && !loadingId : undefined} ondragstart={draft ? event => dragStart(event, draft) : undefined} ondragend={draft ? dragEnd : undefined}>
-                <div class="card-top"><span class="project-label" title={project?.name ?? item.dir}><BoardIcon name="folder" size={13}/>{project?.name || (item.projectId ? 'Removed project' : item.dir.split('/').filter(Boolean).at(-1) || 'Home folder')}</span>{#if draft?.idea}<span class="idea-badge">Idea</span>{/if}{#if draft?.imageCount}<button type="button" class="image-count" aria-label={`Preview ${draft.imageCount} reference ${draft.imageCount === 1 ? 'image' : 'images'}`} aria-haspopup="dialog" onpointerenter={event => showImagePreview(draft, event.currentTarget)} onpointerleave={() => hideImagePreview(160)} onfocus={event => showImagePreview(draft, event.currentTarget, false)} onblur={() => hideImagePreview()} onclick={() => void openImageLightbox(draft)}><BoardIcon name="image" size={13}/>{draft.imageCount}</button>{/if}<div class="card-tools">{#if hasDetails}<button type="button" class="disclosure" aria-expanded={detailOpen} aria-controls={detailId} aria-label={`${detailOpen ? 'Hide' : 'Show'} details for ${item.title}`} title={detailOpen ? 'Hide details' : 'Show details'} onclick={() => toggleDetails(item.key)}><span class="disclosure-text" aria-hidden="true">{detailOpen ? 'Hide' : 'Details'}</span><BoardIcon name="chevron" size={13}/></button>{/if}{#if session}<button class="more" aria-label={`Actions for ${item.title}`} onclick={e => void actions?.openMenu(e, session)}><BoardIcon name="more"/></button>{/if}</div></div>
+              <article class="session-card" class:expanded={detailOpen} class:retrying={draft?.starting} class:attention={session?.attention === 'waiting'} class:starting={working === draft?.id} class:dragging={!!draft && dragDraft === draft.id} data-status={session ? sessionStatus(session) : undefined} draggable={draft ? !draft.starting && !working && !loadingId : undefined} ondragstart={draft ? event => dragStart(event, draft) : undefined} ondragend={draft ? dragEnd : undefined}>
+                <div class="card-top"><span class="project-label" title={project?.name ?? item.dir}><BoardIcon name="folder" size={13}/>{project?.name || (item.projectId ? 'Removed project' : item.dir.split('/').filter(Boolean).at(-1) || 'Home folder')}</span>{#if draft?.idea}<span class="idea-badge">Idea</span>{/if}{#if draft?.imageCount}<button type="button" class="image-count" aria-label={`Preview ${draft.imageCount} reference ${draft.imageCount === 1 ? 'image' : 'images'}`} aria-haspopup="dialog" onpointerenter={event => showImagePreview(draft, event.currentTarget)} onpointerleave={() => hideImagePreview(160)} onfocus={event => showImagePreview(draft, event.currentTarget, false)} onblur={() => hideImagePreview()} onclick={() => void openImageLightbox(draft)}><BoardIcon name="image" size={13}/>{draft.imageCount}</button>{/if}</div><div class="card-tools">{#if hasDetails}<button type="button" class="disclosure" aria-expanded={detailOpen} aria-controls={detailId} aria-label={`${detailOpen ? 'Hide' : 'Show'} details for ${item.title}`} title={detailOpen ? 'Hide details' : 'Show details'} onclick={() => toggleDetails(item.key)}><span class="disclosure-text" aria-hidden="true">{detailOpen ? 'Hide' : 'Details'}</span><BoardIcon name="chevron" size={13}/></button>{/if}{#if session}<button class="more" aria-label={`Actions for ${item.title}`} onclick={e => void actions?.openMenu(e, session)}><BoardIcon name="more"/></button>{/if}</div>
                 <h4>{#if session}<a href={sessionHref(session)}>{item.title}</a>{:else}<button onclick={e => draft && void edit(draft, e.currentTarget)} disabled={!!loadingId || !!draft?.starting}>{item.title}</button>{/if}</h4>
-                {#if hasDetails}<div class="details" class:open={detailOpen} id={detailId} inert={!detailOpen}><div class="details-inner">{#if draft}<p class="prompt-preview">{detailText}</p>{:else}<p class="branch" title={session?.worktreeBranch}>↳ {detailText}</p>{/if}</div></div>{/if}
-                <div class="agent-meta"><span class="agent-icon">{item.tool ? toolName(item.tool).slice(0, 1) : '›'}</span><strong>{item.tool ? toolName(item.tool) : 'Shell'}</strong><span class="model" title={item.model || 'Agent default'}>{item.model || 'Agent default'}</span>{#if item.effort}<span class="effort">{item.effort}</span>{/if}</div>
+                {#if hasDetails}<div class="details" class:open={detailOpen} id={detailId} inert={!detailOpen}><div class="details-inner">{#if draft}<p class="prompt-preview">{detailText}</p>{:else}<p class="prompt-preview">{detailText}{session?.promptMore ? '…' : ''}</p>{#if session?.worktreeBranch}<p class="branch" title={session.worktreeBranch}>↳ {session.worktreeBranch}</p>{/if}{/if}</div></div>{/if}
+                <div class="item-metadata" inert={compact && !detailOpen}><div class="agent-meta"><span class="agent-icon">{item.tool ? toolName(item.tool).slice(0, 1) : '›'}</span><strong>{item.tool ? toolName(item.tool) : 'Shell'}</strong><span class="model" title={item.model || 'Agent default'}>{item.model || 'Agent default'}</span>{#if item.effort}<span class="effort">{item.effort}</span>{/if}</div>
                 <div class="machine-line"><BoardIcon name="machine" size={13}/><span>{machineNames.get(item.agentId) || health.find(m => m.agentId === item.agentId)?.host || item.agentId}</span>{#if offline.has(item.agentId)}<span class="offline-label">Offline{session ? ' · last known' : ''}</span>{/if}</div>
+                </div>
                 <footer class="card-foot">
                   {#if draft}
                     <span class="age" title={new Date(item.createdAt).toLocaleString()}>Saved {shortAge(Math.max(0, now - item.createdAt))} ago</span>
                     <div class="card-actions">{#if !draft.starting}<button class="edit" disabled={!!working || !!loadingId} onclick={e => void edit(draft, e.currentTarget)} aria-label={`Edit ${draft.title}`}>Edit</button><button class="delete" disabled={!!working || !!loadingId} aria-label={`Delete ${draft.title}`} onclick={() => void askDelete(draft)}>Delete</button>{/if}<button class="start" disabled={!!reason || !!working} title={reason ?? (draft.idea ? 'Refine this idea, then start it' : 'Start this session on its machine')} onclick={e => draft.idea ? void edit(draft, e.currentTarget, true) : void activate(draft)}>{working === draft.id ? phase : draft.starting ? 'Retry start' : 'Start'}<BoardIcon name="arrow" size={13}/></button></div>
                   {:else if session && word}
-                    <span class="status" title={word.source}><i></i>{word.word}</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
+                    <span class="status" title={word.source}><i></i>{word.word}{offline.has(item.agentId) ? ' · last known' : ''}</span><span class="age session-age" title={new Date(item.updatedAt).toLocaleString()}>{shortAge(Math.max(0, now - item.updatedAt))} ago</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
                   {/if}
                 </footer>
                 {#if draft && reason}<p class="start-note">{reason}</p>{:else if draft?.starting}<p class="start-note">Start was requested. Retry checks the same request.</p>{/if}
@@ -367,6 +378,11 @@
             {/each}
           {/if}
         </div>
+        {#if items.length > PAGE_SIZE}<div class="list-window">
+          <span>Showing {Math.min(visible[stage.id], items.length)} of {items.length}</span>
+          {#if visible[stage.id] < items.length}<button type="button" onclick={event => void showItems(stage.id, visible[stage.id] + PAGE_SIZE, event.currentTarget)}>Show {Math.min(PAGE_SIZE, items.length - visible[stage.id])} more</button><button type="button" onclick={event => void showItems(stage.id, items.length, event.currentTarget)}>View all {items.length}</button>
+          {:else}<button type="button" onclick={async event => { const section = event.currentTarget.closest('.stage'); visible[stage.id] = PAGE_SIZE; expanded = []; await tick(); section?.querySelector<HTMLButtonElement>('.list-window button')?.focus() }}>Show fewer</button>{/if}
+        </div>{/if}
       </section>
     {/each}
   </div>
@@ -436,12 +452,13 @@
   .stage-head > button { margin-left: auto; border: 0; background: transparent; color: var(--muted); display: flex; align-items: center; justify-content: center; cursor: pointer; width: 24px; height: 24px; border-radius: 4px; }.stage-head > button:hover { background: var(--card); }
   .stage-hint { font-size: 14px; color: var(--muted); margin: 6px 4px 16px; }
   .cards { display: grid; gap: 8px; }.focused .cards { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
-  .session-card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; box-shadow: 0 2px 3px color-mix(in srgb, var(--ink) 1%, transparent); min-width: 0; transition: border-color .16s, box-shadow .16s; }.session-card:hover { border-color: var(--line-strong); box-shadow: 0 3px 9px color-mix(in srgb, var(--ink) 3%, transparent); }
+  .session-card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; box-shadow: 0 2px 3px color-mix(in srgb, var(--ink) 1%, transparent); min-width: 0; transition: border-color .16s, box-shadow .16s; }.session-card:hover { border-color: var(--line-strong); box-shadow: 0 3px 9px color-mix(in srgb, var(--ink) 3%, transparent); }
   .session-card[draggable='true'] { cursor: grab; }.session-card.dragging { opacity: .55; cursor: grabbing; }
   .session-card[data-status] { box-shadow: inset 3px 0 var(--status), 0 2px 3px color-mix(in srgb, var(--ink) 1%, transparent); }
   .session-card[data-status='working'], .session-card[data-status='waiting'], .session-card[data-status='starting'], .session-card[data-status='failed'] { background: var(--card); border-color: var(--line); }.session-card.attention { border-color: var(--line); }.session-card.starting { border-color: var(--accent-text); }
-  .card-top { display: flex; align-items: center; gap: 8px; min-height: 18px; color: var(--muted); font-size: 14px; }.project-label { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.project-label :global(svg) { flex-shrink: 0; }.image-count { display: flex; align-items: center; gap: 4px; flex: none; min-height: 22px; padding: 1px 6px; margin: -1px -3px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; transition: color .15s, background-color .15s, border-color .15s; }.image-count:hover, .image-count:focus-visible { color: var(--ink); background: var(--bg-sunk); border-color: var(--line); }.image-count :global(svg) { flex: none; }
-  .card-tools { display: flex; align-items: center; gap: 1px; margin-left: auto; }
+  .card-top { display: flex; align-items: center; gap: 8px; min-height: 44px; color: var(--muted); font-size: 14px; }.project-label { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.project-label :global(svg) { flex-shrink: 0; }.image-count { display: flex; align-items: center; gap: 4px; flex: none; min-height: 22px; padding: 1px 6px; margin: -1px -3px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; transition: color .15s, background-color .15s, border-color .15s; }.image-count:hover, .image-count:focus-visible { color: var(--ink); background: var(--bg-sunk); border-color: var(--line); }.image-count :global(svg) { flex: none; }
+  .card-top { padding-right: 88px; }
+  .card-tools { position: absolute; right: 8px; top: 8px; display: flex; align-items: center; gap: 1px; margin-left: auto; }
   .disclosure { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--muted); margin: -4px -3px -4px 0; padding: 4px 6px; cursor: pointer; border-radius: 4px; font: 500 14px var(--sans); min-height: 24px; }.disclosure:hover { background: var(--bg-sunk); color: var(--ink-soft); }.disclosure:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }.disclosure :global(svg) { transition: transform .18s ease; }.disclosure[aria-expanded='true'] :global(svg) { transform: rotate(180deg); }
   .more { border: 0; background: transparent; color: var(--muted); margin: -4px -5px -4px 0; padding: 4px; cursor: pointer; display: flex; border-radius: 4px; }.more:hover { background: var(--bg-sunk); }
   .details { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .2s ease, opacity .16s ease; }.details.open { grid-template-rows: 1fr; opacity: 1; }.details-inner { min-height: 0; overflow: hidden; }
@@ -455,7 +472,36 @@
   .open-session { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; text-decoration: none; color: var(--muted); }.open-session:hover { color: var(--accent-text); }
   .idea-badge { font-size: 14px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--line-strong); border-radius: 6px; padding: 1px 8px; }
   .start-note { font-size: 14px; color: var(--warn); border-top: 1px solid var(--line-soft); margin: 8px 0 0; padding-top: 8px; line-height: 1.5; }.branch { font: 14px/1.5 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 0 12px; }
-  .compact .prompt-preview, .compact .stage-hint, .compact .branch, .compact .details, .compact .disclosure { display: none; }.compact .session-card { padding: 8px 12px; }.compact .stage-head { margin-bottom: 12px; }
+  .compact .stage-hint { display: none; }
+  .compact .stage-head { margin-bottom: 8px; }
+  .compact .cards, .compact.focused .cards { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .compact .session-card { position: relative; padding: 8px 10px; border-width: 0 0 1px; border-radius: 0; background: transparent; }
+  .compact .session-card:not(.expanded) { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 8px; }
+  .compact .session-card:not(.expanded) h4 { grid-column: 1 / 3; grid-row: 1; padding-right: 0; margin: 0; min-height: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .compact .session-card:not(.expanded) h4 a, .compact .session-card:not(.expanded) h4 button { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .compact .session-card:not(.expanded) .card-top { grid-column: 1; grid-row: 2; min-height: 24px; padding-right: 0; }
+  .compact .session-card:not(.expanded) .card-tools { position: static; grid-column: 3; grid-row: 1 / 3; align-self: center; }
+  .compact .session-card:not(.expanded) .card-foot { grid-column: 2; grid-row: 2; flex-wrap: wrap; max-width: 150px; border: 0; padding: 0; gap: 8px; }
+  .compact .session-card:not(.expanded) .item-metadata, .compact .session-card:not(.expanded) .details { display: none; }
+  .compact .session-card:not(.expanded) .card-actions .edit, .compact .session-card:not(.expanded) .card-actions .delete, .compact .session-card:not(.expanded) .open-session { display: none; }
+  .compact .disclosure-text { display: none; }
+  .compact .disclosure, .compact .more { margin: 0; min-width: 44px; min-height: 44px; justify-content: center; }
+  .compact .session-card.expanded { border: 1px solid var(--line); border-radius: 6px; margin-block: 4px; }
+  .compact .session-card:not(.expanded):has(.card-actions) .card-top { padding-right: 0; }
+  .session-age { white-space: nowrap; }
+  .list-window { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 4px 0; font-size: 13px; color: var(--muted); }
+  .list-window button { min-height: 44px; padding: 4px 0; border: 0; background: transparent; color: var(--ink); text-decoration: underline; cursor: pointer; font: inherit; }
+  .list-window button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .compact .card-actions button { min-height: 44px; }
+  .compact .session-card:not(.expanded):not(.retrying) .card-actions { display: none; }
+  .compact .session-card:not(.expanded).retrying .card-foot { grid-row: 1 / 3; }
+  .compact .session-card:not(.expanded).retrying h4 { grid-column: 1; }
+  .compact .session-card:not(.expanded).retrying .card-foot > .age { display: none; }
+  .compact .session-card:not(.expanded) .more { display: none; }
+  .compact .session-card.expanded .card-top { padding-right: 88px; }
+  .compact .session-card.expanded .card-tools { top: 4px; right: 4px; }
+  .compact .session-card:not(.expanded) .status { font-size: 12px; }
+  .compact .session-card:not(.expanded) .session-age { font-size: 12px; }
   .empty { text-align: center; padding: 36px 12px; color: var(--muted); grid-column: 1/-1; }.empty-icon { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin: 0 auto 16px; }.empty strong { font-size: 14px; color: var(--ink-soft); font-weight: 550; display: block; }.empty p { font-size: 14px; margin: 8px auto 16px; max-width: 240px; }.empty button { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-text); font-size: 14px; border: 0; background: transparent; cursor: pointer; }
   .board-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px; font-size: 14px; color: var(--muted); }.board-foot span, .board-foot a { display: flex; gap: 6px; align-items: center; }.board-foot a { text-decoration: none; color: var(--muted); }.board-foot a:hover { color: var(--accent-text); }
   .live:empty { display: none; }.notice, .problem { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); margin: 0 0 16px; font-size: 14px; }.problem { border-color: var(--warn); }.problem button { border: 0; background: none; color: var(--accent-text); cursor: pointer; text-decoration: underline; }.no-options { font-size: 14px; color: var(--muted); }

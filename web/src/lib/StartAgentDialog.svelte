@@ -11,7 +11,7 @@
  import { defaultLabel, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, launchUpload, machineModels, readiness, refreshMachineModels, refusalSentence, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './terminal/upload'
- import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
+ import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, promptTitle, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
  import { projectSlug } from './launchBar'
  import { chatNeedsTrust, chatToolName, structuredAgent } from './terminal/api'
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
@@ -529,6 +529,7 @@
      if (base) launch.base = base
     }
    }
+   const taskTitle = promptTitle(prompt) || titleFor(chosenTool, dir)
    if (attachments.length) {
     // The images go to the machine before the session exists; their paths join the opening prompt.
     busy = true
@@ -557,7 +558,7 @@
      return
     }
    }
-   operation = { agentId: machine.agentId, host: machine.host, requestId: crypto.randomUUID(), title: titleFor(chosenTool, dir), launch }
+   operation = { agentId: machine.agentId, host: machine.host, requestId: crypto.randomUUID(), title: taskTitle, launch }
   }
   const op = operation
   busy = true; failed = false; invalidMessage = false

@@ -313,10 +313,10 @@ try{
  expect(posts).toHaveLength(1)
  const first=body(0)
  expect(first.requestId).toMatch(UUID)
- expect(first).toEqual({agentId:A,requestId:first.requestId,title:'Claude Code · site',cols:100,rows:30,tool:'claude',model:'opus-4.1',dir:SITE,prompt:'fix the failing build please'})
+ expect(first).toEqual({agentId:A,requestId:first.requestId,title:'Fix the failing build please',cols:100,rows:30,tool:'claude',model:'opus-4.1',dir:SITE,prompt:'fix the failing build please'})
  const opened=`session-${first.requestId.replaceAll('-','').slice(0,20)}`
  await expect(page).toHaveURL(new RegExp(`[?&]session=${opened}(&|$)`))
- await expect(page.locator('#terminal-sessions').locator('.session-row[aria-current="true"]')).toContainText('Claude Code · site')
+ await expect(page.locator('#terminal-sessions').locator('.session-row[aria-current="true"]')).toContainText('Fix the failing build please')
  await expect(page.locator('.pane')).toBeVisible()
 
  // Opened again, the prompt is gone (it lived only in the closed dialog). Escape closes and focus returns to the opener.
@@ -360,7 +360,7 @@ try{
  expect(posts.length).toBe(sentFirst+1)
  firstHold.resolve()
  await expect(d).toHaveCount(0)
- expect(body(-1)).toEqual({agentId:A,requestId:body(-1).requestId,title:'Claude Code · held',cols:100,rows:30,tool:'claude',model:'sonnet-4',dir:'/home/dev/held',prompt:'wait for me please'})
+ expect(body(-1)).toEqual({agentId:A,requestId:body(-1).requestId,title:'Wait for me please',cols:100,rows:30,tool:'claude',model:'sonnet-4',dir:'/home/dev/held',prompt:'wait for me please'})
 
  // ── A lost reply: plain words, Retry focused, the same request id and body; nothing changes while it is in flight. ──
  d=await openFromSidebar();p=parts(d)
@@ -411,7 +411,7 @@ try{
  await expect(d).toHaveCount(0)
  expect(posts.slice(-3)).toEqual([lost,lost,lost])
  tmachines[0].capabilities.tools=['claude','codex','gemini','cline']
- expect(JSON.parse(lost)).toEqual({agentId:A,requestId:JSON.parse(lost).requestId,title:'Codex',cols:100,rows:30,tool:'codex',model:'gpt-5-codex',prompt:'tidy the readme'})
+ expect(JSON.parse(lost)).toEqual({agentId:A,requestId:JSON.parse(lost).requestId,title:'Tidy the readme',cols:100,rows:30,tool:'codex',model:'gpt-5-codex',prompt:'tidy the readme'})
 
  // ── Definite refusals: the exact sentence, the field concerned focused, and the next Start is a new request. ──
  d=await openFromSidebar();p=parts(d)
@@ -439,7 +439,7 @@ try{
   ids.push(body(-1).requestId)
  }
  expect(new Set(ids).size).toBe(refusals.length)
- expect(body(-1)).toEqual({agentId:A,requestId:ids.at(-1),title:'Claude Code · typed',cols:100,rows:30,tool:'claude',dir:'/home/dev/typed',prompt:'look around here'})
+ expect(body(-1)).toEqual({agentId:A,requestId:ids.at(-1),title:'Look around here',cols:100,rows:30,tool:'claude',dir:'/home/dev/typed',prompt:'look around here'})
  // A 200 for a session the machine did not start: a definite outcome, said plainly, no landing, and the next Start is a new request.
  const urlBefore=page.url()
  answers.push({state:'lost'})
@@ -1040,6 +1040,7 @@ try{
  await expect.poll(()=>posts.length).toBe(imagePosts+1)
  expect(uploads).toHaveLength(1)
  expect(uploads[0].type).toBe('image/png')
+ expect(JSON.parse(posts.at(-1)).title).toBe('Look at this please')
  expect(JSON.parse(posts.at(-1)).prompt).toBe(`look at this please\n\nImage: ${UPLOAD_REF}`)
  // The image paths must fit under the same limit as the prompt: an 8,000-byte prompt plus a path is refused before the
  // session is asked to start, keeping the dialog and the attached image.

@@ -236,6 +236,9 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		switch answer.Outcome {
 		case "injected":
 			b.chatLog(uid, session).publishSteered(queueEcho(q))
+			// An injected message is accepted like a prompt, so it can be the
+			// first task. As in PromptChat, a naming failure never undoes it.
+			_, _ = b.st.RetitleChatFromPrompt(uid, session, q.Text)
 			finish("sent", "")
 			return
 		case "promptRequired": // Explicitly not consumed; safe to submit once as a new turn.

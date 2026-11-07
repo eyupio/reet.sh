@@ -313,7 +313,7 @@ try{
  expect(posts).toHaveLength(1)
  const first=body(0)
  expect(first.requestId).toMatch(UUID)
- expect(first).toEqual({agentId:A,requestId:first.requestId,title:'Fix the failing build please',cols:100,rows:30,tool:'claude',model:'opus-4.1',dir:SITE,prompt:'fix the failing build please'})
+ expect(first).toEqual({agentId:A,requestId:first.requestId,title:'Fix the failing build please',cols:100,rows:30,tool:'claude',model:'opus-4.1',dir:SITE,prompt:'fix the failing build please',titleOrigin:'prompt'})
  const opened=`session-${first.requestId.replaceAll('-','').slice(0,20)}`
  await expect(page).toHaveURL(new RegExp(`[?&]session=${opened}(&|$)`))
  await expect(page.locator('#terminal-sessions').locator('.session-row[aria-current="true"]')).toContainText('Fix the failing build please')
@@ -360,7 +360,7 @@ try{
  expect(posts.length).toBe(sentFirst+1)
  firstHold.resolve()
  await expect(d).toHaveCount(0)
- expect(body(-1)).toEqual({agentId:A,requestId:body(-1).requestId,title:'Wait for me please',cols:100,rows:30,tool:'claude',model:'sonnet-4',dir:'/home/dev/held',prompt:'wait for me please'})
+ expect(body(-1)).toEqual({agentId:A,requestId:body(-1).requestId,title:'Wait for me please',cols:100,rows:30,tool:'claude',model:'sonnet-4',dir:'/home/dev/held',prompt:'wait for me please',titleOrigin:'prompt'})
 
  // ── A lost reply: plain words, Retry focused, the same request id and body; nothing changes while it is in flight. ──
  d=await openFromSidebar();p=parts(d)
@@ -411,7 +411,7 @@ try{
  await expect(d).toHaveCount(0)
  expect(posts.slice(-3)).toEqual([lost,lost,lost])
  tmachines[0].capabilities.tools=['claude','codex','gemini','cline']
- expect(JSON.parse(lost)).toEqual({agentId:A,requestId:JSON.parse(lost).requestId,title:'Tidy the readme',cols:100,rows:30,tool:'codex',model:'gpt-5-codex',prompt:'tidy the readme'})
+ expect(JSON.parse(lost)).toEqual({agentId:A,requestId:JSON.parse(lost).requestId,title:'Tidy the readme',cols:100,rows:30,tool:'codex',model:'gpt-5-codex',prompt:'tidy the readme',titleOrigin:'prompt'})
 
  // ── Definite refusals: the exact sentence, the field concerned focused, and the next Start is a new request. ──
  d=await openFromSidebar();p=parts(d)
@@ -439,7 +439,7 @@ try{
   ids.push(body(-1).requestId)
  }
  expect(new Set(ids).size).toBe(refusals.length)
- expect(body(-1)).toEqual({agentId:A,requestId:ids.at(-1),title:'Look around here',cols:100,rows:30,tool:'claude',dir:'/home/dev/typed',prompt:'look around here'})
+ expect(body(-1)).toEqual({agentId:A,requestId:ids.at(-1),title:'Look around here',cols:100,rows:30,tool:'claude',dir:'/home/dev/typed',prompt:'look around here',titleOrigin:'prompt'})
  // A 200 for a session the machine did not start: a definite outcome, said plainly, no landing, and the next Start is a new request.
  const urlBefore=page.url()
  answers.push({state:'lost'})
@@ -543,7 +543,7 @@ try{
  await p.start.click()
  await expect(page).toHaveURL(/\/sessions\?/)
  const simple=body(-1)
- expect(posts.at(-1)).toBe(JSON.stringify({agentId:A,requestId:simple.requestId,title:'Gemini CLI',cols:100,rows:30,tool:'gemini'}))
+ expect(posts.at(-1)).toBe(JSON.stringify({agentId:A,requestId:simple.requestId,title:'Gemini CLI',cols:100,rows:30,tool:'gemini',titleOrigin:'fallback'}))
  await expect(page).toHaveURL(`${base}/sessions?agent=${A}&session=session-${simple.requestId.replaceAll('-','').slice(0,20)}`)
  // From Terminals, Not listed? goes to the Machines page with Add a machine open, and leaves no marker in the address.
  d=await openFromSidebar()
@@ -1042,6 +1042,36 @@ try{
  expect(uploads[0].type).toBe('image/png')
  expect(JSON.parse(posts.at(-1)).title).toBe('Look at this please')
  expect(JSON.parse(posts.at(-1)).prompt).toBe(`look at this please\n\nImage: ${UPLOAD_REF}`)
+ // The origin comes from the typed task, never from the image paths added to the prompt.
+ expect(JSON.parse(posts.at(-1)).titleOrigin).toBe('prompt')
+ // A blank prompt names the session from the agent and folder, and says so: the controller may replace that name once.
+ d=await openFromSidebar();p=parts(d)
+ await p.folder.selectOption(SITE)
+ const blankPosts=posts.length
+ await p.start.click()
+ await expect(d).toHaveCount(0)
+ await expect.poll(()=>posts.length).toBe(blankPosts+1)
+ expect(JSON.parse(posts.at(-1))).toMatchObject({tool:'claude',dir:SITE,title:'Claude Code \u00b7 site',titleOrigin:'fallback'})
+ expect(JSON.parse(posts.at(-1)).prompt).toBeUndefined()
+ // For an image-only launch the CLIENT claims titleOrigin 'fallback': the path the prompt gains is not a task. The real
+ // controller sees the appended "Image:" lines as the prompt and stores 'manual'; this mocked test only records what the
+ // client sends.
+ d=await openFromSidebar();p=parts(d)
+ await p.folder.selectOption(SITE)
+ await page.evaluate(() => {
+  const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'only.png', {type:'image/png'})
+  const transfer = new DataTransfer()
+  transfer.items.add(image)
+  const event = new Event('paste', {bubbles:true, cancelable:true})
+  Object.defineProperty(event, 'clipboardData', {value: transfer})
+  document.querySelector('dialog textarea').dispatchEvent(event)
+ })
+ const onlyPosts=posts.length
+ await p.start.click()
+ await expect(d).toHaveCount(0)
+ await expect.poll(()=>posts.length).toBe(onlyPosts+1)
+ expect(JSON.parse(posts.at(-1))).toMatchObject({title:'Claude Code \u00b7 site',titleOrigin:'fallback'})
+ expect(JSON.parse(posts.at(-1)).prompt).toContain(UPLOAD_REF)
  // The image paths must fit under the same limit as the prompt: an 8,000-byte prompt plus a path is refused before the
  // session is asked to start, keeping the dialog and the attached image.
  d=await openFromSidebar();p=parts(d)

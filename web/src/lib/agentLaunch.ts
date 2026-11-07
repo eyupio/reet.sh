@@ -191,6 +191,11 @@ export function promptTitle(prompt: string): string {
   return ''
 }
 
+/** Who named a session started from this prompt: the task (`prompt`) when `promptTitle` finds a name in it, else the generic folder name (`fallback`). Sent with the launch so the controller can replace a fallback once, from the first real task. */
+export function titleOriginFor(prompt: string): 'prompt' | 'fallback' {
+  return promptTitle(prompt) ? 'prompt' : 'fallback'
+}
+
 /** The session title when the prompt gives none: the agent ("Terminal" for a plain shell), and the last part of the folder when one is chosen. At most 80 characters, no control or format characters. */
 export function titleFor(tool: string, dir: string): string {
   const name = tool ? nameOf(tool) : 'Terminal'

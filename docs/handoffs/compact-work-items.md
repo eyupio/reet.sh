@@ -72,4 +72,26 @@ The original checkout is untouched. This worktree should have no tracked uncommi
 
 ## Merge outcome
 
-PR #644 was merged on 2026-11-07 as merge commit `9e9372bf1713eece6af049a14041fee49b0a045e` (head `d10efd84`, merge method: merge commit, pinned to the verified head) under the standing authorization. Post-merge `main` workflows (release, image, terminal browser, docs, Gaffer) had only just started when this was recorded and are not verified here. **Deployment is still unverified**: controller/web rollout needs its own check, and no connector upgrade is required for this slice. Later-message retitling and broader attention identity/navigation remain separate, unscoped work.
+PR #644 was merged on 2026-11-07 as merge commit `9e9372bf1713eece6af049a14041fee49b0a045e` (head `d10efd84`, merge method: merge commit, pinned to the verified head) under the standing authorization. Post-merge `main` workflows (release, image, terminal browser, docs, Gaffer) had only just started when this was recorded and are not verified here. **Deployment is still unverified**: controller/web rollout needs its own check, and no connector upgrade is required for this slice. Later-message retitling (see Later-message retitling below) and broader attention identity/navigation remain separate, unscoped work.
+
+## Later-message retitling
+
+Spec: [Name Chat sessions from their first real task](../superpowers/specs/2026-11-07-chat-first-task-retitle-design.md). Plan: [implementation plan](../superpowers/plans/2026-11-07-chat-first-task-retitle.md). The change is implemented on this branch; nothing here is deployed or verified in production.
+
+Contract:
+
+- Every session has a title origin: `manual`, `prompt` or `fallback`. Existing sessions are `manual`.
+- Only Chat sessions are ever renamed; Terminal sessions never are.
+- The first of a session's first three accepted Chat prompts that yields a title (`terminalproto.PromptTitle`) names a `fallback` session once.
+- A manual rename always wins; a rename racing the first message keeps the manual title.
+
+Where it lives: `title_origin` and `retitle_tries` on `terminal_sessions`; `terminalproto.ResolveTitle` at create (the web client sends `titleOrigin`); `store.RetitleChatFromPrompt`, called from `PromptChat` only after the agent acknowledges a prompt (which also covers the queue drain) and from the queue drain's steered `injected` delivery in `internal/terminalbroker/chat_queue.go`. Open views show a new title on their next session-list refresh (Home polls every 15 seconds); there is no title push channel.
+
+Known limits (deliberate):
+
+- A launch with no typed task but an attached image is stored as `manual` and never auto-renamed. The controller sees the appended "Image:" lines as the prompt, so the client's `fallback` claim does not match. This is the safe direction; a follow-up could make the server ignore appended Image: lines. Tracked in https://github.com/eyupio/reet.sh/issues/648.
+- `PromptTitle` strips only a fixed list of greetings and fillers, so a first message that is just "thanks" yields the title "Thanks" and ends eligibility. This is existing `PromptTitle` behaviour, not changed here.
+- A message relayed into a worker session by a Gaffer conversation (queue origin `companion`) can name a fallback-titled Chat session, since it is still the first real task that session receives.
+- "Continue" of an ended fallback Chat starts the new session with the old title and no claim, so it is stored `manual` and keeps the generic name.
+
+Deployment of this change is a separate verification (controller and web rollout; no connector upgrade needed) and is not verified by merging. Attention identity/deduplication and supporting-page navigation remain separate, unscoped work.

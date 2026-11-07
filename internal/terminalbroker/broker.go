@@ -867,6 +867,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		}
 		// A peer without worktree-v1 is never sent the worktree fields, and the
 		// launch is not started without its worktree.
+		if in.Structured && worktreeRequested(in) && !caps.Capabilities.ACPWorktree {
+			return store.TerminalSession{}, false, ErrACPWorktreeUnsupported
+		}
 		if worktreeRequested(in) && !caps.Capabilities.Worktree {
 			return store.TerminalSession{}, false, ErrWorktreeUnsupported
 		}

@@ -1,0 +1,48 @@
+name: structured worktree acceptance
+
+on:
+  pull_request:
+    paths: ['internal/api/**', 'internal/acpagent/**', 'internal/terminalhost/**', 'internal/terminalagent/**', 'internal/terminalbroker/**', 'internal/terminalproto/**', 'internal/agentsoftware/artifact.go', 'go.mod', 'go.sum', '.github/workflows/structured-worktree.yml']
+  push:
+    branches: [main]
+    paths: ['internal/api/**', 'internal/acpagent/**', 'internal/terminalhost/**', 'internal/terminalagent/**', 'internal/terminalbroker/**', 'internal/terminalproto/**', 'internal/agentsoftware/artifact.go', 'go.mod', 'go.sum', '.github/workflows/structured-worktree.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: structured-worktree-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install tmux for the complete private connector path
+        run: |
+          if ! command -v tmux >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y tmux
+          fi
+      - name: Fetch and verify the reviewed agent
+        shell: bash
+        run: |
+          # Keep these pins aligned with OpenCodeLinuxX64 in artifact.go.
+          fixture_dir="$RUNNER_TEMP/structured-worktree"
+          mkdir -p "$fixture_dir"
+          curl --fail --silent --show-error --location --max-time 120 \
+            https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.19.5.tgz \
+            --output "$fixture_dir/opencode.tgz"
+          printf '%s  %s\n' 2d7cfc303decc6cbbcdb22ff1be258b03ce2b5eae57583545afc8f12c01dd5e0 "$fixture_dir/opencode.tgz" | sha256sum --check --status
+          tar -xzf "$fixture_dir/opencode.tgz" -C "$fixture_dir" package/bin/opencode
+          printf '%s  %s\n' 7df4e4136301f16589b0f30bf91a61380fca5f8ef22dd36570f5ebe1d4ec802c "$fixture_dir/package/bin/opencode" | sha256sum --check --status
+          chmod 700 "$fixture_dir/package/bin/opencode"
+          echo "REET_OPENCODE_NATIVE=$fixture_dir/package/bin/opencode" >> "$GITHUB_ENV"
+      - name: Verify real saved-project Chat launch and safe worktree removal
+        run: go test -race -count=1 -timeout=3m -run '^TestStructuredChatWorktreePrivateLifecycle$' -v ./internal/api

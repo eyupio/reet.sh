@@ -10,7 +10,8 @@ import (
 var (
 	// ErrWorktreeUnsupported means the machine did not negotiate worktree-v1:
 	// no worktree field or request was sent and nothing was reserved.
-	ErrWorktreeUnsupported = errors.New("machine does not support worktrees")
+	ErrACPWorktreeUnsupported = errors.New("machine does not support structured chat worktrees")
+	ErrWorktreeUnsupported    = errors.New("machine does not support worktrees")
 	// ErrWorktreeRefused means the connector refused to make or remove a
 	// worktree (worktree_refused). A *WorktreeError carries the reason when
 	// this call learned it.

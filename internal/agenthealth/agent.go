@@ -59,6 +59,7 @@ type AgentConfig struct {
 	yoloAllowed        bool
 	acpAgents          bool
 	acp                bool
+	acpWorktree        bool
 	acpHistory         bool
 	acpModel           bool
 	acpLiveControls    bool
@@ -766,6 +767,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.softwareApply = terminalproto.SupportsSoftwareApply(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
 	cfg.acpAgents = terminalproto.SupportsACPAgents(advertised)
+	cfg.acpWorktree = terminalproto.SupportsACPWorktree(advertised)
 	cfg.acpHistory = terminalproto.SupportsACPHistory(advertised)
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.acpLiveControls = terminalproto.SupportsACPLiveControls(advertised)
@@ -869,6 +871,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpAgentReattach {
 		features = append(features, terminalproto.ACPAgentReattachFeature)
+	}
+	if cfg.acpWorktree {
+		features = append(features, terminalproto.ACPWorktreeFeature)
 	}
 	if cfg.acpHistory {
 		features = append(features, terminalproto.ACPHistoryFeature)
@@ -1081,6 +1086,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Models:          cfg.models && control && enabled && cfg.modelsAllowed,
 		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
 		ACP:             acp,
+		ACPWorktree:     acp && worktree && cfg.acpWorktree,
 		ACPHistory:      acp && cfg.acpHistory,
 		ACPModel:        acp && cfg.acpModel,
 		ACPLiveControls: acp && cfg.acpLiveControls,

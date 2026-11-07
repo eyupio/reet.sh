@@ -24,17 +24,19 @@ import (
 // store holds the conversation; this only remembers which conversation belongs
 // to which reet session and how it was started.
 type chatRecord struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Tool      string `json:"tool"`
-	Dir       string `json:"dir"`
-	Model     string `json:"model"`
-	Effort    string `json:"effort,omitempty"`
-	Yolo      bool   `json:"yolo,omitempty"`
-	Trust     bool   `json:"trust,omitempty"`
-	ACPSID    string `json:"acpSessionId"`
-	UpdatedAt int64  `json:"updatedAt"`
-	Attempts  int    `json:"attempts,omitempty"`
+	WorktreePath string `json:"worktreePath,omitempty"`
+	WorktreeRepo string `json:"worktreeRepo,omitempty"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Tool         string `json:"tool"`
+	Dir          string `json:"dir"`
+	Model        string `json:"model"`
+	Effort       string `json:"effort,omitempty"`
+	Yolo         bool   `json:"yolo,omitempty"`
+	Trust        bool   `json:"trust,omitempty"`
+	ACPSID       string `json:"acpSessionId"`
+	UpdatedAt    int64  `json:"updatedAt"`
+	Attempts     int    `json:"attempts,omitempty"`
 }
 
 type chatRegistryFile struct {
@@ -83,6 +85,9 @@ func (r *chatRegistry) load() {
 }
 
 func (r *chatRegistry) valid(rec chatRecord) bool {
+	if (rec.WorktreePath == "") != (rec.WorktreeRepo == "") || rec.WorktreePath != "" && (rec.Dir != rec.WorktreePath || !terminalproto.ValidDir(rec.WorktreePath) || !terminalproto.ValidSlug(rec.WorktreeRepo)) {
+		return false
+	}
 	return terminalproto.ValidID(rec.ID) &&
 		terminalproto.ValidTitle(rec.Title) &&
 		(rec.Model == "" || terminalproto.ValidModel(rec.Model)) &&
@@ -256,6 +261,7 @@ func (s *chatSupervisor) remember(cs *chatSession) {
 	rec := chatRecord{
 		ID: cs.id, Title: cs.title, Tool: cs.tool, Dir: cs.dir, Model: cs.model, Effort: cs.effort,
 		Yolo: cs.yolo, Trust: cs.trust, ACPSID: cs.acpID,
+		WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo,
 	}
 	s.mu.Unlock()
 	valid := rec.ACPSID != "" && acpagent.Describe(rec.Tool, true, "").History &&
@@ -338,7 +344,7 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 	}
 
 	cs := &chatSession{id: rec.ID, title: rec.Title, tool: rec.Tool, dir: dir, model: rec.Model, effort: rec.Effort, acpID: rec.ACPSID,
-		state: terminalproto.Running, busy: true, yolo: yolo, trust: rec.Trust}
+		state: terminalproto.Running, busy: true, yolo: yolo, trust: rec.Trust, worktreePath: rec.WorktreePath, worktreeRepo: rec.WorktreeRepo}
 	s.mu.Lock()
 	if s.closed || s.quotaLocked() >= terminalproto.MaxSessionsPerAgent {
 		s.mu.Unlock()
@@ -404,7 +410,7 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 	s.mu.Unlock()
 
 	s.registry.remember(chatRecord{ID: rec.ID, Title: rec.Title, Tool: rec.Tool, Dir: rec.Dir,
-		Model: rec.Model, Effort: rec.Effort, Yolo: yolo, Trust: rec.Trust, ACPSID: acpID})
+		Model: rec.Model, Effort: rec.Effort, Yolo: yolo, Trust: rec.Trust, ACPSID: acpID, WorktreePath: rec.WorktreePath, WorktreeRepo: rec.WorktreeRepo})
 	s.announceRunning(cs)
 	s.publish(cs, acpagent.Event{Kind: "notice",
 		Text: "This chat was restored after reet restarted on the machine. A reply that was still running then was stopped."})

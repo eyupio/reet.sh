@@ -268,6 +268,7 @@ jobs:
           node web/tests/sessions.e2e.mjs
           node web/tests/session-workspace.e2e.mjs
           node web/tests/calm-session.e2e.mjs
+          node web/tests/session-end-gaffer.e2e.mjs
           node web/tests/sessions-phone.e2e.mjs
           node web/tests/terminal-clipboard.e2e.mjs
           node web/tests/terminal-upload.e2e.mjs

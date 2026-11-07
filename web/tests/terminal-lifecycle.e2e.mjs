@@ -157,7 +157,9 @@ try{
  machines[0].ready=true;sessions.find(item=>item.id===renamedId).state='ended'
  // Closed-history removal works while execution is disabled and preserves a newer selection.
  const builderBeforeArchive=selected()
- await chooseMachine(agentA);await refresh()
+ await refresh();expect(selected()).toBe(builderBeforeArchive)
+ // Explicitly reopening history may show an ended session; a delayed end must not steal the newer selection.
+ await page.goto(`${base}/sessions?agent=${agentA}&session=${renamedId}`)
  await expect(pane).toHaveAttribute('data-connection-state','ended')
  machines[0].serverEnabled=false;machines[0].ready=false;await refresh()
  await manage('Remove from history')
@@ -173,10 +175,11 @@ try{
  const archiveGate=holdNextMutation()
  await manage('Remove from history');await page.getByRole('dialog').getByRole('button',{name:'Remove from history',exact:true}).click();await archiveGate.entered
  await chooseMachine(agentB);await live()
+ const selectedBeforeArchiveRelease=selected()
  archiveGate.release()
  await expect.poll(()=>archived.has(renamedId)).toBe(true)
  expect(archiveRequests).toEqual([renamedId,renamedId])
- expect(selected()).toBe(builderBeforeArchive);await live()
+ expect(selected()).toBe(selectedBeforeArchiveRelease);await live()
  machines[0].serverEnabled=true;machines[0].ready=true
  await page.reload();await live()
  await chooseMachine(agentA);await live()

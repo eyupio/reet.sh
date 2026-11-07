@@ -154,6 +154,19 @@ func TestGafferContextRequiresExplicitSharingAndDropsRevokedDerivedHistory(t *te
 		t.Fatal("implicit context", turn.Context)
 	}
 	first := <-requests
+	assertFollowupGuidance := func(payload string) {
+		t.Helper()
+		if !strings.Contains(payload, "Look after this session") || !strings.Contains(payload, "explicitly configures") {
+			t.Fatal("ordinary chat omitted the separately granted follow-up path")
+		}
+		var sent struct {
+			Tools []json.RawMessage `json:"tools"`
+		}
+		if err := json.Unmarshal([]byte(payload), &sent); err != nil || len(sent.Tools) != 0 {
+			t.Fatal("ordinary chat acquired tools without a grant", err)
+		}
+	}
+	assertFollowupGuidance(first)
 	if strings.Contains(first, "WORKER_") || strings.Contains(first, "<reet_context>") {
 		t.Fatal("ungranted data", first)
 	}
@@ -164,6 +177,7 @@ func TestGafferContextRequiresExplicitSharingAndDropsRevokedDerivedHistory(t *te
 	}
 	used := run("b", "Read the selected session")
 	second := <-requests
+	assertFollowupGuidance(second)
 	if !strings.Contains(second, "WORKER_PRIVATE_TEXT") || used.Context == nil || used.Context.Digest == "" || used.Context.LastSeq != 5 {
 		t.Fatal("missing permitted evidence", second, used.Context)
 	}

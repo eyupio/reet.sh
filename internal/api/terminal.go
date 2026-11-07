@@ -321,6 +321,8 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A launch in a saved git repository always gets a worktree of its own.
+	s.isolateWorktree(uid, in.AgentID, in.RequestID, &create)
 	session, started, err := s.terminals.CreateSession(r.Context(), uid, in.AgentID, in.RequestID, create)
 	if err != nil {
 		s.terminalCreateError(w, err, uid, in.AgentID, in.Tool)
@@ -498,7 +500,9 @@ func (s *server) terminalArchive(w http.ResponseWriter, r *http.Request) {
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	if err := s.st.ArchiveTerminalFor(s.uid(r), r.PathValue("id")); err != nil {
+	uid := s.uid(r)
+	removed, _ := s.st.TerminalSessionFor(uid, r.PathValue("id"))
+	if err := s.st.ArchiveTerminalFor(uid, r.PathValue("id")); err != nil {
 		if errors.Is(err, store.ErrTerminalConflict) {
 			writeErr(w, 409, "Request the session to end before removing it from history.")
 			return
@@ -507,6 +511,8 @@ func (s *server) terminalArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.terminals.CloseChat(s.uid(r), r.PathValue("id"))
+	// The session's worktree goes with it when nothing in it is unsaved.
+	go s.cleanupSessionWorktree(uid, removed)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 

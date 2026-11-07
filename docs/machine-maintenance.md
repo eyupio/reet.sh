@@ -30,3 +30,9 @@ Off until an owner or admin turns it on. On a schedule (every 6 hours, day or we
 - `POST /api/v2/maintenance/worktrees/clean`: `{items: [{agentId, project, repo, run}]}` (1 to 50) returns each item's outcome.
 
 Scan and clean need an account browser session, like the other terminal routes.
+
+## Session isolation
+
+A session started in a saved git repository always gets a worktree of its own. The controller adds one when the request has none (a project set to "no worktrees" included), so two agents never share a checkout. The run token comes from the request id, so a retried start adopts the worktree it already made. Reopening an earlier conversation (resume) and sessions already inside a reet worktree are left as they are.
+
+When a session is removed from history, its worktree is removed too if nothing in it is unsaved. A worktree with uncommitted changes, unreferenced commits or any other refusal is kept, logged as `worktree-kept` in Activity, and stays in the Maintenance scan for review. The branch is always kept.

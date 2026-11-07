@@ -520,6 +520,17 @@ func (s *Store) FolderProjectFor(uid int64, id string) (FolderProject, error) {
 	return p, err
 }
 
+// RepoProjectForDir returns the git-repository project uid saved for dir on
+// the machine agent, if there is one. A folder that is not a saved repository
+// is not found.
+func (s *Store) RepoProjectForDir(uid int64, agent, dir string) (FolderProject, bool, error) {
+	p, err := scanFolderProject(s.db.QueryRow(`SELECT `+folderColumns+` FROM folder_projects WHERE user_id=? AND host=? AND dir=? AND is_repo=1`, uid, agent, path.Clean(dir)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return FolderProject{}, false, nil
+	}
+	return p, err == nil, err
+}
+
 // ListFolderProjectsFor returns uid's projects in rail order (never nil).
 func (s *Store) ListFolderProjectsFor(uid int64) ([]FolderProject, error) {
 	rows, err := s.db.Query(`SELECT `+folderColumns+` FROM folder_projects WHERE user_id=? ORDER BY position,created_at,id`, uid)

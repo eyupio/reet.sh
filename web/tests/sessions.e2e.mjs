@@ -1074,6 +1074,7 @@ try {
   await sidebarRow(page, 'Add browse-v1 protocol').click()
   await openActions(page)
   await expect(screen(page).locator('.head .badge.yolo')).toHaveCount(0)
+  await closeActions(page)
   await panel(page).getByText('Skills & session decisions',{exact:true}).click()
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the terminal.')
   expect(errors).toEqual([])

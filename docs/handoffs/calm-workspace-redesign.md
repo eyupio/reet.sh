@@ -1,6 +1,6 @@
 # Calm workspace redesign handoff
 
-Status: design approved; implementation in progress on `feat/calm-session-workspace`. Date: 7 November 2026. Design PR #635 is merged. The implementation PR is a draft and must not be treated as release-ready.
+Status: design approved; implementation in progress on `feat/calm-session-workspace`. Date: 7 November 2026. Design PR #635 is merged. The implementation PR [#637](https://github.com/eyupio/reet.sh/pull/637) is a draft and must not be treated as release-ready.
 
 The user approved implementation and explicitly requires true Chat / Terminal view switching that preserves the running agent. Prototype interactions use fictional data and never connect to an agent, machine or API. The prototype predates this requirement; the implementation and contracts below supersede its restart-only terminal presentation.
 
@@ -160,7 +160,7 @@ At that reviewed head, isolation injects worktree/project fields into structured
 
 ## 10. Verification and remaining merge gates
 
-Passed on the rebased implementation: Svelte check (zero errors/warnings), production build, `go vet ./...`, and focused race tests for native views/capabilities/tickets across acpagent, terminalproto, terminalbroker, terminalagent and agenthealth. The real pinned OpenCode probe starts ACP and the actual native TUI, verifies worker PID stability, and verifies killing the disposable client leaves the worker alive. It makes no provider/model request. Browser fixtures exercise layout, actions, saved Details, drafts and a mocked native socket without calling the mode endpoint; final browser results belong in the PR description.
+Passed on the rebased implementation: Svelte check (zero errors/warnings), production build, `go vet ./...`, and focused race tests for native views/capabilities/tickets across acpagent, terminalproto, terminalbroker, terminalagent and agenthealth. The real pinned OpenCode probe starts ACP and the actual native TUI, verifies worker PID stability, and verifies killing the disposable client leaves the worker alive. It makes no provider/model request. Browser fixtures exercise layout, actions, saved Details, drafts and a mocked native socket without calling the mode endpoint; the final post-rebase run passed all eight theme/width combinations and the mocked native continuity cases.
 
 The unchanged-source baseline full `go test -race ./...` did not pass: API package timed out at the default ten-minute limit, terminalhost tests lacked tmux, and the model timeout process-group test reported a surviving child. These are not a passing full regression suite.
 

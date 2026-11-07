@@ -1,6 +1,6 @@
 # Continuation prompt: session workspace and shared native views
 
-Continue work in eyupio/reet.sh on branch `feat/calm-session-workspace`. Read `docs/handoffs/calm-workspace-redesign.md` first, including remaining merge gates. Design PR #635 is merged; the implementation PR is a draft. The user approved implementation, requires true Chat / Terminal switching that preserves the running agent, and asked us to account for #636. Do not name the external design reference in PR text or handoff documents.
+Continue work in eyupio/reet.sh on branch `feat/calm-session-workspace`. Read `docs/handoffs/calm-workspace-redesign.md` first, including remaining merge gates. Design PR #635 is merged; the implementation PR [#637](https://github.com/eyupio/reet.sh/pull/637) is a draft. The user approved implementation, requires true Chat / Terminal switching that preserves the running agent, and asked us to account for #636. Do not name the external design reference in PR text or handoff documents.
 
 Start by fetching the branch, checking git status and repository instructions, and inspecting the current implementation PR and #636 status/head. Preserve other people's work. The previous isolated checkout is `/workspace/work/reet-session-implementation`; its untracked `web/node_modules` is a symlink and must not be committed. Toolchain activation, if this environment survives: `source /workspace/.reet-tools/activate.sh`.
 

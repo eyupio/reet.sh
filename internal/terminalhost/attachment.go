@@ -110,6 +110,19 @@ func (m *Manager) AttachNative(ctx context.Context, sessionID string, opts Attac
 	return m.attachProcessLocked(ctx, sessionID, opts, func(attachCtx context.Context) *exec.Cmd {
 		cmd := exec.CommandContext(attachCtx, native.Binary, native.Args...)
 		cmd.Dir, cmd.Env = native.Dir, native.Env
+		// pty.StartWithSize gives this disposable client its own session/group.
+		// Editors or other client children must leave with it; the ACP worker
+		// owns a different process group and is never signalled here.
+		cmd.Cancel = func() error {
+			if cmd.Process == nil {
+				return os.ErrProcessDone
+			}
+			err := unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
+			if errors.Is(err, unix.ESRCH) {
+				return os.ErrProcessDone
+			}
+			return err
+		}
 		return cmd
 	})
 }

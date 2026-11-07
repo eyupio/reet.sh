@@ -261,3 +261,65 @@ func TestNativeObserverWithdrawsAvailabilityUntilGapIsReconciled(t *testing.T) {
 		t.Fatal("stopped observer remained available")
 	}
 }
+
+func TestNativePermissionRepliesAreSingleUseAndRetired(t *testing.T) {
+	v := &nativeView{}
+	if tool := v.permissionReplied("unknown", "once"); tool != "" {
+		t.Fatal("unknown native request supplied consent")
+	}
+	v.permissionAsked("request-1", "tool-1")
+	if tool := v.permissionReplied("request-1", "once"); tool != "tool-1" {
+		t.Fatal("early native answer lost")
+	}
+	if got := v.takePermissionReply("tool-1"); got != "once" {
+		t.Fatal("native answer unavailable")
+	}
+	if got := v.takePermissionReply("tool-1"); got != "" {
+		t.Fatal("native answer consumed twice")
+	}
+	v.retirePermission("tool-1")
+	v.permissionAsked("replayed-request", "tool-1")
+	if tool := v.permissionReplied("replayed-request", "once"); tool != "" {
+		t.Fatal("retired permission reused")
+	}
+	v.permissionAsked("request-2", "tool-2")
+	v.retirePermission("tool-2") // Chat answered before the native replied event arrived.
+	if tool := v.permissionReplied("request-2", "once"); tool != "" {
+		t.Fatal("late reply cached after chat resolution")
+	}
+	if got := v.takePermissionReply("tool-2"); got != "" {
+		t.Fatal("late consent escaped request ownership")
+	}
+}
+
+func TestNativePermissionMustHaveALiveOwner(t *testing.T) {
+	var pending = `[]`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(pending)) }))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	v := &nativeView{address: server.URL, ctx: ctx, client: server.Client()}
+	s := &Session{acpID: "ses_native_test"}
+	v.confirmPermissionTurn(s, "late-tool")
+	if s.Working() {
+		t.Fatal("late permission resurrected an idle turn")
+	}
+	pending = `[{"sessionID":"ses_other","tool":{"callID":"live-tool"}}]`
+	v.confirmPermissionTurn(s, "live-tool")
+	if s.Working() {
+		t.Fatal("another session supplied permission ownership")
+	}
+	pending = `[{"sessionID":"ses_native_test","tool":{"callID":"live-tool"}}]`
+	v.confirmPermissionTurn(s, "live-tool")
+	if !s.Working() {
+		t.Fatal("native busy-event race was refused despite the service's live request")
+	}
+	s.nativeStatus(false)
+	s.turnMu.Lock()
+	s.nativeCancelled = true
+	s.turnMu.Unlock()
+	v.confirmPermissionTurn(s, "live-tool")
+	if s.Working() {
+		t.Fatal("permission resurrected a cancelled turn")
+	}
+}

@@ -46,6 +46,8 @@ type nativeView struct {
 	order             []string
 	permissions       map[string]string
 	permissionReplies map[string]string
+	permissionRetired map[string]bool
+	retiredOrder      []string
 }
 
 // The first adapter is deliberately pinned to the native service/TUI contract
@@ -371,30 +373,137 @@ func (v *nativeView) consume(s *Session, response *http.Response) {
 				v.user(s, p.Part.MessageID)
 			}
 		case "permission.asked":
-			if p.SessionID == s.SessionID() && p.ID != "" && p.Tool.CallID != "" {
-				v.mu.Lock()
-				if len(v.permissions) < 128 {
-					v.permissions[p.ID] = p.Tool.CallID
-				}
-				v.mu.Unlock()
+			if p.SessionID == s.SessionID() {
+				v.permissionAsked(p.ID, p.Tool.CallID)
 			}
 		case "permission.replied":
 			if p.SessionID == s.SessionID() {
-				v.mu.Lock()
-				tool := v.permissions[p.RequestID]
-				if tool == "" {
-					tool = p.RequestID
+				if tool := v.permissionReplied(p.RequestID, p.Reply); tool != "" {
+					s.nativePermissionReply(tool, p.Reply)
 				}
-				delete(v.permissions, p.RequestID)
-				if tool != "" && len(v.permissionReplies) < 128 {
-					v.permissionReplies[tool] = p.Reply
-				}
-				v.mu.Unlock()
-				s.nativePermissionReply(tool, p.Reply)
 			}
 		}
 	}
 }
+
+// A permission RPC can beat the native busy event. Admit that race only when
+// the local service still owns this exact pending tool request. A late RPC by
+// itself must never resurrect an idle or cancelled turn.
+func (v *nativeView) confirmPermissionTurn(s *Session, tool string) {
+	if tool == "" {
+		return
+	}
+	s.turnMu.Lock()
+	epoch := s.nativeEpoch
+	cancelled := s.nativeCancelled || s.forceClosing || s.working && s.cancelledSeq == s.turnSeq
+	s.turnMu.Unlock()
+	if cancelled {
+		return
+	}
+	v.mu.Lock()
+	retired := v.permissionRetired[tool]
+	v.mu.Unlock()
+	if retired {
+		return
+	}
+	var pending []struct {
+		SessionID string `json:"sessionID"`
+		Tool      struct {
+			CallID string `json:"callID"`
+		} `json:"tool"`
+	}
+	if v.json("/permission", &pending) != nil {
+		return
+	}
+	found := false
+	for _, request := range pending {
+		if request.SessionID == s.SessionID() && request.Tool.CallID == tool {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return
+	}
+	s.turnMu.Lock()
+	admitted := s.nativeEpoch == epoch && !s.nativeCancelled && !s.forceClosing && !s.working
+	if admitted && !s.nativeBusy {
+		s.nativeBusy = true
+		s.nativeEpoch++
+	}
+	s.turnMu.Unlock()
+	if admitted {
+		s.emit(Event{Kind: "status", State: "working"})
+	}
+}
+
+// Native request IDs own replies. Unknown, replayed or already retired
+// requests cannot grant consent to a later ACP card with a matching tool ID.
+func (v *nativeView) permissionAsked(id, tool string) {
+	if id == "" || tool == "" {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.permissionRetired[tool] || len(v.permissions) >= 128 {
+		return
+	}
+	if v.permissions == nil {
+		v.permissions = map[string]string{}
+	}
+	v.permissions[id] = tool
+}
+func (v *nativeView) permissionReplied(id, reply string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	tool := v.permissions[id]
+	delete(v.permissions, id)
+	if tool == "" || v.permissionRetired[tool] {
+		return ""
+	}
+	if v.permissionReplies == nil {
+		v.permissionReplies = map[string]string{}
+	}
+	if len(v.permissionReplies) < 128 {
+		v.permissionReplies[tool] = reply
+	}
+	return tool
+}
+func (v *nativeView) takePermissionReply(tool string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	reply := v.permissionReplies[tool]
+	delete(v.permissionReplies, tool)
+	if v.permissionRetired[tool] {
+		return ""
+	}
+	return reply
+}
+func (v *nativeView) retirePermission(tool string) {
+	if tool == "" {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	delete(v.permissionReplies, tool)
+	for id, owner := range v.permissions {
+		if owner == tool {
+			delete(v.permissions, id)
+		}
+	}
+	if v.permissionRetired == nil {
+		v.permissionRetired = map[string]bool{}
+	}
+	if !v.permissionRetired[tool] {
+		v.permissionRetired[tool] = true
+		v.retiredOrder = append(v.retiredOrder, tool)
+	}
+	if len(v.retiredOrder) > 512 {
+		delete(v.permissionRetired, v.retiredOrder[0])
+		v.retiredOrder = v.retiredOrder[1:]
+	}
+}
+
 func (s *Session) nativeStatus(busy bool) {
 	s.turnMu.Lock()
 	changed := s.nativeBusy != busy

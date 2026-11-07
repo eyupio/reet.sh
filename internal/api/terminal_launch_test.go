@@ -74,6 +74,8 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 		case terminalproto.Reconcile:
 			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: []terminalproto.SessionSnapshot{}}
 		case terminalproto.Create:
+			// The title's owner is controller-side state and never on the wire.
+			op.TitleOrigin = ""
 			f.mu.Lock()
 			f.creates = append(f.creates, op)
 			respond := f.reply

@@ -101,6 +101,7 @@ try {
    expect(drafts[0]).toMatchObject({model:'provider/two',effort:'ultra',chat:true,tool:'codex',trust:false})
    await expect(composer).toHaveCount(0)
    await page.reload()
+   await page.getByRole('button',{name:'Show details for Saved native options',exact:true}).click()
    await page.getByRole('button',{name:'Edit Saved native options',exact:true}).click()
    const edit=page.getByRole('dialog',{name:'Edit session',exact:true})
    await expect(edit.getByRole('button',{name:'Model: provider/two',exact:true})).toBeVisible()
@@ -112,6 +113,7 @@ try {
    // An offline capability read must preserve a saved native plan, including its extended effort.
    machines[0]={...machine,ready:false,capabilities:undefined}
    await page.reload()
+   await page.getByRole('button',{name:'Show details for Saved native options',exact:true}).click()
    await page.getByRole('button',{name:'Edit Saved native options',exact:true}).click()
    const offline=page.getByRole('dialog',{name:'Edit session',exact:true})
    await expect(offline.getByRole('button',{name:'Gaffer',exact:true})).toHaveAttribute('aria-pressed','true')

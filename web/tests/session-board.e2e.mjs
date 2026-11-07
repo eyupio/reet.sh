@@ -54,6 +54,8 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
   box.drafts.forEach(d => register(d.id))
   const app = await openWorkspace(browser, { width, height: 1000, theme, touch, terminalMachines: machines, terminalStatus: { configured: true, available: true, reason: '' }, routes,
     skills: [skill('brainstorm'), skill('polish')] })
+  // Retain coverage of the explicitly saved full-card presentation; compact defaults have their own large-list acceptance.
+  await app.page.addInitScript(() => { if (!localStorage.getItem('reet.sessionBoard.1')) localStorage.setItem('reet.sessionBoard.1', JSON.stringify({compact:false})) })
   await app.page.goto(new URL(entry, base).href)
   await expect(app.page.getByRole('region', { name: 'Your work, in good order.' })).toBeVisible()
   // An address naming one project narrows the board to that project's sessions.

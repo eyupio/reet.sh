@@ -94,6 +94,7 @@
   const running = $derived(projectRunning(sessions ?? []))
   const worktrees = $derived(projectWorktrees(sessions ?? []))
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
+  let attentionLimit = $state(5)
   const needs = $derived(needsYou(sessions ?? [], now, owners, health ?? []))
 
   async function markSeen(sessionId: string) {
@@ -413,7 +414,8 @@
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
       {#if needs.length}
-        <details class="home-detail attention-detail" open><summary>Needs you <span>{needs.length}</span></summary><NeedsYou calm cards={needs} onseen={markSeen} onanswered={answered} /></details>
+        <details class="home-detail attention-detail" open><summary>Needs you <span>{needs.length}</span></summary><NeedsYou calm totalCount={attentionCount(needs)} cards={needs.slice(0, attentionLimit)} onseen={markSeen} onanswered={answered} />
+          {#if needs.length > 5}<div class="attention-window"><span>Showing {Math.min(attentionLimit, needs.length)} of {needs.length}</span><button type="button" onclick={() => attentionLimit = attentionLimit < needs.length ? attentionLimit + 5 : 5}>{attentionLimit < needs.length ? `Show ${Math.min(5, needs.length - attentionLimit)} more` : 'Show fewer'}</button>{#if attentionLimit < needs.length}<button type="button" onclick={async event => { const panel = event.currentTarget.parentElement; attentionLimit = needs.length; await tick(); panel?.querySelector('button')?.focus() }}>View all {needs.length}</button>{/if}</div>{/if}</details>
       {/if}
       <div class="home-views" role="group" aria-label="Home view">
         <button type="button" aria-pressed={homeView === 'continue'} onclick={() => chooseHomeView('continue')}>Continue working</button>
@@ -470,6 +472,9 @@
   .home-projects { display: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
   @media (min-width: 1240px) { .home-projects { display: inline-flex; align-items: center; } }
   .home-start { min-height: 44px; padding: 8px 14px; border-radius: 8px; font: 500 14px var(--sans); white-space: nowrap; }
+  .attention-window { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 13px; color: var(--muted); }
+  .attention-window button { min-height: 44px; padding: 4px 0; background: transparent; border: 0; color: var(--ink); font: inherit; text-decoration: underline; cursor: pointer; }
+  .attention-window button:focus-visible { outline: 2px solid var(--accent); }
   .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .workspace-summary:has(.followups) { align-items: center; gap: 0 18px; }
   .followups { min-height: 44px; padding: 8px 0; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
@@ -486,6 +491,8 @@
      must never leave either of them waiting for the next row. */
   .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked)) { border-color: transparent; border-radius: 8px; background: transparent; }
   .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked):hover) { background: var(--line-soft); }
+  .home.writer :global(aside.rail .strip) { height: calc(100dvh - var(--top)); min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+  .home.writer :global(aside.rail .strip > button) { flex-shrink: 0; }
   .home.writer > :global(aside.rail) { grid-column: 1; grid-row: 1; }
   .home.writer > .column { grid-column: 2; grid-row: 1; }
   .home:not(.writer) > .column { grid-column: 1; grid-row: 1; }

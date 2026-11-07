@@ -15,6 +15,10 @@ The summary uses the existing read-only goals endpoint, refreshed with Home's 15
 - No backend, schema, protocol or connector change is required. This slice needs a controller/web deployment. A merge alone is not deployment verification.
 - Broader Home/bell/session attention unification needs an explicit identity and deduplication contract. Navigation and supporting-page refinements remain separate work.
 
+## Released outcome
+
+PR #643 merged on 2026-11-07 as `7f948d39` after all six workflows passed on head `f2f9efa8`; the merge tree matched that tested head and no review findings were open. Deployment remains independently unverified. Continue the separate approved compact-work-items slice using the continuation prompt.
+
 ## Acceptance and continuation
 
 `web/tests/home-followups.e2e.mjs` passed six desktop/phone/theme views, a 44 px entry, no sideways scrolling, direct overview without general/provider reads, no implicit writes, explicit goal-stop confirmation and immediate count refresh, stale-read retention/retry, focus return, empty records, viewer/open-mode boundaries and standalone history-to-chat navigation. The last-goal focus probe failed before the launcher fallback and passed with it. It runs in Gaffer browser CI. Full existing Home, planning-board, followed-session, companion-chat and twelve-case widget layout suites passed. Web checks report zero Svelte diagnostics and the production build passed. Final exact-head CI/review remain release gates.

@@ -77,6 +77,7 @@ jobs:
           node web/tests/public-workspace.e2e.mjs
           node web/tests/first-run.e2e.mjs
           node web/tests/session-board.e2e.mjs
+          node web/tests/compact-work-items.e2e.mjs
           node web/tests/phone-layout.e2e.mjs
           node web/tests/navigation.e2e.mjs
           node web/tests/loading.e2e.mjs

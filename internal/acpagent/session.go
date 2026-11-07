@@ -1508,7 +1508,6 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	var nativePromptDone func(error)
 	if s.native != nil && s.native.ready.Load() {
 		nativePromptDone = s.native.expectUser(text)
-		defer func() { nativePromptDone(nil) }()
 	}
 	s.emit(Event{Kind: "status", State: "working"})
 	go func() {
@@ -1610,6 +1609,9 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		"sessionId": acpID,
 		"prompt":    prompt,
 	})
+	if nativePromptDone != nil {
+		nativePromptDone(err)
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			// Cancel already reported the stopped turn; no request was sent.

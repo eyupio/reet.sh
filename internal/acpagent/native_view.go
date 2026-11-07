@@ -123,6 +123,11 @@ func (s *Session) startNativeView() {
 		v.cancel()
 		return
 	}
+	if err := v.reconcile(s); err != nil {
+		response.Body.Close()
+		v.cancel()
+		return
+	}
 	v.ready.Store(true)
 	go func() { <-s.Done(); v.ready.Store(false); v.cancel(); v.client.CloseIdleConnections() }()
 	go v.observe(s, response)
@@ -178,11 +183,35 @@ func (v *nativeView) seed(session string) error {
 	}
 	return nil
 }
+
+const nativePromptLimit = 128
+const nativePromptMaxAge = 5 * time.Minute
+
+// Called under mu on insertion and matching, even if no native messages arrive.
+func (v *nativeView) pruneOwn(now int64) {
+	for id, prompt := range v.own {
+		if now-prompt.at > nativePromptMaxAge.Milliseconds() {
+			delete(v.own, id)
+		}
+	}
+	for len(v.own) > nativePromptLimit {
+		var oldest uint64
+		for id := range v.own {
+			if oldest == 0 || id < oldest {
+				oldest = id
+			}
+		}
+		delete(v.own, oldest)
+	}
+}
+
 func (v *nativeView) expectUser(text string) func(error) {
 	v.mu.Lock()
+	v.pruneOwn(time.Now().UnixMilli())
 	v.next++
 	id := v.next
 	v.own[id] = nativeOwnPrompt{text: text, at: time.Now().UnixMilli()}
+	v.pruneOwn(time.Now().UnixMilli())
 	v.mu.Unlock()
 	return func(err error) {
 		if err != nil {
@@ -211,6 +240,7 @@ func (v *nativeView) user(s *Session, id string) {
 		return
 	}
 	v.mu.Lock()
+	v.pruneOwn(time.Now().UnixMilli())
 	own := false
 	for key, prompt := range v.own {
 		if message.Info.Time.Created >= prompt.at-1000 && prompt.text == text {
@@ -219,43 +249,70 @@ func (v *nativeView) user(s *Session, id string) {
 			break
 		}
 	}
-	// A failed/disconnected native event stream must not grow this ledger without bound.
-	if len(v.own) > 128 {
-		for key := range v.own {
-			delete(v.own, key)
-			if len(v.own) <= 64 {
-				break
-			}
-		}
-	}
 	v.mu.Unlock()
 	if !own {
 		s.emit(Event{Kind: "user", Text: cutUTF8(text, 8<<10)})
 	}
 }
 
+// Read current state after subscribing: an idle event may have been missed
+// during the gap. A failed snapshot must not invent an idle state.
+func (v *nativeView) reconcile(s *Session) error {
+	var statuses map[string]struct {
+		Type string `json:"type"`
+	}
+	if err := v.json("/session/status", &statuses); err != nil {
+		return err
+	}
+	if statuses == nil {
+		return errors.New("missing native session status")
+	}
+	status, present := statuses[s.SessionID()]
+	if present && status.Type != "idle" && status.Type != "busy" && status.Type != "retry" {
+		return errors.New("unknown native session status")
+	}
+	var messages []nativeMessage
+	if err := v.json("/session/"+url.PathEscape(s.SessionID())+"/message?limit=128", &messages); err != nil {
+		return err
+	}
+	for _, message := range messages {
+		if message.Info.Role == "user" {
+			v.user(s, message.Info.ID)
+		}
+	}
+	s.nativeStatus(present && status.Type != "idle")
+	return nil
+}
+
 func (v *nativeView) observe(s *Session, initial *http.Response) {
+	defer v.ready.Store(false)
 	for v.ctx.Err() == nil {
 		v.consume(s, initial)
 		initial = nil
-		if v.ctx.Err() != nil {
-			return
-		}
-		timer := time.NewTimer(time.Second)
-		select {
-		case <-v.ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-		// The event service is volatile. Re-read bounded native records after a gap.
-		var messages []nativeMessage
-		if v.json("/session/"+url.PathEscape(s.SessionID())+"/message?limit=128", &messages) == nil {
-			for _, message := range messages {
-				if message.Info.Role == "user" {
-					v.user(s, message.Info.ID)
-				}
+		v.ready.Store(false)
+		for v.ctx.Err() == nil {
+			timer := time.NewTimer(time.Second)
+			select {
+			case <-v.ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
 			}
+			response, err := v.request(v.ctx, "/event")
+			if err != nil {
+				continue
+			}
+			if response.StatusCode != http.StatusOK {
+				response.Body.Close()
+				continue
+			}
+			if v.reconcile(s) != nil {
+				response.Body.Close()
+				continue
+			}
+			initial = response
+			v.ready.Store(true)
+			break
 		}
 	}
 }

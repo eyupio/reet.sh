@@ -152,6 +152,8 @@ type Capabilities struct {
 	ACP bool `json:"acp,omitempty"`
 	// ACPAgents is present only after acp-agents-v1 negotiation.
 	ACPAgents *[]ACPAgent `json:"acpAgents,omitempty"`
+	// ACPWorktree requires acp-worktree-v1 in addition to ACP and worktrees.
+	ACPWorktree bool `json:"acpWorktree,omitempty"`
 	// ACPHistory is sent only when acp-history-v1 was negotiated as well.
 	ACPHistory      bool `json:"acpHistory,omitempty"`
 	ACPModel        bool `json:"acpModel,omitempty"`
@@ -238,11 +240,17 @@ func (c Capabilities) Validate() error {
 	if c.ACPAgentReattach {
 		features = append(features, ACPAgentReattachFeature)
 	}
+	if c.ACPWorktree {
+		features = append(features, ACPWorktreeFeature)
+	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
 
 // ValidateFor validates capabilities against the features negotiated by the peer.
 func (c Capabilities) ValidateFor(features string) error {
+	if c.ACPWorktree && !(c.ACP && c.Worktree && c.Launch && SupportsACPWorktree(features)) {
+		return ErrInvalid
+	}
 	if c.ACPAgents != nil {
 		for _, entry := range *c.ACPAgents {
 			if entry.Tool == "antigravity" && !SupportsAntigravityACP(features) {
@@ -507,7 +515,7 @@ func (c Create) Validate() error {
 	if !validIdentity || !validBase {
 		return ErrInvalid
 	}
-	structuredExtras := c.Worktree != "" || c.Project != "" || c.Base != "" || c.Resume
+	structuredExtras := c.Resume || c.ResumeACP != "" && (c.Worktree != "" || c.Project != "" || c.Base != "")
 	validChat := ReviewedChatTool(c.Tool) && !structuredExtras
 	if c.Structured && !validChat {
 		return ErrInvalid

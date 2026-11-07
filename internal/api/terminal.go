@@ -322,6 +322,8 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A launch in a saved git repository always gets a worktree of its own.
+	s.isolateWorktree(uid, in.AgentID, in.RequestID, &create)
 	session, started, err := s.terminals.CreateSession(r.Context(), uid, in.AgentID, in.RequestID, create)
 	if err != nil {
 		s.terminalCreateError(w, err, uid, in.AgentID, in.Tool)
@@ -385,6 +387,8 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusConflict, "yolo_refused", "", "That machine doesn't accept YOLO sessions.", "")
 	case errors.Is(err, terminalbroker.ErrPromptUnsupported):
 		writeErrCode(w, http.StatusUnprocessableEntity, "prompt_unsupported", "prompt", "Write the opening prompt as at least two words.", "")
+	case errors.Is(err, terminalbroker.ErrACPWorktreeUnsupported):
+		writeErrCode(w, http.StatusConflict, "acp_worktree_unsupported", "", "Update reet on that machine to start chats in isolated worktrees.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeUnsupported):
 		writeErrCode(w, http.StatusConflict, "worktree_unsupported", "", "Update reet on that machine to start agents with worktrees.", "")
 	case errors.Is(err, terminalbroker.ErrWorktreeRefused):
@@ -487,6 +491,15 @@ func (s *server) terminalEnd(w http.ResponseWriter, r *http.Request) {
 	if !terminalJSON(w, r, &in) {
 		return
 	}
+	// Removing history automatically when the session closes would leave its
+	// worktree behind with nobody asked about unsaved work. A session with a
+	// worktree stays in history; removing it later (terminalArchive) takes the
+	// worktree with it.
+	if in.RemoveHistory {
+		if sess, err := s.st.TerminalSessionFor(s.uid(r), r.PathValue("id")); err == nil && sess.WorktreePath != "" {
+			in.RemoveHistory = false
+		}
+	}
 	session, err := s.terminals.End(r.Context(), s.uid(r), r.PathValue("id"), in.RequestID, in.RemoveHistory)
 	if err != nil {
 		terminalError(w, err)
@@ -495,11 +508,28 @@ func (s *server) terminalEnd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, session)
 }
 func (s *server) terminalArchive(w http.ResponseWriter, r *http.Request) {
-	var in struct{}
-	if !terminalJSON(w, r, &in) {
+	var in worktreeConfirm
+	if !terminalOptionalJSON(w, r, &in) {
 		return
 	}
-	if err := s.st.ArchiveTerminalFor(s.uid(r), r.PathValue("id")); err != nil {
+	uid := s.uid(r)
+	id := r.PathValue("id")
+	// A session is never removed while its worktree stays behind: the worktree
+	// goes first, and uncommitted changes need the person's confirmation.
+	if sess, err := s.st.TerminalSessionFor(uid, id); err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+		hold := s.releaseSessionWorktree(ctx, uid, sess, in)
+		cancel()
+		if hold != nil {
+			body := map[string]any{"error": hold.Msg, "code": hold.Code}
+			if hold.State != nil {
+				body["worktree"] = worktreeStateJSON(*hold.State)
+			}
+			writeJSON(w, hold.Status, body)
+			return
+		}
+	}
+	if err := s.st.ArchiveTerminalFor(uid, id); err != nil {
 		if errors.Is(err, store.ErrTerminalConflict) {
 			writeErr(w, 409, "Request the session to end before removing it from history.")
 			return
@@ -507,7 +537,7 @@ func (s *server) terminalArchive(w http.ResponseWriter, r *http.Request) {
 		terminalError(w, err)
 		return
 	}
-	s.terminals.CloseChat(s.uid(r), r.PathValue("id"))
+	s.terminals.CloseChat(uid, id)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 

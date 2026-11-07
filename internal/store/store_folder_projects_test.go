@@ -509,3 +509,19 @@ func TestFolderProjectReorderChecksVersions(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+
+func TestRepoProjectForDirOnlyFindsSavedRepos(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	repo := mustFP(t, s, uid, FolderProject{Host: "laptop", Dir: "/home/a/reet", Name: "Reet", IsRepo: true})
+	mustFP(t, s, uid, FolderProject{Host: "laptop", Dir: "/home/a/notes", Name: "Notes"})
+	got, ok, err := s.RepoProjectForDir(uid, "laptop", "/home/a/reet/")
+	if err != nil || !ok || got.ID != repo.ID {
+		t.Fatalf("repo not found: %v %v %+v", err, ok, got)
+	}
+	for _, c := range [][2]string{{"laptop", "/home/a/notes"}, {"other", "/home/a/reet"}, {"laptop", "/home/a"}} {
+		if _, ok, err := s.RepoProjectForDir(uid, c[0], c[1]); err != nil || ok {
+			t.Fatalf("%v should not be a repo project: %v %v", c, ok, err)
+		}
+	}
+}

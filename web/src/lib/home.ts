@@ -1,5 +1,5 @@
 import type { FolderProject, MachineHealth, TerminalMachine, TerminalSession, SessionState } from './terminal/api'
-import type { SyncJob, SyncState } from './api'
+import type { GafferGoalOverview, SyncJob, SyncState } from './api'
 import { ATTENTION_WINDOW_MS, attentionRuleOf } from './attention'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
@@ -409,6 +409,25 @@ export function needsYou(
 
 export function attentionCount(cards: NeedCard[]): number {
   return cards.length
+}
+
+/**
+ * A Gaffer goal that needs review on a session which already has a card is a second reason on that card, not a second thing
+ * to count. Every other goal that needs review is returned as `unfolded`. The cards passed in are not changed.
+ */
+export function foldGafferGoals(cards: NeedCard[], goals: readonly GafferGoalOverview[] | undefined): { cards: NeedCard[]; unfolded: number } {
+  if (!goals) return { cards, unfolded: 0 }
+  const carded = new Set(cards.map(c => c.sessionId))
+  const folded = new Set<string>()
+  let unfolded = 0
+  for (const row of goals) {
+    if (!row.attention) continue
+    const id = row.session?.id
+    if (id && carded.has(id)) folded.add(id)
+    else unfolded++
+  }
+  if (!folded.size) return { cards, unfolded }
+  return { cards: cards.map(c => folded.has(c.sessionId) ? { ...c, reasons: [...c.reasons, 'gaffer'] } : c), unfolded }
 }
 
 /**

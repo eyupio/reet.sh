@@ -6,7 +6,7 @@
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText, titleFor } from '../agentLaunch'
   import { hasPending } from '../attention'
-  import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
+  import { announceWaiting, attentionCount, fleetCards, foldGafferGoals, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import type { LaunchDefaults } from '../launchBar'
   import StartAgentDialog from '../StartAgentDialog.svelte'
@@ -83,7 +83,6 @@
   let problem = $state('')
   let followups = $state<GafferGoalOverviewView | undefined>()
   let followupsFailed = $state(false)
-  const followupsNeedReview = $derived(followups?.goals.filter(row => row.attention).length ?? 0)
   const following = $derived(followups?.goals.filter(row => row.goal.state === 'active' && !row.attention).length ?? 0)
   let readOnce = false
   const life = new AbortController()
@@ -96,7 +95,10 @@
   const worktrees = $derived(projectWorktrees(sessions ?? []))
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
   let attentionLimit = $state(5)
-  const needs = $derived(needsYou(sessions ?? [], now, owners, health ?? []))
+  // A Gaffer goal for a session that already has a card is that card's second reason; the rest are counted by the Gaffer button.
+  const folded = $derived(foldGafferGoals(needsYou(sessions ?? [], now, owners, health ?? []), followups?.goals))
+  const needs = $derived(folded.cards)
+  const followupsNeedReview = $derived(folded.unfolded)
 
   async function markSeen(sessionId: string) {
     sessions = (sessions ?? []).map(s => s.id === sessionId ? { ...s, changedSinceSeen: false, attention: s.attention === 'waiting' && !hasPending(s) ? 'working' : s.attention } : s)

@@ -107,5 +107,24 @@ try {
     await page.keyboard.press('Escape');await page.keyboard.press('Escape')
     await expect(page.getByRole('button',{name:'Ask Gaffer',exact:true})).toBeFocused()
   } finally {await finalWorkspace.context.close()}
-  console.log('Home follow-ups: six theme/width views, standalone overview, no implicit writes/provider reads, explicit control refresh, stale read/retry, focus, empty and viewer/open-mode boundaries passed.')
+  // A goal that needs review on a session which already has an approval card is that card's second reason: the card says so
+  // once, the Gaffer button no longer counts it, and the card count (header, bell, title) stays the number of cards.
+  const folded=fixture()
+  folded.routes['/api/v2/terminal/sessions']={sessions:[{id:'worker-1',agentId:'a1',title:'Release review',state:'running',createdAt:now-7200000,updatedAt:now-720000,exitCode:null,structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-60000,changedSinceSeen:true,pendingPermission:{permissionId:'perm-aaaa00000001',title:'go test',command:'go test ./...',queued:0}}]}
+  const foldedWorkspace=await openWorkspace(browser,{width:390,terminalStatus:{configured:true,available:true,reason:''},routes:folded.routes})
+  try {
+    const page=foldedWorkspace.page
+    await page.goto(base+'/')
+    const needs=page.locator('#needs-you')
+    await expect(needs.locator('.card')).toHaveCount(1)
+    const card=needs.locator('.card',{hasText:'Release review'})
+    await expect(card.getByText('Gaffer follow-up also needs review',{exact:true})).toHaveCount(1)
+    await expect(needs.locator('.count')).toHaveText('1')
+    await expect(page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
+    await expect(page).toHaveTitle(/^\(1\) /)
+    await expect(page.getByRole('button',{name:'Gaffer: following 1 session',exact:true})).toBeVisible()
+    await expect(page.getByRole('button',{name:/follow-ups? needs? review/})).toHaveCount(0)
+    expect(foldedWorkspace.errors).toEqual([]);expect(foldedWorkspace.state.unexpected).toEqual([])
+  } finally {await foldedWorkspace.context.close()}
+  console.log('Home follow-ups: six theme/width views, a goal folded into its session card (counted once), standalone overview, no implicit writes/provider reads, explicit control refresh, stale read/retry, focus, empty and viewer/open-mode boundaries passed.')
 } finally {await browser.close()}

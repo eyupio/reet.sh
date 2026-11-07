@@ -453,3 +453,35 @@ test('handed projects: known ids only, once each, in rail order, at most 12', ()
   assert.deepEqual(h.handedProjects(null, list), [])
   assert.deepEqual(h.handedProjects('', list), [])
 })
+
+// A Gaffer goal that needs review on a session that already has a card is that card's second reason, not a second thing
+// to count; any other goal that needs review is still counted by itself.
+test('a Gaffer goal for a carded session folds into that card once, and the rest are counted apart', () => {
+  const goal = (sessionId, attention = true, over = {}) => ({ goal: { id: `g-${sessionId}` }, session: sessionId ? { id: sessionId, agentId: 'a1', title: 't', state: 'running' } : undefined, available: true, attention, ...over })
+  const cards = needsYou([
+    session('c1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - MIN, changedSinceSeen: true, pendingPermission: { permissionId: 'p1', title: 'go test' } }),
+    session('c2', 'a1', 'exited', { exitCode: 2, attention: 'failed', changedSinceSeen: true }),
+  ], NOW)
+  assert.deepEqual(cards.map(c => c.reasons), [['approval'], ['failed']])
+  const before = JSON.stringify(cards)
+
+  const folded = h.foldGafferGoals(cards, [goal('c1')])
+  assert.equal(folded.unfolded, 0)
+  assert.deepEqual(folded.cards.map(c => c.reasons), [['approval', 'gaffer'], ['failed']])
+  assert.equal(folded.cards.length, cards.length, 'folding never changes the number of cards')
+  assert.equal(JSON.stringify(cards), before, 'the input cards are not changed')
+
+  const apart = h.foldGafferGoals(cards, [goal('elsewhere')])
+  assert.equal(apart.unfolded, 1)
+  assert.deepEqual(apart.cards, cards)
+
+  const twice = h.foldGafferGoals(cards, [goal('c1'), goal('c1', true, { goal: { id: 'g2' } })])
+  assert.deepEqual(twice.cards.find(c => c.sessionId === 'c1').reasons, ['approval', 'gaffer'])
+  assert.equal(twice.unfolded, 0)
+
+  assert.deepEqual(h.foldGafferGoals(cards, [goal('c1', false), goal('elsewhere', false)]), { cards, unfolded: 0 })
+  assert.deepEqual(h.foldGafferGoals(cards, undefined), { cards, unfolded: 0 })
+  assert.deepEqual(h.foldGafferGoals(cards, [goal(undefined)]).unfolded, 1, 'a goal with no session cannot fold')
+  assert.deepEqual(h.foldGafferGoals(cards, [goal(undefined)]).cards, cards)
+  assert.deepEqual(h.foldGafferGoals([], [goal('c1'), goal('c2')]), { cards: [], unfolded: 2 })
+})

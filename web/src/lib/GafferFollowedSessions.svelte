@@ -19,7 +19,7 @@
   const needsYou=$derived(rows.filter(row=>row.attention).length)
   const following=$derived(rows.filter(row=>row.goal.state==='active'&&!row.attention).length)
   const visible=$derived(rows.filter(row=>filter==='all'||filter==='attention'&&row.attention||filter==='active'&&row.goal.state==='active'&&!row.attention||filter==='finished'&&['completed','stopped','limit'].includes(row.goal.state)))
-  const label=(row:GafferGoalOverview)=>row.attention?'Needs you':row.goal.state==='active'?'Following':row.goal.state==='completed'?'You marked complete':row.goal.state==='limit'?'Limit reached':row.goal.state==='stopped'?'Stopped':'Paused'
+  const label=(row:GafferGoalOverview)=>row.attention?'Needs review':row.goal.state==='active'?'Following':row.goal.state==='completed'?'You marked complete':row.goal.state==='limit'?'Limit reached':row.goal.state==='stopped'?'Stopped':'Paused'
   const deliveryLabel=(state:string)=>state==='sent'?'Handed to worker':state==='queued'?'Queued for next turn':state==='sending'?'Handoff in progress':state==='uncertain'?'Delivery uncertain':state==='blocked'?'Delivery blocked':state==='removed'?'Instruction removed':'Receipt needs review'
 
   async function load(fresh=false) {
@@ -50,9 +50,9 @@
 <WorkspaceDialog title="Followed sessions" {onclose}>
   <div class="overview">
     <p class="intro">The job sheet, with a brew on standby. These are the sessions you explicitly asked Gaffer to look after.</p>
-    <div class="toolbar"><p class="counts">Needs you <strong>{needsYou}</strong> <span aria-hidden="true">·</span> Following <strong>{following}</strong></p><button class="btn quiet" bind:this={refreshButton} disabled={reading} onclick={()=>void load()}>Refresh</button></div>
+    <div class="toolbar"><p class="counts">Needs review <strong>{needsYou}</strong> <span aria-hidden="true">·</span> Following <strong>{following}</strong></p><button class="btn quiet" bind:this={refreshButton} disabled={reading} onclick={()=>void load()}>Refresh</button></div>
     <nav class="filters" aria-label="Filter followed sessions">
-      {#each [['all','All'],['attention','Needs you'],['active','Following'],['finished','Finished']] as [value,name]}<button class="filter" type="button" aria-pressed={filter===value} onclick={()=>filter=value}>{name}</button>{/each}
+      {#each [['all','All'],['attention','Needs review'],['active','Following'],['finished','Finished']] as [value,name]}<button class="filter" type="button" aria-pressed={filter===value} onclick={()=>filter=value}>{name}</button>{/each}
     </nav>
     {#if error}<p role="alert" class="warning">{error}</p>{#if view}<p class="muted">Showing the last successful read. Refresh to check for changes.</p>{/if}{/if}
     {#if loading}<p role="status">Reading the job sheet…</p>

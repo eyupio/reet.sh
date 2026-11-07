@@ -617,8 +617,9 @@
   }
   /* In landscape keep the controls reachable and trim secondary metadata. */
   @media (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .head { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px 8px; padding: 0 4px 4px; }
-    .identity-row { flex: 1 1 190px; min-width: 0; min-height: 44px; }
+    .head { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px 8px; padding: 0 4px 2px; }
+    .identity-row { flex: 1 1 190px; min-width: 0; min-height: 44px; flex-wrap: nowrap; padding-bottom: 0; }
+    .header-actions { width: auto; margin-left: auto; }
     .heading { max-width: 100px; min-width: 0; }
     .where-phone { display: none; }
     /* A landscape phone has no room for several wrapped rows: the primary controls stay in one row, secondary ones wait

@@ -292,8 +292,49 @@ test('a waiting chat with a question is labelled as one and carries its preview,
   assert.equal(byId('b1').question.questionId, 'qc')
   assert.equal(byId('p1').label, 'Waiting for you')
   assert.equal(byId('p1').question, undefined)
-  // A question that was already seen is not a card.
-  assert.deepEqual(needsYou([session('q3', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: false, pendingQuestion: { questionId: 'qd', message: 'x' } })], NOW), [])
+  // A question still held open is a card even when the page was already seen: it stays until it is answered.
+  assert.deepEqual(needsYou([session('q3', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: false, pendingQuestion: { questionId: 'qd', message: 'x' } })], NOW).map(c => [c.kind, c.label, c.markSeen]), [['waiting', 'Question for you', false]])
+})
+
+test('a blocked chat is a card until answered, whether or not it was seen', () => {
+  const chat = over => session('c1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - MIN, ...over })
+  const permission = { permissionId: 'p1', title: 'go test' }
+  const [a] = needsYou([chat({ changedSinceSeen: false, pendingPermission: permission })], NOW)
+  assert.equal(a.kind, 'waiting')
+  assert.equal(a.approval.permissionId, 'p1')
+  assert.deepEqual(a.reasons, ['approval'])
+  // A Home-style optimistic mark-seen on a pending approval keeps its card.
+  const optimistic = { ...chat({ changedSinceSeen: true, pendingPermission: permission }), changedSinceSeen: false }
+  assert.equal(needsYou([optimistic], NOW).length, 1)
+  // A waiting terminal bell that was seen, with nothing pending, is not a card.
+  assert.deepEqual(needsYou([session('t1', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: false })], NOW), [])
+  assert.deepEqual(needsYou([chat({ changedSinceSeen: false })], NOW), [])
+})
+
+test('card reasons name why each card needs the person', () => {
+  const sessions = [
+    session('a', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: true, pendingPermission: { permissionId: 'p1' } }),
+    session('q', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: true, pendingQuestion: { questionId: 'q1' } }),
+    session('b', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: false, pendingPermission: { permissionId: 'p1' }, pendingQuestion: { questionId: 'q1' } }),
+    session('f', 'a1', 'exited', { exitCode: 2, attention: 'failed', changedSinceSeen: true }),
+    session('n', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: true }),
+    session('w', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: true, ...tree('web') }),
+    session('t', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: true }),
+  ]
+  const reasons = Object.fromEntries(needsYou(sessions, NOW).map(c => [c.sessionId, c.reasons]))
+  assert.deepEqual(reasons, { a: ['approval'], q: ['question'], b: ['approval', 'question'], f: ['failed'], n: ['finished'], w: ['review'], t: [] })
+})
+
+test('a seen failed or finished session, and one past the 24 hour window, are not cards', () => {
+  const old = NOW - 25 * HOUR
+  const cards = needsYou([
+    session('f1', 'a1', 'exited', { exitCode: 2, attention: 'failed', changedSinceSeen: false }),
+    session('f2', 'a1', 'exited', { exitCode: 2, attention: 'failed', changedSinceSeen: true, updatedAt: old }),
+    session('n1', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: false }),
+    session('n2', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: true, updatedAt: old }),
+    session('n3', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: true, updatedAt: NOW - 23 * HOUR }),
+  ], NOW)
+  assert.deepEqual(cards.map(c => c.sessionId), ['n3'])
 })
 
 test('bell count equals queue length', () => {

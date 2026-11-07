@@ -11,6 +11,7 @@
   import GafferProse from './GafferProse.svelte'
   import WorkerMessaging from './WorkerMessaging.svelte'
  import GafferGoal from './GafferGoal.svelte'
+  import GafferSessionPicker from './GafferSessionPicker.svelte'
   import GafferFollowedSessions from './GafferFollowedSessions.svelte'
   import ContextSharing from './ContextSharing.svelte'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
@@ -25,6 +26,7 @@
   const composeHelpId = `${contextDescriptionId}-keys`
   let historyOpen = $state(false), optionsOpen = $state(false), workerOpen = $state(false), goalOpen=$state(false), relay = $state(false)
   let followedOpen = $state(false)
+  let sessionPickerOpen = $state(false)
   let modelButton = $state<HTMLButtonElement>(), historyButton = $state<HTMLButtonElement>(), contextButton = $state<HTMLButtonElement>(), optionsButton = $state<HTMLButtonElement>(), freshButton = $state<HTMLButtonElement>()
   let modelBefore: {providerId:string;model:string;manual:boolean} | undefined
   let contextOpen = $state(false)
@@ -82,7 +84,7 @@
     measureKeyboard();window.addEventListener('resize',scheduleKeyboard);vv?.addEventListener('resize',scheduleKeyboard);document.addEventListener('focusin',scheduleKeyboard);document.addEventListener('focusout',scheduleKeyboard)
     return () => { cancelAnimationFrame(frame);window.removeEventListener('resize',scheduleKeyboard);vv?.removeEventListener('resize',scheduleKeyboard);document.removeEventListener('focusin',scheduleKeyboard);document.removeEventListener('focusout',scheduleKeyboard);document.documentElement.removeAttribute('data-gaffer-editing');document.documentElement.removeAttribute('data-gaffer-anchor');gafferChatEntry.update(current => current === entry ? null : current); mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
   })
-  $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; workerOpen=false;goalOpen=false;followedOpen=false;relay=false; if (shown) void load(key); else dispose() }) })
+  $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; workerOpen=false;goalOpen=false;followedOpen=false;sessionPickerOpen=false;relay=false; if (shown) void load(key); else dispose() }) })
   $effect(() => {
     if (!open || !panel) return
     const mobile = modal, dialog = panel
@@ -296,7 +298,7 @@
   <dialog class="gaffer-chat" data-size={panelSize} data-side={panelSide} data-full={full||undefined} bind:this={panel} use:phoneShell={modal} use:moveGafferPanel={{reset:`${panelSize}:${panelSide}:${full}:${phone}:${layoutRevision}`,modal}} aria-labelledby="gaffer-chat-title" aria-modal={modal ? 'true' : 'false'} oncancel={event => {event.preventDefault(); void close()}} onkeydown={event => { if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); void close()} }}>
     <header class="chat-head" data-shell-head data-gaffer-drag>
       <button class="identity" type="button" data-gaffer-move disabled={modal} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-label="Move Gaffer panel with arrow keys or by dragging" title={modal ? 'Gaffer moves with the screen on this size' : 'Drag to move · arrow keys nudge · double-click to snap back'}><GafferCompanionAvatar size={32} thinking={!!running}/></button>
-      <div class="heading"><h2 id="gaffer-chat-title">Gaffer</h2><p class="scope-title" title={`${scopeTitle} · ${brainTitle}`}>{scopeTitle}</p></div>
+      <div class="heading"><h2 id="gaffer-chat-title">Gaffer</h2><p class="scope-title" class:follow-scope-label={!scope} title={`${scopeTitle} · ${brainTitle}`}>{#if scope}{scopeTitle}{:else}<span class="sr-only">General Gaffer chat · </span>Follow a session <span aria-hidden="true">⌄</span>{/if}</p>{#if !scope}<button type="button" class="follow-scope" aria-label="Follow a session" title="Choose a session for Gaffer" onclick={()=>sessionPickerOpen=true}></button>{/if}</div>
       <div class="head-actions" role="group" aria-label="Gaffer panel tools">
         <button class="icon" type="button" bind:this={freshButton} aria-label="New conversation" title={freshTitle} aria-haspopup="dialog" disabled={!canStartFresh} onclick={startFresh}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button>
         <button class="icon" bind:this={historyButton} aria-label="Conversation history" title="Conversation history" aria-haspopup="dialog" onclick={() => historyOpen = true}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7M12 7v5l3 2" /></svg></button>
@@ -392,11 +394,13 @@
   </div>
 </WorkspaceDialog>{/if}
 
+{#if sessionPickerOpen}<GafferSessionPicker onclose={()=>{sessionPickerOpen=false;void tick().then(()=>composer?.focus({preventScroll:true}))}} onselect={()=>{mode='session';sessionPickerOpen=false}} />{/if}
 {#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {timeZone} {dateFormat} onchanged={goalChanged}/></WorkspaceDialog>{/if}
 {#if followedOpen}<GafferFollowedSessions {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(current)await goalChanged()}} onselect={()=>{mode='session';followedOpen=false}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}/>{/if}
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 
 <style>
+
   .gaffer-launcher,.gaffer-chat{--gaffer-floor:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px) + 40px)}
   .gaffer-anchor-space{position:fixed;inset:auto 0 0;height:var(--bottom-chrome,0px);pointer-events:none;z-index:-1}
   .gaffer-launcher{position:fixed;z-index:18;right:20px;bottom:var(--gaffer-floor);display:flex;width:56px;height:56px;padding:0;border:0;border-radius:50%;background:var(--card);box-shadow:0 5px 22px var(--scrim);cursor:pointer}
@@ -425,7 +429,10 @@
   /* A moved panel marks its snap-back tool, so the way home stays visible. */
   :global(.gaffer-chat[data-gaffer-placed]) .snap{color:var(--accent-text);border-color:var(--accent)}
   .panel-layout svg{display:block}
-  .heading{flex:1;min-width:0}
+  .heading{position:relative;flex:1;min-width:0}
+  .follow-scope{position:absolute;inset:0;min-height:44px;width:100%;border:0;border-radius:4px;background:transparent;cursor:pointer}
+  .follow-scope:focus-visible{outline:2px solid var(--accent-text);outline-offset:2px}
+  .scope-title.follow-scope-label{color:var(--accent-text)}
   h2{font:600 18px/1.15 var(--serif);margin:0;letter-spacing:-.01em}
   h3{font:600 23px/1.25 var(--serif);margin:0 0 10px}
   .scope-title{margin:3px 0 0;font-size:13px;line-height:1.3;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

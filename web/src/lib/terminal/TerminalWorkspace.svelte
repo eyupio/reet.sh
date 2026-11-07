@@ -232,6 +232,26 @@
     if(shown)chooseSession(shown);else location.assign('/sessions')
   }
 
+  // Only locally requested ends dismiss their view after confirmed closure.
+  // Offline/uncertain ends stay visible until a successful listing confirms closure.
+  const dismissAfterEnd = new Set<string>()
+  function dismissConfirmedEnds() {
+    for (const id of dismissAfterEnd) {
+      const ended = sessions.find(item => item.id === id)
+      if (ended && !['ended', 'exited'].includes(ended.state)) continue
+      dismissAfterEnd.delete(id)
+      const wasSelected = selectedSession === id
+      const next = closeTab(openTabs, id, selectedSession)
+      openTabs = next.tabs
+      for (const [agent, remembered] of rememberedSessions) if (remembered === id) rememberedSessions.delete(agent)
+      if (!wasSelected) continue
+      const eligible = (item: TerminalSession) => next.tabs.includes(item.id) && !terminalClosed(item.state)
+      const target = sessions.find(item => item.id === next.next && eligible(item)) || sessions.find(eligible)
+      if (target) chooseSession(target)
+      else { selectedSession = ''; remember(); location.assign('/sessions?view=list') }
+    }
+  }
+
   function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
   function chooseMachine(id: string) {
     if(selectedAgent && selectedSession)rememberedSessions.set(selectedAgent,selectedSession)
@@ -267,10 +287,12 @@
       // A pre-mutation observation must not overwrite a confirmed local result.
       if(version!==inventoryVersion){refreshAgain=true;return}
       statusError='';accessDenied=false
+      const selectionBeforeRefresh=selectedSession
       const removedAfterClose=sessions.find(item=>item.id===selectedSession)?.removeHistory&&!nextSessions.some(item=>item.id===selectedSession)
       machines=nextMachines;sessions=nextSessions;listingLoaded=true;healthIssue=nextHealth.error
       if(nextProjects.projects)projects=nextProjects.projects
-      if(removedAfterClose){selectedSession='';remember()}
+      dismissConfirmedEnds()
+      if(removedAfterClose&&selectedSession===selectionBeforeRefresh){selectedSession='';remember()}
       if(nextHealth.data){health=nextHealth.data;receivedAt=performance.now();elapsed=0}
       if(firstLoad&&!selectedSession)selectedSession=sessions.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
       remember()
@@ -535,10 +557,13 @@
         for(const [agent,selected] of rememberedSessions)if(selected===id)rememberedSessions.delete(agent)
         if(selectedSession===id){selectedSession='';remember()}
       }
-      else {let operation=endKeys.get(id);if(!operation){operation={key:crypto.randomUUID(),remove:removeOnClose};endKeys.set(id,operation)}await endTerminal(id,operation.key,operation.remove);if(defaultEdited&&defaultOn!==removeDefault){try{await saveProfile({terminalRemoveOnClose:defaultOn});removeDefault=defaultOn}catch{preferenceError='Session stop requested, but your default could not be saved. Change it in Account → Profile.'}}}
+      else {let operation=endKeys.get(id);if(!operation){operation={key:crypto.randomUUID(),remove:removeOnClose};endKeys.set(id,operation)}dismissAfterEnd.add(id);await endTerminal(id,operation.key,operation.remove);if(defaultEdited&&defaultOn!==removeDefault){try{await saveProfile({terminalRemoveOnClose:defaultOn});removeDefault=defaultOn}catch{preferenceError='Session stop requested, but your default could not be saved. Change it in Account → Profile.'}}}
       inventoryVersion++
       await refresh()
-    } catch(e){if(!disposed)error=e instanceof Error?e.message:'Action could not be confirmed. Retry the same action.'}
+    } catch(e){
+      if(kind==='end'&&e instanceof TerminalError&&e.status>=400&&e.status<500&&![408,429].includes(e.status))dismissAfterEnd.delete(id)
+      if(!disposed)error=e instanceof Error?e.message:'Action could not be confirmed. Retry the same action.'
+    }
     finally{actionBusy=false}
   }
   $effect(() => {

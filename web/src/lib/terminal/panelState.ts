@@ -58,6 +58,11 @@ export function needCount(sessions: readonly Pick<TerminalSession, 'attention' |
   return n
 }
 
+/** The badge wording for a count of sessions that need the person: waiting, or an unseen failed or finished turn. */
+export function needLabel(n: number): string {
+  return n === 1 ? `${n} needs you` : `${n} need you`
+}
+
 /** Section keys the person folded, as saved in the browser: only strings survive, deduplicated and bounded. */
 export function sanitiseCollapsed(saved: unknown): string[] {
   if (!Array.isArray(saved)) return []

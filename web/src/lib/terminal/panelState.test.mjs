@@ -77,6 +77,12 @@ test('needCount follows the shared attention rule, including unseen failed and f
   assert.equal(p.needCount([blockedSeen, failedRecent, finishedOld, failedSeen, working], now), 2)
 })
 
+test('needLabel words the badge count for one or many', () => {
+  assert.equal(p.needLabel(1), '1 needs you')
+  assert.equal(p.needLabel(2), '2 need you')
+  assert.equal(p.needLabel(0), '0 need you')
+})
+
 test('saved collapse state keeps only usable strings', () => {
   assert.deepEqual(p.sanitiseCollapsed(['a', 'a', 3, '', null, 'b']), ['a', 'b'])
   assert.deepEqual(p.sanitiseCollapsed('nope'), [])

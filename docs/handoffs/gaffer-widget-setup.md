@@ -20,6 +20,17 @@ alongside this UX change; real provider credentials remain for later settings.
   Desktop header dragging, arrow-key movement and the native resize grip are
   available. Presets and side persist per browser account; manual geometry and
   full screen are temporary. Phones use a viewport-aware modal sheet.
+- The desktop header carries the reference tools in one row: the mascot identity
+  drags the panel (arrow keys nudge, Shift jumps 40 px, double-click snaps back),
+  beside New conversation, Conversation history, Chat options, Full screen and
+  Close. New conversation confirms before clearing this chat's saved messages,
+  shared context and goal; an empty chat keeps the tool disabled. The preset row
+  uses left/right dock icons and a snap-back tool that also clears a temporary
+  native resize, without changing the saved preset. Every tool keeps a title,
+  accessible name and visible focus, and the whole header remains a drag area.
+  The composer sends on Enter and never starts a new line; Shift+Enter (or
+  Alt+Enter) adds one, and a composing IME candidate never sends. Ctrl/Cmd+Enter
+  keeps working and the send button remains for touch.
 - The flat-capped face sits on the reference warm circular tile in the launcher,
   header and replies, with the seated illustration in the welcome, with restrained greeting/thinking motion and reduced
   motion/user-animation preferences. The working-session mascot is unchanged.
@@ -52,8 +63,8 @@ The atomic HTTP test passes confirmation, late-CAS rollback, stale revisions,
 provider maximum changes, separate-session isolation, resume preservation and
 foreign-origin/MCP denial. Existing goal/store/API race selections pass after the
 transaction helper refactor. The widget matrix passes twelve theme/width views, including a landscape phone with
-stable clearance, presets, resize reset, keyboard positioning, full screen, phone
-sheet, drafts and focus. Chat/context/worker/goal/settings/overview browser regressions also pass. Source UI captures were visually inspected; strict docs, 51-page static checks
+stable clearance, header tools, pointer drag and snap back, presets, resize reset, keyboard positioning, full screen, phone
+sheet, fresh chat, drafts and focus. Chat/context/worker/goal/settings/overview browser regressions also pass. Source UI captures were visually inspected; strict docs, 51-page static checks
 and the 40-view browser smoke pass. Final-head CI/review remains the publication
 gate. Initial CI found two geometry-test assumptions: modal drawers were
 incorrectly clipped to terminal ancestors, and the save-dock check expected the

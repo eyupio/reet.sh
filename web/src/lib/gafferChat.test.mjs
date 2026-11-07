@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { gafferMessageBytes, gafferMessageId, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt } from './gafferChat.ts'
+import { gafferMessageBytes, gafferMessageId, gafferSendKey, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt } from './gafferChat.ts'
 
 test('pending receipt storage separates accounts/scopes and never writes message text', () => {
  const values=new Map();globalThis.sessionStorage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)}
@@ -16,6 +16,15 @@ test('malformed and unavailable storage cannot create a send request',()=>{
  globalThis.sessionStorage={getItem:()=>JSON.stringify({conversationId:'wrong',id:'b'.repeat(32),revision:1})};assert.equal(readGafferReceipt(1,''),null)
  globalThis.sessionStorage={getItem:()=>{throw Error('blocked')},setItem:()=>{throw Error('blocked')},removeItem:()=>{throw Error('blocked')}}
  assert.equal(readGafferReceipt(1,''),null);assert.doesNotThrow(()=>writeGafferReceipt(1,'',null))
+})
+test('Enter sends; Shift or Alt Enter adds a line; a composing IME never sends', () => {
+ const key=extra=>({key:'Enter',shiftKey:false,altKey:false,isComposing:false,...extra})
+ assert.equal(gafferSendKey(key()),true)
+ assert.equal(gafferSendKey(key({shiftKey:true})),false)
+ assert.equal(gafferSendKey(key({altKey:true})),false)
+ assert.equal(gafferSendKey(key({isComposing:true})),false)
+ assert.equal(gafferSendKey(key({key:'a'})),false)
+ assert.equal(gafferSendKey(key({key:'Escape'})),false)
 })
 test('request ids use the server shape and prompts count UTF-8 bytes',()=>{
  const a=gafferMessageId(),b=gafferMessageId();assert.match(a,/^[a-f0-9]{32}$/);assert.notEqual(a,b)

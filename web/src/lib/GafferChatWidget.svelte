@@ -3,7 +3,7 @@
   import { ApiError, UnauthorizedError, cancelGafferAnswer, configureGafferConversation, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,getGafferGoal,
     type GafferConversationView, type GafferSettings, type GafferTurn } from './api'
   import { gafferSessionContext, gafferChatEntry } from './gafferContext'
-  import { gafferMessageBytes, gafferMessageId, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt, type PendingGafferSend } from './gafferChat'
+  import { gafferMessageBytes, gafferMessageId, gafferSendKey, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt, type PendingGafferSend } from './gafferChat'
   import GafferCompanionAvatar from './GafferCompanionAvatar.svelte'
   import {readGafferLayout,moveGafferPanel,type GafferPanelSize,type GafferPanelSide} from './gafferPanel'
   import ConfirmDialog from './ConfirmDialog.svelte'
@@ -22,9 +22,10 @@
 
   let { userId, onerror, timeZone = '', dateFormat = 'locale' }: { userId: number; onerror?: (e: unknown) => void; timeZone?: string; dateFormat?: string } = $props()
   const contextDescriptionId = $props.id()
+  const composeHelpId = `${contextDescriptionId}-keys`
   let historyOpen = $state(false), optionsOpen = $state(false), workerOpen = $state(false), goalOpen=$state(false), relay = $state(false)
   let followedOpen = $state(false)
-  let modelButton = $state<HTMLButtonElement>(), historyButton = $state<HTMLButtonElement>(), contextButton = $state<HTMLButtonElement>(), optionsButton = $state<HTMLButtonElement>()
+  let modelButton = $state<HTMLButtonElement>(), historyButton = $state<HTMLButtonElement>(), contextButton = $state<HTMLButtonElement>(), optionsButton = $state<HTMLButtonElement>(), freshButton = $state<HTMLButtonElement>()
   let modelBefore: {providerId:string;model:string;manual:boolean} | undefined
   let contextOpen = $state(false)
   let open = $state(false), phone = $state(false), full = $state(false), mode = $state('session'), keyboardEditing=$state(false)
@@ -34,7 +35,7 @@
   let panel = $state<HTMLDialogElement>(), launcher = $state<HTMLButtonElement>(), composer = $state<HTMLTextAreaElement>(), transcript = $state<HTMLDivElement>()
   let inlineOpener: HTMLElement | undefined
   let settings = $state<GafferSettings | null>(null), view = $state<GafferConversationView | null>(null), loadedScope = $state<string | null>(null)
-  let loading = $state(false), sending = $state(false), updating = $state(false), cancelling = $state(false), confirming = $state(false)
+  let loading = $state(false), sending = $state(false), updating = $state(false), cancelling = $state(false), confirming = $state(false), freshConfirm = $state(false)
   let error = $state(''), notice = $state(''), streamError = $state(''), choicesOpen = $state(false)
   let providerId = $state(''), model = $state(''), models = $state<string[]>([]), fetchingModels = $state(false), modelsError = $state(''), manualModel = $state(false)
   let drafts = $state<Record<string,string>>({}), pending = $state<PendingGafferSend | null>(null)
@@ -50,6 +51,12 @@
   const bytes = $derived(gafferMessageBytes(drafts[scope] ?? ''))
   const blocked = $derived(loadedScope !== scope || loading || sending || updating || !!running || !!pending || unavailable || !!streamError || !settings?.available || !provider?.enabled || dirty || !!current?.context?.needsReview || (manualModel && !model.trim()))
   const contextLabel = $derived(current?.context?.needsReview ? 'Review context sharing' : current?.context?.grant && (current.context.grant.status || current.context.grant.history || current.context.grant.text) ? 'Selected context shared' : 'Context off · typed messages only')
+  // A fresh chat is only useful when this saved conversation holds something to
+  // clear: messages, a running goal or shared context. An empty chat keeps the
+  // tool disabled rather than pretending to do something.
+  const canStartFresh = $derived(!!current && !loading && !sending && !updating && !pending && (current.turns.length > 0 || !!current.goal || !!(current.context?.grant && (current.context.grant.status || current.context.grant.history || current.context.grant.text))))
+  const brainTitle = $derived([provider?.name, model || provider?.model].filter(Boolean).join(' · ') || 'No provider chosen yet')
+  const freshTitle = $derived(canStartFresh ? 'Start a fresh chat' : !current ? 'No saved chat to clear yet' : loading || sending || updating || pending ? 'Wait for this chat to settle' : 'Nothing to clear in this chat yet')
 
   onMount(() => {
     try{const saved=readGafferLayout(localStorage.getItem(`reet.gaffer.layout.${userId}`));panelSize=saved.size;panelSide=saved.side}catch{/* optional layout preference */}
@@ -80,6 +87,10 @@
     if (canAutoFocus()) void tick().then(() => { if (dialog.open && !mobile) composer?.focus({preventScroll:true}) })
   })
   function layout(size=panelSize,side=panelSide){panelSize=size;panelSide=side;layoutRevision++;document.documentElement.setAttribute('data-gaffer-anchor',side);try{localStorage.setItem(`reet.gaffer.layout.${userId}`,JSON.stringify({size,side}))}catch{/* optional preference */}}
+  // The snap-back tool asks the drag action to return the panel (and any native
+  // resize) to the saved corner without changing the saved preset itself.
+  function snapPanel(){panel?.dispatchEvent(new Event('gaffer-place'))}
+  function startFresh(){if(canStartFresh)freshConfirm=true}
   function phoneShell(node: HTMLDialogElement, mobile: boolean) {
     let handle: ReturnType<typeof shell>
     function update(value: boolean) { handle?.destroy?.(); node.removeAttribute('data-shell'); if (value) handle = shell(node, {sheet:'full'}); else handle = undefined }
@@ -95,7 +106,7 @@
   }
   async function load(key = scope) {
     dispose(); const mine = epoch, controller = new AbortController(); request = controller
-    loading = true; sending = false; updating = false; cancelling = false; confirming = false; error = ''; notice = ''; streamError = ''; loadedScope = null; view = null
+    loading = true; sending = false; updating = false; cancelling = false; confirming = false; freshConfirm = false; error = ''; notice = ''; streamError = ''; loadedScope = null; view = null
     models = []; modelsError = ''; fetchingModels = false; manualModel = false
     pending = pendingMemory.get(key) ?? readGafferReceipt(userId, key)
     if (unavailable) { loading = false; loadedScope = key; return }
@@ -142,7 +153,7 @@
       if (mine === epoch && stream === source && open) { stream = undefined; streamError = 'The reply connection paused. Reconnect to read Gaffer’s saved answer.' }
     }
   }
-  async function close() { open = false;full=false; confirming = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true}) }
+  async function close() { open = false;full=false; confirming = false; freshConfirm = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true}) }
   function chooseProvider(value: string) { providerId = value; model = ''; manualModel = false; invalidateModels() }
   function invalidateModels() { modelEpoch++; modelRequest?.abort(); fetchingModels = false; models = []; modelsError = '' }
   async function fetchModels() {
@@ -220,6 +231,13 @@
  return()=>clearInterval(timer)
  })
   async function contextSaved(){contextOpen=false;await load(scope);notice='Context sharing updated. The working agent keeps running.'}
+  // Enter sends and never starts a new line; Shift+Enter keeps the line break.
+  // The send guard still decides whether the message is admitted.
+  function composeKey(event: KeyboardEvent) {
+    if (!gafferSendKey(event)) return
+    event.preventDefault()
+    void send()
+  }
   async function send(existing?: PendingGafferSend) {
     if (!existing && (blocked || !drafts[scope]?.trim() || bytes > 8000)) return
     const mine = epoch, key = scope, text = existing?.text ?? drafts[key] ?? ''
@@ -255,10 +273,10 @@
     try { await cancelGafferAnswer(current.conversation, running.id, request?.signal); if (mine === epoch) notice = 'Cancellation requested. Waiting for the saved outcome.' }
     catch (e) { if (mine === epoch) { cancelling = false; error = message(e) } }
   }
-  async function removeConversation() {
+  async function removeConversation(fresh = false) {
     if (!current) return
-    const mine = epoch, key = scope; updating = true; confirming = false; error = ''
-    try { await removeGafferConversation(current.conversation, request?.signal); if (mine === epoch) { stream?.close(); remember(key, null); view = null; drafts[key] = ''; notice = 'Conversation removed. Fresh brew, fresh start.' } }
+    const mine = epoch, key = scope; updating = true; confirming = false; freshConfirm = false; error = ''; streamError = ''; cancelling = false
+    try { await removeGafferConversation(current.conversation, request?.signal); if (mine === epoch) { stream?.close(); stream = undefined; remember(key, null); view = null; drafts[key] = ''; notice = fresh ? 'Fresh chat ready. Ask away.' : 'Conversation removed. Fresh brew, fresh start.'; if (fresh && canAutoFocus()) void tick().then(() => composer?.focus({preventScroll:true})) } }
     catch (e) { if (mine === epoch) error = message(e) }
     finally { if (mine === epoch) updating = false }
   }
@@ -273,16 +291,17 @@
 {#if open}
   <dialog class="gaffer-chat" data-size={panelSize} data-side={panelSide} data-full={full||undefined} bind:this={panel} use:phoneShell={modal} use:moveGafferPanel={{reset:`${panelSize}:${panelSide}:${full}:${phone}:${layoutRevision}`,modal}} aria-labelledby="gaffer-chat-title" aria-modal={modal ? 'true' : 'false'} oncancel={event => {event.preventDefault(); void close()}} onkeydown={event => { if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); void close()} }}>
     <header class="chat-head" data-shell-head data-gaffer-drag>
-      <button class="move-face" type="button" data-gaffer-move disabled={modal} aria-label="Move Gaffer panel with arrow keys or by dragging"><GafferCompanionAvatar size={32} thinking={!!running}/></button>
-      <div class="heading"><h2 id="gaffer-chat-title">Gaffer</h2><p class="scope-title" title={scopeTitle}>{scopeTitle}</p></div>
-      <div class="head-actions">
-        <button class="icon" bind:this={historyButton} aria-label="Conversation history" title="Conversation history" aria-haspopup="dialog" onclick={() => historyOpen = true}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7M12 7v5l3 2" /></svg></button>
-        <button class="icon" bind:this={optionsButton} aria-label="Chat options" title="Chat options" aria-haspopup="dialog" onclick={() => optionsOpen=true}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
-        <button class="icon expand" aria-label={full ? 'Restore panel' : 'Full screen'} aria-pressed={full} title={full ? 'Restore panel' : 'Full screen'} onclick={() => full = !full}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d={full ? 'M4 10h6V4M20 14h-6v6M10 10 3 3m11 11 7 7' : 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7'} /></svg></button>
+      <button class="identity" type="button" data-gaffer-move disabled={modal} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-label="Move Gaffer panel with arrow keys or by dragging" title={modal ? 'Gaffer moves with the screen on this size' : 'Drag to move · arrow keys nudge · double-click to snap back'}><GafferCompanionAvatar size={32} thinking={!!running}/></button>
+      <div class="heading"><h2 id="gaffer-chat-title">Gaffer</h2><p class="scope-title" title={`${scopeTitle} · ${brainTitle}`}>{scopeTitle}</p></div>
+      <div class="head-actions" role="group" aria-label="Gaffer panel tools">
+        <button class="icon" type="button" bind:this={freshButton} aria-label="New conversation" title={freshTitle} aria-haspopup="dialog" disabled={!canStartFresh} onclick={startFresh}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button>
+        <button class="icon" bind:this={historyButton} aria-label="Conversation history" title="Conversation history" aria-haspopup="dialog" onclick={() => historyOpen = true}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7M12 7v5l3 2" /></svg></button>
+        <button class="icon" bind:this={optionsButton} aria-label="Chat options" title="Chat options" aria-haspopup="dialog" onclick={() => optionsOpen=true}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+        <button class="icon expand" aria-label={full ? 'Restore panel' : 'Full screen'} aria-pressed={full} title={full ? 'Restore panel' : 'Full screen'} onclick={() => full = !full}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d={full ? 'M4 10h6V4M20 14h-6v6M10 10 3 3m11 11 7 7' : 'M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7'} /></svg></button>
         <button class="icon" data-shell-close aria-label="Close Gaffer" title="Close the panel; keep the current answer running" onclick={() => void close()}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
       </div>
     </header>
-    <div class="panel-layout"><div class="panel-sizes" role="group" aria-label="Gaffer panel size">{#each [['compact','Compact'],['comfortable','Default'],['expanded','Expanded']] as [value,label]}<button type="button" aria-pressed={panelSize===value} disabled={full} onclick={()=>layout(value as GafferPanelSize)}>{label}</button>{/each}</div><div class="panel-position" role="group" aria-label="Panel position"><button type="button" aria-label="Place Gaffer on the left" aria-pressed={panelSide==='left'} disabled={full} onclick={()=>layout(panelSize,'left')}>←</button><button type="button" aria-label="Place Gaffer on the right" aria-pressed={panelSide==='right'} disabled={full} onclick={()=>layout(panelSize,'right')}>→</button></div></div>
+    <div class="panel-layout"><div class="panel-sizes" role="group" aria-label="Gaffer panel size">{#each [['compact','Compact'],['comfortable','Default'],['expanded','Expanded']] as [value,label]}<button type="button" aria-pressed={panelSize===value} disabled={full} onclick={()=>layout(value as GafferPanelSize)}>{label}</button>{/each}</div><div class="panel-position" role="group" aria-label="Panel position"><button type="button" aria-label="Place Gaffer on the left" title="Dock Gaffer on the left" aria-pressed={panelSide==='left'} disabled={full} onclick={()=>layout(panelSize,'left')}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M9 3v18" /></svg></button><button type="button" aria-label="Place Gaffer on the right" title="Dock Gaffer on the right" aria-pressed={panelSide==='right'} disabled={full} onclick={()=>layout(panelSize,'right')}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M15 3v18" /></svg></button><button class="snap" type="button" aria-label="Snap Gaffer back to its corner" title="Reset a moved or resized panel" disabled={full} onclick={snapPanel}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.4" /><path d="M3 4v5h5" /></svg></button></div></div>
     {#if unavailable}
       <div class="unavailable" data-shell-body><h3>This session uses a terminal.</h3><p>A session companion needs a supported structured chat. You can still talk to Gaffer in General chat.</p><button class="btn" onclick={() => mode = 'general'}>Open general chat</button></div>
     {:else}
@@ -321,11 +340,12 @@
       <form class="composer" data-shell-foot onsubmit={event => {event.preventDefault(); void send()}}>
         {#if relay}<p class="request-mode" role="status">One worker message enabled for this request.<button class="quiet" type="button" onclick={()=>relay=false}>Cancel</button></p>{/if}
         <label class="sr-only" for="gaffer-message">Message Gaffer</label>
-        <textarea id="gaffer-message" bind:this={composer} value={drafts[scope] ?? ''} oninput={event => drafts[scope] = event.currentTarget.value} disabled={sending || loading} rows="2" placeholder="Talk it through with Gaffer…" onkeydown={event => {if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing) {event.preventDefault(); void send()}}}></textarea>
+        <p class="sr-only" id={composeHelpId}>Enter sends your message. Shift plus Enter adds a new line.</p>
+        <textarea id="gaffer-message" bind:this={composer} value={drafts[scope] ?? ''} oninput={event => drafts[scope] = event.currentTarget.value} disabled={sending || loading} rows="2" placeholder="Talk it through with Gaffer…" aria-describedby={composeHelpId} title="Enter to send · Shift + Enter for a new line" onkeydown={composeKey}></textarea>
         <div class="compose-actions">
           <div class="compose-tools"><button class="model-control" bind:this={modelButton} type="button" aria-label="Model" aria-haspopup="dialog" title={`Gaffer: ${provider?.name || 'Choose a provider'} · ${model || provider?.model || 'Choose a model'}`} disabled={loading||sending||updating} onclick={openChoices}><span>{model || provider?.model || 'Choose model'}</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button>
           {#if scope&&!unavailable}<button class="context-control" class:shared={current?.goal?.state==='active'} type="button" aria-label={current?.goal?`${current.goal.state==='active'?'Gaffer following':current.goal.state==='needs_user'?'Goal needs you':current.goal.state==='limit'?'Goal limit reached':`Goal ${current.goal.state}`} · ${current.goal.usedReviews}/${current.goal.maxReviews} reviews`:'Look after this session'} title="Look after this session" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices()}><span class="context-dot" aria-hidden="true"></span><span>{current?.goal?(current.goal.state==='active'?'Following':current.goal.state==='needs_user'?'Needs you':current.goal.state==='limit'?'Limit reached':current.goal.state):'Look after'}</span></button>{:else}          <button class="context-control" bind:this={contextButton} class:attention={current?.context?.needsReview} class:shared={contextLabel==='Selected context shared'} type="button" aria-label="Context" aria-describedby={contextDescriptionId} aria-haspopup="dialog" title={contextLabel} disabled={loading||sending||updating||dirty} onclick={()=>void contextChoices()}><span class="context-dot" aria-hidden="true"></span><span>{current?.context?.needsReview?'Review context':contextLabel==='Selected context shared'?'Context on':'Context off'}</span></button>{/if}<span id={contextDescriptionId} class="sr-only">{contextLabel}</span></div>
-          {#if running}<button class="send-control stop" type="button" aria-label="Cancel answer" title="Cancel Gaffer’s answer" disabled={cancelling || sending} onclick={() => void cancelAnswer()}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>{:else}<button class="send-control" aria-label="Send message" title="Send message · Ctrl / ⌘ Enter" disabled={blocked || !drafts[scope]?.trim() || bytes > 8000}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>{/if}
+          {#if running}<button class="send-control stop" type="button" aria-label="Cancel answer" title="Cancel Gaffer’s answer" disabled={cancelling || sending} onclick={() => void cancelAnswer()}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>{:else}<button class="send-control" aria-label="Send message" title="Send message · Enter" disabled={blocked || !drafts[scope]?.trim() || bytes > 8000}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>{/if}
         </div>
         {#if bytes>7200||dirty}<p class="compose-hint" class:bad={bytes>8000}>{bytes>7200?`${bytes.toLocaleString()} / 8,000 bytes`:'Apply your model choice first'}</p>{/if}
       </form>
@@ -335,6 +355,7 @@
 {/if}
 {#if historyOpen}<GafferChatHistory {timeZone} {dateFormat} activeSession={$gafferSessionContext} currentScope={scope} onselect={value=>{mode=value;historyOpen=false}} onerror={message} onclose={()=>{historyOpen=false;void tick().then(()=>historyButton?.focus({preventScroll:true}))}} onremoved={c => { if (current?.conversation.id === c.id || pending?.conversationId === c.id) { remember(scope, null); drafts[scope] = ''; void load() } }} />{/if}
 {#if confirming && current}<ConfirmDialog title="Remove this Gaffer conversation?" body="This deletes its messages and stops its current answer. Your working agent keeps running. Provider credits already used cannot be recovered." confirmLabel="Remove conversation" danger oncancel={() => confirming = false} onconfirm={() => void removeConversation()} />{/if}
+{#if freshConfirm && current}<ConfirmDialog title="Start a new Gaffer conversation?" body="This clears the saved messages, shared context and any session goal for this chat, and stops its current answer. Your working agent keeps running. Provider credits already used cannot be recovered." confirmLabel="Start fresh chat" danger oncancel={() => {freshConfirm = false; void tick().then(() => freshButton?.focus({preventScroll:true}))}} onconfirm={() => void removeConversation(true)} />{/if}
 
 {#if contextOpen && current}<WorkspaceDialog title="What Gaffer can read" onclose={()=>{contextOpen=false;void tick().then(()=>contextButton?.focus({preventScroll:true}))}}><ContextSharing {timeZone} {dateFormat} path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/context`} gaffer onchanged={contextSaved}/></WorkspaceDialog>{/if}
 
@@ -382,16 +403,35 @@
   .gaffer-chat[data-size=expanded]{width:min(46rem,calc(100vw - 32px));height:min(52rem,calc(100dvh - var(--gaffer-floor) - 24px))}
   .gaffer-chat[data-full]{inset:16px; width:calc(100vw - 32px);height:calc(100dvh - 32px);max-height:calc(100dvh - 32px);resize:none}
   .gaffer-chat::backdrop{background:var(--scrim)}
-  .move-face{display:grid;place-items:center;border:0;padding:0;background:none;cursor:grab;touch-action:none}.move-face:disabled{cursor:default}.chat-head{cursor:grab;touch-action:none}.chat-head:active{cursor:grabbing}
-  .panel-layout{display:flex;align-items:center;justify-content:space-between;padding:3px 12px;border-bottom:1px solid var(--line);flex:none}.panel-sizes,.panel-position{display:flex;align-items:center;gap:4px}
-  .panel-layout button{border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font:400 12px var(--sans);padding:6px 8px;min-height:36px;cursor:pointer}.panel-layout button[aria-pressed=true]{color:var(--accent-text);background:var(--tint);border-color:var(--accent)}.panel-layout button:disabled{opacity:.5;cursor:default}.panel-position button{width:36px;font-size:16px}
-  .chat-head { display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none;background:var(--bg-sunk); }
-  .heading { flex:1;min-width:0; }
-  h2 { font:600 18px/1.1 var(--serif);margin:0; }
-  h3 { font:600 23px/1.25 var(--serif);margin:0 0 10px; }
-  .scope-title { margin:3px 0 0;font-size:14px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
-  .head-actions { display:flex;flex:none;gap:0; }
-  .icon { width:36px;min-height:40px;display:grid;place-items:center;background:transparent;color:var(--muted);border:0;border-radius:8px;font-size:24px;cursor:pointer; }
+  .chat-head{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none;background:linear-gradient(180deg,var(--card-raised),var(--bg-sunk));cursor:grab;touch-action:none;user-select:none;transition:box-shadow .15s ease}
+  .chat-head:active{cursor:grabbing}
+  :global(.gaffer-chat[data-gaffer-dragging]){box-shadow:0 24px 80px var(--scrim);cursor:grabbing}
+  .identity{display:grid;place-items:center;flex:none;width:40px;height:40px;padding:0;border:1px solid var(--line-soft);border-radius:50%;background:var(--card);cursor:grab;touch-action:none;transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease}
+  .identity:hover:not(:disabled){border-color:var(--accent);box-shadow:0 0 0 3px var(--tint)}
+  .identity:active:not(:disabled){cursor:grabbing;transform:scale(.96)}
+  .identity:disabled{cursor:default;border-color:transparent;background:transparent}
+  .identity:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .panel-layout{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 10px;border-bottom:1px solid var(--line);background:var(--card);flex:none}
+  .panel-sizes,.panel-position{display:flex;align-items:center;gap:3px}
+  .panel-layout button{display:grid;place-items:center;min-height:32px;padding:5px 10px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font:500 12.5px var(--sans);cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease}
+  .panel-layout button:hover:not(:disabled){background:var(--tint);color:var(--ink)}
+  .panel-layout button[aria-pressed=true]{color:var(--accent-text);background:var(--tint);border-color:var(--accent)}
+  .panel-layout button:disabled{opacity:.45;cursor:default}
+  .panel-position button{width:32px;padding:0}
+  /* A moved panel marks its snap-back tool, so the way home stays visible. */
+  :global(.gaffer-chat[data-gaffer-placed]) .snap{color:var(--accent-text);border-color:var(--accent)}
+  .panel-layout svg{display:block}
+  .heading{flex:1;min-width:0}
+  h2{font:600 18px/1.15 var(--serif);margin:0;letter-spacing:-.01em}
+  h3{font:600 23px/1.25 var(--serif);margin:0 0 10px}
+  .scope-title{margin:3px 0 0;font-size:13px;line-height:1.3;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .head-actions{display:flex;align-items:center;gap:2px;flex:none}
+  .icon{display:grid;place-items:center;width:36px;height:36px;min-height:36px;padding:0;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--muted);cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease}
+  .icon:hover:not(:disabled){background:var(--tint);color:var(--ink)}
+  .icon:active:not(:disabled){background:var(--accent-wash)}
+  .icon:disabled{opacity:.4;cursor:default}
+  .icon[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--accent-text)}
+  .head-actions svg{display:block}
   .icon:hover,.quiet:hover,.model-control:hover,.context-control:hover { background:var(--tint);color:var(--ink); }
   select,input,textarea { width:100%;box-sizing:border-box;min-height:42px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg);color:var(--ink);padding:8px 10px;font:400 14px/1.45 var(--sans);min-width:0; }
   .conversation-body { display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain; }
@@ -444,14 +484,15 @@
   .request-mode { margin:0 0 6px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;color:var(--accent-text); }.worker-receipt { margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:8px; }.worker-receipt summary { cursor:pointer;font-size:14px; }.worker-receipt p { margin-top:8px; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  @media (pointer:coarse) { .icon { width:44px;min-height:44px; }.send-control { width:44px;min-height:44px; }.model-control,.context-control,.reply-details summary { min-height:44px; } }
+  @media (pointer:coarse) { .icon { width:44px;height:44px;min-height:44px; }.identity { width:44px;height:44px; }.panel-layout button { min-height:44px; }.send-control { width:44px;min-height:44px; }.model-control,.context-control,.reply-details summary { min-height:44px; } }
   @media (max-width:767px), (max-height:500px) and (pointer:coarse) and (orientation:landscape) {
     .gaffer-launcher,.gaffer-chat{--gaffer-floor:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px) + max(8px,env(safe-area-inset-bottom,0px)))}
     .gaffer-launcher{right:12px}.gaffer-launcher[data-side=left]{left:12px}
     .gaffer-chat,.gaffer-chat[data-size],.gaffer-chat[data-side],.gaffer-chat[data-full]{inset:calc(var(--shell-top,0px) + 12px) auto auto 12px;width:calc(100vw - 24px);min-width:0;max-width:calc(100vw - 24px);height:calc(var(--shell-height,100dvh) - 24px);min-height:0;max-height:calc(var(--shell-height,100dvh) - 24px);resize:none}.expand,.panel-layout{display:none}
-    .chat-head { padding:8px 10px;gap:8px; }.icon { width:40px;min-height:44px; }.transcript { padding:20px 16px; }.composer { padding:8px 12px; }
+    .chat-head { padding:8px 10px;gap:8px; }.icon { width:40px;height:44px;min-height:44px; }.identity { width:44px;height:44px; }.transcript { padding:20px 16px; }.composer { padding:8px 12px; }
     .btn,.quiet,select,input { min-height:44px; }.model-control,.context-control { min-height:44px; }.send-control { width:44px;min-height:44px; }textarea { font-size:16px; }
   }
+  @media (max-width:380px) { .chat-head { padding:8px;gap:6px; }.head-actions { gap:0; }.scope-title { font-size:12px; } }
   @media (max-height:600px) { .chat-head { padding-block:4px; }.composer { padding-block:6px; }textarea { height:48px;min-height:44px;max-height:90px; } }
   :global(.gaffer-chat[data-shell-short]) .composer { margin-top:0;padding:6px 12px; }
   :global(.gaffer-chat[data-shell-short]) textarea { height:44px;min-height:44px;max-height:60px; }

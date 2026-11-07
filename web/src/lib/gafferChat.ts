@@ -27,6 +27,11 @@ export function gafferMessageId(): string {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 }
 export const gafferMessageBytes = (text: string): number => new TextEncoder().encode(text).length
+// Enter sends the message; Shift+Enter (or Alt+Enter) adds a line. A composing
+// IME candidate never sends, so choosing a word cannot post half a sentence.
+export function gafferSendKey(e: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'isComposing'>): boolean {
+  return e.key === 'Enter' && !e.isComposing && !e.shiftKey && !e.altKey
+}
 export function newerGafferTurn(old: GafferTurn | undefined, next: GafferTurn): GafferTurn {
   if (!old) return next
   if (old.state !== 'running' && next.state === 'running') return old

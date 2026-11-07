@@ -21,4 +21,6 @@ The summary uses the existing read-only goals endpoint, refreshed with Home's 15
 
 Preview captures: [desktop](previews/home-followups-desktop.png), [phone](previews/home-followups-phone.png). These use synthetic records and contain no production session data.
 
+PR [#643](https://github.com/eyupio/reet.sh/pull/643) initially found a missing fixture for the intentional goals GET in the phone-zoom suite. The shared long-text fixture now answers that read explicitly while retaining unexpected-request failures. The complete four-width phone-zoom sweep and fourteen-case shell geometry suite passed locally after the fixture update. Fresh CI on the corrected head is required; the earlier Gaffer browser success does not replace it.
+
 The preceding repair [#642](https://github.com/eyupio/reet.sh/pull/642) merged as `3952c332` after seven green workflows. This branch is `feat/home-gaffer-followups` in `/workspace/work/reet-home-followups`, based on that merge. Use `/workspace/.reet-tools/activate.sh` if the environment survives; never commit node_modules symlinks. Logs and preview captures are under `/workspace/work/redesign-review/home-followups-*`. Follow the user's standing authorization to merge ready, green work and continue scoped refinements.

@@ -31,6 +31,11 @@ try{
       const clear=await launch.evaluate(el=>{const a=el.getBoundingClientRect(),workspace=document.querySelector('[aria-label="Remote terminal workspace"]')?.getBoundingClientRect();return {width:a.width,height:a.height,inView:a.bottom<=innerHeight&&a.top>=0,clear:!workspace||a.top>=workspace.bottom-1||a.left>=workspace.right+8||a.right<=workspace.left-8}})
       expect(clear.width).toBe(56);expect(clear.height).toBe(56);expect(clear.inView).toBe(true);expect(clear.clear).toBe(true)
       await launch.click();await expect(chat).toBeVisible()
+      for(const name of ['New conversation','Conversation history','Chat options','Close Gaffer'])await expect(chat.getByRole('button',{name,exact:true})).toBeVisible()
+      await expect(chat.getByRole('group',{name:'Gaffer panel tools',exact:true})).toHaveCount(1)
+      // This fixture's saved chat holds no messages, context or goal, so there
+      // is nothing for a fresh chat to clear.
+      await expect(chat.getByRole('button',{name:'New conversation',exact:true})).toBeDisabled()
       await expect(chat.getByRole('button',{name:'Conversation history',exact:true})).toBeVisible()
       await expect(chat.getByRole('button',{name:'Look after this session',exact:true})).toBeVisible()
       await chat.getByRole('textbox',{name:'Message Gaffer',exact:true}).fill('Preserve this draft while I resize')
@@ -45,6 +50,30 @@ try{
         await chat.getByRole('button',{name:'Place Gaffer on the left',exact:true}).click();expect((await chat.boundingBox()).x).toBe(16)
         const handle=chat.getByRole('button',{name:'Move Gaffer panel with arrow keys or by dragging',exact:true})
         await handle.focus();await w.page.keyboard.press('ArrowRight');expect((await chat.boundingBox()).x).toBe(26)
+        // The pointer drags from the identity button, and the whole header is
+        // also a drag area, so an empty stretch moves the panel too.
+        const beforeDrag=await chat.boundingBox(),grip=await handle.boundingBox()
+        await w.page.mouse.move(grip.x+grip.width/2,grip.y+grip.height/2)
+        await w.page.mouse.down()
+        await w.page.mouse.move(grip.x+grip.width/2+40,grip.y+grip.height/2+30,{steps:6})
+        await w.page.mouse.up()
+        const dragged=await chat.boundingBox()
+        // Synthetic pointer input may coalesce its last move, so allow a couple
+        // of pixels; the panel follows the release point within that.
+        expect(dragged.x).toBeGreaterThan(beforeDrag.x+30);expect(dragged.x).toBeLessThan(beforeDrag.x+50)
+        expect(dragged.y).toBeGreaterThan(beforeDrag.y+20);expect(dragged.y).toBeLessThan(beforeDrag.y+40)
+        await expect(chat).toHaveAttribute('data-gaffer-placed','true')
+        await chat.getByRole('button',{name:'Snap Gaffer back to its corner',exact:true}).click()
+        expect(await chat.getAttribute('data-gaffer-placed')).toBeNull()
+        const snapped=await chat.boundingBox()
+        expect(snapped.x).toBe(16);expect(Math.round(snapped.y)).toBe(Math.round(beforeDrag.y))
+        await handle.focus();await w.page.keyboard.press('ArrowDown')
+        expect(Math.round((await chat.boundingBox()).y)).toBe(Math.round(beforeDrag.y)+10)
+        // Selecting words in the transcript must not snap the panel back.
+        await chat.getByRole('heading',{name:/Ey up/}).dblclick()
+        expect(Math.round((await chat.boundingBox()).y)).toBe(Math.round(beforeDrag.y)+10)
+        await chat.getByRole('heading',{name:'Gaffer',exact:true}).dblclick()
+        expect(Math.round((await chat.boundingBox()).y)).toBe(Math.round(beforeDrag.y))
         await chat.getByRole('button',{name:'Full screen',exact:true}).click()
         expect(await chat.evaluate(el=>el.matches(':modal'))).toBe(true)
         expect(Math.abs((await chat.boundingBox()).width-(width-32))).toBeLessThan(2)
@@ -73,5 +102,29 @@ try{
       expect(w.errors).toEqual([])
     }finally{await w.context.close()}
   }
-  console.log('Widget UX: twelve width/theme views, including a landscape phone, stable clear 56 px launcher, mascot, three presets, native resize reset, left/right placement, keyboard move, modal full screen/phone, drafts and focus passed.')
+  // A saved chat that holds messages offers a fresh start; confirming clears
+  // the saved conversation and returns the composer, without touching the worker.
+  {
+    const saved={...view,turns:[{id:'c'.repeat(32),conversationId:cid,requestRevision:1,prompt:'Keep the release notes tidy.',answer:'Righto — they are tidy.',state:'completed',providerId:pid,providerName:'Workshop Gaffer',model:'gaffer-model',inputTokens:12,outputTokens:8,usageReported:true,cut:false,startedAt:now-2000,updatedAt:now-1000,finishedAt:now-1000}]}
+    let removed=0
+    const fresh=await openWorkspace(browser,{width:1440,height:1000,theme:'dark',routes:{...routes,
+      '/api/v2/gaffer/conversations':saved,
+      [`/api/v2/gaffer/conversations/${cid}`]:request=>{if(request.method()==='DELETE'){removed++;return {removed:true}}return {status:404,json:{error:'Unmocked conversation request'}}}}})
+    try{
+      await fresh.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
+      const launch=fresh.page.getByRole('button',{name:'Ask Gaffer',exact:true}),chat=fresh.page.getByRole('dialog',{name:'Gaffer',exact:true})
+      await launch.click();await expect(chat).toBeVisible()
+      const tool=chat.getByRole('button',{name:'New conversation',exact:true})
+      await expect(tool).toBeEnabled();await tool.click()
+      const ask=fresh.page.getByRole('dialog',{name:'Start a new Gaffer conversation?',exact:true})
+      await expect(ask).toBeVisible()
+      await ask.getByRole('button',{name:'Start fresh chat',exact:true}).click()
+      await expect.poll(()=>removed).toBe(1)
+      await expect(chat.getByText('Fresh chat ready. Ask away.',{exact:true})).toBeVisible()
+      await expect(tool).toBeDisabled()
+      await expect(chat.getByRole('textbox',{name:'Message Gaffer',exact:true})).toBeFocused()
+      expect(fresh.errors).toEqual([])
+    }finally{await fresh.context.close()}
+  }
+  console.log('Widget UX: twelve width/theme views, including a landscape phone, stable clear 56 px launcher, mascot, header tools, three presets, native resize reset, left/right placement, pointer drag, snap back, keyboard move, modal full screen/phone, fresh chat, drafts and focus passed.')
 }finally{await browser.close()}

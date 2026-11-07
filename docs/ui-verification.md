@@ -1,5 +1,34 @@
 # UI verification — 4 November 2026
 
+## Gaffer panel header tools (7 November 2026)
+
+The floating companion's desktop header now carries the reviewed reference tools
+in one row. The mascot identity drags the panel from anywhere in its header
+(arrow keys nudge, Shift jumps 40 px, double-click snaps back). **New
+conversation** asks for confirmation before clearing this chat's saved messages,
+shared context and goal, then returns focus to the composer; an empty chat keeps
+it disabled. **Conversation history**, **Chat options**, **Full screen/Restore**
+and **Close** keep their names and focus return. The preset row shows left/right
+dock icons plus **Snap Gaffer back to its corner**, which also clears a temporary
+native resize without changing the saved preset. Phones keep the modal sheet and
+hide the preset row.
+
+`web/tests/gaffer-widget-ux.e2e.mjs` passes twelve theme/width views, including a
+landscape phone and 320 px, and adds a pointer drag, snap-back click,
+double-click reset, keyboard movement and a fake-backed fresh-chat round trip
+that deletes the saved chat and focuses the composer. The narrative geometry
+contract (messages keep over 60% of the panel) still passes in
+`web/tests/gaffer-chat.e2e.mjs`. Its fake-backed conversation now types with
+Enter: an empty Enter does nothing and adds no line, Shift+Enter adds a line
+without sending, and Enter sends and clears the box. A composing IME key never
+sends; Ctrl/Cmd+Enter still sends and the button remains for touch. Captures
+below are synthetic and were visually inspected.
+
+![Gaffer header desktop light](images/ui/gaffer-header-1440-light.png)
+![Gaffer header desktop dark](images/ui/gaffer-header-1440-dark.png)
+![Gaffer header phone light](images/ui/gaffer-header-390-light.png)
+![Gaffer header phone dark](images/ui/gaffer-header-390-dark.png)
+
 ## Gaffer offline integration (6 November 2026)
 
 PR #626 exercises real HTTP, the production scheduler/store/provider transport,

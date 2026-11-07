@@ -95,9 +95,17 @@ try{
  await expect(panel(w.page).getByRole('heading',{name:'Ey up. I’m Gaffer.'})).toBeVisible()
  // A desktop companion stays modeless so the workspace can still be used.
  expect(await w.page.evaluate(()=>document.querySelector('.gaffer-chat').matches(':modal'))).toBe(false)
- await panel(w.page).getByLabel('Message Gaffer').fill('Think this through with me')
- await panel(w.page).getByRole('button',{name:'Send message',exact:true}).click()
+ const box=panel(w.page).getByLabel('Message Gaffer')
+ // Enter on an empty box does nothing and never leaves a new line behind.
+ await box.fill('');await box.press('Enter')
+ expect(await box.inputValue()).toBe('');expect(w.box.posts).toHaveLength(0);expect(w.box.creates).toHaveLength(0)
+ // Shift+Enter adds a line without sending.
+ await box.fill('Think this through');await box.press('Shift+Enter');await box.type('with me')
+ expect(await box.inputValue()).toBe('Think this through\nwith me');expect(w.box.posts).toHaveLength(0)
+ // Enter sends the message and clears the box.
+ await box.press('Enter')
  await expect(panel(w.page).getByRole('button',{name:'Cancel answer',exact:true})).toBeVisible()
+ expect(await box.inputValue()).toBe('')
  expect(w.box.posts).toHaveLength(1)
  await panel(w.page).getByRole('button',{name:'Close Gaffer',exact:true}).click()
  expect(w.box.cancel).toHaveLength(0)

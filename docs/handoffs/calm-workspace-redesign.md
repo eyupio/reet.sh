@@ -150,6 +150,16 @@ Use each agent's native conversation identity and supported transport rather tha
 
 Code map: `SessionViewSwitch.svelte`, `SessionScreen.svelte`, `TerminalWorkspace.svelte` and `TerminalPane.svelte` own presentation; `internal/acpagent/native_view.go` owns the local service and reconciliation; `terminalproto`, `terminalbroker`, `terminalagent` and `terminalhost` own capability negotiation, authorization, tickets and disposable PTY attachment. No native endpoint or password is returned to the browser.
 
+## Released checkpoint
+
+Merged after complete green PR checks on 2026-11-07:
+
+- #639 production launch repair: nine workflows, merge `399daab7`.
+- #637 session workspace/native foundation: ten workflows, merge `cf0a63a2`.
+- #638 native reconciliation and real-agent acceptance: eleven workflows, merge `b90d5be1`. Retargeting to main produced exactly the tested head tree.
+
+These are merge outcomes, not proof of deployment. Update both controller and affected machine connectors for the structured-worktree capability. The independent Home slice is [#640](https://github.com/eyupio/reet.sh/pull/640), now targeting main; its fresh final CI remains a release gate.
+
 ## 9. Worktree integration and production repair
 
 #636 is merged in main at `f047dd1a` and is integrated here. The independent production repair [#639](https://github.com/eyupio/reet.sh/pull/639) permits new structured worktree launches, prepares the actual ACP working directory, preserves retry identity and negotiates `acp-worktree-v1`. Update both controller and machine connectors for isolated Chat starts. The reported Sessions-page payload used OpenCode structured Chat in a saved repository, matching the reproduced validation failure. The supplied model string is valid.
@@ -177,15 +187,15 @@ Full local race testing found an unrelated model-timeout test counting an exited
 
 ## 12. Release procedure and authorization
 
-The user authorized merging these PRs once ready and green, and continuing implementation. Merge #639 first, then #637, then #638 after its base is updated to main. Check the exact head, all relevant workflows, review threads and combined acceptance before each merge. Do not treat the older green documentation-only head of #638 as acceptance of the new runtime changes. No database migration is introduced. Reverting presentation is independent of stored session data; reverting #639 restores the production launch defect.
+The user authorized merging these PRs once ready and green, and continuing implementation. The #639 → #637 → #638 sequence is complete. For #640 and later slices, check the exact head, all relevant workflows, review threads and acceptance before merging. Do not treat the older green documentation-only head of #638 as acceptance of the new runtime changes. No database migration is introduced. Reverting presentation is independent of stored session data; reverting #639 restores the production launch defect.
 
 ## 13. Remaining plan
 
-The session workspace and shared native-view implementation are complete pending final combined CI and review. Attention ownership for this native path is covered above; broader cross-surface attention consistency remains a separate slice. Home Continue-first layout, broader navigation and supporting-page refinements remain future presentation work, preserving Planning board, existing routes and saved defaults. Finish these release gates before starting that slice. Keep this handoff and the continuation prompt current as PRs merge.
+The session workspace and shared native-view implementation are merged with complete green PR checks. Attention ownership for this native path is covered above; broader cross-surface attention consistency remains a separate slice. Home Continue-first layout, broader navigation and supporting-page refinements remain future presentation work, preserving Planning board, existing routes and saved defaults. The optional Home slice is recorded below; broader attention/navigation changes still need their own implementation and acceptance. Keep this handoff and the continuation prompt current as PRs merge.
 
 ## 14. Optional Home Continue working view
 
-The next presentation slice is on `feat/home-continue-view`, stacked on #638 until that release merges. Home now offers Continue working and Planning board. Planning board remains the default when no explicit Home choice exists; the new per-account browser preference does not alter the board's own saved view, sort or density. The board stays mounted across switches, preserving in-memory filters and drafts.
+The next presentation slice is [#640](https://github.com/eyupio/reet.sh/pull/640) on `feat/home-continue-view`, now targeting main after #638 merged. Home now offers Continue working and Planning board. Planning board remains the default when no explicit Home choice exists; the new per-account browser preference does not alter the board's own saved view, sort or density. The board stays mounted across switches, preserving in-memory filters and drafts.
 
 Continue working reuses the existing InFlight rows, project/machine/state grouping, session actions, state/source phrases and offline explanations. It respects the rail's project/group scope and provides Show all projects. Start a session opens the existing Start an agent dialog; changing Home views never creates a session. Existing Needs you and machine workflows remain available, and read-only Home receives no new session controls.
 

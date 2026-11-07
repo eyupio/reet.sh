@@ -18,6 +18,7 @@
   import ChatPane from './ChatPane.svelte'
   import SessionScreen from '../sessions/SessionScreen.svelte'
   import SessionTabs from '../sessions/SessionTabs.svelte'
+  import WorkspaceSkeleton from './WorkspaceSkeleton.svelte'
   import PanelResizer from '../shell/PanelResizer.svelte'
   import { canContinue, canContinueChat, canReattachChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
   import { continuationFailureInPane, offersContinueAfterReattach, quietReattachRefusal, reattachTrust, recoveryInFlight, shouldAutoReattach } from './reattachState'
@@ -34,7 +35,8 @@
   let {userId=0,ontitle}:{userId?:number;ontitle?:(title:string)=>void}=$props()
   // svelte-ignore state_referenced_locally
   const preferenceKey=`reet-terminal-layout:${userId}`
-  let layoutLoaded=false
+  // The saved layout is read before the first paint, so the waiting skeleton and the real workspace agree on every width.
+  let layoutLoaded=true
   // A session's menu on the Sessions page opens it in theatre view (?theatre=1); the address then forgets it.
   let theatre=$state(new URLSearchParams(location.search).get('theatre')==='1')
   let terminalPane=$state<{disconnect:()=>void}>()
@@ -46,7 +48,11 @@
   let viewportWidth=$state(innerWidth),screenSide=$state(readScreen()),bodyWidth=$state(0),resizing=$state(false),contextResizing=$state(false)
   // The right-hand session details panel, toggled from the same toolbar row as the sessions panel.
   let contextOpen=$state(true),contextButton=$state<HTMLButtonElement>(),sessionScreen=$state<{toggleContext?:()=>void}>()
-  let mode=$state<PanelMode>(panelMode(innerWidth,undefined,undefined,isPhone(innerWidth,readScreen()))),pinned=$state<boolean|undefined>(undefined),sidebarWidth=$state(defaultPanelWidth(innerWidth))
+  const savedLayout=(()=>{try{return readLayout(localStorage.getItem(preferenceKey))}catch{return readLayout(null)}})()
+  const initialMode=panelMode(innerWidth,savedLayout.mode,savedLayout.pinned,isPhone(innerWidth,readScreen())),initialWidth=savedLayout.width??defaultPanelWidth(innerWidth)
+  // The waiting skeleton reads the same record, so the panel never changes width as the real workspace takes over.
+  try{localStorage.setItem('reet.workspace.panel',JSON.stringify(layoutRecord(initialMode,initialWidth,savedLayout.pinned)))}catch{/* optional browser preference */}
+  let mode=$state<PanelMode>(initialMode),pinned=$state<boolean|undefined>(savedLayout.pinned),sidebarWidth=$state(initialWidth)
   const phone=$derived(isPhone(viewportWidth,screenSide))
   // Keep open as shown: the person's choice, or on by default from 768 px.
   const keptOpen=$derived(keepOpen(pinned,viewportWidth))
@@ -63,7 +69,7 @@
   function saveLayout(){
     if(!layoutLoaded||phone)return
     const record=JSON.stringify(layoutRecord(mode,sidebarWidth,pinned))
-    try{const stored=localStorage.getItem(preferenceKey);if(stored===record||stored===null&&record===JSON.stringify(defaultLayout(viewportWidth)))return;localStorage.setItem(preferenceKey,record)}catch{/* optional browser preference */}
+    try{localStorage.setItem('reet.workspace.panel',record);const stored=localStorage.getItem(preferenceKey);if(stored===record||stored===null&&record===JSON.stringify(defaultLayout(viewportWidth)))return;localStorage.setItem(preferenceKey,record)}catch{/* optional browser preference */}
   }
   // Every change of mode goes through here: expanding the rail on a tablet or desktop turns Keep open on, so it docks.
   function setMode(next:PanelMode){const changed=changeMode(mode,next,pinned,phone);mode=changed.mode;pinned=changed.pinned}
@@ -140,7 +146,8 @@
   let statusError = $state(''), machineSearch = $state(''), machineSearchOpen = $state(false)
   const matchingMachines = $derived(machines.filter(item => `${item.host} ${item.capabilities?.osUser || ''}`.toLowerCase().includes(machineSearch.toLowerCase())))
   const rememberedSessions = new Map<string, string>()
-  let workspace = $state<HTMLElement>(), workspaceHeight = $state(Math.max(120, innerHeight - 78))
+  const headerHeight = () => document.querySelector('.site-header')?.getBoundingClientRect().height ?? 56
+  let workspace = $state<HTMLElement>(), workspaceHeight = $state(Math.max(120, innerHeight - headerHeight() - (innerWidth <= 700 ? 8 : 16)))
   // Phone keyboard open while typing in the terminal: this toolbar steps aside, and the shell's chrome with it (keyboardChrome
   // with the 'session' focus, read by AppShell through chromeFocus).
   let keyboard=$state(false)
@@ -514,11 +521,7 @@
     finally{actionBusy=false}
   }
   onMount(() => {
-    let stored:string|null=null
-    try{stored=localStorage.getItem(preferenceKey)}catch{/* optional browser preference */}
-    const saved=readLayout(stored)
-    sidebarWidth=saved.width??defaultPanelWidth(innerWidth);pinned=saved.pinned;mode=panelMode(innerWidth,saved.mode,saved.pinned,isPhone(innerWidth,readScreen()))
-    layoutLoaded=true
+    // The layout was read above, before the first paint.
     // Only this workspace asks Android browsers to resize the page for the keyboard; other pages keep the default.
     const viewportMeta=document.querySelector<HTMLMetaElement>('meta[name="viewport"]'),viewportContent=viewportMeta?.getAttribute('content')??null
     if(viewportMeta&&viewportContent!==null&&!/interactive-widget/.test(viewportContent))viewportMeta.setAttribute('content',`${viewportContent}, interactive-widget=resizes-content`)
@@ -597,6 +600,9 @@
   </form>
 {/snippet}
 
+{#if loading}
+  <WorkspaceSkeleton label="Loading your sessions" context={!theatre && (!!selectedSession || !!selectedAgent)} />
+{:else}
 <section class="workspace" class:theatre class:keyboard class:resizing bind:this={workspace} style={`--workspace-height:${workspaceHeight}px;--sidebar-width:${sidebarWidth}px;--panel-width:${shown==='mini'?MINI_WIDTH:panelWidth}px`} aria-label="Remote terminal workspace">
   <header class="workspace-toolbar">
     <div class="workspace-title"><a href="/sessions" aria-label="Back to sessions">←</a><h1>Sessions</h1></div>
@@ -621,8 +627,7 @@
         onchange={setPanelWidth} oncommit={commitPanelWidth} onresizing={setPanelResizing} />
     {/if}
     <div class="terminal-stage">
-      {#if loading}<div class="empty" role="status"><span class="empty-icon" aria-hidden="true">›_</span><h2>Finding your shells…</h2><p>Connecting to your existing workspace.</p></div>
-      {:else if accessDenied}<div class="empty"><h2>Terminal access unavailable</h2><p>Your account no longer has terminal access. Sign in again or ask the owner to check your permissions. Existing shells were not ended.</p><button class="btn" onclick={()=>void refresh()}>Check access again</button></div>
+      {#if accessDenied}<div class="empty"><h2>Terminal access unavailable</h2><p>Your account no longer has terminal access. Sign in again or ask the owner to check your permissions. Existing shells were not ended.</p><button class="btn" onclick={()=>void refresh()}>Check access again</button></div>
       {:else if !machines.length}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to open a shell here.</p><a class="btn primary" href="/machines#add-machine">Connect a machine</a></div>
       {:else if session}
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
@@ -668,6 +673,7 @@
     </div>
   </div>
 </section>
+{/if}
 
 {#if viewportDebug}<pre class="viewport-debug" aria-hidden="true">{debugReading}</pre>{/if}
 {#if machineSearchOpen}<WorkspaceDialog title="Find a machine" onclose={()=>machineSearchOpen=false}>

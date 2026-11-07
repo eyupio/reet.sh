@@ -1,5 +1,6 @@
 <script lang="ts">
   import EnvironmentSync from './EnvironmentSync.svelte'
+  import WorkspaceSkeleton from './terminal/WorkspaceSkeleton.svelte'
   import PageHeader from './PageHeader.svelte'
   import ProjectsBar from './ProjectsBar.svelte'
   import FleetSoftware from './FleetSoftware.svelte'
@@ -16,6 +17,7 @@
   const terminals = (location.pathname === '/sessions' && query.get('view') !== 'list' || query.get('view') === 'terminal') && accounts && canWrite
   // svelte-ignore state_referenced_locally
   const focus = compare ? '' : (new URLSearchParams(location.search).get('machine') ?? '')
+  const workspaceContext = query.get('theatre') !== '1' && !!(query.get('session') || query.get('agent'))
   let TerminalView = $state<Component<{userId?:number; ontitle?: (title: string) => void}>>()
   onMount(()=>{let disposed=false;if(terminals&&accounts&&canWrite)void import('./terminal/TerminalWorkspace.svelte').then(module=>{if(!disposed)TerminalView=module.default}).catch(()=>{if(!disposed)error='Could not load the terminal workspace. Refresh this page to retry.'});return()=>{disposed=true}})
   async function connectToken() {
@@ -29,14 +31,7 @@
 {#if !terminals}<PageHeader eyebrow={compare || !focus ? 'Machines' : 'Machine'} title={compare ? "Sync" : focus || "Your machines, connected."} lede={compare ? "One shared skill library, kept up to date on every machine." : focus ? "Inspect this machine's install locations, health and sync plans, or continue in its terminal." : "Connect your machines. Reet keeps your skills in sync and your agents ready to work."} />{/if}
 {#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory &amp; connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Sync</a>{#if accounts && canWrite}<button class="btn quiet" type="button" onclick={() => (softwareOpen = true)}>Software</button>{/if}</nav>{/if}
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} {ontitle} />{:else if error}<p class="notice bad" role="alert">{error}</p>{:else}
-  <div class="workspace-boot" role="status" aria-busy="true" aria-label="Loading the terminal workspace">
-    <span class="vh">Loading the terminal workspace…</span>
-    <div class="workspace-boot-bar" aria-hidden="true"><span class="mark"></span><span class="bar"></span><span class="tools"><i></i><i></i><i></i></span></div>
-    <div class="workspace-boot-body" aria-hidden="true">
-      <div class="rail"><i></i><i></i><i></i><i></i></div>
-      <div class="screen"><p><b>›_</b> connecting to your machines<span class="cursor"></span></p></div>
-    </div>
-  </div>
+  <WorkspaceSkeleton label="Loading the terminal workspace" context={workspaceContext} />
   {/if}{:else}
 <EnvironmentSync {canWrite} {accounts} {timeZone} {dateFormat} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
@@ -61,24 +56,4 @@
  .projects-drawer {margin:26px 0 0;border-top:1px solid var(--line);padding-top:14px}
  .projects-drawer > summary {cursor:pointer;color:var(--muted);font-size:0.875rem;font-weight:600;min-height:32px}
  @media (max-width:560px) { nav {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch} nav a {justify-content:center} }
- /* The terminal workspace is its own chunk, so opening a session waits for it. This holds the workspace's shape so the
-    page never shows a bare sentence on an empty background, then gives way to the real thing. */
- .workspace-boot { display:flex; flex-direction:column; height:calc(100dvh - 78px); min-height:220px; border:1px solid var(--line); border-radius:12px; background:var(--card); overflow:hidden; }
- .workspace-boot-bar { display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--line); flex-shrink:0; }
- .workspace-boot-bar .mark { width:26px; height:22px; border-radius:6px; }
- .workspace-boot-bar .bar { width:110px; height:12px; border-radius:6px; }
- .workspace-boot-bar .tools { display:flex; gap:6px; margin-left:auto; }
- .workspace-boot-bar .tools i { width:74px; height:30px; border-radius:8px; }
- .workspace-boot-bar i, .workspace-boot-bar .mark, .workspace-boot-bar .bar, .rail i { display:block; background:var(--line); }
- .workspace-boot-body { display:grid; grid-template-columns:220px minmax(0,1fr); flex:1; min-height:0; }
- .rail { padding:14px; display:grid; align-content:start; gap:10px; border-right:1px solid var(--line); background:var(--bg); }
- .rail i { height:38px; border-radius:8px; }
- .rail i:nth-child(2n) { width:82%; }
- .screen { display:flex; align-items:flex-end; padding:18px; background:var(--bg-sunk); }
- .screen p { margin:0; font:14px/1.7 var(--mono); color:var(--muted); display:flex; align-items:center; gap:8px; }
- .screen b { color:var(--accent-text); font-weight:400; }
- .screen .cursor { display:inline-block; width:7px; height:13px; background:var(--accent-text); }
- @media (prefers-reduced-motion: no-preference) { .workspace-boot-bar i, .workspace-boot-bar .mark, .workspace-boot-bar .bar, .rail i { animation:boot-pulse 1.7s ease-in-out infinite; } .screen .cursor { animation:boot-pulse 1s steps(2,end) infinite; } }
- @keyframes boot-pulse { 0%,100% { opacity:1 } 50% { opacity:.55 } }
- @media (max-width:650px) { .workspace-boot { height:calc(100dvh - 70px); border-radius:8px; } .workspace-boot-body { grid-template-columns:1fr; } .rail { display:none; } .workspace-boot-bar .tools i { width:40px; } }
 </style>

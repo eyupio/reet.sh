@@ -1,5 +1,7 @@
 # Structured Chat worktree launch hotfix
 
+PR: https://github.com/eyupio/reet.sh/pull/639
+
 Current main includes #636. This fix is independent of the session redesign drafts #637 and #638. Check this PR's current CI and review status before merging; do not deploy the redesign drafts to obtain this repair.
 
 ## Production symptom and cause

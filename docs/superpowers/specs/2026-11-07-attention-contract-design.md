@@ -40,7 +40,7 @@ The count stays **one card per session**, so the existing guarantee holds: bell 
 
 ### 2. One derivation
 
-Extend `needsYou()` in `web/src/lib/home.ts` so it returns cards with `reasons`, and derive every count from it: Home header and section summary, the bell, `titleWithAttention`, and the sidebar badge. `needCount` in `panelState.ts` becomes a thin read of the same cards instead of a second rule. No surface keeps its own definition of "needs you". The Gaffer dialog's duplicate "Needs you" label is renamed to a distinct one.
+Extend `needsYou()` in `web/src/lib/home.ts` so it returns cards with `reasons`, and derive every count from it: Home header and section summary, the bell, `titleWithAttention`, and the sidebar badge. `needCount` in `web/src/lib/terminal/panelState.ts` becomes a thin read of the same cards instead of a second rule. No surface keeps its own definition of "needs you". The Gaffer dialog's duplicate "Needs you" label is renamed to a distinct one.
 
 ### 3. The rule
 

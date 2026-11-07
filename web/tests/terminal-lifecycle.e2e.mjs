@@ -15,6 +15,7 @@ const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'runni
 // updated_at past the seen time. It must raise no card.
 const ended=item=>{item.state='ended';item.exitCode=null;delete item.attention;item.changedSinceSeen=true;item.updatedAt=Date.now()}
 const seen=[]
+let holdSeen=null
 const machines=[{agentId:agentA,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,readiness:'ready'}},{agentId:agentB,host:'build-server',ready:true,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,readiness:'ready'}}]
 const operations=[],receipts=new Map(),mutations=[],archived=new Set(),archiveRequests=[]
 let failArchive=false
@@ -65,7 +66,7 @@ await page.route('**/api/**',async route=>{
   const gate=pendingMutation;pendingMutation=null;if(gate){gate.mark();await gate.wait}
   archived.add(id);data={ok:true}
  }
- else if(path.endsWith('/seen')){const id=path.split('/').at(-2),item=sessions.find(s=>s.id===id);seen.push(id);if(item)item.changedSinceSeen=false;data={seenAt:Date.now()}}
+ else if(path.endsWith('/seen')){const id=path.split('/').at(-2),item=sessions.find(s=>s.id===id);seen.push(id);const gate=holdSeen;holdSeen=null;if(gate){gate.mark();await gate.wait};if(item)item.changedSinceSeen=false;data={seenAt:Date.now()}}
  else if(method==='PATCH'||path.endsWith('/end')){
   const id=path.split('/').at(path.endsWith('/end')?-2:-1),body=request.postDataJSON(),item=sessions.find(s=>s.id===id)
   const gate=pendingMutation;pendingMutation=null;if(gate){gate.mark();await gate.wait}
@@ -245,8 +246,13 @@ try{
  // A lost shell has recovery guidance and never creates a replacement.
  const lostId=selected(),beforeLost=operations.length
  // As the server lists it: a lost shell is a Connection lost card until the person has seen it.
+ // The lost shell is the selected session, so the workspace marks it seen as soon as it lists it as unseen.
+ // Hold that /seen answer: the card is only observable while the server still says unseen (the count drops at
+ // once when the answer lands, which the signal now makes immediate).
+ let releaseSeen;const seenHeld=new Promise(r=>{releaseSeen=r}),seenArrived=new Promise(r=>{holdSeen={wait:seenHeld,mark:r}})
  Object.assign(sessions.find(item=>item.id===lostId),{state:'lost',attention:'failed',changedSinceSeen:true,updatedAt:Date.now()})
  await needs(1)
+ await seenArrived;releaseSeen()
  await page.reload()
  await expect(pane).toHaveAttribute('data-connection-state','lost')
  // Opening it marks it seen, and the card clears.

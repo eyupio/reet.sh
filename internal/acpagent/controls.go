@@ -146,7 +146,7 @@ func (s *Session) Controls() terminalproto.ACPControls {
 	defer s.turnMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	state := terminalproto.ACPControls{Configuring: s.configuring, Working: s.working, Waiting: len(s.pending) > 0 || len(s.questions) > 0, Compacting: s.compacting, Steering: s.steering, Model: s.model, Options: []terminalproto.ACPSetting{}}
+	state := terminalproto.ACPControls{Configuring: s.configuring, Working: s.working || s.nativeBusy, Waiting: len(s.pending) > 0 || len(s.questions) > 0, Compacting: s.compacting, Steering: s.steering, Model: s.model, Options: []terminalproto.ACPSetting{}}
 	for _, o := range s.settings {
 		o.Values = slices.Clone(o.Values)
 		if o.Category == "model" {

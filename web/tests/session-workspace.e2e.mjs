@@ -64,13 +64,12 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
  },opts.streamDelay||0)
  await opened.page.goto(`${base}/sessions?agent=a1&session=${session.id}`,{timeout:120000})
  const panel=opened.page.getByRole('complementary',{name:'Session context'})
- if(width<1100){
-  // A phone opens a Gaffer chat in super focus; Details waits behind Exit focus.
-  await opened.page.locator('.session-screen header.head').waitFor({state:'visible',timeout:60000})
-  const exitFocus=opened.page.getByRole('button',{name:'Exit focus mode',exact:true})
-  if(await exitFocus.count())await exitFocus.click()
-  await opened.page.getByRole('button',{name:'Session details panel',exact:true}).click()
- }
+ // Details is optional on every screen; an existing saved choice still takes precedence.
+ await opened.page.locator('.session-screen header.head').waitFor({state:'visible',timeout:60000})
+ const exitFocus=opened.page.getByRole('button',{name:'Exit focus mode',exact:true})
+ if(await exitFocus.count())await exitFocus.click()
+ const details=opened.page.getByRole('button',{name:'Session details panel',exact:true})
+ if(await details.getAttribute('aria-expanded')!=='true')await details.click()
  try { await expect(panel).toBeVisible({timeout:60000}) } catch(e) { console.error('Runtime errors:',opened.errors,'Unexpected routes:',opened.state.unexpected); throw e }
  return {...opened,calls,box,panel,prompts}
 }

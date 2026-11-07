@@ -76,11 +76,11 @@ func (b *Broker) Serve(ctx context.Context, uid int64, source, id string, c *web
 			return false
 		}
 		current, err := b.st.TerminalSessionFor(uid, s.ID)
-		if err != nil || current.State != terminalproto.Running {
+		if err != nil || current.State != terminalproto.Running || current.Structured != t.opts.NativeView {
 			return false
 		}
 		caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
-		return err == nil && caps.Generation == p.Generation && caps.Capabilities.TerminalEnabled && caps.Capabilities.Readiness == terminalproto.Ready
+		return err == nil && caps.Generation == p.Generation && (!t.opts.NativeView || caps.Capabilities.NativeView) && caps.Capabilities.TerminalEnabled && caps.Capabilities.Readiness == terminalproto.Ready
 	}
 	vctx, cancel := context.WithCancel(ctx)
 	v := &Bridge{peer: p, browser: c, ctx: vctx, cancel: cancel, source: source}
@@ -118,7 +118,7 @@ func (b *Broker) Serve(ctx context.Context, uid int64, source, id string, c *web
 	v.hello = h
 	defer p.forget(h)
 	defer e.close()
-	reply, err := p.call(vctx, message(h, terminalproto.Attach{Cols: t.opts.Cols, Rows: t.opts.Rows, Takeover: t.opts.Takeover, LeaseSeconds: leaseSeconds, StreamToken: h.Token}))
+	reply, err := p.call(vctx, message(h, terminalproto.Attach{NativeView: t.opts.NativeView, Cols: t.opts.Cols, Rows: t.opts.Rows, Takeover: t.opts.Takeover, LeaseSeconds: leaseSeconds, StreamToken: h.Token}))
 	if err != nil {
 		return err
 	}

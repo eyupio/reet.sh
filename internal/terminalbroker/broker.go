@@ -146,9 +146,10 @@ type ticket struct {
 	expires                            time.Time
 }
 type Options struct {
-	Cols     int  `json:"cols"`
-	Rows     int  `json:"rows"`
-	Takeover bool `json:"takeover"`
+	NativeView bool `json:"nativeView,omitempty"`
+	Cols       int  `json:"cols"`
+	Rows       int  `json:"rows"`
+	Takeover   bool `json:"takeover"`
 }
 
 // ResetConnections invalidates transient authorization without ending shells.
@@ -1136,6 +1137,15 @@ func (b *Broker) Ticket(uid int64, source, session string, opts Options) (string
 	p, err := b.peer(uid, s.AgentID, true)
 	if err != nil {
 		return "", err
+	}
+	if s.Structured != opts.NativeView {
+		return "", ErrDenied
+	}
+	if opts.NativeView {
+		caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
+		if err != nil || caps.Generation != p.Generation || !caps.Capabilities.NativeView {
+			return "", ErrDenied
+		}
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()

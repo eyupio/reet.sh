@@ -340,6 +340,14 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) || !terminalproto.SupportsACPAgentMode(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
 				}
+			case *terminalproto.NativeView:
+				if !terminalproto.SupportsNativeView(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+			case *terminalproto.Attach:
+				if body.NativeView && !terminalproto.SupportsNativeView(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
 			case *terminalproto.SessionMode:
 				if !terminalproto.SupportsSessionMode(headers.Get(terminalproto.FeatureHeader)) {
 					return terminalproto.ErrInvalid
@@ -776,6 +784,15 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					}()
 					return nil
 				}
+			case *terminalproto.NativeView:
+				_, available := chats.nativeTerminal(msg.SessionID)
+				available = available && m != nil
+				answer := terminalproto.NativeViewResult{Available: available}
+				if !available {
+					answer.Reason = "This running agent has no shared native terminal. Start a supported OpenCode chat on an updated machine."
+				}
+				reply.Body = answer
+				return send(callCtx, reply)
 			case *terminalproto.ACPPrompt:
 				if err := chats.prompt(msg.SessionID, op.Text, op.Images); err != nil {
 					return respond(err)
@@ -929,18 +946,44 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if !terminalproto.ValidID(op.StreamToken) {
 					return terminalproto.ErrInvalid
 				}
-				a, err := m.Attach(ctx, msg.SessionID, terminalhost.AttachOptions{ID: msg.AttachmentID, Generation: msg.AttachmentGeneration, Cols: op.Cols, Rows: op.Rows, Takeover: op.Takeover, Lease: time.Duration(op.LeaseSeconds) * time.Second})
+				opts := terminalhost.AttachOptions{ID: msg.AttachmentID, Generation: msg.AttachmentGeneration, Cols: op.Cols, Rows: op.Rows, Takeover: op.Takeover, Lease: time.Duration(op.LeaseSeconds) * time.Second}
+				var a *terminalhost.Attachment
+				var err error
+				var stopNative context.CancelFunc = func() {}
+				if op.NativeView {
+					native, ok := chats.nativeTerminal(msg.SessionID)
+					if !ok {
+						return respond(terminalhost.ErrSessionMissing)
+					}
+					var nativeCtx context.Context
+					nativeCtx, stopNative = context.WithCancel(ctx)
+					go func() {
+						select {
+						case <-native.Done:
+							stopNative()
+						case <-nativeCtx.Done():
+						}
+					}()
+					a, err = m.AttachNative(nativeCtx, msg.SessionID, opts, terminalhost.NativeCommand{Binary: native.Binary, Dir: native.Dir, Args: native.Args, Env: native.Env})
+				} else {
+					if _, chat := chats.snapshot(msg.SessionID); chat {
+						return respond(terminalhost.ErrSessionMissing)
+					}
+					a, err = m.Attach(ctx, msg.SessionID, opts)
+				}
 				if err != nil {
+					stopNative()
 					return respond(err)
 				}
 				attachments[msg.SessionID] = a
 				c, err := stream(callCtx, client, headers, msg, op.StreamToken, "attach")
 				if err != nil {
 					a.Close()
+					stopNative()
 					return respond(terminalhost.ErrNotRunning)
 				}
 				wg.Add(1)
-				go func() { defer wg.Done(); defer a.Close(); defer c.CloseNow(); bridge(ctx, c, a) }()
+				go func() { defer wg.Done(); defer stopNative(); defer a.Close(); defer c.CloseNow(); bridge(ctx, c, a) }()
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}
 				return respond(nil)
 			case *terminalproto.RenewAttachment:

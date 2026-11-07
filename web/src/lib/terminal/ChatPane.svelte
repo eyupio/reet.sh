@@ -1049,12 +1049,12 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  .empty { margin: auto; max-width: 40ch; text-align: center; color: var(--muted); }
  .empty h3 { margin: 0 0 6px; font: 600 17px/1.3 var(--serif); color: var(--ink); }
  .empty p { margin: 0; font-size: 14px; line-height: 1.55; }
- /* Messages: the person on the right in a warm bubble, the agent as prose at a readable measure. */
+ /* Neutral user turns keep long conversations quiet; status and consent retain their semantic colours. */
  .row { display: flex; min-width: 0; }
  .row.user { justify-content: flex-end; margin: 12px 0 2px; }
  .row.agent { justify-content: flex-start; margin: 4px 0 2px; }
  .bubble { min-width: 0; max-width: min(78ch, 100%); }
- .bubble.user { padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line)); border-radius: 12px 12px 4px 12px; background: color-mix(in srgb, var(--accent) 13%, var(--card)); color: var(--ink); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+ .bubble.user { padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
  .bubble.agent { max-width: min(84ch, 100%); padding: 2px 2px 4px; color: var(--ink); font-size: 14px; line-height: 1.65; }
  .prose { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
  .bubble.agent > :last-child { margin-bottom: 0; }
@@ -1187,7 +1187,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  .queue-actions .remove:hover { color: var(--bad); }
  .queue-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   /* Composer: a raised card holding one clearly bounded input well, then a toolbar. The well is the only place that looks typeable. */
- .composer { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 0 14px 12px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--card-raised, var(--card)); box-shadow: var(--shadow-dock, var(--shadow)); transition: border-color .15s, box-shadow .15s; }
+ .composer { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 0 14px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-raised, var(--card)); transition: border-color .15s, box-shadow .15s; }
  .composer.dropping { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
  .field { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 12px; border: 1.5px solid var(--line-strong); border-radius: 12px; background: var(--bg-sunk); transition: border-color .15s, box-shadow .15s, background .15s; }
  .field:hover { border-color: color-mix(in srgb, var(--ink) 30%, var(--line-strong)); }

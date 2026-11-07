@@ -77,6 +77,46 @@ func (m *Manager) Attach(ctx context.Context, sessionID string, opts AttachOptio
 	if !ok || s.State != terminalproto.Running {
 		return nil, ErrSessionMissing
 	}
+	// Mouse reporting belongs to tmux attachments, not native UI clients.
+	if _, err := m.command(ctx, 0, "set-option", "-g", "mouse", "on"); err != nil {
+		return nil, err
+	}
+	return m.attachProcessLocked(ctx, sessionID, opts, func(attachCtx context.Context) *exec.Cmd {
+		cmd := exec.CommandContext(attachCtx, m.tmux.Path, "-S", m.layout.Socket, "attach-session", "-t", "="+m.name(sessionID))
+		cmd.Env, cmd.Dir = m.environment(), m.home
+		return cmd
+	})
+}
+
+// NativeCommand is constructed only by a locally verified chat adapter. No
+// controller-supplied executable, endpoint, arguments or environment reach it.
+// The password stays in Env on this machine, never in argv or a protocol body.
+type NativeCommand struct {
+	Binary, Dir string
+	Args, Env   []string
+}
+
+func (m *Manager) AttachNative(ctx context.Context, sessionID string, opts AttachOptions, native NativeCommand) (*Attachment, error) {
+	if !terminalproto.ValidID(sessionID) || !terminalproto.ValidID(opts.ID) || !terminalproto.ValidCounter(opts.Generation) ||
+		!terminalproto.ValidDimensions(opts.Cols, opts.Rows) || opts.Lease <= 0 || opts.Lease > time.Minute ||
+		!filepath.IsAbs(native.Binary) || !filepath.IsAbs(native.Dir) {
+		return nil, terminalproto.ErrInvalid
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.allowed(); err != nil {
+		return nil, err
+	}
+	return m.attachProcessLocked(ctx, sessionID, opts, func(attachCtx context.Context) *exec.Cmd {
+		cmd := exec.CommandContext(attachCtx, native.Binary, native.Args...)
+		cmd.Dir, cmd.Env = native.Dir, native.Env
+		return cmd
+	})
+}
+
+// The caller holds m.mu and has proved which live session may create this UI
+// attachment. Closing it kills only the client; the agent process is owned elsewhere.
+func (m *Manager) attachProcessLocked(ctx context.Context, sessionID string, opts AttachOptions, command func(context.Context) *exec.Cmd) (*Attachment, error) {
 	if old := m.attachments[sessionID]; old != nil {
 		if opts.Generation <= old.Generation || opts.ID == old.ID {
 			return nil, ErrAttachmentStale
@@ -102,15 +142,8 @@ func (m *Manager) Attach(ctx context.Context, sessionID string, opts AttachOptio
 			attachmentLock.Close()
 		}
 	}()
-	// Apply to existing servers as well: without mouse reporting an attached
-	// browser turns wheel input into cursor keys instead of scrolling the TUI.
-	if _, err := m.command(ctx, 0, "set-option", "-g", "mouse", "on"); err != nil {
-		return nil, err
-	}
 	attachCtx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(attachCtx, m.tmux.Path, "-S", m.layout.Socket, "attach-session", "-t", "="+m.name(sessionID))
-	cmd.Env = m.environment()
-	cmd.Dir = m.home
+	cmd := command(attachCtx)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(opts.Cols), Rows: uint16(opts.Rows)})
 	if err != nil {
 		cancel()

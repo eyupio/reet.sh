@@ -39,6 +39,7 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/end", s.terminal(s.terminalEnd))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/archive", s.terminalAccess(s.terminalArchive, true))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/seen", s.terminalAccess(s.terminalSessionSeen, true))
+	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/native-view", s.terminal(s.terminalNativeView))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/attachments", s.terminal(s.terminalAttachment))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/uploads", s.terminal(s.terminalUpload))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/history", s.terminal(s.terminalHistory))

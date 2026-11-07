@@ -175,6 +175,8 @@ type Capabilities struct {
 	// SessionMode is sent only when session-mode-v1 was negotiated; a session
 	// can then switch between the OpenCode terminal and the chat.
 	SessionMode bool `json:"sessionMode,omitempty"`
+	// NativeView is negotiated separately from the process-replacing session mode operation.
+	NativeView bool `json:"nativeView,omitempty"`
 	// ChatReattach is sent only when chat-reattach-v1 was negotiated; a lost
 	// chat can then be reconnected in place. OpenCode is allowed by the
 	// original rule; another agent also needs acp-agent-reattach-v1 and its
@@ -325,6 +327,9 @@ func (c Capabilities) ValidateFor(features string) error {
 	// A switch launches the tool in a terminal (launch-v1, which needs
 	// terminal control). Every connector that reports session mode has
 	// launch-v1 on: its chat tools are among its launch tools.
+	if c.NativeView && !(c.ACP && c.TerminalControl && c.Launch) {
+		return ErrInvalid
+	}
 	if c.SessionMode && !(c.ACP && c.ACPHistory && c.Launch) {
 		return ErrInvalid
 	}
@@ -523,6 +528,7 @@ func (c Create) Validate() error {
 }
 
 type Attach struct {
+	NativeView   bool   `json:"nativeView,omitempty"`
 	StreamToken  string `json:"streamToken,omitempty"`
 	Cols         int    `json:"cols"`
 	Rows         int    `json:"rows"`
@@ -712,7 +718,7 @@ func (m Message) Validate() error {
 		return ErrInvalid
 	}
 	kind := m.Body.kind()
-	session := kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_question_answer" || kind == "acp_mode" || kind == "acp_agent_mode" || kind == "session_mode" || kind == "chat_reattach" || kind == "acp_model" || kind == "acp_event" || kind == "acp_control" || kind == "acp_control_result" || kind == "acp_preview" || kind == "acp_preview_result"
+	session := kind == "native_view" || kind == "native_view_result" || kind == "create" || kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "end" || kind == "history" || kind == "command_history" || kind == "session_changed" || kind == "upload" || kind == "acp_prompt" || kind == "acp_cancel" || kind == "acp_permission" || kind == "acp_question_answer" || kind == "acp_mode" || kind == "acp_agent_mode" || kind == "session_mode" || kind == "chat_reattach" || kind == "acp_model" || kind == "acp_event" || kind == "acp_control" || kind == "acp_control_result" || kind == "acp_preview" || kind == "acp_preview_result"
 	attachment := kind == "attach" || kind == "resize" || kind == "renew_attachment" || kind == "detach" || kind == "history" || kind == "command_history" || kind == "upload" || kind == "result" && m.AttachmentID != ""
 	requiresSession := session && !ValidID(m.SessionID)
 	straySession := !session && m.SessionID != "" && (kind != "result" || !ValidID(m.SessionID))
@@ -847,6 +853,10 @@ func Decode(data []byte) (Message, error) {
 		b = &ACPMode{}
 	case "acp_agent_mode":
 		b = &ACPAgentMode{}
+	case "native_view":
+		b = &NativeView{}
+	case "native_view_result":
+		b = &NativeViewResult{}
 	case "session_mode":
 		b = &SessionMode{}
 	case "chat_reattach":

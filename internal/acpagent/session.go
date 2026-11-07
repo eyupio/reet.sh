@@ -115,6 +115,7 @@ type rpcCall struct {
 }
 
 type pendingPermission struct {
+	nativeID string
 	rpcID    json.RawMessage
 	allowID  string
 	rejectID string
@@ -126,6 +127,7 @@ type pendingPermission struct {
 type Session struct {
 	opts   Options
 	binary string
+	native *nativeView
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
@@ -156,17 +158,20 @@ type Session struct {
 	doneOnce     sync.Once
 	retired      bool
 
-	turnMu       sync.Mutex
-	working      bool
-	turnProgress bool
-	turnError    bool
-	turnSeq      uint64
-	forceArmed   uint64
-	cancelledSeq uint64
-	forceClosing bool
-	turnStart    time.Time
-	lastEvent    time.Time
-	warned       bool
+	turnMu          sync.Mutex
+	working         bool
+	nativeBusy      bool
+	nativeCancelled bool
+	nativeEpoch     uint64
+	turnProgress    bool
+	turnError       bool
+	turnSeq         uint64
+	forceArmed      uint64
+	cancelledSeq    uint64
+	forceClosing    bool
+	turnStart       time.Time
+	lastEvent       time.Time
+	warned          bool
 }
 
 func Start(ctx context.Context, opts Options) (*Session, error) {
@@ -194,14 +199,23 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	if err := spec.CheckTrust(opts.Dir, opts.Trust); err != nil {
 		return nil, err
 	}
-	if _, err := ProbeVersion(ctx, binary, spec, opts.Dir, opts.Home, opts.BaseEnv); err != nil {
+	version, err := ProbeVersion(ctx, binary, spec, opts.Dir, opts.Home, opts.BaseEnv)
+	if err != nil {
 		return nil, err
 	}
 	password, err := serverPassword(opts.Random)
 	if err != nil {
 		return nil, err
 	}
-	args := append([]string(nil), spec.Args...)
+	native, nativeArgs := prepareNativeView(opts, version, binary, password)
+	if native != nil {
+		defer func() {
+			if !native.ready.Load() {
+				native.cancel()
+			}
+		}()
+	}
+	args := append(append([]string(nil), spec.Args...), nativeArgs...)
 	cmd := exec.Command(binary, args...)
 	// A descendant can retain stderr after the leader exits. Bound exec's
 	// copy goroutine so it cannot hide that exit from the supervisor forever.
@@ -230,7 +244,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		return nil, ErrExited
 	}
 	_ = stdoutWriter.Close()
-	s := &Session{opts: opts, binary: binary, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
+	s := &Session{opts: opts, binary: binary, native: native, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr,
 		calls: map[int64]rpcCall{}, pending: map[string]*pendingPermission{}, tools: map[string]string{},
 		toolStart: map[string]time.Time{}, done: make(chan struct{})}
 	readDone := make(chan struct{})
@@ -420,6 +434,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 		s.markInterrupted()
 	}
 	s.emit(Event{Kind: "status", State: "idle", Detail: s.Model()})
+	s.startNativeView()
 	return s, nil
 }
 
@@ -438,7 +453,7 @@ func (s *Session) Done() <-chan struct{} { return s.done }
 func (s *Session) Working() bool {
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
-	return s.working
+	return s.working || s.nativeBusy
 }
 
 // Model is the last confirmed model; empty means it is not known.
@@ -966,12 +981,15 @@ type permissionParams struct {
 func (s *Session) turnAcceptsRequests() bool {
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
-	return s.working && s.cancelledSeq != s.turnSeq
+	return s.nativeBusy && !s.nativeCancelled || s.working && s.cancelledSeq != s.turnSeq
 }
 
 func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	if len(rpcID) == 0 {
 		return
+	}
+	if s.native != nil && s.native.ready.Load() && !s.turnAcceptsRequests() {
+		s.nativeStatus(true)
 	}
 	if !s.turnAcceptsRequests() {
 		s.respond(rpcID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}, nil)
@@ -1096,6 +1114,9 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		}
 	}
 	pending := &pendingPermission{rpcID: rpcID, allowID: allowID, rejectID: rejectID}
+	if s.native != nil {
+		pending.nativeID = params.ToolCall.ToolCallID
+	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -1103,12 +1124,12 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		return
 	}
 	s.pending[permissionID] = pending
-	s.mu.Unlock()
 	pending.timer = time.AfterFunc(s.opts.permissionTimeout(), func() {
 		s.resolve(permissionID, "cancelled", "timeout")
 		s.emit(Event{Kind: "notice", Text: "The approval request timed out, so " + s.opts.Agent.displayName() + " was stopped.", Bad: true})
 		_ = s.sendCancel()
 	})
+	s.mu.Unlock()
 	title := permissionTitle(params.ToolCall.Title, params.ToolCall.Meta.ClaudeCode.ParentToolUseID, s.opts.Agent.displayName())
 	// The agent's own words for the request, shown on the card so a person can
 	// judge it: Codex sends the model's justification in _meta.permission
@@ -1123,6 +1144,14 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		Title: title, ToolKind: params.ToolCall.Kind, Command: command,
 		Path: path, Diff: diff, Locations: locations, Truncated: truncated,
 		Text: rationale})
+	if s.native != nil {
+		s.native.mu.Lock()
+		reply := s.native.permissionReplies[pending.nativeID]
+		s.native.mu.Unlock()
+		if reply != "" {
+			s.nativePermissionReply(pending.nativeID, reply)
+		}
+	}
 }
 
 // permissionTitle names the card. A subagent's own tool call is a separate
@@ -1244,7 +1273,11 @@ func (s *Session) commitForceStop(seq uint64) bool {
 // The agent does not withdraw an outstanding request_permission, so reet must.
 func (s *Session) Cancel() error {
 	s.turnMu.Lock()
-	working := s.working
+	working := s.working || s.nativeBusy
+	external, epoch := s.nativeBusy && !s.working, s.nativeEpoch
+	if s.nativeBusy {
+		s.nativeCancelled = true
+	}
 	if working {
 		s.cancelledSeq = s.turnSeq
 	}
@@ -1265,6 +1298,9 @@ func (s *Session) Cancel() error {
 		return err
 	}
 	s.armForceStop()
+	if external {
+		s.armNativeStop(epoch)
+	}
 	return err
 }
 
@@ -1422,7 +1458,7 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		s.turnMu.Unlock()
 		return ErrClosed
 	}
-	if s.working {
+	if s.working || s.nativeBusy {
 		s.turnMu.Unlock()
 		return ErrBusy
 	}
@@ -1469,6 +1505,11 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		s.mu.Unlock()
 		s.turnMu.Unlock()
 	}()
+	var nativePromptDone func(error)
+	if s.native != nil && s.native.ready.Load() {
+		nativePromptDone = s.native.expectUser(text)
+		defer func() { nativePromptDone(nil) }()
+	}
 	s.emit(Event{Kind: "status", State: "working"})
 	go func() {
 		defer close(watchStopped)
@@ -1813,7 +1854,7 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 	defer s.configMu.Unlock()
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
-	if s.working {
+	if s.working || s.nativeBusy {
 		return ErrBusy
 	}
 	s.mu.Lock()
@@ -1956,7 +1997,7 @@ func (s *Session) SetMode(ctx context.Context, mode string) error {
 	}
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
-	if s.working {
+	if s.working || s.nativeBusy {
 		return ErrBusy
 	}
 	s.mu.Lock()

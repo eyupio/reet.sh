@@ -28,6 +28,7 @@ export type ConnectionHealth = { connected: boolean; lastKnown?: boolean; report
 export type MachineHealth = { agentId: string; host: string; state: string; connection?: ConnectionHealth; capabilities?: Capabilities }
 export type HealthResponse = { serverNow: number; machines: MachineHealth[] }
 
+export type UnsavedWorktree = { changed: number; unpushed: number; paths: string[]; fingerprint: string }
 export class TerminalError extends Error {
   status: number
   /** The server's machine-readable reason, sent only for some refusals (for example `folder_unavailable`). */
@@ -36,7 +37,9 @@ export class TerminalError extends Error {
   detail?: string
   /** The field a Projects refusal is about ("name", "members.2.dir"), so a form can move focus there. */
   field?: string
-  constructor(status: number, message: string, code?: string, detail?: string, field?: string) { super(message); this.status = status; if (code) this.code = code; if (detail) this.detail = detail; if (field) this.field = field }
+  /** The worktree a refused session removal would delete (code `worktree_unsaved`): the counts and fingerprint a confirmation repeats. */
+  worktree?: UnsavedWorktree
+  constructor(status: number, message: string, code?: string, detail?: string, field?: string, worktree?: UnsavedWorktree) { super(message); this.status = status; if (code) this.code = code; if (detail) this.detail = detail; if (field) this.field = field; if (worktree) this.worktree = worktree }
 }
 /** What to start instead of a plain shell. Only the fields that are set are sent; the machine decides the program and flags. */
 export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: string; yolo?: boolean; resume?: boolean; worktree?: string; project?: string; structured?: boolean; trust?: boolean; resumeAcp?: string
@@ -50,15 +53,16 @@ export async function terminalRequest(path: string, init: RequestInit = {}): Pro
   if (init.body) headers.set('Content-Type', 'application/json')
   const response = await fetch(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' })
   if (!response.ok) {
-    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined
+    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined, worktree: UnsavedWorktree | undefined
     try {
       const body = await response.json()
       if (typeof body?.error === 'string' && body.error) message = body.error
       if (typeof body?.code === 'string' && body.code) code = body.code
       if (typeof body?.detail === 'string' && body.detail) detail = body.detail
       if (typeof body?.field === 'string' && body.field) field = body.field
+      if (code === 'worktree_unsaved' && typeof body?.worktree?.fingerprint === 'string') worktree = { changed: Number(body.worktree.changed) || 0, unpushed: Number(body.worktree.unpushed) || 0, paths: Array.isArray(body.worktree.paths) ? body.worktree.paths.map(String) : [], fingerprint: body.worktree.fingerprint }
     } catch { /* fixed fallback */ }
-    throw new TerminalError(response.status, message, code, detail, field)
+    throw new TerminalError(response.status, message, code, detail, field, worktree)
   }
   return response
 }
@@ -74,13 +78,14 @@ export async function terminalUpload(session: string, image: Blob, signal?: Abor
     signal,
   })
   if (!response.ok) {
-    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined
+    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined, worktree: UnsavedWorktree | undefined
     try {
       const body = await response.json()
       if (typeof body?.error === 'string' && body.error) message = body.error
       if (typeof body?.code === 'string' && body.code) code = body.code
       if (typeof body?.detail === 'string' && body.detail) detail = body.detail
       if (typeof body?.field === 'string' && body.field) field = body.field
+      if (code === 'worktree_unsaved' && typeof body?.worktree?.fingerprint === 'string') worktree = { changed: Number(body.worktree.changed) || 0, unpushed: Number(body.worktree.unpushed) || 0, paths: Array.isArray(body.worktree.paths) ? body.worktree.paths.map(String) : [], fingerprint: body.worktree.fingerprint }
     } catch { /* fixed fallback */ }
     throw new TerminalError(response.status, message, code, detail, field)
   }
@@ -102,13 +107,14 @@ export async function launchUpload(agentId: string, image: Blob, signal?: AbortS
     signal,
   })
   if (!response.ok) {
-    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined
+    let message = 'The terminal connection is unavailable.', code: string | undefined, detail: string | undefined, field: string | undefined, worktree: UnsavedWorktree | undefined
     try {
       const body = await response.json()
       if (typeof body?.error === 'string' && body.error) message = body.error
       if (typeof body?.code === 'string' && body.code) code = body.code
       if (typeof body?.detail === 'string' && body.detail) detail = body.detail
       if (typeof body?.field === 'string' && body.field) field = body.field
+      if (code === 'worktree_unsaved' && typeof body?.worktree?.fingerprint === 'string') worktree = { changed: Number(body.worktree.changed) || 0, unpushed: Number(body.worktree.unpushed) || 0, paths: Array.isArray(body.worktree.paths) ? body.worktree.paths.map(String) : [], fingerprint: body.worktree.fingerprint }
     } catch { /* fixed fallback */ }
     throw new TerminalError(response.status, message, code, detail, field)
   }
@@ -195,7 +201,20 @@ export function terminalArchiveBody(state: SessionState): string {
     ? 'This hides the session from your history without confirming that it has stopped. The end request stays queued until the machine reconnects, and the session still counts towards its limit until closure is confirmed. Files on the machine are kept. You cannot restore it from the web interface.'
     : 'This removes the closed session from your history. Files on the machine are kept. You cannot restore it from the web interface.'
 }
-export async function archiveTerminal(id:string):Promise<void>{await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/archive`,{method:'POST',body:'{}'})}
+/** Ask before deleting uncommitted work: the session's worktree goes with it, and only the person's yes removes unsaved changes. */
+export function confirmDiscardWorktree(w: UnsavedWorktree): boolean {
+  const shown = w.paths.slice(0, 5).join('\n')
+  return window.confirm(`This session's worktree has ${w.changed} uncommitted change${w.changed === 1 ? '' : 's'}${w.unpushed ? ` and ${w.unpushed} unpushed commit${w.unpushed === 1 ? '' : 's'} (the branch is kept)` : ''}.\n${shown}${w.paths.length > 5 ? '\n…' : ''}\n\nRemoving the session deletes those uncommitted changes. Delete them?`)
+}
+/** Remove a session from history. Its worktree is removed with it; uncommitted changes need `confirmUnsaved` to say yes, and the session is never removed while its worktree stays behind. */
+export async function archiveTerminal(id: string, confirmUnsaved?: (w: UnsavedWorktree) => boolean | Promise<boolean>): Promise<void> {
+  const path = `/api/v2/terminal/sessions/${encodeURIComponent(id)}/archive`
+  try { await terminalRequest(path, { method: 'POST', body: '{}' }) } catch (e) {
+    if (!(e instanceof TerminalError) || e.code !== 'worktree_unsaved' || !e.worktree || !confirmUnsaved || !(await confirmUnsaved(e.worktree))) throw e
+    const w = e.worktree
+    await terminalRequest(path, { method: 'POST', body: JSON.stringify({ discard: true, changed: w.changed, unpushed: w.unpushed, fingerprint: w.fingerprint }) })
+  }
+}
 export async function markSessionSeen(id: string, signal?: AbortSignal): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/seen`, { method: 'POST', body: '{}', signal: within(signal) }) }
 export async function terminalHistory(id: string, signal?: AbortSignal): Promise<string> { return (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/history?lines=2000`, {signal})).text() }
 

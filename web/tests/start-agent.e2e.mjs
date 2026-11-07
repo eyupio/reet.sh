@@ -1054,8 +1054,8 @@ try{
  expect(JSON.parse(posts.at(-1))).toMatchObject({tool:'claude',dir:SITE,title:'Claude Code \u00b7 site',titleOrigin:'fallback'})
  expect(JSON.parse(posts.at(-1)).prompt).toBeUndefined()
  // For an image-only launch the CLIENT claims titleOrigin 'fallback': the path the prompt gains is not a task. The real
- // controller sees the appended "Image:" lines as the prompt and stores 'manual'; this mocked test only records what the
- // client sends.
+ // controller ignores the trailing "Image:" line when it derives the title, so it agrees with that claim and stores
+ // 'fallback'; this mocked test only records what the client sends.
  d=await openFromSidebar();p=parts(d)
  await p.folder.selectOption(SITE)
  await page.evaluate(() => {

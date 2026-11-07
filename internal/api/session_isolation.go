@@ -32,6 +32,17 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 	if strings.Contains(path.Clean(c.Dir), "/.reet/worktrees/") {
 		return false
 	}
+	// Reuse the controller-derived identity from the original receipt. A
+	// project renamed/removed while a reply was uncertain cannot change a retry.
+	if operation, err := s.st.TerminalOperationFor(uid, agent, "create", requestID); err == nil && operation.Create != nil {
+		c.Worktree, c.Project = operation.Create.Worktree, operation.Create.Project
+		if c.Worktree != "" && c.ProjectID == "" {
+			if session, err := s.st.TerminalSessionFor(uid, operation.SessionID); err == nil && session.ProjectID != nil {
+				c.ProjectID = *session.ProjectID
+			}
+		}
+		return c.Worktree != ""
+	}
 	p, ok, err := s.st.RepoProjectForDir(uid, agent, c.Dir)
 	if err != nil || !ok {
 		return false

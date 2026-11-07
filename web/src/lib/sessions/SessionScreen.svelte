@@ -389,7 +389,7 @@
       <a class="back" href="/sessions" aria-label="Back to sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
       <div class="heading">
         <h2 class="title" title={session.title}>{session.title}</h2>
-        <p class="sub">{headerMeta(session, session.createdAt, now)}</p>
+        <p class="sub">{headerMeta(view === 'terminal' && chatView ? { ...session, model: '' } : session, session.createdAt, now)}</p>
         <p class="location">{[project, host].filter(Boolean).join(' · ')}</p>
         <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>

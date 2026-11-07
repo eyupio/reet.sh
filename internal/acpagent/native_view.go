@@ -46,6 +46,8 @@ type nativeView struct {
 	order             []string
 	permissions       map[string]string
 	permissionReplies map[string]string
+	permissionRetired map[string]bool
+	retiredOrder      []string
 }
 
 // The first adapter is deliberately pinned to the native service/TUI contract
@@ -123,6 +125,11 @@ func (s *Session) startNativeView() {
 		v.cancel()
 		return
 	}
+	if err := v.reconcile(s); err != nil {
+		response.Body.Close()
+		v.cancel()
+		return
+	}
 	v.ready.Store(true)
 	go func() { <-s.Done(); v.ready.Store(false); v.cancel(); v.client.CloseIdleConnections() }()
 	go v.observe(s, response)
@@ -178,11 +185,35 @@ func (v *nativeView) seed(session string) error {
 	}
 	return nil
 }
+
+const nativePromptLimit = 128
+const nativePromptMaxAge = 5 * time.Minute
+
+// Called under mu on insertion and matching, even if no native messages arrive.
+func (v *nativeView) pruneOwn(now int64) {
+	for id, prompt := range v.own {
+		if now-prompt.at > nativePromptMaxAge.Milliseconds() {
+			delete(v.own, id)
+		}
+	}
+	for len(v.own) > nativePromptLimit {
+		var oldest uint64
+		for id := range v.own {
+			if oldest == 0 || id < oldest {
+				oldest = id
+			}
+		}
+		delete(v.own, oldest)
+	}
+}
+
 func (v *nativeView) expectUser(text string) func(error) {
 	v.mu.Lock()
+	v.pruneOwn(time.Now().UnixMilli())
 	v.next++
 	id := v.next
 	v.own[id] = nativeOwnPrompt{text: text, at: time.Now().UnixMilli()}
+	v.pruneOwn(time.Now().UnixMilli())
 	v.mu.Unlock()
 	return func(err error) {
 		if err != nil {
@@ -211,6 +242,7 @@ func (v *nativeView) user(s *Session, id string) {
 		return
 	}
 	v.mu.Lock()
+	v.pruneOwn(time.Now().UnixMilli())
 	own := false
 	for key, prompt := range v.own {
 		if message.Info.Time.Created >= prompt.at-1000 && prompt.text == text {
@@ -219,43 +251,70 @@ func (v *nativeView) user(s *Session, id string) {
 			break
 		}
 	}
-	// A failed/disconnected native event stream must not grow this ledger without bound.
-	if len(v.own) > 128 {
-		for key := range v.own {
-			delete(v.own, key)
-			if len(v.own) <= 64 {
-				break
-			}
-		}
-	}
 	v.mu.Unlock()
 	if !own {
 		s.emit(Event{Kind: "user", Text: cutUTF8(text, 8<<10)})
 	}
 }
 
+// Read current state after subscribing: an idle event may have been missed
+// during the gap. A failed snapshot must not invent an idle state.
+func (v *nativeView) reconcile(s *Session) error {
+	var statuses map[string]struct {
+		Type string `json:"type"`
+	}
+	if err := v.json("/session/status", &statuses); err != nil {
+		return err
+	}
+	if statuses == nil {
+		return errors.New("missing native session status")
+	}
+	status, present := statuses[s.SessionID()]
+	if present && status.Type != "idle" && status.Type != "busy" && status.Type != "retry" {
+		return errors.New("unknown native session status")
+	}
+	var messages []nativeMessage
+	if err := v.json("/session/"+url.PathEscape(s.SessionID())+"/message?limit=128", &messages); err != nil {
+		return err
+	}
+	for _, message := range messages {
+		if message.Info.Role == "user" {
+			v.user(s, message.Info.ID)
+		}
+	}
+	s.nativeStatus(present && status.Type != "idle")
+	return nil
+}
+
 func (v *nativeView) observe(s *Session, initial *http.Response) {
+	defer v.ready.Store(false)
 	for v.ctx.Err() == nil {
 		v.consume(s, initial)
 		initial = nil
-		if v.ctx.Err() != nil {
-			return
-		}
-		timer := time.NewTimer(time.Second)
-		select {
-		case <-v.ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-		// The event service is volatile. Re-read bounded native records after a gap.
-		var messages []nativeMessage
-		if v.json("/session/"+url.PathEscape(s.SessionID())+"/message?limit=128", &messages) == nil {
-			for _, message := range messages {
-				if message.Info.Role == "user" {
-					v.user(s, message.Info.ID)
-				}
+		v.ready.Store(false)
+		for v.ctx.Err() == nil {
+			timer := time.NewTimer(time.Second)
+			select {
+			case <-v.ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
 			}
+			response, err := v.request(v.ctx, "/event")
+			if err != nil {
+				continue
+			}
+			if response.StatusCode != http.StatusOK {
+				response.Body.Close()
+				continue
+			}
+			if v.reconcile(s) != nil {
+				response.Body.Close()
+				continue
+			}
+			initial = response
+			v.ready.Store(true)
+			break
 		}
 	}
 }
@@ -314,30 +373,137 @@ func (v *nativeView) consume(s *Session, response *http.Response) {
 				v.user(s, p.Part.MessageID)
 			}
 		case "permission.asked":
-			if p.SessionID == s.SessionID() && p.ID != "" && p.Tool.CallID != "" {
-				v.mu.Lock()
-				if len(v.permissions) < 128 {
-					v.permissions[p.ID] = p.Tool.CallID
-				}
-				v.mu.Unlock()
+			if p.SessionID == s.SessionID() {
+				v.permissionAsked(p.ID, p.Tool.CallID)
 			}
 		case "permission.replied":
 			if p.SessionID == s.SessionID() {
-				v.mu.Lock()
-				tool := v.permissions[p.RequestID]
-				if tool == "" {
-					tool = p.RequestID
+				if tool := v.permissionReplied(p.RequestID, p.Reply); tool != "" {
+					s.nativePermissionReply(tool, p.Reply)
 				}
-				delete(v.permissions, p.RequestID)
-				if tool != "" && len(v.permissionReplies) < 128 {
-					v.permissionReplies[tool] = p.Reply
-				}
-				v.mu.Unlock()
-				s.nativePermissionReply(tool, p.Reply)
 			}
 		}
 	}
 }
+
+// A permission RPC can beat the native busy event. Admit that race only when
+// the local service still owns this exact pending tool request. A late RPC by
+// itself must never resurrect an idle or cancelled turn.
+func (v *nativeView) confirmPermissionTurn(s *Session, tool string) {
+	if tool == "" {
+		return
+	}
+	s.turnMu.Lock()
+	epoch := s.nativeEpoch
+	cancelled := s.nativeCancelled || s.forceClosing || s.working && s.cancelledSeq == s.turnSeq
+	s.turnMu.Unlock()
+	if cancelled {
+		return
+	}
+	v.mu.Lock()
+	retired := v.permissionRetired[tool]
+	v.mu.Unlock()
+	if retired {
+		return
+	}
+	var pending []struct {
+		SessionID string `json:"sessionID"`
+		Tool      struct {
+			CallID string `json:"callID"`
+		} `json:"tool"`
+	}
+	if v.json("/permission", &pending) != nil {
+		return
+	}
+	found := false
+	for _, request := range pending {
+		if request.SessionID == s.SessionID() && request.Tool.CallID == tool {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return
+	}
+	s.turnMu.Lock()
+	admitted := s.nativeEpoch == epoch && !s.nativeCancelled && !s.forceClosing && !s.working
+	if admitted && !s.nativeBusy {
+		s.nativeBusy = true
+		s.nativeEpoch++
+	}
+	s.turnMu.Unlock()
+	if admitted {
+		s.emit(Event{Kind: "status", State: "working"})
+	}
+}
+
+// Native request IDs own replies. Unknown, replayed or already retired
+// requests cannot grant consent to a later ACP card with a matching tool ID.
+func (v *nativeView) permissionAsked(id, tool string) {
+	if id == "" || tool == "" {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.permissionRetired[tool] || len(v.permissions) >= 128 {
+		return
+	}
+	if v.permissions == nil {
+		v.permissions = map[string]string{}
+	}
+	v.permissions[id] = tool
+}
+func (v *nativeView) permissionReplied(id, reply string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	tool := v.permissions[id]
+	delete(v.permissions, id)
+	if tool == "" || v.permissionRetired[tool] {
+		return ""
+	}
+	if v.permissionReplies == nil {
+		v.permissionReplies = map[string]string{}
+	}
+	if len(v.permissionReplies) < 128 {
+		v.permissionReplies[tool] = reply
+	}
+	return tool
+}
+func (v *nativeView) takePermissionReply(tool string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	reply := v.permissionReplies[tool]
+	delete(v.permissionReplies, tool)
+	if v.permissionRetired[tool] {
+		return ""
+	}
+	return reply
+}
+func (v *nativeView) retirePermission(tool string) {
+	if tool == "" {
+		return
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	delete(v.permissionReplies, tool)
+	for id, owner := range v.permissions {
+		if owner == tool {
+			delete(v.permissions, id)
+		}
+	}
+	if v.permissionRetired == nil {
+		v.permissionRetired = map[string]bool{}
+	}
+	if !v.permissionRetired[tool] {
+		v.permissionRetired[tool] = true
+		v.retiredOrder = append(v.retiredOrder, tool)
+	}
+	if len(v.retiredOrder) > 512 {
+		delete(v.permissionRetired, v.retiredOrder[0])
+		v.retiredOrder = v.retiredOrder[1:]
+	}
+}
+
 func (s *Session) nativeStatus(busy bool) {
 	s.turnMu.Lock()
 	changed := s.nativeBusy != busy

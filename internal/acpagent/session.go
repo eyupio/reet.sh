@@ -988,15 +988,15 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 	if len(rpcID) == 0 {
 		return
 	}
-	if s.native != nil && s.native.ready.Load() && !s.turnAcceptsRequests() {
-		s.nativeStatus(true)
-	}
-	if !s.turnAcceptsRequests() {
+	var params permissionParams
+	if json.Unmarshal(raw, &params) != nil {
 		s.respond(rpcID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}, nil)
 		return
 	}
-	var params permissionParams
-	if json.Unmarshal(raw, &params) != nil {
+	if s.native != nil && s.native.ready.Load() && !s.turnAcceptsRequests() {
+		s.native.confirmPermissionTurn(s, params.ToolCall.ToolCallID)
+	}
+	if !s.turnAcceptsRequests() {
 		s.respond(rpcID, map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}, nil)
 		return
 	}
@@ -1145,9 +1145,7 @@ func (s *Session) handlePermission(rpcID json.RawMessage, raw json.RawMessage) {
 		Path: path, Diff: diff, Locations: locations, Truncated: truncated,
 		Text: rationale})
 	if s.native != nil {
-		s.native.mu.Lock()
-		reply := s.native.permissionReplies[pending.nativeID]
-		s.native.mu.Unlock()
+		reply := s.native.takePermissionReply(pending.nativeID)
 		if reply != "" {
 			s.nativePermissionReply(pending.nativeID, reply)
 		}
@@ -1212,6 +1210,9 @@ func (s *Session) resolve(id, decision, reason string) error {
 	s.mu.Unlock()
 	if pending == nil {
 		return ErrNoPermission
+	}
+	if s.native != nil {
+		s.native.retirePermission(pending.nativeID)
 	}
 	if pending.timer != nil {
 		pending.timer.Stop()
@@ -1508,7 +1509,6 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 	var nativePromptDone func(error)
 	if s.native != nil && s.native.ready.Load() {
 		nativePromptDone = s.native.expectUser(text)
-		defer func() { nativePromptDone(nil) }()
 	}
 	s.emit(Event{Kind: "status", State: "working"})
 	go func() {
@@ -1610,6 +1610,9 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		"sessionId": acpID,
 		"prompt":    prompt,
 	})
+	if nativePromptDone != nil {
+		nativePromptDone(err)
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			// Cancel already reported the stopped turn; no request was sent.

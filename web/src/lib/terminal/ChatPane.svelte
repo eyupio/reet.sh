@@ -978,8 +978,8 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
       </select>
      </div>{/if}
       {#if modelAvailable}<div class="model-controls" data-keeps-focus>
-       <label for={`${session.id}-model`}>Model</label>
-       <button id={`${session.id}-model`} type="button" class="model-picker" bind:this={modelButton} aria-label={`Model: ${selectedModel.trim() || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} disabled={modelBlocked} onclick={() => modelOpen = !modelOpen}>
+       <label for={`${session.id}-model`}>Chat model</label>
+       <button id={`${session.id}-model`} type="button" class="model-picker" title="Model for messages sent from Chat. Terminal has its own native model controls." bind:this={modelButton} aria-label={`Model: ${selectedModel.trim() || 'Agent default'}`} aria-haspopup="listbox" aria-expanded={modelOpen} disabled={modelBlocked} onclick={() => modelOpen = !modelOpen}>
         <span class="value">{selectedModel.trim() || 'Agent default'}</span>
         {#if changingModel}<span class="chev" aria-hidden="true">…</span>{:else}<span class="chev" aria-hidden="true">▾</span>{/if}
        </button>

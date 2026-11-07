@@ -139,7 +139,7 @@ Rollback is a revert of the presentation PR; preserve backend contracts, old dee
 | Terminal access | Primary same-process Chat / Terminal switch; legacy restart action stays explicit | Required by user |
 | Navigation | Home, Sessions, Machines, Skills and grouped More remain reachable | Direction approved; acceptance pending |
 
-The merged design PR contains the original reference. The implementation draft adds runtime and presentation changes; no deployment or merge is requested yet.
+The merged design PR contains the original reference. The implementation draft adds runtime and presentation changes; the user has authorized merging once implementation acceptance and exact-head CI are green.
 
 
 ## 8. Implementation checkpoint and architecture lessons
@@ -150,37 +150,35 @@ Use each agent's native conversation identity and supported transport rather tha
 
 Code map: `SessionViewSwitch.svelte`, `SessionScreen.svelte`, `TerminalWorkspace.svelte` and `TerminalPane.svelte` own presentation; `internal/acpagent/native_view.go` owns the local service and reconciliation; `terminalproto`, `terminalbroker`, `terminalagent` and `terminalhost` own capability negotiation, authorization, tickets and disposable PTY attachment. No native endpoint or password is returned to the browser.
 
-## 9. Coordination with #636
+## 9. Worktree integration and production repair
 
-Reviewed #636 at `f91945fb47db3f49225e23c5b691d04e3a3afbab` (`feat/session-worktree-isolation`), based on main `e1c4ed9b`. It is not merged into this branch. A `git merge-tree --write-tree HEAD origin/pr-636` simulation merged textually without conflicts; this does not establish runtime compatibility.
+#636 is merged in main at `f047dd1a` and is integrated here. The independent production repair [#639](https://github.com/eyupio/reet.sh/pull/639) permits new structured worktree launches, prepares the actual ACP working directory, preserves retry identity and negotiates `acp-worktree-v1`. Update both controller and machine connectors for isolated Chat starts. The reported Sessions-page payload used OpenCode structured Chat in a saved repository, matching the reproduced validation failure. The supplied model string is valid.
 
-Both views must use the same existing worktree and exact worker directory. Switching views must never launch a session, allocate a run token, create a branch or create/remove a worktree. Preserve #636's archive confirmation callback, fingerprint/count checks, active-session refusal and branch-retention semantics. Overlaps are `internal/api/terminal.go`, `TerminalWorkspace.svelte` and terminal `api.ts`.
+Both views use the existing worker directory and conversation. View switching never allocates a worktree, branch or run token. Archive retains active-session refusal, exact fingerprint/count confirmation and branch retention. The real launch/archive acceptance passes against the pinned agent; the real native API attachment acceptance separately verifies the same directory and conversation through detach/reattach and End.
 
-At that reviewed head, isolation injects worktree/project fields into structured creates, while the structured Create validation and launcher do not yet accept/prepare that combination. Resolve and test that integration with #636 before claiming structured worktree launches work. Re-check its current head and review fixes before integration; do not silently merge an outdated snapshot. The real native attachment probe uses an isolated-worktree-shaped directory and asserts the native client uses the ACP worker's directory, but does not replace combined launch/archive tests.
+## 10. Completed acceptance and implementation
 
-## 10. Verification and remaining merge gates
+- Real pinned OpenCode ACP worker and actual native TUI: same process, conversation and directory, typed terminal-origin prompts reflected in Chat, Chat-origin output visible in native history, Stop and busy fencing without losing the worker.
+- Bidirectional command approvals: native-origin requests answered in Chat and Chat-origin requests answered in the actual TUI; resolved cards retire. Unknown, duplicate, retired and late replies cannot grant a later request. A bounded permission ledger and current-service ownership checks prevent cancelled turns from resurrecting through a late RPC.
+- Native observer reconnect: withdraw availability on stream gaps, subscribe before reading authoritative status/history, reject malformed snapshots, bound and expire prompt echoes, clean up using actual RPC errors.
+- Attachment lifecycle: busy ownership, stale-generation fencing, cross-manager locking, renewal, takeover, expiry, consent revocation and reattach. Disposable TUI cancellation kills its process group, including editors/children, while preserving the separate ACP worker. A negative test failed against the old implementation and passes with this fix.
+- Complete authenticated HTTP/broker/private-connector/native PTY path, ordinary-ticket refusal, native tickets, detach/reattach and End. Real browser/broker/tmux recovery acceptance also passed locally.
+- Existing session, workspace, structured chat, recovery, terminal lifecycle/organisation, widget and full phone-dialog suites passed locally. The two landscape CI regressions were reproduced and repaired: portrait wrapping no longer makes a 108 px header; landscape controls fit 52 px with 44 px targets. Both complete phone suites passed. Svelte check reports zero errors/warnings and the production build passes.
 
-Passed on the rebased implementation: Svelte check (zero errors/warnings), production build, `go vet ./...`, and focused race tests for native views/capabilities/tickets across acpagent, terminalproto, terminalbroker, terminalagent and agenthealth. The real pinned OpenCode probe starts ACP and the actual native TUI, verifies worker PID stability, and verifies killing the disposable client leaves the worker alive. It makes no provider/model request. Browser fixtures exercise layout, actions, saved Details, drafts and a mocked native socket without calling the mode endpoint; the final post-rebase run passed all eight theme/width combinations and the mocked native continuity cases.
+Real-turn tests use an in-process OpenAI-compatible fixture on loopback with fixture-only credentials. They make no external provider request. Agent downloads are checksum-verified against `internal/agentsoftware/artifact.go`. CI repeats the real-agent tests in `shared-native-view.yml` and `structured-worktree.yml`.
 
-The unchanged-source baseline full `go test -race ./...` did not pass: API package timed out at the default ten-minute limit, terminalhost tests lacked tmux, and the model timeout process-group test reported a surviving child. These are not a passing full regression suite.
+## 11. Explicit capability limits
 
-Before marking ready:
+Shared native views currently support exactly OpenCode 1.19.5. Other agents/versions retain honest unavailable reasons. Chat model selection and native TUI model/mode controls are scoped to their own interface; switching views does not force a model change. The header hides the Chat model control while native Terminal is selected, and Chat labels it explicitly.
 
-- Exercise actual terminal-origin prompts and bidirectional streamed output, concurrent approvals/questions, native replies retiring chat cards, duplicate and late responses, and model/mode reconciliation.
-- Harden native SSE reconnect and stale busy-state recovery, bounded echo cleanup after failed prompts, and permission ledger races; current foundation needs these tests.
-- Verify the complete API/broker/host attachment path, lease renewal, takeover, reconnect and process teardown with tmux installed. The direct native probe covers only the worker/client lifecycle.
-- Update existing sessions/chat browser tests to open Session actions while retaining every previous contract. Run terminal sizing/paste, phone keyboard, focus, attention and offline Gaffer acceptance suites. New fixture tests do not replace those suites.
-- Integrate the current #636 safely and test structured worktree creation, retry identity, archive confirmation and same-directory dual views together.
-- Resolve or reproduce baseline full race failures and record exact outcomes. Do not claim every agent supports shared views; the current implementation is pinned to OpenCode 1.19.5.
+The pinned ACP service does not offer the native question tool. The real fixture verifies a forced unavailable question call is rejected without hanging. Do not promise native typed-question support or synthesize a question bridge for this adapter. Existing question-capable agents retain their own contracts.
 
-Home and broader navigation redesign remain deferred. Rollback is a revert of the implementation commits; no stored data migration is introduced.
+Full local race testing found an unrelated model-timeout test counting an exited zombie as a surviving child under this container's PID 1. The old native child-teardown regression was separately demonstrated and fixed. Do not claim a complete local full-suite pass; use fresh exact-head CI, including the full Go race suite, before merging.
 
-## 11. CI repair checkpoint
+## 12. Release procedure and authorization
 
-The first #637 CI run exposed four concrete regressions: the controller feature-list assertion omitted `native-chat-view-v1`; workspace measurement started before the loading skeleton was replaced, allowing the companion launcher to overlap; legacy interface tests did not open Session actions; and the terminal size assertion still counted the removed inline controls rather than the current header. The repair updates these contracts, installs measurement when the workspace is bound, restores focus after the theatre action, and preserves 44 px touch targets with compact labels at 320 px. The new calm-session browser suite is now included in CI.
+The user authorized merging these PRs once ready and green, and continuing implementation. Merge #639 first, then #637, then #638 after its base is updated to main. Check the exact head, all relevant workflows, review threads and combined acceptance before each merge. Do not treat the older green documentation-only head of #638 as acceptance of the new runtime changes. No database migration is introduced. Reverting presentation is independent of stored session data; reverting #639 restores the production launch defect.
 
-The API feature regression test, full ACP package race tests, structured chat browser suite, twelve widget views, Svelte check and build passed locally. A full phone-dialog development-server run cleared all switch-dialog failures but reported one keyboard-layout hit-test failure; the isolated production-build reproduction passed. Broad browser verification continues; a passing focused test must not be reported as a passing complete workflow. The unchanged two-second synthetic terminal continuation performance gate has also fluctuated under concurrent local browser load. Check fresh CI before marking #637 ready. The native offline acceptance job passed in the original CI run; other complete workflow outcomes must be checked independently.
+## 13. Remaining plan
 
-## 12. Landscape CI repair
-
-The checks at `6476970f` failed in `sessions-phone.e2e.mjs` and `terminal-phone.e2e.mjs`: the portrait header wrapping rules remained active in landscape, making the controls header 108 px tall and leaving the terminal grid taller than its screen. Keep the identity and actions on one landscape row, remove the portrait full-width actions rule there, and bound the header to 52 px while preserving 44 px touch targets. The complete Sessions phone and terminal phone suites passed locally after this repair, along with the production build and Svelte check (zero errors/warnings); check the exact pushed head and remaining browser workflow results before merging.
+The session workspace and shared native-view implementation are complete pending final combined CI and review. Attention ownership for this native path is covered above; broader cross-surface attention consistency remains a separate slice. Home Continue-first layout, broader navigation and supporting-page refinements remain future presentation work, preserving Planning board, existing routes and saved defaults. Finish these release gates before starting that slice. Keep this handoff and the continuation prompt current as PRs merge.

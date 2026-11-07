@@ -9,8 +9,9 @@
   // In flight: live sessions, and finished ones for a day, grouped by Project, Machine or State. Each row says the state word
   // and where it came from (R10): a terminal session reports no steps, so there is no progress bar. A row opens the session;
   // its actions menu (a right-click, Shift+F10 or the menu key) offers the same actions as on the Sessions page.
-  let { groups, owners, machines, offline, now, loaded, failed = false, groupBy, onchoose, projectColours = new Map<string, string>(),
+  let { heading = 'In flight', groups, owners, machines, offline, now, loaded, failed = false, groupBy, onchoose, projectColours = new Map<string, string>(),
     terminals = [], removeDefault = false, onchanged, onnotice, onsignedout }: {
+    heading?: string
     groups: Group[]
     owners: Map<string, SessionOwner>
     machines: MachineHealth[]
@@ -49,7 +50,7 @@
 
 <section class="flight" aria-labelledby={`${id}-title`}>
   <header>
-    <h2 id={`${id}-title`}>In flight</h2>
+    <h2 id={`${id}-title`}>{heading}</h2>
     <div class="group-by" role="radiogroup" aria-label="Group by">
       <span class="lead" aria-hidden="true">Group by</span>
       <span class="segments">

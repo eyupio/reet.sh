@@ -134,7 +134,16 @@ const TITLE_FILLER = [
 ]
 const TITLE_SKILL_LINE = /^use the .+ skill\.?$/i // the line the skills picker puts in a prompt: not what the work is
 const TITLE_MARKER = /^(?:[#>*-]+ )+/ // a heading, quote or list marker at the start of a line
-const TITLE_IMAGE_LINE = /^images?: (?:[^ ]+\.(?:png|jpe?g|gif|webp)(?: +|$))+$/i // the Image: / Images: line the Start dialog appends for uploads (tested after cleanTitleLine)
+const TITLE_IMAGE_LEAD = /^images?: /i // the Image: / Images: line the Start dialog appends for uploads (tested after cleanTitleLine)
+const TITLE_IMAGE_TOKEN = /(?:\\'|[^ ']|'[^']*')+/g // one upload reference: bare, or POSIX single-quoted (may contain spaces)
+const TITLE_IMAGE_EXT = /\.(?:png|jpe?g|gif|webp)'?$/i
+const isImageLine = (line: string): boolean => {
+  const lead = TITLE_IMAGE_LEAD.exec(line)
+  if (!lead) return false
+  const rest = line.slice(lead[0].length)
+  const tokens = rest.match(TITLE_IMAGE_TOKEN) ?? []
+  return tokens.length > 0 && tokens.join(' ') === rest && tokens.every((t) => TITLE_IMAGE_EXT.test(t))
+}
 const INVISIBLE_ALL = new RegExp(INVISIBLE.source, 'gu')
 
 const cleanTitleLine = (line: string): string => line.replace(/\t/g, ' ').replace(INVISIBLE_ALL, '').replace(/ {2,}/g, ' ').replace(/^ +| +$/g, '')
@@ -188,7 +197,7 @@ export function promptTitle(prompt: string): string {
   for (let i = lines.length - 1; i >= 0; i--) {
     const last = cleanTitleLine(lines[i])
     if (last === '') continue
-    if (TITLE_IMAGE_LINE.test(last)) lines.length = i
+    if (isImageLine(last)) lines.length = i
     break
   }
   for (const raw of lines) {

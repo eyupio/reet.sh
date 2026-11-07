@@ -212,6 +212,21 @@
    "want": ""
   },
   {
+   "name": "quoted upload reference with spaces is an image line",
+   "prompt": "Image: '/home/dev/My Images/img-0123.png'",
+   "want": ""
+  },
+  {
+   "name": "quoted reference with an escaped quote, then a bare one",
+   "prompt": "Images: '/home/dev/it'\\\\''s/a.png' /tmp/b.png",
+   "want": ""
+  },
+  {
+   "name": "unterminated quote is not an image line",
+   "prompt": "Image: '/home/dev/My Images/a.png",
+   "want": "Image: '/home/dev/My Images/a.png"
+  },
+  {
    "name": "task then a trailing image line keeps the task",
    "prompt": "Fix the login redirect loop\n\nImage: /tmp/a.png",
    "want": "Fix the login redirect loop"

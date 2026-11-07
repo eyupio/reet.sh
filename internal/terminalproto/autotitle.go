@@ -60,8 +60,33 @@ var (
 	titleMarker = regexp.MustCompile(`^(?:[#>*-]+ )+`)
 	// The `Image:` / `Images:` line the Start dialog appends for uploads. It
 	// is matched after cleanTitleLine, so tabs are spaces and runs are folded.
-	titleImageLine = regexp.MustCompile(`(?i)^images?: (?:[^ ]+\.(?:png|jpe?g|gif|webp)(?: +|$))+$`)
+	titleImageLead = regexp.MustCompile(`(?i)^images?: `)
+	// One upload reference: bare, or POSIX single-quoted when the path needs it
+	// (internal/api/terminal_upload.go: uploadReference), where a quote inside
+	// the path is written '\''. Quoted references may contain spaces.
+	titleImageToken = regexp.MustCompile(`(?:\\'|[^ ']|'[^']*')+`)
+	titleImageExt   = regexp.MustCompile(`(?i)\.(?:png|jpe?g|gif|webp)'?$`)
 )
+
+// isImageLine reports whether a cleaned line is only `Image:` / `Images:`
+// followed by image file references.
+func isImageLine(line string) bool {
+	loc := titleImageLead.FindStringIndex(line)
+	if loc == nil {
+		return false
+	}
+	rest := line[loc[1]:]
+	tokens := titleImageToken.FindAllString(rest, -1)
+	if len(tokens) == 0 || strings.Join(tokens, " ") != rest {
+		return false
+	}
+	for _, t := range tokens {
+		if !titleImageExt.MatchString(t) {
+			return false
+		}
+	}
+	return true
+}
 
 // PromptTitle is a short name for the work a prompt asks for, or "" when the
 // prompt says nothing a name could be made from. It takes the first line that
@@ -74,7 +99,7 @@ func PromptTitle(prompt string) string {
 	// the middle of a prompt is never dropped.
 	for i := len(lines) - 1; i >= 0; i-- {
 		if line := cleanTitleLine(lines[i]); line != "" {
-			if titleImageLine.MatchString(line) {
+			if isImageLine(line) {
 				lines = lines[:i]
 			}
 			break

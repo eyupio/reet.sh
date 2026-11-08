@@ -110,9 +110,10 @@ questions or modes. Each was measured against the pinned adapter (`claude-agent-
 [probe report](research/structured-adapters/probe-report.md): history and reconnect rest on `session/load` being advertised
 and replaying a stored conversation, and on the adapter refusing one it never stored with "Resource not found"; images rest
 on the adapter advertising image prompts and the block reaching the provider request. Whether a real model accepts an image
-is not measured. A chat can start on a chosen model and a thinking level of `low`, `medium` or `high`; the connector applies
-each, reads it back before any prompt, and refuses the start if the adapter does not confirm it. Which thinking levels exist
-depends on the model, and `fast` and `ultracode` are listed but not controlled. None of this is proof of a signed-in turn:
+is not measured. A chat can start on a chosen model and on a thinking level from the list the session itself reports; the connector
+applies each, reads it back before any prompt, and refuses the start if the adapter does not confirm it. Which options exist
+depends on the model (the probe saw `fast` disappear after choosing `sonnet`); the thinking levels a real account is offered
+for each model are not measured. `fast` and `ultracode` are listed but not controlled. None of this is proof of a signed-in turn:
 the descriptor is an observation, and no signed-in Claude turn has been run. Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
 that machine first." or "Sign in to Codex on that machine first." — and the turn ends without an edit or command. That refusal
 carries `code: "login"` on its status event, so the chat heads it *"{agent} needs a sign-in"* instead of *"could not

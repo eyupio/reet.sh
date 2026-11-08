@@ -194,3 +194,25 @@ func TestClaudePromptCarriesImages(t *testing.T) {
 		t.Fatal("the image block did not reach the adapter")
 	}
 }
+
+// The adapter answers an unknown model by resetting to "default" and saying so. That start fails, and the chat that never
+// opened must not announce itself as idle on the way out.
+func TestClaudeStartOnAnUnknownModelFailsQuietly(t *testing.T) {
+	opts, got := claudeOptions(t, "claudecode-model-reset")
+	opts.Model = "ghost"
+	session, err := Start(context.Background(), opts)
+	if session != nil {
+		session.Close()
+		t.Fatal("a chat started on a model the adapter reset to its default")
+	}
+	if !errors.Is(err, ErrModel) {
+		t.Fatalf("start: %v", err)
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "status" && event.State == "idle" {
+			t.Fatalf("a chat that never opened announced itself idle: %+v", event)
+		}
+	}
+}

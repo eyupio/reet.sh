@@ -13,11 +13,13 @@ func claudeChatFixture(t *testing.T) (b *Broker, uid int64, agent string, setCha
 	b, _, uid, agent = chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) {
 		c.Tools = []string{"claude", "opencode"}
 		c.AgentsV2 = true
-		agents := []terminalproto.ACPAgent{{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1", Model: true, Approval: true, History: true}}
+		c.ChatReattach, c.ACPAgentReattach = true, true
+		agents := []terminalproto.ACPAgent{{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1", Model: true, Approval: true, History: true, Reattach: true}}
 		c.ACPAgents = &agents
 	}, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
 		// Claude names its sessions with UUIDs, not the OpenCode-shaped id the fixture answers a create with.
-		if _, ok := m.Body.(terminalproto.Create); ok {
+		switch m.Body.(type) {
+		case terminalproto.Create, *terminalproto.ChatReattach:
 			return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: "5d0a3b57-7c2e-4f58-9d1b-3b8a2c1e9f40"}, true
 		}
 		return nil, true
@@ -95,5 +97,38 @@ func TestContinueClaudeWithHistoryIsBoundToItsFolder(t *testing.T) {
 		if !errors.Is(err, ErrACPResumeNotFound) {
 			t.Errorf("continue for %s: %v, want ErrACPResumeNotFound", name, err)
 		}
+	}
+	// With the account's switch off the refusal names the setting, not the machine.
+	setChats(false)
+	if err := resume(uid, agent, "/tmp"); !errors.Is(err, ErrChatOff) {
+		t.Errorf("continue with the switch off: %v, want ErrChatOff", err)
+	}
+}
+
+// A lost Claude Code chat reconnects under its own session id, and not when the account has turned Claude off.
+func TestALostClaudeChatReconnectsInPlace(t *testing.T) {
+	b, uid, agent, setChats := claudeChatFixture(t)
+	setChats(true)
+	chat, err := b.Create(t.Context(), uid, agent, ID(), terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "claude", Structured: true, Trust: true, Dir: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := b.st.RemoteCapabilitiesRawFor(uid, agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.st.ObserveTerminalStateFor(uid, agent, chat.ID, record.Generation, terminalproto.Lost, nil); err != nil {
+		t.Fatal(err)
+	}
+	setChats(false)
+	if err := b.ReattachChat(t.Context(), uid, chat.ID, true); !errors.Is(err, ErrChatOff) {
+		t.Fatalf("a reconnect with the switch off: %v, want ErrChatOff", err)
+	}
+	setChats(true)
+	if err := b.ReattachChat(t.Context(), uid, chat.ID, true); err != nil {
+		t.Fatalf("a lost Claude chat did not reconnect: %v", err)
+	}
+	if got, err := b.st.TerminalSessionFor(uid, chat.ID); err != nil || got.State != terminalproto.Running {
+		t.Fatalf("after the reconnect: %+v %v", got, err)
 	}
 }

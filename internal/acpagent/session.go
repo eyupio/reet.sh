@@ -1915,7 +1915,11 @@ func (s *Session) setModel(ctx context.Context, model string, startup bool) erro
 	s.mu.Lock()
 	s.model = applied
 	s.mu.Unlock()
-	s.emit(Event{Kind: "status", State: "idle", Detail: applied})
+	// A live chat shows the model it is now on even when that is not the one asked for. A start that ends in ErrModel opens
+	// no chat, so it announces nothing.
+	if !startup || applied == model {
+		s.emit(Event{Kind: "status", State: "idle", Detail: applied})
+	}
 	if applied != model {
 		return ErrModel
 	}

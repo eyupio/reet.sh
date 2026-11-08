@@ -17,6 +17,7 @@ import (
 //	claudecode-no-store      session/load answers -32002 Resource not found
 //	claudecode-effort-stuck  a thinking-level change is answered with the old value (not confirmed)
 //	claudecode-effort-dropped choosing another model drops the thinking level from the snapshot
+//	claudecode-model-reset   an unknown model is accepted and silently reset to "default", as the adapter does
 //	claudecode-image         the prompt is checked for a PNG image block
 func runClaudeHelper(in *bufio.Scanner, out *bufio.Writer, scenario, version string) {
 	send := func(v any) { raw, _ := json.Marshal(v); _, _ = out.Write(append(raw, '\n')); _ = out.Flush() }
@@ -96,6 +97,8 @@ func runClaudeHelper(in *bufio.Scanner, out *bufio.Writer, scenario, version str
 			switch {
 			case params.ConfigID == "model" && listed(models, params.Value):
 				model = params.Value
+			case params.ConfigID == "model" && scenario == "claudecode-model-reset":
+				model = "default"
 			case params.ConfigID == "effort" && listed(efforts, params.Value):
 				if scenario != "claudecode-effort-stuck" {
 					effort = params.Value

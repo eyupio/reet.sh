@@ -1,17 +1,14 @@
 import { effortChoices } from '../models'
 import { structuredAgent, type Capabilities } from './api'
 
-/** What a start can carry: the controller's Create.Effort takes only these three. */
-const START_EFFORTS = ['low', 'medium', 'high']
-
 /** Launch suggestions are installation evidence. The running agent must still
  * confirm that the chosen model accepts an effort before any prompt is sent.
- * A chat start offers only the values a start can carry; the live control offers every value the session reports. */
+ * The values are the agent's own thinking levels, read from its descriptor, not a list of ours. */
 export function launchEfforts(tool: string, caps: Capabilities | undefined, chat: boolean): string[] {
  if (!chat) return effortChoices(tool)
  if (!caps?.acpStartOptions) return ['']
  const selector = structuredAgent(caps, tool)?.options?.find(option => option.category === 'thought_level')
- return ['', ...new Set(selector?.values.filter(value => START_EFFORTS.includes(value)) ?? [])]
+ return ['', ...new Set(selector?.values.filter(value => value && value !== 'default') ?? [])]
 }
 
 export function effortHelp(tool: string, caps: Capabilities | undefined, chat: boolean): string {

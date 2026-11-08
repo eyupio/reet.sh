@@ -20,8 +20,9 @@ func TestDescribeInstalledAdapterEvidence(t *testing.T) {
 		{"opencode", true, "", "available"}, // executable/handshake are checked at launch
 		{"opencode", true, "1.19.4", "incompatible"},
 		{"opencode", true, "garbled", "incompatible"},
-		{"claude", true, "", "unverified"},
-		{"codex", true, "", "unverified"},
+		{"claude", true, "", "available"},
+		{"codex", true, "", "available"},
+		{"claude", false, "", "missing"},
 	} {
 		got := Describe(tc.tool, tc.installed, tc.version)
 		if got.State != tc.state || !got.Valid() {
@@ -33,31 +34,15 @@ func TestDescribeInstalledAdapterEvidence(t *testing.T) {
 	}
 }
 
-// Claude is registered but dark: without the machine's opt-in it is only
-// "unverified", exactly as before; with it, it is available with just the
-// capabilities the probe verified.
-func TestClaudeIsDarkUntilTheMachineOptsIn(t *testing.T) {
-	t.Setenv(ClaudeSwitch, "")
-	if _, ok := Lookup("claude"); ok {
-		t.Fatal("claude is registered without the switch")
-	}
-	if got := Describe("claude", true, ""); got.State != "unverified" || got.Model || got.Approval {
-		t.Fatalf("dark claude: %+v", got)
-	}
-	for _, off := range []string{"0", "true", "yes", " 1"} {
-		t.Setenv(ClaudeSwitch, off)
-		if _, ok := Lookup("claude"); ok {
-			t.Fatalf("%q enabled claude", off)
-		}
-	}
-	t.Setenv(ClaudeSwitch, "1")
+// Claude reports just the capabilities the probe verified, whatever else its adapter could do.
+func TestClaudeReportsOnlyWhatTheProbeVerified(t *testing.T) {
 	spec, ok := Lookup("claude")
 	if !ok || spec.Key != "claude" || spec.RequireMode != "default" {
 		t.Fatalf("lookup: %+v %v", spec, ok)
 	}
 	got := Describe("claude", true, "")
 	if got.State != "available" || !got.Valid() || got.Adapter != "claude-agent-acp" || got.MinimumVersion != "0.99.1" {
-		t.Fatalf("opted-in claude: %+v", got)
+		t.Fatalf("claude: %+v", got)
 	}
 	if !got.Model || !got.Approval || got.History || got.Images || got.Questions {
 		t.Fatalf("unverified capabilities were reported: %+v", got)
@@ -65,24 +50,10 @@ func TestClaudeIsDarkUntilTheMachineOptsIn(t *testing.T) {
 	if missing := Describe("claude", false, ""); missing.State != "missing" || !missing.Valid() {
 		t.Fatalf("missing: %+v", missing)
 	}
-	// The Claude switch never admits Codex.
-	if _, ok := Lookup("codex"); ok {
-		t.Fatal("codex is registered by the claude switch")
-	}
 }
 
-// Codex is registered but dark behind its own switch, starts in read-only (the
-// only mode that can ask), and reports approvals only.
-func TestCodexIsDarkUntilTheMachineOptsIn(t *testing.T) {
-	t.Setenv(CodexSwitch, "")
-	t.Setenv(ClaudeSwitch, "1")
-	if _, ok := Lookup("codex"); ok {
-		t.Fatal("codex is registered without its switch")
-	}
-	if got := Describe("codex", true, ""); got.State != "unverified" || got.Approval || got.Model {
-		t.Fatalf("dark codex: %+v", got)
-	}
-	t.Setenv(CodexSwitch, "1")
+// Codex starts in read-only (the only mode that can ask) and reports approvals only.
+func TestCodexReportsApprovalsOnly(t *testing.T) {
 	spec, ok := Lookup("codex")
 	if !ok || spec.RequireMode != "read-only" || spec.StartMode != "read-only" || spec.Command != "codex-acp" {
 		t.Fatalf("lookup: %+v %v", spec, ok)
@@ -96,7 +67,7 @@ func TestCodexIsDarkUntilTheMachineOptsIn(t *testing.T) {
 	}
 	got := Describe("codex", true, "")
 	if got.State != "available" || !got.Valid() || got.Adapter != "codex-acp" || got.MinimumVersion != "1.13.1" {
-		t.Fatalf("opted-in codex: %+v", got)
+		t.Fatalf("codex: %+v", got)
 	}
 	if !got.Approval || got.Model || got.History || got.Images || got.Questions {
 		t.Fatalf("unverified capabilities were reported: %+v", got)
@@ -104,17 +75,11 @@ func TestCodexIsDarkUntilTheMachineOptsIn(t *testing.T) {
 	if old := Describe("codex", true, "1.0.0"); old.State != "incompatible" || !old.Valid() {
 		t.Fatalf("old codex: %+v", old)
 	}
-	t.Setenv(ClaudeSwitch, "")
-	if _, ok := Lookup("claude"); ok {
-		t.Fatal("the codex switch registered claude")
-	}
 }
 
 // The descriptor carries the option values measured from each pinned adapter,
 // in the adapter's order, and a caller cannot mutate the profile through it.
 func TestDescribeAgentOptionValues(t *testing.T) {
-	t.Setenv(ClaudeSwitch, "1")
-	t.Setenv(CodexSwitch, "1")
 	for _, tc := range []struct {
 		tool, version string
 		want          []terminalproto.ACPAgentOption
@@ -157,8 +122,6 @@ func TestDescribeAgentOptionValues(t *testing.T) {
 // A descriptor claims in-place reattach only for an adapter whose profile can do it, because the connector refuses a
 // reattach for any other (ErrUnsupported). Claiming it for the rest would offer a reconnect that can only fail.
 func TestDescribeClaimsReattachOnlyWhereTheProfileCanReattach(t *testing.T) {
-	t.Setenv(ClaudeSwitch, "1")
-	t.Setenv(CodexSwitch, "1")
 	want := map[string]bool{"opencode": true, "cline": true, "antigravity": false, "claude": false, "codex": false}
 	for tool, reattach := range want {
 		spec, ok := Lookup(tool)
@@ -174,6 +137,24 @@ func TestDescribeClaimsReattachOnlyWhereTheProfileCanReattach(t *testing.T) {
 		}
 		if got.Reattach != reattach {
 			t.Errorf("%s descriptor claims Reattach = %v, but its profile says %v", tool, got.Reattach, reattach)
+		}
+	}
+}
+
+// Claude Code and Codex are registered like every other agent. Whether an account sees their chats is the controller's
+// stored setting; no environment variable on the machine decides it.
+func TestClaudeAndCodexAreRegisteredWithoutAnEnvironmentSwitch(t *testing.T) {
+	t.Setenv("REET_EXPERIMENTAL_CLAUDE_CHAT", "")
+	t.Setenv("REET_EXPERIMENTAL_CODEX_CHAT", "")
+	for _, tool := range []string{"claude", "codex"} {
+		if _, ok := Lookup(tool); !ok {
+			t.Fatalf("%s is not registered", tool)
+		}
+		if got := Describe(tool, true, ""); got.State != "available" || !got.Valid() {
+			t.Fatalf("%s with its adapter installed: %+v", tool, got)
+		}
+		if got := Describe(tool, false, ""); got.State != "missing" || !got.Valid() {
+			t.Fatalf("%s without its adapter: %+v", tool, got)
 		}
 	}
 }

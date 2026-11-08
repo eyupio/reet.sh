@@ -2,6 +2,7 @@ package terminalproto
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -446,5 +447,84 @@ func TestRetiredToolDescriptorFromAnOlderConnectorIsTolerated(t *testing.T) {
 	*c.ACPAgents = append(*c.ACPAgents, ACPAgent{Tool: "vim", Adapter: "vim", State: "missing"})
 	if c.ValidateFor(ACPAgentsFeature) == nil {
 		t.Fatal("accepted a descriptor for an unknown tool")
+	}
+}
+
+func gatedChatCapabilities() Capabilities {
+	c := chatCapabilities()
+	c.AgentsV2, c.Tools = true, []string{"claude", "codex", "opencode"}
+	entries := []ACPAgent{
+		{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1"},
+		{Tool: "codex", Adapter: "codex-acp", State: "missing"},
+		{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", History: true},
+	}
+	c.ACPAgents = &entries
+	return c
+}
+
+// Claude Code and Codex chats are gated: they are off for an account until it turns them on, and stay on only for the
+// accounts that did. The built-in default is off for both.
+func TestGatedChatToolsAreClaudeAndCodexAndOffByDefault(t *testing.T) {
+	if got := GatedChatTools(); !slices.Equal(got, []string{"claude", "codex"}) {
+		t.Fatalf("gated chat tools: %v", got)
+	}
+	for _, tool := range GatedChatTools() {
+		if ChatDefaultOn(tool) {
+			t.Fatalf("%s chat is on by default", tool)
+		}
+	}
+	if !ChatDefaultOn("opencode") {
+		t.Fatal("an ungated agent's chat is not on")
+	}
+}
+
+func TestSupportsChatGate(t *testing.T) {
+	if !SupportsChatGate("launch-v1, "+ChatGateFeature) || SupportsChatGate("launch-v1") || SupportsChatGate(ChatGateFeature+"0") {
+		t.Fatal("chat gate negotiation")
+	}
+}
+
+func TestWithoutChatsMasksOnlyTheListedTools(t *testing.T) {
+	c := gatedChatCapabilities()
+	if err := c.Validate(); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	got := c.WithoutChats([]string{"claude"})
+	if err := got.Validate(); err != nil {
+		t.Fatalf("masked capabilities do not validate: %v", err)
+	}
+	byTool := map[string]ACPAgent{}
+	for _, a := range *got.ACPAgents {
+		byTool[a.Tool] = a
+	}
+	if want := (ACPAgent{Tool: "claude", Adapter: "claude-agent-acp", State: "unverified"}); !reflect.DeepEqual(byTool["claude"], want) {
+		t.Fatalf("masked claude: %+v", byTool["claude"])
+	}
+	if byTool["opencode"].State != "available" || !byTool["opencode"].History || byTool["codex"].State != "missing" {
+		t.Fatalf("unlisted tools changed: %+v", byTool)
+	}
+	if (*c.ACPAgents)[0].State != "available" {
+		t.Fatal("the input was modified")
+	}
+	if !slices.Equal(got.Tools, c.Tools) {
+		t.Fatal("masking changed the installed tools")
+	}
+}
+
+// A missing adapter is hidden too, so an account with the chat off cannot tell from the descriptor whether the adapter
+// is installed, and a later hint about a missing adapter shows only to accounts that turned the chat on.
+func TestWithoutChatsMasksAMissingDescriptorToo(t *testing.T) {
+	got := gatedChatCapabilities().WithoutChats([]string{"claude", "codex"})
+	for _, a := range *got.ACPAgents {
+		if (a.Tool == "claude" || a.Tool == "codex") && a.State != "unverified" {
+			t.Fatalf("%s descriptor reads %q", a.Tool, a.State)
+		}
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	var none Capabilities
+	if got := none.WithoutChats([]string{"claude"}); got.ACPAgents != nil {
+		t.Fatal("masking invented a descriptor list")
 	}
 }

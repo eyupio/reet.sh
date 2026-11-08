@@ -26,6 +26,7 @@
   import SessionViewSwitch from './SessionViewSwitch.svelte'
   import { PHONE_SCREEN } from '../terminal/sizing'
   import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
+  import { SWITCH_LIVE_CHAT_HINT } from '../chatAgents'
 
   // The session screen: identity above a wrapping toolbar for interface, approvals, theatre, management and terminal
   // actions. The live terminal is the workspace's (children), and the context panel sits beside it, toggled from the
@@ -197,7 +198,7 @@
     { label: 'This agent has an option reet can use', ok: agentTakesYolo,
       detail: agentTakesYolo ? 'the option is recorded for this session' : 'This agent has no option reet can use for that.' },
     { label: 'This chat can switch while it runs', ok: !!structuredAgent(machineCaps, session.tool)?.approval,
-      detail: structuredAgent(machineCaps, session.tool)?.approval ? 'update reet on the machine if this is ever refused' : 'Update reet on that machine to switch a live chat.' },
+      detail: structuredAgent(machineCaps, session.tool)?.approval ? 'update reet on the machine if this is ever refused' : SWITCH_LIVE_CHAT_HINT(session.tool ?? '') },
   ])
   $effect(() => {
     if (session.id !== modeFor) { modeFor = session.id; approvalMode = session.yolo ? 'yolo' : 'ask' }

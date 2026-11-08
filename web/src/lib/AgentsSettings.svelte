@@ -8,6 +8,7 @@
   } from './api'
   import { CATALOGUE } from './catalogue'
   import { KNOWN_SOURCES } from './clineSource'
+  import { CHAT_GATE_HELP, chatToggles, chatTogglePatch } from './chatAgents'
   import { cleanModel, modelSuggestions, toolName, validateModel } from './agentLaunch'
   import {
     dedupeModels, defaultLabel, effortChoices, favouriteKey, modelOptions, starLabel,
@@ -21,6 +22,10 @@
   const agents = CATALOGUE.filter(agent => agent.enabled)
   const life = new AbortController()
   let loading = $state(true), busy = $state(''), profileLoaded = $state(false)
+  let chatOn = $state<Record<string, boolean>>({})
+  // The checkboxes themselves: a click changes the box before the save answers, and Svelte does not write an unchanged
+  // value back, so a refused save has to put the box back by hand.
+  const chatBoxes: Record<string, HTMLInputElement | undefined> = {}
   let defaultTool = $state(''), defaultModel = $state(''), defaultEffort = $state(''), defaultClineSource = $state('')
   let defaultBaseBranch = $state(''), worktreesByDefault = $state(false)
   let formMessage = $state(''), notice = $state('')
@@ -103,6 +108,7 @@
       const answer = await getProfile()
       if (life.signal.aborted) return
       fillProfile(answer.profile)
+      chatOn = answer.chatEnabled ?? {}
     } catch (e) {
       if (life.signal.aborted) return
       fail(e)
@@ -401,6 +407,24 @@
     }
   }
 
+  // A gated chat's switch applies at once and sends only its own agent. A refused save puts the box back as the server has it.
+  async function toggleChat(id: string, on: boolean) {
+    busy = 'chat'; formMessage = ''; notice = ''
+    try {
+      const answer = await saveProfile(chatTogglePatch(id, on))
+      if (life.signal.aborted) return
+      chatOn = answer.chatEnabled ?? chatOn
+    } catch (err) {
+      if (life.signal.aborted) return
+      fail(err)
+      const box = chatBoxes[id]
+      if (box) box.checked = chatOn[id] === true
+      formMessage = err instanceof ApiError && err.message ? err.message : "Couldn't change that just now. Try again."
+    } finally {
+      if (!life.signal.aborted) busy = ''
+    }
+  }
+
   onMount(() => {
     const coarse = matchMedia('(pointer: coarse)')
     const readPointer = () => { touch = coarse.matches }
@@ -478,6 +502,14 @@
       {#if !profileLoaded && !loading}<button type="button" class="btn" onclick={() => void loadProfile()}>Retry</button>{/if}
     </div>
   </form>
+
+  <fieldset class="chatgate" disabled={!canWrite || loading || !profileLoaded || busy !== ''}>
+    <legend>Gaffer chats still being verified</legend>
+    <p class="muted">{CHAT_GATE_HELP}</p>
+    {#each chatToggles(chatOn) as chat (chat.id)}
+      <label class="check"><input type="checkbox" bind:this={chatBoxes[chat.id]} checked={chat.on} onchange={event => void toggleChat(chat.id, event.currentTarget.checked)} /> <span>{chat.label}</span></label>
+    {/each}
+  </fieldset>
 
   <h3>Favourite models</h3>
   {#if favMessage}<p class="notice bad" role="alert">{favMessage}</p>{/if}
@@ -575,6 +607,11 @@
   .picker .value { min-width: 0; overflow-wrap: anywhere; }
   .picker .chev { flex: none; color: var(--muted); }
   .formacts { display: flex; justify-content: flex-end; }
+  .chatgate { margin: 24px 0 0; padding: 0; border: 0; min-width: 0; }
+  .chatgate legend { padding: 0; font: 600 1.02rem/1.3 var(--sans); }
+  .chatgate .check { display: flex; align-items: center; gap: 10px; min-height: 36px; margin-top: 8px; color: var(--ink); font-size: 0.95rem; }
+  .chatgate .check input { flex: none; width: 18px; height: 18px; min-height: 0; padding: 0; accent-color: var(--accent); }
+  @media (pointer: coarse) { .chatgate .check { min-height: 44px; } }
   .favgroup { margin-top: 16px; min-width: 0; }
   .favs { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .favs li { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--line); min-width: 0; }

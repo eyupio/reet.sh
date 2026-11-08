@@ -1,14 +1,14 @@
 # Checks that need a real device or a real login
 
 Two gates cannot be closed from CI or from a sandbox. This page says exactly what to do and what to write down. Do not turn on typed questions
-(`elicitation.form`) or Claude chats (`REET_EXPERIMENTAL_CLAUDE_CHAT`) for anyone until the matching section below has been run and its results recorded
+(`elicitation.form`) or make Claude chats on by default for anyone (they are an account setting in Settings > Agents, off until an account turns them on) until the matching section below has been run and its results recorded
 in `docs/structured-chat-plan.md` and the PR that records them.
 
 ## Recorded results
 
 The signed-out half of both login gates and the connector-level Claude start are recorded; the signed-in runs and the phone and
-reader checks are not. Typed questions (`elicitation.form`), Claude chats (`REET_EXPERIMENTAL_CLAUDE_CHAT`) and Codex chats
-(`REET_EXPERIMENTAL_CODEX_CHAT`) therefore stay off.
+reader checks are not. Typed questions (`elicitation.form`) therefore stay off, and Claude and Codex chats stay off by default: an account
+turns each on for itself in Settings > Agents.
 
 | Gate | Evidence to record | State |
 | --- | --- | --- |
@@ -137,7 +137,7 @@ REET_CLAUDE_ACP=$WORKSPACE/claude/node_modules/.bin/claude-agent-acp go test ./i
 ```
 
 **Record** the adapter version, the OS, whether each run was logged in, `authenticatedHint`, and the logged-out error text. Put it in the probe report and the PR.
-Only then decide whether the browser needs a "sign in to Claude on that machine" message, and whether to retire `REET_EXPERIMENTAL_CLAUDE_CHAT`.
+Only then decide whether the browser needs a "sign in to Claude on that machine" message, and whether to make Claude chats on by default.
 
 ## 3. Codex sign-in (needed before Codex chats can start)
 
@@ -145,7 +145,7 @@ Only then decide whether the browser needs a "sign in to Claude on that machine"
 verification before Codex is enabled. If `session/new` still says "Authentication required", stop and bring that result back before any Run A follow-up.
 The implementation and fake-child tests do not count as a real signed-in result.
 
-Codex chats stay behind `REET_EXPERIMENTAL_CODEX_CHAT` and cannot start until reet knows how the adapter behaves for a person who is already signed in to Codex (ChatGPT).
+Codex chats stay off by default (an account turns them on in Settings > Agents) and cannot usefully start until reet knows how the adapter behaves for a person who is already signed in to Codex (ChatGPT).
 `scripts/probe-codex-start.py` makes no model call and no network request. Install the pinned adapter and CLI once:
 
 ```

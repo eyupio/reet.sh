@@ -285,6 +285,14 @@ func TestCanonicalLibraryLocationIdentityIsolationAndPartialCapture(t *testing.T
 
 func TestCanonicalLibraryMigrationPreservesLegacyStagesAndSelections(t *testing.T) {
 	s, uid, a, env := observationFixture(t)
+	member, err := s.CreateUser("migration-member@example.com", "Member", "member", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberNote := "private migration notes"
+	if _, err = s.UpsertFor(member.ID, mustRef(t, "a/b/member-only"), Patch{Notes: &memberNote}); err != nil {
+		t.Fatal(err)
+	}
 	yes, no := true, false
 	for i, patch := range []Patch{{Used: &yes, Liked: &yes}, {Bookmarked: &yes}, {Used: &no, Bookmarked: &no}} {
 		if _, err := s.UpsertFor(uid, mustRef(t, fmt.Sprintf("a/b/skill-%d", i)), patch); err != nil {
@@ -406,6 +414,16 @@ func TestCanonicalLibraryMigrationPreservesLegacyStagesAndSelections(t *testing.
 		if ids[item.Name] != item.ID {
 			t.Fatal("migration was not idempotent")
 		}
+	}
+	var retained int
+	if err = s.db.QueryRow(`SELECT count(*) FROM library_legacy_stages WHERE user_id=?`, member.ID).Scan(&retained); err != nil || retained != 1 {
+		t.Fatal("member migration evidence was not recorded", retained, err)
+	}
+	if err = s.DeleteUser(member.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.db.QueryRow(`SELECT count(*) FROM library_legacy_stages WHERE user_id=?`, member.ID).Scan(&retained); err != nil || retained != 0 {
+		t.Fatal("deleted account left private migration notes behind", retained, err)
 	}
 }
 

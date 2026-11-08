@@ -20,15 +20,19 @@ import (
 
 // CollectLibrarySkillLocations resolves machine-local read roots. It does not
 // translate them into destination paths or broaden the legacy apply adapters.
+// A configuration error returns the valid locations as well; callers must keep
+// processing them so one malformed app override cannot block unrelated roots.
 func CollectLibrarySkillLocations(home string, projects, custom []string, application string, getenv func(string) string) ([]store.LibraryLocation, error) {
 	if application != "shared" && application != "claude" && application != "codex" && application != "opencode" && application != "agy" {
 		return nil, errors.New("unsupported application for custom skill folders")
 	}
 	var out []store.LibraryLocation
+	var configurationErrors []error
 	seen := map[string]bool{}
 	add := func(app, project, root string) error {
 		if !filepath.IsAbs(root) || (project != "" && !filepath.IsAbs(project)) {
-			return errors.New("skill folders and projects must use absolute paths")
+			configurationErrors = append(configurationErrors, errors.New("skill folders and projects must use absolute paths"))
+			return nil
 		}
 		root = filepath.Clean(root)
 		key := app + "\x00" + project + "\x00" + root
@@ -91,10 +95,11 @@ func CollectLibrarySkillLocations(home string, projects, custom []string, applic
 		}
 	}
 	if len(out) > 64 {
-		return nil, errors.New("at most 64 skill folders can be imported at once")
+		configurationErrors = append(configurationErrors, errors.New("at most 64 skill folders can be imported at once"))
+		out = out[:64]
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
+	return out, errors.Join(configurationErrors...)
 }
 
 type libraryImportSummary struct {
@@ -128,11 +133,14 @@ func runLibraryImport(args []string, out io.Writer, version string) error {
 	if err != nil {
 		return err
 	}
-	locations, err := CollectLibrarySkillLocations(c.Home, c.Projects, folders, *app, os.Getenv)
-	if err != nil {
-		return err
+	locations, configurationErr := CollectLibrarySkillLocations(c.Home, c.Projects, folders, *app, os.Getenv)
+	if configurationErr != nil && len(locations) == 0 {
+		return configurationErr
 	}
 	result := importLibraryLocations(context.Background(), c, locations, folders, version)
+	if configurationErr != nil {
+		result.Issues = append(result.Issues, libraryImportIssue{Code: "location_configuration_invalid"})
+	}
 	if err := json.NewEncoder(out).Encode(result); err != nil {
 		return err
 	}

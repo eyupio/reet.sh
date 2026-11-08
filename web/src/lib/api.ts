@@ -1010,6 +1010,7 @@ export async function restoreUserBackup(id: string, password?: string): Promise<
   return (await req(`/api/v2/backups/items/${encodeURIComponent(id)}/restore`, { method: 'POST', body: json(body) })).json()
 }
 export type RestoreReport = {
+  libraryItems?: number; privateBundles?: number
   id: string; release?: string; takenAt: number; schemaVersion: number
   users: number; usersByRole: Record<string, number>; shelves: number; skills: number; lists: number; tags: number; environments: number
   machines: number; destinations: number

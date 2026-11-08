@@ -42,8 +42,9 @@ func TestLibrarySkillLocationsHonourOverridesAndRemainDistinct(t *testing.T) {
 		t.Fatalf("duplicate custom root retained: %d", len(locations))
 	}
 	values["CLAUDE_CONFIG_DIR"] = "relative/path"
-	if _, err = CollectLibrarySkillLocations(home, nil, nil, "shared", func(key string) string { return values[key] }); err == nil {
-		t.Fatal("relative override accepted")
+	valid, err := CollectLibrarySkillLocations(home, nil, nil, "shared", func(key string) string { return values[key] })
+	if err == nil || len(valid) != 3 {
+		t.Fatal("invalid override was accepted or hid healthy app roots", valid, err)
 	}
 }
 

@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stages 0 and 1 completed on 8 November 2026; see the [baseline and migration map](simple-library-machine-sync-stage-0.md) and [Stage 1 recovery handover](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662). [Stage 2 implementation](simple-library-machine-sync-stage-2.md) is in progress on a separate branch based on Stage 1, with focused acceptance checks passing and full validation running. Stages 3–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stages 0–2 completed on 8 November 2026. See the [baseline and migration map](simple-library-machine-sync-stage-0.md), [Stage 1 recovery](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662), and [Stage 2 foundation/handover](simple-library-machine-sync-stage-2.md) in [PR #664](https://github.com/eyupio/reet.sh/pull/664), which is based on Stage 1. All 44 Go test packages passed race checks, with supplemental final compatibility checks recorded there. Stage 3 is next; Stages 3–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -274,7 +274,7 @@ Stages 1–4 therefore provide browser-accessible behaviour checks before the in
 
 **Handover:** schemas/projections, compatibility translation, migration fixtures, manifest/identity rules and retention behaviour.
 
-**Implementation record:** [Stage 2 results](simple-library-machine-sync-stage-2.md) cover canonical identity/lifecycle, typed private content, metadata-preserving migration and explicit registered-root capture. Its status records validation progress; the later destination-policy cutover remains separate.
+**Implementation record:** [Stage 2 results](simple-library-machine-sync-stage-2.md) cover canonical identity/lifecycle, typed private content, metadata-preserving migration, explicit registered-root capture and existing-backup compatibility. Validation is complete; the later destination-policy cutover remains separate.
 
 ### Stage 3 — Automatic selected-item sync and edit propagation
 
@@ -427,11 +427,11 @@ Do not replace observed failures with a later broad claim of success. Do not req
 
 - [x] Stage 0: baseline, migration design and real-connector harness
 - [x] Stage 1: identity, supervision and connection recovery
-- [ ] Stage 2: complete library, authoring, status and metadata
+- [x] Stage 2: complete library, authoring, status and metadata
 - [ ] Stage 3: selected-item automatic sync and edits
 - [ ] Stage 4: removal, restoration and notifications
 - [ ] Stage 5: Library and Machines UX
 - [ ] Stage 6: Linux provisioning for all four applications
 - [ ] Stage 7: independent backup, migration and release proof
 
-**Evidence:** the original specification records the user's decisions. Stage 0 added the real-controller/subprocess harness and reproduced five contract gaps. Stage 1 fixes the import-restart gap and promotes its regression into ordinary tests; four future-stage probes remain tagged. Its linked handover records actual checks and field-testing limits. No live provisioning or production deployment has been performed.
+**Evidence:** the original specification records the user's decisions. Stage 0 added the real-controller/subprocess harness and reproduced five contract gaps. Stage 1 fixes the import-restart gap and promotes its regression into ordinary tests. Stage 2 adds canonical identity/status, typed complete content, metadata-preserving migration, registered-root capture and backup compatibility, with store/API/connector checks and the full race suite passing. Four future-stage execution probes remain tagged. The linked handovers retain actual commands and field-testing limits. No live provisioning or production deployment has been performed.

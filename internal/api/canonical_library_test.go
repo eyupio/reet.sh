@@ -183,3 +183,21 @@ func TestCanonicalLibraryTypedPrivateAPI(t *testing.T) {
 		t.Fatalf("typed capture missing from canonical library: %d %s", code, body)
 	}
 }
+
+func TestCanonicalLibraryCLIInvalidOverrideKeepsHealthyImports(t *testing.T) {
+	h := newSyncContractHarness(t)
+	m := h.machine("partial-configuration")
+	m.localSkill("healthy-root", "still imported")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := m.connectorCommand(ctx, "library-import", "--config", m.config)
+	command.Env = append(command.Env, "CLAUDE_CONFIG_DIR=relative-invalid-folder")
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), `"imported":1`) || !strings.Contains(string(output), `"location_configuration_invalid"`) {
+		t.Fatalf("invalid app configuration blocked healthy imports: %s", output)
+	}
+	items, err := h.st.LibraryFor(h.uid)
+	if err != nil || len(items) != 1 || items[0].Name != syncContractName("healthy-root") || items[0].RevisionID == "" {
+		t.Fatal("healthy capture unavailable", items, err)
+	}
+}

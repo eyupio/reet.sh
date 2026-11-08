@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -243,4 +244,30 @@ func TestATagOrMachineAPersonMadeStillCountsAsData(t *testing.T) {
 			t.Fatalf("%s must count as data, got %v", name, err)
 		}
 	}
+}
+
+func TestLibraryOnlyDataCannotBeReplacedAsAnEmptyController(t *testing.T) {
+	raw, _ := movable(t)
+	svc, dir := destination(t)
+	owner, err := svc.st.EnsureLocalOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := ""
+	_, err = svc.st.SaveLibraryContentFor(owner.ID, "", store.PrivateSkillWrite{Name: "review", RequestID: "library_backup_0001", ExpectedBase: &base, ItemType: store.LibraryAgent, Application: "claude", Format: "markdown", Files: []skillbundle.ContentFile{{Path: "review.md", Data: []byte("---\nname: review\ndescription: Review\n---\nInspect the diff.\n")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdings := svc.st.Holdings(context.Background())
+	if holdings.Skills != 0 || holdings.Shelves != 0 || holdings.Machines != 0 || holdings.LibraryItems != 1 || holdings.PrivateBundles != 1 {
+		t.Fatal("fixture is not a library-only controller", holdings)
+	}
+	before := liveBytes(t, dir)
+	if _, err = svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{}); !errors.Is(err, ErrNotEmpty) {
+		t.Fatal("library-only user data was treated as an empty controller", err)
+	}
+	if !bytes.Equal(before, liveBytes(t, dir)) {
+		t.Fatal("refused import changed library data")
+	}
+	noAsideCopy(t, dir)
 }

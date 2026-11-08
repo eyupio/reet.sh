@@ -42,19 +42,21 @@ type RestoreOptions struct {
 // RestoreReport says what a copy holds and what was done to it so it is safe
 // on the controller it lands on.
 type RestoreReport struct {
-	ID            string         `json:"id"`
-	Release       string         `json:"release,omitempty"`
-	TakenAt       int64          `json:"takenAt"`
-	SchemaVersion int            `json:"schemaVersion"`
-	Users         int            `json:"users"`
-	UsersByRole   map[string]int `json:"usersByRole"`
-	Shelves       int            `json:"shelves"`
-	Skills        int            `json:"skills"`
-	Lists         int            `json:"lists"`
-	Tags          int            `json:"tags"`
-	Environments  int            `json:"environments"`
-	Machines      int            `json:"machines"`
-	Destinations  int            `json:"destinations"`
+	ID             string         `json:"id"`
+	Release        string         `json:"release,omitempty"`
+	TakenAt        int64          `json:"takenAt"`
+	SchemaVersion  int            `json:"schemaVersion"`
+	Users          int            `json:"users"`
+	UsersByRole    map[string]int `json:"usersByRole"`
+	Shelves        int            `json:"shelves"`
+	Skills         int            `json:"skills"`
+	LibraryItems   int            `json:"libraryItems"`
+	PrivateBundles int            `json:"privateBundles"`
+	Lists          int            `json:"lists"`
+	Tags           int            `json:"tags"`
+	Environments   int            `json:"environments"`
+	Machines       int            `json:"machines"`
+	Destinations   int            `json:"destinations"`
 
 	SessionsKept          int  `json:"sessionsKept"`
 	SessionsEnded         int  `json:"sessionsEnded"`
@@ -87,10 +89,14 @@ func (r RestoreReport) Inventory() []string {
 	if len(roles) > 0 {
 		accounts += " (" + strings.Join(roles, ", ") + ")"
 	}
-	return []string{
+	lines := []string{
 		fmt.Sprintf("The copy %s holds %s, %d shelves, %d skills, %d lists, %d tags, %d environments, %d connected machines and %d backup destinations.",
 			r.ID, accounts, r.Shelves, r.Skills, r.Lists, r.Tags, r.Environments, r.Machines, r.Destinations),
 	}
+	if r.LibraryItems > 0 || r.PrivateBundles > 0 {
+		lines = append(lines, fmt.Sprintf("It also holds %d library items and %d private content bundles.", r.LibraryItems, r.PrivateBundles))
+	}
+	return lines
 }
 
 // Lines is the whole report as a person reads it.
@@ -196,6 +202,7 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 	}
 	rep.SchemaVersion = sum.SchemaVersion
 	rep.Users, rep.UsersByRole, rep.Shelves, rep.Skills = sum.Users, sum.UsersByRole, sum.Shelves, sum.Skills
+	rep.LibraryItems, rep.PrivateBundles = sum.LibraryItems, sum.PrivateBundles
 	rep.Lists, rep.Tags, rep.Environments, rep.Machines, rep.Destinations = sum.Lists, sum.Tags, sum.Environments, sum.Machines, sum.Destinations
 	rep.SessionsKept = sum.Sessions - ad.SessionsEnded
 	rep.TokensKept = !opts.DropTokens
@@ -323,7 +330,7 @@ var ErrNotEmpty = errors.New("this controller already holds data")
 
 // holds says what a controller holds that an import would replace. A new
 // controller has its first owner and nothing else: no other account and no
-// skills, shelves, lists, tags, environments or connected machines. The topic
+// skills, shelves, library content, lists, tags, environments or connected machines. The topic
 // tags the daily sync adds and the server's own machine report are not
 // counted: a controller makes them for itself before anyone uses it. Backup
 // destinations and settings are configuration, set up before an import on
@@ -340,6 +347,8 @@ func holds(h store.RestoreSummary) []string {
 	}
 	add(h.Shelves, "shelves")
 	add(h.Skills, "skills")
+	add(h.LibraryItems, "library items")
+	add(h.PrivateBundles, "private content bundles")
 	add(h.Lists, "lists")
 	add(h.MadeTags, "tags")
 	add(h.MadeEnvironments, "environments")

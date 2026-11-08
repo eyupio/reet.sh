@@ -4,7 +4,9 @@
 
 Parent: [product contract and staged plan](simple-library-machine-sync.md). Predecessors: [Stage 0 authority/migration map](simple-library-machine-sync-stage-0.md), [Stage 1 recovery](simple-library-machine-sync-stage-1.md).
 
-**Status:** implementation and focused acceptance checks pass; full race validation is running. Record its final result before marking the parent ledger complete.
+Pull request: [#664](https://github.com/eyupio/reet.sh/pull/664). Initial implementation commit: `85f72eb74074434b900f9c219f0b2a116c710454`; the follow-up records final compatibility fixes and validation.
+
+**Status:** Stage 2 complete. The repository-wide race run passed all 44 test packages. Supplemental race checks cover the final import, backup and account-migration refinements. Web check/build, MCP tests and vet pass. Stage 3 is next; no preview or production deployment was created.
 
 ## Baseline and review boundary
 
@@ -31,6 +33,8 @@ Parent: [product contract and staged plan](simple-library-machine-sync.md). Pred
 
 Authored saves materialise private immutable content without publication. A later edit changes the revision, and publish/unpublish and rename preserve the logical item ID and lifecycle. A delayed authored snapshot cannot replace a newer saved head. A bad capture retains the editor's source bytes, the last complete revision and an item-specific problem. Restoring the last good bytes clears that problem without creating a redundant revision.
 
+New canonical-only captures/types can have no legacy shelf metadata row yet. When the later interface adds organisation controls for them, use ID-based compatible metadata links; do not key unrelated items by name or make metadata creation eligible for legacy automatic rollout.
+
 `contentState` is explicit: `pending_capture`, `complete`, `previous_revision` or `unavailable`. Metadata-only discoveries are not presented as complete backups. Catalogue items without captured bytes remain pending.
 
 ## Schema, migration and retention
@@ -47,6 +51,8 @@ Private bundles gain `item_type` (default `skill`), `format` and `application`. 
 Database `user_version` becomes **2**. New typed revisions can omit `SKILL.md`, which a Stage 1 private-content reader cannot interpret. A backup made with this format must be rejected by an older restore reader rather than described as completely readable. The backup refusal test now derives its expected current version from `store.SchemaVersion`.
 
 The migration runs through production `store.Open` in one transaction. It snapshots original stage evidence, links known authored/shelf/private records, and records completion. It does not delete catalogue rows, metadata, content, selections or receipts. Reopening/repeating it preserves generated item IDs. It is an expansion step, not the later destination-policy cutover or an independent backup.
+
+Migration evidence belongs to its account and cascades on account deletion; the reopen/migration test verifies private notes are not left behind. Existing backup import now counts library items and private bundles when deciding whether a controller already holds user data. A library-only controller cannot be silently treated as empty. Restore reports, including the existing web report, show the added contents. This is compatibility with existing database backups; independent backup/release proof remains Stage 7.
 
 Legacy stages map as agreed: `used=true` → In use; otherwise `bookmarked=true` → To test; otherwise On the shelf. Existing explicit stages win over the authored default. New authored items and new registered-root captures default to To test. The old scan/import pipeline keeps its historical defaults until Stage 3 translates its intent; do not silently infer a fleet-wide policy migration from this expansion.
 
@@ -102,6 +108,10 @@ This Stage 2 inspection/import command reads known roots plus enrolled projects 
 
 This command is a staged verification surface, not another mandatory step in the final user journey. Stage 3 must integrate capture into the background connector with the agreed one-time folder consent and causal edit tracking. Do not blindly use a fresh server head as the base of an automatic offline edit: this explicit snapshot-import helper is not the latest-save conflict algorithm.
 
+Missing files in a managed bundle remain restoration candidates under the parent contract. Do not turn an explicit snapshot-import helper into automatic permission to delete files from the canonical manifest.
+
+A malformed application override also leaves other valid roots running. `CollectLibrarySkillLocations` can return valid locations together with a configuration error; callers must retain/process those locations. The command reports the partial configuration issue without reading an invalid relative path.
+
 ## API boundaries
 
 | Endpoint | Purpose |
@@ -127,10 +137,15 @@ Local host: Debian 13.6 amd64; Go 1.27.1; Node 22.23.4; workspace tmux 3.5a. The
 | Stage 1 baseline probe | The new typed API test fails on `6835558d` with HTTP 400; the same test expects successful typed capture and one canonical entry. Scratch worktree and log recorded below. |
 | Broad non-race package checks | API, scan, setup, skillbundle and CLI checks passed. Initial store/backup failures identified an eager-capture fixture ordering change, temporary-copy retention and a hard-coded schema-version expectation; focused correction checks pass. |
 | Web check/build | Passed; zero Svelte errors or warnings. |
+| Fresh embedded-web Go race check after the final report change | Passed; package time 0.211 seconds. |
 | MCP `npm test` | Passed: 16 tests, including hosted/stdio forwarding and account scope. Generated tool contract checked. |
-| `go vet ./...` | Passed before the final retention/repair refinements; rerun required for final handoff. |
-| Full repository race suite | Running. Record final result and any focused reruns. |
-| Four future-stage contract probes | Pending final rerun; expected to remain explicit failures for Stages 3–4. |
+| `go vet ./...` | Passed again after the final runtime refinements. |
+| Final focused race run on Stage 2 and content-target boundaries | Passed: store 48.127 seconds, API 15.679 seconds, scan 7.418 seconds. Includes typed skill-target rejection and capture repair back to the last good bytes. |
+| Full repository race suite | Passed all 44 test packages, exit 0. API 1003.190 seconds; store 410.336 seconds; backup 158.849 seconds. No reported race. |
+| Supplemental final compatibility race run | Passed: backup 153.082 seconds, store 130.867 seconds, API 150.215 seconds, scan 15.786 seconds. Covers new-only backup import protection and existing capture/restore paths. |
+| Invalid-override isolation under race detection | Passed: API 5.423 seconds, scan 0.593 seconds. A healthy shared root imports despite a malformed Claude override. |
+| Account migration/deletion under race detection | Passed: store 4.375 seconds. Original metadata/intent survives migration and private migration notes cascade when that account is deleted. |
+| Four future-stage contract probes | Four expected failures reproduced; import-restart regression passed. Package time 10.926 seconds, intentional exit 1. |
 
 Commands from the repository root, with the workspace toolchain activated:
 
@@ -150,6 +165,11 @@ python3 /workspace/work/stage1/run_with_reaper.py \
 go vet ./...
 npm test --prefix mcp
 
+GORACE=atexit_sleep_ms=0 go test -race \
+  ./internal/backup ./internal/store ./internal/api ./internal/scan \
+  -run 'Test(CanonicalLibrary|LibrarySkillLocations|LibraryCaptured|SkillContentTarget|LibraryOnly|.*Backup|.*Restore|.*Import|.*Holdings)' \
+  -count=1 -timeout=10m
+
 go test -tags=sync_contract ./internal/api \
   -run '^TestSimpleSyncContract' -count=1 -v
 ```
@@ -158,6 +178,8 @@ Run `npm run check` and `npm run build` in `web/`; build fresh assets before Go'
 
 Scratch logs are `/workspace/work/stage2-*.log`; fixture evidence is `/workspace/work/stage2-evidence`. The isolated Stage 1 baseline worktree was `/workspace/work/stage2-baseline`, with a copy of `TestCanonicalLibraryTypedPrivateAPI` using only the older fixture and generic request maps. A compiler/setup error is not the expected baseline failure; the observed failure is the HTTP 400 assertion.
 
+The broad race run was followed by targeted runs for the final compatibility refinements, rather than describing those later edits as part of its earlier build. The supplemental logs are `stage2-final-compat-race.log`, `stage2-invalid-override-race.log` and `stage2-account-migration-race.log`. The temporary baseline probe/worktree was removed after recording its result.
+
 ## What the user can test in the web UI
 
 **Availability:** no preview/deployment URL has been created. The implementation build must be running before any browser test applies to it.
@@ -165,6 +187,8 @@ Scratch logs are `/workspace/work/stage2-*.log`; fixture evidence is `/workspace
 1. In the existing authoring pages, save a private skill, edit it, publish and unpublish it. Check that the item and its existing likes, notes, lists and status survive. Revisit after a controller restart.
 2. With an enrolled disposable Linux connector pointed at that controller, run the import command against an explicit folder plus standard/project roots. Fetch the account-owned `/api/v2/library` JSON while signed in; check complete entries and distinct same-name captures. This endpoint is a development inspection surface, not the new Library screen.
 3. Disconnect the source connector and fetch its captured revision through the private-content API. Supporting bytes remain controller-owned. Automated tests additionally restore them through the production installer and verify the executable-mode digest.
+
+Existing backup import/restore reports also expose library/file-bundle counts. A controller with only library content now requires the existing explicit replacement choice before importing over it.
 
 Selected-item automatic distribution is Stage 3, managed removal/restoration is Stage 4, and the new minimal web interface is Stage 5. Do not describe these API/CLI checks as a completed redesigned browser journey.
 
@@ -180,10 +204,10 @@ Selected-item automatic distribution is Stage 3, managed removal/restoration is 
 
 ## Handover and rollback
 
-- **Status:** implementation complete; final broad validation pending.
+- **Status:** complete; full repository race run and supplemental compatibility checks passed, along with web/MCP/vet checks. PR #664 remains based on its open Stage 1 dependency; GitHub checks on the latest push are separate from these recorded local results.
 - **Scope:** Stage 2 foundation. No selected-only scheduler cutover, removal/restoration policy, four-app provisioning, independent backup rollout or production deployment.
 - **Runtime:** canonical library and locations store/API; typed private content; authored private binding; shelf status/read adapters; explicit connector import; existing setup policy validation.
 - **Migration/activation:** automatic additive `store.Open` migration, schema format 2. New data APIs/explicit capture are available; destination policy remains legacy.
 - **Rollback:** stop new ingestion, retain a consistent full database copy and all post-migration content/aliases. Prefer a forward-compatible fix. A Stage 1 binary cannot fully read typed content, and an old restore must refuse schema-2 archives. Do not automatically overwrite newer content with an old snapshot or reactivate a whole-library writer as a migration rollback.
 - **Field limits:** local subprocesses/HTTP/SQLite and temporary files, not two physical machines or a new production Tailcat diagnosis. Stage 1's field evidence gap remains. No application sign-in/provider calls were made.
-- **Next:** Stage 3 after recording final checks and reviewable PR details here and in the parent ledger.
+- **Next:** Stage 3. Rebaseline the stacked PR after Stage 1 merges, then implement explicit item/location selections and the single scheduler cutover. Keep status versions, content expected-base revisions and destination intent generations distinct.

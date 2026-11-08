@@ -30,3 +30,7 @@ Design: [spec](../superpowers/specs/2026-11-07-attention-contract-design.md) · 
 ## Non-goals and status
 
 Not done here: server-owned attention items or an acknowledged state; the silent 100-session listing cap (`internal/store/store_terminal.go`); Gaffer's up-to-a-minute scheduler lag; row highlighting and `waitingProjects` stay blocked-only; the board's "Needs attention" filter stays a state label. Deployment of this change is a separate verification and is not verified by merging.
+
+## Merge outcome
+
+PR #651 was merged on 2026-11-08 as merge commit `81cdf32eaa4048d035deefa16f9e28afe39fd252` (head `bfb4ba38`, merge method: merge commit). Every pull-request check on that exact head passed, including both `offline` legs (the Docker leg now runs on `ubuntu-latest`, as in #652), and the Codex review had no findings. Of the push runs on `main` for the merge commit, `Gaffer offline acceptance`, `Gaffer settings browser` and `docs` passed; `image`, `release` and `terminal browser` were cancelled when the next merge (#653) landed, so they are **not verified here**. **Deployment is unverified**: controller and web rollout need their own check, and no connector upgrade is required. "No lag after answering" is proven against a synthetic server only.

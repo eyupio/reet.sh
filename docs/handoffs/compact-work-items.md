@@ -76,7 +76,7 @@ PR #644 was merged on 2026-11-07 as merge commit `9e9372bf1713eece6af049a14041fe
 
 ## Later-message retitling
 
-Spec: [Name Chat sessions from their first real task](../superpowers/specs/2026-11-07-chat-first-task-retitle-design.md). Plan: [implementation plan](../superpowers/plans/2026-11-07-chat-first-task-retitle.md). The change is implemented on this branch; nothing here is deployed or verified in production.
+Spec: [Name Chat sessions from their first real task](../superpowers/specs/2026-11-07-chat-first-task-retitle-design.md). Plan: [implementation plan](../superpowers/plans/2026-11-07-chat-first-task-retitle.md). The change is merged (#647; the image-only follow-up #650, merge commit `568d31ca`; extra shell-quoted upload-reference test rows and the Docker CI runner fix #652, merge commit `8ca28167`). Nothing here is verified as deployed.
 
 Contract:
 

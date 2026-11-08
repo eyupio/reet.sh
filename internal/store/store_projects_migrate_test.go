@@ -796,3 +796,20 @@ func TestMigrationOnAnOldDatabaseWithoutTheMappingTable(t *testing.T) {
 		t.Fatal(err, got)
 	}
 }
+
+// A saved Project whose agent has since been retired still migrates: its folder
+// arrives with no default agent, rather than carrying one reet would now refuse.
+func TestLegacyProjectMemberWithARetiredAgentMigratesWithoutIt(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	m := enrolledID(t, s, uid, "studio")
+	p := mustProject(t, s, uid, Project{Name: "Old", DefaultTool: "claude", DefaultModel: "sonnet", Members: []ProjectMember{{Host: m, Dir: "/g/site"}}})
+	if _, err := s.db.Exec(`UPDATE projects SET default_tool='gemini', default_model='pro' WHERE id=?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	migrate(t, s)
+	got, ok := byDir(t, s, uid)[m+" /g/site"]
+	if !ok || got.DefaultTool != "" || got.DefaultModel != "" {
+		t.Fatalf("the folder did not migrate without the retired agent: %+v present=%v", got, ok)
+	}
+}

@@ -1915,9 +1915,10 @@ func (s *Session) setModel(ctx context.Context, model string, startup bool) erro
 	s.mu.Lock()
 	s.model = applied
 	s.mu.Unlock()
-	// A live chat shows the model it is now on even when that is not the one asked for. A start that ends in ErrModel opens
-	// no chat, so it announces nothing.
-	if !startup || applied == model {
+	// A live chat shows the model it is now on even when that is not the one asked for.
+	// Startup announces readiness only after every launch option is confirmed: a later
+	// thinking-level refusal must not leave an idle status for a chat that never opened.
+	if !startup {
 		s.emit(Event{Kind: "status", State: "idle", Detail: applied})
 	}
 	if applied != model {

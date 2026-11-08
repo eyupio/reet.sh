@@ -131,15 +131,26 @@ func TestClaudeStartsWithAConfirmedEffort(t *testing.T) {
 
 // An adapter that answers with the old value has not applied the level: the chat refuses to start rather than claim it.
 func TestClaudeRefusesAnEffortTheAdapterDoesNotConfirm(t *testing.T) {
-	opts, _ := claudeOptions(t, "claudecode-effort-stuck")
-	opts.Effort = "high"
-	session, err := Start(context.Background(), opts)
-	if err == nil {
-		session.Close()
-		t.Fatal("a chat started on a thinking level the adapter did not confirm")
-	}
-	if !errors.Is(err, ErrControl) {
-		t.Fatalf("start: %v", err)
+	for _, model := range []string{"", "sonnet"} {
+		t.Run("model="+model, func(t *testing.T) {
+			opts, got := claudeOptions(t, "claudecode-effort-stuck")
+			opts.Model, opts.Effort = model, "high"
+			session, err := Start(context.Background(), opts)
+			if err == nil {
+				session.Close()
+				t.Fatal("a chat started on a thinking level the adapter did not confirm")
+			}
+			if !errors.Is(err, ErrControl) {
+				t.Fatalf("start: %v", err)
+			}
+			got.mu.Lock()
+			defer got.mu.Unlock()
+			for _, event := range got.all {
+				if event.Kind == "status" && event.State == "idle" {
+					t.Fatalf("a chat whose thinking level was refused announced itself idle: %+v", event)
+				}
+			}
+		})
 	}
 }
 

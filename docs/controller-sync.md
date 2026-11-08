@@ -103,7 +103,7 @@ See [the control centre workflow](control-centre.md) for fleet controls and sele
 
 ## Your own drafts sync without publishing
 
-The [Stage 2 library foundation](handoffs/simple-library-machine-sync-stage-2.md)
+The [Stage 2 library foundation](https://github.com/eyupio/reet.sh/blob/main/docs/handoffs/simple-library-machine-sync-stage-2.md)
 adds stable item IDs, lifecycle and complete typed content beneath the current
 pages. An enrolled connector can explicitly capture known/project skill folders
 and additional absolute folders with `reet agent library-import --folder PATH`.

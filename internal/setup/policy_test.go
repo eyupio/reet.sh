@@ -42,7 +42,6 @@ func TestExportPolicyCoversEverySupportedAgentSource(t *testing.T) {
 	writeConfig(t, filepath.Join(e.home, ".config", "opencode", "opencode.json"), `{}`)
 	writeConfig(t, filepath.Join(e.home, ".pi", "agent", "settings.json"), `{}`)
 	writeConfig(t, filepath.Join(e.home, ".cursor", "mcp.json"), `{}`)
-	writeConfig(t, filepath.Join(e.home, ".gemini", "settings.json"), `{}`)
 	writeConfig(t, filepath.Join(e.project, ".mcp.json"), `{}`)
 
 	r, err := discover(e)
@@ -73,7 +72,6 @@ func TestExportPolicyCoversEverySupportedAgentSource(t *testing.T) {
 		{"opencode", "opencode.json", []string{"settings", "mcp"}},
 		{"pi", "settings.json", []string{"settings"}},
 		{"cursor", "mcp.json", []string{"mcp"}},
-		{"gemini", "settings.json", []string{"settings", "mcp"}},
 	} {
 		source := findPolicySource(t, r, tc.agent, tc.suffix)
 		if source.Observed != "present" || source.Scope == "" || source.Format == "" {

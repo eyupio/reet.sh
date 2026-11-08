@@ -27,7 +27,10 @@ inspected implicitly just because the command runs inside one.
 | OpenCode | `opencode` | `~/.config/opencode`, `~/.config/opencode/AGENTS.md`, `~/.config/opencode/skills` | `.opencode`, `opencode.json`, `opencode.jsonc`, `.opencode/skills` |
 | Pi | `pi` | `~/.pi/agent`, `~/.pi/agent/AGENTS.md`, `~/.pi/agent/skills` | `.pi`, `.pi/skills` |
 | Cursor | `cursor` | `~/.cursor`, `~/.cursor/skills` | `.cursor`, `.cursorrules`, `.cursor/skills` |
-| Gemini CLI | `gemini` | `~/.gemini`, `~/.gemini/GEMINI.md` | `.gemini`, `GEMINI.md` |
+
+Gemini CLI is retired. reet no longer discovers, reads or restores its settings, MCP servers or
+instructions under `~/.gemini`, and nothing on a machine is changed or deleted because of it. Setup history
+that already recorded Gemini CLI is kept.
 
 `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`, `OPENCODE_CONFIG_DIR` and
 `XDG_CONFIG_HOME` also move the corresponding skills folders. They override the corresponding
@@ -107,7 +110,6 @@ capability becomes `metadata_and_config_summary`; backup and restore remain
 | OpenCode | `opencode.json` / `opencode.jsonc` under discovered config directories and project root; explicit `OPENCODE_CONFIG` | JSON/JSONC settings and `mcp` |
 | Pi | `settings.json` under discovered global/project config directories | Selected settings; no built-in MCP parser claimed |
 | Cursor | `mcp.json` under discovered global/project config directories | `mcpServers` |
-| Gemini CLI | `settings.json` under discovered global/project config directories | Selected settings and `mcpServers`, including `httpUrl` |
 
 Path overrides from discovery are honoured. No directory walking, nested project
 config evaluation, include expansion, shell evaluation, network calls or provider
@@ -221,7 +223,7 @@ agent:
 | caches | exclude | never |
 
 Discovered global and project instruction files (`CLAUDE.md`, `AGENTS.md`,
-`.cursorrules`, `GEMINI.md`) are selected as whole bounded text. They stay inside the
+`.cursorrules`) are selected as whole bounded text. They stay inside the
 encrypted payload, can be restored or verified, and are never printed by preview, list
 or inspect. Shared project `AGENTS.md` may be used by more than one agent, so restore it
 deliberately. Other or unlisted instruction locations are not inventoried. These classes make the other gaps explicit rather than implying that
@@ -671,7 +673,7 @@ package managers, lifecycle scripts or network requests. It is independent of
 configuration reads and version probes; the default metadata-only scan is unchanged.
 Reports use schema v2, `installation_inspection: true`, and a separate `installation`
 observation per agent. The installation capability is `local_node_package_evidence`
-for the five supported adapters and `not_supported` for Cursor.
+for the four supported adapters and `not_supported` for Cursor.
 
 | Agent | Recognised package name |
 | --- | --- |
@@ -679,7 +681,6 @@ for the five supported adapters and `not_supported` for Cursor.
 | Codex | `@openai/codex` |
 | OpenCode | `@opencode/cli`, legacy `opencode-ai` |
 | Pi | `@earendil-works/pi-coding-agent`, legacy `@mariozechner/pi-coding-agent` |
-| Gemini CLI | `@google/gemini-cli` |
 
 Inspection resolves the executable's symlinks, then checks up to six directories,
 starting with its containing directory, for the nearest `package.json`. It stops

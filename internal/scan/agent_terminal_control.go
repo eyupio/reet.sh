@@ -173,8 +173,8 @@ func modelsConsent(config string, c agentConfig) error {
 }
 
 // structuredAgents reports reviewed and candidate adapter availability without
-// executing a CLI. OpenCode, Claude Code, Codex and Cline have a reviewed
-// adapter; Gemini is reported as unverified until one is reviewed.
+// executing a CLI. OpenCode, Claude Code, Codex, Cline and Antigravity have a
+// reviewed adapter.
 func structuredAgents(home string) []terminalproto.ACPAgent {
 	tools := launchTools(home)
 	installed := func(tool string) bool {
@@ -191,7 +191,7 @@ func structuredAgents(home string) []terminalproto.ACPAgent {
 		version = evidence.Version
 	}
 	entries := []terminalproto.ACPAgent{}
-	for _, tool := range []string{"claude", "codex", "cline", "gemini", "opencode", "antigravity"} {
+	for _, tool := range []string{"claude", "codex", "cline", "opencode", "antigravity"} {
 		found := installed(tool)
 		// Claude and Codex chats run through a separate adapter binary; Cline's
 		// ACP server is the cline binary itself, so its install evidence is the

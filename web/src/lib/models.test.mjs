@@ -140,7 +140,7 @@ test('model options without a machine list stay honest and selectedModel wins ov
 
 test('launch defaults follow the precedence chain and never take a mismatched default', () => {
   assert.deepEqual(resolveLaunchDefaults({ availableAgents: [] }), { agent: '', model: '', effort: '' })
-  assert.deepEqual(resolveLaunchDefaults({ availableAgents: ['gemini', 'claude'] }), { agent: 'gemini', model: '', effort: '' })
+  assert.deepEqual(resolveLaunchDefaults({ availableAgents: ['opencode', 'claude'] }), { agent: 'opencode', model: '', effort: '' })
 
   assert.deepEqual(resolveLaunchDefaults({
     explicitAgent: 'cline',
@@ -157,12 +157,12 @@ test('launch defaults follow the precedence chain and never take a mismatched de
   }), { agent: 'cline', model: 'account-model', effort: 'low' })
 
   assert.deepEqual(resolveLaunchDefaults({
-    explicitAgent: 'gemini',
+    explicitAgent: 'opencode',
     project: { defaultTool: 'claude', defaultModel: 'project-model', defaultEffort: 'high' },
     account: { defaultTool: 'claude', defaultModel: 'account-model', defaultEffort: 'high' },
     favouriteDefault: { tool: 'claude', model: 'favourite-model' },
-    availableAgents: ['claude', 'gemini'],
-  }), { agent: 'gemini', model: '', effort: '' })
+    availableAgents: ['claude', 'opencode'],
+  }), { agent: 'opencode', model: '', effort: '' })
 
   assert.deepEqual(resolveLaunchDefaults({
     project: { defaultTool: 'claude', defaultModel: 'project-model' },
@@ -171,10 +171,10 @@ test('launch defaults follow the precedence chain and never take a mismatched de
   }), { agent: 'claude', model: 'project-model', effort: '' })
 
   assert.deepEqual(resolveLaunchDefaults({
-    project: { defaultTool: 'gemini', defaultModel: '' },
-    account: { defaultTool: 'gemini', defaultModel: 'account-model' },
-    availableAgents: ['gemini'],
-  }), { agent: 'gemini', model: 'account-model', effort: '' })
+    project: { defaultTool: 'opencode', defaultModel: '' },
+    account: { defaultTool: 'opencode', defaultModel: 'account-model' },
+    availableAgents: ['opencode'],
+  }), { agent: 'opencode', model: 'account-model', effort: '' })
 
   assert.deepEqual(resolveLaunchDefaults({
     account: { defaultTool: 'cline', defaultModel: 'account-model', defaultEffort: 'low' },
@@ -203,8 +203,8 @@ test('launch defaults follow the precedence chain and never take a mismatched de
 
   assert.deepEqual(resolveLaunchDefaults({
     favouriteDefault: 'string-model',
-    availableAgents: ['gemini'],
-  }), { agent: 'gemini', model: 'string-model', effort: '' })
+    availableAgents: ['opencode'],
+  }), { agent: 'opencode', model: 'string-model', effort: '' })
 
   assert.deepEqual(resolveLaunchDefaults({
     project: { defaultTool: 'claude', defaultModel: 'project-model', defaultEffort: 'high' },

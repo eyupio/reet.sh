@@ -268,7 +268,7 @@ func TestFolderProjectEditKeepsAnOldOneWordPrompt(t *testing.T) {
 // even though the prompt itself did not change.
 func TestFolderProjectToolChangeRechecksAOneWordPrompt(t *testing.T) {
 	f := projectFixture(t)
-	saved := f.fpDo(t, f.cookie, "POST", "/api/v2/folder-projects", map[string]any{"host": f.agent.ID, "dir": "/home/tester/site", "defaultTool": "gemini", "starterPrompt": "update"}, "")
+	saved := f.fpDo(t, f.cookie, "POST", "/api/v2/folder-projects", map[string]any{"host": f.agent.ID, "dir": "/home/tester/site", "defaultTool": "opencode", "starterPrompt": "update"}, "")
 	if saved.code != 201 {
 		t.Fatal(saved.code, saved.raw)
 	}
@@ -278,7 +278,7 @@ func TestFolderProjectToolChangeRechecksAOneWordPrompt(t *testing.T) {
 			t.Fatal(tool, res.code, res.raw)
 		}
 	}
-	if got, _ := f.st.FolderProjectFor(f.uid, saved.out["id"].(string)); got.DefaultTool != "gemini" {
+	if got, _ := f.st.FolderProjectFor(f.uid, saved.out["id"].(string)); got.DefaultTool != "opencode" {
 		t.Fatal("refused edit saved", got.DefaultTool)
 	}
 	for _, body := range []map[string]any{{"defaultTool": "opencode"}, {"name": "Renamed"}, {"defaultTool": "claude", "starterPrompt": "update the docs"}} {

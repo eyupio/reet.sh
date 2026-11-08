@@ -105,7 +105,7 @@ func TestStructuredCreateRules(t *testing.T) {
 		t.Fatal("structured YOLO create refused")
 	}
 	for name, mutate := range map[string]func(*Create){
-		"other tool":     func(c *Create) { c.Tool = "gemini" },
+		"other tool":     func(c *Create) { c.Tool = "vim" },
 		"worktree":       func(c *Create) { c.Worktree = "run" },
 		"resume":         func(c *Create) { c.Resume = true },
 		"invalid effort": func(c *Create) { c.Effort = "--unsafe effort" },

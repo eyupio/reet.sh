@@ -26,7 +26,7 @@ The short answer: use skills.sh to find skills, and use reet.sh to keep a privat
 | Keep a private skill library for a team or a fleet | reet.sh |
 | Send the same skills to several machines and review the plan first | reet.sh Sync |
 | See which machine has which skill, and whether a scan is stale | reet.sh Machines and Sync |
-| Run Claude Code, Codex, OpenCode or Gemini CLI on a remote machine | reet.sh sessions |
+| Run Claude Code, Codex or OpenCode on a remote machine | reet.sh sessions |
 | Back up skills and setups before changing a machine | reet.sh backups |
 
 ## They work together

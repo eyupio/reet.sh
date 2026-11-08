@@ -107,7 +107,7 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(home, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	for _, tool := range []string{"claude", "gemini"} {
+	for _, tool := range []string{"claude", "opencode"} {
 		script := strings.Replace(recordingAgent, "RECORDS", records, 1)
 		if err := os.WriteFile(filepath.Join(bin, tool), []byte(script), 0700); err != nil {
 			t.Fatal(err)
@@ -179,7 +179,7 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 		t.Fatal("controller did not advertise launch", advertised)
 	}
 	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalControl: true, TerminalEnabled: true, HealthEnabled: true, Readiness: terminalproto.Ready, CommandHistory: true, Launch: true, Tools: terminalhost.InstalledTools(exec.LookPath)}
-	if !slices.Equal(caps.Tools, []string{"claude", "gemini"}) {
+	if !slices.Equal(caps.Tools, []string{"claude", "opencode"}) {
 		t.Fatal("installed tools", caps.Tools)
 	}
 	headers.Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature+","+terminalproto.LaunchFeature)
@@ -343,7 +343,7 @@ func TestTerminalPrivateLaunchStartsTheRecordedAgent(t *testing.T) {
 		code   string
 	}{
 		{"escaping symlink", map[string]any{"tool": "claude", "dir": filepath.Join(home, "escape")}, 422, "folder_unavailable"},
-		{"outside home", map[string]any{"tool": "gemini", "dir": outside}, 422, "folder_unavailable"},
+		{"outside home", map[string]any{"tool": "opencode", "dir": outside}, 422, "folder_unavailable"},
 		{"missing folder", map[string]any{"tool": "claude", "dir": filepath.Join(home, "missing")}, 422, "folder_unavailable"},
 		{"not installed", map[string]any{"tool": "codex"}, 422, "tool_not_installed"},
 		{"one-word prompt", map[string]any{"tool": "claude", "prompt": "purge"}, 422, "prompt_unsupported"},

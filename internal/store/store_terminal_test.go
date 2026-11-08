@@ -1320,3 +1320,18 @@ func TestDeletingAnAccountRemovesItsSessionRowsAndPrompts(t *testing.T) {
 		t.Fatalf("account deletion left %d session rows and %d prompts", rows, prompts)
 	}
 }
+
+// A capability record stored by a connector from before Gemini CLI was retired may describe it in acpAgents. It must
+// keep reading back, or every operation on that machine fails until the connector is updated.
+func TestStoredCapabilitiesWithARetiredAgentDescriptorStillRead(t *testing.T) {
+	s, uid, a, _ := terminalFixture(t)
+	described := []terminalproto.ACPAgent{{Tool: "gemini", Adapter: "gemini", State: "missing"}}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "tester", TerminalEnabled: true, HealthEnabled: true, TerminalControl: true, Readiness: terminalproto.Ready, ACPAgents: &described}
+	if _, err := s.BeginRemoteConnectionFor(uid, a.ID, syncID(), caps); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.RemoteCapabilitiesFor(uid, a.ID)
+	if err != nil || got.Capabilities.ACPAgents == nil || len(*got.Capabilities.ACPAgents) != 1 {
+		t.Fatalf("stored record: %+v %v", got, err)
+	}
+}

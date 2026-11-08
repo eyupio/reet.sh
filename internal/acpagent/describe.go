@@ -7,7 +7,7 @@ import "github.com/eyupio/reet.sh/internal/terminalproto"
 // Describe uses installation evidence only. No program runs: available means a
 // reviewed adapter is installed; --version and initialize remain launch gates.
 func Describe(tool string, installed bool, version string) terminalproto.ACPAgent {
-	adapters := map[string]string{"opencode": "opencode", "claude": "claude-agent-acp", "codex": "codex-acp", "gemini": "gemini", "cline": "cline", "antigravity": "agy"}
+	adapters := map[string]string{"opencode": "opencode", "claude": "claude-agent-acp", "codex": "codex-acp", "cline": "cline", "antigravity": "agy"}
 	entry := terminalproto.ACPAgent{Tool: tool, Adapter: adapters[tool], State: "missing"}
 	spec, reviewed := Lookup(tool)
 	if reviewed {

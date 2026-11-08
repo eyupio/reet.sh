@@ -24,7 +24,7 @@ func fakeLookPath(installed ...string) func(string) (string, error) {
 }
 
 func TestLaunchArgvPresets(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "gemini", "cline", "agy")
+	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy")
 	const model, prompt = "sonnet-4.5", "fix the failing tests"
 	// Each row: neither, model, prompt, both.
 	cases := map[string][][]string{
@@ -51,12 +51,6 @@ func TestLaunchArgvPresets(t *testing.T) {
 			{"/opt/fake/bin/cline", "--auto-approve", "false", "--tui", "--model", model},
 			{"/opt/fake/bin/cline", "--auto-approve", "false", "--tui", "--", prompt},
 			{"/opt/fake/bin/cline", "--auto-approve", "false", "--tui", "--model", model, "--", prompt},
-		},
-		"gemini": {
-			{"/opt/fake/bin/gemini"},
-			{"/opt/fake/bin/gemini", "--model", model},
-			{"/opt/fake/bin/gemini", "--prompt-interactive", prompt},
-			{"/opt/fake/bin/gemini", "--model", model, "--prompt-interactive", prompt},
 		},
 		"antigravity": {
 			{"/opt/fake/bin/agy"},
@@ -85,7 +79,7 @@ func TestLaunchArgvPresets(t *testing.T) {
 }
 
 func TestLaunchArgvResumeOnlyForAReviewedPreset(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "gemini", "cline", "agy")
+	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy")
 	for _, tc := range []struct {
 		in   terminalproto.Create
 		want []string
@@ -98,7 +92,7 @@ func TestLaunchArgvResumeOnlyForAReviewedPreset(t *testing.T) {
 			t.Fatalf("resume %q: got %q, %v; want %q", tc.in.Model, got, err, tc.want)
 		}
 	}
-	for _, tool := range []string{"claude", "codex", "gemini", "cline", "antigravity"} {
+	for _, tool := range []string{"claude", "codex", "cline", "antigravity"} {
 		if _, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, Resume: true}, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
 			t.Fatal(tool, "resume without a reviewed command", err)
 		}
@@ -121,14 +115,14 @@ func TestLaunchArgvNeverUsesBypassOrPrintFlags(t *testing.T) {
 		if p.modelFlag != "--model" || !allowed[p.promptFlag] || p.binary != binary {
 			t.Fatal("unreviewed preset flag", tool, p)
 		}
-		if tool == "opencode" && p.promptFlag != "--prompt" || (tool == "gemini" || tool == "antigravity") && p.promptFlag != "--prompt-interactive" {
-			t.Fatal("Google CLIs need --prompt-interactive; only opencode's --prompt is its TUI prompt", tool, p)
+		if tool == "opencode" && p.promptFlag != "--prompt" || tool == "antigravity" && p.promptFlag != "--prompt-interactive" {
+			t.Fatal("AGY needs --prompt-interactive; only opencode's --prompt is its TUI prompt", tool, p)
 		}
 	}
 }
 
 func TestLaunchArgvPlainShellAndRefusals(t *testing.T) {
-	look := fakeLookPath("claude", "gemini")
+	look := fakeLookPath("claude")
 	if argv, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24}, look); argv != nil || err != nil {
 		t.Fatal("plain shell must have no argv", argv, err)
 	}
@@ -155,7 +149,7 @@ func TestLaunchArgvPlainShellAndRefusals(t *testing.T) {
 }
 
 func TestLaunchArgvPromptIsOneArgumentNeverAFlag(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "gemini", "cline", "agy")
+	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy")
 	for tool := range launchPresets {
 		// A leading '-' is refused outright, so it can never be read as a flag.
 		for _, prompt := range []string{"-rf", "--help", "--dangerously-skip-permissions now"} {
@@ -186,7 +180,7 @@ func TestLaunchArgvPromptIsOneArgumentNeverAFlag(t *testing.T) {
 }
 
 func TestLaunchArgvRefusesSubcommandShapedPositionalPrompt(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "gemini", "cline", "agy")
+	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy")
 	// claude's parser dispatches a subcommand from the first operand even after
 	// "--", so a one-word positional prompt such as "purge" or "update" would run
 	// that subcommand instead of starting the TUI.
@@ -198,7 +192,7 @@ func TestLaunchArgvRefusesSubcommandShapedPositionalPrompt(t *testing.T) {
 		}
 	}
 	// Flag-form prompts are never parsed as a subcommand.
-	for _, tool := range []string{"opencode", "gemini", "antigravity"} {
+	for _, tool := range []string{"opencode", "antigravity"} {
 		if _, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, Prompt: "hello"}, look); err != nil {
 			t.Fatal("flag-form single word prompt refused", tool, err)
 		}
@@ -209,11 +203,11 @@ func TestInstalledTools(t *testing.T) {
 	if got := InstalledTools(fakeLookPath()); len(got) != 0 {
 		t.Fatal("nothing installed", got)
 	}
-	if got := InstalledTools(fakeLookPath("gemini", "claude", "pi", "cursor")); !reflect.DeepEqual(got, []string{"claude", "gemini"}) {
+	if got := InstalledTools(fakeLookPath("gemini", "claude", "pi", "cursor")); !reflect.DeepEqual(got, []string{"claude"}) {
 		t.Fatal("installed tools", got)
 	}
 	got := InstalledTools(fakeLookPath("opencode", "gemini", "codex", "claude"))
-	if !reflect.DeepEqual(got, []string{"claude", "codex", "gemini", "opencode"}) {
+	if !reflect.DeepEqual(got, []string{"claude", "codex", "opencode"}) {
 		t.Fatal("installed tools must be sorted", got)
 	}
 	if err := (terminalproto.Capabilities{ProtocolVersion: terminalproto.Version, OS: "linux", OSUser: "dev", Readiness: terminalproto.Ready, TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: got}).Validate(); err != nil {

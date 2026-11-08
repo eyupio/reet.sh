@@ -203,7 +203,7 @@ func TestProjectFieldValidation(t *testing.T) {
 		"prompt tab":            func(p *Project) { p.SharedPrompt = secret + "\t" },
 		"prompt invalid utf8":   func(p *Project) { p.SharedPrompt = secret + "\xff" },
 		"prompt one word":       func(p *Project) { p.SharedPrompt = "refactor" },
-		"prompt one word codex": func(p *Project) { p.SharedPrompt = "refactor"; p.DefaultTool = "gemini"; p.Members[1].Tool = "codex" },
+		"prompt one word codex": func(p *Project) { p.SharedPrompt = "refactor"; p.DefaultTool = "opencode"; p.Members[1].Tool = "codex" },
 	}
 	for name, mutate := range cases {
 		p := baseProject("x " + name)
@@ -226,14 +226,14 @@ func TestProjectFieldValidation(t *testing.T) {
 	p.Members = []ProjectMember{{Host: strings.Repeat("h", 255), Dir: "/" + strings.Repeat("a", 4095), Model: strings.Repeat("b", 100)}}
 	mustProject(t, s, a, p)
 	// Optional fields may be empty.
-	min := Project{Name: "min", DefaultTool: "gemini"}
+	min := Project{Name: "min", DefaultTool: "opencode"}
 	got := mustProject(t, s, a, min)
 	if got.Members == nil && false {
 		t.Fatal()
 	}
 	// A single-word prompt is fine for a tool that does not read it as a command.
 	p = baseProject("oneword")
-	p.DefaultTool = "gemini"
+	p.DefaultTool = "opencode"
 	p.SharedPrompt = "refactor"
 	p.Members = []ProjectMember{{Host: "m", Dir: "/a"}}
 	mustProject(t, s, a, p)
@@ -382,7 +382,7 @@ func TestRunSnapshotSurvivesRenameAndDelete(t *testing.T) {
 	before := snapshot()
 
 	p.Name = "After"
-	p.DefaultTool = "gemini"
+	p.DefaultTool = "opencode"
 	p.SharedPrompt = "something else entirely"
 	p.UseWorktrees = false
 	p.Members = []ProjectMember{{Host: "z", Dir: "/z"}}

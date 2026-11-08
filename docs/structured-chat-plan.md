@@ -181,8 +181,8 @@ touch-device and screen-reader checks. Nothing sends a question yet.
 Use SC1's capability contract and the existing view with another independently
 verified profile. Do not copy the first adapter's permission, ID, environment,
 trust, model or history assumptions. Reuse SC2's probe matrix and SC3's question
-controls where the wire contract matches. Gemini and Pi are later candidates,
-not scope additions to the first two integrations.
+controls where the wire contract matches. Pi is a later candidate,
+not a scope addition to the first two integrations.
 
 ### SC4 progress: Codex gates re-run (1 November 2026)
 

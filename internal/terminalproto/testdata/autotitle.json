@@ -294,17 +294,17 @@
   },
   {
    "name": "trailing slash",
-   "tool": "gemini",
+   "tool": "codex",
    "prompt": "",
    "dir": "/work/app/",
-   "want": "Gemini CLI · app"
+   "want": "Codex · app"
   },
   {
    "name": "root folder",
-   "tool": "gemini",
+   "tool": "codex",
    "prompt": "",
    "dir": "/",
-   "want": "Gemini CLI"
+   "want": "Codex"
   },
   {
    "name": "a long agent name",

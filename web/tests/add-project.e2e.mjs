@@ -309,10 +309,10 @@ try {
   await openDialog(page)
   const d = dialog(page)
   await d.locator('summary', {hasText:'More defaults'}).click()
-  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode','Gemini CLI','Cline'])
-  // desk is an old connector: it keeps the original four, with no Cline option at all.
+  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode','Cline'])
+  // desk is an old connector: it keeps the three original agents, with no Cline option at all.
   await d.getByRole('combobox', {name:'Machine'}).selectOption('a2')
-  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode','Gemini CLI'])
+  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode'])
   await expect(agentField(page).locator('option[value="cline"]')).toHaveCount(0)
   await d.getByRole('combobox', {name:'Machine'}).selectOption('a1')
   await expect(agentField(page).locator('option[value="cline"]')).toHaveCount(1)

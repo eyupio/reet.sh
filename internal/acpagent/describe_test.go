@@ -22,7 +22,6 @@ func TestDescribeInstalledAdapterEvidence(t *testing.T) {
 		{"opencode", true, "garbled", "incompatible"},
 		{"claude", true, "", "unverified"},
 		{"codex", true, "", "unverified"},
-		{"gemini", false, "", "missing"},
 	} {
 		got := Describe(tc.tool, tc.installed, tc.version)
 		if got.State != tc.state || !got.Valid() {

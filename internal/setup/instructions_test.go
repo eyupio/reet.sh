@@ -17,7 +17,6 @@ func TestInstructionsSelectionSnapshotRestoreAndVerify(t *testing.T) {
 		"CLAUDE.md":    "Claude instructions\n" + secret,
 		"AGENTS.md":    "Shared agent instructions\n" + secret,
 		".cursorrules": "Cursor rules\n" + secret,
-		"GEMINI.md":    "Gemini instructions\n" + secret,
 	}
 	for name, body := range files {
 		writeConfig(t, filepath.Join(e.project, name), body)
@@ -138,7 +137,6 @@ func TestGlobalInstructionsDiscoveryExportRestore(t *testing.T) {
 		".codex/AGENTS.md":           "Codex global\n" + secret,
 		".config/opencode/AGENTS.md": "OpenCode global\n" + secret,
 		".pi/agent/AGENTS.md":        "Pi global\n" + secret,
-		".gemini/GEMINI.md":          "Gemini global\n" + secret,
 	}
 	for name, body := range files {
 		writeConfig(t, filepath.Join(e.home, filepath.FromSlash(name)), body)
@@ -155,7 +153,7 @@ func TestGlobalInstructionsDiscoveryExportRestore(t *testing.T) {
 			}
 		}
 	}
-	if len(seen) != 5 {
+	if len(seen) != 4 {
 		t.Fatalf("global instructions not discovered: %+v", seen)
 	}
 	selection, err := BuildSnapshotSelection(source)

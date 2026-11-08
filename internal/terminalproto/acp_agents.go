@@ -130,7 +130,9 @@ func chatAdapter(tool string) string {
 }
 
 func (a ACPAgent) Valid() bool {
-	validTool := ValidToolV2(a.Tool) && plainText(a.Adapter, 64) && a.Adapter != ""
+	// A connector from before an agent was retired may still describe it. That only validates as not usable: the
+	// "available" arm needs a reviewed chat tool, which a retired one never is.
+	validTool := (ValidToolV2(a.Tool) || RetiredTool(a.Tool)) && plainText(a.Adapter, 64) && a.Adapter != ""
 	validText := plainText(a.Version, 64) && plainText(a.MinimumVersion, 64)
 	if !validTool || !validText {
 		return false

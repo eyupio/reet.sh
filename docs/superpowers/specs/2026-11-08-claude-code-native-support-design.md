@@ -12,7 +12,9 @@ and a terminal launch with resume.
 ## Where Claude Code stands
 
 - **Gaffer chat.** Built end to end, but dark: a machine reports it only when its agent process runs with
-  `REET_EXPERIMENTAL_CLAUDE_CHAT=1`. The descriptor reports approvals and a read-back model switch. History,
+  `REET_EXPERIMENTAL_CLAUDE_CHAT=1`, an environment variable on the connector. The owner has ruled that settings
+  live in the database, not in environment variables, so this switch is replaced (see "The switch moves to the
+  database"). The descriptor reports approvals and a read-back model switch. History,
   images and in-place reattach are off because they were not verified. The options the adapter reports
   (`effort`, `fast`, `ultracode`) are listed in the descriptor but have no control.
 - **The adapter is a second program.** The `claude` CLI does not speak ACP. Gaffer talks to the separately
@@ -21,7 +23,7 @@ and a terminal launch with resume.
 - **Terminal launch.** Works, with a model and an opening prompt only. No resume, no open-session, no YOLO, no
   effort. The web catalogue marks Claude without `effort`, `resume` or `yolo`.
 - **The gate.** `docs/device-checks.md` holds the checks only a signed-in device can close. For Claude, the
-  signed-in run (Run B) has not been recorded, so the switch stays.
+  signed-in run (Run B) has not been recorded, so the chat stays off by default.
 
 ## Intent and success
 
@@ -42,11 +44,35 @@ where it was, and start or resume a terminal session with the usual launch optio
 
 **Not in this pass.** Managed install of the adapter (reet does not install it). Claude's other permission modes:
 the profile keeps requiring `default`. Typed questions (the shared phone and screen-reader gate). Codex, Pi and
-Cursor Agent. Turning the switch on for anyone: that is the last step and waits for the owner's signed-in run.
+Cursor Agent. Making Claude chats on by default for every account: that is the last step and waits for the owner's
+signed-in run. Other environment variables the product reads are not touched.
+
+## The switch moves to the database
+
+Settings live in the database, never in environment variables. Today `REET_EXPERIMENTAL_CLAUDE_CHAT` (and Codex's
+twin) decides, on the connector, whether Claude's chat is reported. That decision becomes a stored setting that the
+controller applies:
+
+- **A per-account setting.** For each gated agent (today `claude` and `codex`) an account has an on/off choice, kept
+  in the account profile beside the saved default model. Only explicit choices are stored; an account with none gets
+  the agent's built-in default, which is off for both until the owner records the signed-in run. It is read by any
+  signed-in account, written by writers only, audited by agent and value, and part of the profile backup. It is shown in
+  Settings > Agents as "Gaffer chats still being verified", with a line saying the agent has not been checked with a
+  signed-in account.
+- **The controller decides what the web sees.** Whatever a machine reports, the controller returns a gated agent's
+  chat descriptor as unverified, with no capability flags, for an account that has it off. A create that names the
+  agent is refused because it is not advertised. The change takes effect at once, with no reconnect.
+- **The connector stops deciding.** It reports Claude and Codex as it finds them (the adapter on PATH), but only to a
+  controller that advertises a new feature, `chat-gate-v1`. Toward an older controller, which cannot apply the setting,
+  the two stay unverified exactly as before. The environment variables, their constants and their checks are deleted.
+- **Making Claude on by default later** is a one-line change to the built-in default plus tests, with no data
+  migration, because only explicit choices are stored and an account's own choice is kept.
+
+This is its own slice, before the parity work, so no later slice is built on the environment switch.
 
 ## Slices
 
-One spec, four slices. Each is its own pull request and is green before the next starts.
+One spec, five slices. Each is its own pull request and is green before the next starts.
 
 ### 1. Probe (no product change)
 
@@ -63,7 +89,11 @@ actually sees. Extend `scripts/probe-claude-lifecycle.py` or add a sibling scrip
 The output is an update to `docs/research/structured-adapters/probe-report.md` and opt-in real-adapter tests
 beside `TestRealClaudeStart`. Nothing in this slice changes what a user sees.
 
-### 2. Gaffer parity, behind the existing switch
+### 1b. The switch moves to the database
+
+As described in "The switch moves to the database" above: the policy and the `chat-gate-v1` feature, the stored setting and the controller's mask, the Settings control, and the deletion of the environment switches. It follows slice 1 and #666 and precedes slice 2.
+
+### 2. Gaffer parity, behind the account setting
 
 Turn on only what slice 1 proved, in the descriptor (`internal/acpagent/describe.go`) and the Claude profile
 (`internal/acpagent/claude.go`):
@@ -105,14 +135,14 @@ The last slice is one pull request, written last and left unmerged until the own
 Slices 2 and 3 update the docs for what they change; this one adds the rest.
 
 - **Hint.** When `claude` is on the machine's PATH but its chat adapter is not, the Start dialog and Machine
-  settings say so and give the exact pinned install command. It ships with the flip, not before: while the
-  switch is off, a missing adapter looks the same as a chat that is not offered, and a hint would send people
-  toward a feature that is not on.
+  settings say so and give the exact pinned install command. Because the controller reports a gated agent as
+  unverified for an account that has it off, the hint shows only to accounts that turned the chat on. It ships with
+  the final slice.
 - **Docs.** A "Claude Code in Gaffer" section in `docs/structured-sessions.md`, and updates to
   `docs/start-agent-session.md`, `docs/terminal-launch.md` (the Claude row and the YOLO list),
   `docs/device-checks.md` and `docs/roadmap.md`. Each says what was measured and what was not.
-- **The flip.** Claude chat becomes default-on and the switch is retired, with the hint above. The owner's
-  signed-in run is recorded in `docs/device-checks.md` first.
+- **The default.** Claude chat becomes on by default (an account's own off choice is kept), with the hint above.
+  The owner's signed-in run is recorded in `docs/device-checks.md` first.
 
 ## Verification boundary
 
@@ -128,7 +158,8 @@ stays unchecked, and the final flip is the owner's.
 ## Compatibility and failure
 
 - An older controller never receives new descriptor fields, and an older connector's Claude descriptor is read as
-  before. Nothing changes for a machine whose switch is off.
+  before. An account with the chat off sees nothing change.
+- A controller that does not advertise `chat-gate-v1` (an older one) never sees Claude or Codex reported as available.
 - A history load that fails or finds nothing stored says so and offers a new chat.
 - An unconfirmed effort, or a model the adapter silently reset, refuses the chat rather than claiming a setting
   it cannot confirm.
@@ -140,6 +171,10 @@ stays unchecked, and the final flip is the owner's.
   reattach claim to its profile); fake-agent sessions for effort confirmed, refused and unconfirmed, for history
   continue and for reattach; the terminal row's argument vectors for resume, open-session, YOLO and effort, and
   the refusals that already exist for the other agents.
+- The switch: the policy and the feature in the protocol package; the connector reporting a gated agent as available only
+  when the gate is negotiated; the stored setting's validation, permission, audit, migration and backup; the controller's
+  mask on what a machine reports; a create refused for an account that has the chat off; and no environment variable
+  left that decides a setting.
 - Opt-in real-adapter tests from slice 1, run against the pinned adapter and the loopback stub.
 - Web: unit tests for the catalogue flags and the effort control's values; Playwright for the Start dialog and
   the live chat with a stubbed Claude descriptor, including the missing-adapter hint.
@@ -147,6 +182,6 @@ stays unchecked, and the final flip is the owner's.
 
 ## Delivery
 
-Spec, then plan, then four draft pull requests in order, each green before the next starts. The fourth carries the
-hint, the final docs and the flip, and is not merged until the owner's signed-in run is recorded. The next spec is
+Spec, then plan, then five draft pull requests in order, each green before the next starts. The fifth carries the
+hint, the final docs and the new default, and is not merged until the owner's signed-in run is recorded. The next spec is
 Codex, which reuses this one's shape.

@@ -12,12 +12,13 @@ const now = Date.now()
 const owner = {id:1, name:'Sam Example', email:'sam@example.test', role:'owner'}
 const viewer = {id:3, name:'Viewer', email:'v@example.test', role:'viewer'}
 let currentUser = owner, profileFailure = false
-let profile, favourites, patches, addCalls, deleteCalls, orderCalls, defaultCalls, staleOrder, defaultGate
+let chatEnabled, profile, favourites, patches, addCalls, deleteCalls, orderCalls, defaultCalls, staleOrder, defaultGate
 
 function reset(user = owner) {
   currentUser = user
   profile = {theme:'system', timezone:'Europe/London', dateFormat:'', shelfView:'list', cardsExpanded:false, hostedPrefix:'reet-', updatedAt:now,
     defaultBaseBranch:'', worktreesByDefault:false, defaultTool:'', defaultModel:'', defaultEffort:''}
+  chatEnabled = {claude:false, codex:false}
   favourites = {version:1, favourites:[{tool:'claude', model:'sonnet', agentDefault:false}, {tool:'opencode', model:'anthropic/claude-sonnet-4-5', agentDefault:false}]}
   patches = []; addCalls = []; deleteCalls = []; orderCalls = []; defaultCalls = []; staleOrder = false; defaultGate = null; profileFailure = false
 }
@@ -27,9 +28,11 @@ const extra = {
     if (req.method() === 'PATCH') {
       const body = req.postDataJSON()
       patches.push(body)
-      profile = {...profile, ...body, updatedAt:Date.now()}
+      const {chatAgents, ...rest} = body
+      if (chatAgents) chatEnabled = {...chatEnabled, ...chatAgents}
+      profile = {...profile, ...rest, updatedAt:Date.now()}
     }
-    return {user:currentUser, profile, sessionCount:1, accounts:true}
+    return {user:currentUser, profile, chatEnabled, sessionCount:1, accounts:true}
   },
   '/api/v2/profile/model-favourites': req => {
     const url = new URL(req.url())
@@ -159,6 +162,37 @@ try {
   }
 
   // A model needs its agent: the page refuses before the server, and nothing is PATCHed.
+  if (run('gated chat switches')) {
+    const {context, page, errors} = await open()
+    const group = page.getByRole('group', {name:'Gaffer chats still being verified'})
+    await expect(group).toBeVisible()
+    await expect(group.getByText(/Not yet checked with a signed-in account/)).toBeVisible()
+    const claude = group.getByRole('checkbox', {name:'Claude Code in Gaffer'}), codex = group.getByRole('checkbox', {name:'Codex in Gaffer'})
+    await expect(claude).not.toBeChecked()
+    await expect(codex).not.toBeChecked()
+    await claude.check()
+    await expect.poll(() => patches.length).toBe(1)
+    expect(patches[0]).toEqual({chatAgents:{claude:true}})
+    await expect(claude).toBeChecked()
+    await expect(codex).not.toBeChecked()
+    await claude.uncheck()
+    await expect.poll(() => patches.length).toBe(2)
+    expect(patches[1]).toEqual({chatAgents:{claude:false}})
+    await expect(claude).not.toBeChecked()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  if (run('gated chat switches are read-only for a viewer')) {
+    const {context, page, errors} = await open({user:viewer})
+    const group = page.getByRole('group', {name:'Gaffer chats still being verified'})
+    await expect(group.getByRole('checkbox', {name:'Claude Code in Gaffer'})).toBeDisabled()
+    await expect(group.getByRole('checkbox', {name:'Codex in Gaffer'})).toBeDisabled()
+    expect(patches).toEqual([])
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
   if (run('a failed profile read keeps Save locked')) {
     const {context, page, errors} = await open({failProfile:true})
     const save = page.getByRole('button', {name:'Save defaults'})

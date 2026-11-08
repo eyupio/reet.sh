@@ -8,6 +8,7 @@
   } from './api'
   import { CATALOGUE } from './catalogue'
   import { KNOWN_SOURCES } from './clineSource'
+  import { CHAT_GATE_HELP, chatToggles, chatTogglePatch } from './chatAgents'
   import { cleanModel, modelSuggestions, toolName, validateModel } from './agentLaunch'
   import {
     dedupeModels, defaultLabel, effortChoices, favouriteKey, modelOptions, starLabel,
@@ -21,6 +22,7 @@
   const agents = CATALOGUE.filter(agent => agent.enabled)
   const life = new AbortController()
   let loading = $state(true), busy = $state(''), profileLoaded = $state(false)
+  let chatOn = $state<Record<string, boolean>>({})
   let defaultTool = $state(''), defaultModel = $state(''), defaultEffort = $state(''), defaultClineSource = $state('')
   let defaultBaseBranch = $state(''), worktreesByDefault = $state(false)
   let formMessage = $state(''), notice = $state('')
@@ -103,6 +105,7 @@
       const answer = await getProfile()
       if (life.signal.aborted) return
       fillProfile(answer.profile)
+      chatOn = answer.chatEnabled ?? {}
     } catch (e) {
       if (life.signal.aborted) return
       fail(e)
@@ -401,6 +404,23 @@
     }
   }
 
+  // A gated chat's switch applies at once and sends only its own agent. A refused save puts the box back as the server has it.
+  async function toggleChat(id: string, on: boolean) {
+    busy = 'chat'; formMessage = ''; notice = ''
+    try {
+      const answer = await saveProfile(chatTogglePatch(id, on))
+      if (life.signal.aborted) return
+      chatOn = answer.chatEnabled ?? chatOn
+    } catch (err) {
+      if (life.signal.aborted) return
+      fail(err)
+      chatOn = { ...chatOn }
+      formMessage = err instanceof ApiError && err.message ? err.message : "Couldn't change that just now. Try again."
+    } finally {
+      if (!life.signal.aborted) busy = ''
+    }
+  }
+
   onMount(() => {
     const coarse = matchMedia('(pointer: coarse)')
     const readPointer = () => { touch = coarse.matches }
@@ -478,6 +498,15 @@
       {#if !profileLoaded && !loading}<button type="button" class="btn" onclick={() => void loadProfile()}>Retry</button>{/if}
     </div>
   </form>
+
+  <h3>Gaffer chats still being verified</h3>
+  <fieldset class="chatgate" disabled={!canWrite || loading || !profileLoaded || busy !== ''}>
+    <legend>Gaffer chats still being verified</legend>
+    <p class="muted">{CHAT_GATE_HELP}</p>
+    {#each chatToggles(chatOn) as chat (chat.id)}
+      <label class="check"><input type="checkbox" checked={chat.on} onchange={event => void toggleChat(chat.id, event.currentTarget.checked)} /> <span>{chat.label}</span></label>
+    {/each}
+  </fieldset>
 
   <h3>Favourite models</h3>
   {#if favMessage}<p class="notice bad" role="alert">{favMessage}</p>{/if}

@@ -390,6 +390,37 @@ func TestGatedChatsAreReportedAvailableOnlyWhenTheGateIsNegotiated(t *testing.T)
 	}
 }
 
+// Claude Code's in-place reconnect is claimed only toward a peer that negotiated acp-agent-reattach-v1, and its history
+// follows the machine-wide history feature, like every other agent that reconnects.
+func TestClaudeReattachIsStrippedWithoutTheAgentReattachFeature(t *testing.T) {
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature +
+		"," + terminalproto.ChatReattachFeature + "," + terminalproto.ACPAgentsFeature + "," + terminalproto.AgentsFeature +
+		"," + terminalproto.ChatGateFeature
+	agents := func() []terminalproto.ACPAgent {
+		return []terminalproto.ACPAgent{{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1", History: true, Reattach: true}}
+	}
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"claude"} }, StructuredAgents: agents}
+	negotiateFeatures(&cfg, base)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if c.ACPAgents == nil || len(*c.ACPAgents) != 1 {
+		t.Fatalf("descriptor missing: %+v", c)
+	}
+	if got := (*c.ACPAgents)[0]; got.Reattach || !got.History || c.ChatReattachFor("claude") {
+		t.Fatalf("the claim leaked to a peer that did not negotiate it: %+v", got)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPAgentReattachFeature)
+	c = capabilitiesFor(cfg, true, terminalproto.Ready)
+	if got := (*c.ACPAgents)[0]; !got.Reattach || !got.History || !c.ChatReattachFor("claude") {
+		t.Fatalf("the negotiated claim: %+v", got)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStartupOptionsDoNotLeakToLiveControlsOnlyPeer(t *testing.T) {
 	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
 	live := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature

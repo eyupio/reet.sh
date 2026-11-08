@@ -24,7 +24,13 @@ test('Gaffer launch effort follows the selected machine and agent, while termina
   { id: 'reasoning_effort', category: 'thought_level', values: ['low','high','ultra'] },
   { id: 'collaboration_mode', category: 'collaboration_mode', values: ['default','plan'] },
  ] }] }
+ // The Start dialog reads the agent's own thinking levels, never a list of ours; the agent confirms the value before any prompt.
  assert.deepEqual(launchOptions.launchEfforts('codex', caps, true), ['', 'low','high','ultra'])
+ const claudeCaps = { acp: true, acpLiveControls: true, acpStartOptions: true, acpAgents: [{ tool: 'claude', adapter: 'claude-agent-acp', state: 'available', options: [
+  { id: 'effort', category: 'thought_level', values: ['default','low','medium','high','xhigh','max'] },
+  { id: 'fast', category: 'model_config', values: ['on','off'] },
+ ] }] }
+ assert.deepEqual(launchOptions.launchEfforts('claude', claudeCaps, true), ['', 'low','medium','high','xhigh','max'])
  assert.deepEqual(launchOptions.launchEfforts('claude', caps, true), [''])
  assert.deepEqual(launchOptions.launchEfforts('codex', {...caps,acpStartOptions:false}, true), [''])
  assert.deepEqual(launchOptions.launchEfforts('cline', caps, false), ['', 'low','medium','high'])

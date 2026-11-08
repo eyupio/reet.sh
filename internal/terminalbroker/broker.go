@@ -829,6 +829,10 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		return store.TerminalSession{}, false, err
 	}
 	if in.ResumeACP != "" {
+		// An account that turned this chat off is told so, not that the machine cannot continue it.
+		if in.Structured && b.st.ChatOffFor(uid, in.Tool) {
+			return store.TerminalSession{}, false, ErrChatOff
+		}
 		caps, err := b.st.RemoteCapabilitiesFor(uid, agent)
 		if err != nil || caps.Generation != p.Generation {
 			return store.TerminalSession{}, false, ErrOffline

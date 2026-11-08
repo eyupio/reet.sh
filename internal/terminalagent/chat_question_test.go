@@ -236,9 +236,10 @@ func TestQuestionAnswerRequiresNegotiatedFeatures(t *testing.T) {
 }
 
 // A native session id is reported to the controller only for a tool whose
-// descriptor offers history. Claude's UUID does not fit the wire's OpenCode id
-// format, so reporting it would make the running notice and every reconcile fail
-// to encode while the process runs.
+// descriptor offers history. Claude's handle is a UUID, which the wire accepts for
+// a session change and snapshot; the controller needs it to continue the chat with
+// its history. A tool without history reports none, so a handle the controller
+// could not use is never sent.
 func TestNativeSessionIDIsReportedOnlyWhereHistoryIsOffered(t *testing.T) {
 	const uuid = "0b9f6a1c-3d2e-4f5a-8b7c-1234567890ab"
 	for _, tc := range []struct {
@@ -248,7 +249,7 @@ func TestNativeSessionIDIsReportedOnlyWhereHistoryIsOffered(t *testing.T) {
 	}{
 		{"opencode", "ses_fake0001", true, "ses_fake0001"},
 		{"opencode", "ses_fake0001", false, ""},
-		{"claude", uuid, true, ""},
+		{"claude", uuid, true, uuid},
 		{"claude", uuid, false, ""},
 		{"codex", uuid, true, ""},
 	} {

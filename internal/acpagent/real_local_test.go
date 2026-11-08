@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 )
@@ -109,8 +110,8 @@ func TestRealClaudeStart(t *testing.T) {
 // pins what the parity work depends on: the thinking level is offered at
 // session/new for the adapter's default model, reads back when set and is refused
 // for an unlisted value; a launch that names only an effort works; and a launch
-// that names a model other than the adapter's own is refused by the profile as it
-// stands but works once the model switch is confirmed by read-back.
+// that names a model other than the adapter's own works because the profile
+// confirms the model switch by read-back.
 func TestRealClaudeOptions(t *testing.T) {
 	binary := os.Getenv("REET_CLAUDE_ACP")
 	if binary == "" {
@@ -174,26 +175,16 @@ func TestRealClaudeOptions(t *testing.T) {
 	}
 	chosen := options
 	chosen.Model, chosen.Effort = other, "low"
-	// Pinned as the profile stands today; the slice that sets ConfirmModelBySwitch flips this assertion.
-	if started, err := Start(ctx, chosen); !errors.Is(err, ErrModel) {
-		if started != nil {
-			started.Close()
-		}
-		t.Fatalf("launch with model %q and effort low as the profile stands: %v", other, err)
-	}
-	// The same launch when a model switch is confirmed by reading it back.
-	switched := options
-	switched.Agent.ConfirmModelBySwitch = true
-	switched.Model, switched.Effort = other, "low"
-	started, err := Start(ctx, switched)
+	// The profile confirms a chosen model by switching to it and reading the switch back.
+	started, err := Start(ctx, chosen)
 	if err != nil {
-		t.Fatalf("launch with model %q and effort low when the switch is confirmed by read-back: %v", other, err)
+		t.Fatalf("launch with model %q and effort low: %v", other, err)
 	}
 	defer started.Close()
 	if got := settingOf(t, started.Controls(), "thought_level").Current; got != "low" || started.Model() != other {
 		t.Fatalf("started on model %q with thinking level %q", started.Model(), got)
 	}
-	t.Logf("launch with model %q and effort low works when the model switch is confirmed by read-back", other)
+	t.Logf("launch with model %q and effort low works", other)
 }
 
 // TestRealClaudeLoadUnstored is opt-in and sends no prompt. A conversation the
@@ -215,6 +206,47 @@ func TestRealClaudeLoadUnstored(t *testing.T) {
 	if !errors.Is(err, ErrNoStoredConversation) {
 		t.Fatalf("load of a conversation that was never stored: %v", err)
 	}
+}
+
+// TestRealClaudeHistoryReplay is opt-in and sends no prompt. REET_CLAUDE_STORED_HOME and REET_CLAUDE_STORED_SESSION
+// name the throwaway home and the session id that a `scripts/probe-claude-lifecycle.py load` run left behind. Opening
+// that conversation with session/load must succeed under the same id, and what the adapter replays reaches OnEvent only
+// before the chat is ready, which is where the connector drops it because the controller keeps its own transcript.
+func TestRealClaudeHistoryReplay(t *testing.T) {
+	binary, home, stored := os.Getenv("REET_CLAUDE_ACP"), os.Getenv("REET_CLAUDE_STORED_HOME"), os.Getenv("REET_CLAUDE_STORED_SESSION")
+	if binary == "" || home == "" || stored == "" {
+		t.Skip("set REET_CLAUDE_ACP, REET_CLAUDE_STORED_HOME and REET_CLAUDE_STORED_SESSION from a probe-claude-lifecycle.py load run")
+	}
+	dir := os.Getenv("REET_CLAUDE_STORED_DIR")
+	if dir == "" {
+		dir = t.TempDir()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	var replayed []string
+	ready := false
+	base := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}
+	session, err := Start(ctx, Options{Agent: ClaudeCandidate, Binary: binary, Dir: dir, Home: home, BaseEnv: base, Resume: stored,
+		PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second,
+		OnEvent: func(e Event) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !ready {
+				replayed = append(replayed, e.Kind)
+			}
+		},
+		OnReady: func() { mu.Lock(); ready = true; mu.Unlock() }})
+	if err != nil {
+		t.Fatalf("session/load of the stored conversation: %v", err)
+	}
+	defer session.Close()
+	if session.SessionID() != stored {
+		t.Fatalf("reopened under %q, want %q", session.SessionID(), stored)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	t.Logf("reopened %s; %d events arrived before the chat was ready (the connector drops them): %v", stored, len(replayed), replayed)
 }
 
 // TestRealClineStart is opt-in: it starts the installed Cline CLI through the

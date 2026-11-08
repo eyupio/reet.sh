@@ -99,3 +99,31 @@ func TestWorktreeRequiresNegotiatedFeature(t *testing.T) {
 		}
 	}
 }
+
+// A create that names a provider is served only on a generation that negotiated
+// acp-provider-v1; an older controller never sends the field.
+func TestCreateWithProviderNeedsTheNegotiatedFeature(t *testing.T) {
+	base := terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature
+	for _, tc := range []struct {
+		features string
+		refused  bool
+	}{
+		{base, true},
+		{base + "," + terminalproto.ACPProviderFeature, false},
+	} {
+		var got terminalproto.Message
+		send := func(_ context.Context, m terminalproto.Message) error { got = m; return nil }
+		headers := http.Header{}
+		headers.Set(terminalproto.FeatureHeader, tc.features)
+		handle, cleanup := Factory(terminalhost.ManagerOptions{})(t.Context(), http.DefaultClient, headers, 1, send)
+		in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "cline", Structured: true, Provider: "cline-pass"}
+		if err := handle(t.Context(), terminalproto.Message{Version: 1, Generation: 1, RequestID: "r", SessionID: "s", Body: &in}); err != nil {
+			t.Fatal(err)
+		}
+		cleanup()
+		r, ok := got.Body.(terminalproto.Result)
+		if refused := ok && r.Code == terminalproto.LaunchOptionUnsupported; refused != tc.refused {
+			t.Fatalf("features %q: refused=%v body=%+v", tc.features, refused, got.Body)
+		}
+	}
+}

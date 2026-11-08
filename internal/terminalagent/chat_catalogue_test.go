@@ -36,3 +36,26 @@ func TestModelCatalogueIsTrimmedPerConnection(t *testing.T) {
 		t.Fatalf("catalogue model values: %d", got)
 	}
 }
+
+// A connection that did not negotiate acp-provider-v1 never sees the provider
+// setting, whether or not it reads the model catalogue; the session's own
+// snapshot keeps it for the next connection that did.
+func TestProviderSettingIsStrippedForAPeerWithoutTheFeature(t *testing.T) {
+	state := terminalproto.ACPControls{Model: "stub/model", Options: []terminalproto.ACPSetting{
+		{ID: "provider", Category: "provider", Current: "cline", Values: []string{"cline", "cline-pass"}},
+		{ID: "model", Category: "model", Current: "stub/model", Values: []string{"stub/model", "provider/other"}},
+	}}
+	for _, link := range []*chatLink{{}, {catalogue: true}} {
+		got := (&chatHost{link: link}).forConnection(state)
+		if len(got.Options) != 1 || got.Options[0].Category != "model" {
+			t.Fatalf("link %+v kept the provider: %+v", link, got.Options)
+		}
+	}
+	if len(state.Options) != 2 {
+		t.Fatalf("session snapshot was mutated: %+v", state.Options)
+	}
+	both := (&chatHost{link: &chatLink{provider: true, catalogue: true}}).forConnection(state)
+	if len(both.Options) != 2 || both.Options[0].Category != "provider" {
+		t.Fatalf("a peer with the feature lost the provider: %+v", both.Options)
+	}
+}

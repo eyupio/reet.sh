@@ -113,7 +113,7 @@ try {
     await context.close()
   }
 
-  // Machines: the title is the menu name and the section row holds Inventory & connection, Sync and the Software action.
+  // Machines: the title is the menu name, the section row holds Inventory & connection and Sync, and Software is a page action beside the title.
   if (run('machines')) {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/machines`)
@@ -124,10 +124,12 @@ try {
     await expect(row).toHaveCount(1)
     await expect(row.getByRole('link', { name: 'Inventory & connection' })).toHaveAttribute('aria-current', 'page')
     await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('href', '/sync')
-    await expect(row.getByRole('button', { name: 'Software', exact: true })).toBeVisible()
+    const software = page.locator('.page-heading').getByRole('button', { name: 'Software', exact: true })
+    await expect(software).toBeVisible()
+    await expect(row.getByRole('button', { name: 'Software', exact: true })).toHaveCount(0)
     await expect(page.locator('.page-head').getByRole('navigation', { name: 'Machines', exact: true })).toHaveCount(1)
     // Software is an action: it opens its dialog and does not navigate.
-    await row.getByRole('button', { name: 'Software', exact: true }).click()
+    await software.click()
     const dialog = page.getByRole('dialog', { name: 'Fleet software' })
     await expect(dialog).toBeVisible()
     await dialog.getByRole('button', { name: 'Close fleet software' }).click()
@@ -137,7 +139,7 @@ try {
     await context.close()
   }
 
-  // The sync view is titled Sync and marks the Sync link current; the row (with Software) stays.
+  // The sync view is titled Sync and marks the Sync link current; the row stays, with Software beside the title.
   if (run('machines sync')) {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/sync`)
@@ -146,7 +148,7 @@ try {
     const row = page.getByRole('navigation', { name: 'Machines', exact: true })
     await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(row.getByRole('link', { name: 'Inventory & connection' })).not.toHaveAttribute('aria-current', 'page')
-    await expect(row.getByRole('button', { name: 'Software', exact: true })).toBeVisible()
+    await expect(page.locator('.page-heading').getByRole('button', { name: 'Software', exact: true })).toBeVisible()
     // The row is the shared one inside the page header (the old Machines navigation sat outside it).
     await expect(page.locator('.page-head').getByRole('navigation', { name: 'Machines', exact: true })).toHaveCount(1)
     expect(errors).toEqual([])
@@ -162,7 +164,7 @@ try {
     await expect(page.locator('.page-heading').getByRole('link', { name: 'Machines', exact: true })).toHaveAttribute('href', '/machines')
     const row = page.getByRole('navigation', { name: 'Machines', exact: true })
     await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('href', '/sync')
-    await expect(row.getByRole('button', { name: 'Software', exact: true })).toBeVisible()
+    await expect(page.locator('.page-heading').getByRole('button', { name: 'Software', exact: true })).toBeVisible()
     expect(errors).toEqual([])
     await context.close()
   }
@@ -206,6 +208,54 @@ try {
     expect(Math.abs(nav.x + nav.width - (column.x + column.width)), 'Account row right edge vs the content column').toBeLessThanOrEqual(1)
     const avatar = await page.locator('section.account .avatar').boundingBox()
     expect(avatar.y + avatar.height, 'avatar ends above the row').toBeLessThanOrEqual(nav.y)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // Account's many sections sit in two dropdowns, so the row is one line at any desktop width.
+  if (run('account groups')) {
+    for (const width of [1440, 1100]) {
+      const { context, page, errors } = await open({ width })
+      await page.goto(`${base}/account/sessions`)
+      const row = page.getByRole('navigation', { name: 'Account', exact: true })
+      const desktop = row.locator('.desktop')
+      await expect(desktop.getByRole('link', { name: 'Profile', exact: true })).toBeVisible()
+      const tops = await desktop.locator(':scope > a, :scope > details > summary').evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().top)))
+      expect(tops.length, 'Account row items').toBeGreaterThanOrEqual(6)
+      expect(new Set(tops).size, `Account row wraps at ${width}px: ${tops}`).toBe(1)
+      const security = desktop.locator('details.nav-group').filter({ hasText: 'Security' })
+      const data = desktop.locator('details.nav-group').filter({ hasText: 'Data & activity' })
+      await expect(security.locator('summary')).toHaveClass(/current/)
+      await expect(data.locator('summary')).not.toHaveClass(/current/)
+      await expect(security.getByRole('link', { name: 'Sessions', exact: true })).toBeHidden()
+      await security.locator('summary').click()
+      await expect(security.getByRole('link', { name: 'Sessions', exact: true })).toHaveAttribute('aria-current', 'page')
+      for (const name of ['Password', 'API tokens', 'MCP access']) await expect(security.getByRole('link', { name, exact: true })).toBeVisible()
+      // Opening the other dropdown closes this one; Escape closes it and puts focus back on its summary.
+      await data.locator('summary').click()
+      await expect(security).not.toHaveAttribute('open', '')
+      for (const name of ['Backups', 'Maintenance', 'Activity']) await expect(data.getByRole('link', { name, exact: true })).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(data).not.toHaveAttribute('open', '')
+      await expect(data.locator('summary')).toBeFocused()
+      expect(errors).toEqual([])
+      await context.close()
+    }
+  }
+
+  // On a phone the folded Account menu names the section in view, and a dropdown opens inside it.
+  if (run('account phone menu')) {
+    const { context, page, errors } = await open({ width: 390 })
+    await page.goto(`${base}/account/sessions`)
+    const row = page.getByRole('navigation', { name: 'Account', exact: true })
+    const menu = row.locator('details.mobile')
+    await expect(menu.locator(':scope > summary')).toContainText('Sessions')
+    await menu.locator(':scope > summary').click()
+    const security = menu.locator('details.nav-group').filter({ hasText: 'Security' })
+    await security.locator('summary').click()
+    await expect(security.getByRole('link', { name: 'Sessions', exact: true })).toHaveAttribute('aria-current', 'page')
+    await expect(security.getByRole('link', { name: 'Password', exact: true })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     expect(errors).toEqual([])
     await context.close()
   }
@@ -317,13 +367,15 @@ try {
     await expect(menu).not.toHaveAttribute('open', '')
     await expect(row.getByRole('link', { name: 'Setups' })).toBeHidden()
 
-    // Software is an action: choosing it closes the menu and opens the dialog.
+    // Software is a page action beside the title, so it is one tap away with the menu still folded, and a 44px target.
     await page.goto(`${base}/machines`)
     const machines = page.getByRole('navigation', { name: 'Machines', exact: true })
     const fold = machines.locator('details.mobile')
-    await fold.locator('summary').click()
-    await expect(fold).toHaveAttribute('open', '')
-    await machines.getByRole('button', { name: 'Software', exact: true }).click()
+    await expect(fold).not.toHaveAttribute('open', '')
+    const software = page.locator('.page-heading').getByRole('button', { name: 'Software', exact: true })
+    await expect(software).toBeVisible()
+    expect((await software.boundingBox()).height).toBeGreaterThanOrEqual(44)
+    await software.click()
     await expect(page.getByRole('dialog', { name: 'Fleet software' })).toBeVisible()
     await expect(fold).not.toHaveAttribute('open', '')
     expect(errors).toEqual([])

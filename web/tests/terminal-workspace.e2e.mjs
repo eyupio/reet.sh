@@ -265,13 +265,17 @@ try{
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
  expect(await page.locator('.xterm-accessibility-tree [role=listitem]').count()).toBe(ticketSizes[0].rows)
  releaseInitialRedraw()
+ const released=Date.now()
  await live()
  // Time the redraw on screen: xterm paints its rows on the next frame, but mirrors them to the
  // accessibility tree at most once a second (TimeBasedDebouncer), which would put a 1 s step in the clock.
  await page.waitForFunction(text=>document.querySelector('.xterm-rows')?.textContent.includes(text),'Existing persistent shell')
- const continued=Date.now()-started
+ // The clock starts when the fixture lets the host redraw go: everything before it (the click, the resynchronising
+ // state, the frame wait and the row count) is driven by this script and slows with the runner, not with the app.
+ // Attaching once is pinned below by the ticket and socket counts.
+ const continued=Date.now()-released
  await expect(page.locator('.xterm-accessibility-tree')).toContainText('Existing persistent shell')
- console.log(`Synthetic continuation: ${continued}ms (screen reader text by ${Date.now()-started}ms)`)
+ console.log(`Synthetic continuation: ${continued}ms after the redraw was released (screen reader text by ${Date.now()-released}ms; ${Date.now()-started}ms from the click)`)
  expect(continued).toBeLessThan(2000)
  // One attachment and one socket: continuing never costs an extra resynchronisation round trip.
  expect(tickets.length-ticketsBefore).toBe(1);expect(websockets-socketsBefore).toBe(1)

@@ -12,7 +12,16 @@
   let root = $state<HTMLElement>()
   let menu = $state<HTMLDetailsElement>()
   let trigger = $state<HTMLElement>()
-  const current = $derived(items.find((item): item is SectionLink => !('action' in item) && item.current)?.label)
+  // The folded menu names the page in view: a dropdown's current child, otherwise the current link.
+  const current = $derived.by(() => {
+    for (const item of items) {
+      if ('action' in item) continue
+      const child = item.children?.find(c => c.current)
+      if (child) return child.label
+      if (item.current) return item.label
+    }
+    return undefined
+  })
   function close(event: KeyboardEvent) {
     if (event.key !== 'Escape') return
     const open = [...(root?.querySelectorAll<HTMLDetailsElement>('details[open]') ?? [])].at(-1)

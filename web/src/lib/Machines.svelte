@@ -32,10 +32,12 @@
 {#if !terminals}
   {@const sections: SectionItem[] = [
     { label: 'Inventory & connection', href: '/machines', current: !compare },
-    { label: 'Sync', href: '/sync', current: compare },
-    ...(accounts && canWrite ? [{ label: 'Software', action: () => (softwareOpen = true) }] : [])
+    { label: 'Sync', href: '/sync', current: compare }
   ]}
-  <PageHeader group="Machines" groupHref={!compare && focus ? '/machines' : undefined} title={compare ? "Sync" : focus || "Machines"} lede={compare ? "One shared skill library, kept up to date on every machine." : focus ? "Inspect this machine's install locations, health and sync plans, or continue in its terminal." : "Connect your machines. Reet keeps your skills in sync and your agents ready to work."} {sections} sectionsLabel="Machines" />
+  <PageHeader group="Machines" groupHref={!compare && focus ? '/machines' : undefined} title={compare ? "Sync" : focus || "Machines"} lede={compare ? "One shared skill library, kept up to date on every machine." : focus ? "Inspect this machine's install locations, health and sync plans, or continue in its terminal." : "Connect your machines. Reet keeps your skills in sync and your agents ready to work."} {sections} sectionsLabel="Machines">
+    <!-- Software is an action, not a place: beside the title at every width, so a phone does not open the folded menu first. -->
+    {#snippet actions()}{#if accounts && canWrite}<button type="button" class="btn software" onclick={() => (softwareOpen = true)}>Software</button>{/if}{/snippet}
+  </PageHeader>
 {/if}
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} {ontitle} />{:else if error}<p class="notice bad" role="alert">{error}</p>{:else}
   <WorkspaceSkeleton label="Loading the terminal workspace" context={workspaceContext} />
@@ -60,6 +62,7 @@
 {/if}
 <style>
  form {display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:20px} label {display:grid;gap:6px;font-size:0.875rem} p {font-size:0.875rem;color:var(--muted)}
+ .software {min-height:44px}
  .projects-drawer {margin:26px 0 0;border-top:1px solid var(--line);padding-top:14px}
  .projects-drawer > summary {cursor:pointer;color:var(--muted);font-size:0.875rem;font-weight:600;min-height:32px}
 </style>

@@ -283,7 +283,10 @@ try {
   const events = [{id:3,at:Date.now()-30000,source:'ui',action:'project-delete',detail:JSON.stringify({name:'Site'})},{id:2,at:Date.now()-120000,source:'ui',action:'project-create',detail:JSON.stringify({name:'Site',members:2})},{id:1,at:Date.now()-180000,source:'ui',action:'add',detail:JSON.stringify({name:'Toolkit'})}]
   const {context,page,errors} = await open({width:1440,routes:{'/api/events':{events}}})
   await page.goto(`${base}/account/profile`)
-  await expect(page.getByRole('navigation',{name:'Account'}).getByRole('link',{name:'Activity'}).first()).toHaveAttribute('href','/account/activity')
+  // Activity sits in the Data & activity dropdown of Account's row.
+  const accountRow = page.getByRole('navigation',{name:'Account'})
+  await accountRow.locator('.desktop details.nav-group > summary',{hasText:'Data & activity'}).click()
+  await expect(accountRow.getByRole('link',{name:'Activity'}).first()).toHaveAttribute('href','/account/activity')
   // The old top-level address opens the account's Activity section and is rewritten to the account address.
   await page.goto(`${base}/activity`)
   await expect(page).toHaveURL(`${base}/account/activity`)
@@ -291,7 +294,9 @@ try {
   await expect(page.getByRole('heading',{name:'Activity',level:2})).toBeVisible()
   const lines = await page.locator('main ul.events .label').allInnerTexts()
   expect(lines).toEqual(['Deleted project Site','Created project Site with 2 repositories','Added Toolkit'])
-  await expect(page.getByRole('navigation',{name:'Account'}).getByRole('link',{name:'Activity'}).first()).toHaveAttribute('aria-current','page')
+  await expect(accountRow.locator('.desktop details.nav-group > summary',{hasText:'Data & activity'})).toHaveClass(/current/)
+  await accountRow.locator('.desktop details.nav-group > summary',{hasText:'Data & activity'}).click()
+  await expect(accountRow.getByRole('link',{name:'Activity'}).first()).toHaveAttribute('aria-current','page')
   // Grouped by day, with a filter for each area present and counts that add up.
   await expect(page.getByRole('heading',{name:'Today',level:3})).toBeVisible()
   const filters = page.getByRole('group',{name:'Filter activity'}).getByRole('button')

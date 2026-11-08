@@ -74,7 +74,7 @@ func TestClaudeChatDoesNotNeedOpenCodeInstalled(t *testing.T) {
 		return []terminalproto.ACPAgent{claude}
 	}}
 	features := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPAgentsFeature + "," + terminalproto.ACPHistoryFeature + "," + terminalproto.ACPApprovalFeature + "," + terminalproto.ACPModelFeature
-	negotiateFeatures(&cfg, features)
+	negotiateFeatures(&cfg, features+","+terminalproto.ChatGateFeature)
 	c := capabilitiesFor(cfg, true, terminalproto.Ready)
 	if !c.ACP || c.ACPAgents == nil || len(*c.ACPAgents) != 1 {
 		t.Fatalf("claude was dropped without opencode: %+v", c)
@@ -163,7 +163,7 @@ func TestCapabilitiesReportSessionModeOnlyWithHistory(t *testing.T) {
 	claudeOnly := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"claude"} }, StructuredAgents: func() []terminalproto.ACPAgent {
 		return []terminalproto.ACPAgent{{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1", History: true}}
 	}}
-	negotiateFeatures(&claudeOnly, base+","+terminalproto.ACPAgentsFeature+","+terminalproto.ACPHistoryFeature+","+terminalproto.SessionModeFeature)
+	negotiateFeatures(&claudeOnly, base+","+terminalproto.ACPAgentsFeature+","+terminalproto.ACPHistoryFeature+","+terminalproto.SessionModeFeature+","+terminalproto.ChatGateFeature)
 	c = capabilitiesFor(claudeOnly, true, terminalproto.Ready)
 	if !c.ACP || !c.ACPHistory {
 		t.Fatalf("claude chats not reported: %+v", c)

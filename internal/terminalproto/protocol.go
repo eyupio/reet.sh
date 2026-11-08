@@ -85,6 +85,10 @@ func (s SessionState) Valid() bool {
 }
 func (s SessionState) ReservesQuota() bool { return s == Creating || s == Running || s == EndRequested }
 
+// Closed reports whether the session has stopped: it runs no more work and a
+// worktree it used can be released.
+func (s SessionState) Closed() bool { return s == Ended || s == Exited || s == Lost }
+
 // CanTransition includes idempotent observations. Lost is also the result of a
 // failed/uncertain creation reconciled as absent; it must never recreate a shell.
 func CanTransition(from, to SessionState) bool {

@@ -803,8 +803,11 @@ func (s *Store) PendingTerminalOperationsFor(uid int64, agentID string, generati
 }
 
 // archiveTerminalOnClose only runs inside a transaction that has confirmed closure.
+// A session that worked in a worktree stays in history until that worktree is
+// gone: the controller removes it once the machine is no longer using it, so
+// the archive never leaves a worktree behind.
 func archiveTerminalOnClose(tx *sql.Tx, uid int64, agentID, sessionID string) error {
-	_, err := tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) SELECT id,user_id,agent_id,? FROM terminal_sessions WHERE id=? AND user_id=? AND agent_id=? AND state IN ('ended','exited','lost') AND EXISTS(SELECT 1 FROM terminal_operations WHERE session_id=? AND user_id=? AND agent_id=? AND kind='end' AND parameters='{"removeHistory":true}') ON CONFLICT(session_id) DO NOTHING`, now(), sessionID, uid, agentID, sessionID, uid, agentID)
+	_, err := tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) SELECT id,user_id,agent_id,? FROM terminal_sessions WHERE id=? AND user_id=? AND agent_id=? AND worktree_path='' AND state IN ('ended','exited','lost') AND EXISTS(SELECT 1 FROM terminal_operations WHERE session_id=? AND user_id=? AND agent_id=? AND kind='end' AND parameters='{"removeHistory":true}') ON CONFLICT(session_id) DO NOTHING`, now(), sessionID, uid, agentID, sessionID, uid, agentID)
 	if err != nil {
 		return err
 	}

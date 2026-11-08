@@ -280,8 +280,13 @@ choose **Remove from history** from the session's menu. That action hides the
 entry without confirming termination: the stop remains queued for reconnection
 and quota stays reserved until closure is confirmed. The immutable end
 receipt stores the explicit choice; authenticated host closure inserts the
-existing archive tombstone in the same transaction. Changing preferences later
-never changes an already requested stop. Files and operation receipts remain.
+existing archive tombstone in the same transaction. A session that worked in a
+worktree is cleaned up first: once closure is confirmed the controller checks the
+worktree, removes it when nothing would be lost and then hides the session, so
+ending and removing history is one action. Uncommitted changes are never
+discarded automatically; they keep the session in history so the removal asks
+you to confirm what would be deleted. Changing preferences later never changes an
+already requested stop. Files and operation receipts remain.
 
 ## Skills in a session
 

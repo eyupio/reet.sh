@@ -636,3 +636,89 @@ func TestYoloWorktreeMismatchStillAuditsTheLaunch(t *testing.T) {
 		t.Fatal("a mismatched answer wrote a terminal-launch row")
 	}
 }
+
+// startWorktreeSession starts one agent session that reported a worktree.
+func startWorktreeSession(t *testing.T, f *launchAPI) string {
+	t.Helper()
+	f.reply = func(in terminalproto.Create) terminalproto.Body {
+		if in.Worktree != "" {
+			return terminalproto.SessionChanged{State: terminalproto.Running, WorktreePath: worktreeTestPath, WorktreeRepo: "site"}
+		}
+		return terminalproto.SessionChanged{State: terminalproto.Running}
+	}
+	code, out, raw := f.create(t, worktreeLaunchBody(f.agent.ID, terminalbroker.ID()))
+	if code != 200 || out["state"] != "running" || out["worktreePath"] != worktreeTestPath {
+		t.Fatalf("worktree session: %d %s", code, raw)
+	}
+	return out["id"].(string)
+}
+
+// Ending a session with remove from history checks and removes its worktree
+// once the machine confirms closure, then hides the session: one action, not
+// two. Unsaved changes still need a person, and keep the session visible.
+func TestTerminalEndWithRemoveHistoryCleansUpItsWorktree(t *testing.T) {
+	f := launchAPIFixture(t, worktreeCaps("claude"))
+	id := startWorktreeSession(t, f)
+	f.answer(func(body terminalproto.Body) terminalproto.Body {
+		switch body.(type) {
+		case terminalproto.WorktreeStatus:
+			return freshState()
+		case terminalproto.WorktreeRemove:
+			return terminalproto.WorktreeResult{Code: terminalproto.OK, Path: worktreeTestPath, Branch: worktreeTestBranch}
+		}
+		return terminalproto.Result{Code: terminalproto.Unavailable}
+	})
+	code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+id+"/end", map[string]any{"requestId": terminalbroker.ID(), "removeHistory": true})
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		rows, err := f.st.TerminalSessionsFor(f.uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the session stayed in history after its worktree was removed", rows)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(worktreeEvents(t, f.st, f.uid, "worktree-remove")) != 1 {
+		t.Fatal("the worktree removal was not audited")
+	}
+	if len(worktreeEvents(t, f.st, f.uid, "session-remove")) != 1 {
+		t.Fatal("the history removal was not audited")
+	}
+}
+
+func TestTerminalEndWithRemoveHistoryKeepsUnsavedWorkVisible(t *testing.T) {
+	f := launchAPIFixture(t, worktreeCaps("claude"))
+	id := startWorktreeSession(t, f)
+	state := freshState()
+	state.Changed = 2
+	state.Paths = []string{"a.go", "b.go"}
+	f.answer(func(body terminalproto.Body) terminalproto.Body {
+		if _, ok := body.(terminalproto.WorktreeStatus); ok {
+			return state
+		}
+		t.Error("a worktree with unsaved changes was removed without a person")
+		return terminalproto.WorktreeResult{Code: terminalproto.OK}
+	})
+	code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+id+"/end", map[string]any{"requestId": terminalbroker.ID(), "removeHistory": true})
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for len(worktreeEvents(t, f.st, f.uid, "worktree-kept")) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the unsafe worktree was neither removed nor reported")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rows, err := f.st.TerminalSessionsFor(f.uid); err != nil || len(rows) != 1 {
+		t.Fatal("a session with unsaved work left history", rows, err)
+	}
+}

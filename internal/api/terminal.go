@@ -491,15 +491,10 @@ func (s *server) terminalEnd(w http.ResponseWriter, r *http.Request) {
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	// Removing history automatically when the session closes would leave its
-	// worktree behind with nobody asked about unsaved work. A session with a
-	// worktree stays in history; removing it later (terminalArchive) takes the
-	// worktree with it.
-	if in.RemoveHistory {
-		if sess, err := s.st.TerminalSessionFor(s.uid(r), r.PathValue("id")); err == nil && sess.WorktreePath != "" {
-			in.RemoveHistory = false
-		}
-	}
+	// A session with a worktree keeps its place in history until the worktree
+	// is gone: onSessionClosed checks and removes it once the machine confirms
+	// the session stopped, and archives the session only when nothing is left
+	// behind. Uncommitted changes are never discarded without a person.
 	session, err := s.terminals.End(r.Context(), s.uid(r), r.PathValue("id"), in.RequestID, in.RemoveHistory)
 	if err != nil {
 		terminalError(w, err)

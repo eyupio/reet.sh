@@ -137,8 +137,9 @@ provider's session/text permissions; other sessions still need their own
 delegation. Closing this review makes no change. Detailed sharing, worker and
 provider permissions remain optional advanced controls.
 
-Write the agreed goal, for example: “Ensure a PR is raised, its checks pass and
-conflicts are fixed. Bring scope changes back to me. Do not merge.” Review the visible default of **12 Gaffer reviews over 24 hours**, or expand
+Write the agreed goal, or choose **Use a prompt** for a reet-written starting
+point. **Save as prompt** keeps the current goal in this browser, alongside the
+built-in prompts, for reuse in another session. Review the visible default of **12 Gaffer reviews over 24 hours**, or expand
 **Change limits**, then choose **Start follow-up**. You may choose 1–48 reviews over 1–168 hours, with at most ten
 active session goals per account. Each review uses at most one worker instruction
 and two Gaffer model requests. This budget covers Gaffer's reviews; the working

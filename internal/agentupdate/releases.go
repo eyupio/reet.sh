@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/lifecycle"
 )
 
 const (
@@ -147,7 +149,7 @@ func (c *Checker) api() string {
 }
 
 func (c *Checker) fetchDev(ctx context.Context) Channel {
-	b, err := get(ctx, c.client(), c.root()+"/dev/dev-build.txt", 128)
+	b, err := lifecycle.FetchAsset(ctx, c.client(), c.api(), c.root(), "dev", "dev-build.txt", 128)
 	if err != nil {
 		return Channel{Version: "dev", Error: err.Error()}
 	}

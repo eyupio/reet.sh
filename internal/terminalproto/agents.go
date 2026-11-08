@@ -47,6 +47,10 @@ func ValidToolV2(id string) bool {
 	return ok
 }
 
+// ToolTakesProvider reports whether a structured chat of this agent can start
+// on a chosen provider. Only Cline reports one.
+func ToolTakesProvider(id string) bool { return id == "cline" }
+
 // ToolTakesEffort reports whether the agent's preset maps an effort level.
 func ToolTakesEffort(id string) bool { return agentOptions[id].effort }
 

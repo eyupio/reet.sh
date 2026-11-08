@@ -75,6 +75,7 @@ type AgentConfig struct {
 	chatReattach       bool
 	chatReattachDetail bool
 	acpAgentReattach   bool
+	chatGate           bool
 	acpQuestion        bool
 	inspect            bool
 	shellDir           bool
@@ -779,6 +780,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpAgentMode = terminalproto.SupportsACPAgentMode(advertised)
 	cfg.acpAgentOptions = terminalproto.SupportsACPAgentOptions(advertised)
 	cfg.acpAgentReattach = terminalproto.SupportsACPAgentReattach(advertised)
+	cfg.chatGate = terminalproto.SupportsChatGate(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
 	// session-mode-v1 stands on chats, their history and launches; it is
@@ -878,6 +880,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpAgentReattach {
 		features = append(features, terminalproto.ACPAgentReattachFeature)
+	}
+	if cfg.chatGate {
+		features = append(features, terminalproto.ChatGateFeature)
 	}
 	if cfg.acpWorktree {
 		features = append(features, terminalproto.ACPWorktreeFeature)
@@ -1009,6 +1014,11 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		for _, entry := range cfg.StructuredAgents() {
 			if entry.Tool == "antigravity" && !cfg.antigravityACP {
 				continue
+			}
+			// Only a controller that applies the per-account setting can hide a
+			// gated agent, so toward any other it stays unverified.
+			if !cfg.chatGate && slices.Contains(terminalproto.GatedChatTools(), entry.Tool) {
+				entry = terminalproto.ACPAgent{Tool: entry.Tool, Adapter: entry.Adapter, State: "unverified"}
 			}
 			described = append(described, entry)
 		}

@@ -12,8 +12,8 @@ import (
 )
 
 // CodexCandidate is the launch profile for the Codex ACP adapter (SC2 probes and
-// the 1 November 2026 gate re-run). It is reachable only on a machine that sets
-// CodexSwitch.
+// the 1 November 2026 gate re-run). Whether an account is offered its chat is the
+// controller's per-account setting, never an environment variable.
 //
 // Codex starts in "agent" ("Approve for me"), where an automatic reviewer decides
 // and the person is never asked. reet starts every chat in "read-only", the only

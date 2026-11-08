@@ -843,6 +843,9 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 	// request is checked against the capabilities.
 	_, lookupErr := b.st.TerminalOperationFor(uid, agent, "create", request)
 	if launchRequested(in) && lookupErr != nil {
+		if in.Structured && b.st.ChatOffFor(uid, in.Tool) {
+			return store.TerminalSession{}, false, ErrChatOff
+		}
 		caps, err := b.st.RemoteCapabilitiesFor(uid, agent)
 		if err != nil || caps.Generation != p.Generation {
 			return store.TerminalSession{}, false, ErrOffline

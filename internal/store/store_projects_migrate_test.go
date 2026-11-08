@@ -168,7 +168,7 @@ func TestMigrationNamesAndDefaults(t *testing.T) {
 		{Host: m, Dir: "/d/web", Model: "opus"},                 // member model with the Project's tool
 	}}
 	mustProject(t, s, uid, multi)
-	mustProject(t, s, uid, Project{Name: "Solo", DefaultTool: "gemini", UseWorktrees: false, Members: []ProjectMember{{Host: m, Dir: "/e/solo-folder"}}})
+	mustProject(t, s, uid, Project{Name: "Solo", DefaultTool: "opencode", UseWorktrees: false, Members: []ProjectMember{{Host: m, Dir: "/e/solo-folder"}}})
 	mustProject(t, s, uid, Project{Name: "taken", DefaultTool: "claude", Members: []ProjectMember{{Host: m, Dir: "/f/site"}}})
 	migrate(t, s)
 	got := byDir(t, s, uid)
@@ -177,7 +177,7 @@ func TestMigrationNamesAndDefaults(t *testing.T) {
 		"/b/site":        {Name: "site (2)", DefaultTool: "codex", DefaultModel: "", WorktreeDefault: "yes"},
 		"/c/api":         {Name: "api", DefaultTool: "codex", DefaultModel: "gpt-5", WorktreeDefault: "yes"},
 		"/d/web":         {Name: "web", DefaultTool: "claude", DefaultModel: "opus", WorktreeDefault: "yes"},
-		"/e/solo-folder": {Name: "Solo", DefaultTool: "gemini", DefaultModel: "", WorktreeDefault: "no"},
+		"/e/solo-folder": {Name: "Solo", DefaultTool: "opencode", DefaultModel: "", WorktreeDefault: "no"},
 		// A one-repository Project whose name another project has falls back to the folder's name.
 		"/f/site": {Name: "site (3)", DefaultTool: "claude", DefaultModel: "", WorktreeDefault: "no"},
 	} {
@@ -228,7 +228,7 @@ func TestMigrationSkipsRegisteredFolder(t *testing.T) {
 	s := newStore(t)
 	uid := projectUser(t, s, "a")
 	m := enrolledID(t, s, uid, "studio")
-	mine := mustFP(t, s, uid, FolderProject{Host: m, Dir: "/w/reet", Name: "Mine", StarterPrompt: "my own words", WorktreeDefault: "no", DefaultTool: "gemini"})
+	mine := mustFP(t, s, uid, FolderProject{Host: m, Dir: "/w/reet", Name: "Mine", StarterPrompt: "my own words", WorktreeDefault: "no", DefaultTool: "opencode"})
 	p := mustProject(t, s, uid, project("Shop", "their words here", true, ProjectMember{Host: m, Dir: "/w/reet"}, ProjectMember{Host: m, Dir: "/w/new"}))
 	mustProject(t, s, uid, project("Later", "other words here", true, ProjectMember{Host: m, Dir: "/w/reet"}))
 	rep := migrate(t, s)

@@ -37,7 +37,6 @@ var toolNames = map[string]string{
 	"claude":      "Claude Code",
 	"codex":       "Codex",
 	"opencode":    "OpenCode",
-	"gemini":      "Gemini CLI",
 	"cline":       "Cline",
 	"antigravity": "Google Antigravity (AGY)",
 }

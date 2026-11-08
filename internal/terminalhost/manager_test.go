@@ -493,7 +493,7 @@ func TestManagerRefusedLaunchLeavesNothingBehind(t *testing.T) {
 		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: filepath.Join(opts.Home, "file")},
 		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: filepath.Join(opts.Home, "missing")},
 		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: outside},
-		{Title: "a", Cols: 80, Rows: 24, Tool: "gemini"},
+		{Title: "a", Cols: 80, Rows: 24, Tool: "opencode"},
 		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Prompt: "purge"},
 	}
 	for i, in := range refused {

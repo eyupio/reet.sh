@@ -12,7 +12,7 @@ const MaxModelBytes = 100
 const MaxDirBytes = 4096
 const MaxPromptBytes = 8000
 
-var launchTools = map[string]bool{"claude": true, "codex": true, "opencode": true, "gemini": true}
+var launchTools = map[string]bool{"claude": true, "codex": true, "opencode": true}
 
 // SupportsLaunch reports whether the peer advertised launch-v1 in
 // X-Reet-Terminal-Features. Launch fields are never sent without it.

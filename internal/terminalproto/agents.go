@@ -36,7 +36,6 @@ var agentOptions = map[string]struct{ effort, model, yolo bool }{
 	"claude":      {model: true},
 	"codex":       {model: true, yolo: true},
 	"opencode":    {model: true, yolo: true},
-	"gemini":      {model: true},
 	"cline":       {effort: true, model: true, yolo: true},
 	"antigravity": {effort: true, model: true, yolo: true},
 }

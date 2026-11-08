@@ -348,7 +348,7 @@ func TestTerminalLaunchFailedMapsToToolOrFolder(t *testing.T) {
 		tool, code, sentence string
 	}{
 		{"claude", "folder_unavailable", "That folder isn't available on that machine."},
-		{"gemini", "tool_not_installed", "That agent isn't installed on that machine."},
+		{"opencode", "tool_not_installed", "That agent isn't installed on that machine."},
 	} {
 		request := terminalbroker.ID()
 		body := launchBody(f.agent.ID, request, map[string]any{"tool": tc.tool, "dir": "/somewhere/else", "prompt": launchTestPrompt})
@@ -359,7 +359,7 @@ func TestTerminalLaunchFailedMapsToToolOrFolder(t *testing.T) {
 			}
 		}
 	}
-	// Only the folder refusal reaches the machine: gemini is not advertised, so
+	// Only the folder refusal reaches the machine: opencode is not advertised, so
 	// it is refused before any session is reserved.
 	if len(f.sent()) != 1 {
 		t.Fatal("a refused launch was dispatched again on retry", len(f.sent()))

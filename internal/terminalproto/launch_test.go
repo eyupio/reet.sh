@@ -144,7 +144,7 @@ func TestLaunchLimits(t *testing.T) {
 	if err := good.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, tool := range []string{"claude", "codex", "opencode", "gemini"} {
+	for _, tool := range []string{"claude", "codex", "opencode"} {
 		if !ValidTool(tool) {
 			t.Fatal(tool)
 		}
@@ -213,7 +213,7 @@ func TestPromptNeedsWordsForPositionalPrompts(t *testing.T) {
 			}
 		}
 	}
-	for _, tool := range []string{"opencode", "gemini", "", "vim"} {
+	for _, tool := range []string{"opencode", "", "vim"} {
 		if PromptNeedsWords(tool, "hello") {
 			t.Error("flag-form or unknown tool refused a single word", tool)
 		}
@@ -350,6 +350,18 @@ func TestRetiredToolsAreToleratedInAToolsList(t *testing.T) {
 	for _, features := range []string{LaunchFeature, LaunchFeature + "," + AgentsFeature} {
 		if err := c.ValidateFor(features); err != nil {
 			t.Fatalf("features %q: %v", features, err)
+		}
+	}
+}
+
+// A retired tool is not a launchable agent in any generation of the protocol.
+func TestRetiredToolCannotBeLaunched(t *testing.T) {
+	if ValidTool("gemini") || ValidToolV2("gemini") || ToolTakesModel("gemini") {
+		t.Fatal("gemini is still a launchable agent")
+	}
+	for _, structured := range []bool{false, true} {
+		if (Create{Title: "A", Cols: 80, Rows: 24, Tool: "gemini", Structured: structured}).Validate() == nil {
+			t.Fatalf("a create naming gemini was accepted (structured=%v)", structured)
 		}
 	}
 }

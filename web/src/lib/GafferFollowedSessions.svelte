@@ -6,8 +6,8 @@
   import GafferProse from './GafferProse.svelte'
   import { formatWhen } from './time'
 
-  let { onclose, onchanged, onselect, onhistory, onerror, timeZone='', dateFormat='locale' }: {
-    onclose:()=>void; onchanged:()=>void|Promise<void>; onselect:()=>void; onhistory:()=>void;
+  let { onclose, onchanged, onselect, onhistory, onerror, userId=0, timeZone='', dateFormat='locale' }: {
+    onclose:()=>void; onchanged:()=>void|Promise<void>; onselect:()=>void; onhistory:()=>void; userId?:number;
     onerror:(e:unknown)=>string; timeZone?:string; dateFormat?:string
   } = $props()
   let view=$state<GafferGoalOverviewView|null>(null), loading=$state(true), error=$state('')
@@ -86,7 +86,7 @@
     {#if view}<p class="evidence">Overview read {formatWhen(view.readAt,timeZone,dateFormat)}. Evidence times above show what each review actually saw. Refreshing makes no model request.</p>{/if}
   </div>
 </WorkspaceDialog>
-{#if managing}<WorkspaceDialog title="Look after this session" onclose={()=>void closeGoal()}><GafferGoal id={managing.goal.conversationId} {timeZone} {dateFormat} onchanged={async()=>{await load(true);await onchanged()}}/></WorkspaceDialog>{/if}
+{#if managing}<WorkspaceDialog title="Look after this session" onclose={()=>void closeGoal()}><GafferGoal id={managing.goal.conversationId} {userId} {timeZone} {dateFormat} onchanged={async()=>{await load(true);await onchanged()}}/></WorkspaceDialog>{/if}
 
 <style>
   .overview{display:grid;gap:16px;min-width:0;font-size:14px;line-height:1.5}p{margin:0;overflow-wrap:anywhere}.intro,.muted,.evidence{color:var(--muted)}.toolbar,.card-head,.actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.counts{font-size:15px;font-variant-numeric:tabular-nums}.counts strong{color:var(--ink)}.filters{display:flex;gap:6px;flex-wrap:wrap}.filter{font:inherit;color:var(--ink);border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 12px;min-height:44px;cursor:pointer}.filter[aria-pressed=true]{background:var(--tint);border-color:var(--accent)}.goals{list-style:none;padding:0;margin:0;display:grid;gap:16px}.goals>li{display:grid;gap:10px;min-width:0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.goals>li.attention{border-color:var(--accent)}h3{font:600 21px var(--serif);margin:0;overflow-wrap:anywhere;min-width:0}h4{font-size:14px;margin:0}.card-head{align-items:flex-start;flex-wrap:wrap}.state{font-size:0.875rem;border:1px solid var(--line);border-radius:6px;padding:2px 8px;white-space:nowrap}.attention .state{color:var(--accent)}.goal-text,.instruction{white-space:pre-wrap;overflow-wrap:anywhere}.review{border-left:2px solid var(--line-strong);padding-left:12px}.eyebrow{font-size:0.875rem;color:var(--muted);margin-bottom:4px}.report{white-space:pre-wrap}.evidence{font-size:0.875rem;font-variant-numeric:tabular-nums}.warning{color:var(--bad)}.delivery{font-weight:600}details{border-top:1px solid var(--line);padding-top:6px}summary{min-height:44px;display:list-item;align-content:center;cursor:pointer;color:var(--muted)}.detail-body{display:grid;gap:10px;padding:8px 0}.actions{justify-content:flex-start;flex-wrap:wrap}.actions a{text-decoration:none;box-sizing:border-box}.btn{min-height:44px}button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.empty{padding:16px 0}.empty p{margin-top:10px;color:var(--muted)}@media(max-width:559px){.goals>li{padding:12px}.toolbar{gap:8px}.filter{padding:7px 10px}}

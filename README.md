@@ -138,7 +138,9 @@ running, while **Cancel answer** stops it. Chat starts with typed messages only;
 
 **Look after this session** reviews its provider/model, recent conversation access,
 worker messaging and agreed goal in one place, then saves them together. Defaults
-are **12 Gaffer reviews over 24 hours**, editable under Change limits. Selected
+are **12 Gaffer reviews over 24 hours**, editable under Change limits. **Use a prompt**
+offers a few reet-written goals, and **Save as prompt** keeps your own in this browser
+for reuse. Selected
 goals continue on the controller while you are away, follow new worker progress
 and pause for decisions, uncertain delivery or limits. Advanced session controls
 keep detailed sharing and a separate one-request worker relay optional. Gaffer

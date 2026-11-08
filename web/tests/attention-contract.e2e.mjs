@@ -20,7 +20,7 @@ const busy=()=>session('contract-busy-0001','Build watcher',{attention:'working'
 const machine={agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:{protocolVersion:1,os:'linux',osUser:'dev',terminalControl:true,terminalEnabled:true,readiness:'ready',acp:true,acpHistory:true,acpLiveControls:true}}
 
 async function fixture(){
- const box={sessions:[chat(),failed(),stale(),bell(),busy()],busy:false,failNext:0,failed:0,hold:null,reads:0,seen:[],answers:[]}
+ const box={sessions:[chat(),failed(),stale(),bell(),busy()],busy:false,stuck:'',failNext:0,failed:0,hold:null,reads:0,seen:[],answers:[]}
  const routes={
   '/api/v2/terminal/status':{configured:true,available:true,reason:''},
   '/api/v2/terminal/machines':{machines:[machine]},
@@ -36,7 +36,7 @@ async function fixture(){
  for(const s of box.sessions){
   const path=`/api/v2/terminal/sessions/${s.id}`
   // As the server does it: seen records the time; a waiting session with nothing to answer stops waiting, an approval stays.
-  routes[path+'/seen']=()=>{box.seen.push(s.id);const item=box.sessions.find(x=>x.id===s.id);item.changedSinceSeen=false;if(item.attention==='waiting'&&!item.pendingPermission)item.attention='working';return{seenAt:Date.now()}}
+  routes[path+'/seen']=()=>{box.seen.push(s.id);const item=box.sessions.find(x=>x.id===s.id);if(box.stuck===s.id)return{seenAt:Date.now()};item.changedSinceSeen=false;if(item.attention==='waiting'&&!item.pendingPermission)item.attention='working';return{seenAt:Date.now()}}
   routes[path+'/chat/controls']={controls:{working:false,waiting:true,model:'fixture-model',options:[]}}
   routes[path+'/chat/queue']={queue:[]};routes[path+'/skills']={skills:[]}
  }
@@ -202,6 +202,16 @@ try{
  await page.waitForTimeout(3500)
  expect(box.seen.filter(id=>id==='contract-busy-0001').length).toBeLessThanOrEqual(2)
  expect(box.reads-readsAtOpen).toBeLessThanOrEqual(2)
+ // A counted session the server keeps calling unseen (a bell that keeps ringing): opening it marks it seen on every
+ // refresh but signals once, so the refreshes do not feed each other.
+ box.busy=false;box.stuck='contract-bell-0001'
+ Object.assign(box.sessions.find(s=>s.id==='contract-bell-0001'),{changedSinceSeen:true,attention:'waiting',bellAt:Date.now()})
+ await page.goto(`${base}/sessions?agent=a1&session=contract-bell-0001`)
+ await expect(page.locator('.session-screen .title')).toHaveText('Tail the logs')
+ await expect.poll(()=>box.seen.filter(id=>id==='contract-bell-0001').length).toBeGreaterThan(0)
+ const stuckReads=box.reads
+ await page.waitForTimeout(3500)
+ expect(box.reads-stuckReads).toBeLessThanOrEqual(8)
  expect(w.errors).toEqual([])
  await w.context.close()
  console.log('Attention contract: Home header, Needs you, bell and title agree at 2 with the Sessions list, another page and the workspace sidebar; a seen bell does not count and an opened bell clears; an opened blocked chat stays counted without a flicker; answering from the bell and opening an unseen bell in the workspace drop every surface to 1 without a poll; a failed list read keeps the last count.')

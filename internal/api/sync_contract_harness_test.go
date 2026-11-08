@@ -39,13 +39,14 @@ import (
 const syncContractToken = "stage0-disposable-owner-token"
 
 type syncContractHarness struct {
-	t          *testing.T
-	st         *store.Store
-	uid        int64
-	root       string
-	controller *httptest.Server
-	fetcher    meta.Fetcher
-	machines   []*syncContractMachine
+	legacyProtocol bool
+	t              *testing.T
+	st             *store.Store
+	uid            int64
+	root           string
+	controller     *httptest.Server
+	fetcher        meta.Fetcher
+	machines       []*syncContractMachine
 }
 
 type syncContractMachine struct {
@@ -104,6 +105,14 @@ func newSyncContractHarness(t *testing.T) *syncContractHarness {
 	h.controller = httptest.NewServer(h.handler())
 	t.Cleanup(func() { h.controller.Close() })
 	t.Cleanup(h.writeEvidence)
+	return h
+}
+
+// Legacy protocol fixtures deliberately simulate an older connector. Stage 3
+// tests use newSyncContractHarness and exercise negotiated production defaults.
+func newLegacySyncContractHarness(t *testing.T) *syncContractHarness {
+	h := newSyncContractHarness(t)
+	h.legacyProtocol = true
 	return h
 }
 
@@ -266,6 +275,13 @@ func (h *syncContractHarness) machine(name string) *syncContractMachine {
 		if m.link.privateDown.Load() && r.URL.Path == "/api/v2/sync/private" {
 			http.Error(w, "stage1 private monitoring unavailable", http.StatusServiceUnavailable)
 			return
+		}
+		if h.legacyProtocol {
+			r.Header.Del("X-Reet-Library-Protocol")
+			if r.URL.Path == "/api/v2/library/protocol" {
+				http.NotFound(w, r)
+				return
+			}
 		}
 		proxy.ServeHTTP(w, r)
 	}))
@@ -631,7 +647,7 @@ func TestSimpleSyncConnectorProcess(t *testing.T) {
 // A passing baseline for the harness, not an assertion that the current
 // whole-library policy satisfies the new selected-only contract.
 func TestSimpleSyncHarnessOfflineRecovery(t *testing.T) {
-	h := newSyncContractHarness(t)
+	h := newLegacySyncContractHarness(t)
 	h.hosted("fixture", "first", false, true)
 	a, b := h.machine("fixture-a"), h.machine("fixture-b")
 	if a.id == b.id || a.home == b.home || a.config == b.config {
@@ -660,7 +676,7 @@ func TestSimpleSyncHarnessOfflineRecovery(t *testing.T) {
 }
 
 func TestSimpleSyncHarnessLostAcknowledgement(t *testing.T) {
-	h := newSyncContractHarness(t)
+	h := newLegacySyncContractHarness(t)
 	h.hosted("receipt", "first", false, true)
 	m := h.machine("receipt-machine")
 	h.rounds(5, m)
@@ -694,7 +710,7 @@ func TestSimpleSyncHarnessLostAcknowledgement(t *testing.T) {
 }
 
 func TestSimpleSyncHarnessLocalContentImport(t *testing.T) {
-	h := newSyncContractHarness(t)
+	h := newLegacySyncContractHarness(t)
 	a, b := h.machine("import-source"), h.machine("import-destination")
 	name := "machine-only"
 	a.localSkill(name, "original local instructions")

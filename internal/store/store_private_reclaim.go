@@ -69,7 +69,11 @@ func livePrivateRevisions(tx *sql.Tx, uid int64, heads bool) (map[string]bool, e
 		}
 	}
 	for _, query := range []string{
+		`SELECT i.revision_id FROM library_items i WHERE i.user_id=? AND i.deleted_at=0 AND i.revision_id<>'' AND ` + claimedLibraryContent,
 		`SELECT revision_id FROM hosted_sync_sources WHERE user_id=?`,
+		`SELECT revision_id FROM library_edit_events WHERE user_id=?`,
+		`SELECT base FROM library_edit_events WHERE user_id=?`,
+		`SELECT revision_id FROM library_bases WHERE user_id=?`,
 		`SELECT revision_id FROM sync_private_sources WHERE user_id=?`,
 		`SELECT revision_id FROM skill_content_targets WHERE user_id=?`,
 		`SELECT revision_id FROM skill_content_receipts WHERE user_id=?`,
@@ -80,6 +84,7 @@ func livePrivateRevisions(tx *sql.Tx, uid int64, heads bool) (map[string]bool, e
 	}
 	for _, query := range []string{
 		`SELECT desired FROM sync_targets WHERE user_id=?`,
+		`SELECT o.baseline FROM sync_options o JOIN sync_targets t ON t.target_id=o.target_id WHERE t.user_id=?`,
 		`SELECT plan FROM sync_jobs WHERE user_id=? AND status IN ('queued','running','awaiting-approval')`,
 	} {
 		if err := mentions(query); err != nil {

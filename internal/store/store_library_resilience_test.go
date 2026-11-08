@@ -164,14 +164,16 @@ func TestSyncAllMachinesSkipsASkillThatCannotBeStoredPrivately(t *testing.T) {
 	if err := s.ClaimPublishingUsername(uid, "sam"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "reet-draft", Content: "---\nname: reet-draft\ndescription: Draft\n---\nBody\n"}); err != nil {
-		t.Fatal(err)
-	}
 	// Every private bundle slot holds a live skill, so the draft cannot get one.
 	for i := 0; i < MaxPrivateSkillBundles; i++ {
 		if _, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite(fmt.Sprintf("full_bundle_%06d", i), "", fmt.Sprintf("skill %d", i))); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// Stage 2 captures authored bytes on save; fill the store before saving this
+	// draft so the test still exercises an independently failed capture.
+	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "reet-draft", Content: "---\nname: reet-draft\ndescription: Draft\n---\nBody\n"}); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {
@@ -362,6 +364,8 @@ func TestPrivateStorageKeepsEveryRevisionSomethingUses(t *testing.T) {
 	exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,?)`, uid, env, "library", "Library", `[{"id":"x","slug":"x","source":"`+source(3)+`","sourceType":"private"}]`, "r1", stamp)
 	exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,plan,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, "job_pending", uid, agent.ID, env, "apply", "queued", `{"actions":[{"add":true,"skill":{"source":"`+source(4)+`"}}]}`, stamp, stamp)
 	exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,plan,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, "job_done", uid, agent.ID, env, "apply", "succeeded", `{"actions":[{"add":true,"skill":{"source":"`+source(7)+`"}}]}`, stamp, stamp)
+	// 8: the last successful apply base for an offline pre-upgrade machine.
+	exec(`INSERT INTO sync_options(target_id,mode,baseline,applied_revision) VALUES(?,?,?,?)`, env, "additive", `[{"source":"`+source(8)+`"}]`, "old-base")
 	// 5: pinned to a machine. 6: recorded in an install receipt.
 	exec(`INSERT INTO skill_content_targets(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,mode,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, "pin_1", uid, env, agent.ID, "pinned", bundle, revisions[5].Revision.ID, "pin", "v1", stamp)
 	exec(`INSERT INTO skill_content_receipts(id,user_id,environment_id,agent_id,name,bundle_id,revision_id,root_id,adapter,schema_version,managed,provenance,evidence,request_key,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, "receipt_1", uid, env, agent.ID, "received", bundle, revisions[6].Revision.ID, "root", "agents", 1, "{}", "{}", "{}", "receipt_key_000001", "v1", stamp, stamp)
@@ -382,27 +386,27 @@ func TestPrivateStorageKeepsEveryRevisionSomethingUses(t *testing.T) {
 		return out
 	}
 
-	// Gently: the two newest superseded revisions that nothing uses (8 and 0's
-	// neighbours) stay as history.
+	// Gently: both unused revisions (0 and 7) stay as history; 8 is pinned
+	// by the last applied baseline even though the desired revision advanced.
 	got := survivors(2)
-	for _, used := range []int{1, 2, 3, 4, 5, 6, 9} {
+	for _, used := range []int{1, 2, 3, 4, 5, 6, 8, 9} {
 		if !got[used] {
 			t.Fatalf("revision %d is in use and was freed: %v", used, got)
 		}
 	}
-	if !got[8] || !got[7] || got[0] {
-		t.Fatalf("expected the two newest unused revisions kept as history and the oldest freed: %v", got)
+	if !got[8] || !got[7] || !got[0] {
+		t.Fatalf("expected pinned revisions and both unused history revisions: %v", got)
 	}
 
 	// Thoroughly: only what something uses remains. The finished job's revision (7)
 	// is history, not a use.
 	got = survivors(0)
-	for _, used := range []int{1, 2, 3, 4, 5, 6, 9} {
+	for _, used := range []int{1, 2, 3, 4, 5, 6, 8, 9} {
 		if !got[used] {
 			t.Fatalf("revision %d is in use and was freed: %v", used, got)
 		}
 	}
-	if got[0] || got[7] || got[8] {
+	if got[0] || got[7] {
 		t.Fatalf("unused revisions were kept: %v", got)
 	}
 
@@ -439,7 +443,7 @@ func TestPrivateStorageReclaimCoversEveryReferenceToARevision(t *testing.T) {
 	}
 	// private_skill_revision_files is the revision's own file list. The other two
 	// are read by livePrivateRevisions.
-	want := []string{"private_skill_revision_files", "skill_content_receipts", "skill_content_targets"}
+	want := []string{"library_bases", "library_edit_events", "private_skill_revision_files", "skill_content_receipts", "skill_content_targets"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("a table now references private_skill_revisions. Teach livePrivateRevisions to protect it, then update this list.\n got: %v\nwant: %v", got, want)
 	}

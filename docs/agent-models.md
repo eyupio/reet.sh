@@ -101,6 +101,13 @@ reason, sentence}`; the browser adds the relative age.
   Settings › Agents and a live chat's model switch). The server still stores one
   default per agent, and picking a model that is not yet a favourite stars it
   first. The favourites manager keeps its checkbox and order controls.
+- Cline also has a **default source**: the billing source a new Cline session starts on (Usage-Billing, ClinePass
+  or Cline's own choice). The account profile stores it as `defaultClineSource`, a provider id Cline reports
+  (blank is Cline's own choice), validated by the model-name rule and audited by value. A read-only account cannot
+  set it. It is separate from the favourite default model, with one rule between them: the agent's default model
+  prefills only while the chosen source is the saved default source (or none is saved), so a model is never
+  offered to a source it was not chosen under. The precedence is an explicit choice, then the saved default
+  source, then Cline's own.
 - The account profile gains `defaultTool`, `defaultModel` and `defaultEffort`
   for sessions outside a project. A model needs its agent; an effort needs an
   agent whose preset takes one. An existing profile row with a model but no agent
@@ -125,7 +132,7 @@ POST   /api/v2/profile/model-favourites          {tool, model}
 DELETE /api/v2/profile/model-favourites?tool=&model=
 PUT    /api/v2/profile/model-favourites/order    {version, items:[{tool,model}]}
 PUT    /api/v2/profile/model-favourites/default  {tool, model}   # "" clears
-PATCH  /api/v2/profile                            defaultTool/defaultModel/defaultEffort
+PATCH  /api/v2/profile                            defaultTool/defaultModel/defaultEffort/defaultClineSource
 PATCH  /api/v2/folder-projects/{id}               defaultEffort (and Cline as defaultTool)
 ```
 
@@ -142,16 +149,17 @@ The models UI now exists wherever a model or a default is chosen:
   reads the chosen machine's list automatically, and shows the agent default,
   favourites, Recent, the machine list by provider, reet's suggestions and
   Other…, with a star, Make default and an honest status/Refresh line.
-- **Start an agent** uses the same picker, applies the project or account
+- **Start an agent** shows **Source** for a Cline chat on a machine that supports it, and uses the same picker, applies the project or account
   defaults when it has one, and offers **Thinking** for an agent that takes it
   (Cline). A read or star failure only changes the status line and never
   disables Start.
 - **Add project** and **Project settings** choose the default agent (including
   Cline), model and thinking with the picker for that project's machine.
-- **Settings › Agents** holds the account defaults for sessions without a
+- **Settings › Agents** shows **Default source** when the default agent is Cline, and holds the account defaults for sessions without a
   project, the base-branch/worktree defaults, and the favourites manager (order,
   removal, add from any machine's cached list, and a default for an agent). Its
   model picker offers Make default too.
+- **A live Cline chat's Source control** sits beside Chat model when the session reports more than one billing source. It switches the source, the model list follows, and its star saves the default source. It is disabled while a turn runs.
 - **A live chat's model controls** sit beside Change model: typing or choosing a
   model offers **Make default**, which stars it first when it is not yet a
   favourite, and **Clear default** for the model that is already the agent

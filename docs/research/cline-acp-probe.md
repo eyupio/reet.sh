@@ -96,9 +96,28 @@ id, `err.message` and `msg` `Interactive turn failed`; a failed stream adds
 lines for this chat after the turn started, so the turn now ends with the reason
 instead of no reply. The message store itself is still display-only and not read.
 
+## Provider (billing source) switching
+
+Cline's `session/new` reports a `provider` option (category `_provider`) beside the model. reet surfaces it as a
+billing source (Usage-Billing for `cline`, ClinePass for `cline-pass`) and switches it with
+`session/set_config_option`, confirmed by reading it back, behind the `acp-provider-v1` feature. This has been built
+against a fake Cline only. Three facts are **not yet checked against a signed-in Cline**:
+
+1. Whether Cline accepts `provider` in `session/set_config_option` (the probe above proved `model` and `mode`).
+2. How a free source is exposed: as its own provider id, or as a filter over the `cline` provider's models. Until it
+   is known, Start an agent and Settings offer Usage-Billing and ClinePass, and a live chat shows whatever sources
+   Cline reports.
+3. Whether a switch is kept for one chat or written to Cline's own folder for the whole machine.
+
+`scripts/probe-cline-provider.py` answers all three without a model call. It copies a signed-in Cline folder to a
+private temporary directory, sets each provider the session lists, and reports the read-back, the size of the model
+list after each switch, whether a fresh session sees the switch, the files that changed and any provider or model id
+that looks like a free source. Run it on a machine where Cline is signed in, then record the result here.
+
 ## What this does not establish
 
 - A successful turn with images, MCP tools or a subagent.
+- That the `provider` option can be set, how a free source is named, or whether a switch outlives the chat (see above).
 - That every future 3.0.x reports the same ids, option names or kinds. The
   version floor is 3.0.74, and a changed shape is refused at launch rather than
   guessed.

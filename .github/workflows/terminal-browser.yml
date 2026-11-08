@@ -124,6 +124,7 @@ jobs:
           node web/tests/skill-content.e2e.mjs
           node web/tests/add-machine.e2e.mjs
           node web/tests/start-agent.e2e.mjs
+          node web/tests/start-agent-source.e2e.mjs
           node web/tests/terminal-start.e2e.mjs
           node web/tests/terminal-workspace.e2e.mjs
           node web/tests/terminal-lifecycle.e2e.mjs
@@ -256,6 +257,7 @@ jobs:
           node web/tests/chat-claude.e2e.mjs
           node web/tests/chat-codex.e2e.mjs
           node web/tests/chat-cline.e2e.mjs
+          node web/tests/chat-cline-source.e2e.mjs
           node web/tests/chat-antigravity.e2e.mjs
           node web/tests/question-card.e2e.mjs
           node web/tests/gaffer-artwork.e2e.mjs

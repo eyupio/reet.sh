@@ -115,3 +115,54 @@ func TestModelCatalogueBoundsTheModelSelectorNotEffort(t *testing.T) {
 		t.Fatalf("a catalogue reply was refused on the wire: %v", err)
 	}
 }
+
+func TestProviderSettingFitsTheControlsSnapshot(t *testing.T) {
+	model := ACPSetting{ID: "model", Category: "model", Current: "stub/model", Values: []string{"stub/model", "provider/other"}}
+	effort := ACPSetting{ID: "effort", Category: "thought_level", Current: "low", Values: []string{"low", "high"}}
+	provider := ACPSetting{ID: "provider", Category: "provider", Current: "cline", Values: []string{"cline", "cline-pass"}}
+	valid := func(options ...ACPSetting) bool { return ACPControls{Model: "stub/model", Options: options}.Valid() }
+	if !valid(model, effort, provider) || !valid(provider) {
+		t.Fatal("a provider setting beside model and effort was refused")
+	}
+	if !valid(model, effort) || !valid(model) {
+		t.Fatal("a snapshot without a provider stopped being valid")
+	}
+	if valid(model, effort, provider, ACPSetting{ID: "extra", Category: "provider", Current: "x", Values: []string{"x"}}) {
+		t.Fatal("a fourth option was admitted")
+	}
+	twice := ACPSetting{ID: "provider2", Category: "provider", Current: "cline", Values: []string{"cline"}}
+	if valid(provider, twice) {
+		t.Fatal("two provider settings were admitted")
+	}
+	many := provider
+	many.Values = nil
+	for i := 0; i <= MaxACPThoughtLevelValues; i++ {
+		many.Values = append(many.Values, fmt.Sprintf("source-%02d", i))
+	}
+	if valid(many) {
+		t.Fatalf("%d provider values were admitted", len(many.Values))
+	}
+	bad := provider
+	bad.Values = []string{"cline", "bad value"}
+	if valid(bad) {
+		t.Fatal("a provider value that fails the model-name rule was admitted")
+	}
+}
+
+func TestProviderCapabilityNeedsItsFeatureAndLiveControls(t *testing.T) {
+	c := Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "dev", TerminalEnabled: true, TerminalControl: true, ACP: true, ACPLiveControls: true, ACPProvider: true, Readiness: Ready}
+	live := ACPFeature + "," + ACPLiveControlsFeature
+	if c.ValidateFor(live) == nil {
+		t.Fatal("provider advertised on a connection that did not negotiate it")
+	}
+	if err := c.ValidateFor(live + "," + ACPProviderFeature); err != nil {
+		t.Fatal(err)
+	}
+	if !SupportsACPProvider("a,"+ACPProviderFeature) || SupportsACPProvider("a,b") {
+		t.Fatal("feature token not recognised")
+	}
+	c.ACPLiveControls = false
+	if c.Validate() == nil {
+		t.Fatal("provider accepted without live controls")
+	}
+}

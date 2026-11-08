@@ -2,12 +2,13 @@
   import { gafferTooltip } from './gafferTooltip'
  import { onMount, tick, untrack } from 'svelte'
  import { shell } from './dialogShell'
- import { UnauthorizedError, addModelFavourite, getProfile, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type Machine, type Skill, type YoloSetting } from './api'
+ import { UnauthorizedError, addModelFavourite, getProfile, getYoloSetting, listModelFavourites, removeModelFavourite, saveProfile, setModelFavouriteDefault, type Machine, type Skill, type YoloSetting } from './api'
  import { useSkillPrompt } from './install'
  import { insertSkillPrompt } from './skillPrompt'
  import SkillPromptPicker from './home/SkillPromptPicker.svelte'
  import { CATALOGUE } from './catalogue'
  import { launchEfforts, effortHelp } from './terminal/launchOptions'
+ import { KNOWN_SOURCES, resolveStartSource, sourceLabel } from './clineSource'
  import { defaultLabel, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, launchUpload, machineModels, readiness, refreshMachineModels, refusalSentence, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './terminal/upload'
@@ -75,6 +76,8 @@
  // svelte-ignore state_referenced_locally
  let explicitTool = $state(CATALOGUE.some(agent => agent.id === initialAgent) ? initialAgent : '')
  let explicitModel = $state(false), explicitEffort = $state(false)
+ // The Cline billing source: the person's own choice (an empty one is Cline's own), kept apart from the saved default.
+ let sourceChoice = $state(''), explicitSource = $state(false), sourceBusy = $state(false), sourceNote = $state('')
  let attempted = $state(false), busy = $state(false), message = $state(''), failed = $state(false)
  // The status line holds an attempt's validation message only until the person edits a field: it never outlives the mistake it named.
  let invalidMessage = false
@@ -86,7 +89,7 @@
 
  // The project's own defaults (read once) and the account's: resolved with the catalogue's agent gate, never as a list read.
  let projectData = $state<FolderProject | null>(null)
- let accountDefaults = $state<{ defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean } | null>(null)
+ let accountDefaults = $state<{ defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean } | null>(null)
  // Favourites and the chosen machine's list are helpers only: a failed read changes the status line and nothing else.
  let favourites = $state<ModelFavourite[]>([])
  let favouritesLoadSeq = 0
@@ -102,17 +105,30 @@
  // While a request is held or its outcome unknown, the tool is the one it asked for: a machine-list refresh can't change it.
  const chosenTool = $derived(operation ? operation.launch.tool : choices.find(c => c.id === tool && c.available)?.id ?? choices.find(c => c.available)?.id ?? '')
  const availableAgents = $derived(choices.filter(c => c.available).map(c => c.id))
+ // A Cline chat on a machine that negotiated acp-provider-v1 can start on a chosen billing source. The default model follows
+ // the saved default source, so the chosen source feeds the defaults below.
+ const sourceShown = $derived(chosenTool === 'cline' && structured && !!machine?.capabilities?.acpProvider)
+ // A source reet has no label for still applies: a chat's star saves whatever id Cline reports, and this dialog cannot know
+ // what the machine's Cline offers, so a saved id is shown as given. Cline's own refusal at launch is the one that says no.
+ const sourceOptions = $derived.by(() => {
+  const saved = accountDefaults?.defaultClineSource ?? ''
+  return saved && !KNOWN_SOURCES.some(choice => choice.id === saved) ? [...KNOWN_SOURCES, { id: saved, label: sourceLabel(saved) }] : [...KNOWN_SOURCES]
+ })
+ const startSource = $derived(resolveStartSource({ explicit: explicitSource ? sourceChoice : undefined, saved: accountDefaults?.defaultClineSource, offered: sourceOptions.map(choice => choice.id) }))
+ const chosenSource = $derived(startSource.source)
+ const sourceIsDefault = $derived(!!chosenSource && chosenSource === (accountDefaults?.defaultClineSource ?? ''))
  // Explicit agent > project > account > the favourite marked for the agent > the first available agent. A model and an
  // effort only come with the agent they belong to; a project/account model needs no static hint or machine list.
  const resolvedDefaults = $derived.by(() => {
-  const base = resolveLaunchDefaults({ explicitAgent: explicitTool, project: projectData, account: accountDefaults, availableAgents })
+  const chosen = sourceShown ? chosenSource : undefined
+  const base = resolveLaunchDefaults({ explicitAgent: explicitTool, project: projectData, account: accountDefaults, availableAgents, chosenSource: chosen })
   const agent = base.agent && availableAgents.includes(base.agent) ? base.agent : availableAgents[0] ?? ''
   const next = agent === '' ? { agent: '', model: '', effort: '' }
    : agent === base.agent ? base
-   : resolveLaunchDefaults({ explicitAgent: agent, project: projectData, account: accountDefaults, availableAgents })
+   : resolveLaunchDefaults({ explicitAgent: agent, project: projectData, account: accountDefaults, availableAgents, chosenSource: chosen })
   const favourite = favourites.find(f => f.agentDefault && f.tool === next.agent)
   return favourite
-   ? resolveLaunchDefaults({ explicitAgent: next.agent, project: projectData, account: accountDefaults, favouriteDefault: favourite, availableAgents })
+   ? resolveLaunchDefaults({ explicitAgent: next.agent, project: projectData, account: accountDefaults, favouriteDefault: favourite, availableAgents, chosenSource: chosen })
    : next
  })
  // A new machine or agent re-resolves the model and thinking to the defaults, and starts the folder afresh: no blank select
@@ -130,7 +146,7 @@
    const next = rekey({ key: choiceKey, model: modelChoice, folder: folderChoice, effort }, key, { model: defaults.model, effort: defaults.effort })
    if (next.key === choiceKey) return
    choiceKey = next.key
-   explicitModel = false; explicitEffort = false
+   explicitModel = false; explicitEffort = false; explicitSource = false; sourceChoice = ''; sourceNote = ''
    modelChoice = next.model; effort = next.effort ?? ''; folderChoice = next.folder; modelOther = ''; typedDir = ''
    tool = defaults.agent
   })
@@ -459,7 +475,7 @@
   try {
    const answer = await getProfile()
    if (life.signal.aborted) return
-   accountDefaults = { defaultTool: answer.profile.defaultTool, defaultModel: answer.profile.defaultModel, defaultEffort: answer.profile.defaultEffort, defaultBaseBranch: answer.profile.defaultBaseBranch, worktreesByDefault: answer.profile.worktreesByDefault }
+   accountDefaults = { defaultTool: answer.profile.defaultTool, defaultModel: answer.profile.defaultModel, defaultEffort: answer.profile.defaultEffort, defaultClineSource: answer.profile.defaultClineSource, defaultBaseBranch: answer.profile.defaultBaseBranch, worktreesByDefault: answer.profile.worktreesByDefault }
   } catch (e) {
    if (!life.signal.aborted && e instanceof UnauthorizedError) onsignedout?.(e)
    else if (!life.signal.aborted) accountDefaults = null
@@ -498,6 +514,20 @@
   if (where === 'prompt') return field('prompt')
   return startButton
  }
+ // The star saves the chosen source as the account default, or clears it when it already is.
+ async function toggleSourceDefault() {
+  if (!chosenSource || sourceBusy) return
+  const wasDefault = sourceIsDefault
+  sourceBusy = true; sourceNote = ''
+  try {
+   const answer = await saveProfile({ defaultClineSource: wasDefault ? '' : chosenSource })
+   if (!life.signal.aborted) accountDefaults = { ...accountDefaults, defaultClineSource: answer.profile.defaultClineSource ?? '' }
+  } catch (e) {
+   if (life.signal.aborted) return
+   if (e instanceof UnauthorizedError) onsignedout?.(e)
+   else sourceNote = e instanceof Error && e.message ? e.message : 'Couldn’t save the default source just now. Try again.'
+  } finally { sourceBusy = false }
+ }
  async function start() {
   if (busy || life.signal.aborted) return
   pickerOpen = false
@@ -512,6 +542,7 @@
    if (structured) { launch.structured = true; if (chatNeedsTrust(chosenTool)) launch.trust = true }
    if (model) launch.model = model
    if (effort) launch.effort = effort as NonNullable<LaunchRequest['effort']>
+   if (sourceShown && chosenSource) launch.provider = chosenSource
    if (dir) launch.dir = dir
    if (prompt) launch.prompt = prompt
    if (yoloChosen && !yoloWhy) launch.yolo = true
@@ -736,6 +767,24 @@
     </div>
    {/if}
 
+   {#if sourceShown}
+    <div class="field">
+     <label for={`${id}-source`}>Source</label>
+     <div class="source-row">
+      <select id={`${id}-source`} value={chosenSource} disabled={locked} onchange={event => { sourceChoice = event.currentTarget.value; explicitSource = true; sourceNote = ''; edited() }}>
+       <option value="">Cline’s own choice</option>
+       {#each sourceOptions as choice (choice.id)}<option value={choice.id}>{choice.label}</option>{/each}
+      </select>
+      <button type="button" class="star" class:on={sourceIsDefault} disabled={locked || !chosenSource || sourceBusy} aria-pressed={sourceIsDefault} aria-label={sourceIsDefault ? `${sourceLabel(chosenSource)} is the default source. Clear it` : chosenSource ? `Make ${sourceLabel(chosenSource)} the default source` : 'Make a source the default'} title={sourceIsDefault ? 'New Cline sessions start on this source. Click to clear.' : 'Make this the source new Cline sessions start on'} onclick={() => void toggleSourceDefault()}>
+       <svg viewBox="0 0 24 24" width="15" height="15" fill={sourceIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
+       <span>{sourceBusy ? 'Saving…' : sourceIsDefault ? 'Default' : 'Make default'}</span>
+      </button>
+     </div>
+     {#if startSource.note}<p class="hint">{startSource.note}</p>{/if}
+     {#if sourceNote}<p class="reason" role="alert">{sourceNote}</p>{/if}
+    </div>
+   {/if}
+
    <div class="field">
     <label for={`${id}-model`}>Model <span class="optional">optional</span></label>
     <button id={`${id}-model`} type="button" class="picker" bind:this={modelButton} disabled={!chosenTool}
@@ -829,6 +878,13 @@
  .body { display: grid; gap: 16px; padding: 20px 24px; min-height: 0; overflow: auto; overflow-wrap: anywhere; align-content: start; }
  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 16px; }
  .field { display: grid; gap: 6px; min-width: 0; }
+ .source-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+ .source-row select { flex: 1 1 auto; }
+ .star { display: inline-flex; align-items: center; gap: 4px; flex: none; min-height: 42px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
+ .star:hover:not(:disabled) { color: var(--ink); background: var(--tint); }
+ .star.on { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+ .star:disabled { opacity: .5; cursor: default; }
+ .star:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
  label { font-size: 0.875rem; font-weight: 600; }
  .label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
  .label-row .skill-add { min-height: 28px; padding: 0; }

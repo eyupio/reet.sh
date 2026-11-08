@@ -56,11 +56,14 @@ func TestClineSettingsSkipValuesReetCannotName(t *testing.T) {
 		{"type":"boolean","id":"auto_approve","currentValue":false}
 	]}`))
 	controls := s.Controls()
-	if len(controls.Options) != 1 || controls.Options[0].Category != "model" || controls.Model != "anthropic/claude-sonnet-5.5" {
+	// This session is not Cline's: its provider option, the mode and the boolean
+	// auto_approve are not surfaced, only the model selector.
+	model := settingOf(t, controls, "model")
+	if len(controls.Options) != 1 || controls.Model != "anthropic/claude-sonnet-5.5" {
 		t.Fatalf("controls: %+v", controls)
 	}
-	if len(controls.Options[0].Values) != 1 || controls.Options[0].Values[0] != "anthropic/claude-sonnet-5.5" {
-		t.Fatalf("values: %+v", controls.Options[0].Values)
+	if len(model.Values) != 1 || model.Values[0] != "anthropic/claude-sonnet-5.5" {
+		t.Fatalf("values: %+v", model.Values)
 	}
 	// An unrepresentable current value keeps the selector but claims no value.
 	s.updateSettings(json.RawMessage(`{"configOptions":[{"id":"model","category":"model","currentValue":"~alias/latest","options":[{"value":"~alias/latest"},{"value":"anthropic/claude-sonnet-5.5"}]}]}`))
@@ -223,11 +226,45 @@ func TestModelCatalogueKeepsEveryOfferedModel(t *testing.T) {
 		entries = append(entries, fmt.Sprintf(`{"value":"provider/model-%02d"}`, i))
 	}
 	raw := json.RawMessage(`{"configOptions":[{"id":"model","category":"model","currentValue":"provider/model-00","options":[` + strings.Join(entries, ",") + `]}]}`)
-	settings, ok := readSettings(raw)
+	settings, ok := readSettings(raw, false)
 	if !ok || len(settings) != 1 || len(settings[0].Values) != len(entries) {
 		t.Fatalf("selector: %+v ok=%v", settings, ok)
 	}
 	if got := settings[0].Values[len(entries)-1]; got != "provider/model-39" {
 		t.Fatalf("last offered model: %q", got)
+	}
+}
+
+// Only an agent whose spec reports a billing source surfaces a provider option:
+// another adapter's own option list is not reet's to relabel as a source.
+func TestOnlyAProviderAgentSurfacesItsProviderOption(t *testing.T) {
+	replies := map[string]json.RawMessage{
+		"_provider category": json.RawMessage(`{"configOptions":[{"type":"select","id":"provider","category":"_provider","currentValue":"a","options":[{"value":"a"},{"value":"b"}]}]}`),
+		"provider id":        json.RawMessage(`{"configOptions":[{"type":"select","id":"provider","currentValue":"a","options":[{"value":"a"},{"value":"b"}]}]}`),
+	}
+	for name, reply := range replies {
+		t.Run(name, func(t *testing.T) {
+			opts, _ := options(t, "live-controls", testVersion)
+			other, err := Start(t.Context(), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer other.Close()
+			other.updateSettings(reply)
+			if got := other.Controls().Options; len(got) != 0 {
+				t.Fatalf("an agent without a provider surfaced %+v", got)
+			}
+			opts, _ = options(t, "live-controls", testVersion)
+			opts.Agent.Provider = true
+			capable, err := Start(t.Context(), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer capable.Close()
+			capable.updateSettings(reply)
+			if got := settingOf(t, capable.Controls(), "provider").Current; got != "a" {
+				t.Fatalf("a provider agent did not surface its provider: %q", got)
+			}
+		})
 	}
 }

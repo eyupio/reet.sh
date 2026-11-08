@@ -96,20 +96,24 @@ func (h *chatHost) control(ctx context.Context, session string, in terminalproto
 
 // forConnection shapes a controls snapshot for this connection. A controller
 // that negotiated acp-model-catalogue-v1 reads the whole model list; an older
-// one keeps the 16 values its decoder and frame budget were sized for. The
-// session keeps every value either way, so a reconnect with the feature gets
-// the full list without asking the agent again.
+// one keeps the 16 values its decoder and frame budget were sized for. A
+// controller that did not negotiate acp-provider-v1 never sees the provider
+// setting. The session keeps every value and setting either way, so a
+// reconnect with the feature gets the full snapshot without asking the agent
+// again.
 func (h *chatHost) forConnection(state terminalproto.ACPControls) terminalproto.ACPControls {
-	if h.link.catalogue {
+	if h.link.catalogue && h.link.provider {
 		return state
 	}
-	options := make([]terminalproto.ACPSetting, len(state.Options))
-	copy(options, state.Options)
-	for i := range options {
-		if options[i].Category != "model" || len(options[i].Values) <= terminalproto.MaxACPThoughtLevelValues {
+	options := make([]terminalproto.ACPSetting, 0, len(state.Options))
+	for _, option := range state.Options {
+		if option.Category == "provider" && !h.link.provider {
 			continue
 		}
-		options[i].Values = options[i].Values[:terminalproto.MaxACPThoughtLevelValues]
+		if option.Category == "model" && !h.link.catalogue && len(option.Values) > terminalproto.MaxACPThoughtLevelValues {
+			option.Values = option.Values[:terminalproto.MaxACPThoughtLevelValues]
+		}
+		options = append(options, option)
 	}
 	state.Options = options
 	return state

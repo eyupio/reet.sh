@@ -278,11 +278,13 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		Tool      string `json:"tool"`
 		Base      string `json:"base"`
 		Effort    string `json:"effort"`
-		Yolo      bool   `json:"yolo"`
-		Resume    bool   `json:"resume"`
-		Model     string `json:"model"`
-		Dir       string `json:"dir"`
-		Prompt    string `json:"prompt"`
+		// Provider is the billing source a structured Cline chat starts on.
+		Provider string `json:"provider"`
+		Yolo     bool   `json:"yolo"`
+		Resume   bool   `json:"resume"`
+		Model    string `json:"model"`
+		Dir      string `json:"dir"`
+		Prompt   string `json:"prompt"`
 		// Worktree is a run token chosen by the caller (the Projects run
 		// derives it), never generated here: a retried request must carry the
 		// same token so the machine adopts the worktree it already made.
@@ -305,7 +307,7 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust, ResumeACP: in.ResumeACP}
+	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Provider: in.Provider, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust, ResumeACP: in.ResumeACP}
 	// A session started without a title is named from its prompt, or its agent
 	// and folder, and the name's owner is recorded with it. Both depend only on
 	// the request, so a retry whose reply was lost asks for the same session
@@ -446,7 +448,7 @@ func (s *server) terminalToolInstalled(uid int64, agent, tool string) bool {
 // prompt is deliberately absent: it is user text kept only with the session.
 func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create, session store.TerminalSession) {
 	host := s.machineHost(uid, agent)
-	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir, "effort": in.Effort, "base": in.Base, "yolo": strconv.FormatBool(in.Yolo), "resume": strconv.FormatBool(in.Resume), "structured": strconv.FormatBool(in.Structured)}
+	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir, "effort": in.Effort, "provider": in.Provider, "base": in.Base, "yolo": strconv.FormatBool(in.Yolo), "resume": strconv.FormatBool(in.Resume), "structured": strconv.FormatBool(in.Structured)}
 	if in.ProjectID != "" {
 		detail["projectId"] = in.ProjectID
 	}

@@ -38,6 +38,10 @@ func ValidEffort(effort string) bool {
 	return effort == "" || effort == "low" || effort == "medium" || effort == "high"
 }
 
+// ValidProvider accepts the empty value (Cline's own choice) and a provider id
+// that passes the model-name rule.
+func ValidProvider(provider string) bool { return provider == "" || validModel(provider) }
+
 // ValidDir accepts an absolute folder with no control characters.
 func ValidDir(dir string) bool { return validDir(dir) }
 
@@ -98,7 +102,10 @@ func validPrompt(prompt string) bool {
 
 func (c Create) validLaunch() bool {
 	if c.Tool == "" {
-		return c.Model == "" && (c.Dir == "" || validDir(c.Dir)) && c.Prompt == "" && c.Effort == "" && !c.Yolo && !c.Resume
+		return c.Model == "" && (c.Dir == "" || validDir(c.Dir)) && c.Prompt == "" && c.Effort == "" && c.Provider == "" && !c.Yolo && !c.Resume
+	}
+	if c.Provider != "" && !(ToolTakesProvider(c.Tool) && c.Structured && validModel(c.Provider)) {
+		return false
 	}
 	validEffort := ValidEffort(c.Effort)
 	if c.Structured {

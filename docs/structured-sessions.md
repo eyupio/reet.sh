@@ -26,7 +26,7 @@ the connection's capabilities rather than querying a package registry.
 - `unverified`: an adapter is present but reet has not verified its integration.
 - `incompatible`: readable installation evidence does not meet the reviewed floor.
 
-OpenCode, Claude Code (behind its switch), Codex (behind its switch), Cline and Google Antigravity
+OpenCode, Claude Code (off until an account turns it on), Codex (the same), Cline and Google Antigravity
 have reviewed integrations;
 installing an adapter alone does not enable its chat. No CLI is executed to build
 these descriptors, and availability does not establish a successful model turn or
@@ -90,23 +90,29 @@ that only supports AGY terminals continues to offer the terminal UI.
 The real executable was checked against a local provider stub, without a real
 Google model call. See the [AGY ACP probe](research/antigravity-acp-probe.md).
 
-### Experimental: Claude Code and Codex chats
+### Gaffer chats still being verified: Claude Code and Codex
 
-Claude Code and Codex chats are built end to end but dark. A machine reports either one only when the agent process itself
-runs with `REET_EXPERIMENTAL_CLAUDE_CHAT=1` or `REET_EXPERIMENTAL_CODEX_CHAT=1` in its environment, and restarting that agent
-is what applies it. An installed adapter, a machine-wide `acp` flag or a terminal session does not switch them on, and one
-machine's choice never changes another's.
+Claude Code and Codex chats are built end to end but not yet checked with a signed-in account, so each account turns them on
+for itself. In **Settings > Agents**, the group *Gaffer chats still being verified* has a box for each. The choice is stored
+with the account in reet's database, takes effect at once, and is read by every signed-in account but changed only by a
+writer. Until an account turns a chat on, its machines' descriptors show that agent as unverified, whatever is installed
+there, and a request to start one is refused as not advertised. No environment variable decides this.
 
-When a machine opts in, its descriptor reports that agent as available and the browser offers its chat beside OpenCode. A
-Codex chat starts in `read-only` and carries the approvals control; `agent` is chosen per chat and `agent-full-access` is
-never offered. Claude reports approvals and the model switch only. Neither is proof of a signed-in turn: the descriptor is
-an observation. Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
+A machine needs the agent's chat adapter installed (`claude-agent-acp` or `codex-acp`) and a controller that advertises
+`chat-gate-v1`, the feature that says the controller applies the setting. A connector reports these two agents as available
+only to such a controller; toward an older one they stay unverified, because it could not hide them from an account that has
+not turned them on.
+
+With a chat on, the descriptor reports that agent as available and the browser offers its chat beside OpenCode. A Codex chat
+starts in `read-only` and carries the approvals control; `agent` is chosen per chat and `agent-full-access` is never
+offered. Claude reports approvals and the model switch only. Neither is proof of a signed-in turn: the descriptor is an
+observation. Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
 that machine first." or "Sign in to Codex on that machine first." — and the turn ends without an edit or command. That refusal
 carries `code: "login"` on its status event, so the chat heads it *"{agent} needs a sign-in"* instead of *"could not
 continue"*: it is a step a person takes, not a fault to diagnose.
 
-The switches are not a support statement. The device and login checks that would retire them, and the ledger that records
-them, are in [Device checks](device-checks.md).
+The switches are not a support statement. The device and login checks that would make these chats on by default, and the
+ledger that records them, are in [Device checks](device-checks.md).
 
 An explicit list is authoritative: a missing tool or an empty list does not fall
 back to machine-wide flags. Older peers omit the list and retain the OpenCode-only

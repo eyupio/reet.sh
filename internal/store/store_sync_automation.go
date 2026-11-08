@@ -28,7 +28,7 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 	// A binary update that is waiting for the machine is not skill work. It must
 	// not stop the library from being planned, or an offline machine that queued
 	// an update would never be brought onto the shared library at all.
-	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind<>'update' AND status IN ('queued','running')`, uid, agent.ID).Scan(&pending); err != nil {
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind<>'update' AND status IN ('queued','running') AND (?=1 OR NOT EXISTS(SELECT 1 FROM canonical_library_selections c WHERE c.user_id=sync_jobs.user_id AND c.target_id=sync_jobs.target_id))`, uid, agent.ID, agent.LibraryProtocol).Scan(&pending); err != nil {
 		return err
 	}
 	if pending > 0 {

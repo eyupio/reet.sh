@@ -119,9 +119,11 @@ func captureLibraryEdits(state *libraryLocalState) error {
 	return nil
 }
 func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string, out io.Writer) error {
-	if !c.AllowApply {
-		return nil
+	local, err := loadAgentConfig(config)
+	if err != nil {
+		return err
 	}
+	c.AllowApply = local.AllowApply
 	lock, err := filelock.Acquire(config + ".library.lock")
 	if err != nil {
 		return err
@@ -133,7 +135,7 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	}
 	// Capture precedes all network operations: offline edits keep their original
 	// base and calibrated source time through process/controller restarts.
-	if state.CalibratedAt != 0 {
+	if state.CalibratedAt != 0 && c.AllowApply {
 		if err = captureLibraryEdits(&state); err != nil {
 			return err
 		}
@@ -158,6 +160,9 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	state.CalibratedAt = end.UnixMilli()
 	if err = writePrivate(config+".library", state); err != nil {
 		return err
+	}
+	if !c.AllowApply {
+		return nil
 	}
 	// A bad item's upload cannot prevent other items' edits from being sent.
 	failed := map[string]bool{}

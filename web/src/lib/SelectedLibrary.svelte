@@ -7,6 +7,7 @@
   let target = $state('')
   let selected = $state<string[]>([])
   let version = $state('')
+  let loadedSelection = $state(false)
   let loading = $state(true)
   let busy = $state(false)
   let error = $state('')
@@ -15,16 +16,17 @@
   const eligible = (item: LibraryItem) => item.itemType === 'skill' && item.status === 'in_use'
   async function choose(id: string) {
     const request = ++generation
-    target=id; loading=true; error=''; notice=''; selected=[]; version=''
+    target=id; loading=true; loadedSelection=false; error=''; notice=''; selected=[]; version=''
     if (!id) { loading=false; return }
     try {
       const saved = await getLibrarySelection(id)
       if (request !== generation) return
-      selected=saved.itemIds; version=saved.version
+      selected=saved.itemIds; version=saved.version; loadedSelection=true
     } catch (e) {
       if (request !== generation) return
       // An unconfigured destination starts with no implicit selection.
-      if (!(e instanceof Error && 'status' in e && e.status === 404)) error=describeError(e)
+      if (e instanceof Error && 'status' in e && e.status === 404) loadedSelection=true
+      else error=describeError(e)
     } finally { if (request === generation) loading=false }
   }
   function toggle(id: string, checked: boolean) { selected=checked ? [...selected.filter(value=>value!==id),id] : selected.filter(value=>value!==id); notice='' }
@@ -48,8 +50,8 @@
   <h2 id="selected-library-heading">Skills to sync</h2>
   <p>Choose a machine folder and the skills to keep up to date. Only skills marked In use are sent.</p>
   <label>Machine folder <select value={target} disabled={busy} onchange={event=>void choose(event.currentTarget.value)}><option value="">Choose a folder…</option>{#each targets as destination}<option value={destination.id}>{destination.host} · {destination.agent}{destination.project ? ` · ${destination.project}` : ''}</option>{/each}</select></label>
-  {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
-  {#if target && !loading && !error}
+  {#if error}<p class="notice bad" role="alert">{error}</p>{#if target}<button class="btn quiet" type="button" disabled={busy || loading} onclick={()=>void choose(target)}>Reload selection</button>{/if}{/if}
+  {#if target && !loading && loadedSelection}
     <form onsubmit={event=>{event.preventDefault();void save()}}>
       <div class="selection-actions"><button class="btn quiet" type="button" disabled={busy} onclick={()=>{selected=[...new Set([...selected,...items.filter(eligible).map(item=>item.id)])];notice=''}}>Select all In use</button><button class="btn quiet" type="button" disabled={busy} onclick={()=>{selected=[];notice=''}}>Clear selection</button></div>
       <fieldset disabled={busy}><legend>Selected skills</legend>{#each items.filter(item=>item.itemType==='skill') as item}<label class="skill"><input type="checkbox" checked={selected.includes(item.id)} disabled={!eligible(item) && !selected.includes(item.id)} onchange={event=>toggle(item.id,event.currentTarget.checked)} /><span>{item.name}{#if item.status!=='in_use'} <small>({item.status.replaceAll('_',' ')})</small>{/if}{#if item.problem || item.contentState!=='complete'}<small> · Waiting for complete content</small>{/if}</span></label>{:else}<p>Your library has no skills yet.</p>{/each}</fieldset>

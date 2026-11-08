@@ -19,6 +19,16 @@ func TestSimpleSyncContractLocalDeletionRestoresAndNotifies(t *testing.T) {
 	h := newSyncContractHarness(t)
 	h.hosted("restore-me", "canonical instructions", false, true)
 	m := h.machine("restore-machine")
+	h.rounds(1, m)
+	items, libraryErr := h.st.LibraryFor(h.uid)
+	if libraryErr != nil {
+		t.Fatal(libraryErr)
+	}
+	ids := []string{}
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	h.mustRequest(http.MethodPut, "/api/v2/library/selections", store.LibrarySelection{TargetID: store.EnvironmentIDFor(h.uid, m.name, "agents", ""), ItemIDs: ids})
 	h.rounds(5, m)
 	m.requireFile("restore-me", "SKILL.md", syncContractContent("restore-me", "canonical instructions"))
 	if err := os.Remove(m.path("restore-me", "SKILL.md")); err != nil {
@@ -51,6 +61,16 @@ func TestSimpleSyncContractLeavingInUseRemovesManagedCopy(t *testing.T) {
 	h := newSyncContractHarness(t)
 	skill := h.hosted("deactivate-me", "kept in history", true, true)
 	m := h.machine("deactivate-machine")
+	h.rounds(1, m)
+	items, libraryErr := h.st.LibraryFor(h.uid)
+	if libraryErr != nil {
+		t.Fatal(libraryErr)
+	}
+	ids := []string{}
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	h.mustRequest(http.MethodPut, "/api/v2/library/selections", store.LibrarySelection{TargetID: store.EnvironmentIDFor(h.uid, m.name, "agents", ""), ItemIDs: ids})
 	h.rounds(5, m)
 	m.requireFile("deactivate-me", "SKILL.md", syncContractContent("deactivate-me", "kept in history"))
 	h.used(skill.ID, false)

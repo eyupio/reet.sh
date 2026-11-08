@@ -311,8 +311,13 @@ func TestCanonicalSelectionsAcrossSupportedPrivateAdapters(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := h.machine("adapters")
-	h.rounds(1, m)
 	roots := map[string]string{"agents": ".agents/skills", "claude": ".claude/skills", "opencode": ".config/opencode/skills", "cursor": ".cursor/skills"}
+	for _, root := range roots {
+		if err := os.MkdirAll(filepath.Join(m.home, root), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.rounds(1, m)
 	for agent := range roots {
 		h.mustRequest(http.MethodPut, "/api/v2/library/selections", store.LibrarySelection{TargetID: store.EnvironmentIDFor(h.uid, m.name, agent, ""), ItemIDs: []string{items[0].ID}})
 	}

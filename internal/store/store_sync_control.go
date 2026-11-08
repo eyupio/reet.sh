@@ -263,6 +263,13 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		desired = append(desired, linked[0])
 	}
 	return s.withTx(func(tx *sql.Tx) error {
+		var canonical int
+		if err := tx.QueryRow(`SELECT count(*) FROM canonical_library_selections WHERE user_id=? AND target_id=?`, uid, in.TargetID).Scan(&canonical); err != nil {
+			return err
+		}
+		if canonical > 0 {
+			return errors.New("this folder uses library selections; update its selected items instead")
+		}
 		// A pending install owns the set until it ends: a save now would carry
 		// its skill past the install's revert.
 		if err := refuseWhileInstallPendingTx(tx, uid, in.TargetID); err != nil {

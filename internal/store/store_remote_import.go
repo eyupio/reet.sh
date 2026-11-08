@@ -237,6 +237,31 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 	})
 	return
 }
+
+// releaseExpiredLibraryImport leaves the old process-bound preview expired,
+// but frees the library's idempotency key so normal policy reconciliation can
+// request a newly authorised capture. Never reuse its preview, exclusions,
+// approval or upload receipt under another process generation.
+func releaseExpiredLibraryImport(tx *sql.Tx, uid int64, r RemoteImport) error {
+	currentLibraryRequest := r.SyncSkillID != "" && r.FollowShelf &&
+		r.RequestKey == "library_"+secretHash(r.SyncSkillID)
+	if r.State != "expired" || r.Error != "preview_expired" || !currentLibraryRequest || r.Receipt != nil {
+		return nil
+	}
+	previousKey := r.RequestKey
+	r.RequestKey = "retried_" + r.ID
+	result, err := tx.Exec(`UPDATE machine_import_requests SET request_key=? WHERE id=? AND user_id=? AND request_key=? AND state='expired'`,
+		r.RequestKey, r.ID, uid, previousKey)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil || n == 0 {
+		return err
+	}
+	return writeImport(tx, uid, r)
+}
+
 func (s *Store) ClaimRemoteImportFor(uid int64, agent, instance string) (work *RemoteImport, err error) {
 	if !contentobs.ValidID(instance) {
 		return nil, ErrPrivateSkillInvalid
@@ -249,7 +274,9 @@ func (s *Store) ClaimRemoteImportFor(uid int64, agent, instance string) (work *R
 		if err != nil {
 			return err
 		}
-		rows, err := tx.Query(`SELECT data FROM machine_import_requests WHERE agent_id=? AND user_id=? AND state IN ('queued','previewing','reviewing','approved','uploading') ORDER BY created_at`, agent, uid)
+		rows, err := tx.Query(`SELECT data FROM machine_import_requests WHERE agent_id=? AND user_id=? AND
+			(state IN ('queued','previewing','reviewing','approved','uploading') OR
+			 (state='expired' AND request_key LIKE 'library\_%' ESCAPE '\')) ORDER BY created_at`, agent, uid)
 		if err != nil {
 			return err
 		}
@@ -277,6 +304,15 @@ func (s *Store) ClaimRemoteImportFor(uid int64, agent, instance string) (work *R
 			return err
 		}
 		for _, r := range pending {
+			// Also recover captures stranded by an older controller before this
+			// connection. Archived, cancelled, failed and manual imports retain
+			// their existing semantics.
+			if r.State == "expired" {
+				if err = releaseExpiredLibraryImport(tx, uid, r); err != nil {
+					return err
+				}
+				continue
+			}
 			active := r.State == "queued" && r.SyncSkillID != "" && r.ExpiresAt >= now()
 			if active {
 				r.Instance = instance
@@ -288,6 +324,9 @@ func (s *Store) ClaimRemoteImportFor(uid int64, agent, instance string) (work *R
 				r.State = "expired"
 				r.Error = "preview_expired"
 				if err = writeImport(tx, uid, r); err != nil {
+					return err
+				}
+				if err = releaseExpiredLibraryImport(tx, uid, r); err != nil {
 					return err
 				}
 				continue

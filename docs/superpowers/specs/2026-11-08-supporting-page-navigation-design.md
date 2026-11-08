@@ -52,9 +52,10 @@ The supporting pages (Lists, Setups, Write a skill, Community, Support, Teams & 
 | Machines (list / sync / one machine) | Machines ("Machines" / "Machine") | Machines / Sync / the machine's name ("Your machines, connected." on the list) |
 | Account | Account ("Your account") | the person's name or email (unchanged) |
 | Activity | Your account / This workspace (unchanged; it names the scope) | Activity (unchanged) |
+| Skills | Your skill shelf ("Ey up. Your skill shelf.") | Skills (unchanged) |
 | Notifications | Account ("Notifications") | Notifications ("What's happened.") |
 
-The rule is that the label names a group or section and the title is the menu name, except where the title is already a specific thing (Account shows the person, Admin shows the open section). The plan confirms the label for any other page that uses `PageHeader` today. Descriptions are unchanged.
+The rule is that the label names a group or section and the title is the menu name, except where the title is already a specific thing (Account shows the person, Admin shows the open section). The Skills page is the one place an eyebrow carried dialect ("Ey up."); its label becomes plain, for the same reason as the slogans (found while planning; confirm when reviewing). The plan confirms the label for any other page that uses `PageHeader` today. Descriptions are unchanged.
 
 ### 4. Behaviour and accessibility
 

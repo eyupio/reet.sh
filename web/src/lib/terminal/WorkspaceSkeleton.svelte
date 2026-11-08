@@ -83,12 +83,7 @@
      workspace takes the window below the header and the main padding; match that. */
   .workspace-skeleton { display: flex; flex-direction: column; height: calc(100dvh - 73px); min-height: 220px; min-width: 0; }
   @media (max-width: 700px) { .workspace-skeleton { height: calc(100dvh - 63px); } }
-  /* Gaffer keeps its corner beside the workspace, exactly as it does beside the real one. */
-  @media (min-width: 768px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .workspace-skeleton { margin-right: 88px; }
-    :global(html[data-gaffer-anchor='left']) .workspace-skeleton { margin-left: 88px; margin-right: 0; }
-    :global(html[data-gaffer-editing]) .workspace-skeleton { margin-left: 0; margin-right: 0; }
-  }
+  /* The workspace uses its full width; Gaffer floats over the corner, as beside the real one. */
   .workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .toolbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; height: 55px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
   .toolbar-left, .toolbar-actions { display: flex; align-items: center; gap: 8px; }

@@ -58,7 +58,11 @@ try {
     await expect.poll(() => page.evaluate(() => {
       const launcher = document.querySelector('.gaffer-launcher')?.getBoundingClientRect()
       const dock = document.querySelector('.save-dock')?.getBoundingClientRect()
-      return !!launcher && !!dock && dock.bottom <= launcher.top - 10 && launcher.bottom <= innerHeight
+      // The launcher floats over the page now that no column is reserved: it may sit either side of the save bar,
+      // but the two must stay apart and the launcher must stay on screen.
+      return !!launcher && !!dock && launcher.bottom <= innerHeight
+        && (dock.bottom <= launcher.top - 10 || launcher.bottom <= dock.top - 10
+          || dock.right <= launcher.left - 10 || launcher.right <= dock.left - 10)
     })).toBe(true)
     await page.locator('.save-dock').getByRole('button', { name: 'Save draft', exact: true }).click()
     await expect(page.getByText(/Ready for your machines/)).toBeVisible()

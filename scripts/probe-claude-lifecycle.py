@@ -148,6 +148,11 @@ env_base = {
     "DISABLE_TELEMETRY": "1",
     "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
 }
+if args.scenario == "options":
+    # The connector profile never passes ANTHROPIC_MODEL to the adapter, and an explicit
+    # model id changes which options session/new offers, so measure without it. Use
+    # --add ANTHROPIC_MODEL=<id> to see the other behaviour.
+    env_base.pop("ANTHROPIC_MODEL", None)
 for key in args.drop:
     env_base.pop(key, None)
 for pair in args.add:

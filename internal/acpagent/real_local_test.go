@@ -8,8 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // TestRealOpenCodeStart is opt-in: it runs the exact probed binary against a
@@ -100,6 +103,128 @@ func TestRealClaudeStart(t *testing.T) {
 	if refused, err := Start(ctx, Options{Agent: strict, Binary: binary, Dir: dir, Home: home, BaseEnv: base, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second}); err == nil {
 		refused.Close()
 		t.Fatal("an adapter below the version floor was started")
+	}
+}
+
+// hasSetting reports whether the session offers a setting of this category.
+func hasSetting(controls terminalproto.ACPControls, category string) bool {
+	for _, o := range controls.Options {
+		if o.Category == category {
+			return true
+		}
+	}
+	return false
+}
+
+// TestRealClaudeOptions is opt-in and sends no prompt, so it makes no model call.
+// Against the real adapter, in the environment the connector profile gives it, it
+// pins what the parity work depends on: the thinking level is offered at
+// session/new for the adapter's default model, reads back when set and is refused
+// for an unlisted value; a launch that names only an effort works; and a launch
+// that names a model other than the adapter's own is refused by the profile as it
+// stands but works once the model switch is confirmed by read-back.
+func TestRealClaudeOptions(t *testing.T) {
+	binary := os.Getenv("REET_CLAUDE_ACP")
+	if binary == "" {
+		t.Skip("set REET_CLAUDE_ACP to a claude-agent-acp@0.99.1 executable")
+	}
+	home, dir := t.TempDir(), t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	base := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}
+	options := Options{Agent: ClaudeCandidate, Binary: binary, Dir: dir, Home: home, BaseEnv: base, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second}
+	session, err := Start(ctx, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	effort := settingOf(t, session.Controls(), "thought_level")
+	for _, want := range []string{"default", "low", "medium", "high"} {
+		if !slices.Contains(effort.Values, want) {
+			t.Fatalf("thinking levels %v lack %q", effort.Values, want)
+		}
+	}
+	if effort.Current != "default" {
+		t.Fatalf("thinking level at session/new: %q", effort.Current)
+	}
+	if err := session.SetOption(ctx, effort.ID, "high"); err != nil {
+		t.Fatal(err)
+	}
+	if got := settingOf(t, session.Controls(), "thought_level").Current; got != "high" {
+		t.Fatalf("thinking level after a confirmed set: %q", got)
+	}
+	if err := session.SetOption(ctx, effort.ID, "not-an-effort"); !errors.Is(err, ErrControl) {
+		t.Fatalf("an unlisted thinking level: %v", err)
+	}
+	if got := settingOf(t, session.Controls(), "thought_level").Current; got != "high" {
+		t.Fatalf("a refused thinking level changed the setting to %q", got)
+	}
+
+	// A launch that names only an effort.
+	only := options
+	only.Effort = "low"
+	startedOnlyEffort, err := Start(ctx, only)
+	if err != nil {
+		t.Fatalf("launch with effort low and no model: %v", err)
+	}
+	defer startedOnlyEffort.Close()
+	if got := settingOf(t, startedOnlyEffort.Controls(), "thought_level").Current; got != "low" {
+		t.Fatalf("started with thinking level %q", got)
+	}
+
+	// A launch that names a model other than the adapter's own.
+	model := settingOf(t, session.Controls(), "model")
+	other := ""
+	for _, value := range model.Values {
+		if value != "default" && value != session.Model() {
+			other = value
+			break
+		}
+	}
+	if other == "" {
+		t.Fatalf("no second model to choose in %+v", model)
+	}
+	chosen := options
+	chosen.Model, chosen.Effort = other, "low"
+	if started, err := Start(ctx, chosen); err == nil {
+		started.Close()
+		t.Logf("launch with model %q and effort low is accepted by the profile as it stands", other)
+	} else {
+		t.Logf("launch with model %q and effort low is refused by the profile as it stands: %v", other, err)
+	}
+	// The same launch when a model switch is confirmed by reading it back.
+	switched := options
+	switched.Agent.ConfirmModelBySwitch = true
+	switched.Model, switched.Effort = other, "low"
+	started, err := Start(ctx, switched)
+	if err != nil {
+		t.Fatalf("launch with model %q and effort low when the switch is confirmed by read-back: %v", other, err)
+	}
+	defer started.Close()
+	if got := settingOf(t, started.Controls(), "thought_level").Current; got != "low" || started.Model() != other {
+		t.Fatalf("started on model %q with thinking level %q", started.Model(), got)
+	}
+	t.Logf("launch with model %q and effort low works when the model switch is confirmed by read-back", other)
+}
+
+// TestRealClaudeLoadUnstored is opt-in and sends no prompt. A conversation the
+// adapter never stored cannot be loaded, and the refusal is the stored-conversation
+// error, not a generic start failure.
+func TestRealClaudeLoadUnstored(t *testing.T) {
+	binary := os.Getenv("REET_CLAUDE_ACP")
+	if binary == "" {
+		t.Skip("set REET_CLAUDE_ACP to a claude-agent-acp@0.99.1 executable")
+	}
+	home, dir := t.TempDir(), t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	base := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}
+	session, err := Start(ctx, Options{Agent: ClaudeCandidate, Binary: binary, Dir: dir, Home: home, BaseEnv: base, Resume: "6f1c2c3a-0b4d-4f6e-8a2b-9d3e5f7a1b2c", PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
+	if session != nil {
+		session.Close()
+	}
+	if !errors.Is(err, ErrNoStoredConversation) {
+		t.Fatalf("load of a conversation that was never stored: %v", err)
 	}
 }
 

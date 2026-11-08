@@ -92,5 +92,5 @@ Run once at upgrade, idempotent, in one transaction:
 
 ## Delivery
 
-A single pull request from a fresh branch off main. It lands after the Cline billing source work, which is merged.
+A single pull request from a fresh branch off the current main.
 The AGY reconnect fix found in the Gaffer audit is a separate pull request.

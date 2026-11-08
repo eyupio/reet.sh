@@ -247,10 +247,10 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 	if err != nil {
 		return err
 	}
+	var skillID string
+	var tag Tag
+	var hidden int
 	for tagRows.Next() {
-		var skillID string
-		var tag Tag
-		var hidden int
 		if err := tagRows.Scan(&skillID, &tag.ID, &tag.Name, &tag.Source, &hidden); err != nil {
 			tagRows.Close()
 			return err
@@ -473,8 +473,9 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		capHint = 256
 	}
 	out := make([]Skill, 0, capHint)
+	reader := newSkillRowScanner(true)
 	for rows.Next() {
-		k, err := scan(rows, true)
+		k, err := reader.scan(rows)
 		if err != nil {
 			rows.Close()
 			return nil, c, err

@@ -21,9 +21,10 @@
   const shared = getContext<PageGroupContext | undefined>(PAGE_GROUP)
   const context = $derived(shared?.group ?? null)
   const label = $derived(group ?? eyebrow ?? context?.group ?? '')
+  // A detail page (one that links its label back to its parent with `groupHref`) shows no row of siblings.
   const row = $derived(sections
     ? { label: sectionsLabel ?? label, items: sections }
-    : context && context.items.length >= 2 ? { label: context.group, items: context.items } : null)
+    : context && !groupHref && context.items.length >= 2 ? { label: context.group, items: context.items } : null)
 </script>
 
 <div class="page-head">
@@ -44,8 +45,10 @@
   .page-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 24px; }
   .copy { min-width: 0; }
   .group { margin: 0; color: var(--muted); font: 400 0.8125rem/1.4 var(--mono); letter-spacing: 0.01em; overflow-wrap: anywhere; }
-  .group a { color: inherit; text-decoration: none; }
-  .group a:hover { color: var(--ink); text-decoration: underline; }
+  /* The parent link is a 44px target: padding gives the height and width, and the negative margin hands it back so the label does not move. */
+  .group a { position: relative; display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; margin: -13px -8px; border-radius: 6px; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 55%, transparent); text-underline-offset: 3px; }
+  .group a:hover { color: var(--ink); text-decoration-color: currentColor; }
+  .group a:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; color: var(--ink); }
   h1 { margin: 4px 0 6px; font: 600 1.9rem/1.15 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }
   .lede { margin: 0; color: var(--muted); max-width: 66ch; font-size: 0.875rem; line-height: 1.55; }
   .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }

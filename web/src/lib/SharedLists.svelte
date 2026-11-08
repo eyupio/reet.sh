@@ -86,7 +86,7 @@
   })
 </script>
 
-<PageHeader eyebrow="Good finds, kept together" title="Lists" lede="Curate a toolkit, share it with the right people, and keep personal collections private.">
+<PageHeader title="Lists" lede="Curate a toolkit, share it with the right people, and keep personal collections private.">
   {#snippet actions()}
     {#if canWrite}<button class="btn primary" type="button" onclick={() => (creating = true)}>Create a list</button>{/if}
     <a class="btn" href="/community">Explore community</a>

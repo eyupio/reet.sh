@@ -359,7 +359,7 @@
 </script>
 
 <svelte:window ondragover={windowDragOver} ondrop={windowDrop} />
-<PageHeader eyebrow="Write &amp; publish" title="Write a skill" lede="Keep it on your machines, or publish it for anyone to install." />
+<PageHeader title="Write a skill" lede="Keep it on your machines, or publish it for anyone to install." />
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
 {#if notice}<p class="notice good" role="status">{notice}{#if syncHref && /saved|published|Renamed/.test(notice)}<span class="next-action">Ready for your machines. {#if onsync}<button class="btn" type="button" disabled={syncing} onclick={() => void onsync()}>{syncing ? 'Starting…' : 'Sync all machines'}</button>{:else}<a href={syncHref}>Sync all machines</a>.{/if}</span>{/if}</p>{/if}
 {#if loading}<Skeleton label="Loading your skills…" shape="cards" count={3} />

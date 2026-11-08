@@ -16,7 +16,7 @@ Use a little local language at visible, everyday moments: the shelf heading, sta
 | To test | Give these a proper go. | The stage label stays To test. |
 | Empty search | Nowt matches just yet. | Follow with Try another search or clear your filters. |
 | Success | Sorted. Note saved. | State the completed action explicitly. |
-| Community | Have a nosy. | The eyebrow stays Public community and the lede explains what is public. |
+| Community | Community, with the group label Help & community | The title is the menu name; the lede explains what is public. |
 
 “Ey up”, “reet”, “nowt”, “proper”, “give it a go” and “earning their keep” fit. Use ordinary spelling and natural sentences, rather than a phonetic accent or a string of dialect words. Local character should not become a joke about the user, a novelty mascot or a barrier to understanding.
 

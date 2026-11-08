@@ -38,6 +38,10 @@ var ClaudeCandidate = Spec{
 	EnvAllowlist: []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
 	SessionMeta:  ClaudeSessionMeta,
 	ConfigEnv:    claudeConfigEnv,
+	// A chosen model is applied by switching to it and reading the switch back.
+	// The adapter resets a model it does not know to "default" and says so in the
+	// reply, so the read-back catches that instead of trusting the request.
+	ConfirmModelBySwitch: true,
 	// session/load reopens a stored conversation and an unstored one is refused
 	// with the adapter's "Resource not found" error (measured in the probe).
 	Reattach: true,

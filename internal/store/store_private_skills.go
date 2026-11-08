@@ -66,6 +66,7 @@ type PrivateSkillWrite struct {
 	Application  string                    `json:"application,omitempty"`
 }
 type PrivateSkillResult struct {
+	ItemID   string               `json:"itemId,omitempty"`
 	Bundle   PrivateSkillBundle   `json:"bundle"`
 	Revision PrivateSkillRevision `json:"revision"`
 }

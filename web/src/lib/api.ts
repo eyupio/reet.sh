@@ -1286,3 +1286,12 @@ export async function releaseContentReceipt(id: string, expectedVersion: string)
 export async function getAdoptionBreakdown(previewId: string, revisionId: string, signal?: AbortSignal): Promise<AdoptionBreakdown> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(previewId)}/adoption/${encodeURIComponent(revisionId)}`, { signal })).json() }
 
 export async function syncFromMachine(input: {skillId:string;destination:string;sourceId?:string;destinationId?:string;followShelf?:boolean;requestKey:string}):Promise<ImportRequest>{return(await req('/api/v2/sync/from-machine',{method:'POST',body:json(input)})).json()}
+
+export type LibraryItem = { id: string; name: string; itemType: string; status: string; contentState: string; problem?: string; revisionId?: string }
+export type LibrarySelection = { targetId: string; itemIds: string[]; version: string }
+export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[] }> { return (await req('/api/v2/library')).json() }
+export async function getLibrarySelection(target: string): Promise<LibrarySelection> {
+  const response = await req(`/api/v2/library/selections/${encodeURIComponent(target)}`)
+  return response.json()
+}
+export async function saveLibrarySelection(selection: LibrarySelection): Promise<LibrarySelection> { return (await req('/api/v2/library/selections', {method:'PUT', body:json(selection)})).json() }

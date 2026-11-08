@@ -139,7 +139,7 @@ func (s *Store) ImportLibraryLocationFor(uid int64, enrollment string, in Librar
 	}
 	origin, _ := json.Marshal(struct{ EnrollmentID, LocationID, Name string }{enrollment, in.LocationID, in.Name})
 	write := PrivateSkillWrite{RequestID: in.RequestID, ExpectedBase: in.ExpectedBase, Name: in.Name, Origin: PrivateSkillOrigin{Kind: "import", Reference: string(origin)}, Files: in.Files}
-	return s.savePrivateSkillRevisionWithReceipt(uid, bundle, write, func(tx *sql.Tx) error {
+	result, err := s.savePrivateSkillRevisionWithReceipt(uid, bundle, write, func(tx *sql.Tx) error {
 		if err := contentAgent(tx, uid, enrollment); err != nil {
 			return err
 		}
@@ -186,6 +186,14 @@ func (s *Store) ImportLibraryLocationFor(uid int64, enrollment string, in Librar
 				return err
 			}
 		}
-		return attachLibraryBundle(tx, uid, id, result)
+		if err := attachLibraryBundle(tx, uid, id, result); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`INSERT INTO library_bases VALUES(?,?,?,?,?) ON CONFLICT(user_id,enrollment_id,binding_id) DO UPDATE SET revision_id=excluded.revision_id,item_id=excluded.item_id`, uid, enrollment, secretHash("root:"+in.LocationID+":"+in.Name), id, result.Revision.ID)
+		return err
 	})
+	if err == nil {
+		result.ItemID, _, _, err = libraryLocationBinding(s.db, uid, reference)
+	}
+	return result, err
 }

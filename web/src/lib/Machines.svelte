@@ -1,5 +1,6 @@
 <script lang="ts">
   import EnvironmentSync from './EnvironmentSync.svelte'
+  import SelectedLibrary from './SelectedLibrary.svelte'
   import WorkspaceSkeleton from './terminal/WorkspaceSkeleton.svelte'
   import PageHeader from './PageHeader.svelte'
   import ProjectsBar from './ProjectsBar.svelte'
@@ -33,6 +34,7 @@
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} {ontitle} />{:else if error}<p class="notice bad" role="alert">{error}</p>{:else}
   <WorkspaceSkeleton label="Loading the terminal workspace" context={workspaceContext} />
   {/if}{:else}
+{#if compare && accounts && canWrite}<SelectedLibrary />{/if}
 <EnvironmentSync {canWrite} {accounts} {timeZone} {dateFormat} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
     {#if accounts && canWrite}

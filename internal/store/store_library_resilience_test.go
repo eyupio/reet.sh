@@ -441,7 +441,7 @@ func TestPrivateStorageReclaimCoversEveryReferenceToARevision(t *testing.T) {
 	}
 	// private_skill_revision_files is the revision's own file list. The other two
 	// are read by livePrivateRevisions.
-	want := []string{"private_skill_revision_files", "skill_content_receipts", "skill_content_targets"}
+	want := []string{"library_bases", "library_edit_events", "private_skill_revision_files", "skill_content_receipts", "skill_content_targets"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("a table now references private_skill_revisions. Teach livePrivateRevisions to protect it, then update this list.\n got: %v\nwant: %v", got, want)
 	}

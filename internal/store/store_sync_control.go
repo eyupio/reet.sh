@@ -77,6 +77,14 @@ type DesiredSelection struct {
 }
 
 func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) error {
+	var canonical int
+	if err := s.db.QueryRow(`SELECT count(*) FROM canonical_library_selections WHERE user_id=? AND target_id=?`, uid, in.TargetID).Scan(&canonical); err != nil {
+		return err
+	}
+	if canonical > 0 {
+		return errors.New("this folder uses library selections; update its selected items instead")
+	}
+
 	if in.SelectedOnly && (in.SourceID != "library" || in.Mode != "additive") {
 		return ErrSync
 	}
@@ -301,7 +309,11 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		if _, err = tx.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,?) ON CONFLICT(target_id) DO UPDATE SET follow_source=excluded.follow_source,problem=''`, in.TargetID, in.FollowSource || in.FollowPending); err != nil {
 			return err
 		}
-		if source == "library" && in.SelectedOnly && !in.FollowPending && !in.selectedRefresh {
+		var selectedAccount int
+		if err := tx.QueryRow(`SELECT count(*) FROM library_selection_accounts WHERE user_id=?`, uid).Scan(&selectedAccount); err != nil {
+			return err
+		}
+		if source == "library" && (in.SelectedOnly || selectedAccount > 0) && !in.FollowPending && !in.selectedRefresh {
 			if err = recordLibrarySelection(tx, uid, in.TargetID, in.SkillIDs); err != nil {
 				return err
 			}
@@ -356,14 +368,15 @@ func ReconcileSkills(base, desired, actual []SyncSkill) ([]SyncSkill, []string) 
 }
 
 type SyncAgent struct {
-	KeepSynced bool   `json:"keepSynced"`
-	ID         string `json:"id"`
-	Host       string `json:"host"`
-	Version    string `json:"version"`
-	Commit     string `json:"commit"`
-	LastSeen   int64  `json:"lastSeen"`
-	Paused     bool   `json:"paused"`
-	AutoUpdate bool   `json:"autoUpdate"`
+	LibraryProtocol int    `json:"libraryProtocol,omitempty"`
+	KeepSynced      bool   `json:"keepSynced"`
+	ID              string `json:"id"`
+	Host            string `json:"host"`
+	Version         string `json:"version"`
+	Commit          string `json:"commit"`
+	LastSeen        int64  `json:"lastSeen"`
+	Paused          bool   `json:"paused"`
+	AutoUpdate      bool   `json:"autoUpdate"`
 }
 type SyncJob struct {
 	ID        string          `json:"id"`
@@ -671,7 +684,7 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 		if err = tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND status='running'`, a.ID).Scan(&running); err != nil || running > 0 {
 			return err
 		}
-		j, err := scanJob(tx.QueryRow(`SELECT `+jobCols+` FROM sync_jobs WHERE user_id=? AND agent_id=? AND status='queued' ORDER BY created_at LIMIT 1`, uid, a.ID))
+		j, err := scanJob(tx.QueryRow(`SELECT `+jobCols+` FROM sync_jobs WHERE user_id=? AND agent_id=? AND status='queued' AND (?=1 OR NOT EXISTS(SELECT 1 FROM canonical_library_selections c WHERE c.user_id=sync_jobs.user_id AND c.target_id=sync_jobs.target_id)) ORDER BY created_at LIMIT 1`, uid, a.ID, a.LibraryProtocol))
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}

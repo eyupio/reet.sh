@@ -15,58 +15,6 @@ import (
 // Desired-behaviour tests are deliberately opt-in while the staged migration
 // is incomplete. They must fail for the documented product gaps, not because
 // of a broken harness. Run TestSimpleSyncHarness separately as its control.
-func TestSimpleSyncContractSelectedItemsOnly(t *testing.T) {
-	h := newSyncContractHarness(t)
-	wanted := h.hosted("selected", "wanted", false, true)
-	h.hosted("unselected", "must stay off machines", false, true)
-	a, b := h.machine("selected-a"), h.machine("selected-b")
-	h.rounds(1, a, b) // complete real inventory before using the legacy intent API
-	for _, m := range []*syncContractMachine{a, b} {
-		targetID := store.EnvironmentIDFor(h.uid, m.name, "agents", "")
-		targets, err := h.st.SyncTargetsFor(h.uid)
-		if err != nil {
-			t.Fatal(err)
-		}
-		revision := ""
-		for _, target := range targets {
-			if target.Target.ID == targetID {
-				revision = target.Revision
-			}
-		}
-		code, body := h.request(http.MethodPut, "/api/v2/sync/desired", store.DesiredSelection{
-			TargetID: targetID, Revision: revision,
-			SourceID: "library", SkillIDs: []string{wanted.ID}, Mode: "additive",
-		})
-		if code != 200 {
-			t.Errorf("%s could not save an individual selection: %d %s", m.name, code, body)
-		}
-	}
-	h.rounds(6, a, b)
-	for _, m := range []*syncContractMachine{a, b} {
-		m.requireFile("selected", "SKILL.md", syncContractContent("selected", "wanted"))
-		if _, err := os.Stat(m.path("unselected", "SKILL.md")); !os.IsNotExist(err) {
-			t.Errorf("%s received an unselected skill: %v", m.name, err)
-		}
-	}
-}
-
-func TestSimpleSyncContractInactiveAuthoredSkillsStayOffMachines(t *testing.T) {
-	h := newSyncContractHarness(t)
-	h.hosted("private-draft", "not activated", false, false)
-	toTest := h.hosted("published-to-test", "not activated", true, false)
-	skill, found, err := h.st.GetFor(h.uid, toTest.ID)
-	if err != nil || !found || skill.Used || !skill.Bookmarked {
-		t.Fatalf("fixture is not an authored To test skill: %+v, found=%t: %v", skill, found, err)
-	}
-	m := h.machine("inactive-machine")
-	h.rounds(6, m)
-	for _, name := range []string{"private-draft", "published-to-test"} {
-		if _, err := os.Stat(m.path(name, "SKILL.md")); !os.IsNotExist(err) {
-			t.Errorf("inactive authored skill %s was installed: %v", name, err)
-		}
-	}
-}
-
 func TestSimpleSyncContractLocalDeletionRestoresAndNotifies(t *testing.T) {
 	h := newSyncContractHarness(t)
 	h.hosted("restore-me", "canonical instructions", false, true)

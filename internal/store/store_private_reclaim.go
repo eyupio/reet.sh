@@ -69,8 +69,11 @@ func livePrivateRevisions(tx *sql.Tx, uid int64, heads bool) (map[string]bool, e
 		}
 	}
 	for _, query := range []string{
-		`SELECT i.revision_id FROM library_items i WHERE i.user_id=? AND i.deleted_at=0 AND i.revision_id<>'' AND `+claimedLibraryContent,
+		`SELECT i.revision_id FROM library_items i WHERE i.user_id=? AND i.deleted_at=0 AND i.revision_id<>'' AND ` + claimedLibraryContent,
 		`SELECT revision_id FROM hosted_sync_sources WHERE user_id=?`,
+		`SELECT revision_id FROM library_edit_events WHERE user_id=?`,
+		`SELECT base FROM library_edit_events WHERE user_id=?`,
+		`SELECT revision_id FROM library_bases WHERE user_id=?`,
 		`SELECT revision_id FROM sync_private_sources WHERE user_id=?`,
 		`SELECT revision_id FROM skill_content_targets WHERE user_id=?`,
 		`SELECT revision_id FROM skill_content_receipts WHERE user_id=?`,

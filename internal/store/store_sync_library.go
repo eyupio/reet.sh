@@ -29,7 +29,7 @@ func (s *Store) PrivateSyncIdentityFor(uid int64, host, agent, project, name str
 	var raw string
 	err := s.db.QueryRow(`SELECT t.desired FROM sync_targets t JOIN environments e ON e.id=t.target_id AND e.user_id=t.user_id WHERE t.user_id=? AND e.host=? COLLATE NOCASE AND e.agent=? AND e.project=?`, uid, host, agent, project).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return SyncSkill{}, false, nil
+		return s.libraryRootIdentityFor(uid, host, agent, project, name)
 	}
 	if err != nil {
 		return SyncSkill{}, false, err
@@ -43,7 +43,7 @@ func (s *Store) PrivateSyncIdentityFor(uid int64, host, agent, project, name str
 			return skill, true, nil
 		}
 	}
-	return SyncSkill{}, false, nil
+	return s.libraryRootIdentityFor(uid, host, agent, project, name)
 }
 
 // SyncLibraryView is the shared library, and the copies that were left out of it

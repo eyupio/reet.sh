@@ -54,12 +54,18 @@ func recordLibrarySelection(tx *sql.Tx, uid int64, target string, ids []string) 
 			return err
 		}
 	}
+	if target == "" {
+		return nil
+	}
 	raw, _ := json.Marshal(ids)
 	_, err = tx.Exec(`INSERT INTO library_selections VALUES(?,?,?) ON CONFLICT(user_id,target_id) DO UPDATE SET selected=excluded.selected`, uid, target, string(raw))
 	return err
 }
 
 func (s *Store) refreshSelectedLibrary(uid int64, role string, agent SyncAgent) error {
+	if err := s.refreshCanonicalSelections(uid, agent); err != nil {
+		return err
+	}
 	candidates, err := s.SyncLibraryFor(uid, role)
 	if err != nil {
 		return err
@@ -80,6 +86,13 @@ func (s *Store) refreshSelectedLibrary(uid int64, role string, agent SyncAgent) 
 		return err
 	}
 	for _, target := range targets {
+		var canonical int
+		if err = s.db.QueryRow(`SELECT count(*) FROM canonical_library_selections WHERE user_id=? AND target_id=?`, uid, target.Target.ID).Scan(&canonical); err != nil {
+			return err
+		}
+		if canonical > 0 {
+			continue
+		}
 		if !strings.EqualFold(target.Target.Host, agent.Host) {
 			continue
 		}

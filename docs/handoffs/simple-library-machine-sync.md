@@ -425,7 +425,7 @@ Do not replace observed failures with a later broad claim of success. Do not req
 
 ## 9. Completion ledger
 
-Stage 3 is now in progress: see its [draft implementation handover](simple-library-machine-sync-stage-3.md). Its experimental selection slice is tested; the remaining acceptance work is explicit and Stage 3 stays unchecked.
+Stage 3 is now in progress: see its [draft implementation handover](simple-library-machine-sync-stage-3.md). Its canonical selections, machine edit journal, ordering/history and WebUI control are implemented; final acceptance, regression validation and PR integration are still in progress, so Stage 3 stays unchecked.
 
 - [x] Stage 0: baseline, migration design and real-connector harness
 - [x] Stage 1: identity, supervision and connection recovery

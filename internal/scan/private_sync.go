@@ -31,7 +31,7 @@ func privateSkillDigest(root string) (string, error) {
 
 // Download only immutable account-owned revisions from the configured controller.
 // Every path, byte count, digest and executable flag is checked before writing.
-func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath string) error {
+func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath string, beforeInstall ...func([]skillbundle.ContentFile) error) error {
 	parts := privateSourcePattern.FindStringSubmatch(skill.Source)
 	if parts == nil || !safeSlug.MatchString(skill.Slug) {
 		return errors.New("invalid private skill source")
@@ -100,6 +100,11 @@ func installPrivateSkill(server, token string, skill store.SyncSkill, targetPath
 	}
 	if !os.IsNotExist(err) {
 		return err
+	}
+	for _, record := range beforeInstall {
+		if err = record(files); err != nil {
+			return err
+		}
 	}
 	return os.Rename(staging, destination)
 }

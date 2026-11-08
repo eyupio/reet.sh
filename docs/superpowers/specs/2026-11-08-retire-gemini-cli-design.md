@@ -37,6 +37,8 @@ needs one small notion of a retired agent, rather than forgetting the id:
 - `terminalproto.RetiredTool(id string) bool` is true for `gemini` only.
 - A capability `Tools` list may contain a retired tool (the ordering rule still applies). It is never offered,
   never launched and never required.
+- An `acpAgents` descriptor for a retired tool validates too, but only as missing, unverified or incompatible,
+  never as an available chat agent. An older connector described Gemini CLI there as well as in `Tools`.
 - The same function marks a stored default as stale during the one-time cleanup and the legacy-project
   migration below.
 - The web keeps a retired-agent label table (`gemini` → "Gemini CLI") used only to name past sessions. The

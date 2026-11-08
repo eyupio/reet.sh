@@ -442,6 +442,25 @@ func TestTerminalLaunchCapabilitiesReachTheWeb(t *testing.T) {
 	}
 }
 
+// A connector from before the retirement described Gemini CLI in acpAgents as well as tools. The machine stays
+// connected, its stored record still reads, and it still starts the agents reet offers.
+func TestMachineWithAnOlderConnectorsGeminiDescriptorStaysReady(t *testing.T) {
+	caps := launchCaps("claude", "gemini")
+	described := []terminalproto.ACPAgent{{Tool: "gemini", Adapter: "gemini", State: "missing"}}
+	caps.ACPAgents = &described
+	f := launchAPIFixture(t, caps)
+	code, _, raw := f.do(t, f.cookie, "GET", "/api/v2/terminal/machines", nil)
+	if code != 200 || !strings.Contains(raw, `"launch":true`) {
+		t.Fatal("terminal machines", code, raw)
+	}
+	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "dir": "/tmp"})); code != 200 && code != 201 {
+		t.Fatal("claude on that machine", code, out, raw)
+	}
+	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "gemini", "dir": "/tmp"})); code != 422 && code != 400 {
+		t.Fatal("gemini was not refused", code, out, raw)
+	}
+}
+
 func TestPrivateControlAdvertisesLaunchBesideCommandHistory(t *testing.T) {
 	srv, _, agent, secret, _ := privateFixture(t, AuthAccounts, "")
 	private := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

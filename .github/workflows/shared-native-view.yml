@@ -17,7 +17,8 @@ concurrency:
 jobs:
   real-agent:
     runs-on: zoomies-linux-x64
-    timeout-minutes: 10
+    # Cold race compilation needs time before the bounded tests start.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

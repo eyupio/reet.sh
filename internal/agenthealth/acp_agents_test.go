@@ -341,6 +341,55 @@ func TestAgentReattachClaimEnablesAnotherAgentsReattach(t *testing.T) {
 	}
 }
 
+// Claude Code and Codex are reported as available only to a controller that advertises the chat gate, because only
+// such a controller hides them from the accounts that have not turned them on.
+func TestGatedChatsAreReportedAvailableOnlyWhenTheGateIsNegotiated(t *testing.T) {
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature +
+		"," + terminalproto.ACPAgentsFeature + "," + terminalproto.AgentsFeature
+	agents := func() []terminalproto.ACPAgent {
+		return []terminalproto.ACPAgent{
+			{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1"},
+			{Tool: "codex", Adapter: "codex-acp", State: "available", MinimumVersion: "1.13.1"},
+			{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", History: true},
+		}
+	}
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"claude", "codex", "opencode"} }, StructuredAgents: agents}
+	states := func(c terminalproto.Capabilities) map[string]string {
+		out := map[string]string{}
+		if c.ACPAgents != nil {
+			for _, a := range *c.ACPAgents {
+				out[a.Tool] = a.State
+			}
+		}
+		return out
+	}
+	negotiateFeatures(&cfg, base)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if got := states(c); got["claude"] != "unverified" || got["codex"] != "unverified" || got["opencode"] != "available" {
+		t.Fatalf("without the gate: %v", got)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ChatGateFeature)
+	c = capabilitiesFor(cfg, true, terminalproto.Ready)
+	if got := states(c); got["claude"] != "available" || got["codex"] != "available" || got["opencode"] != "available" {
+		t.Fatalf("with the gate: %v", got)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !terminalproto.SupportsChatGate(terminalFeatures(cfg)) {
+		t.Fatal("the negotiated gate was not advertised")
+	}
+	// A machine whose only chat agent is gated has no chat at all while the gate is not negotiated.
+	only := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"claude"} }, StructuredAgents: func() []terminalproto.ACPAgent { return agents()[:1] }}
+	negotiateFeatures(&only, base)
+	if c := capabilitiesFor(only, true, terminalproto.Ready); c.ACP {
+		t.Fatalf("chat reported by a gated-only machine without the gate: %+v", c)
+	}
+}
+
 func TestStartupOptionsDoNotLeakToLiveControlsOnlyPeer(t *testing.T) {
 	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
 	live := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature

@@ -12,7 +12,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/ref"
 )
 
-const canonicalShelfJoin = ` LEFT JOIN library_aliases la ON la.user_id=sh.user_id AND la.kind='shelf' AND la.reference=sh.skill_id LEFT JOIN library_items li ON li.user_id=la.user_id AND li.id=la.item_id `
+const canonicalShelfJoin = ` LEFT JOIN library_aliases la INDEXED BY library_shelf_projection ON la.user_id=sh.user_id AND la.kind='shelf' AND la.reference=sh.skill_id LEFT JOIN library_items li INDEXED BY library_item_projection ON li.user_id=la.user_id AND li.id=la.item_id `
 const canonicalShelfColumn = `,COALESCE(li.id||':'||li.status,'')`
 const shelfCols = `s.id,s.source,s.slug,s.source_type,s.url,s.name,s.description,sh.notes,s.installs,s.installs_week,s.trend,sh.liked,sh.bookmarked,sh.used,sh.created_at,sh.updated_at`
 
@@ -240,7 +240,7 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 		index[skills[i].ID] = i
 		args = append(args, skills[i].ID)
 	}
-	tagRows, err := s.readStmts.query(`SELECT st.skill_id,t.id,t.name,st.source,st.hidden
+	tagRows, err := s.readStmts.query(`SELECT st.skill_id,t.id,t.name,st.source
 		FROM skill_tags st JOIN tags t ON t.id=st.tag_id
 		WHERE st.user_id=? AND st.hidden=0 AND st.skill_id IN (`+placeholders(len(skills))+`)
 		ORDER BY lower(t.name)`, args...)
@@ -249,13 +249,13 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 	}
 	var skillID string
 	var tag Tag
-	var hidden int
 	for tagRows.Next() {
-		if err := tagRows.Scan(&skillID, &tag.ID, &tag.Name, &tag.Source, &hidden); err != nil {
+		if err := tagRows.Scan(&skillID, &tag.ID, &tag.Name, &tag.Source); err != nil {
 			tagRows.Close()
 			return err
 		}
-		tag.Hidden = hidden != 0
+		// The query returns only visible tags.
+		tag.Hidden = false
 		if i, ok := index[skillID]; ok {
 			skills[i].Tags = append(skills[i].Tags, tag)
 		}
@@ -450,7 +450,7 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	if paged {
 		// Select the requested page before looking up canonical metadata.
 		// Joining first makes SQLite probe the entire shelf before LIMIT.
-		q = `WITH selected AS MATERIALIZED (` + q + `) SELECT selected.*` + canonicalShelfColumn + ` FROM selected LEFT JOIN library_aliases la ON la.user_id=? AND la.kind='shelf' AND la.reference=selected.id LEFT JOIN library_items li ON li.user_id=la.user_id AND li.id=la.item_id`
+		q = `WITH selected AS MATERIALIZED (` + q + `) SELECT selected.*` + canonicalShelfColumn + ` FROM selected LEFT JOIN library_aliases la INDEXED BY library_shelf_projection ON la.user_id=? AND la.kind='shelf' AND la.reference=selected.id LEFT JOIN library_items li INDEXED BY library_item_projection ON li.user_id=la.user_id AND li.id=la.item_id`
 		args = append(args, userID)
 		switch f.Sort {
 		case "name":

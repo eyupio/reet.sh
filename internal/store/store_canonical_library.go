@@ -54,6 +54,8 @@ func validLibraryStatus(status string) bool {
 func (s *Store) migrateCanonicalLibrary() error {
 	return s.withTx(func(tx *sql.Tx) error {
 		for _, stmt := range []string{
+			`CREATE TABLE IF NOT EXISTS library_selection_accounts(user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE)`,
+			`CREATE TABLE IF NOT EXISTS library_selections(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,target_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,selected TEXT NOT NULL,PRIMARY KEY(user_id,target_id))`,
 			`CREATE TABLE IF NOT EXISTS library_items(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,id TEXT NOT NULL,item_type TEXT NOT NULL CHECK(item_type IN ('skill','agent_definition','portable_settings')),name TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('in_use','to_test','on_shelf','disabled')),version INTEGER NOT NULL DEFAULT 1,bundle_id TEXT NOT NULL DEFAULT '',revision_id TEXT NOT NULL DEFAULT '',digest TEXT NOT NULL DEFAULT '',problem TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,deleted_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,id))`,
 			`CREATE TABLE IF NOT EXISTS library_aliases(user_id INTEGER NOT NULL,kind TEXT NOT NULL,reference TEXT NOT NULL,item_id TEXT NOT NULL,PRIMARY KEY(user_id,kind,reference),FOREIGN KEY(user_id,item_id) REFERENCES library_items(user_id,id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED)`,
 			`CREATE INDEX IF NOT EXISTS library_alias_item ON library_aliases(user_id,item_id)`,

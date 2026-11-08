@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stages 0–2 completed on 8 November 2026. See the [baseline and migration map](simple-library-machine-sync-stage-0.md), [Stage 1 recovery](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662), and [Stage 2 foundation/handover](simple-library-machine-sync-stage-2.md) in [PR #664](https://github.com/eyupio/reet.sh/pull/664), which is based on Stage 1. All 44 Go test packages passed race checks, with supplemental final compatibility checks recorded there. Stage 3 is next; Stages 3–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stages 0–2 completed on 8 November 2026. See the [baseline and migration map](simple-library-machine-sync-stage-0.md), [Stage 1 recovery](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662), and [Stage 2 foundation/handover](simple-library-machine-sync-stage-2.md) in [PR #664](https://github.com/eyupio/reet.sh/pull/664), which is based on Stage 1. All 44 Go test packages passed race checks, with supplemental final compatibility checks recorded there. Stage 3 is in progress; see its draft handover below. Stages 4–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -424,6 +424,8 @@ Append a completed record when handing work to the next model. Keep this file or
 Do not replace observed failures with a later broad claim of success. Do not require the next model to infer decisions from chat history or recreate the previous model's test environment. Put reusable fixtures/scripts in the repository, and keep credentials and private logs out of the handoff.
 
 ## 9. Completion ledger
+
+Stage 3 is now in progress: see its [draft implementation handover](simple-library-machine-sync-stage-3.md). Its experimental selection slice is tested; the remaining acceptance work is explicit and Stage 3 stays unchecked.
 
 - [x] Stage 0: baseline, migration design and real-connector harness
 - [x] Stage 1: identity, supervision and connection recovery

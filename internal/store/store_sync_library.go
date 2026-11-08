@@ -336,6 +336,11 @@ func privateCopyProblem(code string) string {
 // Project folders remain explicit. Automatic sync owns home-folder plans;
 // turning it off allows a custom plan. reset also retries settled failures.
 func (s *Store) prepareLibraryTargets(uid int64, role string, agent SyncAgent, reset bool) error {
+	if enabled, err := s.selectedLibraryEnabled(uid); err != nil {
+		return err
+	} else if enabled {
+		return s.refreshSelectedLibrary(uid, role, agent)
+	}
 	var origin string
 	err := s.db.QueryRow(`SELECT origin FROM sync_library WHERE user_id=?`, uid).Scan(&origin)
 	if errors.Is(err, sql.ErrNoRows) {

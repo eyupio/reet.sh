@@ -63,18 +63,23 @@ func (s *Store) SyncCandidatesFor(uid int64, role string, listID int64) ([]SyncS
 }
 
 type DesiredSelection struct {
-	FollowPending bool     `json:"-"` // Preserve whole-shelf intent while private source files are in flight.
-	FollowSource  bool     `json:"followSource"`
-	Origin        string   `json:"-"`
-	TargetID      string   `json:"targetId"`
-	SourceID      string   `json:"sourceId"`
-	ListID        int64    `json:"listId"`
-	SkillIDs      []string `json:"skillIds"`
-	Mode          string   `json:"mode"`
-	Revision      string   `json:"revision"`
+	selectedRefresh bool
+	SelectedOnly    bool     `json:"selectedOnly,omitempty"` // Experimental Stage 3 policy; existing clients retain legacy behaviour.
+	FollowPending   bool     `json:"-"`                      // Preserve whole-shelf intent while private source files are in flight.
+	FollowSource    bool     `json:"followSource"`
+	Origin          string   `json:"-"`
+	TargetID        string   `json:"targetId"`
+	SourceID        string   `json:"sourceId"`
+	ListID          int64    `json:"listId"`
+	SkillIDs        []string `json:"skillIds"`
+	Mode            string   `json:"mode"`
+	Revision        string   `json:"revision"`
 }
 
 func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) error {
+	if in.SelectedOnly && (in.SourceID != "library" || in.Mode != "additive") {
+		return ErrSync
+	}
 	if role == "viewer" {
 		return errors.New("read-only account")
 	}
@@ -295,6 +300,14 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		}
 		if _, err = tx.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,?) ON CONFLICT(target_id) DO UPDATE SET follow_source=excluded.follow_source,problem=''`, in.TargetID, in.FollowSource || in.FollowPending); err != nil {
 			return err
+		}
+		if source == "library" && in.SelectedOnly && !in.FollowPending && !in.selectedRefresh {
+			if err = recordLibrarySelection(tx, uid, in.TargetID, in.SkillIDs); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(`UPDATE sync_policies SET follow_source=0 WHERE target_id=?`, in.TargetID); err != nil {
+				return err
+			}
 		}
 		_, err = tx.Exec(`INSERT INTO sync_options(target_id,mode,baseline) VALUES(?,?,?) ON CONFLICT(target_id) DO UPDATE SET mode=excluded.mode,baseline=excluded.baseline`, in.TargetID, in.Mode, string(baseline))
 		return err

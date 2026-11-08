@@ -190,3 +190,8 @@ The Stage 1 change is recovery underneath the current UI. Stage 3 is the first s
 - **Rollback:** revert the Stage 1 runtime patch to restore old retry behaviour. Archived expired attempts remain ordinary retained history; no user content is deleted.
 - **Not part of this stage:** new Library/Machines UI, status-based distribution/removal, general latest-save conflict ordering, four-app provisioning, independent backup rollout or production deployment.
 - **Next:** Stage 2. Rebaseline the PR/checkout, read the authority/migration map and begin canonical item identity/content/status while preserving this recovery's request-generation fences.
+
+
+### CI supervision follow-up
+
+The owner authorized checking all open PRs and merging completed green work. The shared-native and structured-worktree jobs were cancelled by their ten-minute job budgets while Go was still compiling packages; real ACP tests in the same log had passed. Their job budgets are now twenty minutes to include cold race compilation. The existing per-test three-minute limits, pinned real-agent checksums and test assertions are unchanged. This is a runner-budget correction, not a claim that the cancelled checks passed. Fresh GitHub checks remain required before merge.

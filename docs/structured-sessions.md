@@ -105,8 +105,15 @@ not turned them on.
 
 With a chat on, the descriptor reports that agent as available and the browser offers its chat beside OpenCode. A Codex chat
 starts in `read-only` and carries the approvals control; `agent` is chosen per chat and `agent-full-access` is never
-offered. Claude reports approvals and the model switch only. Neither is proof of a signed-in turn: the descriptor is an
-observation. Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
+offered. Claude reports approvals, a confirmed model switch, stored history, in-place reconnect and image prompts, and no
+questions or modes. Each was measured against the pinned adapter (`claude-agent-acp` 0.99.1) in the
+[probe report](research/structured-adapters/probe-report.md): history and reconnect rest on `session/load` being advertised
+and replaying a stored conversation, and on the adapter refusing one it never stored with "Resource not found"; images rest
+on the adapter advertising image prompts and the block reaching the provider request. Whether a real model accepts an image
+is not measured. A chat can start on a chosen model and a thinking level of `low`, `medium` or `high`; the connector applies
+each, reads it back before any prompt, and refuses the start if the adapter does not confirm it. Which thinking levels exist
+depends on the model, and `fast` and `ultracode` are listed but not controlled. None of this is proof of a signed-in turn:
+the descriptor is an observation, and no signed-in Claude turn has been run. Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
 that machine first." or "Sign in to Codex on that machine first." — and the turn ends without an edit or command. That refusal
 carries `code: "login"` on its status event, so the chat heads it *"{agent} needs a sign-in"* instead of *"could not
 continue"*: it is a step a person takes, not a fault to diagnose.

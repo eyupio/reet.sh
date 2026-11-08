@@ -8,7 +8,7 @@ const capture = process.env.LOADING_SCREENSHOTS
 try {
   for (const width of [375, 1440]) for (const theme of ['light', 'dark']) {
     for (const [path, chunk, shape, signedIn, ready] of [
-      ['/machines', 'Machines', 'rows', true, /Machines/],
+      ['/machines', 'Machines', 'rows', true, /^Machines$/],
       ['/signin', 'AccountSignIn', 'auth', false, /Sign in/],
       ['/welcome', 'AccountSignIn', 'auth', false, /Sign in/],
       ['/account', 'Account', 'form', true, /Sam/],

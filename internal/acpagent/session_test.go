@@ -55,6 +55,10 @@ func TestFakeACP(t *testing.T) {
 	in := bufio.NewScanner(os.Stdin)
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
+	if isClaudeHelperScenario(scenario) {
+		runClaudeHelper(in, out, scenario, version)
+		os.Exit(0)
+	}
 	if strings.HasPrefix(scenario, "antigravity-") {
 		runAntigravityHelper(in, out, scenario, version)
 		os.Exit(0)

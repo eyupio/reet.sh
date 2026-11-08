@@ -38,6 +38,9 @@ var ClaudeCandidate = Spec{
 	EnvAllowlist: []string{"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"},
 	SessionMeta:  ClaudeSessionMeta,
 	ConfigEnv:    claudeConfigEnv,
+	// session/load reopens a stored conversation and an unstored one is refused
+	// with the adapter's "Resource not found" error (measured in the probe).
+	Reattach: true,
 }
 
 // claudeConfigEnv is the reet-owned part of the adapter environment. Each

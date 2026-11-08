@@ -78,3 +78,39 @@ func TestOtherAgentLoginRefusalIsNotRewritten(t *testing.T) {
 		t.Fatalf("prompt: %v", err)
 	}
 }
+
+// claudeOptions is the fake Claude Code adapter with Claude's profile and a home that holds no login.
+func claudeOptions(t *testing.T, scenario string) (Options, *events) {
+	t.Helper()
+	opts, got := options(t, scenario, ClaudeCandidate.MinVersion)
+	opts.Agent = ClaudeCandidate
+	opts.BaseEnv = append(opts.BaseEnv, "HOME="+t.TempDir())
+	return opts, got
+}
+
+// session/load reopens the stored conversation under the same reet session id, which is what an in-place reconnect
+// asks for. The adapter's replay is dropped: the controller keeps its own transcript.
+func TestClaudeReattachesInPlace(t *testing.T) {
+	opts, _ := claudeOptions(t, "claudecode")
+	opts.Resume = "5d0a3b57-7c2e-4f58-9d1b-3b8a2c1e9f40"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if session.SessionID() != opts.Resume || session.Mode() != "default" {
+		t.Fatalf("reattached %q in mode %q", session.SessionID(), session.Mode())
+	}
+}
+
+// A conversation the adapter never stored cannot be loaded: the refusal names that case, not a generic start failure.
+func TestClaudeReattachWithoutAStoredConversationIsRefused(t *testing.T) {
+	opts, _ := claudeOptions(t, "claudecode-no-store")
+	opts.Resume = "5d0a3b57-7c2e-4f58-9d1b-3b8a2c1e9f40"
+	if session, err := Start(context.Background(), opts); !errors.Is(err, ErrNoStoredConversation) {
+		if session != nil {
+			session.Close()
+		}
+		t.Fatalf("no stored conversation: %v", err)
+	}
+}

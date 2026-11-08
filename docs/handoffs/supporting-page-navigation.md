@@ -16,11 +16,13 @@ Design: [spec](../superpowers/specs/2026-11-08-supporting-page-navigation-design
 | Account, Notifications | Account | the person's name / Notifications |
 | Activity (no accounts) | This workspace | Activity |
 | Skills | Your skill shelf | Skills |
+| Ticket (one support ticket) | Support, linking back to `/support` | the ticket subject; no row |
 
 ## Decisions and spec deltas
 
 - `pageGroup` returns the group even for one page; the row shows for two or more items. A group of one (Help & community without the support desk, Workspace for a non-admin) shows its label and no row. Signed out, the context keeps only the current page, since the others need a sign-in.
 - The Skills label "Your skill shelf" replaces "Ey up. Your skill shelf."; Notifications is titled "Notifications" under the Account label.
+- A viewer at `/hosting` keeps the label "Skills & distribution", although the page is not in their More list.
 - Machines keeps its row in the focused-machine view although the spec gives detail pages none: Software and Sync live there, and `sections` outranks the context row and the `groupHref` suppression. A list's own page links its label back to Lists (a 44px target) and has no row.
 
 ## Preserved hooks
@@ -34,3 +36,11 @@ Design: [spec](../superpowers/specs/2026-11-08-supporting-page-navigation-design
 - Server-rendered crawl fallbacks keep "Public community"; they are not the on-page heading.
 
 Evidence is `web/tests/supporting-nav.e2e.mjs` and `web/src/lib/shell/tabs.test.mjs`, on a synthetic API only. Deployment is a separate verification and is not established by merging.
+
+## Merge outcome
+
+PR #663 was merged on 2026-11-08 as merge commit `b00422ed7ef8c2f6e2d0e0513d5c628d3f67dda5` (head `f817eb9`, merge method: merge commit). Every pull-request check on that exact head passed, including both `offline` legs; `offline (native)` passed on one re-run after a loopback broken-pipe in the Go fixture, which is not in this change. The Codex review had no findings.
+
+Push runs on `main` for the merge commit: `docs`, `image`, `binary release`, `Gaffer settings browser` and `Gaffer offline acceptance` passed. `terminal browser` did **not** pass and is **not verified here**. Its first attempt failed in `terminal-workspace.e2e.mjs:275`, a wall-clock check on a loaded runner, and `phone-zoom` failed once and then passed on re-run, neither reproducible locally. On attempt 2, `phone-zoom` passed; `phone-dialogs` was cancelled at its 20-minute job limit on the `zoomies-linux-x64` pool (it also ran out of time on attempt 1; on pull requests it runs on `ubuntu-latest`); `terminal-browser` was cancelled at 18:21 UTC, the minute the merge of #662 started a newer `main` run (the workflow cancels in-progress runs per branch). Nothing shows #663 as the cause, but the push-run browser scripts, `supporting-nav.e2e.mjs` among them, have no green run on the merge commit. They passed on the pull-request head.
+
+**Deployment is unverified**: web rollout needs its own check, and no connector or API change is involved.

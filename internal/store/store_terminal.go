@@ -483,6 +483,36 @@ func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
 	return out, nil
 }
 
+// TerminalCleanupCandidatesFor lists one machine's sessions whose end asked to
+// remove history, that are closed and still hold a not-yet-archived worktree.
+// Cleanup removes the worktree, then archives the session. It is how a
+// controller restart or a reconnect resumes a cleanup that was interrupted.
+func (s *Store) TerminalCleanupCandidatesFor(uid int64, agentID string, limit int) ([]TerminalSession, error) {
+	rows, err := s.readStmts.query(`SELECT `+terminalSessionCols+` FROM terminal_sessions
+		WHERE user_id=? AND agent_id=? AND worktree_path<>'' AND state IN ('ended','exited','lost')
+		AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id)
+		AND EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')
+		ORDER BY updated_at,id LIMIT ?`, uid, agentID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := []TerminalSession{}
+	for rows.Next() {
+		t, err := readTerminal(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	return out, nil
+}
+
 // terminalSeenFor reads the seen stamps for a page of sessions in one query.
 func (s *Store) terminalSeenFor(uid int64, sessions []TerminalSession) (map[string]int64, error) {
 	seen := make(map[string]int64, len(sessions))
@@ -810,8 +840,11 @@ func (s *Store) PendingTerminalOperationsFor(uid int64, agentID string, generati
 }
 
 // archiveTerminalOnClose only runs inside a transaction that has confirmed closure.
+// A session that worked in a worktree stays in history until that worktree is
+// gone: the controller removes it once the machine is no longer using it, so
+// the archive never leaves a worktree behind.
 func archiveTerminalOnClose(tx *sql.Tx, uid int64, agentID, sessionID string) error {
-	_, err := tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) SELECT id,user_id,agent_id,? FROM terminal_sessions WHERE id=? AND user_id=? AND agent_id=? AND state IN ('ended','exited','lost') AND EXISTS(SELECT 1 FROM terminal_operations WHERE session_id=? AND user_id=? AND agent_id=? AND kind='end' AND parameters='{"removeHistory":true}') ON CONFLICT(session_id) DO NOTHING`, now(), sessionID, uid, agentID, sessionID, uid, agentID)
+	_, err := tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) SELECT id,user_id,agent_id,? FROM terminal_sessions WHERE id=? AND user_id=? AND agent_id=? AND worktree_path='' AND state IN ('ended','exited','lost') AND EXISTS(SELECT 1 FROM terminal_operations WHERE session_id=? AND user_id=? AND agent_id=? AND kind='end' AND parameters='{"removeHistory":true}') ON CONFLICT(session_id) DO NOTHING`, now(), sessionID, uid, agentID, sessionID, uid, agentID)
 	if err != nil {
 		return err
 	}

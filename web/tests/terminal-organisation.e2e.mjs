@@ -299,10 +299,29 @@ try{
  await expect(fold('Your sessions')).toHaveAttribute('aria-expanded','false')
  await fold('Your sessions').click()
  await expect(fold('Laptop')).toHaveAttribute('aria-expanded','false')
- // Answered or opened: the bell's rule clears it here too.
+ await expect(sidebar.locator('header .need-badge')).toHaveAttribute('aria-label','1 needs you')
+ // Opened but not answered: the approval still holds the person, so the row and the badges stay (the shared rule).
  Object.assign(sessions[0],{changedSinceSeen:false})
  await page.reload();await live();await showSidebar()
+ await expect(sidebar.locator('.projects li.needs')).toHaveCount(1)
+ await expect(sidebar.locator('.projects li.needs .need-badge')).toHaveText('1')
+ await expect(sidebar.locator('header .need-badge')).toHaveText('1')
+ // Answered: the server drops the approval and the agent goes back to work, so it clears here as on the bell.
+ delete sessions[0].pendingPermission;Object.assign(sessions[0],{attention:'working'})
+ await page.reload();await live();await showSidebar()
  await expect(sidebar.locator('li.needs')).toHaveCount(0)
+ await expect(sidebar.locator('.need-badge')).toHaveCount(0)
+ // An unseen failed session within the day counts in the badge too, as on the bell; once seen it does not.
+ const failedShell={id:'organisation-session0009',agentId:a,title:'Failed shell',state:'exited',exitCode:2,attention:'failed',attentionSource:'terminal',changedSinceSeen:true,createdAt:now-5,updatedAt:Date.now()-60*60_000}
+ sessions.push(failedShell)
+ await page.reload();await live();await showSidebar()
+ await expect(sidebar.locator('header .need-badge')).toHaveText('1')
+ await expect(sidebar.locator('header .need-badge')).toHaveAttribute('aria-label','1 needs you')
+ failedShell.changedSinceSeen=false
+ await page.reload();await live();await showSidebar()
+ await expect(sidebar.locator('.need-badge')).toHaveCount(0)
+ sessions.splice(sessions.indexOf(failedShell),1)
+ await page.reload();await live();await showSidebar()
  // The agent TUI's Skills button: agent sessions only. Choosing inserts the invocation and never presses Enter; the agent owns `/`.
  const skillRows=[
   {id:'m1',name:'pdf',description:'Read and fill forms',source:'machine',agent:'claude',native:true,onMachine:true,invocation:'Use the pdf skill.'},

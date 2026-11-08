@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, UnauthorizedError } from '../api'
   import CommandLibrary from '../terminal/CommandLibrary.svelte'
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
@@ -93,6 +94,7 @@
   async function markSeen(sessionId: string) {
     try {
       await markSessionSeen(sessionId)
+      signalAttentionChanged()
       await load(true)
     } catch { /* next read recovers */ }
   }

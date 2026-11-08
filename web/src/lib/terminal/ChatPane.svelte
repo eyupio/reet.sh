@@ -3,6 +3,7 @@
  import { fly } from 'svelte/transition'
  import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
+ import { signalAttentionChanged } from '../attentionSignal'
  import { composerPrefill } from '../sessions/composerPrefill'
  import { prefillText } from '../sessions/fixMessages'
  import { alreadyThere } from '../sessions/fixDelivery'
@@ -547,7 +548,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  async function answer(permissionId: string, allow: boolean, forSession = false) {
   if (answering) return
   answering = permissionId; feedback = ''
-  try { await chatAnswer(session.id, permissionId, allow, forSession) }
+  try { await chatAnswer(session.id, permissionId, allow, forSession); signalAttentionChanged() }
   catch (e) { feedback = e instanceof Error ? e.message : 'That answer was not sent.' }
   finally { answering = '' }
  }
@@ -581,7 +582,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
    answers = check.answers
   }
   asking = item.questionId
-  try { await chatQuestionAnswer(session.id, item.questionId, action, answers); if (answers) sentAnswers[item.questionId] = answers }
+  try { await chatQuestionAnswer(session.id, item.questionId, action, answers); signalAttentionChanged(); if (answers) sentAnswers[item.questionId] = answers }
   catch (e) { questionNote[item.questionId] = e instanceof Error ? e.message : 'That answer was not sent.' }
   finally { asking = '' }
  }

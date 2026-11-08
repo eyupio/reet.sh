@@ -91,6 +91,20 @@ try {
  await expect(page.getByRole('button', { name: /^Model:/ })).toBeVisible()
  await expect(source()).toHaveCount(0)
 
+ // Another agent's own provider option is not a Cline billing source.
+ reset(); session.tool = 'opencode'
+ await open()
+ await expect(page.getByRole('button', { name: /^Model:/ })).toBeVisible()
+ await expect(source()).toHaveCount(0)
+ session.tool = 'cline'
+
+ // A switch Cline did not confirm leaves the source unknown: the control says so and the star is unavailable.
+ reset(); controls.options[0].current = ''
+ await open()
+ await expect(source()).toHaveValue('')
+ await expect(source().locator('option:checked')).toHaveText('Unconfirmed')
+ await expect(page.getByRole('button', { name: /default source/ })).toBeDisabled()
+
  // A source switch is not offered while a turn runs.
  reset(['cline', 'cline-pass'], true)
  await open('working')

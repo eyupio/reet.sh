@@ -101,8 +101,15 @@ to continue." Without a provider control the existing wording stands.
 - An old connector, a Cline that reports no `provider` option, or an option with no values hides the
   control in the live chat. In the Start dialog it is hidden for a machine without the feature, with the
   reason shown where the model status line already explains such a state.
-- A switch that Cline refuses or that cannot be confirmed leaves the chat on its previous source with a
-  plain sentence, never a silently different source.
+- A switch that Cline explicitly refuses leaves the chat on its previous source with a plain sentence. A
+  switch that cannot be confirmed (a timeout, an internal error, a reply that does not read the value
+  back) leaves the source unknown, shown as "Unconfirmed", because the change may already have been
+  applied: the chat never claims a source it cannot confirm.
+- The Start dialog cannot know which sources a machine's Cline offers, so a saved default source reet has no
+  label for (the live chat's star saves whatever id Cline reports) is shown as given and sent. Cline's own
+  refusal at launch is what says no, and the dialog shows it.
+- Only an agent whose spec reports a billing source (Cline) surfaces a provider setting; another adapter's own
+  `provider` option is left alone.
 - A source switch may be stored by Cline for the whole machine rather than for one chat. The control's
   wording says "Source", not "for this chat only", until that is checked (see the gate below).
 

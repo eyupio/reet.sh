@@ -96,14 +96,16 @@ try {
   await page.waitForURL(new RegExp(`session=${S}`))
   expect(state.create.provider).toBe('cline-pass')
 
-  // A saved source this machine no longer offers says so, falls back to Cline's own, and still starts.
-  savedSource = 'gone'
+  // A saved source reet has no label for (a chat's star saves whatever id Cline reports) is shown as given and still applies:
+  // the dialog cannot know what Cline offers, so it never claims the machine lacks it.
+  savedSource = 'cline-free'
   dialog = await openDialog()
-  await expect(sourceOf(dialog)).toHaveValue('')
-  await expect(dialog.getByText('Your saved source, gone, isn’t available on this machine, so Cline’s own choice is used.', { exact: true })).toBeVisible()
+  await expect(sourceOf(dialog)).toHaveValue('cline-free')
+  await expect(sourceOf(dialog).locator('option')).toHaveText(['Cline’s own choice', 'Usage-Billing', 'ClinePass', 'cline-free'])
+  await expect(dialog.getByText('isn’t available on this machine', { exact: false })).toHaveCount(0)
   await start(dialog)
   await page.waitForURL(new RegExp(`session=${S}`))
-  expect(state.create.provider).toBeUndefined()
+  expect(state.create.provider).toBe('cline-free')
 
   // The default model follows the saved source: it prefills on that source and not on another.
   savedSource = 'cline-pass'; favourites = [{ tool: 'cline', model: 'cline-pass/deepseek-v4', agentDefault: true }]

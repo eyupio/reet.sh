@@ -206,6 +206,8 @@ func TestFakeACP(t *testing.T) {
 					switch scenario {
 					case "cline-provider-refused":
 						send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid provider"}})
+					case "cline-provider-error":
+						send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32603, "message": "internal error"}})
 					case "cline-provider-unconfirmed":
 						reply(message.ID, map[string]any{"configOptions": clineConfig()})
 					default:

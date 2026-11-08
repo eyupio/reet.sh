@@ -391,22 +391,25 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	// that ignores a model at session/new (Cline) applies it by a confirmed
 	// switch instead; an unconfirmed switch still refuses the chat.
 	if opts.Provider != "" && opts.Resume == "" {
-		providerID := ""
+		providerID, providerNow := "", ""
 		for _, o := range s.Controls().Options {
 			if o.Category == "provider" {
-				providerID = o.ID
+				providerID, providerNow = o.ID, o.Current
 			}
 		}
 		if providerID == "" {
 			s.Close()
 			return nil, ErrProvider
 		}
-		if err := s.SetOption(newCtx, providerID, opts.Provider); err != nil {
-			s.Close()
-			if errors.Is(err, ErrControl) {
-				return nil, ErrProviderUnconfirmed
+		// Already on the chosen source: nothing to switch, nothing to confirm.
+		if providerNow != opts.Provider {
+			if err := s.SetOption(newCtx, providerID, opts.Provider); err != nil {
+				s.Close()
+				if errors.Is(err, ErrControl) {
+					return nil, ErrProviderUnconfirmed
+				}
+				return nil, ErrProvider
 			}
-			return nil, ErrProvider
 		}
 	}
 	if opts.Model != "" {

@@ -108,7 +108,13 @@
  // A Cline chat on a machine that negotiated acp-provider-v1 can start on a chosen billing source. The default model follows
  // the saved default source, so the chosen source feeds the defaults below.
  const sourceShown = $derived(chosenTool === 'cline' && structured && !!machine?.capabilities?.acpProvider)
- const startSource = $derived(resolveStartSource({ explicit: explicitSource ? sourceChoice : undefined, saved: accountDefaults?.defaultClineSource, offered: KNOWN_SOURCES.map(s => s.id) }))
+ // A source reet has no label for still applies: a chat's star saves whatever id Cline reports, and this dialog cannot know
+ // what the machine's Cline offers, so a saved id is shown as given. Cline's own refusal at launch is the one that says no.
+ const sourceOptions = $derived.by(() => {
+  const saved = accountDefaults?.defaultClineSource ?? ''
+  return saved && !KNOWN_SOURCES.some(choice => choice.id === saved) ? [...KNOWN_SOURCES, { id: saved, label: sourceLabel(saved) }] : [...KNOWN_SOURCES]
+ })
+ const startSource = $derived(resolveStartSource({ explicit: explicitSource ? sourceChoice : undefined, saved: accountDefaults?.defaultClineSource, offered: sourceOptions.map(choice => choice.id) }))
  const chosenSource = $derived(startSource.source)
  const sourceIsDefault = $derived(!!chosenSource && chosenSource === (accountDefaults?.defaultClineSource ?? ''))
  // Explicit agent > project > account > the favourite marked for the agent > the first available agent. A model and an
@@ -767,7 +773,7 @@
      <div class="source-row">
       <select id={`${id}-source`} value={chosenSource} disabled={locked} onchange={event => { sourceChoice = event.currentTarget.value; explicitSource = true; sourceNote = ''; edited() }}>
        <option value="">Cline’s own choice</option>
-       {#each KNOWN_SOURCES as choice (choice.id)}<option value={choice.id}>{choice.label}</option>{/each}
+       {#each sourceOptions as choice (choice.id)}<option value={choice.id}>{choice.label}</option>{/each}
       </select>
       <button type="button" class="star" class:on={sourceIsDefault} disabled={locked || !chosenSource || sourceBusy} aria-pressed={sourceIsDefault} aria-label={sourceIsDefault ? `${sourceLabel(chosenSource)} is the default source. Clear it` : chosenSource ? `Make ${sourceLabel(chosenSource)} the default source` : 'Make a source the default'} title={sourceIsDefault ? 'New Cline sessions start on this source. Click to clear.' : 'Make this the source new Cline sessions start on'} onclick={() => void toggleSourceDefault()}>
        <svg viewBox="0 0 24 24" width="15" height="15" fill={sourceIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>

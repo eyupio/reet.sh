@@ -71,7 +71,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  const liveEffort = $derived(runtime?.options.find(o => o.category === 'thought_level'))
  // Cline's billing source. One value is not a choice, so nothing is offered; a switch is refused mid-turn, and the control says so.
  const liveProvider = $derived(runtime?.options.find(o => o.category === 'provider'))
- const sourceList = $derived(liveProvider ? sourceChoices(liveProvider.values) : [])
+ // Another agent's own provider option is not a Cline billing source.
+ const sourceList = $derived.by(() => tool === 'cline' && liveProvider ? sourceChoices(liveProvider.values) : [])
  const offersSource = $derived(sourceList.length > 0)
  const sourceBlocked = $derived.by(() => sending || changingModel || working || chat.connection !== 'open' || !!runtime?.configuring)
  const modelBlocked = $derived.by(() => sending || changingModel || chat.connection !== 'open' || (liveControls ? !liveModel || runtime?.configuring : working))

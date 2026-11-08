@@ -117,6 +117,9 @@ type Spec struct {
 	// place rather than continued as a new row. It is published in the
 	// descriptor only on a connection that negotiated acp-agent-reattach-v1.
 	Reattach bool
+	// Provider reports that this agent's provider option is a billing source reet
+	// surfaces and switches (Cline). Another adapter's own option list is left alone.
+	Provider bool
 	// ConfirmModelBySwitch applies a chosen model with session/set_config_option
 	// once the session is open, and requires the reply to report it. An adapter
 	// that starts on its configured model and ignores a model at session/new

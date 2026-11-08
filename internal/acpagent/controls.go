@@ -45,7 +45,9 @@ func (v *optionValue) UnmarshalJSON(data []byte) error {
 
 // readSettings admits only non-permission selectors from the live session.
 // Static installation descriptors never authorise a configuration change.
-func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
+// readSettings admits only non-permission selectors from the live session. The
+// provider option is a billing source only for an agent whose spec says so.
+func readSettings(raw json.RawMessage, provider bool) ([]terminalproto.ACPSetting, bool) {
 	var reply struct {
 		Options json.RawMessage `json:"configOptions"`
 	}
@@ -70,6 +72,9 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 		// Cline reports its provider (its billing source) with category
 		// "_provider"; reet surfaces it as the "provider" setting.
 		if category == "_provider" || (category == "" && o.ID == "provider") {
+			if !provider {
+				continue
+			}
 			category = "provider"
 		}
 		isMode := o.ID == "mode"
@@ -124,7 +129,7 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 }
 
 func (s *Session) updateSettings(raw json.RawMessage) {
-	if options, ok := readSettings(raw); ok {
+	if options, ok := readSettings(raw, s.opts.Agent.Provider); ok {
 		s.mu.Lock()
 		s.settings = options
 		for _, o := range options {
@@ -220,7 +225,7 @@ func (s *Session) SetOption(ctx context.Context, id, value string) error {
 
 func (s *Session) applySettingReply(setting terminalproto.ACPSetting, value string, raw json.RawMessage) error {
 	id := setting.ID
-	options, ok := readSettings(raw)
+	options, ok := readSettings(raw, s.opts.Agent.Provider)
 	if ok {
 		previousModel := s.modelSetting()
 		s.updateSettings(raw)

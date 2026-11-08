@@ -469,3 +469,46 @@ func TestClineReattachWithoutAStoredConversationIsRefused(t *testing.T) {
 		t.Fatalf("no stored conversation: %v", err)
 	}
 }
+
+// A launch that names the provider Cline is already on sends no switch: this
+// fake refuses every provider switch, so a Start that sent one would fail.
+func TestClineStartsOnItsCurrentProviderWithoutASwitch(t *testing.T) {
+	opts, _ := clineOptions(t, "cline-provider-refused")
+	opts.Provider = "cline"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if got := settingOf(t, session.Controls(), "provider").Current; got != "cline" {
+		t.Fatalf("provider after a launch on the current source: %q", got)
+	}
+}
+
+// An explicit refusal leaves the previous source in place. An ambiguous failure
+// (an internal error that may come after the change was applied) forgets it, so
+// the chat never claims a source it cannot confirm.
+func TestClineAmbiguousProviderFailureForgetsTheCurrentSource(t *testing.T) {
+	for _, tc := range []struct {
+		scenario string
+		current  string
+	}{
+		{"cline-provider-refused", "cline"},
+		{"cline-provider-error", ""},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			opts, _ := clineOptions(t, tc.scenario)
+			session, err := Start(context.Background(), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Close()
+			if err := session.SetOption(context.Background(), "provider", "cline-pass"); err == nil {
+				t.Fatal("a failed switch reported success")
+			}
+			if got := settingOf(t, session.Controls(), "provider").Current; got != tc.current {
+				t.Fatalf("provider after %s: %q, want %q", tc.scenario, got, tc.current)
+			}
+		})
+	}
+}

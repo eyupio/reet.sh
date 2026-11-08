@@ -29,7 +29,7 @@
 
 - Cline reports `provider` with one value (today's fake does): no Source control, and a launch is not blocked. Pinned in Task 7 (`sourceChoices`) and Task 8 (e2e).
 - A source switch while a turn runs: refused with `ErrBusy`, control disabled. Pinned in Tasks 3 and 8.
-- A saved default source Cline no longer offers: Start uses Cline's own with a note, and still starts. Pinned in Tasks 7 and 9.
+- A saved default source reet has no label for: Start shows it as given and sends it, never claiming the machine lacks it (the review changed this from a "not available" note). Pinned in Tasks 7 and 9.
 - An old connector or controller without `acp-provider-v1`: the setting is stripped, `Provider` is never sent, the control is hidden. Pinned in Tasks 4, 5 and 9.
 - A switch reply with no model option: the previous model values stay and the current model is forgotten. Pinned in Task 3.
 

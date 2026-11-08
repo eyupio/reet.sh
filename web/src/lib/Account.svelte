@@ -13,6 +13,7 @@
   import EnvironmentSync from './EnvironmentSync.svelte'
   import MCPAccess from './MCPAccess.svelte'
   import PageHeader from './PageHeader.svelte'
+  import { accountNav } from './accountNav'
   import {
     applyTheme, changePassword, createToken, endOtherProfileSessions, endProfileSession, getProfile,
     getSsoIdentity, listProfileSessions, listTokens, revokeToken, saveProfile, THEME_EVENT, unlinkSsoIdentity,
@@ -377,7 +378,7 @@
 <section class="account" aria-labelledby="account-title">
   <div class="idcard">
     <span class="avatar" aria-hidden="true">{initials()}</span>
-    <PageHeader group="Account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} sectionsLabel="Account" sections={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : `/account/${s.key}`, current: section === s.key }))} />
+    <PageHeader group="Account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} sectionsLabel="Account" sections={accountNav(sections, section)} />
   </div>
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}

@@ -7,7 +7,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
-const { GATED_CHATS, chatToggles, chatTogglePatch, CHAT_GATE_HELP } = await import(asURL(compile('./chatAgents.ts')))
+const { GATED_CHATS, chatToggles, chatTogglePatch, CHAT_GATE_HELP, isGatedChat, SWITCH_LIVE_CHAT_HINT } = await import(asURL(compile('./chatAgents.ts')))
 
 test('the gated chats are Claude Code and Codex, labelled for Gaffer', () => {
   assert.deepEqual(GATED_CHATS.map(c => c.id), ['claude', 'codex'])
@@ -27,4 +27,13 @@ test('one toggle sends only its own agent', () => {
 
 test('the help line says the chat has not been checked with a signed-in account', () => {
   assert.match(CHAT_GATE_HELP, /Not yet checked with a signed-in account/)
+})
+
+test('a gated chat that lost its approval controls points at Settings, not at updating the machine', () => {
+  assert.equal(isGatedChat('claude'), true)
+  assert.equal(isGatedChat('codex'), true)
+  assert.equal(isGatedChat('opencode'), false)
+  assert.equal(SWITCH_LIVE_CHAT_HINT('opencode'), 'Update reet on that machine to switch a live chat.')
+  assert.match(SWITCH_LIVE_CHAT_HINT('claude'), /Settings > Agents/)
+  assert.doesNotMatch(SWITCH_LIVE_CHAT_HINT('claude'), /Update reet/)
 })

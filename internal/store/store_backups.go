@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -172,6 +173,11 @@ func disabledChats(q interface {
 		}
 	}
 	return off
+}
+
+// ChatOffFor reports whether this account has turned a gated agent's chat off. Agents without a gate are never off.
+func (s *Store) ChatOffFor(userID int64, tool string) bool {
+	return slices.Contains(disabledChats(s.db, userID), tool)
 }
 
 // SessionInfo is one signed-in browser.

@@ -375,18 +375,19 @@ func gatedChatCaps() terminalproto.Capabilities {
 // does, the same machine accepts it.
 func TestStructuredClaudeCreateFollowsTheAccountSetting(t *testing.T) {
 	f := launchAPIFixture(t, gatedChatCaps())
-	create := func() int {
-		status, _, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "structured": true, "dir": "/tmp", "prompt": "hello there"}))
-		return status
+	create := func() (int, string) {
+		status, _, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "structured": true, "dir": "/tmp", "prompt": "hello there"}))
+		return status, raw
 	}
-	if status := create(); status == 200 {
-		t.Fatal("a Claude chat started for an account that has them off")
+	// The refusal names the account's switch, not the machine: updating reet there would change nothing.
+	if status, raw := create(); status != 409 || !strings.Contains(raw, `chat_off`) || strings.Contains(raw, "Update reet") {
+		t.Fatalf("a Claude chat for an account that has them off: %d %s", status, raw)
 	}
 	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"chatAgents": map[string]any{"claude": true}}); code != 200 {
 		t.Fatal("turn on", code, raw)
 	}
-	if status := create(); status != 200 {
-		t.Fatalf("a Claude chat was refused for an account that turned them on: %d", status)
+	if status, raw := create(); status != 200 {
+		t.Fatalf("a Claude chat was refused for an account that turned them on: %d %s", status, raw)
 	}
 }
 

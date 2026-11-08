@@ -183,6 +183,24 @@ try {
     await context.close()
   }
 
+  if (run('a refused gated chat switch puts the box back')) {
+    const {context, page, errors} = await open()
+    const group = page.getByRole('group', {name:'Gaffer chats still being verified'})
+    const claude = group.getByRole('checkbox', {name:'Claude Code in Gaffer'})
+    await expect(claude).not.toBeChecked()
+    profileFailure = true
+    await claude.check()
+    await expect(page.getByRole('alert')).toHaveText('down')
+    // The server still has the chat off, and the box says so.
+    await expect(claude).not.toBeChecked()
+    expect(patches).toEqual([])
+    profileFailure = false
+    await claude.check()
+    await expect.poll(() => patches.length).toBe(1)
+    await expect(claude).toBeChecked()
+    await context.close()
+  }
+
   if (run('gated chat switches are read-only for a viewer')) {
     const {context, page, errors} = await open({user:viewer})
     const group = page.getByRole('group', {name:'Gaffer chats still being verified'})

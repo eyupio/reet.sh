@@ -15,3 +15,12 @@ export function chatToggles(enabled: Record<string, boolean> | undefined): { id:
 export function chatTogglePatch(id: string, on: boolean): { chatAgents: Record<string, boolean> } {
   return { chatAgents: { [id]: on } }
 }
+
+export function isGatedChat(tool: string): boolean {
+  return GATED_CHATS.some(chat => chat.id === tool)
+}
+
+/** Why a live chat cannot switch its approval mode. A gated chat lost its controls because its switch is off, and updating the machine would not bring them back. */
+export function SWITCH_LIVE_CHAT_HINT(tool: string): string {
+  return isGatedChat(tool) ? 'Turn this chat on in Settings > Agents to switch a live chat.' : 'Update reet on that machine to switch a live chat.'
+}

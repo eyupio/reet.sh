@@ -1,6 +1,6 @@
 # Stage 3: selected-item automatic sync — validation in progress
 
-Parent: [product contract](simple-library-machine-sync.md). Dependency: [Stage 2](simple-library-machine-sync-stage-2.md), PR #664. Draft PR: [#665](https://github.com/eyupio/reet.sh/pull/665).
+Parent: [product contract](simple-library-machine-sync.md). Dependency: [Stage 2](simple-library-machine-sync-stage-2.md), PR #664. Feature-branch merge: [#665](https://github.com/eyupio/reet.sh/pull/665).
 
 **Status: implementation and affected-package local validation complete; current-head CI and PR integration remain pending. Do not advance to Stage 4 yet.** No preview or production deployment has been created. The production Tailcat incident is still unverified.
 
@@ -134,3 +134,8 @@ Integrated canonical API checks after this query merge pass (34.051s, non-race).
 Contributor `aa394cd2` replaces unpaged canonical joins with a batched account projection and whole-library metadata ranges; paged queries keep their existing strategy. The parent handoff records the old failure, the new regression test and current-source focused race results (store 67.293s, API 73.519s, backup 41.868s; vet passes). The active branch contains that query implementation. This follow-up has no additional schema/protocol change. Full-source CI and the parent benchmark still gate merging #664; #665 remains draft until its stacked integration is green. Do not start Stage 4 from local evidence alone.
 
 The integrated current range-query source passes canonical API checks (36.752s, non-race), canonical/store projection checks (0.523s), store/API vet, and rendered documentation checks (51 pages). These are the integration results for the current candidate; earlier alternative local measurements are not attributed to it.
+
+
+### Feature-branch merge checkpoint
+
+PR #665 is merged into its Stage 2 feature base, not main: merge `13af8370780f676303210b07d110967d48354af9` has exactly the reviewed `463e35b3` tree. Main-branch delivery now goes through #664, carrying the complete Stage 2/3 source. Current combined-head CI, main compatibility and the unchanged paired benchmark remain required. The earlier instructions to retain a draft/retarget #665 are superseded by this actual merge topology. Stage 3 stays unchecked until integration completes; do not infer production rollout or begin Stage 4.

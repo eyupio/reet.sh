@@ -443,3 +443,10 @@ Stage 3 is now in progress: see its [draft implementation handover](simple-libra
 Stage 1 PR #662 is merged (`8076f814`, all ten workflows green). Stage 2 PR #664 now targets main; its remaining performance failure has a buffer-reuse correction in `46607962` with focused race/API/vet evidence recorded in the Stage 2 handoff. A further paged-read/index correction is `40f47ca4`; its new paired CI benchmark remains required. Stage 3 #665 is still draft; the Stage 3 handoff records safe existing-copy adoption and honest partial receipts, with final validation pending. No deployment is implied by a source merge.
 
 Latest supervision: the actual `40f47ca4` full-list benchmark failed. Contributor `aa394cd2` is the current query correction in #664 and is integrated in #665; the Stage 2/3 handoffs distinguish its focused race validation from its pending CI. The query follow-up changes no schema or connector contract. Stage 3 stays unchecked until integration and CI complete. #670 and #671 are included in open-PR supervision; future implementation stages remain unstarted.
+
+
+### Combined PR checkpoint after the Stage 3 branch merge
+
+PR #665 was merged into `feat/canonical-library-stage-2` as `13af8370780f676303210b07d110967d48354af9`, not into main. Its tree exactly matches reviewed Stage 3 head `463e35b3`; the merge introduced no further source change. PR #664 now carries both Stage 2 and Stage 3 to main. Current combined-head CI, including the unchanged 15% benchmark and CodeQL, remains required before that merge. Stage 3 therefore remains unchecked; a closed/merged #665 alone does not establish main-branch delivery. No Stage 4 work is started.
+
+The earlier statements that #665 is draft are historical checkpoints. #670 has merged into main with per-account chat opt-in defaulting off; the separate signed-in acceptance gate for final default-on activation remains in force. #671 is being integrated with that current main, preserving both navigation and chat-settings tests. No deployment is implied.

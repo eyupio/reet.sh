@@ -78,10 +78,6 @@ func summariseMCP(name string, value any, agent string) MCPSummary {
 				m.Transport = "remote"
 			}
 		}
-		// Gemini distinguishes HTTP transport with httpUrl.
-		if agent == "gemini" && nonemptyString(object["httpUrl"]) {
-			m.URLConfigured, m.Transport = true, "http"
-		}
 		matches := agent == "codex" && m.URLConfigured && typeName == ""
 		if matches {
 			m.Transport = "http"

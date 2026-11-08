@@ -134,7 +134,7 @@ func reportedVersion(agent, output string) string {
 	prefixes := map[string][]string{
 		"claude": {"claude "}, "codex": {"codex-cli ", "codex "},
 		"opencode": {"opencode "}, "pi": {"pi "},
-		"cursor": {"Cursor ", "cursor "}, "gemini": {"gemini "},
+		"cursor": {"Cursor ", "cursor "},
 	}
 	for _, prefix := range prefixes[agent] {
 		if strings.HasPrefix(line, prefix) {

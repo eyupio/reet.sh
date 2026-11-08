@@ -417,3 +417,34 @@ func TestClineIsAReviewedChatTool(t *testing.T) {
 		}
 	}
 }
+
+// A connector from before Gemini CLI was retired also described it in acpAgents. The record still validates while the
+// tool is missing or unverified, and a retired tool can never be described as an available chat agent.
+func TestRetiredToolDescriptorFromAnOlderConnectorIsTolerated(t *testing.T) {
+	for _, state := range []string{"missing", "unverified", "incompatible"} {
+		c := chatCapabilities()
+		*c.ACPAgents = append(*c.ACPAgents, ACPAgent{Tool: "gemini", Adapter: "gemini", State: state})
+		if err := c.ValidateFor(ACPAgentsFeature); err != nil {
+			t.Fatalf("%s descriptor for a retired tool: %v", state, err)
+		}
+	}
+	if ReviewedChatTool("gemini") {
+		t.Fatal("a retired tool is a reviewed chat agent")
+	}
+	c := chatCapabilities()
+	c.Tools = append(c.Tools, "gemini")
+	*c.ACPAgents = append(*c.ACPAgents, ACPAgent{Tool: "gemini", Adapter: "gemini", State: "available", MinimumVersion: "1.0.0", History: true})
+	if c.ValidateFor(ACPAgentsFeature) == nil {
+		t.Fatal("accepted an available descriptor for a retired tool")
+	}
+	c = chatCapabilities()
+	*c.ACPAgents = append(*c.ACPAgents, ACPAgent{Tool: "gemini", Adapter: "gemini", State: "missing", Model: true})
+	if c.ValidateFor(ACPAgentsFeature) == nil {
+		t.Fatal("accepted a missing descriptor that claims features")
+	}
+	c = chatCapabilities()
+	*c.ACPAgents = append(*c.ACPAgents, ACPAgent{Tool: "vim", Adapter: "vim", State: "missing"})
+	if c.ValidateFor(ACPAgentsFeature) == nil {
+		t.Fatal("accepted a descriptor for an unknown tool")
+	}
+}

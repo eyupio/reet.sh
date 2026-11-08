@@ -4,16 +4,16 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 const source = readFileSync(new URL('./catalogue.ts', import.meta.url), 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { CATALOGUE, agentChoices } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
+const { CATALOGUE, agentChoices, agentDisplayName } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 const machine = (tools, v2 = true) => ({ agentId: 'a', host: 'studio', ready: true, capabilities: { launch: true, agentsV2: v2, tools } })
 test('installed first, then not installed, then disabled', () => {
   const choices = agentChoices(machine(['codex']))
   assert.deepEqual(choices.filter(c => c.available).map(c => c.agent.id), ['codex'])
   assert.equal(choices.find(c => c.agent.id === 'claude').reason, 'Not installed on studio')
   assert.equal(new Set(CATALOGUE.map(a => a.id)).size, CATALOGUE.length)
-  assert.deepEqual(CATALOGUE.filter(a => a.enabled).map(a => a.id), ['claude', 'codex', 'opencode', 'gemini', 'cline', 'antigravity'])
+  assert.deepEqual(CATALOGUE.filter(a => a.enabled).map(a => a.id), ['claude', 'codex', 'opencode', 'cline', 'antigravity'])
 })
-test('old machine offers only four', () => {
+test('old machine offers only three', () => {
   const choices = agentChoices(machine(['codex', 'pi'], false))
   assert.deepEqual(choices.filter(c => c.available).map(c => c.agent.id), ['codex'])
   assert.equal(choices.find(c => c.agent.id === 'pi').reason, "reet doesn't start this agent yet.")
@@ -48,4 +48,19 @@ test('Google Antigravity requires installation and agents-v2', () => {
   assert.equal(choice.agent.yolo, true)
   assert.equal(agentChoices(machine([])).find(c => c.agent.id === 'antigravity').reason, 'Not installed on studio')
   assert.equal(agentChoices(machine(['antigravity'], false)).find(c => c.agent.id === 'antigravity').reason, 'Update reet on that machine')
+})
+test('a retired agent is never offered, even when a machine still reports it', () => {
+  assert.ok(!CATALOGUE.some(a => a.id === 'gemini'))
+  const choices = agentChoices(machine(['claude', 'gemini']))
+  assert.ok(!choices.some(c => c.agent.id === 'gemini'))
+  assert.deepEqual(choices.filter(c => c.available).map(c => c.agent.id), ['claude'])
+})
+test('an older machine without agents-v2 offers the three original agents', () => {
+  const choices = agentChoices(machine(['claude', 'codex', 'opencode', 'gemini'], false))
+  assert.deepEqual(choices.filter(c => c.available).map(c => c.agent.id), ['claude', 'codex', 'opencode'])
+})
+test('past sessions keep a retired agent\'s name', () => {
+  assert.equal(agentDisplayName('gemini'), 'Gemini CLI')
+  assert.equal(agentDisplayName('claude'), 'Claude Code')
+  assert.equal(agentDisplayName('some-other-agent'), 'some-other-agent')
 })

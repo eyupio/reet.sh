@@ -472,6 +472,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.retireAgents(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateSoftwareBatches(); err != nil {
 		db.Close()
 		return nil, err

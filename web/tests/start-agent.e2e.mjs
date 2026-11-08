@@ -190,7 +190,8 @@ try{
  // Agents: what the machine reports, the rest listed and disabled with the reason.
  await p.chosen('Claude Code')
  await expect(p.opt('Codex')).toBeEnabled()
- await expect(p.opt('Gemini CLI')).toBeEnabled()
+ // The machine still reports the retired agent in its tools: it is never offered.
+ await expect(p.opt('Gemini CLI')).toHaveCount(0)
  await expect(p.opt('Cline')).toBeEnabled()
  await expect(p.opt('OpenCode')).toBeDisabled()
  await expect(p.agentWhy).toContainText('OpenCode · Not installed on dev-laptop')
@@ -213,11 +214,6 @@ try{
  await p.pick('Codex')
  list=await openModel(d)
  await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gpt-5-codex/})).toBeVisible()
- await page.keyboard.press('Escape')
- await p.pick('Gemini CLI')
- list=await openModel(d)
- await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gemini-2.5-pro/})).toBeVisible()
- await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gemini-2.5-flash/})).toBeVisible()
  await page.keyboard.press('Escape')
  await p.pick('Claude Code')
  // Folders: home first, each reported project once, never a relative path or another machine's.
@@ -261,14 +257,11 @@ try{
  await expect(p.count).toHaveText("8,000 of 8,000 bytes. Secrets don't belong here.")
  await expect(p.status).toHaveText('')
  await expect(d.getByText('That prompt is too long.',{exact:false})).toHaveCount(0)
- // One word could be read as a subcommand by claude and codex; gemini takes the prompt as a flag value, so one word is fine.
+ // One word could be read as a subcommand by claude and codex.
  await p.prompt.fill('purge')
  await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toBeVisible()
  await p.pick('Codex')
  await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toBeVisible()
- await p.pick('Gemini CLI')
- await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toHaveCount(0)
- await expect(p.prompt).not.toHaveAttribute('aria-invalid','true')
  // A different agent re-resolves the model (here no project/account default, so Agent default) and starts the folder afresh.
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.folder).toHaveValue('')
@@ -376,7 +369,7 @@ try{
  const heldSentence=await p.sentence.textContent()
  expect(heldSentence).toContain('Starts Codex in the home folder on dev-laptop.')
  const readsBefore=machineReads
- tmachines[0].capabilities.tools=['claude','gemini']
+ tmachines[0].capabilities.tools=['claude']
  await page.evaluate(()=>window.dispatchEvent(new Event('online')))
  await expect.poll(()=>machineReads).toBeGreaterThan(readsBefore)
  await settle()
@@ -470,7 +463,7 @@ try{
  await p.machine.selectOption(B)
  await expect(p.machine).toHaveAccessibleDescription('Update reet on this machine to start agents.')
  await expect(d.locator('p.reason')).toHaveText(['Update reet on this machine to start agents.'])
- for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI','Cline']){await expect(p.opt(name)).toBeDisabled();await expect(p.agentWhy).toContainText(name+' · Update reet on that machine')}
+ for(const name of ['Claude Code','Codex','OpenCode','Cline']){await expect(p.opt(name)).toBeDisabled();await expect(p.agentWhy).toContainText(name+' · Update reet on that machine')}
  await expect(p.opt('Pi')).toBeDisabled()
  await expect(p.opt('Cursor Agent')).toBeDisabled()
  await expect(p.start).toBeDisabled()
@@ -539,11 +532,11 @@ try{
  // The simplest start: only the tool is sent, and the Terminals page opens on the new session.
  d=await openFromCard('dev-laptop');p=parts(d)
  await expect(p.machine).toHaveValue(A)
- await p.pick('Gemini CLI')
+ await p.pick('Codex')
  await p.start.click()
  await expect(page).toHaveURL(/\/sessions\?/)
  const simple=body(-1)
- expect(posts.at(-1)).toBe(JSON.stringify({agentId:A,requestId:simple.requestId,title:'Gemini CLI',cols:100,rows:30,tool:'gemini',titleOrigin:'fallback'}))
+ expect(posts.at(-1)).toBe(JSON.stringify({agentId:A,requestId:simple.requestId,title:'Codex',cols:100,rows:30,tool:'codex',titleOrigin:'fallback'}))
  await expect(page).toHaveURL(`${base}/sessions?agent=${A}&session=session-${simple.requestId.replaceAll('-','').slice(0,20)}`)
  // From Terminals, Not listed? goes to the Machines page with Add a machine open, and leaves no marker in the address.
  d=await openFromSidebar()
@@ -1171,5 +1164,5 @@ try{
  await page.keyboard.press('Escape')
  tmachines[0].capabilities.agentsV2=true
  expect(errors).toEqual([])
- console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, a pasted image uploaded before the start with its path joined to the opening prompt, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old three otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, a pasted image uploaded before the start with its path joined to the opening prompt, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

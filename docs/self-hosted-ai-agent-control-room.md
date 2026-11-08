@@ -26,7 +26,7 @@ A control room provides one place to reach those environments and return to thei
 | Layer | Main job | In a Reet setup |
 | --- | --- | --- |
 | Model and provider | Supply inference and provider access | Chosen and configured for your agent. Reet does not include model credits. |
-| Coding agent | Read the project, propose changes and run its tools | Claude Code, Codex, OpenCode or Gemini CLI on the machine where the work runs. |
+| Coding agent | Read the project, propose changes and run its tools | Claude Code, Codex or OpenCode on the machine where the work runs. |
 | Control room | Connect machines, start sessions and organise reusable skills | Your self-hosted Reet controller and its machine connectors. |
 
 A browser chat interface is another useful layer. If your primary need is conversations with models and shared knowledge, read the [Open WebUI](compare-open-webui.md) or [LibreChat](compare-librechat.md) comparison before deciding that you need a machine control room.

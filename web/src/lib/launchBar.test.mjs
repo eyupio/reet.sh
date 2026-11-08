@@ -206,7 +206,7 @@ test('startable names the first reason', () => {
   assert.equal(startable(choice({ agent: 'pi' }), projects, machines), "reet doesn't start this agent yet.")
   assert.equal(startable(choice({ agent: 'codex', prompt: 'one' }), projects, machines), 'Write the opening prompt as at least two words.')
   assert.equal(startable(choice({ effort: 'high' }), projects, machines), "That agent doesn't take that option.")
-  assert.equal(startable(choice({ agent: 'gemini' }), projects, machines), 'Not installed on studio')
+  assert.equal(startable(choice({ agent: 'antigravity' }), projects, machines), 'Not installed on studio')
   const down = [machine('m-studio', 'studio', {}, false)]
   assert.equal(startable(choice(), projects, down), 'The machine is reconnecting. Existing shells will be kept.')
   assert.equal(startable(choice(), projects, []), 'Choose an enrolled machine.')
@@ -376,8 +376,8 @@ test('an agent switch resolves that agent\'s model and effort, never the old mod
   assert.deepEqual([switched.agent, switched.model, switched.effort], ['cline', 'cline-model', ''])
   const account = withAgent(choice({ agent: 'claude', model: 'sonnet' }), 'codex', reet, { defaultTool: 'codex', defaultModel: 'gpt-5-codex' })
   assert.deepEqual([account.agent, account.model], ['codex', 'gpt-5-codex'])
-  const mismatch = withAgent(choice(), 'gemini', { ...reet, defaultTool: 'codex', defaultModel: 'gpt-5-codex' }, profile)
-  assert.deepEqual([mismatch.agent, mismatch.model], ['gemini', ''])
+  const mismatch = withAgent(choice(), 'opencode', { ...reet, defaultTool: 'codex', defaultModel: 'gpt-5-codex' }, profile)
+  assert.deepEqual([mismatch.agent, mismatch.model], ['opencode', ''])
   const effort = withAgent(choice(), 'cline', reet, { defaultTool: 'cline', defaultEffort: 'medium' })
   assert.deepEqual([effort.model, effort.effort], ['', 'medium'])
 })
@@ -473,7 +473,7 @@ test('Claude gets a native chat only from a machine that reports the reviewed ad
   assert.notEqual(initialChoice([claudeProject], profile, { machines: [legacy] }).chat, true)
   assert.match(startable({ ...start, chat: true }, [claudeProject], [legacy], profile), /does not offer Gaffer/)
   // A tool that is not a reviewed chat tool is never sent as one, whatever the choice says.
-  assert.equal(toCreate({ ...start, agent: 'gemini', chat: true }, claudeProject, 'r'.repeat(16), 'a'.repeat(16)).launch.structured, undefined)
+  assert.equal(toCreate({ ...start, agent: 'pi', chat: true }, claudeProject, 'r'.repeat(16), 'a'.repeat(16)).launch.structured, undefined)
 })
 
 test('Codex gets a native chat only from a machine that reports the reviewed adapter as available, and takes no plugin trust', () => {

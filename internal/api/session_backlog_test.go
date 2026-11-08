@@ -67,7 +67,7 @@ func TestSessionBacklogAPIAuthorizationAndValidation(t *testing.T) {
 	for _, change := range []map[string]any{
 		{"agentId": "not-my-machine"}, {"model": "-bad"}, {"effort": "extreme"}, {"dir": "relative"}, {"tool": "unknown"}, {"prompt": strings.Repeat("a", terminalproto.MaxPromptBytes+1)},
 		{"images": []store.DraftImage{{Name: "fake.png", Data: "data:image/png;base64,aGVsbG8="}}}, {"projectId": "not-my-project"},
-		{"base": "main"}, {"worktree": true, "base": "bad branch"}, {"chat": true, "tool": "gemini"}, {"trust": true, "chat": true},
+		{"base": "main"}, {"worktree": true, "base": "bad branch"}, {"chat": true, "tool": "vim"}, {"trust": true, "chat": true},
 	} {
 		bad := map[string]any{}
 		for k, v := range input {

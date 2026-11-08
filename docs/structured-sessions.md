@@ -27,7 +27,7 @@ the connection's capabilities rather than querying a package registry.
 - `incompatible`: readable installation evidence does not meet the reviewed floor.
 
 OpenCode, Claude Code (behind its switch), Codex (behind its switch), Cline and Google Antigravity
-have reviewed integrations. Gemini entries describe missing or unverified support;
+have reviewed integrations;
 installing an adapter alone does not enable its chat. No CLI is executed to build
 these descriptors, and availability does not establish a successful model turn or
 authentication.

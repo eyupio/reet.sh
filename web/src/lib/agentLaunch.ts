@@ -1,5 +1,5 @@
 import type { Machine } from './api'
-import { CATALOGUE, agentChoices } from './catalogue'
+import { CATALOGUE, agentChoices, agentDisplayName } from './catalogue'
 import type { TerminalMachine } from './terminal/api'
 
 // What the "Start an agent" dialog checks before it asks a machine to start an agent CLI, and the exact sentences it
@@ -11,14 +11,13 @@ export const TOOLS: { id: string; name: string }[] = [
   { id: 'claude', name: 'Claude Code' },
   { id: 'codex', name: 'Codex' },
   { id: 'opencode', name: 'OpenCode' },
-  { id: 'gemini', name: 'Gemini CLI' },
 ]
 // These take the prompt as an operand and could read a one-word prompt as a subcommand.
 const NEEDS_TWO_WORDS = new Set(['claude', 'codex', 'cline'])
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}$/
 const SOMETHING_CHANGED = 'Something changed. Check again.'
 
-const nameOf = (tool: string): string => CATALOGUE.find(agent => agent.id === tool)?.name ?? tool
+const nameOf = (tool: string): string => agentDisplayName(tool)
 
 /** The display name for a tool id; an unknown id is shown as given, and a missing one as "an agent". */
 export const toolName = (tool: string | undefined): string => (tool ? nameOf(tool) : 'an agent')
@@ -26,7 +25,7 @@ export const toolName = (tool: string | undefined): string => (tool ? nameOf(too
 const UPDATE_TO_LAUNCH = 'Update reet on this machine to start agents.'
 export type ToolChoice = { id: string; name: string; available: boolean; reason: string }
 /** Every catalogue agent, offered only when the machine takes launch requests and reports it installed. The catalogue and
- *  the machine's own gate decide: an old connector keeps the original four, an agents-v2 one may offer newer agents too. */
+ *  the machine's own gate decide: an old connector keeps the three original agents, an agents-v2 one may offer newer agents too. */
 export function toolChoices(machine: TerminalMachine | undefined): ToolChoice[] {
   if (!machine) return CATALOGUE.map(agent => ({ id: agent.id, name: agent.name, available: false, reason: UPDATE_TO_LAUNCH }))
   return agentChoices(machine).map(choice => ({
@@ -125,7 +124,7 @@ const TITLE_TRAIL = /[ ,:;.!?\-–—]+$/
 // Leading words that ask rather than say: greetings, "please", "can you", "I'd like you to", "help me", "let's".
 // English only; any other language passes through untouched.
 const TITLE_FILLER = [
-  /^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|gemini|cline|agy|antigravity|there|team|all|everyone))?[ ,!.:;-]*/i,
+  /^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|cline|agy|antigravity|there|team|all|everyone))?[ ,!.:;-]*/i,
   /^(?:please|pls|kindly)\b[ ,:-]*/i,
   /^(?:can|could|would|will) you(?: please| kindly)?\b[ ,:-]*/i,
   /^i(?:['’]d| would)? (?:like|love|want|need) (?:you )?to\b[ ,:-]*/i,

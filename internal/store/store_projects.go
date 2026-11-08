@@ -393,7 +393,7 @@ func normalizeProject(p Project) (Project, error) {
 		return p, ErrProjectName
 	}
 	if !terminalproto.ValidTool(p.DefaultTool) {
-		return p, invalid("default agent must be one of claude, codex, opencode or gemini")
+		return p, invalid("default agent must be one of claude, codex or opencode")
 	}
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return p, invalid("default model has characters or a length the connector would refuse")
@@ -417,7 +417,7 @@ func normalizeProject(p Project) (Project, error) {
 			return p, &ProjectMemberError{Index: i, Field: "dir", Err: err}
 		}
 		if m.Tool != "" && !terminalproto.ValidTool(m.Tool) {
-			return p, invalid("repository %d: agent must be one of claude, codex, opencode or gemini", i+1)
+			return p, invalid("repository %d: agent must be one of claude, codex or opencode", i+1)
 		}
 		if m.Model != "" && !terminalproto.ValidModel(m.Model) {
 			return p, invalid("repository %d: model has characters or a length the connector would refuse", i+1)

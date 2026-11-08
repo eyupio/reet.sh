@@ -140,7 +140,7 @@ func TestCreateUnsupportedAgentOptionsRefusedBeforeReserving(t *testing.T) {
 		{"cline without agents-v2", false, map[string]any{"tool": "cline"}, 409, "launch_option_unsupported", updateSentence},
 		{"antigravity without agents-v2", false, map[string]any{"tool": "antigravity"}, 409, "launch_option_unsupported", updateSentence},
 		{"antigravity not advertised", true, map[string]any{"tool": "antigravity"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
-		{"tool not advertised", true, map[string]any{"tool": "gemini"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
+		{"tool not advertised", true, map[string]any{"tool": "opencode"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			caps := launchCaps("claude", "codex")

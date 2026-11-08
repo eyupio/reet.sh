@@ -27,7 +27,7 @@ const run = name => !obsolete.has(name) && (!only || only === name)
 const now = Date.now()
 const MIN = 60_000
 const caps = (extra = {}) => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,
- worktree:true,agentsV2:true,yolo:true,branches:true,browse:true,models:true,uploads:true,tools:['claude','codex','gemini','cline'],...extra})
+ worktree:true,agentsV2:true,yolo:true,branches:true,browse:true,models:true,uploads:true,tools:['claude','codex','cline'],...extra})
 // studio is ready; desk is reconnecting (not ready), so its projects and its home folder are offered disabled with the sentence.
 const tmachines = () => [
  {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps()},
@@ -1025,9 +1025,9 @@ try {
   await page.keyboard.press('Escape')
   await expect(agents).toBeHidden()
   await expect(slot(page,'Agent')).toBeFocused()
-  await pick(page,'Agent','Gemini CLI')
-  await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Gemini CLI')
-  await pick(page,'Model','gemini-2.5-flash')
+  await pick(page,'Agent','Codex')
+  await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Codex')
+  await pick(page,'Model','gpt-5-codex')
   await pick(page,'Project',/^Site/)
   await expect(slot(page,'Branch')).toHaveAccessibleName('Branch: main')
   await slot(page,'Branch').click()
@@ -1036,10 +1036,10 @@ try {
   await branches.getByRole('option',{name:'develop',exact:true}).click()
   // The machine follows the project (R18): it is named, not chosen.
   await expect(bar(page).getByRole('button',{name:/^Machine: /})).toHaveCount(0)
-  await expect.poll(() => sentenceText(page)).toBe('Run Gemini CLI with gemini-2.5-flash on Site at studio from develop in a fresh worktree')
+  await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio from develop in a fresh worktree')
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
-  expect(box.posts[0]).toMatchObject({agentId:'a1', tool:'gemini', model:'gemini-2.5-flash', dir:'/home/dev/site', projectId:'fp3', project:'site', base:'develop'})
+  expect(box.posts[0]).toMatchObject({agentId:'a1', tool:'codex', model:'gpt-5-codex', dir:'/home/dev/site', projectId:'fp3', project:'site', base:'develop'})
   // Cline takes effort; the checkout has no branch slot and says where it works.
   await page.goto(base); await openQuick(page)
   await pick(page,'Agent','Cline')

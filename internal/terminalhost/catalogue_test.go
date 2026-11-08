@@ -25,20 +25,21 @@ func TestCatalogueHasEightAgents(t *testing.T) {
 	for _, p := range Catalogue {
 		ids = append(ids, p.ID)
 	}
-	if !reflect.DeepEqual(ids, []string{"claude", "codex", "opencode", "gemini", "pi", "cursor", "cline", "antigravity"}) {
+	if !reflect.DeepEqual(ids, []string{"claude", "codex", "opencode", "pi", "cursor", "cline", "antigravity"}) {
 		t.Fatal(ids)
 	}
 }
 
-func TestOldControllerSeesOnlyFourTools(t *testing.T) {
+// A machine may still have the retired agent's binary on its PATH; it is never reported.
+func TestOldControllerSeesOnlyThreeTools(t *testing.T) {
 	look := fakeLookPath("claude", "codex", "opencode", "gemini", "pi", "cursor-agent", "cline", "agy")
-	want := []string{"claude", "codex", "gemini", "opencode"}
+	want := []string{"claude", "codex", "opencode"}
 	if got := InstalledTools(look, false); !reflect.DeepEqual(got, want) {
 		t.Fatal(got)
 	}
 	// New launch modes remain unavailable until captured CLI help establishes
 	// their prompt, model, and permission arguments.
-	if got := InstalledTools(look, true); !reflect.DeepEqual(got, []string{"antigravity", "claude", "cline", "codex", "gemini", "opencode"}) {
+	if got := InstalledTools(look, true); !reflect.DeepEqual(got, []string{"antigravity", "claude", "cline", "codex", "opencode"}) {
 		t.Fatal("unconfirmed preset advertised", got)
 	}
 }
@@ -483,7 +484,7 @@ func TestOnlyOpenCodeHasAConfirmedModelListing(t *testing.T) {
 	if !ListsModels("opencode") {
 		t.Fatal("OpenCode should list models")
 	}
-	for _, tool := range []string{"claude", "codex", "gemini", "cline", "antigravity", "pi", "cursor", "unknown"} {
+	for _, tool := range []string{"claude", "codex", "cline", "antigravity", "pi", "cursor", "unknown"} {
 		if ListsModels(tool) {
 			t.Fatalf("%s should not run a model listing", tool)
 		}

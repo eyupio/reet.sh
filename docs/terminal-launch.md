@@ -1,7 +1,7 @@
 # Launch requests: starting an agent in a terminal session
 
 A launch request asks a machine to start one of its installed agent CLIs (`claude`,
-`codex`, `opencode`, `gemini`, `cline`, `antigravity`) in a chosen folder, with an optional model and an
+`codex`, `opencode`, `cline`, `antigravity`) in a chosen folder, with an optional model and an
 optional opening prompt, instead of the plain login shell that a terminal session
 starts today. It is an optional field set on the existing create-session call.
 Nothing changes for a plain shell: the arguments the connector gives tmux for a
@@ -47,7 +47,7 @@ comparable struct and `omitempty` keeps a plain create unchanged. They are named
 
 | Field | Meaning | Limits |
 | --- | --- | --- |
-| `tool` | Tool id | One of `claude`, `codex`, `opencode`, `gemini`; `cline` and `antigravity` under `agents-v2` |
+| `tool` | Tool id | One of `claude`, `codex`, `opencode`; `cline` and `antigravity` under `agents-v2`. `gemini` is retired and refused like any unknown tool |
 | `model` | Model id, optional | 1 to 100 bytes; letters, digits and `. _ : / @ + -`; the first character must be a letter or digit |
 | `dir` | Folder, optional | Absolute; at most 4,096 bytes; valid UTF-8; no control characters |
 | `prompt` | Opening prompt, optional | At most 8,000 bytes; valid UTF-8; no control characters except newline; must not begin with `-` |
@@ -91,7 +91,7 @@ whose reply was lost asks for the same session under the same name. It is:
    60 characters it is cut at the last space (not earlier than the 20th character), or at 60 if there is
    none, and ends in an ellipsis.
 2. **Otherwise the agent and folder**: the agent's name ("Claude Code", "Codex", "OpenCode",
-   "Gemini CLI", "Cline", "Google Antigravity (AGY)") or "Terminal" for a plain shell, then · and the last
+   "Cline", "Google Antigravity (AGY)") or "Terminal" for a plain shell, then · and the last
    part of the folder when there is one and it holds no control or format characters.
 
 The rules live in `terminalproto.PromptTitle` and `terminalproto.AutoTitle`. The browser mirrors them
@@ -131,7 +131,6 @@ test pins the ordinary flags to `--model`, `--prompt` and
 | `claude` | `claude --model <model> -- <prompt>` | `claude --help` on Claude Code 2.1.310: "Usage: claude [options] [command] [prompt]", "starts an interactive session by default, use -p/--print for non-interactive output", "--model <model>  Model for the current session". The bundled argument parser was read to confirm that `--` ends options. |
 | `codex` | `codex --model <model> -- <prompt>` | https://learn.chatgpt.com/docs/developer-commands?surface=cli (reached from https://developers.openai.com/codex/cli/reference): "Running `codex` with no subcommand launches the interactive terminal UI", `--model, -m`, and an optional `PROMPT`. Source: `codex-rs/tui/src/cli.rs` in openai/codex has a positional `prompt: Option<String>`. |
 | `opencode` | `opencode --model <model> --prompt <prompt>` | https://opencode.ai/docs/cli/: "opencode [project]" starts the terminal UI, with `--prompt` and `--model`. The positional is a project path, so the prompt goes through the flag. |
-| `gemini` | `gemini --model <model> --prompt-interactive <prompt>` | https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md and `packages/cli/src/config/config.ts`: `--prompt-interactive` runs the prompt and continues interactively; `--model` sets the model. `-p/--prompt` is headless and is deliberately not used. |
 | `antigravity` | `agy --model <model> --prompt-interactive <prompt>` | Antigravity CLI 1.5.0 captured version/help in `internal/terminalhost/testdata/help/agy.txt`; official archive and verified SHA-256 in `sources.json`. `--prompt` is a print-mode alias and is not used. The `agy` alias distinguishes the CLI from the desktop app. |
 
 ## Models read from the machine
@@ -177,8 +176,8 @@ parser would run `claude purge`, `claude update` or `claude install` for a promp
 that is just `purge`, `update` or `install`. A subcommand name is one word, so for
 these two tools a prompt must contain a space or a newline. The same rule is
 applied to `codex` as defence in depth; whether codex needs it is not documented
-(see "Known limits"). `opencode` and `gemini` take the prompt as the value of a
-flag and are not affected. The controller refuses a one-word prompt before it
+(see "Known limits"). `opencode` takes the prompt as the value of a
+flag and is not affected. The controller refuses a one-word prompt before it
 sends anything (`prompt_unsupported`), and the connector refuses it again.
 
 ## Starting the program
@@ -276,7 +275,7 @@ write nothing.
 - Standard clap behaviour ends subcommand matching after `--`, so `codex` is
   probably safe from the subcommand problem, but codex documents `--` only for
   `codex mcp add`. The one-word rule is applied to it regardless.
-- `opencode` and `gemini` are safe from a prompt being read as a flag only because
+- `opencode` is safe from a prompt being read as a flag only because
   the prompt cannot begin with `-`. opencode's current parser was not read from
   source; its flags come from its documentation.
 - A retry of an already-recorded request id does not look up the binary or the
@@ -300,7 +299,7 @@ and the Activity label for `terminal-launch` are described in
 
 The controller advertises `agents-v2` alongside the existing feature tokens. A
 connector reports `agentsV2:true` and optional `osVersion` only after negotiating
-that token. The additional `antigravity-cli-v1` token gates the AGY tool id: an older controller whose `agents-v2` catalogue predates AGY receives no AGY claim. Without `agents-v2`, the connector reports only the original four tool ids
+that token. The additional `antigravity-cli-v1` token gates the AGY tool id: an older controller whose `agents-v2` catalogue predates AGY receives no AGY claim. Without `agents-v2`, the connector reports only the original three tool ids
 and never sends the added capability fields. OS version is informational: Linux
 reports its kernel release and macOS its product version; a failed local reading
 leaves it absent.

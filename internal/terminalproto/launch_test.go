@@ -3,6 +3,7 @@ package terminalproto
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -143,7 +144,7 @@ func TestLaunchLimits(t *testing.T) {
 	if err := good.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, tool := range []string{"claude", "codex", "opencode", "gemini"} {
+	for _, tool := range []string{"claude", "codex", "opencode"} {
 		if !ValidTool(tool) {
 			t.Fatal(tool)
 		}
@@ -212,7 +213,7 @@ func TestPromptNeedsWordsForPositionalPrompts(t *testing.T) {
 			}
 		}
 	}
-	for _, tool := range []string{"opencode", "gemini", "", "vim"} {
+	for _, tool := range []string{"opencode", "", "vim"} {
 		if PromptNeedsWords(tool, "hello") {
 			t.Error("flag-form or unknown tool refused a single word", tool)
 		}
@@ -328,5 +329,39 @@ func TestCreateProviderIsAClineChatOnly(t *testing.T) {
 	}
 	if !ToolTakesProvider("cline") || ToolTakesProvider("codex") || ToolTakesProvider("") {
 		t.Fatal("ToolTakesProvider rule")
+	}
+}
+
+// An older connector may still report a tool reet has retired. Its capability
+// record must keep validating; the tool is simply never offered or launched.
+func TestRetiredToolsAreToleratedInAToolsList(t *testing.T) {
+	if !RetiredTool("gemini") {
+		t.Fatal("gemini is not retired")
+	}
+	for _, id := range []string{"claude", "antigravity", "", "vim"} {
+		if RetiredTool(id) {
+			t.Fatalf("%q reported as retired", id)
+		}
+	}
+	if got := RetiredTools(); !reflect.DeepEqual(got, []string{"gemini"}) {
+		t.Fatalf("retired tools: %v", got)
+	}
+	c := Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "dev", TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"claude", "gemini"}, Readiness: Ready}
+	for _, features := range []string{LaunchFeature, LaunchFeature + "," + AgentsFeature} {
+		if err := c.ValidateFor(features); err != nil {
+			t.Fatalf("features %q: %v", features, err)
+		}
+	}
+}
+
+// A retired tool is not a launchable agent in any generation of the protocol.
+func TestRetiredToolCannotBeLaunched(t *testing.T) {
+	if ValidTool("gemini") || ValidToolV2("gemini") || ToolTakesModel("gemini") {
+		t.Fatal("gemini is still a launchable agent")
+	}
+	for _, structured := range []bool{false, true} {
+		if (Create{Title: "A", Cols: 80, Rows: 24, Tool: "gemini", Structured: structured}).Validate() == nil {
+			t.Fatalf("a create naming gemini was accepted (structured=%v)", structured)
+		}
 	}
 }

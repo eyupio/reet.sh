@@ -285,3 +285,16 @@ func TestProfileDefaultClineSource(t *testing.T) {
 		t.Fatal("the audit row did not name the saved source")
 	}
 }
+
+// An older browser can still send a retired agent as a default: it is refused as
+// an unknown agent and nothing is stored.
+func TestRetiredToolIsNotAcceptedAsADefault(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	code, out, raw := f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"defaultTool": "gemini"})
+	if code != 400 || !strings.Contains(out["error"].(string), "defaultTool must be blank or one of the agents reet can start") {
+		t.Fatal("a retired default agent was accepted", code, raw)
+	}
+	if p, err := f.st.ProfileFor(f.uid); err != nil || p.DefaultTool != "" {
+		t.Fatal("a refused default was stored", err, p)
+	}
+}

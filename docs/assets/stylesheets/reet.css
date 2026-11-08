@@ -602,10 +602,6 @@ kbd {
   color: var(--accent);
   font-size: 30px;
 }
-.agent-glyph.gemini {
-  color: #677b8b;
-  font-size: 28px;
-}
 .agent-glyph.opencode {
   font-size: 25px;
 }
@@ -2366,9 +2362,6 @@ kbd {
   .agent-glyph.claude {
     font-size: 23px;
   }
-  .agent-glyph.gemini {
-    font-size: 22px;
-  }
   .agent-glyph.opencode {
     font-size: 21px;
   }
@@ -2739,9 +2732,6 @@ kbd {
   }
   .agent-glyph.claude {
     font-size: 28px;
-  }
-  .agent-glyph.gemini {
-    font-size: 26px;
   }
   .agent-glyph.opencode {
     font-size: 24px;

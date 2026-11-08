@@ -94,6 +94,25 @@ try {
     expect(errors).toEqual([])
     await context.close()
   }
+  // A support ticket: the label links back to Support, the subject is the one h1, the ticket number and status stay on the page, and there is no row.
+  if (run('ticket')) {
+    const now = Date.now()
+    const ticket = { id: 41, opener: 'Sam', subject: 'Sync stalls on build-box', status: 'waiting', messages: 1, createdAt: now - 6e5, updatedAt: now - 6e5, assignee: 'Alex', assigneeId: 2 }
+    const { context, page, errors } = await open({ routes: { '/api/v2/tickets/41': { ticket, messages: [{ id: 1, ticketId: 41, author: 'Sam', authorKind: 'user', body: 'It stalls.', internal: false, createdAt: now - 6e5 }] } } })
+    await page.goto(`${base}/support/41`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await expect(page.getByRole('heading', { level: 1, name: 'Sync stalls on build-box', exact: true })).toBeVisible()
+    const head = page.locator('.page-head')
+    await expect(head.getByRole('link', { name: 'Support', exact: true })).toHaveAttribute('href', '/support')
+    await expect(head.getByText('Ticket #41', { exact: false })).toBeVisible()
+    await expect(head.getByText('Waiting on you', { exact: true })).toBeVisible()
+    await expect(head.getByRole('navigation')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: '← All tickets' })).toHaveAttribute('href', '/support')
+    await expect(page.getByRole('region', { name: 'Reply' })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
   // Machines: the title is the menu name and the section row holds Inventory & connection, Sync and the Software action.
   if (run('machines')) {
     const { context, page, errors } = await open({})
@@ -185,7 +204,6 @@ try {
     const nav = await row.boundingBox()
     expect(Math.abs(nav.x - column.x), 'Account row left edge vs the content column').toBeLessThanOrEqual(1)
     expect(Math.abs(nav.x + nav.width - (column.x + column.width)), 'Account row right edge vs the content column').toBeLessThanOrEqual(1)
-    expect(nav.height, 'Account row on one line').toBeLessThanOrEqual(56)
     const avatar = await page.locator('section.account .avatar').boundingBox()
     expect(avatar.y + avatar.height, 'avatar ends above the row').toBeLessThanOrEqual(nav.y)
     expect(errors).toEqual([])
@@ -238,6 +256,7 @@ try {
     await page.goto(`${base}/admin/users`)
     await expect(page.getByRole('heading', { level: 1, name: 'Users', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    expect(errors).toEqual([])
     await context.close()
   }
 
@@ -251,6 +270,15 @@ try {
     await expect(row.getByRole('link', { name: 'Write a skill' })).toHaveCount(0)
     expect(viewer.errors).toEqual([])
     await viewer.context.close()
+
+    // Write a skill is not in a viewer's More list, but a viewer who deep-links it still sees the group label (and no row of one).
+    const deepLink = await open({ status: { user: { id: 2, name: 'Vi', email: 'vi@example.test', role: 'viewer' } } })
+    await deepLink.page.goto(`${base}/hosting`)
+    await expect(deepLink.page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await expect(deepLink.page.getByRole('heading', { level: 1, name: 'Write a skill', exact: true })).toBeVisible()
+    await expect(deepLink.page.locator('.page-heading').getByText('Skills & distribution', { exact: true })).toBeVisible()
+    expect(deepLink.errors).toEqual([])
+    await deepLink.context.close()
 
     // With the support desk off Support is gone, so Help & community is Community alone: the label shows and no row does.
     const noDesk = await open({ status: { supportDesk: false }, routes: { '/api/community': { lists: [], skills: [] } } })

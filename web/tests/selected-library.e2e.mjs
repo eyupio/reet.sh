@@ -1,7 +1,7 @@
 import { chromium, expect } from '@playwright/test'
 import { openWorkspace } from './helpers/workspace.mjs'
 
-const browser=await chromium.launch({headless:true,executablePath:'/usr/bin/chromium',args:['--no-sandbox']})
+const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const now=Date.now()
 const scope={id:'offline-shared',host:'Offline laptop',agent:'agents',name:'Shared',skills:[],skillCount:0,complete:false,scannedAt:0,lastSeen:0}
 const items=[{id:'a'.repeat(32),name:'selected'.repeat(10).slice(0,64),itemType:'skill',status:'in_use',contentState:'complete'},{id:'b'.repeat(32),name:'Skill to test',itemType:'skill',status:'to_test',contentState:'complete'},{id:'c'.repeat(32),name:'Waiting capture',itemType:'skill',status:'in_use',contentState:'pending_capture'}]

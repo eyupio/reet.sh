@@ -23,7 +23,9 @@ Design: [spec](../superpowers/specs/2026-11-08-supporting-page-navigation-design
 - `pageGroup` returns the group even for one page; the row shows for two or more items. A group of one (Help & community without the support desk, Workspace for a non-admin) shows its label and no row. Signed out, the context keeps only the current page, since the others need a sign-in.
 - The Skills label "Your skill shelf" replaces "Ey up. Your skill shelf."; Notifications is titled "Notifications" under the Account label.
 - A viewer at `/hosting` keeps the label "Skills & distribution", although the page is not in their More list.
-- Machines keeps its row in the focused-machine view although the spec gives detail pages none: Software and Sync live there, and `sections` outranks the context row and the `groupHref` suppression. A list's own page links its label back to Lists (a 44px target) and has no row.
+- Machines keeps its row in the focused-machine view although the spec gives detail pages none: the Sync link lives there, and `sections` outranks the context row and the `groupHref` suppression. A list's own page links its label back to Lists (a 44px target) and has no row.
+- Software is a page action beside the Machines title (the spec's own fallback, taken after the first merge), not an item of the row: one tap at every width and a 44px target. The row holds Inventory & connection and Sync. `SectionNav` still accepts action items; no page passes one now.
+- Account's row is seven items so it stays one line: Profile, Agents, Gaffer AI, Security (Password, Single sign-on, Sessions, API tokens, MCP access), Data & activity (Backups, Maintenance, Activity), Machines and Compare & sync. `accountNav` (`web/src/lib/accountNav.ts`) builds it, keeps the original order, leaves a group with one present section as a plain link, and the folded menu names the open dropdown's current child.
 
 ## Preserved hooks
 
@@ -31,11 +33,10 @@ Design: [spec](../superpowers/specs/2026-11-08-supporting-page-navigation-design
 
 ## Known trade-offs
 
-- Below 1000px the row folds, so Software and the Machines links need one tap to open the menu (it closes before an action runs). The spec's fallback, Software in `actions`, was not taken; it is a product call.
-- Account's 11-link row spans the full width under the avatar and title: one line at 1440px, wrapping where the column is narrower.
+- Below 1000px the row folds, so the Machines links and Account's sections need one tap to open the menu. Account's grouped sections (Password, Sessions, Backups and the rest) sit one click deeper than the old flat row, on desktop as well.
 - Server-rendered crawl fallbacks keep "Public community"; they are not the on-page heading.
 
-Evidence is `web/tests/supporting-nav.e2e.mjs` and `web/src/lib/shell/tabs.test.mjs`, on a synthetic API only. Deployment is a separate verification and is not established by merging.
+Evidence is `web/tests/supporting-nav.e2e.mjs`, `web/src/lib/shell/tabs.test.mjs` and `web/src/lib/accountNav.test.mjs`, on a synthetic API only. Deployment is a separate verification and is not established by merging.
 
 ## Merge outcome
 
@@ -44,3 +45,10 @@ PR #663 was merged on 2026-11-08 as merge commit `b00422ed7ef8c2f6e2d0e0513d5c62
 Push runs on `main` for the merge commit: `docs`, `image`, `binary release`, `Gaffer settings browser` and `Gaffer offline acceptance` passed. `terminal browser` did **not** pass and is **not verified here**. Its first attempt failed in `terminal-workspace.e2e.mjs:275`, a wall-clock check on a loaded runner, and `phone-zoom` failed once and then passed on re-run, neither reproducible locally. On attempt 2, `phone-zoom` passed; `phone-dialogs` was cancelled at its 20-minute job limit on the `zoomies-linux-x64` pool (it also ran out of time on attempt 1; on pull requests it runs on `ubuntu-latest`); `terminal-browser` was cancelled at 18:21 UTC, the minute the merge of #662 started a newer `main` run (the workflow cancels in-progress runs per branch). Nothing shows #663 as the cause, but the push-run browser scripts, `supporting-nav.e2e.mjs` among them, have no green run on the merge commit. They passed on the pull-request head.
 
 **Deployment is unverified**: web rollout needs its own check, and no connector or API change is involved.
+
+## Follow-up: the two trade-offs and two flaky checks
+
+Software and Account's row were changed as described under Decisions; `supporting-nav.e2e.mjs`, `navigation.e2e.mjs` (Activity now sits in the Data & activity dropdown) and `accountNav.test.mjs` cover them.
+
+- `terminal-workspace.e2e.mjs`: the 2 s "Synthetic continuation" budget failed at 2675 ms on the `zoomies-linux-x64` pool (526 ms locally on an idle machine). Its window began at the click and included the script's own steps (the click, the resynchronising state, a double frame wait and a row count). It now begins when the fixture releases the host redraw, so it measures the app: 57 ms idle and 64 ms with all four cores busy, where the old window read 2055 ms under the same load. The one-ticket, one-socket assertions that pin a single attachment are unchanged. The budget is still 2 s.
+- `gaffer-offline-live.e2e.mjs` (native leg): the fixture's fake worker wrote `progress` on its control link after the link had closed (`write: broken pipe`, run `42492037569` attempt 1). A real connector dials again when the controller ends its link, so the fixture now does too, resends with the new generation, and logs why the link ended. `TestGafferWorkerLinkRedialsAfterItIsLost` fails without this and passes with it. **The reason the controller ended the link that time is not established**: the failure did not reproduce locally in two full runs (both passed, with no redial), and the controller returns from that handler without logging the cause. A repeat will show the reason in the test log.

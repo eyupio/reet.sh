@@ -27,6 +27,11 @@ var (
 	// ErrModelUnconfirmed means a switch may have been applied, but the reply
 	// did not establish the current model. It is never reported as the old one.
 	ErrModelUnconfirmed = fmt.Errorf("%w: the current model is not confirmed", ErrModel)
+	// ErrProvider means the agent did not use the session's chosen provider.
+	ErrProvider = errors.New("the agent did not use the chosen provider")
+	// ErrProviderUnconfirmed means a provider switch may have been applied, but
+	// the reply did not read it back.
+	ErrProviderUnconfirmed = fmt.Errorf("%w: the current provider is not confirmed", ErrProvider)
 	// ErrUnsupported means the catalogue tool has no ACP adapter here.
 	ErrUnsupported = errors.New("that agent does not support chats")
 	// ErrCodexLogin means session creation needs a login made outside reet.

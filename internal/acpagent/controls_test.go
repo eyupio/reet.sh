@@ -56,11 +56,14 @@ func TestClineSettingsSkipValuesReetCannotName(t *testing.T) {
 		{"type":"boolean","id":"auto_approve","currentValue":false}
 	]}`))
 	controls := s.Controls()
-	if len(controls.Options) != 1 || controls.Options[0].Category != "model" || controls.Model != "anthropic/claude-sonnet-5.5" {
+	// Cline's provider is now a setting beside its model; the mode and the
+	// boolean auto_approve are still never surfaced.
+	model := settingOf(t, controls, "model")
+	if len(controls.Options) != 2 || controls.Model != "anthropic/claude-sonnet-5.5" {
 		t.Fatalf("controls: %+v", controls)
 	}
-	if len(controls.Options[0].Values) != 1 || controls.Options[0].Values[0] != "anthropic/claude-sonnet-5.5" {
-		t.Fatalf("values: %+v", controls.Options[0].Values)
+	if len(model.Values) != 1 || model.Values[0] != "anthropic/claude-sonnet-5.5" {
+		t.Fatalf("values: %+v", model.Values)
 	}
 	// An unrepresentable current value keeps the selector but claims no value.
 	s.updateSettings(json.RawMessage(`{"configOptions":[{"id":"model","category":"model","currentValue":"~alias/latest","options":[{"value":"~alias/latest"},{"value":"anthropic/claude-sonnet-5.5"}]}]}`))

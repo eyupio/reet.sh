@@ -104,11 +104,178 @@ func TestClineStartsWithApprovalsOnAndItsModelCatalogue(t *testing.T) {
 		t.Fatalf("started in %q with id %q", session.Mode(), session.SessionID())
 	}
 	controls := session.Controls()
-	if controls.Model != "stub/model" || len(controls.Options) != 1 || controls.Options[0].Category != "model" {
+	model := settingOf(t, controls, "model")
+	if controls.Model != "stub/model" || len(controls.Options) != 2 {
 		t.Fatalf("controls: %+v", controls)
 	}
-	if strings.Join(controls.Options[0].Values, ",") != "stub/model,provider/other" {
-		t.Fatalf("model values: %+v", controls.Options[0])
+	if strings.Join(model.Values, ",") != "stub/model,provider/other" {
+		t.Fatalf("model values: %+v", model)
+	}
+}
+
+// settingOf is the one setting of a category in a controls snapshot.
+func settingOf(t *testing.T, controls terminalproto.ACPControls, category string) terminalproto.ACPSetting {
+	t.Helper()
+	for _, o := range controls.Options {
+		if o.Category == category {
+			return o
+		}
+	}
+	t.Fatalf("no %s setting in %+v", category, controls)
+	return terminalproto.ACPSetting{}
+}
+
+// Cline reports its provider beside the model. reet surfaces it as a setting so
+// the person can choose a billing source, with the values Cline lists.
+func TestClineAdmitsItsProviderOption(t *testing.T) {
+	opts, _ := clineOptions(t, "cline")
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	provider := settingOf(t, session.Controls(), "provider")
+	want := terminalproto.ACPSetting{ID: "provider", Category: "provider", Current: "cline", Values: []string{"cline", "cline-pass"}}
+	if provider.ID != want.ID || provider.Current != want.Current || strings.Join(provider.Values, ",") != strings.Join(want.Values, ",") {
+		t.Fatalf("provider setting: %+v", provider)
+	}
+}
+
+// The provider is applied first, so the model that follows is chosen from the
+// new source's catalogue: the fake refuses a model its current catalogue lacks.
+func TestClineAppliesAChosenProviderBeforeTheModel(t *testing.T) {
+	opts, _ := clineOptions(t, "cline")
+	opts.Provider, opts.Model = "cline-pass", "cline-pass/deepseek-v4"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	controls := session.Controls()
+	if got := settingOf(t, controls, "provider").Current; got != "cline-pass" {
+		t.Fatalf("provider after launch: %q", got)
+	}
+	if session.Model() != "cline-pass/deepseek-v4" {
+		t.Fatalf("model after launch: %q", session.Model())
+	}
+}
+
+// A switch replaces the model catalogue with the new source's list and moves the
+// current model to one of its entries.
+func TestClineProviderSwitchSwapsTheModelCatalogue(t *testing.T) {
+	opts, _ := clineOptions(t, "cline")
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.SetOption(context.Background(), "provider", "cline-pass"); err != nil {
+		t.Fatal(err)
+	}
+	controls := session.Controls()
+	if got := strings.Join(settingOf(t, controls, "model").Values, ","); got != "cline-pass/deepseek-v4,cline-pass/other" {
+		t.Fatalf("model values after the switch: %s", got)
+	}
+	if controls.Model != "cline-pass/deepseek-v4" || settingOf(t, controls, "provider").Current != "cline-pass" {
+		t.Fatalf("controls after the switch: %+v", controls)
+	}
+}
+
+// A reply with no model option gives no list for the new source: the old values
+// stay and the current model is forgotten rather than guessed.
+func TestClineProviderSwitchWithNoModelOptionForgetsTheModel(t *testing.T) {
+	opts, _ := clineOptions(t, "cline-provider-no-models")
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.SetOption(context.Background(), "provider", "cline-pass"); err != nil {
+		t.Fatal(err)
+	}
+	controls := session.Controls()
+	model := settingOf(t, controls, "model")
+	if controls.Model != "" || model.Current != "" || strings.Join(model.Values, ",") != "stub/model,provider/other" {
+		t.Fatalf("model after a reply without one: controls=%+v model=%+v", controls, model)
+	}
+	if settingOf(t, controls, "provider").Current != "cline-pass" {
+		t.Fatalf("provider after the switch: %+v", controls)
+	}
+}
+
+// A provider Cline refuses, or answers without reading it back, refuses the chat
+// before any opening prompt, as an unconfirmed model does.
+func TestClineRefusedOrUnconfirmedProviderRefusesTheChat(t *testing.T) {
+	for _, scenario := range []string{"cline-provider-refused", "cline-provider-unconfirmed"} {
+		t.Run(scenario, func(t *testing.T) {
+			opts, _ := clineOptions(t, scenario)
+			opts.Provider = "cline-pass"
+			session, err := Start(context.Background(), opts)
+			if err == nil || !errors.Is(err, ErrProvider) {
+				t.Fatalf("session=%v err=%v", session, err)
+			}
+			if session != nil {
+				session.Close()
+			}
+		})
+	}
+}
+
+// A source switch while a turn runs is refused: it would swap the catalogue
+// under a request that is already on its way.
+func TestClineProviderSwitchWhileWorkingIsBusy(t *testing.T) {
+	opts, got := clineOptions(t, "cline-command")
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	done := make(chan error, 1)
+	go func() { done <- session.Prompt(context.Background(), "go on") }()
+	var event Event
+	for event = got.next(t); event.Kind != "permission"; event = got.next(t) {
+	}
+	if err := session.SetOption(context.Background(), "provider", "cline-pass"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("switch during a turn: %v", err)
+	}
+	if err := session.Allow(event.PermissionID, true); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the answered turn did not end")
+	}
+}
+
+// Only a provider Cline listed can be set.
+func TestClineSwitchRejectsAnUnlistedProvider(t *testing.T) {
+	opts, _ := clineOptions(t, "cline")
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.SetOption(context.Background(), "provider", "not-listed"); !errors.Is(err, ErrControl) {
+		t.Fatalf("unlisted provider: %v", err)
+	}
+	if got := settingOf(t, session.Controls(), "provider").Current; got != "cline" {
+		t.Fatalf("provider after a refused switch: %q", got)
+	}
+}
+
+// A reattach restores what Cline stored and never re-applies a source: this
+// fake refuses every provider switch, so a Start that tried one would fail.
+func TestClineReattachDoesNotReapplyAProvider(t *testing.T) {
+	opts, _ := clineOptions(t, "cline-provider-refused")
+	opts.Resume, opts.Provider = "1793848855723_8zvJS_cli", "cline-pass"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if got := settingOf(t, session.Controls(), "provider").Current; got != "cline" {
+		t.Fatalf("provider after a reattach: %q", got)
 	}
 }
 

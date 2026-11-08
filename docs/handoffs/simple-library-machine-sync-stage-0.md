@@ -6,6 +6,8 @@ Parent specification: [Simple library and machine sync](simple-library-machine-s
 
 **Status:** Stage 0 complete. Baseline, reusable subprocess harness, migration/source map and five contract failures are recorded. The focused integration controls pass with race detection. No production policy, schema, UI or installation behaviour has been changed.
 
+**Historical baseline:** the results below describe Stage 0. It was subsequently published as commit `31fa681e9409633560eb664f24edddc3a5a0d579` in [PR #662](https://github.com/eyupio/reet.sh/pull/662), rebased onto main `c40f67e118d8d1f8c7fe1de6cf9170a0d516c940`. The [Stage 1 handover](simple-library-machine-sync-stage-1.md) records the recovery fix and current checks. The import-restart probe now runs in the ordinary suite; four future-stage probes remain tagged.
+
 ## Baseline and scope
 
 | Fact | Observed value |
@@ -239,7 +241,9 @@ go test -race ./internal/api \
 
 Its full local log is `/workspace/work/stage0-final-race.log`. The final desired-behaviour probe command is the tagged command above; its full local log is `/workspace/work/stage0-final-contract.log`. The import restart report records `state=expired` / `error=preview_expired` while retaining two machine enrollments. Full repository CI and application provisioning were not run for this test/documentation stage.
 
-## Next model: Stage 1
+## Original Stage 1 entry instructions
+
+These instructions have been followed in the [Stage 1 handover](simple-library-machine-sync-stage-1.md). Preserve them as the baseline rationale; continue from that handover and the parent completion ledger.
 
 Start with the reproduced import-restart failure. Preserve the process-instance fence while requeuing a new authenticated preview/capture, using the same enrollment and user intent. The normal import control must keep passing and the restart probe should turn green.
 
@@ -253,7 +257,7 @@ Keep the remaining four tagged contract failures explicit until their respective
 
 - **Status:** complete, with the production Tailcat evidence gap explicitly retained.
 - **Starting commit:** `40b5f83389b812da7dcbfb8b450400b2c85acc57`, branch `work`.
-- **Result:** uncommitted test/documentation changes; no push, deployment, database migration or production policy change.
+- **Result:** originally uncommitted test/documentation changes; subsequently committed as `31fa681e9409633560eb664f24edddc3a5a0d579` and pushed in PR #662. Stage 0 made no deployment, database migration or production policy change.
 - **Files:** `internal/api/sync_contract_harness_test.go`, `internal/api/sync_contract_test.go`, this report, and the parent handoff's progress record.
 - **Authorised scope:** Stage 0 only.
 - **Contracts/compatibility:** no runtime schema/API/capability changes. Proposed authority/migration boundaries are documented above.

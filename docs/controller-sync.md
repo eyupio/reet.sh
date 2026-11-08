@@ -97,6 +97,8 @@ Unreadable scopes, permission errors on skill entries and broken symlinks produc
 
 Controller state, enrollment hashes, jobs/receipts, desired sets and baselines live in SQLite and survive restart. Use a consistent full database backup to retain them. Personal shelf JSON exports do not include these operational records. Keep each local enrollment configuration private and backed up separately.
 
+If a connector restarts or its preview expires during automatic library content capture, the old attempt stays expired and the controller can schedule a fresh preview under the same enrollment. This also recovers eligible captures left expired before a controller upgrade. The replacement uses current policy and content checks; old approvals are never reused. Manual imports, cancelled requests and permanent capture failures keep their existing review/retry behaviour.
+
 See [the control centre workflow](control-centre.md) for fleet controls and selecting all machines.
 
 ## Your own drafts sync without publishing

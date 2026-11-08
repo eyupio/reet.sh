@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/notify"
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -32,8 +34,8 @@ import (
 // These helpers exercise the actual connector entry point in separate OS
 // processes, through HTTP, against the real API and a temporary SQLite store.
 // Each child retains process-scoped state across controlled run --once cycles.
-// This excludes the production timer, native supervision and Tailcat monitoring;
-// those require separate Stage 1 tests.
+// Stage 1 also exercises the production foreground loop with private bootstrap
+// unavailable. Native service and actual Tailcat transport have separate tests.
 const syncContractToken = "stage0-disposable-owner-token"
 
 type syncContractHarness struct {
@@ -42,6 +44,7 @@ type syncContractHarness struct {
 	uid        int64
 	root       string
 	controller *httptest.Server
+	fetcher    meta.Fetcher
 	machines   []*syncContractMachine
 }
 
@@ -49,6 +52,8 @@ type syncContractMachine struct {
 	h                  *syncContractHarness
 	name, home, config string
 	id                 string
+	token              string
+	tokenID            int64
 	endpoint           *httptest.Server
 	link               *syncContractLink
 	process            *exec.Cmd
@@ -56,16 +61,20 @@ type syncContractMachine struct {
 	input              io.WriteCloser
 	encode             *json.Encoder
 	decode             *json.Decoder
+	foreground         bool
+	output             *os.File
 }
 
 type syncContractCycleResult struct{ Output, Error string }
 
 type syncContractLink struct {
-	offline        atomic.Bool
-	dropNextResult atomic.Bool
-	droppedResults atomic.Int32
-	mu             sync.Mutex
-	requests       map[string]int
+	offline            atomic.Bool
+	dropNextResult     atomic.Bool
+	droppedResults     atomic.Int32
+	privateDown        atomic.Bool
+	failedSyncRequests atomic.Int32
+	mu                 sync.Mutex
+	requests           map[string]int
 }
 
 func newSyncContractHarness(t *testing.T) *syncContractHarness {
@@ -84,13 +93,47 @@ func newSyncContractHarness(t *testing.T) *syncContractHarness {
 	if err = st.ClaimPublishingUsername(uid, "contract-writer"); err != nil {
 		t.Fatal(err)
 	}
-	h := &syncContractHarness{t: t, st: st, uid: uid, root: t.TempDir()}
-	h.controller = httptest.NewServer(New(st, deadFetcher(t), "",
-		WithAuthMode(AuthAccounts), WithNotify(&notify.Service{Store: st}),
-		WithMaintenance(false), WithRefresh(false), WithTopics(false)))
-	t.Cleanup(h.controller.Close)
+	// Keep the Unix control-socket path below its platform length limit.
+	root, err := os.MkdirTemp("", "reet-sync-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	h := &syncContractHarness{t: t, st: st, uid: uid, root: root, fetcher: deadFetcher(t)}
+	t.Cleanup(func() { _ = h.st.Close() })
+	h.controller = httptest.NewServer(h.handler())
+	t.Cleanup(func() { h.controller.Close() })
 	t.Cleanup(h.writeEvidence)
 	return h
+}
+
+func (h *syncContractHarness) handler() http.Handler {
+	return New(h.st, h.fetcher, "",
+		WithAuthMode(AuthAccounts), WithNotify(&notify.Service{Store: h.st}),
+		WithMaintenance(false), WithRefresh(false), WithTopics(false))
+}
+
+func (h *syncContractHarness) restartController() {
+	h.t.Helper()
+	address, dir := h.controller.Listener.Addr().String(), h.st.Dir()
+	h.controller.Close()
+	if err := h.st.Close(); err != nil {
+		h.t.Fatal(err)
+	}
+	reopened, err := store.Open(dir)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.st = reopened
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	server := httptest.NewUnstartedServer(h.handler())
+	_ = server.Listener.Close()
+	server.Listener = listener
+	h.controller = server
+	server.Start()
 }
 
 func (h *syncContractHarness) request(method, path string, body any) (int, string) {
@@ -175,7 +218,12 @@ func (h *syncContractHarness) machine(name string) *syncContractMachine {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	m := &syncContractMachine{h: h, name: name, home: home}
+	m := &syncContractMachine{h: h, name: name, home: home, token: "disposable-machine-token-" + name}
+	credential, err := h.st.CreateAPIToken(h.uid, name, auth.HashToken(m.token))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	m.tokenID = credential.ID
 	m.config = filepath.Join(m.home, ".config", "reet", "agent.json")
 	m.link = &syncContractLink{requests: make(map[string]int)}
 	target, err := url.Parse(h.controller.URL)
@@ -209,7 +257,14 @@ func (h *syncContractHarness) machine(name string) *syncContractMachine {
 		m.link.requests[r.Method+" "+r.URL.Path]++
 		m.link.mu.Unlock()
 		if m.link.offline.Load() {
+			if strings.HasPrefix(r.URL.Path, "/api/v2/sync/") && r.URL.Path != "/api/v2/sync/private" {
+				m.link.failedSyncRequests.Add(1)
+			}
 			http.Error(w, "stage0 offline machine link", http.StatusServiceUnavailable)
+			return
+		}
+		if m.link.privateDown.Load() && r.URL.Path == "/api/v2/sync/private" {
+			http.Error(w, "stage1 private monitoring unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		proxy.ServeHTTP(w, r)
@@ -217,7 +272,7 @@ func (h *syncContractHarness) machine(name string) *syncContractMachine {
 	h.t.Cleanup(m.endpoint.Close)
 	h.machines = append(h.machines, m)
 	if output, err := m.command("enroll", "--server", m.endpoint.URL,
-		"--token", syncContractToken, "--env", name, "--config", m.config,
+		"--token", m.token, "--env", name, "--config", m.config,
 		"--allow-apply", "--skip-terminal-setup"); err != nil {
 		h.t.Fatalf("enroll %s: %v\n%s", name, err, output)
 	}
@@ -302,11 +357,41 @@ func (m *syncContractMachine) start() {
 	m.encode, m.decode = json.NewEncoder(input), json.NewDecoder(output)
 }
 
+func (m *syncContractMachine) startForeground() {
+	m.h.t.Helper()
+	m.stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := m.connectorCommand(ctx, "run", "--foreground", "--config", m.config)
+	output, err := os.CreateTemp(m.h.root, "foreground-*.log")
+	if err != nil {
+		cancel()
+		m.h.t.Fatal(err)
+	}
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		cancel()
+		_ = output.Close()
+		m.h.t.Fatal(err)
+	}
+	cmd.Stdout, cmd.Stderr = output, output
+	if err := cmd.Start(); err != nil {
+		cancel()
+		_ = input.Close()
+		_ = output.Close()
+		m.h.t.Fatal(err)
+	}
+	m.process, m.cancel, m.input = cmd, cancel, input
+	m.foreground, m.output = true, output
+}
+
 func (m *syncContractMachine) stop() {
 	if m.process != nil {
 		cmd, cancel := m.process, m.cancel
 		m.process = nil
 		defer cancel()
+		if m.foreground {
+			_ = cmd.Process.Signal(os.Interrupt)
+		}
 		_ = m.input.Close()
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
@@ -320,10 +405,24 @@ func (m *syncContractMachine) stop() {
 			<-done
 			m.h.t.Errorf("connector %s did not stop after its input closed", m.name)
 		}
+		if m.output != nil {
+			_ = m.output.Close()
+			if m.h.t.Failed() {
+				data, _ := os.ReadFile(m.output.Name())
+				if len(data) > 6000 {
+					data = data[len(data)-6000:]
+				}
+				m.h.t.Logf("foreground connector %s:\n%s", m.name, data)
+			}
+		}
+		m.foreground, m.output = false, nil
 	}
 }
 
 func (m *syncContractMachine) tick() (string, error) {
+	if m.foreground {
+		return "", errors.New("foreground connector owns its polling loop")
+	}
 	if err := m.encode.Encode(struct{}{}); err != nil {
 		return "", err
 	}

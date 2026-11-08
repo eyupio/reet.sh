@@ -115,35 +115,3 @@ func TestSimpleSyncContractLeavingInUseRemovesManagedCopy(t *testing.T) {
 		t.Errorf("deactivation lost the library entry or status: found=%t used=%t: %v", found, saved.Used, err)
 	}
 }
-
-func TestSimpleSyncContractImportRecoversAfterConnectorRestart(t *testing.T) {
-	h := newSyncContractHarness(t)
-	a, b := h.machine("restart-source"), h.machine("restart-destination")
-	a.localSkill("restart-import", "must survive a connector restart")
-	previewed := false
-	for range 8 {
-		h.rounds(1, a, b)
-		a.link.mu.Lock()
-		previewed = a.link.requests["POST /api/v2/sync/skill-import/preview"] > 0
-		a.link.mu.Unlock()
-		if previewed {
-			break
-		}
-	}
-	if !previewed {
-		t.Fatal("fixture did not reach a real machine-content preview")
-	}
-	// Restart the actual source process between preview and upload. The
-	// enrollment/home/config stay unchanged; only process-scoped leases change.
-	a.stop()
-	a.start()
-	h.rounds(12, a, b)
-	if got, err := os.ReadFile(b.path("restart-import", "SKILL.md")); err != nil ||
-		string(got) != syncContractContent("restart-import", "must survive a connector restart") {
-		t.Errorf("machine-content import did not recover after source process restart: %q: %v", got, err)
-	}
-	agents, err := h.st.SyncAgentsFor(h.uid)
-	if err != nil || len(agents) != 2 {
-		t.Errorf("restart changed enrollment count: %d: %v", len(agents), err)
-	}
-}

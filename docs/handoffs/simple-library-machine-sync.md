@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stage 0 completed on 8 November 2026; see the [Stage 0 results and implementation handover](simple-library-machine-sync-stage-0.md). Stages 1–7 are not implemented. The reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stage 0 is complete; see its [baseline and migration map](simple-library-machine-sync-stage-0.md). Stage 1 implementation and focused recovery checks pass, with full validation still running; see the [Stage 1 results and implementation handover](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662). Stages 2–7 are not implemented. The reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -238,6 +238,8 @@ Stages are sequential integration checkpoints. A later model must receive the ea
 
 **Handover:** failure/recovery traces, lifecycle guarantees, remaining field-only checks, touched protocol/version boundaries.
 
+**Implementation record:** [Stage 1 results](simple-library-machine-sync-stage-1.md) document recovery of expired process-bound library captures, durable enrollment/acknowledgement tests, independent foreground HTTPS sync and credential isolation. No schema or protocol change was needed. This does not activate the later-stage status/selection policy.
+
 ### Stage 2 — Canonical content, authoring and status
 
 **Depends on:** Stage 1; content-policy changes remain inactive until their execution semantics are available.
@@ -413,4 +415,4 @@ Do not replace observed failures with a later broad claim of success. Do not req
 - [ ] Stage 6: Linux provisioning for all four applications
 - [ ] Stage 7: independent backup, migration and release proof
 
-**Evidence:** the original specification was prepared from read-only repository inspection and the user's decisions. Stage 0 added a real-controller/subprocess test harness and opt-in contract regressions, with verification and remaining evidence gaps recorded in its linked handover. No runtime defect is claimed fixed and no live provisioning has been performed.
+**Evidence:** the original specification records the user's decisions. Stage 0 added the real-controller/subprocess harness and reproduced five contract gaps. Stage 1 fixes the import-restart gap and promotes its regression into ordinary tests; four future-stage probes remain tagged. Its linked handover records actual checks and field-testing limits. No live provisioning or production deployment has been performed.

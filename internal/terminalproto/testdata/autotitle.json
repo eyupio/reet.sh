@@ -222,6 +222,46 @@
    "want": ""
   },
   {
+   "name": "quoted reference with a single-backslash escaped quote (the real upload form)",
+   "prompt": "Image: '/home/o'\\''neil/img-1.png'",
+   "want": ""
+  },
+  {
+   "name": "quoted reference with a non-ASCII path and an uppercase extension",
+   "prompt": "Image: '/home/é ü/a.PNG'",
+   "want": ""
+  },
+  {
+   "name": "quoted reference with an uppercase extension",
+   "prompt": "Images: '/tmp/My Dir/A.JPG'",
+   "want": ""
+  },
+  {
+   "name": "bare and quoted references on one line",
+   "prompt": "Images: /tmp/a.png '/tmp/My Dir/b.jpeg'",
+   "want": ""
+  },
+  {
+   "name": "quoted token that is not an image stays the title",
+   "prompt": "Image: '/tmp/a.txt'",
+   "want": "Image: '/tmp/a.txt'"
+  },
+  {
+   "name": "text right after the closing quote is not an image line",
+   "prompt": "Image: '/tmp/a.png'x",
+   "want": "Image: '/tmp/a.png'x"
+  },
+  {
+   "name": "a stray apostrophe in a bare token is not an image line",
+   "prompt": "Image: /tmp/it's.png",
+   "want": "Image: /tmp/it's.png"
+  },
+  {
+   "name": "task then a quoted image line keeps the task",
+   "prompt": "Fix the login redirect loop\n\nImage: '/tmp/My Dir/a.png'",
+   "want": "Fix the login redirect loop"
+  },
+  {
    "name": "unterminated quote is not an image line",
    "prompt": "Image: '/home/dev/My Images/a.png",
    "want": "Image: '/home/dev/My Images/a.png"
@@ -376,6 +416,16 @@
   {
    "name": "a task and an image line names the session",
    "prompt": "Fix the login redirect loop\n\nImage: /tmp/a.png",
+   "want": "prompt"
+  },
+  {
+   "name": "a quoted image-only prompt is a fallback",
+   "prompt": "Image: '/tmp/My Dir/a.png'",
+   "want": "fallback"
+  },
+  {
+   "name": "a task and a quoted image line names the session",
+   "prompt": "Fix the login redirect loop\n\nImage: '/tmp/My Dir/a.png'",
    "want": "prompt"
   }
  ]

@@ -3,6 +3,7 @@ package terminalproto
 import (
 	"encoding/json"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -96,6 +97,47 @@ func TestEveryLaunchToolHasADisplayName(t *testing.T) {
 		if toolNames[id] == "" {
 			t.Errorf("tool %q has no display name in toolNames", id)
 		}
+	}
+}
+
+// The references the upload API inserts are not named in the fixture by hand:
+// this builds them with a copy of the formatting in uploadReference
+// (internal/api/terminal_upload.go), which cannot be imported here without a
+// cycle. Because it is a copy, a change to uploadReference would not fail this
+// test; it only catches the matcher drifting away from the copy. Keep the copy
+// (the safe-path pattern and the quoting below) in sync by hand with
+// uploadReference and uploadSafePath in internal/api/terminal_upload.go.
+func TestPromptTitleIgnoresUploadReferences(t *testing.T) {
+	safe := regexp.MustCompile(`^[A-Za-z0-9_./:@%+-]+$`)
+	reference := func(path string) string {
+		if safe.MatchString(path) {
+			return path
+		}
+		// Copied from uploadReference.
+		return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
+	}
+	paths := []string{
+		"/home/dev/.reet/uploads/img-1.png",
+		"/home/dev/My Images/img-2.png",
+		"/home/o'neil/My Images/img-3.PNG",
+		"/home/é ü/img-4.webp",
+	}
+	var refs []string
+	for _, path := range paths {
+		ref := reference(path)
+		if strings.Contains(path, "'") && !strings.Contains(ref, `'\''`) {
+			t.Fatalf("reference(%q) = %q, want the apostrophe escaped as '\\''", path, ref)
+		}
+		refs = append(refs, ref)
+		if got := PromptTitle("Image: " + ref); got != "" {
+			t.Errorf("PromptTitle(Image: %s) = %q, want no title", ref, got)
+		}
+		if got := PromptTitle("Fix the build\n\nImage: " + ref); got != "Fix the build" {
+			t.Errorf("PromptTitle(task, Image: %s) = %q, want the task", ref, got)
+		}
+	}
+	if got := PromptTitle("Images: " + strings.Join(refs, " ")); got != "" {
+		t.Errorf("PromptTitle(Images: %s) = %q, want no title", strings.Join(refs, " "), got)
 	}
 }
 

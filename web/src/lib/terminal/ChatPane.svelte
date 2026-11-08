@@ -641,6 +641,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
   <strong>{statusWord}</strong>
   {#if statusDetail && !failed}<span class="detail">{statusDetail}</span>{/if}
  </div>
+ {#if onnewchat && !ended}<button type="button" class="btn new-chat" disabled={newChatOff} title="Start a new chat on this machine" onclick={event => onnewchat(event.currentTarget)}>New chat</button>{/if}
  </div>
  {#if reattaching}
   <!-- The status line above is the one live region while reconnecting; this note does not announce again. -->
@@ -1034,6 +1035,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  .chat-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--line-soft); font-size: 14px; color: var(--muted); background: var(--bg); }
  .chat-live { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
  .chat-status strong { font-weight: 500; color: var(--ink); }
+ .chat-status .new-chat { flex: none; padding: 2px 10px; font-size: 13px; }
  .chat-status .detail { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); flex: none; }
  .status-dot.busy { background: var(--accent-text); animation: pulse 1.6s ease-in-out infinite; }

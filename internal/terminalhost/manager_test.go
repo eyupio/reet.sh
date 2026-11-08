@@ -584,7 +584,7 @@ func TestManagerLaunchKeepsTrailingSemicolons(t *testing.T) {
 		{"folder", "work;", terminalproto.Create{Tool: "claude"}, []string{""}},
 		{"folder twice", "a;;", terminalproto.Create{Tool: "claude"}, []string{""}},
 		{"positional prompt", "", terminalproto.Create{Tool: "claude", Prompt: "fix it;"}, []string{"--", "fix it;"}},
-		{"flag prompt only semicolon", "", terminalproto.Create{Tool: "gemini", Prompt: ";"}, []string{"--prompt-interactive", ";"}},
+		{"flag prompt only semicolon", "", terminalproto.Create{Tool: "opencode", Prompt: ";"}, []string{"--prompt", ";"}},
 		{"flag prompt opencode", "", terminalproto.Create{Tool: "opencode", Prompt: "a; b;"}, []string{"--prompt", "a; b;"}},
 		{"escaped semicolon", "", terminalproto.Create{Tool: "claude", Prompt: `a b\;`}, []string{"--", `a b\;`}},
 		{"middle semicolon", "", terminalproto.Create{Tool: "claude", Model: "m", Prompt: "a;b c"}, []string{"--model", "m", "--", "a;b c"}},

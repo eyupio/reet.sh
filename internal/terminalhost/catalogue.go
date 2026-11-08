@@ -37,10 +37,9 @@ type Preset struct {
 
 // Existing argument evidence predates this refactor: Claude Code 2.1.310
 // --help; Codex CLI reference and codex-rs/tui/src/cli.rs (also the captured
-// codex-cli 0.163.0 help); opencode.ai/docs/cli/; and the Gemini CLI reference
-// plus packages/cli/src/config/config.ts. Those rows preserve exact argv.
+// codex-cli 0.163.0 help); opencode.ai/docs/cli/. Those rows preserve exact argv.
 //
-// Catalogue preserves the four shipped presets' previously reviewed arguments.
+// Catalogue preserves the three shipped presets' previously reviewed arguments.
 // New commands require captured help and safest permission defaults; a matching
 // binary name alone never enables them. Cline 3.0.74 requires explicit approval
 // denial and interactive mode; its default otherwise auto-approves tools.
@@ -50,7 +49,6 @@ var Catalogue = []Preset{
 	{ID: "claude", Name: "Claude Code", Binary: "claude", ModelFlag: "--model", PromptPositional: true, ACP: "adapter"},
 	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--ask-for-approval", "never"}, ACP: "adapter"},
 	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", YoloArgs: []string{"--auto"}, ResumeArgs: []string{"--continue"}, SessionArgs: []string{"--session"}, ACP: "native", ModelList: &ModelList{Argv: []string{"models"}, Env: []string{"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "NO_COLOR=1", "LANG=C.UTF-8", "CI=1"}}},
-	{ID: "gemini", Name: "Gemini CLI", Binary: "gemini", ModelFlag: "--model", PromptFlag: "--prompt-interactive"},
 	{ID: "pi", Name: "Pi", Binary: "pi", DisabledReason: "This CLI has no built-in approval policy for tool execution."},
 	{ID: "cursor", Name: "Cursor Agent", Binary: "cursor-agent", DisabledReason: "CLI help and permission defaults have not been confirmed."},
 	{ID: "cline", Name: "Cline", Binary: "cline", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--yolo", "--tui"}, SafeArgs: []string{"--auto-approve", "false", "--tui"}, EffortArgs: map[string][]string{"low": {"--thinking", "low"}, "medium": {"--thinking", "medium"}, "high": {"--thinking", "high"}}, ACP: "native"},

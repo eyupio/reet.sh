@@ -68,6 +68,8 @@ func (s *Store) migrateCanonicalLibrary() error {
             UPDATE sync_jobs SET status='cancelled',message='Library content or status changed',updated_at=CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE user_id=NEW.user_id AND status IN ('queued','awaiting-approval') AND target_id IN (SELECT c.target_id FROM canonical_library_selections c WHERE c.user_id=NEW.user_id AND EXISTS(SELECT 1 FROM json_each(c.item_ids) WHERE value=NEW.id));
             END`,
 			`CREATE INDEX IF NOT EXISTS library_alias_item ON library_aliases(user_id,item_id)`,
+			`CREATE INDEX IF NOT EXISTS library_shelf_projection ON library_aliases(user_id,kind,reference,item_id)`,
+			`CREATE INDEX IF NOT EXISTS library_item_projection ON library_items(user_id,id,status)`,
 			`CREATE TABLE IF NOT EXISTS library_projection_guard(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,item_id TEXT NOT NULL,PRIMARY KEY(user_id,item_id))`,
 			`CREATE TABLE IF NOT EXISTS library_migrations(name TEXT PRIMARY KEY,completed_at INTEGER NOT NULL)`,
 			`CREATE TABLE IF NOT EXISTS library_legacy_stages(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,skill_id TEXT NOT NULL,used INTEGER NOT NULL,bookmarked INTEGER NOT NULL,liked INTEGER NOT NULL,notes TEXT NOT NULL,PRIMARY KEY(user_id,skill_id))`,

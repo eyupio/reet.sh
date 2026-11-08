@@ -368,7 +368,13 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
 		return nil, c, err
 	}
-	q := `SELECT ` + shelfCols + canonicalShelfColumn + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id` + canonicalShelfJoin + ` WHERE sh.user_id=? AND s.hidden=0`
+	paged := f.Limit > 0 || f.Offset > 0
+	columns, join := shelfCols, ""
+	if !paged {
+		columns += canonicalShelfColumn
+		join = canonicalShelfJoin
+	}
+	q := `SELECT ` + columns + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id` + join + ` WHERE sh.user_id=? AND s.hidden=0`
 	args := []any{userID}
 	tabWhere := map[string]string{
 		"liked":      ` AND sh.liked=1`,
@@ -440,6 +446,20 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		}
 		q += ` LIMIT ? OFFSET ?`
 		args = append(args, limit, f.Offset)
+	}
+	if paged {
+		// Select the requested page before looking up canonical metadata.
+		// Joining first makes SQLite probe the entire shelf before LIMIT.
+		q = `WITH selected AS MATERIALIZED (` + q + `) SELECT selected.*` + canonicalShelfColumn + ` FROM selected LEFT JOIN library_aliases la ON la.user_id=? AND la.kind='shelf' AND la.reference=selected.id LEFT JOIN library_items li ON li.user_id=la.user_id AND li.id=la.item_id`
+		args = append(args, userID)
+		switch f.Sort {
+		case "name":
+			q += ` ORDER BY lower(selected.name) ASC`
+		case "installs":
+			q += ` ORDER BY selected.installs DESC,lower(selected.name) ASC`
+		default:
+			q += ` ORDER BY selected.updated_at DESC,selected.created_at DESC`
+		}
 	}
 	rows, err := s.readStmts.query(q, args...)
 	if err != nil {

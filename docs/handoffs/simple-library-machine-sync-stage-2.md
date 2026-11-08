@@ -6,7 +6,7 @@ Parent: [product contract and staged plan](simple-library-machine-sync.md). Pred
 
 Pull request: [#664](https://github.com/eyupio/reet.sh/pull/664). Initial implementation commit: `85f72eb74074434b900f9c219f0b2a116c710454`; the follow-up records final compatibility fixes and validation.
 
-**Status:** Stage 2 complete. The repository-wide race run passed all 44 test packages. Supplemental race checks cover the final import, backup and account-migration refinements. Web check/build, MCP tests and vet pass. Stage 3 is next; no preview or production deployment was created.
+**Status:** Stage 2 complete and merged to main together with Stage 3 in #664 (`d85699b410951dce35d63a5de0dad5013da695f4`). All applicable final-head workflows are successful, including the unchanged paired benchmark. The historical broad 44-package race run and later focused corrections remain separately recorded below. No preview or production deployment was created. Stage 4 remains unstarted.
 
 ## Baseline and review boundary
 
@@ -236,3 +236,8 @@ This supervision run preserved the concurrent contributor's fix rather than repl
 ### Combined main-branch delivery checkpoint
 
 Stage 3 PR #665 merged into this feature branch as `13af8370` (tree identical to reviewed `463e35b3`), so #664 now contains both stages. Neither stage is claimed merged into main at this checkpoint. Current combined-head CI and the unchanged paired benchmark must pass before delivery. The original Stage 2-only scope and Stage 3-next statements above describe earlier implementation checkpoints; use the parent ledger for the current delivery status.
+
+
+### Final delivery evidence
+
+Reviewed final head `46bb9ae3` was delivered to main by merge `d85699b4`. This watch verified the merged record and all twelve final-head workflows after the merge, including the unchanged eight-sample 15% [benchmark gate](https://github.com/eyupio/reet.sh/actions/runs/42524875020) and actual CodeQL analyses. The old `40f47ca4` benchmark failure remains historical evidence; the successful result belongs to the final combined source. No test, benchmark or protection was weakened. Earlier pending CI, branch-base and Stage 3-next notes are superseded by this delivery checkpoint; use the parent ledger for current stage status.

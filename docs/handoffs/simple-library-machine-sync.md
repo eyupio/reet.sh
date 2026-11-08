@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stages 0–2 completed on 8 November 2026. See the [baseline and migration map](simple-library-machine-sync-stage-0.md), [Stage 1 recovery](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662), and [Stage 2 foundation/handover](simple-library-machine-sync-stage-2.md) in [PR #664](https://github.com/eyupio/reet.sh/pull/664), which is based on Stage 1. All 44 Go test packages passed race checks, with supplemental final compatibility checks recorded there. Stage 3 is in progress; see its draft handover below. Stages 4–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stages 0–3 are implemented and merged to main. Stage 1 landed in [#662](https://github.com/eyupio/reet.sh/pull/662); Stage 2 and Stage 3 landed together in [#664](https://github.com/eyupio/reet.sh/pull/664), merge `d85699b410951dce35d63a5de0dad5013da695f4`. All applicable checks on its reviewed final head `46bb9ae3` are now successful, including the unchanged paired benchmark and CodeQL. See the [Stage 2 handover](simple-library-machine-sync-stage-2.md) and [Stage 3 handover](simple-library-machine-sync-stage-3.md) for local evidence and limits. Historical broad race evidence is distinguished from later focused checks; no new repository-wide race sweep is claimed here. Stages 4–7 remain unstarted. No preview/production deployment or live provisioning is claimed, and the reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -425,12 +425,12 @@ Do not replace observed failures with a later broad claim of success. Do not req
 
 ## 9. Completion ledger
 
-Stage 3 is now in progress: see its [draft implementation handover](simple-library-machine-sync-stage-3.md). Its canonical selections, machine edit journal, ordering/history and WebUI control are implemented; final acceptance, regression validation and PR integration are still in progress, so Stage 3 stays unchecked.
+Stage 3 is complete as a source implementation: see its [implementation handover](simple-library-machine-sync-stage-3.md). Its selections, automatic edit reconciliation, ordering/history, safe adoption and partial receipts are merged to main through #664; current-head CI is successful. This does not establish production rollout or field acceptance. Do not start Stage 4 without a new implementation instruction.
 
 - [x] Stage 0: baseline, migration design and real-connector harness
 - [x] Stage 1: identity, supervision and connection recovery
 - [x] Stage 2: complete library, authoring, status and metadata
-- [ ] Stage 3: selected-item automatic sync and edits
+- [x] Stage 3: selected-item automatic sync and edits
 - [ ] Stage 4: removal, restoration and notifications
 - [ ] Stage 5: Library and Machines UX
 - [ ] Stage 6: Linux provisioning for all four applications
@@ -457,3 +457,10 @@ The earlier statements that #665 is draft are historical checkpoints. #670 has m
 #671 merged to main as `83f564c8`. The combined Stage 2/3 branch integrates that exact main, preserving its navigation, per-account chat settings and all tests. Web unit checks, svelte-check (zero errors/warnings), production build, selected-library browser checks at 320/390/1280px and supporting-navigation browser checks pass on the combined source.
 
 The current-head Gaffer settings retry failed its widget keyboard-restore assertion (expected y=936, actual y=701). The same fixture reproduced locally (936 versus 708): after closing the dialog, it captured a newly mounted launcher's position before the clearance action's next animation frame. The fixture now waits for the existing exact size/in-view/dock-clearance contract before saving that baseline. It retains the exact keyboard/scroll restore assertion, timeouts and all twelve width/theme scenarios. The complete corrected widget fixture passes locally. Fresh current-head CI and the unchanged benchmark remain required; no stage is marked delivered to main in advance.
+
+
+### Verified main-branch delivery
+
+The earlier pending/draft checkpoints above are historical. #665 first merged into the Stage 2 feature branch; #664 then delivered both stages to main as `d85699b4`, preserving reviewed head `46bb9ae3`. After the merges, this watch observed all twelve current-head workflows successful, including [benchmarks](https://github.com/eyupio/reet.sh/actions/runs/42524875020), CodeQL, image/tests, browser, native/private-connection and acceptance checks. Conditional publication/deploy jobs were skipped. The merges were performed by another actor; this records the verified merged state and checks observed afterward, not an assertion about check completion at the exact merge time.
+
+#672 also merged to main as `26e33929a051bfd5b6d62a937b907c676b9e9c70`; its reviewed head `373ff4a3` now has all applicable workflows successful. Claude chat remains per-account opt-in, default off. The owner signed-in acceptance gate for final default-on activation remains in force. No future library-sync stage or deployment is authorised by these merges.

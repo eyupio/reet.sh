@@ -19,6 +19,14 @@ reader checks are not. Typed questions (`elicitation.form`), Claude chats (`REET
 Record each result here with the date and the pull request that carries it, and in `docs/structured-chat-plan.md` beside the
 slice it unblocks. A pass recorded anywhere else does not remove a gate.
 
+### Recorded on 8 November 2026
+
+- **Claude Code, parity probes (no login):** with the pinned adapter 0.99.1, the loopback stub and reet's own client in the connector
+  profile's environment, `session/load` replay, image prompts, a thinking level at `session/new`, and a launch naming a model were
+  measured and recorded in
+  [the structured adapters probe report](https://github.com/eyupio/reet.sh/blob/main/docs/research/structured-adapters/probe-report.md).
+  No signed-in run was made, so the Claude row above is unchanged and Claude chats stay behind `REET_EXPERIMENTAL_CLAUDE_CHAT`.
+
 ### Recorded on 5 November 2026
 
 - **Google Antigravity (AGY), native CLI 1.5.0 with a local provider stub:**

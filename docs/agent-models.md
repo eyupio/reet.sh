@@ -21,7 +21,7 @@ Only **OpenCode** has a connector-owned listing in v1: `opencode models`, one
 - no controller-supplied argument at all. The argv is a catalogue row.
 
 Other enabled agents answer `unsupported` without running anything: Claude Code,
-Codex, Gemini CLI and Google Antigravity have no reviewed listing integration, and Cline's `config`
+Codex and Google Antigravity have no reviewed listing integration, and Cline's `config`
 command is not run because it may print provider settings. Disabled presets (Pi,
 Cursor) never list. A machine with the token but not an installed binary answers
 `not_installed`.

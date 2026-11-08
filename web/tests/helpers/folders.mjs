@@ -3,7 +3,7 @@
 import { openWorkspace } from './workspace.mjs'
 
 export const HOME = '/home/dev'
-export const caps = over => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,worktree:true,browse:true,branches:true,tools:['claude','codex','opencode','gemini','cline'],...over})
+export const caps = over => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,agentsV2:true,models:true,worktree:true,browse:true,branches:true,tools:['claude','codex','opencode','cline'],...over})
 export const machines = [
  {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps()},
  {agentId:'a2',host:'desk',ready:false,serverEnabled:true,capabilities:caps({agentsV2:false,models:false})},

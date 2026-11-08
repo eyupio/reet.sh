@@ -23,7 +23,7 @@ The distinction matters when you are choosing what to run. A chat platform and a
 | A unified chat interface for several models | LibreChat |
 | Shared conversations, accounts and model configuration for a team | LibreChat |
 | A browser terminal on a remote machine | reet.sh |
-| Start Claude Code, Codex, OpenCode or Gemini CLI in a folder on that machine | reet.sh |
+| Start Claude Code, Codex or OpenCode in a folder on that machine | reet.sh |
 | Keep a private skill library and review what goes to each machine | reet.sh |
 | Back up setups and restore them on a fresh machine | reet.sh |
 

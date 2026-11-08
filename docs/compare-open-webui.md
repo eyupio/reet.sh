@@ -22,7 +22,7 @@ The two can sit side by side. Open WebUI is where a person talks to a model. ree
 | --- | --- |
 | Give a team a private chat UI for several models | Open WebUI |
 | Manage prompts, knowledge collections and model access for chat users | Open WebUI |
-| Run Claude Code, Codex, OpenCode or Gemini CLI on a remote machine | reet.sh |
+| Run Claude Code, Codex or OpenCode on a remote machine | reet.sh |
 | Keep a private skill library and send a reviewed set to several machines | reet.sh |
 | See which machine has which skill and whether its scan is stale | reet.sh |
 | Back up skills, setups and session records before changing a machine | reet.sh |

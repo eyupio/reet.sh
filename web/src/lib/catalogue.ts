@@ -6,13 +6,19 @@ export const CATALOGUE: CatalogueAgent[] = [
   { id: 'claude', name: 'Claude Code', models: ['sonnet', 'opus', 'haiku'], effort: false, enabled: true },
   { id: 'codex', name: 'Codex', models: ['gpt-5-codex'], effort: false, enabled: true, yolo: true },
   { id: 'opencode', name: 'OpenCode', models: [], effort: false, enabled: true, resume: true, yolo: true },
-  { id: 'gemini', name: 'Gemini CLI', models: ['gemini-2.5-pro', 'gemini-2.5-flash'], effort: false, enabled: true },
   { id: 'pi', name: 'Pi', models: [], effort: false, enabled: false, disabledReason: "reet doesn't start this agent yet." },
   { id: 'cursor', name: 'Cursor Agent', models: [], effort: false, enabled: false, disabledReason: "reet doesn't start this agent yet." },
   { id: 'cline', name: 'Cline', models: [], effort: true, enabled: true, yolo: true },
   { id: 'antigravity', name: 'Google Antigravity (AGY)', models: [], effort: true, enabled: true, yolo: true },
 ]
-const ORIGINAL = new Set(['claude', 'codex', 'opencode', 'gemini'])
+const ORIGINAL = new Set(['claude', 'codex', 'opencode'])
+// Agents reet no longer offers. A past session, run or activity entry that names one still reads by its old name; no
+// picker, default or start path ever lists it.
+export const RETIRED_AGENTS: Record<string, string> = { gemini: 'Gemini CLI' }
+/** The display name for an agent id: the catalogue's, a retired agent's old name, or the id as given. */
+export function agentDisplayName(id: string): string {
+  return CATALOGUE.find(agent => agent.id === id)?.name ?? RETIRED_AGENTS[id] ?? id
+}
 export function agentChoices(machine: TerminalMachine): { agent: CatalogueAgent; available: boolean; reason?: string }[] {
   return CATALOGUE.map(agent => {
     if (!agent.enabled) return { agent, available: false, reason: agent.disabledReason ?? "reet doesn't start this agent yet." }

@@ -1,4 +1,4 @@
-import { CATALOGUE } from './catalogue'
+import { CATALOGUE, agentDisplayName } from './catalogue'
 
 export type ModelState = 'listed' | 'unsupported' | 'failed' | 'off' | 'offline' | 'update'
 export type ModelEntry = { id: string; provider: string }
@@ -55,7 +55,7 @@ export type ResolvedLaunchDefaults = { agent: string; model: string; effort: str
 export type ModelStatus = { label: string; sentence: string; canRefresh: boolean; age: string }
 export type RecentSession = { tool?: string | null; model?: string | null; createdAt?: number | null; updatedAt?: number | null }
 
-const agentNameOf = (tool: string): string => CATALOGUE.find(agent => agent.id === tool)?.name ?? tool
+const agentNameOf = (tool: string): string => agentDisplayName(tool)
 
 export function providerOf(id: string): string {
   const slash = id.indexOf('/')

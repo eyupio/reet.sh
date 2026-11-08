@@ -280,6 +280,22 @@ func (s *Store) BeginRemoteConnectionFor(uid int64, agentID, instanceID string, 
 	return c, err
 }
 func (s *Store) RemoteCapabilitiesFor(uid int64, agentID string) (RemoteAgentCapabilities, error) {
+	c, err := s.RemoteCapabilitiesRawFor(uid, agentID)
+	if err != nil {
+		return c, err
+	}
+	// A gated agent's chat is hidden from an account that has not turned it on.
+	// The mask is applied here, when the record is read for use, never to the
+	// stored record.
+	c.Capabilities = c.Capabilities.WithoutChats(disabledChats(s.db, uid))
+	return c, nil
+}
+
+// RemoteCapabilitiesRawFor returns the stored record exactly as the connector
+// reported it, without the account's chat setting applied. It is for code that
+// reads a record in order to write it back; everything else reads
+// RemoteCapabilitiesFor.
+func (s *Store) RemoteCapabilitiesRawFor(uid int64, agentID string) (RemoteAgentCapabilities, error) {
 	return readCapabilities(s.db.QueryRow(`SELECT `+capabilityCols+` FROM remote_agent_capabilities WHERE agent_id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0)`, agentID, uid, uid))
 }
 

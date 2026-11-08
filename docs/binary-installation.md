@@ -103,6 +103,8 @@ sh scripts/install.sh --version dev
 
 The `dev` tag and legacy rolling assets move to the tested main commit on each successful build. New clients first resolve `dev-build.txt` to a full source SHA, then fetch `reet_dev_SHA_OS_ARCH.tar.gz` and `checksums-SHA.txt`. These commit-addressed assets are verified on reruns and never overwritten; the pointer is updated after they are available. Only a 404 for the pointer falls back to a legacy dev release. This prevents mixing a new archive with an old manifest during publication. It is explicitly excluded from GitHub's latest stable release. Only this rolling channel may replace assets; stable `v*` releases retain their existing verification and no-overwrite rules. During a dev update, a checksum mismatch means retry after publication finishes; the installer keeps the old binary on any verification failure. Every build job uses one resolved source commit, including manual `dev` runs.
 
+GitHub's public download host can answer 502, 503 or 504 for a release asset while `api.github.com` still serves the same bytes. `reet upgrade` and the agent update therefore retry a transiently failed asset through the GitHub release API's asset endpoint (looked up by name, downloaded with `Accept: application/octet-stream`). A 404 is never retried, so the legacy dev pointer fallback above still works.
+
 ## Publishing a binary release
 
 The `binary release` workflow tests and cross-compiles all four targets on pull requests. On a version tag such as `v1.2.3`, it also publishes the archives and checksums to GitHub Releases. Tags containing a prerelease suffix are marked as prereleases; the installer's default `latest` follows GitHub's latest stable release.

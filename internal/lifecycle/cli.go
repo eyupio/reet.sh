@@ -42,7 +42,7 @@ type App struct {
 }
 
 func New(version, commit string, in io.Reader, out io.Writer) *App {
-	return &App{Version: version, Commit: commit, In: in, Out: out, Progress: os.Stderr, interactiveRun: interactiveCommand(in, out), client: defaultClient(), run: execute, executable: os.Executable, api: releaseAPI, downloads: "https://github.com/eyupio/reet.sh/releases/download"}
+	return &App{Version: version, Commit: commit, In: in, Out: out, Progress: os.Stderr, interactiveRun: interactiveCommand(in, out), client: defaultClient(), run: execute, executable: os.Executable, api: ReleaseAPI, downloads: ReleaseDownloads}
 }
 func (a *App) Run(command string, args []string) error {
 	return a.RunContext(context.Background(), command, args)
@@ -247,7 +247,7 @@ func (a *App) install(args []string) error {
 			return e
 		}
 		defer os.RemoveAll(stage)
-		candidate, e := fetchBinary(ctx, a.client, a.downloads, resolved, stage)
+		candidate, e := fetchBinary(ctx, a.client, a.api, a.downloads, resolved, stage)
 		if e != nil {
 			return e
 		}
@@ -468,7 +468,7 @@ func (a *App) upgrade(args []string) error {
 	err = a.task(ctx, "Downloading and verifying update", false, func(ctx context.Context, observe func(string)) error {
 		observe("Verifying the release archive against its SHA-256 checksum")
 		var e error
-		candidate, e = fetchBinary(ctx, a.client, a.downloads, resolved, stage)
+		candidate, e = fetchBinary(ctx, a.client, a.api, a.downloads, resolved, stage)
 		return e
 	})
 	if err != nil {

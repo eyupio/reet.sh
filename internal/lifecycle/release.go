@@ -21,7 +21,9 @@ import (
 	"time"
 )
 
-const releaseAPI = "https://api.github.com/repos/eyupio/reet.sh/releases"
+// ReleaseAPI is the GitHub releases endpoint used to resolve tags and to retry
+// an asset the public download host could not serve.
+const ReleaseAPI = "https://api.github.com/repos/eyupio/reet.sh/releases"
 
 // ReleaseDownloads is the public asset root used by the installed agent.
 const ReleaseDownloads = "https://github.com/eyupio/reet.sh/releases/download"
@@ -49,13 +51,19 @@ func normaliseTag(tag string) (string, error) {
 	return tag, nil
 }
 func get(ctx context.Context, client *http.Client, url string, limit int64) ([]byte, error) {
+	return getAccept(ctx, client, url, "", limit)
+}
+func getAccept(ctx context.Context, client *http.Client, url, accept string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("download failed; check connectivity and retry")
+		return nil, releaseTransportError{err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
@@ -69,6 +77,97 @@ func get(ctx context.Context, client *http.Client, url string, limit int64) ([]b
 		return nil, fmt.Errorf("download exceeds size limit")
 	}
 	return b, nil
+}
+
+// FetchAsset downloads one published release asset. The public download host
+// has answered 502, 503 and 504 for release asset URLs while the GitHub API
+// kept serving the same bytes, so a transient failure is retried through the
+// API's asset endpoint. A 404 is never retried: callers use it to detect an
+// absent asset, such as the legacy dev build pointer.
+func FetchAsset(ctx context.Context, client *http.Client, api, root, tag, name string, limit int64) ([]byte, error) {
+	b, err := get(ctx, client, root+"/"+tag+"/"+name, limit)
+	if err == nil {
+		return b, nil
+	}
+	if !transientDownload(err) {
+		return nil, err
+	}
+	fallback, fallbackErr := fetchAssetViaAPI(ctx, client, api, tag, name, limit)
+	if fallbackErr != nil {
+		return nil, err
+	}
+	return fallback, nil
+}
+
+func transientDownload(err error) bool {
+	var status releaseHTTPError
+	if errors.As(err, &status) {
+		return status.Status >= 500
+	}
+	var transport releaseTransportError
+	return errors.As(err, &transport)
+}
+
+func fetchAssetViaAPI(ctx context.Context, client *http.Client, api, tag, name string, limit int64) ([]byte, error) {
+	base := strings.TrimSuffix(strings.TrimRight(api, "/"), "/releases")
+	if base == "" || base == strings.TrimRight(api, "/") {
+		return nil, fmt.Errorf("release API root is not recognised")
+	}
+	id, err := releaseAssetID(ctx, client, api, base, tag, name)
+	if err != nil {
+		return nil, err
+	}
+	return getAccept(ctx, client, fmt.Sprintf("%s/releases/assets/%d", base, id), "application/octet-stream", limit)
+}
+
+// releaseAssetID finds an asset by name. The tag response carries the whole
+// asset list, which the rolling dev release can make large, so the pages of the
+// release's asset endpoint are searched when it is not there.
+func releaseAssetID(ctx context.Context, client *http.Client, api, base, tag, name string) (int64, error) {
+	b, err := get(ctx, client, api+"/tags/"+tag, 8<<20)
+	if err != nil {
+		return 0, err
+	}
+	var published struct {
+		ID     int64 `json:"id"`
+		Assets []struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		} `json:"assets"`
+	}
+	if json.Unmarshal(b, &published) != nil {
+		return 0, fmt.Errorf("invalid release response")
+	}
+	for _, asset := range published.Assets {
+		if asset.Name == name {
+			return asset.ID, nil
+		}
+	}
+	if published.ID == 0 {
+		return 0, fmt.Errorf("release has no asset %s", name)
+	}
+	for page := 1; page <= 50; page++ {
+		b, err := get(ctx, client, fmt.Sprintf("%s/releases/%d/assets?per_page=100&page=%d", base, published.ID, page), 1<<20)
+		if err != nil {
+			return 0, err
+		}
+		var assets []struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(b, &assets) != nil {
+			return 0, fmt.Errorf("invalid release assets response")
+		}
+		for _, asset := range assets {
+			if asset.Name == name {
+				return asset.ID, nil
+			}
+		}
+		if len(assets) < 100 {
+			break
+		}
+	}
+	return 0, fmt.Errorf("release has no asset %s", name)
 }
 func resolveRelease(ctx context.Context, client *http.Client, api, tag string) (string, error) {
 	tag, err := normaliseTag(tag)
@@ -104,7 +203,7 @@ func resolveRelease(ctx context.Context, client *http.Client, api, tag string) (
 }
 
 // fetchBinary verifies the whole archive before inspecting any executable bytes.
-func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string) (string, error) {
+func fetchBinary(ctx context.Context, client *http.Client, api, root, tag, dir string) (string, error) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return "", fmt.Errorf("unsupported operating system")
 	}
@@ -114,7 +213,7 @@ func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string
 	name := fmt.Sprintf("reet_%s_%s_%s.tar.gz", tag, runtime.GOOS, runtime.GOARCH)
 	manifestName := "checksums.txt"
 	if tag == "dev" {
-		pointer, err := get(ctx, client, root+"/dev/dev-build.txt", 128)
+		pointer, err := FetchAsset(ctx, client, api, root, "dev", "dev-build.txt", 128)
 		var status releaseHTTPError
 		if err != nil && !(errors.As(err, &status) && status.Status == http.StatusNotFound) {
 			return "", err
@@ -128,7 +227,7 @@ func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string
 			manifestName = "checksums-" + sha + ".txt"
 		}
 	}
-	manifest, err := get(ctx, client, root+"/"+tag+"/"+manifestName, 1<<20)
+	manifest, err := FetchAsset(ctx, client, api, root, tag, manifestName, 1<<20)
 	if err != nil {
 		return "", err
 	}
@@ -146,7 +245,7 @@ func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string
 	if !valid {
 		return "", fmt.Errorf("release must have exactly one valid checksum for %s", name)
 	}
-	archive, err := get(ctx, client, root+"/"+tag+"/"+name, 128<<20)
+	archive, err := FetchAsset(ctx, client, api, root, tag, name, 128<<20)
 	if err != nil {
 		return "", err
 	}
@@ -214,13 +313,13 @@ func fetchBinary(ctx context.Context, client *http.Client, root, tag, dir string
 
 // ResolveRelease resolves latest, dev or a pinned tag to the published tag.
 func ResolveRelease(ctx context.Context, client *http.Client, tag string) (string, error) {
-	return resolveRelease(ctx, client, releaseAPI, tag)
+	return resolveRelease(ctx, client, ReleaseAPI, tag)
 }
 
 // FetchReleaseBinary downloads and verifies a release archive, returning a
 // staged executable path inside dir.
-func FetchReleaseBinary(ctx context.Context, client *http.Client, root, tag, dir string) (string, error) {
-	return fetchBinary(ctx, client, root, tag, dir)
+func FetchReleaseBinary(ctx context.Context, client *http.Client, api, root, tag, dir string) (string, error) {
+	return fetchBinary(ctx, client, api, root, tag, dir)
 }
 
 // ReplaceBinary atomically copies source over target.
@@ -274,3 +373,10 @@ func defaultClient() *http.Client { return releaseHTTPClient }
 type releaseHTTPError struct{ Status int }
 
 func (e releaseHTTPError) Error() string { return fmt.Sprintf("download returned HTTP %d", e.Status) }
+
+// releaseTransportError keeps the transport failure out of the user-facing
+// sentence while remaining distinguishable for the API fallback.
+type releaseTransportError struct{ err error }
+
+func (e releaseTransportError) Error() string { return "download failed; check connectivity and retry" }
+func (e releaseTransportError) Unwrap() error { return e.err }

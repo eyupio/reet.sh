@@ -3,6 +3,7 @@ package terminalproto
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -328,5 +329,27 @@ func TestCreateProviderIsAClineChatOnly(t *testing.T) {
 	}
 	if !ToolTakesProvider("cline") || ToolTakesProvider("codex") || ToolTakesProvider("") {
 		t.Fatal("ToolTakesProvider rule")
+	}
+}
+
+// An older connector may still report a tool reet has retired. Its capability
+// record must keep validating; the tool is simply never offered or launched.
+func TestRetiredToolsAreToleratedInAToolsList(t *testing.T) {
+	if !RetiredTool("gemini") {
+		t.Fatal("gemini is not retired")
+	}
+	for _, id := range []string{"claude", "antigravity", "", "vim"} {
+		if RetiredTool(id) {
+			t.Fatalf("%q reported as retired", id)
+		}
+	}
+	if got := RetiredTools(); !reflect.DeepEqual(got, []string{"gemini"}) {
+		t.Fatalf("retired tools: %v", got)
+	}
+	c := Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "dev", TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"claude", "gemini"}, Readiness: Ready}
+	for _, features := range []string{LaunchFeature, LaunchFeature + "," + AgentsFeature} {
+		if err := c.ValidateFor(features); err != nil {
+			t.Fatalf("features %q: %v", features, err)
+		}
 	}
 }

@@ -1,6 +1,7 @@
 package terminalproto
 
 import (
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -26,6 +27,24 @@ func SupportsLaunch(features string) bool {
 
 func ValidTool(id string) bool { return launchTools[id] }
 
+// retiredTools are agents reet no longer offers, starts or manages. An older
+// connector may still report one in its capability Tools list; the list keeps
+// validating so the machine stays connected, and the tool is never offered.
+var retiredTools = map[string]bool{"gemini": true}
+
+// RetiredTool reports whether id is an agent reet has retired.
+func RetiredTool(id string) bool { return retiredTools[id] }
+
+// RetiredTools lists the retired agent ids in order.
+func RetiredTools() []string {
+	out := make([]string, 0, len(retiredTools))
+	for id := range retiredTools {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ValidModel, ValidDir and ValidPrompt expose the exact rules the connector
 // applies to Create fields, so the controller's stores and APIs never copy them.
 // Unlike the Create fields they refuse the empty value; callers skip optional
@@ -50,7 +69,7 @@ func ValidPrompt(prompt string) bool { return validPrompt(prompt) }
 
 func validTools(tools []string, v2 bool) bool {
 	for i, tool := range tools {
-		validTool := ValidTool(tool) || (v2 && ValidToolV2(tool))
+		validTool := ValidTool(tool) || (v2 && ValidToolV2(tool)) || RetiredTool(tool)
 		ordered := i == 0 || tools[i-1] < tool
 		if !validTool || !ordered {
 			return false

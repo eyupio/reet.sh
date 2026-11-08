@@ -34,8 +34,9 @@ func TestDescribeInstalledAdapterEvidence(t *testing.T) {
 	}
 }
 
-// Claude reports just the capabilities the probe verified, whatever else its adapter could do.
-func TestClaudeReportsOnlyWhatTheProbeVerified(t *testing.T) {
+// Claude reports what the probe proved and nothing more: approvals, a confirmed model switch, stored history, in-place
+// reconnect and image prompts (the adapter advertises them and forwards the block). It reports no questions and no modes.
+func TestDescribeClaudeReportsOnlyProvenCapabilities(t *testing.T) {
 	spec, ok := Lookup("claude")
 	if !ok || spec.Key != "claude" || spec.RequireMode != "default" {
 		t.Fatalf("lookup: %+v %v", spec, ok)
@@ -44,10 +45,13 @@ func TestClaudeReportsOnlyWhatTheProbeVerified(t *testing.T) {
 	if got.State != "available" || !got.Valid() || got.Adapter != "claude-agent-acp" || got.MinimumVersion != "0.99.1" {
 		t.Fatalf("claude: %+v", got)
 	}
-	if !got.Model || !got.Approval || got.History || got.Images || got.Questions {
-		t.Fatalf("unverified capabilities were reported: %+v", got)
+	if !got.Model || !got.Approval || !got.History || !got.Reattach || !got.Images {
+		t.Fatalf("a proven capability is missing: %+v", got)
 	}
-	if missing := Describe("claude", false, ""); missing.State != "missing" || !missing.Valid() {
+	if got.Questions || len(got.Modes) != 0 {
+		t.Fatalf("an unproven capability was reported: %+v", got)
+	}
+	if missing := Describe("claude", false, ""); missing.State != "missing" || !missing.Valid() || missing.History || missing.Reattach {
 		t.Fatalf("missing: %+v", missing)
 	}
 }
@@ -122,7 +126,7 @@ func TestDescribeAgentOptionValues(t *testing.T) {
 // A descriptor claims in-place reattach only for an adapter whose profile can do it, because the connector refuses a
 // reattach for any other (ErrUnsupported). Claiming it for the rest would offer a reconnect that can only fail.
 func TestDescribeClaimsReattachOnlyWhereTheProfileCanReattach(t *testing.T) {
-	want := map[string]bool{"opencode": true, "cline": true, "antigravity": false, "claude": false, "codex": false}
+	want := map[string]bool{"opencode": true, "cline": true, "antigravity": false, "claude": true, "codex": false}
 	for tool, reattach := range want {
 		spec, ok := Lookup(tool)
 		if !ok {

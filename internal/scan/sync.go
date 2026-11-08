@@ -24,6 +24,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/noderuntime"
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/systeminstall"
 )
@@ -36,11 +37,12 @@ type SyncAction struct {
 	Skill        store.SyncSkill `json:"skill"`
 }
 type SyncPlan struct {
-	Target    string       `json:"target"`
-	Directory string       `json:"directory"`
-	Revision  string       `json:"revision"`
-	Actions   []SyncAction `json:"actions"`
-	Backups   []string     `json:"backups,omitempty"`
+	Problems  map[string]string `json:"problems,omitempty"`
+	Target    string            `json:"target"`
+	Directory string            `json:"directory"`
+	Revision  string            `json:"revision"`
+	Actions   []SyncAction      `json:"actions"`
+	Backups   []string          `json:"backups,omitempty"`
 }
 
 func (p SyncPlan) Hash() string {
@@ -50,6 +52,9 @@ func (p SyncPlan) Hash() string {
 }
 
 type syncOptions struct {
+	filterDesired    func([]store.SyncSkill) []store.SyncSkill
+	onExisting       func(store.SyncSkill, store.SyncTarget, string) error
+	onInstalled      func(store.SyncSkill, string, []skillbundle.ContentFile) error
 	verifyEnrollment bool
 	approvedHash     string
 	cwd              string
@@ -727,15 +732,33 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return errors.New("custom XDG_CONFIG_HOME requires manual sync")
 	}
 	targetPath := ""
+	problems := map[string]string{}
 	collect := func() ([]SyncAction, error) {
+		problems = map[string]string{}
+		desired := target.Desired
+		if options.filterDesired != nil {
+			desired = options.filterDesired(desired)
+			if target.Canonical {
+				included := map[string]bool{}
+				for _, skill := range desired {
+					included[skill.ItemID] = true
+				}
+				for _, skill := range target.Desired {
+					if !included[skill.ItemID] {
+						problems[skill.Slug] = "Local edits are waiting to upload; this item is retained."
+					}
+				}
+			}
+		}
+		blocked := map[string]bool{}
 		inventory := CollectScan(home, cwd, nil, *host)
-		if err := inventory.Err(); err != nil {
+		if err := inventory.Err(); err != nil && !target.Canonical {
 			return nil, fmt.Errorf("scan incomplete; no changes allowed: %w", err)
 		}
 		actual := []Found{}
 		// Agent-specific installs can share a canonical directory. Do not replace
 		// another agent's same-name skill with a different or unknown source.
-		for _, desired := range target.Desired {
+		for _, desired := range desired {
 			for _, found := range inventory.Found {
 				sameScope := found.Project == target.Target.Project && found.Agent != target.Target.Agent &&
 					found.Host == *host
@@ -746,6 +769,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 					// An unlinked local copy in another agent scope does not block
 					// replacing this scope's copy. Known, different sources still do.
 					if found.Source == "" {
+						continue
+					}
+					if target.Canonical {
+						blocked[desired.Slug] = true
+						problems[desired.Slug] = "A different source uses this name in another app."
 						continue
 					}
 					return nil, fmt.Errorf("%s is shared with %s from a different source; resolve it before syncing", found.Name, found.Agent)
@@ -783,7 +811,46 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		if _, err := os.ReadDir(path); err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("cannot read target skills directory: %w", err)
 		}
-		desired := target.Desired
+		if target.Canonical {
+			// Only additive private items use this partial-plan rule. Parent
+			// links and unknown entries are never interpreted as empty.
+			if target.Mode != "additive" {
+				return nil, errors.New("canonical library requires additive sync")
+			}
+			for _, want := range desired {
+				candidate := filepath.Join(targetPath, want.Slug)
+				if err := safeLibraryParent(targetPath); err != nil {
+					return nil, err
+				}
+				info, err := os.Lstat(candidate)
+				if err == nil {
+					if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+						blocked[want.Slug] = true
+						problems[want.Slug] = "The local entry is not a managed directory."
+						continue
+					}
+					if _, err := privateSkillDigest(candidate); err != nil {
+						blocked[want.Slug] = true
+						problems[want.Slug] = "The local content cannot be read completely."
+					} else if options.onExisting != nil {
+						if err := options.onExisting(want, target, targetPath); err != nil {
+							blocked[want.Slug] = true
+							problems[want.Slug] = err.Error()
+						}
+					}
+				} else if !os.IsNotExist(err) {
+					blocked[want.Slug] = true
+					problems[want.Slug] = "The local entry is unavailable."
+				}
+			}
+			filtered := []store.SyncSkill{}
+			for _, want := range desired {
+				if !blocked[want.Slug] {
+					filtered = append(filtered, want)
+				}
+			}
+			desired = filtered
+		}
 		// An imported private copy has no public lock-file URL. Compare its
 		// actual file digest against the pinned revision instead of reinstalling
 		// it on every sync or guessing an upstream from its name.
@@ -903,7 +970,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		fmt.Fprintf(out, "  %s %s (%s)\n", verb, action.Skill.Slug, action.Skill.Source)
 	}
 	progress("plan", fmt.Sprintf("%d changes planned", len(actions)))
-	plan := SyncPlan{Target: target.Target.ID, Directory: targetPath, Revision: target.Revision, Actions: actions}
+	plan := SyncPlan{Target: target.Target.ID, Directory: targetPath, Revision: target.Revision, Actions: actions, Problems: problems}
 	if options.onPlan != nil {
 		options.onPlan(plan)
 	}
@@ -973,7 +1040,12 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
 			}
 			if operationErr == nil && action.Skill.SourceType == "private" {
-				operationErr = installPrivateSkill(*server, *token, action.Skill, targetPath)
+				operationErr = installPrivateSkill(*server, *token, action.Skill, targetPath, func(files []skillbundle.ContentFile) error {
+					if options.onInstalled != nil {
+						return options.onInstalled(action.Skill, targetPath, files)
+					}
+					return nil
+				})
 			} else if operationErr == nil {
 				source, err := syncSource(action.Skill)
 				if err != nil {

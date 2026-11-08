@@ -60,6 +60,7 @@
     const roles = Object.entries(r.usersByRole ?? {}).map(([role, n]) => `${n} ${role}`).join(', ')
     const l = [`${r.users} account(s)${roles ? ` (${roles})` : ''}, ${r.shelves} shelf(s), ${r.skills} skill(s), ${r.lists} list(s), ${r.tags} tag(s), ${r.environments} environment(s), ${r.machines} connected machine(s) and ${r.destinations} backup destination(s) come across.`,
       r.sessionsEnded ? `${r.sessionsEnded} browser sign-in(s) end.` : `${r.sessionsKept} browser sign-in(s) are kept.`]
+    if (r.libraryItems || r.privateBundles) l.splice(1, 0, `${r.libraryItems ?? 0} library item(s) and ${r.privateBundles ?? 0} private content bundle(s) come across.`)
     l.push(r.tokensKept
       ? 'Personal API tokens and MCP connections are kept, so the old controller\'s tokens open this one.'
       : `${r.tokensRevoked} personal API token(s) and ${r.mcpConnectionsRevoked} MCP connection(s) are revoked.`)

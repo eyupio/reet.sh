@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - The adapter is `@agentclientprotocol/claude-agent-acp`, pinned **0.99.1** (`ClaudeCandidate.MinVersion`). The `claude` CLI does not speak ACP.
-- `Create.Effort` stays `low|medium|high` (`terminalproto.ValidEffort`). No new wire feature is added for effort. The Start dialog offers only those three; the live chat control offers every value the session reports.
+- A chat start accepts any model-shaped effort and the connector confirms it by read-back against the session's own list; `ValidEffort` (`low|medium|high`) governs only saved defaults. The Start dialog and the live control both read their values from the session's option list, never from a hard-coded list. (An earlier draft of this constraint said a start could carry only the three; that was wrong and was corrected in the slice 2 review.)
 - `fast` and `ultracode` stay listed in the descriptor and uncontrolled. The live chat has no control for the `model_config` category for any agent; building one is a separate change.
 - `ClaudeSessionMeta` (`settingSources: ["user"]`) stays on both new and load.
 - The profile keeps requiring the adapter's `default` mode. Claude's other permission modes are out of scope.
@@ -275,7 +275,7 @@ Expected: PASS.
 
 **Interfaces:**
 - Consumes: `Options.Effort`, `Options.Model` and the existing `thought_level` and model handling in `Start` (`session.go`); `claudeOptions` from Task 9.
-- Produces: `ClaudeCandidate.ConfirmModelBySwitch = true`; `launchEfforts(tool, caps, chat)` returns only values in `{low, medium, high}` for a chat (plus the leading empty string).
+- Produces: `ClaudeCandidate.ConfirmModelBySwitch = true`; `launchEfforts(tool, caps, chat)` is unchanged: it returns the session's own thinking levels except `default` (plus the leading empty string). (An earlier draft filtered to `{low, medium, high}`; corrected in the slice 2 review.)
 
 Slice 1 measured, in the connector's environment: the adapter offers `effort` at `session/new` for its default model and reads a set back; it refuses an unlisted value; a launch naming only an effort works; a launch naming a model other than the adapter's own is refused today (`ErrModel`) and works once the profile confirms the model switch by read-back. Which options exist depends on the model: after choosing `sonnet` the adapter offers `effort` and `ultracode` but not `fast`.
 

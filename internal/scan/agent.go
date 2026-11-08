@@ -22,6 +22,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/filelock"
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -125,7 +126,12 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 	req.Header.Set("X-Reet-Agent-Key", c.Secret)
 	req.Header.Set("X-Reet-Version", version)
 	req.Header.Set("X-Reet-Commit", buildCommit)
-	resp, err := httpClient.Do(req)
+	req.Header.Set("X-Reet-Library-Protocol", "1")
+	client := httpClient
+	if strings.HasPrefix(path, "/api/v2/library/") {
+		client = noRedirectClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -153,9 +159,12 @@ func RunAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill|library-import [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
+	if action == "library-import" {
+		return runLibraryImport(args[1:], out, version)
+	}
 	applyMode := ""
 	if action == "allow-apply" {
 		mode, rest, err := parseAgentApply(args[1:], out)
@@ -497,6 +506,9 @@ type agentResult struct {
 }
 
 func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer, version string, lastScan *time.Time, allowRestart bool) error {
+	if err := syncLibraryEdits(ctx, c, config, version, out); err != nil {
+		fmt.Fprintln(out, "Library edits remain local; continuing other connector work:", err)
+	}
 	// A completed result is durable before acknowledgment. Reconnect resends the
 	// result, never the filesystem operation.
 	if b, err := os.ReadFile(config + ".result"); err == nil {
@@ -613,7 +625,11 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 			}
 			if operationErr == nil {
 				args := []string{"--server", c.Server, "--token", c.Token, "--env", c.Host, "--target", j.TargetID, "--config", config}
-				opts := syncOptions{cwd: dir, verifyEnrollment: true, preflight: requireDependencies, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
+				opts := syncOptions{onExisting: func(skill store.SyncSkill, target store.SyncTarget, path string) error {
+					return adoptLibraryInstall(ctx, config, c, skill, target, path, version)
+				}, filterDesired: func(skills []store.SyncSkill) []store.SyncSkill { return filterLibraryPending(config, c, skills) }, onInstalled: func(skill store.SyncSkill, path string, files []skillbundle.ContentFile) error {
+					return prepareLibraryInstall(ctx, config, c, skill, path, files, version)
+				}, cwd: dir, verifyEnrollment: true, preflight: requireDependencies, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
 					reportCtx, reportCancel := context.WithTimeout(ctx, 5*time.Second)
 					defer reportCancel()
 					_ = agentRequestContext(reportCtx, c, "/api/v2/sync/jobs/stage", map[string]string{"id": j.ID, "stage": stage, "detail": detail}, nil, version)

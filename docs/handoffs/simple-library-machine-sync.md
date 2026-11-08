@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stages 0 and 1 completed on 8 November 2026; see the [baseline and migration map](simple-library-machine-sync-stage-0.md) and [Stage 1 results and implementation handover](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662). All 44 Go test packages have passing race results, including the corrected package reruns documented there. Stage 2 is next; Stages 2–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stages 0–2 completed on 8 November 2026. See the [baseline and migration map](simple-library-machine-sync-stage-0.md), [Stage 1 recovery](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662), and [Stage 2 foundation/handover](simple-library-machine-sync-stage-2.md) in [PR #664](https://github.com/eyupio/reet.sh/pull/664), which is based on Stage 1. All 44 Go test packages passed race checks, with supplemental final compatibility checks recorded there. Stage 3 is in progress; see its draft handover below. Stages 4–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -274,6 +274,8 @@ Stages 1–4 therefore provide browser-accessible behaviour checks before the in
 
 **Handover:** schemas/projections, compatibility translation, migration fixtures, manifest/identity rules and retention behaviour.
 
+**Implementation record:** [Stage 2 results](simple-library-machine-sync-stage-2.md) cover canonical identity/lifecycle, typed private content, metadata-preserving migration, explicit registered-root capture and existing-backup compatibility. Validation is complete; the later destination-policy cutover remains separate.
+
 ### Stage 3 — Automatic selected-item sync and edit propagation
 
 **Depends on:** Stage 2.
@@ -423,13 +425,35 @@ Do not replace observed failures with a later broad claim of success. Do not req
 
 ## 9. Completion ledger
 
+Stage 3 is now in progress: see its [draft implementation handover](simple-library-machine-sync-stage-3.md). Its canonical selections, machine edit journal, ordering/history and WebUI control are implemented; final acceptance, regression validation and PR integration are still in progress, so Stage 3 stays unchecked.
+
 - [x] Stage 0: baseline, migration design and real-connector harness
 - [x] Stage 1: identity, supervision and connection recovery
-- [ ] Stage 2: complete library, authoring, status and metadata
+- [x] Stage 2: complete library, authoring, status and metadata
 - [ ] Stage 3: selected-item automatic sync and edits
 - [ ] Stage 4: removal, restoration and notifications
 - [ ] Stage 5: Library and Machines UX
 - [ ] Stage 6: Linux provisioning for all four applications
 - [ ] Stage 7: independent backup, migration and release proof
 
-**Evidence:** the original specification records the user's decisions. Stage 0 added the real-controller/subprocess harness and reproduced five contract gaps. Stage 1 fixes the import-restart gap and promotes its regression into ordinary tests; four future-stage probes remain tagged. Its linked handover records actual checks and field-testing limits. No live provisioning or production deployment has been performed.
+**Evidence:** the original specification records the user's decisions. Stage 0 added the real-controller/subprocess harness and reproduced five contract gaps. Stage 1 fixes the import-restart gap and promotes its regression into ordinary tests. Stage 2 adds canonical identity/status, typed complete content, metadata-preserving migration, registered-root capture and backup compatibility, with store/API/connector checks and the full race suite passing. Four future-stage execution probes remain tagged. The linked handovers retain actual commands and field-testing limits. No live provisioning or production deployment has been performed.
+
+### PR integration update (2026-11-08)
+
+Stage 1 PR #662 is merged (`8076f814`, all ten workflows green). Stage 2 PR #664 now targets main; its remaining performance failure has a buffer-reuse correction in `46607962` with focused race/API/vet evidence recorded in the Stage 2 handoff. A further paged-read/index correction is `40f47ca4`; its new paired CI benchmark remains required. Stage 3 #665 is still draft; the Stage 3 handoff records safe existing-copy adoption and honest partial receipts, with final validation pending. No deployment is implied by a source merge.
+
+Latest supervision: the actual `40f47ca4` full-list benchmark failed. Contributor `aa394cd2` is the current query correction in #664 and is integrated in #665; the Stage 2/3 handoffs distinguish its focused race validation from its pending CI. The query follow-up changes no schema or connector contract. Stage 3 stays unchecked until integration and CI complete. #670 and #671 are included in open-PR supervision; future implementation stages remain unstarted.
+
+
+### Combined PR checkpoint after the Stage 3 branch merge
+
+PR #665 was merged into `feat/canonical-library-stage-2` as `13af8370780f676303210b07d110967d48354af9`, not into main. Its tree exactly matches reviewed Stage 3 head `463e35b3`; the merge introduced no further source change. PR #664 now carries both Stage 2 and Stage 3 to main. Current combined-head CI, including the unchanged 15% benchmark and CodeQL, remains required before that merge. Stage 3 therefore remains unchecked; a closed/merged #665 alone does not establish main-branch delivery. No Stage 4 work is started.
+
+The earlier statements that #665 is draft are historical checkpoints. #670 has merged into main with per-account chat opt-in defaulting off; the separate signed-in acceptance gate for final default-on activation remains in force. #671 is being integrated with that current main, preserving both navigation and chat-settings tests. No deployment is implied.
+
+
+### Current-main integration and browser gate correction
+
+#671 merged to main as `83f564c8`. The combined Stage 2/3 branch integrates that exact main, preserving its navigation, per-account chat settings and all tests. Web unit checks, svelte-check (zero errors/warnings), production build, selected-library browser checks at 320/390/1280px and supporting-navigation browser checks pass on the combined source.
+
+The current-head Gaffer settings retry failed its widget keyboard-restore assertion (expected y=936, actual y=701). The same fixture reproduced locally (936 versus 708): after closing the dialog, it captured a newly mounted launcher's position before the clearance action's next animation frame. The fixture now waits for the existing exact size/in-view/dock-clearance contract before saving that baseline. It retains the exact keyboard/scroll restore assertion, timeouts and all twelve width/theme scenarios. The complete corrected widget fixture passes locally. Fresh current-head CI and the unchanged benchmark remain required; no stage is marked delivered to main in advance.

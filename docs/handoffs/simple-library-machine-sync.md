@@ -440,4 +440,4 @@ Stage 3 is now in progress: see its [draft implementation handover](simple-libra
 
 ### PR integration update (2026-11-08)
 
-Stage 1 PR #662 is merged (`8076f814`, all ten workflows green). Stage 2 PR #664 now targets main; its remaining performance failure has a buffer-reuse correction in `46607962` with focused race/API/vet evidence recorded in the Stage 2 handoff. Its new paired CI benchmark remains required. Stage 3 #665 is still draft; the Stage 3 handoff records safe existing-copy adoption and honest partial receipts, with final validation pending. No deployment is implied by a source merge.
+Stage 1 PR #662 is merged (`8076f814`, all ten workflows green). Stage 2 PR #664 now targets main; its remaining performance failure has a buffer-reuse correction in `46607962` with focused race/API/vet evidence recorded in the Stage 2 handoff. A further paged-read/index correction is `40f47ca4`; its new paired CI benchmark remains required. Stage 3 #665 is still draft; the Stage 3 handoff records safe existing-copy adoption and honest partial receipts, with final validation pending. No deployment is implied by a source merge.

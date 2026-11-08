@@ -4,6 +4,8 @@ Parent: [product contract](simple-library-machine-sync.md). Dependency: [Stage 2
 
 **Status: partial implementation, draft review only. Do not mark Stage 3 complete or advance to Stage 4.** No deployment or preview was created.
 
+Draft PR: [#665](https://github.com/eyupio/reet.sh/pull/665), based on the open Stage 2 branch. Implementation commit: `f6bad91e`. `go vet ./internal/store ./internal/api` and diff whitespace checks also passed.
+
 ## Implemented experimental slice
 
 - `DesiredSelection.selectedOnly=true` explicitly enables the prototype for an account. Existing clients retain their previous behaviour; no UI control advertises this incomplete policy.

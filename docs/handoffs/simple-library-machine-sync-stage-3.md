@@ -1,8 +1,8 @@
-# Stage 3: selected-item automatic sync — validation in progress
+# Stage 3: selected-item automatic sync — merged
 
 Parent: [product contract](simple-library-machine-sync.md). Dependency: [Stage 2](simple-library-machine-sync-stage-2.md), PR #664. Feature-branch merge: [#665](https://github.com/eyupio/reet.sh/pull/665).
 
-**Status: implementation and affected-package local validation complete; current-head CI and PR integration remain pending. Do not advance to Stage 4 yet.** No preview or production deployment has been created. The production Tailcat incident is still unverified.
+**Status: Stage 3 source implementation complete and merged to main through #664 as `d85699b410951dce35d63a5de0dad5013da695f4`; all applicable checks on reviewed head `46bb9ae3` are now successful.** Earlier pending checkpoints below are historical. No preview/production deployment or field acceptance is claimed. The production Tailcat incident remains unverified. Stage 4 remains unstarted.
 
 ## Implemented process
 
@@ -146,3 +146,10 @@ PR #665 is merged into its Stage 2 feature base, not main: merge `13af8370780f67
 The combined delivery branch merges main `83f564c8` after #671, with no source conflict. Its selected-library three-width and supporting-navigation browser suites pass, along with web checks/build. The Gaffer settings browser failure was independently reproduced and corrected by waiting for remount clearance before capturing the restore baseline; all twelve widget width/theme scenarios then pass without loosening the position assertion or timeouts. Current-head CI, including the benchmark, still gates #664 and Stage 3 completion. Stages 4–7 remain unstarted.
 
 The canonical/selected API integration checks pass against this combined main source (36.352s, non-race). The first local attempt hit a full `/tmp`; relocating test temporary files to a long workspace path then hit the Unix control-socket path limit. The successful rerun used the short `TMPDIR=/workspace/t` and `GOTMPDIR=/workspace/work/go-build`. These were local environment failures, not clean earlier runs. Strict docs/rendered checks pass for 51 pages. The final source still needs its current-head CI; no fresh repository-wide race sweep is claimed.
+
+
+### Final main-branch integration
+
+#665 merged to its feature base as `13af8370`, then #664 carried the combined Stage 2/3 implementation to main as `d85699b4`. Final reviewed head `46bb9ae3` includes main `83f564c8` and the independently reproduced/corrected widget-fixture timing failure. All twelve current-head workflows are successful when checked after the merge: CodeQL, benchmark, image/tests, docs, terminal browser, Gaffer settings/offline acceptance, private connection, native services, binary build, structured worktree and shared native view acceptance. Only conditional publish/deploy/duplicate verification jobs were skipped. No fresh local repository-wide race sweep is claimed in this record.
+
+The parent ledger now checks Stage 3 complete. This describes implemented and integrated source, not production readiness or provisioning. Managed removal/restoration/notifications remain Stage 4, and no work on that stage has begun.

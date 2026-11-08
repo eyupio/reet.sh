@@ -197,7 +197,7 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 		}
 		noMissing := len(target.Missing) == 0
 		additive := target.Mode == "additive" || len(target.Extra) == 0
-		if noMissing && additive {
+		if noMissing && additive && (!target.Canonical || target.AppliedRevision == target.Revision) {
 			continue
 		}
 		if target.Canonical {

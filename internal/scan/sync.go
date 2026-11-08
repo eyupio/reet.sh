@@ -53,6 +53,7 @@ func (p SyncPlan) Hash() string {
 
 type syncOptions struct {
 	filterDesired    func([]store.SyncSkill) []store.SyncSkill
+	onExisting       func(store.SyncSkill, store.SyncTarget, string) error
 	onInstalled      func(store.SyncSkill, string, []skillbundle.ContentFile) error
 	verifyEnrollment bool
 	approvedHash     string
@@ -737,6 +738,17 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		desired := target.Desired
 		if options.filterDesired != nil {
 			desired = options.filterDesired(desired)
+			if target.Canonical {
+				included := map[string]bool{}
+				for _, skill := range desired {
+					included[skill.ItemID] = true
+				}
+				for _, skill := range target.Desired {
+					if !included[skill.ItemID] {
+						problems[skill.Slug] = "Local edits are waiting to upload; this item is retained."
+					}
+				}
+			}
 		}
 		blocked := map[string]bool{}
 		inventory := CollectScan(home, cwd, nil, *host)
@@ -820,6 +832,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 					if _, err := privateSkillDigest(candidate); err != nil {
 						blocked[want.Slug] = true
 						problems[want.Slug] = "The local content cannot be read completely."
+					} else if options.onExisting != nil {
+						if err := options.onExisting(want, target, targetPath); err != nil {
+							blocked[want.Slug] = true
+							problems[want.Slug] = err.Error()
+						}
 					}
 				} else if !os.IsNotExist(err) {
 					blocked[want.Slug] = true

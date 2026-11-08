@@ -84,6 +84,7 @@ func livePrivateRevisions(tx *sql.Tx, uid int64, heads bool) (map[string]bool, e
 	}
 	for _, query := range []string{
 		`SELECT desired FROM sync_targets WHERE user_id=?`,
+		`SELECT o.baseline FROM sync_options o JOIN sync_targets t ON t.target_id=o.target_id WHERE t.user_id=?`,
 		`SELECT plan FROM sync_jobs WHERE user_id=? AND status IN ('queued','running','awaiting-approval')`,
 	} {
 		if err := mentions(query); err != nil {

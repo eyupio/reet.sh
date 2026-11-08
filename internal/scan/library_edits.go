@@ -322,6 +322,10 @@ func prepareLibraryInstall(ctx context.Context, config string, c agentConfig, sk
 		return err
 	}
 	defer lock.Close()
+	return prepareLibraryInstallLocked(ctx, config, c, skill, path, files, version)
+}
+
+func prepareLibraryInstallLocked(ctx context.Context, config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, version string) error {
 	state, err := loadLibraryState(config, c)
 	if err != nil {
 		return err
@@ -346,4 +350,75 @@ func prepareLibraryInstall(ctx context.Context, config string, c agentConfig, sk
 		return errors.New("invalid library base receipt")
 	}
 	return recordLibraryInstall(config, c, skill, path, files)
+}
+
+// Adopt an existing directory only from exact selected bytes or a verified
+// previous apply baseline. An unrelated same-name directory never supplies a base.
+func adoptLibraryInstall(ctx context.Context, config string, c agentConfig, want store.SyncSkill, target store.SyncTarget, path, version string) error {
+	if want.ItemID == "" {
+		return errors.New("The selected item has no canonical identity.")
+	}
+	lock, err := filelock.Acquire(config + ".library.lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	local, err := loadAgentConfig(config)
+	if err != nil {
+		return err
+	}
+	if !local.AllowApply {
+		return errors.New("Enable sync locally to track this existing copy.")
+	}
+	state, err := loadLibraryState(config, c)
+	if err != nil {
+		return err
+	}
+	candidate := filepath.Join(path, want.Slug)
+	for _, binding := range state.Bindings {
+		if binding.Path == candidate {
+			if binding.ItemID != want.ItemID {
+				return errors.New("This directory belongs to a different library item.")
+			}
+			return nil
+		}
+	}
+	digest, err := privateSkillDigest(candidate)
+	if err != nil {
+		return err
+	}
+	wanted := privateSourcePattern.FindStringSubmatch(want.Source)
+	if wanted == nil {
+		return errors.New("The selected item has no private revision.")
+	}
+	base := want
+	dirty := digest != wanted[3]
+	if dirty {
+		proven := false
+		for _, old := range target.Baseline {
+			parts := privateSourcePattern.FindStringSubmatch(old.Source)
+			if parts != nil && old.Slug == want.Slug && (old.ItemID == want.ItemID || old.ID == want.ID || parts[1] == wanted[1]) {
+				base = old
+				base.ItemID = want.ItemID
+				proven = true
+				break
+			}
+		}
+		if !proven {
+			return errors.New("Local content differs; import this folder to preserve it before syncing this item.")
+		}
+	}
+	// Original file paths come from the immutable baseline, so a missing local
+	// support file is never captured as an intentional central deletion.
+	files, err := privateSkillFiles(c.Server, c.Token, base)
+	if err != nil {
+		return err
+	}
+	if err := prepareLibraryInstallLocked(ctx, config, c, base, path, files, version); err != nil {
+		return err
+	}
+	if dirty {
+		return errors.New("Local edits retained; they will upload on the next sync.")
+	}
+	return nil
 }

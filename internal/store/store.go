@@ -700,26 +700,44 @@ func (s *Store) upsert(id, source, slug, typ, url, name string, f Patch) (Skill,
 	return sk, err
 }
 
-func scan(r interface{ Scan(...any) error }, canonical ...bool) (Skill, error) {
-	var k Skill
-	var l, b, u int
-	var trend string
-	var err error
-	if len(canonical) > 0 && canonical[0] {
-		var identity string
-		err = r.Scan(&k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
-			&k.Installs, &k.InstallsWeek, &trend, &l, &b, &u, &k.CreatedAt, &k.UpdatedAt, &identity)
-		k.LibraryItemID, k.Status, _ = strings.Cut(identity, ":")
-	} else {
-		err = r.Scan(&k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
-			&k.Installs, &k.InstallsWeek, &trend, &l, &b, &u, &k.CreatedAt, &k.UpdatedAt)
-	}
+// skillRowScanner reuses Scan destinations across a list. Each returned Skill
+// is a value copy; resetting the working row keeps slices independent.
+type skillRowScanner struct {
+	skill                   Skill
+	liked, bookmarked, used int
+	trend, identity         string
+	canonical               bool
+	destinations            []any
+}
 
-	if trend != "" {
-		_ = json.Unmarshal([]byte(trend), &k.Trend)
+func newSkillRowScanner(canonical bool) *skillRowScanner {
+	r := &skillRowScanner{canonical: canonical}
+	k := &r.skill
+	r.destinations = []any{&k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
+		&k.Installs, &k.InstallsWeek, &r.trend, &r.liked, &r.bookmarked, &r.used, &k.CreatedAt, &k.UpdatedAt}
+	if canonical {
+		r.destinations = append(r.destinations, &r.identity)
 	}
-	k.Liked, k.Bookmarked, k.Used = l != 0, b != 0, u != 0
-	return k, err
+	return r
+}
+
+func (r *skillRowScanner) scan(row interface{ Scan(...any) error }) (Skill, error) {
+	r.skill = Skill{}
+	if err := row.Scan(r.destinations...); err != nil {
+		return Skill{}, err
+	}
+	if r.canonical {
+		r.skill.LibraryItemID, r.skill.Status, _ = strings.Cut(r.identity, ":")
+	}
+	if r.trend != "" {
+		_ = json.Unmarshal([]byte(r.trend), &r.skill.Trend)
+	}
+	r.skill.Liked, r.skill.Bookmarked, r.skill.Used = r.liked != 0, r.bookmarked != 0, r.used != 0
+	return r.skill, nil
+}
+
+func scan(r interface{ Scan(...any) error }, canonical ...bool) (Skill, error) {
+	return newSkillRowScanner(len(canonical) > 0 && canonical[0]).scan(r)
 }
 
 func (s *Store) Get(id string) (Skill, bool, error) {

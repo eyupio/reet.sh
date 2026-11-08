@@ -2,7 +2,7 @@
 
 Parent: [product contract](simple-library-machine-sync.md). Dependency: [Stage 2](simple-library-machine-sync-stage-2.md), PR #664. Draft PR: [#665](https://github.com/eyupio/reet.sh/pull/665).
 
-**Status: implementation expanded; final validation and PR integration remain pending. Do not advance to Stage 4 yet.** No preview or production deployment has been created. The production Tailcat incident is still unverified.
+**Status: implementation and affected-package local validation complete; current-head CI and PR integration remain pending. Do not advance to Stage 4 yet.** No preview or production deployment has been created. The production Tailcat incident is still unverified.
 
 ## Implemented process
 
@@ -81,7 +81,7 @@ Stage 4 must add acknowledged ownership/removal receipts and generations, remove
 
 ## PR supervision
 
-The owner authorized fixing checks, review comments and conflicts across all open PRs, and merging completed green work. At the last inventory, five were open: #662, #664, #665, #666 and #667. No inline review threads or merge conflicts were present. Stage 2's real list benchmark regression is fixed in `68f05a55` and new checks are running. Cancelled acceptance checks for #662/#666 were restarted; their logs showed the 10-minute job limit expiring during compilation, not a proven product regression. #667 is a design draft with an explicit pending owner-plan review and stays open. The Codex review service reported its account usage limit on #664; no successful final automated review is claimed.
+The owner authorized fixing checks, review comments and conflicts across all open PRs, and merging completed green work. Stage 1 #662 merged as `8076f814` with all ten workflows green; #664 was retargeted to main. Its real list regression required further buffer reuse in `46607962`; the new paired benchmark is pending, with its 15% gate unchanged. #665 remains draft pending final validation. Native checks on #666/#668 passed with the longer cold-build budget, but #666 then needed its workflow comments aligned with main (`b4302a96`) and #668's author updated its branch (`b6fe31f6`); current-head checks must finish before either merges. There were no inline review threads at that checkpoint. The Codex review service reported its account usage limit on #664; no successful final automated review is claimed.
 
 ### Validation follow-up (still in progress)
 
@@ -113,4 +113,12 @@ The integrated race check after Stage 2's page-query merge passed API 198.599s, 
 
 A native acceptance job failed during Go setup, before its tests started, with no downloadable log blob. This is recorded as infrastructure failure, not a passing product check; the new commit retries it. No test assertion, benchmark threshold or per-test deadline was weakened.
 
-PR #667 is green documentation but its description explicitly requires owner review. Automatic approval review rejected its merge on that basis; it was returned to draft and a specific owner-approval question is pending. Do not retry that merge without the requested approval. Other PR work continues independently.
+PR #667 initially failed automatic approval review because its description required owner review. The owner subsequently explicitly approved merging the plan. The final head `2b3e6911` contained a reviewed clarification about preserving raw capabilities; the documentation merged as `c39e93d2`. This does not authorize final runtime activation: the plan's signed-in acceptance run remains its own release gate.
+
+### Existing-copy upgrade and honest partial receipts
+
+Selecting a directory that already contains exact canonical bytes now runs one reconciliation even if nothing needs installing. With local apply consent, it pins the revision and records the managed file paths without rewriting the directory. A changed pre-upgrade private copy can be adopted only against the controller's previous successful apply baseline, verified against an immutable account-owned revision. Its edits upload in the next cycle; the original baseline paths prevent local file absence becoming central deletion. Without that proof, the item is retained for explicit import while healthy items proceed. Existing legacy policies remain frozen snapshots until explicitly replaced by canonical selection; no arbitrary same-name source is inferred.
+
+Previous apply baselines are protected from private revision reclamation, including when an offline machine has not yet established its new local journal. Partial/no-op plans containing retained-item problems no longer advance the whole destination's applied revision or replace its last complete baseline. They keep per-item problems and the existing one-minute retry backoff. This avoids reporting blocked work as "Already in sync".
+
+The new real-controller/connector upgrade tests pass (2.705s, non-race), covering matching copies, edits made before and after cutover, and an unknown local copy alongside a healthy selected item. Focused partial-receipt/baseline-retention race tests pass (4.732s), and affected-package vet passes. The larger canonical race run passed: API 197.227s, scan 6.564s, store 11.690s. A stronger upgrade race test also passed (50.916s): central content changes while the machine is offline, then its later local edit uploads against the original applied base rather than a manufactured current base. The final partial-result message check passed (4.325s race); the full scanner package passed (2.580s), and rendered docs pass (51 pages). Current-head CI and PR integration remain required before marking Stage 3 complete.

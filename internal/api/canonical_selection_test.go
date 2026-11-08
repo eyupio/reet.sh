@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -506,4 +507,91 @@ func TestSimpleSyncContractInactiveAuthoredSkillsStayOffMachines(t *testing.T) {
 			t.Errorf("inactive authored skill %s was installed: %v", name, err)
 		}
 	}
+}
+
+func TestCanonicalExistingCopiesAdoptWithoutLosingEdits(t *testing.T) {
+	for _, dirty := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dirty-%v", dirty), func(t *testing.T) {
+			h := newSyncContractHarness(t)
+			h.hosted("existing", "original", false, true)
+			items, err := h.st.LibraryFor(h.uid)
+			if err != nil || len(items) != 1 {
+				t.Fatal(items, err)
+			}
+			item := items[0]
+			a, b := h.machine("existing-a"), h.machine("existing-b")
+			h.rounds(1, a, b)
+			for _, m := range []*syncContractMachine{a, b} {
+				h.mustRequest(http.MethodPut, "/api/v2/library/selections", store.LibrarySelection{TargetID: store.EnvironmentIDFor(h.uid, m.name, "agents", ""), ItemIDs: []string{item.ID}})
+			}
+			h.rounds(8, a, b)
+			a.requireFile("existing", "SKILL.md", syncContractContent("existing", "original"))
+			a.stop()
+			// A pre-upgrade install has a controller apply baseline but no local edit journal.
+			if err := os.Remove(a.config + ".library"); err != nil {
+				t.Fatal(err)
+			}
+			targetID := store.EnvironmentIDFor(h.uid, a.name, "agents", "")
+			if dirty {
+				h.hosted("existing", "central changed while offline", false, true)
+				if err := os.WriteFile(a.path("existing", "SKILL.md"), []byte(syncContractContent("existing", "edit before upgrade")), 0644); err != nil {
+					t.Fatal(err)
+				}
+				saved := time.Now().Add(2 * time.Second)
+				if err := os.Chtimes(a.path("existing", "SKILL.md"), saved, saved); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Selecting existing copies during upgrade must establish tracking,
+			// including when there is no content difference to trigger an install.
+			{
+				selected, err := h.st.LibrarySelectionFor(h.uid, targetID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				h.mustRequest(http.MethodPut, "/api/v2/library/selections", selected)
+			}
+			a.start()
+			h.rounds(10, a, b)
+			if dirty {
+				b.requireFile("existing", "SKILL.md", syncContractContent("existing", "edit before upgrade"))
+			}
+			history, err := h.st.LibraryEditHistoryFor(h.uid, item.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if dirty && (len(history) != 1 || history[0].Base != item.RevisionID) {
+				t.Fatal("upgrade manufactured a new causal base", history, item.RevisionID)
+			}
+
+			if err := os.WriteFile(a.path("existing", "SKILL.md"), []byte(syncContractContent("existing", "edit after upgrade")), 0644); err != nil {
+				t.Fatal(err)
+			}
+			h.rounds(10, a, b)
+			b.requireFile("existing", "SKILL.md", syncContractContent("existing", "edit after upgrade"))
+		})
+	}
+}
+
+func TestCanonicalUnknownLocalCopyIsPreservedWhileHealthyItemsSync(t *testing.T) {
+	h := newSyncContractHarness(t)
+	h.hosted("unknown", "central bytes", false, true)
+	h.hosted("healthy", "healthy bytes", false, true)
+	a := h.machine("unknown-copy")
+	a.localSkill("unknown", "unimported local work")
+	h.rounds(1, a)
+	items, err := h.st.LibraryFor(h.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{}
+	for _, item := range items {
+		if item.Name == "reet-unknown" || item.Name == "reet-healthy" {
+			ids = append(ids, item.ID)
+		}
+	}
+	h.mustRequest(http.MethodPut, "/api/v2/library/selections", store.LibrarySelection{TargetID: store.EnvironmentIDFor(h.uid, a.name, "agents", ""), ItemIDs: ids})
+	h.rounds(8, a)
+	a.requireFile("unknown", "SKILL.md", syncContractContent("unknown", "unimported local work"))
+	a.requireFile("healthy", "SKILL.md", syncContractContent("healthy", "healthy bytes"))
 }

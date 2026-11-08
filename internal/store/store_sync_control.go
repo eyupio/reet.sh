@@ -797,7 +797,10 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				message = "Desired revision changed during apply; rescan and preview."
 				replan = true
 			}
-			if status == "succeeded" {
+			if status == "succeeded" && planHasProblems(plan) {
+				message = "Healthy items synced; some selected items are waiting."
+			}
+			if status == "succeeded" && !planHasProblems(plan) {
 				_, err = tx.Exec(`UPDATE sync_options SET baseline=(SELECT desired FROM sync_targets WHERE target_id=? AND user_id=?),applied_revision=? WHERE target_id=?`, j.TargetID, uid, j.Revision, j.TargetID)
 				if err != nil {
 					return err
@@ -826,15 +829,19 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				if len(planActions(plan)) == 0 {
 					finalStatus = "succeeded"
 					message = "Already in sync."
-					result, e := tx.Exec(`UPDATE sync_options SET baseline=(SELECT desired FROM sync_targets WHERE target_id=? AND user_id=?),applied_revision=? WHERE target_id=? AND EXISTS(SELECT 1 FROM sync_targets WHERE target_id=? AND user_id=? AND revision=?)`, j.TargetID, uid, j.Revision, j.TargetID, j.TargetID, uid, j.Revision)
-					if e != nil {
-						return e
-					}
-					if count, e := result.RowsAffected(); e != nil {
-						return e
-					} else if count == 0 {
-						finalStatus, replan = "failed", true
-						message = "Desired revision changed during preview; requesting a fresh plan."
+					if planHasProblems(plan) {
+						message = "Some selected items are waiting; healthy items continue syncing."
+					} else {
+						result, e := tx.Exec(`UPDATE sync_options SET baseline=(SELECT desired FROM sync_targets WHERE target_id=? AND user_id=?),applied_revision=? WHERE target_id=? AND EXISTS(SELECT 1 FROM sync_targets WHERE target_id=? AND user_id=? AND revision=?)`, j.TargetID, uid, j.Revision, j.TargetID, j.TargetID, uid, j.Revision)
+						if e != nil {
+							return e
+						}
+						if count, e := result.RowsAffected(); e != nil {
+							return e
+						} else if count == 0 {
+							finalStatus, replan = "failed", true
+							message = "Desired revision changed during preview; requesting a fresh plan."
+						}
 					}
 				} else {
 					finalStatus = "queued"

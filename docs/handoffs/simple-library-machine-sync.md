@@ -437,3 +437,7 @@ Stage 3 is now in progress: see its [draft implementation handover](simple-libra
 - [ ] Stage 7: independent backup, migration and release proof
 
 **Evidence:** the original specification records the user's decisions. Stage 0 added the real-controller/subprocess harness and reproduced five contract gaps. Stage 1 fixes the import-restart gap and promotes its regression into ordinary tests. Stage 2 adds canonical identity/status, typed complete content, metadata-preserving migration, registered-root capture and backup compatibility, with store/API/connector checks and the full race suite passing. Four future-stage execution probes remain tagged. The linked handovers retain actual commands and field-testing limits. No live provisioning or production deployment has been performed.
+
+### PR integration update (2026-11-08)
+
+Stage 1 PR #662 is merged (`8076f814`, all ten workflows green). Stage 2 PR #664 now targets main; its remaining performance failure has a buffer-reuse correction in `46607962` with focused race/API/vet evidence recorded in the Stage 2 handoff. Its new paired CI benchmark remains required. Stage 3 #665 is still draft; the Stage 3 handoff records safe existing-copy adoption and honest partial receipts, with final validation pending. No deployment is implied by a source merge.

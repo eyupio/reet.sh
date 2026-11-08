@@ -664,10 +664,12 @@
 
 <style>
   .account { padding-top: 4px; }
-  .idcard { display: flex; align-items: flex-start; gap: 16px; }
-  .idcard :global(.page-head) { flex: 1; min-width: 0; }
+  /* The avatar sits beside the title and lede only: the header's section row spans the full width below it. */
+  .idcard { position: relative; }
+  .idcard :global(.page-heading) { padding-left: 80px; min-height: 64px; }
   .avatar {
-    display: inline-grid; place-items: center; flex: none; width: 64px; height: 64px;
+    position: absolute; top: 0; left: 0;
+    display: inline-grid; place-items: center; width: 64px; height: 64px;
     border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line)); border-radius: 50%;
     background: color-mix(in srgb, var(--tint) 45%, var(--card)); color: var(--accent-text);
     font: 600 1.3rem/1 var(--sans); letter-spacing: 0.03em;
@@ -724,7 +726,7 @@
   .signout { margin-top: 28px; }
   @media (max-width: 560px) {
     .grid2 { grid-template-columns: 1fr; }
-    .idcard { gap: 12px; }
+    .idcard :global(.page-heading) { padding-left: 64px; min-height: 52px; }
     .avatar { width: 52px; height: 52px; font-size: 1.05rem; }
     .session-search, .token-search { flex-basis: 100%; }
     .session-list > li, .token-list > li { grid-template-columns: 1fr; }

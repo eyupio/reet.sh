@@ -499,6 +499,9 @@ try {
   await page.locator('summary[aria-label^="Account menu"]').click()
   await page.locator('.panel').getByRole('group',{name:'Theme'}).getByRole('button',{name:'Dark'}).click()
   await expect(select).toHaveValue('dark')
+  // Close the menu as a person would: with the section row on one line the Save button sits under the open panel.
+  await page.keyboard.press('Escape')
+  await expect(page.locator('details[open] .panel')).toHaveCount(0)
   await page.getByPlaceholder('Europe/London').fill('Europe/Paris')
   await page.getByRole('button',{name:'Save profile'}).click()
   await expect.poll(()=>state.patches.some(p=>p.timezone==='Europe/Paris')).toBe(true)

@@ -23,7 +23,7 @@
 <svelte:window onkeydown={close} onclick={event => { if (event.target instanceof Node && !root?.contains(event.target)) root?.querySelectorAll<HTMLDetailsElement>('details[open]').forEach(detail => detail.open = false) }} />
 {#snippet links()}
   {#each items as item (('action' in item) ? `action:${item.label}` : item.href)}
-    {#if 'action' in item}<button type="button" onclick={item.action}>{item.label}</button>
+    {#if 'action' in item}<button type="button" onclick={() => { if (menu) menu.open = false; item.action() }}>{item.label}</button>
     {:else if item.children?.length}
       <details class="nav-group" name={`${label}-groups`}>
         <summary class:current={item.current}>{item.label}<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6" /></svg></summary>

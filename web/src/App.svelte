@@ -247,7 +247,11 @@
     ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
   ])
   // Every routed page's header reads the current page's group from here (the getter keeps it current as `more` changes).
-  setContext(PAGE_GROUP, { get group() { return pageGroup(more) } })
+  // Signed out, a public page names its group but has no siblings to offer (the other pages need a sign-in), so it gets the label only.
+  setContext(PAGE_GROUP, { get group() {
+    const found = pageGroup(more)
+    return found && !authenticated ? { ...found, items: found.items.filter(item => item.current) } : found
+  } })
   // Jump searches what the workspace already lists: sessions, folder projects and machines (a writer's terminal machines,
   // and the machines on the shelf inventory for everyone). Read when Jump is used; a list that cannot be read is left out.
   async function jumpItems(): Promise<JumpItem[]> {

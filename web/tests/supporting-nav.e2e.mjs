@@ -36,6 +36,9 @@ try {
     const row = page.getByRole('navigation', { name: 'Help & community' })
     await expect(row.getByRole('link', { name: 'Community' })).toHaveAttribute('aria-current', 'page')
     await expect(row.getByRole('link', { name: 'Support' })).toHaveAttribute('href', '/support')
+    // The row is a sibling of the header inside .page-head, never inside the header element.
+    await expect(page.locator('.page-heading').getByRole('navigation')).toHaveCount(0)
+    await expect(page.locator('.page-head > .row').getByRole('navigation', { name: 'Help & community' })).toHaveCount(1)
     expect(errors).toEqual([])
     await context.close()
   }
@@ -46,6 +49,7 @@ try {
     await page.goto(`${base}/community`)
     await expect(page.getByRole('heading', { level: 1, name: 'Community' })).toBeVisible()
     await expect(page.locator('.page-heading').getByText('Help & community', { exact: true })).toBeVisible()
+    await expect(page.locator('.page-head').getByRole('navigation')).toHaveCount(0)
     expect(errors).toEqual([])
     await context.close()
   }
@@ -81,6 +85,12 @@ try {
     await expect(back).toBeFocused()
     await expect(back).toHaveCSS('outline-style', 'solid')
     await expect(back).toHaveCSS('outline-width', '2px')
+    // The 44px target does not move the title: with the link swapped for plain text the h1 sits at the same height.
+    const h1 = page.getByRole('heading', { level: 1, name: 'Launch checklist' })
+    const withLink = (await h1.boundingBox()).y
+    await back.evaluate(link => link.replaceWith(document.createTextNode(link.textContent)))
+    const withoutLink = (await h1.boundingBox()).y
+    expect(Math.abs(withLink - withoutLink), `h1 moved ${withLink - withoutLink}px for the label link`).toBeLessThanOrEqual(1)
     expect(errors).toEqual([])
     await context.close()
   }
@@ -96,6 +106,14 @@ try {
     await expect(row.getByRole('link', { name: 'Inventory & connection' })).toHaveAttribute('aria-current', 'page')
     await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('href', '/sync')
     await expect(row.getByRole('button', { name: 'Software', exact: true })).toBeVisible()
+    await expect(page.locator('.page-head').getByRole('navigation', { name: 'Machines', exact: true })).toHaveCount(1)
+    // Software is an action: it opens its dialog and does not navigate.
+    await row.getByRole('button', { name: 'Software', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Fleet software' })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close fleet software' }).click()
+    await expect(dialog).toBeHidden()
+    expect(new URL(page.url()).pathname).toBe('/machines')
     expect(errors).toEqual([])
     await context.close()
   }
@@ -110,6 +128,8 @@ try {
     await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(row.getByRole('link', { name: 'Inventory & connection' })).not.toHaveAttribute('aria-current', 'page')
     await expect(row.getByRole('button', { name: 'Software', exact: true })).toBeVisible()
+    // The row is the shared one inside the page header (the old Machines navigation sat outside it).
+    await expect(page.locator('.page-head').getByRole('navigation', { name: 'Machines', exact: true })).toHaveCount(1)
     expect(errors).toEqual([])
     await context.close()
   }
@@ -157,8 +177,143 @@ try {
     const row = page.getByRole('navigation', { name: 'Account', exact: true })
     await expect(row).toHaveCount(1)
     await expect(row.getByRole('link', { name: 'Profile' })).toHaveAttribute('aria-current', 'page')
+    // The Machines and Compare & sync entries still lead to the Machines page and its sync view.
+    await expect(row.getByRole('link', { name: 'Machines', exact: true })).toHaveAttribute('href', '/machines')
+    await expect(row.getByRole('link', { name: 'Compare & sync' })).toHaveAttribute('href', '/machines?view=compare')
+    // The row spans the content column under the avatar: it is not indented beside it, and it stays on one line.
+    const column = await page.locator('section.account').boundingBox()
+    const nav = await row.boundingBox()
+    expect(Math.abs(nav.x - column.x), 'Account row left edge vs the content column').toBeLessThanOrEqual(1)
+    expect(Math.abs(nav.x + nav.width - (column.x + column.width)), 'Account row right edge vs the content column').toBeLessThanOrEqual(1)
+    expect(nav.height, 'Account row on one line').toBeLessThanOrEqual(56)
+    const avatar = await page.locator('section.account .avatar').boundingBox()
+    expect(avatar.y + avatar.height, 'avatar ends above the row').toBeLessThanOrEqual(nav.y)
     expect(errors).toEqual([])
     await context.close()
+  }
+
+  // The other pages: one h1 that is the menu name, the group label, and the row with the current page marked.
+  const pages = [
+    { name: 'setups', path: '/profiles', title: 'Setups', group: 'Skills & distribution', current: 'Setups', others: ['Lists', 'Write a skill'] },
+    { name: 'write a skill', path: '/hosting', title: 'Write a skill', group: 'Skills & distribution', current: 'Write a skill', others: ['Setups', 'Lists'] },
+    { name: 'support', path: '/support', title: 'Support', group: 'Help & community', current: 'Support', others: ['Community'], routes: { '/api/v2/tickets': { tickets: [] }, '/api/v2/groups': { groups: [] } } },
+    { name: 'teams', path: '/spaces', title: 'Teams & organisations', group: 'Workspace', current: 'Teams & organisations', others: ['Instance administration'], routes: { '/api/v2/groups': { groups: [] } } },
+  ]
+  for (const item of pages) if (run(item.name)) {
+    const { context, page, errors } = await open({ routes: item.routes })
+    await page.goto(`${base}${item.path}`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await expect(page.getByRole('heading', { level: 1, name: item.title, exact: true })).toBeVisible()
+    await expect(page.locator('.page-heading').getByText(item.group, { exact: true })).toBeVisible()
+    const row = page.locator('.page-head').getByRole('navigation', { name: item.group, exact: true })
+    await expect(row).toHaveCount(1)
+    await expect(row.getByRole('link', { name: item.current, exact: true })).toHaveAttribute('aria-current', 'page')
+    await expect(row.locator('.desktop [aria-current="page"]')).toHaveCount(1)
+    for (const other of item.others) await expect(row.getByRole('link', { name: other, exact: true })).not.toHaveAttribute('aria-current', 'page')
+    await expect(page.locator('.page-heading').getByRole('navigation')).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // Activity as its own page (an instance without accounts; with accounts it is a section of Account) is not in the More list: its label names the workspace, and it has no row.
+  if (run('activity')) {
+    const { context, page, errors } = await open({ status: { mode: 'none', user: null } })
+    await page.goto(`${base}/activity`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await expect(page.getByRole('heading', { level: 1, name: 'Activity', exact: true })).toBeVisible()
+    await expect(page.locator('.page-heading').getByText('This workspace', { exact: true })).toBeVisible()
+    await expect(page.locator('.page-head').getByRole('navigation')).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // Admin's h1 is the open section, not the menu name.
+  if (run('admin title')) {
+    const now = Date.now()
+    const { context, page, errors } = await open({ routes: {
+      '/api/admin/status': { version: 'v1.4.2', commit: 'fixture', db: { path: '/data/reet.db', size: 1024 }, counts: { all: 0, liked: 0, bookmarked: 0, used: 0 }, stages: { use: 0, try: 0, shelf: 0 }, environments: [], events: [], skillsSh: true, metaLastOK: '', metaLastError: '', topics: { lastSynced: '', lastError: '' }, settings: { refreshEnabled: true, topicsEnabled: true, linkListsEnabled: false, rollupIndividual: true, pruneServerEnvironmentsDays: 0, instanceName: 'Test' } },
+      '/api/v2/admin/users': { users: [{ id: 1, name: 'Sam', email: 'sam@example.test', role: 'owner', createdAt: now, tokens: 0, lastActive: now }] },
+      '/api/v2/admin/sso': { enabled: false },
+    } })
+    await page.goto(`${base}/admin/users`)
+    await expect(page.getByRole('heading', { level: 1, name: 'Users', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await context.close()
+  }
+
+  // What a person may see: the row only lists pages they can open, and a lone page has a label and no row.
+  if (run('permissions')) {
+    const viewer = await open({ status: { user: { id: 2, name: 'Vi', email: 'vi@example.test', role: 'viewer' } } })
+    await viewer.page.goto(`${base}/shared`)
+    await expect(viewer.page.getByRole('heading', { level: 1, name: 'Lists', exact: true })).toBeVisible()
+    const row = viewer.page.getByRole('navigation', { name: 'Skills & distribution' })
+    await expect(row.getByRole('link', { name: 'Setups' })).toBeVisible()
+    await expect(row.getByRole('link', { name: 'Write a skill' })).toHaveCount(0)
+    expect(viewer.errors).toEqual([])
+    await viewer.context.close()
+
+    // With the support desk off Support is gone, so Help & community is Community alone: the label shows and no row does.
+    const noDesk = await open({ status: { supportDesk: false }, routes: { '/api/community': { lists: [], skills: [] } } })
+    await noDesk.page.goto(`${base}/community`)
+    await expect(noDesk.page.getByRole('heading', { level: 1, name: 'Community', exact: true })).toBeVisible()
+    await expect(noDesk.page.locator('.page-heading').getByText('Help & community', { exact: true })).toBeVisible()
+    await expect(noDesk.page.locator('.page-head').getByRole('navigation')).toHaveCount(0)
+    expect(noDesk.errors).toEqual([])
+    await noDesk.context.close()
+
+    // A writer who is not an administrator has Teams alone in Workspace: the label, no row.
+    const writer = await open({ status: { user: { id: 3, name: 'Wren', email: 'wren@example.test', role: 'writer' } }, routes: { '/api/v2/groups': { groups: [] } } })
+    await writer.page.goto(`${base}/spaces`)
+    await expect(writer.page.getByRole('heading', { level: 1, name: 'Teams & organisations', exact: true })).toBeVisible()
+    await expect(writer.page.locator('.page-heading').getByText('Workspace', { exact: true })).toBeVisible()
+    await expect(writer.page.locator('.page-head').getByRole('navigation')).toHaveCount(0)
+    expect(writer.errors).toEqual([])
+    await writer.context.close()
+  }
+
+  // A phone: the row folds into one menu that names the current page, opens and closes, and an action closes it before it runs.
+  if (run('phone menu')) {
+    const { context, page, errors } = await open({ width: 390 })
+    await page.goto(`${base}/shared`)
+    const row = page.getByRole('navigation', { name: 'Skills & distribution' })
+    const menu = row.locator('details.mobile')
+    await expect(menu.locator('summary')).toBeVisible()
+    await expect(menu.locator('summary')).toContainText('Lists')
+    await expect(row.locator('.desktop')).toBeHidden()
+    await expect(menu).not.toHaveAttribute('open', '')
+    await menu.locator('summary').click()
+    await expect(menu).toHaveAttribute('open', '')
+    await expect(row.getByRole('link', { name: 'Setups' })).toBeVisible()
+    await expect(row.getByRole('link', { name: 'Lists' })).toHaveAttribute('aria-current', 'page')
+    await menu.locator('summary').click()
+    await expect(menu).not.toHaveAttribute('open', '')
+    await expect(row.getByRole('link', { name: 'Setups' })).toBeHidden()
+
+    // Software is an action: choosing it closes the menu and opens the dialog.
+    await page.goto(`${base}/machines`)
+    const machines = page.getByRole('navigation', { name: 'Machines', exact: true })
+    const fold = machines.locator('details.mobile')
+    await fold.locator('summary').click()
+    await expect(fold).toHaveAttribute('open', '')
+    await machines.getByRole('button', { name: 'Software', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Fleet software' })).toBeVisible()
+    await expect(fold).not.toHaveAttribute('open', '')
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // The narrowest phone: no horizontal scroll on the pages that carry a row.
+  if (run('320px')) {
+    for (const path of ['/shared', '/community', '/spaces', '/machines', '/account/profile']) {
+      const { context, page, errors } = await open({ width: 320, routes: { '/api/community': { lists: [], skills: [] }, '/api/v2/groups': { groups: [] } } })
+      await page.goto(`${base}${path}`)
+      await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+      await page.waitForTimeout(300)
+      const sizes = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
+      expect(sizes.scroll, `${path} overflows at 320px`).toBeLessThanOrEqual(sizes.client)
+      expect(errors).toEqual([])
+      await context.close()
+    }
   }
 } finally {
   await browser.close()

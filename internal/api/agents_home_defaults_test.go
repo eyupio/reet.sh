@@ -237,3 +237,51 @@ func TestCreateRetryAfterTheProjectIsRemoved(t *testing.T) {
 		t.Fatal("new request", code, raw)
 	}
 }
+
+// The default Cline source is a provider id Cline reports: blank clears it, an
+// id that fails the model-name rule is refused without changing anything, and a
+// read-only account cannot set it. The audit row names the value.
+func TestProfileDefaultClineSource(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	patch := func(cookie string, body map[string]any) (int, map[string]any, string) {
+		return f.do(t, cookie, "PATCH", "/api/v2/profile", body)
+	}
+	code, out, raw := patch(f.cookie, map[string]any{"defaultClineSource": "cline-pass"})
+	profile, _ := out["profile"].(map[string]any)
+	if code != 200 || profile["defaultClineSource"] != "cline-pass" {
+		t.Fatal("save", code, raw)
+	}
+	// Leaving the field out keeps it.
+	code, out, raw = patch(f.cookie, map[string]any{"theme": "dark"})
+	profile, _ = out["profile"].(map[string]any)
+	if code != 200 || profile["defaultClineSource"] != "cline-pass" {
+		t.Fatal("partial save", code, raw)
+	}
+	for _, bad := range []string{"bad value", "-lead", strings.Repeat("s", 101)} {
+		code, out, raw = patch(f.cookie, map[string]any{"defaultClineSource": bad, "theme": "light"})
+		if code != 400 || !strings.Contains(out["error"].(string), "defaultClineSource") {
+			t.Fatal("invalid source accepted", bad, code, raw)
+		}
+	}
+	// A refused save changes nothing, not even the field it carried.
+	if p, err := f.st.ProfileFor(f.uid); err != nil || p.DefaultClineSource != "cline-pass" || p.Theme != "dark" {
+		t.Fatal("refused save applied", err, p)
+	}
+	viewer, err := f.st.CreateUser("source-viewer@example.test", "Viewer", "viewer", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, raw := patch(terminalLogin(t, f.st, viewer.ID), map[string]any{"defaultClineSource": "cline"}); code != 403 {
+		t.Fatal("a viewer set a launch default", code, raw)
+	}
+	if code, out, raw = patch(f.cookie, map[string]any{"defaultClineSource": ""}); code != 200 || out["profile"].(map[string]any)["defaultClineSource"] != "" {
+		t.Fatal("clear", code, raw)
+	}
+	found := false
+	for _, e := range projectEvents(t, f.st, f.uid, "profile") {
+		found = found || e["defaultClineSource"] == "cline-pass"
+	}
+	if !found {
+		t.Fatal("the audit row did not name the saved source")
+	}
+}

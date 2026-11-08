@@ -27,6 +27,11 @@ var (
 	// ErrModelUnconfirmed means a switch may have been applied, but the reply
 	// did not establish the current model. It is never reported as the old one.
 	ErrModelUnconfirmed = fmt.Errorf("%w: the current model is not confirmed", ErrModel)
+	// ErrProvider means the agent did not use the session's chosen provider.
+	ErrProvider = errors.New("the agent did not use the chosen provider")
+	// ErrProviderUnconfirmed means a provider switch may have been applied, but
+	// the reply did not read it back.
+	ErrProviderUnconfirmed = fmt.Errorf("%w: the current provider is not confirmed", ErrProvider)
 	// ErrUnsupported means the catalogue tool has no ACP adapter here.
 	ErrUnsupported = errors.New("that agent does not support chats")
 	// ErrCodexLogin means session creation needs a login made outside reet.
@@ -112,6 +117,9 @@ type Spec struct {
 	// place rather than continued as a new row. It is published in the
 	// descriptor only on a connection that negotiated acp-agent-reattach-v1.
 	Reattach bool
+	// Provider reports that this agent's provider option is a billing source reet
+	// surfaces and switches (Cline). Another adapter's own option list is left alone.
+	Provider bool
 	// ConfirmModelBySwitch applies a chosen model with session/set_config_option
 	// once the session is open, and requires the reply to report it. An adapter
 	// that starts on its configured model and ignores a model at session/new

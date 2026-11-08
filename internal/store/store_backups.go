@@ -111,7 +111,11 @@ type Profile struct {
 	DefaultTool   string `json:"defaultTool"`
 	DefaultModel  string `json:"defaultModel"`
 	DefaultEffort string `json:"defaultEffort"`
-	UpdatedAt     int64  `json:"updatedAt"`
+	// DefaultClineSource is the billing source a new Cline session starts on (a
+	// provider id Cline reports); blank means Cline's own choice. Like the other
+	// defaults the server only stores it: the browser resolves and sends it.
+	DefaultClineSource string `json:"defaultClineSource"`
+	UpdatedAt          int64  `json:"updatedAt"`
 }
 
 // SessionInfo is one signed-in browser.
@@ -198,6 +202,7 @@ func (s *Store) migrateBackups() error {
 		{"default_tool", "default_tool TEXT NOT NULL DEFAULT ''"},
 		{"default_model", "default_model TEXT NOT NULL DEFAULT ''"},
 		{"default_effort", "default_effort TEXT NOT NULL DEFAULT ''"},
+		{"default_cline_source", "default_cline_source TEXT NOT NULL DEFAULT ''"},
 	} {
 		ok, err := hasColumn(s.db, "user_profiles", column.name)
 		if err != nil {
@@ -476,8 +481,8 @@ func (s *Store) DeleteBackupRemote(ownerID int64, name string) error {
 // time so the page has something to show.
 func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	var p Profile
-	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,updated_at FROM user_profiles WHERE user_id=?`, userID).
-		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.GafferAnimations, &p.GafferCompact, &p.HostedPrefix, &p.DefaultBaseBranch, &p.WorktreesByDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.UpdatedAt)
+	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,default_cline_source,updated_at FROM user_profiles WHERE user_id=?`, userID).
+		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.GafferAnimations, &p.GafferCompact, &p.HostedPrefix, &p.DefaultBaseBranch, &p.WorktreesByDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultClineSource, &p.UpdatedAt)
 	if err == nil {
 		return p, nil
 	}
@@ -496,13 +501,13 @@ func (s *Store) SaveProfileFor(userID int64, p Profile) error {
 	if p.ShelfView == "" {
 		p.ShelfView = "list"
 	}
-	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,default_cline_source,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme, timezone=excluded.timezone,
 			date_format=excluded.date_format, shelf_view=excluded.shelf_view, cards_expanded=excluded.cards_expanded, terminal_remove_on_close=excluded.terminal_remove_on_close, gaffer_animations=excluded.gaffer_animations, gaffer_compact=excluded.gaffer_compact,
 			hosted_prefix=excluded.hosted_prefix, default_base_branch=excluded.default_base_branch, worktrees_by_default=excluded.worktrees_by_default,
-			default_tool=excluded.default_tool, default_model=excluded.default_model, default_effort=excluded.default_effort, updated_at=excluded.updated_at`,
+			default_tool=excluded.default_tool, default_model=excluded.default_model, default_effort=excluded.default_effort, default_cline_source=excluded.default_cline_source, updated_at=excluded.updated_at`,
 		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.GafferAnimations, p.GafferCompact, p.HostedPrefix, p.DefaultBaseBranch, p.WorktreesByDefault,
-		p.DefaultTool, p.DefaultModel, p.DefaultEffort, now())
+		p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultClineSource, now())
 	return err
 }
 

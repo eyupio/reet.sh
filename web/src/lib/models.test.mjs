@@ -409,3 +409,18 @@ test('model favourite clients use the documented routes, methods and bodies', as
     globalThis.fetch = originalFetch
   }
 })
+
+test('the default model follows the saved Cline source', () => {
+  const favourite = { tool: 'cline', model: 'm/fav' }
+  const resolve = (account, chosenSource) => resolveLaunchDefaults({ explicitAgent: 'cline', account, favouriteDefault: favourite, chosenSource, availableAgents: ['cline'] }).model
+  const saved = { defaultTool: 'cline', defaultClineSource: 'cline-pass' }
+  assert.equal(resolve(saved, 'cline'), '')
+  assert.equal(resolve(saved, 'cline-pass'), 'm/fav')
+  assert.equal(resolve(saved, undefined), 'm/fav')
+  assert.equal(resolve({ defaultTool: 'cline' }, 'cline'), 'm/fav')
+  const withModel = { defaultTool: 'cline', defaultModel: 'm/acct', defaultClineSource: 'cline-pass' }
+  assert.equal(resolveLaunchDefaults({ explicitAgent: 'cline', account: withModel, chosenSource: 'cline', availableAgents: ['cline'] }).model, '')
+  assert.equal(resolveLaunchDefaults({ explicitAgent: 'cline', account: withModel, chosenSource: 'cline-pass', availableAgents: ['cline'] }).model, 'm/acct')
+  // Another agent's model is never touched by a Cline source.
+  assert.equal(resolveLaunchDefaults({ explicitAgent: 'codex', account: { defaultTool: 'codex', defaultModel: 'm/codex', defaultClineSource: 'cline-pass' }, chosenSource: 'cline', availableAgents: ['codex'] }).model, 'm/codex')
+})

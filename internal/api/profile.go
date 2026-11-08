@@ -59,6 +59,7 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		DefaultTool           *string `json:"defaultTool"`
 		DefaultModel          *string `json:"defaultModel"`
 		DefaultEffort         *string `json:"defaultEffort"`
+		DefaultClineSource    *string `json:"defaultClineSource"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -88,6 +89,16 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		baseBranch = strings.TrimSpace(*in.DefaultBaseBranch)
 		if baseBranch != "" && !terminalproto.ValidRefName(baseBranch) {
 			writeErr(w, http.StatusBadRequest, "defaultBaseBranch must be blank or a valid git branch name of at most 255 bytes")
+			return
+		}
+	}
+	if in.DefaultClineSource != nil {
+		if user.Role == "viewer" {
+			writeErr(w, http.StatusForbidden, "read-only accounts can't change launch defaults")
+			return
+		}
+		if !terminalproto.ValidProvider(*in.DefaultClineSource) {
+			writeErr(w, 400, "defaultClineSource must be blank or a source id reet can pass on")
 			return
 		}
 	}
@@ -227,6 +238,10 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.DefaultEffort != nil {
 		profile.DefaultEffort = defaultEffort
 		detail["defaultEffort"] = defaultEffort
+	}
+	if in.DefaultClineSource != nil {
+		profile.DefaultClineSource = *in.DefaultClineSource
+		detail["defaultClineSource"] = *in.DefaultClineSource
 	}
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())

@@ -376,3 +376,25 @@ func TestPreviewCapabilityRequiresIndependentNegotiation(t *testing.T) {
 		t.Fatal("preview survived reconnect to older peer")
 	}
 }
+
+func TestACPProviderCapabilityNeedsLiveControlsAndItsFeature(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+	live := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature
+	negotiateFeatures(&cfg, live)
+	if c := capabilitiesFor(cfg, true, terminalproto.Ready); !c.ACPLiveControls || c.ACPProvider {
+		t.Fatalf("a peer without the feature was offered a provider: %+v", c)
+	}
+	negotiateFeatures(&cfg, live+","+terminalproto.ACPProviderFeature)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPProvider || c.ValidateFor(terminalFeatures(cfg)) != nil {
+		t.Fatalf("provider missing or not negotiated: %+v", c)
+	}
+	negotiateFeatures(&cfg, terminalproto.LaunchFeature+","+terminalproto.ACPFeature+","+terminalproto.ACPProviderFeature)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPProvider {
+		t.Fatal("provider claimed without live controls")
+	}
+	negotiateFeatures(&cfg, live)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPProvider || terminalproto.SupportsACPProvider(terminalFeatures(cfg)) {
+		t.Fatal("provider feature survived a reconnect to an older controller")
+	}
+}

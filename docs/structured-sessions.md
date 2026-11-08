@@ -115,6 +115,8 @@ history continuation both enforce the per-agent result; stored history must also
 belong to the same account, machine, tool and folder, from a closed reet session.
 No transcript, database migration or new execution control is introduced.
 
+A live Cline chat also shows a **Source** control beside **Chat model** when the session reports more than one billing source (Usage-Billing, ClinePass, or another id Cline reports). Choosing one is a confirmed switch: the connector reads the value back, and a switch that Cline refuses leaves the chat on its previous source with a plain sentence, and one it does not confirm leaves the source shown as Unconfirmed, because the change may already have happened. The model list then follows the new source. The control is disabled while a turn runs, and its star saves or clears the default source. When a chat stops for lack of credit, the error names the other sources the session offers. A source switch may be remembered by Cline for the whole machine rather than for this chat alone; that is not yet checked.
+
 The live chat's **Model** dropdown and **Make default** control appear only when that agent's available descriptor offers model switching. The dropdown lists the machine's models, any live selector values, favourites and suggestions, and choosing one applies it at once; **Other…** accepts a model the machine did not list.
 An explicit descriptor overrides machine-wide flags; an older OpenCode peer must report `acpModel`. Without that capability, the pane does not request
 model options or favourites, and provider-error guidance does not direct the person to a missing model control. A capability update applies to an open

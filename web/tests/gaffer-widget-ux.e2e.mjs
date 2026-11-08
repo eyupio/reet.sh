@@ -91,6 +91,13 @@ try{
       expect(await chat.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       if(width===1440||width===390)await chat.screenshot({path:`${shots}/gaffer-widget-${width}-${theme}.png`})
       await w.page.keyboard.press('Escape');await expect(launch).toBeFocused()
+      // Closing the panel remounts the launcher at its default spot, and it lifts above the composer and queue docks it
+      // shares columns with a moment later. Sample its parked position only once it has, or the later checks compare
+      // against a spot it was about to leave (326 then 174 in the landscape phone, 936 then 701 at 390 wide).
+      await expect.poll(()=>launch.evaluate(el=>{
+        const a=el.getBoundingClientRect()
+        return [...document.querySelectorAll('[data-floating-clearance]')].map(node=>node.getBoundingClientRect()).filter(r=>r.width&&r.height).every(dock=>a.bottom<=dock.top||a.right<=dock.left||a.left>=dock.right)
+      }),{message:`${theme} ${width}x${height}: launcher lifts above the composer and queue docks after the panel closes`}).toBe(true)
       const parked=await launch.boundingBox()
       if(width===390){
         await w.page.locator('.chat-pane .composer textarea').focus()

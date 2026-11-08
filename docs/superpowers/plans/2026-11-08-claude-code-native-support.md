@@ -122,7 +122,7 @@ Start from the latest `main` after pull requests 1 and #666 have merged. Read Ta
 Run: `go test ./internal/acpagent -run 'TestDescribeClaude|TestDescribeClaimsReattach' -count=1`
 Expected: FAIL (Claude reports no history or reattach).
 
-- [ ] **Step 3: Implement.** In `Describe`, the Claude arm sets `entry.History = true` and `entry.Reattach = spec.Reattach` besides `Model` and `Approval`, and `entry.Images = true` only behind a named constant `claudeTakesImages` whose value is Task 3's measured result. Set `Reattach: true` on `ClaudeCandidate`.
+- [ ] **Step 3: Implement.** In `Describe`, the Claude arm sets `entry.History = true` and `entry.Reattach = spec.Reattach` besides `Model` and `Approval`, and `entry.Images = claudeTakesImages`, a named constant that is `true`: slice 1 measured that the adapter advertises image prompts and forwards the block (the real model's acceptance is unmeasured, and the docs say so). Set `Reattach: true` on `ClaudeCandidate`.
 
 - [ ] **Step 4: Add the peer-negotiation test.** In `internal/agenthealth/acp_agents_test.go`, beside `TestAgentReattachClaimEnablesAnotherAgentsReattach`, add `TestClaudeReattachIsStrippedWithoutTheAgentReattachFeature`: with the switch on and the feature not negotiated, Claude's descriptor has `Reattach` false and `History` follows `acpHistory`; with it negotiated, `Reattach` is true.
 
@@ -149,7 +149,9 @@ Expected: PASS.
 Run: `go test ./internal/acpagent ./internal/terminalagent ./internal/terminalbroker -run 'Claude' -count=1`
 Expected: FAIL only where the behaviour is missing (reattach before Task 4's profile flag, the unmapped error code).
 
-- [ ] **Step 3: Implement** only what the failures show: map the adapter's unstored-load error to `ErrNoStoredConversation` in `session.go` (the single place that already does it for `session/load` replies), nothing else.
+- [ ] **Step 3: Implement** only what the failures show. Slice 1 measured that the adapter's unstored-load error (`-32002` "Resource not found") already maps to `ErrNoStoredConversation` (`noStoredConversation` in `session.go`), so no mapping change is expected; add one only if a test here shows a gap.
+
+- [ ] **Step 3a: Opt-in real replay test (deferred from slice 1).** Add `TestRealClaudeHistoryReplay` beside the other `TestRealClaude*` tests: skipped unless `REET_CLAUDE_ACP` and `REET_CLAUDE_STORED_HOME`/`REET_CLAUDE_STORED_SESSION` are set, where those name the throwaway home and session id a `scripts/probe-claude-lifecycle.py load` run left behind; it calls `Start` with `Home`, `Dir` and `Resume` set and asserts the session opens and the replay is dropped (the controller keeps its own transcript). Record the result in `docs/research/structured-adapters/probe-report.md` or, if it cannot be run here, state that in the ledger and leave it for the owner's device checks.
 
 - [ ] **Step 4: Run the three packages.**
 
@@ -158,39 +160,41 @@ Expected: PASS.
 
 - [ ] **Step 5: Commit** `Reconnect and continue Claude Code chats from their stored history`.
 
-### Task 6: Effort at start, confirmed
+### Task 6: Effort and a chosen model at start, confirmed
 
 **Files:**
-- Modify: `internal/acpagent/claude_test.go`, `web/src/lib/terminal/launchOptions.ts`, `web/src/lib/models.test.mjs`
+- Modify: `internal/acpagent/claude.go` (`ClaudeCandidate`), `internal/acpagent/claude_test.go`, `internal/acpagent/real_local_test.go`, `web/src/lib/terminal/launchOptions.ts`, `web/src/lib/models.test.mjs`
 
 **Interfaces:**
-- Consumes: `Options.Effort` and the existing `thought_level` handling in `Start` (`session.go`, the block after the model check); `claudeOptions` from Task 5.
-- Produces: `launchEfforts(tool, caps, chat)` returns only values in `{low, medium, high}` for a chat (plus the leading empty string).
+- Consumes: `Options.Effort`, `Options.Model` and the existing `thought_level` and model handling in `Start` (`session.go`); `claudeOptions` from Task 5.
+- Produces: `ClaudeCandidate.ConfirmModelBySwitch = true`; `launchEfforts(tool, caps, chat)` returns only values in `{low, medium, high}` for a chat (plus the leading empty string).
 
-- [ ] **Step 1: Write the failing Go tests** in `claude_test.go`: `TestClaudeStartsWithAConfirmedEffort` (fake reports `effort` in `session/new`, accepts `high`, reads it back; the session's `thought_level` setting reads `high` before `OnReady`), `TestClaudeRefusesAnEffortTheAdapterDoesNotConfirm` (fake echoes the old value; `Start` returns an error, no prompt is sent, the process group is retired) and `TestClaudeWithoutAnEffortOptionRefusesAnEffort` (`errors.Is(err, ErrControl)`). Skip the first test's assertions and say so in the ledger if Task 3 shows `effort` is not in `session/new`.
+Slice 1 measured, in the connector's environment: the adapter offers `effort` at `session/new` for its default model and reads a set back; it refuses an unlisted value; a launch naming only an effort works; a launch naming a model other than the adapter's own is refused today (`ErrModel`) and works once the profile confirms the model switch by read-back. Which options exist depends on the model: after choosing `sonnet` the adapter offers `effort` and `ultracode` but not `fast`.
+
+- [ ] **Step 1: Write the failing Go tests** in `claude_test.go`, using the frames slice 1 recorded: `TestClaudeStartsWithAConfirmedEffort` (the fake reports `effort` at `session/new`, accepts `high`, reads it back; the `thought_level` setting reads `high` before `OnReady`), `TestClaudeRefusesAnEffortTheAdapterDoesNotConfirm` (the fake echoes the old value; `Start` fails, no prompt is sent, the process group is retired), `TestClaudeStartsOnAChosenModelAndEffort` (the fake lists models; with the profile as it stands `Start` returns `ErrModel`, so this fails until Step 3), and `TestClaudeRefusesAnEffortTheChosenModelDoesNotOffer` (the fake drops `effort` after the model switch; `errors.Is(err, ErrControl)`).
 
 - [ ] **Step 2: Write the failing web test** in `web/src/lib/models.test.mjs`: with a Claude descriptor whose `thought_level` values are `default, low, medium, high, xhigh, max`, `launchEfforts('claude', caps, true)` equals `['', 'low', 'medium', 'high']`, and a Codex-shaped list with `ultra` drops it likewise.
 
 - [ ] **Step 3: Run both to see them fail.**
 
-Run: `go test ./internal/acpagent -run 'TestClaude.*Effort' -count=1` and `cd web && node src/lib/models.test.mjs`
-Expected: FAIL (the web list still includes `xhigh`, `max`).
+Run: `go test ./internal/acpagent -run 'TestClaude.*(Effort|Model)' -count=1` and `cd web && node src/lib/models.test.mjs`
+Expected: FAIL (`ErrModel` for a chosen model; the web list still includes `xhigh`, `max`).
 
-- [ ] **Step 4: Implement.** `launchEfforts` keeps only `low`, `medium` and `high` from the descriptor's values for a chat, since `Create.Effort` cannot carry the rest; add one line to its comment saying so. The Go side needs no change if Step 1's tests already pass.
+- [ ] **Step 4: Implement.** Set `ConfirmModelBySwitch: true` on `ClaudeCandidate`: the profile then confirms a chosen model by switching and reading it back, and the adapter's silent reset of an unknown model to `default` is caught by that read-back. `launchEfforts` keeps only `low`, `medium` and `high` from the descriptor's values for a chat, since `Create.Effort` cannot carry the rest; add one line to its comment saying so. Flip the pin in `TestRealClaudeOptions` (`real_local_test.go`): the launch naming a model and an effort now succeeds on the profile as it stands, so replace the `ErrModel` assertion with the success assertions the `switched` case has, and delete the `switched` copy.
 
 - [ ] **Step 5: Run the checks.**
 
-Run: `go test ./internal/acpagent -count=1 && cd web && npm run check`
+Run: `go test ./internal/acpagent -count=1`, `REET_CLAUDE_ACP=<adapter> go test ./internal/acpagent -run TestRealClaude -count=1`, then `cd web && npm run check`
 Expected: PASS, 0 errors.
 
-- [ ] **Step 6: Commit** `Offer Claude Code's thinking levels in Gaffer and confirm them at start`.
+- [ ] **Step 6: Commit** `Start Claude Code chats on a chosen model and thinking level, confirmed`.
 
-### Task 7: Images (only if proven) and the docs for this slice
+### Task 7: Images and the docs for this slice
 
 **Files:**
 - Modify: `internal/acpagent/claude_test.go`, `docs/structured-sessions.md`
 
-- [ ] **Step 1: Gate.** If Task 3's table says the adapter takes image blocks, write `TestClaudePromptCarriesImages` (a fake agent that records the prompt; an image attachment arrives as an `image` block) and make it pass; otherwise skip this task's code, record `Ruling: images stay off for Claude — the probe showed <result>` in the ledger, and keep `claudeTakesImages` false.
+- [ ] **Step 1: Images.** Slice 1 measured that the adapter advertises image prompts and the block reaches the provider request. Write `TestClaudePromptCarriesImages` (a fake agent that records the prompt; an image attachment arrives as an `image` block) and make it pass. The docs state that a real model's acceptance of an image is unmeasured.
 
 - [ ] **Step 2: Docs.** In `docs/structured-sessions.md` replace the sentence that Claude reports "approvals and the model switch only" with what the descriptor now reports, and state which rows of the probe table back each capability and that a signed-in turn has not been run.
 

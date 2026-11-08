@@ -24,7 +24,7 @@ try {
   page.setDefaultTimeout(10000)
   await page.addInitScript(()=>{class Stream{constructor(){this.listeners={};setTimeout(()=>this.onopen?.({}),0)}addEventListener(type,fn){(this.listeners[type]??=[]).push(fn)}close(){}}window.EventSource=Stream})
   async function pickModel(dialog){await dialog.getByRole('button',{name:/^Model:/}).click();await page.getByRole('listbox',{name:'Model',exact:true}).getByRole('option',{name:'provider/two',exact:true}).click()}
-  async function pickEffort(dialog){await dialog.getByRole('button',{name:/^Effort:/}).click();const list=page.getByRole('listbox',{name:'Effort',exact:true});await expect(list.getByRole('option',{name:'ultra',exact:true})).toBeVisible();await list.getByRole('option',{name:'ultra',exact:true}).click()}
+  async function pickEffort(dialog){await dialog.getByRole('button',{name:/^Effort:/}).click();const list=page.getByRole('listbox',{name:'Effort',exact:true});await expect(list.getByRole('option',{name:'high',exact:true})).toBeVisible();await list.getByRole('option',{name:'high',exact:true}).click()}
   try {
    // Machine/workspace Start an agent modal.
    await page.goto(`${base}/sessions?agent=${A}`)
@@ -34,12 +34,14 @@ try {
    await modal.getByRole('combobox',{name:'Agent',exact:true}).selectOption('codex')
    await expect(modal.getByRole('combobox',{name:'Session',exact:true})).toHaveValue('reet')
    await pickModel(modal)
-   await modal.getByRole('combobox',{name:'Effort',exact:true}).selectOption('ultra')
+   // A start carries only low, medium or high, so the agent's extra level is offered by the live control, not here.
+   await expect(modal.getByRole('combobox',{name:'Effort',exact:true}).locator('option[value="ultra"]')).toHaveCount(0)
+   await modal.getByRole('combobox',{name:'Effort',exact:true}).selectOption('high')
    await modal.getByRole('combobox',{name:'Effort',exact:true}).scrollIntoViewIfNeeded()
    if(process.env.REET_UI_SCREENSHOTS) await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/start-agent-options-${width}.png`,fullPage:true})
    await modal.getByRole('textbox',{name:/Opening prompt/}).fill('Review the selected options')
    await modal.getByRole('button',{name:'Start',exact:true}).click()
-   await expect.poll(()=>requests.at(-1)?.effort).toBe('ultra')
+   await expect.poll(()=>requests.at(-1)?.effort).toBe('high')
    expect(requests.at(-1).model).toBe('provider/two')
    await expect(modal).toHaveCount(0)
    await page.waitForURL(new RegExp(`session=${S}`))
@@ -51,11 +53,11 @@ try {
    await start.getByRole('combobox',{name:'Project',exact:true}).selectOption('project-options')
    await start.getByRole('textbox',{name:/Opening prompt/}).fill('Start with the selected model and effort')
    await pickModel(start)
-   await start.getByRole('combobox',{name:'Effort',exact:true}).selectOption('ultra')
+   await start.getByRole('combobox',{name:'Effort',exact:true}).selectOption('high')
    if(process.env.REET_UI_SCREENSHOTS) await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/start-session-options-${width}.png`,fullPage:true})
    await start.getByRole('button',{name:'Start',exact:true}).click()
    await expect.poll(()=>requests.length).toBe(2)
-   expect(requests.at(-1)).toMatchObject({model:'provider/two',effort:'ultra',structured:true})
+   expect(requests.at(-1)).toMatchObject({model:'provider/two',effort:'high',structured:true})
    await expect(start).toHaveCount(0)
    await page.waitForURL(new RegExp(`session=${S}`))
 
@@ -76,15 +78,15 @@ try {
     await thinking.click()
    }
    const effortList=page.getByRole('listbox',{name:'Thinking',exact:true})
-   await effortList.getByRole('option',{name:'ultra',exact:true}).click()
-   if (wide) await expect(bar.getByRole('button',{name:/^Thinking:/})).toHaveAccessibleName(/ultra$/)
+   await effortList.getByRole('option',{name:'high',exact:true}).click()
+   if (wide) await expect(bar.getByRole('button',{name:/^Thinking:/})).toHaveAccessibleName(/high$/)
    else {
-    await expect(bar.getByRole('dialog',{name:'Change the launch'}).getByRole('button',{name:/^Thinking:/})).toHaveAccessibleName(/ultra$/)
+    await expect(bar.getByRole('dialog',{name:'Change the launch'}).getByRole('button',{name:/^Thinking:/})).toHaveAccessibleName(/high$/)
     await bar.getByRole('button',{name:'Done',exact:true}).click()
    }
    await bar.getByRole('button',{name:/^Start the session$/}).click()
    await expect.poll(()=>requests.length).toBe(3)
-   expect(requests.at(-1)).toMatchObject({model:'provider/one',effort:'ultra',structured:true})
+   expect(requests.at(-1)).toMatchObject({model:'provider/one',effort:'high',structured:true})
    await page.waitForURL(new RegExp(`session=${S}`))
 
    // Backlog creation and editing preserve both choices across a reload.
@@ -98,30 +100,30 @@ try {
    await pickModel(composer);await pickEffort(composer)
    await composer.getByRole('button',{name:'Add to backlog',exact:true}).click()
    await expect.poll(()=>drafts.length).toBe(1)
-   expect(drafts[0]).toMatchObject({model:'provider/two',effort:'ultra',chat:true,tool:'codex',trust:false})
+   expect(drafts[0]).toMatchObject({model:'provider/two',effort:'high',chat:true,tool:'codex',trust:false})
    await expect(composer).toHaveCount(0)
    await page.reload()
    await page.getByRole('button',{name:'Show details for Saved native options',exact:true}).click()
    await page.getByRole('button',{name:'Edit Saved native options',exact:true}).click()
    const edit=page.getByRole('dialog',{name:'Edit session',exact:true})
    await expect(edit.getByRole('button',{name:'Model: provider/two',exact:true})).toBeVisible()
-   await expect(edit.getByRole('button',{name:'Effort: ultra',exact:true})).toBeVisible()
-   await edit.getByRole('button',{name:'Effort: ultra',exact:true}).scrollIntoViewIfNeeded()
+   await expect(edit.getByRole('button',{name:'Effort: high',exact:true})).toBeVisible()
+   await edit.getByRole('button',{name:'Effort: high',exact:true}).scrollIntoViewIfNeeded()
    if(process.env.REET_UI_SCREENSHOTS) await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/backlog-options-${width}.png`,fullPage:true})
    await edit.getByRole('button',{name:'Cancel',exact:true}).click()
    await expect(edit).toHaveCount(0)
-   // An offline capability read must preserve a saved native plan, including its extended effort.
+   // An offline capability read must preserve a saved native plan.
    machines[0]={...machine,ready:false,capabilities:undefined}
    await page.reload()
    await page.getByRole('button',{name:'Show details for Saved native options',exact:true}).click()
    await page.getByRole('button',{name:'Edit Saved native options',exact:true}).click()
    const offline=page.getByRole('dialog',{name:'Edit session',exact:true})
    await expect(offline.getByRole('button',{name:'Gaffer',exact:true})).toHaveAttribute('aria-pressed','true')
-   await expect(offline.getByRole('button',{name:'Effort: ultra',exact:true})).toBeVisible()
+   await expect(offline.getByRole('button',{name:'Effort: high',exact:true})).toBeVisible()
    await offline.getByRole('textbox',{name:'Prompt',exact:true}).fill('Keep the native settings while offline')
    await offline.getByRole('button',{name:'Save changes',exact:true}).click()
    await expect(offline).toHaveCount(0)
-   expect(drafts[0]).toMatchObject({prompt:'Keep the native settings while offline',model:'provider/two',effort:'ultra',chat:true,tool:'codex'})
+   expect(drafts[0]).toMatchObject({prompt:'Keep the native settings while offline',model:'provider/two',effort:'high',chat:true,tool:'codex'})
    expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false)
    expect(errors).toEqual([])
   } catch(e) {

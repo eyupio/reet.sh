@@ -3,8 +3,7 @@
   import SectionNav, { type SectionItem } from './SectionNav.svelte'
   import { PAGE_GROUP, type PageGroupContext } from './shell/pageNav'
 
-  // `eyebrow` is a temporary alias for `group` until every page has moved over.
-  let { group, groupHref, title, lede = '', titleId, sections, sectionsLabel, meta, actions, eyebrow }: {
+  let { group, groupHref, title, lede = '', titleId, sections, sectionsLabel, meta, actions }: {
     group?: string
     groupHref?: string
     title: string
@@ -14,13 +13,12 @@
     sectionsLabel?: string
     meta?: Snippet
     actions?: Snippet
-    eyebrow?: string
   } = $props()
 
   // The page's group from the More list, when App.svelte shares one (a signed-out page has none).
   const shared = getContext<PageGroupContext | undefined>(PAGE_GROUP)
   const context = $derived(shared?.group ?? null)
-  const label = $derived(group ?? eyebrow ?? context?.group ?? '')
+  const label = $derived(group ?? context?.group ?? '')
   // A detail page (one that links its label back to its parent with `groupHref`) shows no row of siblings.
   const row = $derived(sections
     ? { label: sectionsLabel ?? label, items: sections }

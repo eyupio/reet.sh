@@ -84,6 +84,82 @@ try {
     expect(errors).toEqual([])
     await context.close()
   }
+  // Machines: the title is the menu name and the section row holds Inventory & connection, Sync and the Software action.
+  if (run('machines')) {
+    const { context, page, errors } = await open({})
+    await page.goto(`${base}/machines`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await expect(page.getByRole('heading', { level: 1, name: 'Machines', exact: true })).toBeVisible()
+    await expect(page.locator('.page-heading').getByText('Machines', { exact: true }).first()).toBeVisible()
+    const row = page.getByRole('navigation', { name: 'Machines', exact: true })
+    await expect(row).toHaveCount(1)
+    await expect(row.getByRole('link', { name: 'Inventory & connection' })).toHaveAttribute('aria-current', 'page')
+    await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('href', '/sync')
+    await expect(row.getByRole('button', { name: 'Software', exact: true })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // The sync view is titled Sync and marks the Sync link current; the row (with Software) stays.
+  if (run('machines sync')) {
+    const { context, page, errors } = await open({})
+    await page.goto(`${base}/sync`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await expect(page.getByRole('heading', { level: 1, name: 'Sync', exact: true })).toBeVisible()
+    const row = page.getByRole('navigation', { name: 'Machines', exact: true })
+    await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('aria-current', 'page')
+    await expect(row.getByRole('link', { name: 'Inventory & connection' })).not.toHaveAttribute('aria-current', 'page')
+    await expect(row.getByRole('button', { name: 'Software', exact: true })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // One machine: the label links back to Machines, the host is the title, and the Sync link and Software action stay reachable.
+  if (run('machine focus')) {
+    const { context, page, errors } = await open({})
+    await page.goto(`${base}/machines?machine=build-box`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await expect(page.getByRole('heading', { level: 1, name: 'build-box', exact: true })).toBeVisible()
+    await expect(page.locator('.page-heading').getByRole('link', { name: 'Machines', exact: true })).toHaveAttribute('href', '/machines')
+    const row = page.getByRole('navigation', { name: 'Machines', exact: true })
+    await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('href', '/sync')
+    await expect(row.getByRole('button', { name: 'Software', exact: true })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // Instance administration: the group label, and exactly one row (Admin's own sections), never a second Workspace row beside it.
+  if (run('admin')) {
+    const now = Date.now()
+    const { context, page, errors } = await open({ routes: {
+      '/api/admin/status': { version: 'v1.4.2', commit: 'fixture', db: { path: '/data/reet.db', size: 1024 }, counts: { all: 0, liked: 0, bookmarked: 0, used: 0 }, stages: { use: 0, try: 0, shelf: 0 }, environments: [], events: [], skillsSh: true, metaLastOK: '', metaLastError: '', topics: { lastSynced: '', lastError: '' }, settings: { refreshEnabled: true, topicsEnabled: true, linkListsEnabled: false, rollupIndividual: true, pruneServerEnvironmentsDays: 0, instanceName: 'Test' } },
+      '/api/v2/admin/users': { users: [{ id: 1, name: 'Sam', email: 'sam@example.test', role: 'owner', createdAt: now, tokens: 0, lastActive: now }] },
+      '/api/v2/admin/sso': { enabled: false },
+    } })
+    await page.goto(`${base}/admin/users`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await expect(page.locator('.page-heading').getByText('Instance administration', { exact: true })).toBeVisible()
+    await expect(page.locator('.page-head').getByRole('navigation')).toHaveCount(1)
+    const row = page.getByRole('navigation', { name: 'Admin', exact: true })
+    await expect(row.getByRole('link', { name: 'Users' })).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByRole('navigation', { name: 'Workspace', exact: true })).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // Account: the label, the person as the one h1, and Account's own section row.
+  if (run('account')) {
+    const { context, page, errors } = await open({})
+    await page.goto(`${base}/account/profile`)
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    await expect(page.getByRole('heading', { level: 1, name: 'Sam', exact: true })).toBeVisible()
+    await expect(page.locator('.page-heading').getByText('Account', { exact: true })).toBeVisible()
+    const row = page.getByRole('navigation', { name: 'Account', exact: true })
+    await expect(row).toHaveCount(1)
+    await expect(row.getByRole('link', { name: 'Profile' })).toHaveAttribute('aria-current', 'page')
+    expect(errors).toEqual([])
+    await context.close()
+  }
 } finally {
   await browser.close()
 }

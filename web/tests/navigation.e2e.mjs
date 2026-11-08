@@ -380,6 +380,9 @@ try {
   await page.goto(`${base}/sync`)
   await expect(tabs(page).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
   await expect(tabs(page).getByRole('button',{name:/^More/})).not.toHaveClass(/current/)
+  // On a phone the section row is folded into one menu showing the current page; open it to reach the links.
+  await expect(page.locator('nav[aria-label="Machines"] summary')).toContainText('Sync')
+  await page.locator('nav[aria-label="Machines"] summary').click()
   await expect(page.locator('nav[aria-label="Machines"]').getByRole('link',{name:'Sync',exact:true})).toHaveAttribute('aria-current','page')
   await tabs(page).getByRole('button',{name:/^More/}).click()
   await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Sync'})).toHaveCount(0)
@@ -465,7 +468,7 @@ try {
   await expect(page.locator('main .eyebrow').first()).toHaveText('Machines')
   await expect(page.locator('main').getByText('Control',{exact:true})).toHaveCount(0)
   await expect(page.getByText('Your control centre')).toHaveCount(0)
-  const tabs = await page.locator('nav[aria-label="Machines"] a').allInnerTexts()
+  const tabs = await page.locator('nav[aria-label="Machines"]').getByRole('link').allInnerTexts()
   expect(tabs.map(t=>t.trim())).toEqual(['Inventory & connection','Sync'])
   await context.close()
  }

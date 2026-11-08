@@ -1,6 +1,5 @@
 <script lang="ts">
   import { gafferAnimations, gafferCompact } from './gafferMotion'
-  import SectionNav from './SectionNav.svelte'
   import { onMount } from 'svelte'
   import CollectionPanel from './CollectionPanel.svelte'
   import Skeleton from './Skeleton.svelte'
@@ -378,10 +377,8 @@
 <section class="account" aria-labelledby="account-title">
   <div class="idcard">
     <span class="avatar" aria-hidden="true">{initials()}</span>
-    <PageHeader eyebrow="Your account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} />
+    <PageHeader group="Account" title={who.name || who.email} titleId="account-title" lede={`${who.email} · ${who.role}`} sectionsLabel="Account" sections={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : `/account/${s.key}`, current: section === s.key }))} />
   </div>
-
-  <SectionNav label="Account" items={sections.map(s => ({ label: s.label, href: s.key === 'machines' ? '/machines' : s.key === 'sync' ? '/machines?view=compare' : `/account/${s.key}`, current: section === s.key }))} />
 
   {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
@@ -667,7 +664,8 @@
 
 <style>
   .account { padding-top: 4px; }
-  .idcard { display: flex; align-items: center; gap: 16px; }
+  .idcard { display: flex; align-items: flex-start; gap: 16px; }
+  .idcard :global(.page-head) { flex: 1; min-width: 0; }
   .avatar {
     display: inline-grid; place-items: center; flex: none; width: 64px; height: 64px;
     border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line)); border-radius: 50%;

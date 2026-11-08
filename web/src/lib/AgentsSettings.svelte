@@ -7,6 +7,7 @@
     type ModelFavourites,
   } from './api'
   import { CATALOGUE } from './catalogue'
+  import { KNOWN_SOURCES } from './clineSource'
   import { cleanModel, modelSuggestions, toolName, validateModel } from './agentLaunch'
   import {
     dedupeModels, defaultLabel, effortChoices, favouriteKey, modelOptions, starLabel,
@@ -20,7 +21,7 @@
   const agents = CATALOGUE.filter(agent => agent.enabled)
   const life = new AbortController()
   let loading = $state(true), busy = $state(''), profileLoaded = $state(false)
-  let defaultTool = $state(''), defaultModel = $state(''), defaultEffort = $state('')
+  let defaultTool = $state(''), defaultModel = $state(''), defaultEffort = $state(''), defaultClineSource = $state('')
   let defaultBaseBranch = $state(''), worktreesByDefault = $state(false)
   let formMessage = $state(''), notice = $state('')
   let modelButton = $state<HTMLButtonElement | null>(null)
@@ -84,14 +85,15 @@
     else if (e instanceof ApiError && e.status === 401) onerror?.(new UnauthorizedError())
   }
 
-  let loaded = { tool: '', model: '', effort: '', base: '', worktrees: false }
+  let loaded = { tool: '', model: '', effort: '', source: '', base: '', worktrees: false }
   function fillProfile(profile: Awaited<ReturnType<typeof getProfile>>['profile']) {
     defaultTool = profile.defaultTool ?? ''
     defaultModel = profile.defaultModel ?? ''
     defaultEffort = profile.defaultEffort ?? ''
+    defaultClineSource = profile.defaultClineSource ?? ''
     defaultBaseBranch = profile.defaultBaseBranch ?? ''
     worktreesByDefault = profile.worktreesByDefault ?? false
-    loaded = { tool: defaultTool, model: defaultModel, effort: defaultEffort, base: defaultBaseBranch, worktrees: worktreesByDefault }
+    loaded = { tool: defaultTool, model: defaultModel, effort: defaultEffort, source: defaultClineSource, base: defaultBaseBranch, worktrees: worktreesByDefault }
     profileLoaded = true
   }
 
@@ -380,6 +382,8 @@
     if (defaultTool !== loaded.tool) patch.defaultTool = defaultTool
     if (model !== loaded.model) patch.defaultModel = model
     if (defaultEffort !== loaded.effort) patch.defaultEffort = defaultEffort
+    // The billing source belongs to Cline: only a Cline default carries it, so another agent's save never sends a stale one.
+    if (defaultTool === 'cline' && defaultClineSource !== loaded.source) patch.defaultClineSource = defaultClineSource
     if (base !== loaded.base) patch.defaultBaseBranch = base
     if (worktreesByDefault !== loaded.worktrees) patch.worktreesByDefault = worktreesByDefault
     if (!Object.keys(patch).length) { busy = ''; notice = 'Nothing changed.'; return }
@@ -442,6 +446,17 @@
             {#each effortChoices(defaultTool) as value (value || 'default')}<option value={value}>{value || 'The agent’s default'}</option>{/each}
           </select>
           <small>Only agents that take an effort level show this.</small>
+        </label>
+      {/if}
+
+      {#if defaultTool === 'cline'}
+        <label><span>Default source</span>
+          <select id="agents-source" aria-label="Default source" bind:value={defaultClineSource} disabled={!canWrite || busy === 'profile'}>
+            <option value="">Cline’s own choice</option>
+            {#each KNOWN_SOURCES as choice (choice.id)}<option value={choice.id}>{choice.label}</option>{/each}
+            {#if defaultClineSource && !KNOWN_SOURCES.some(choice => choice.id === defaultClineSource)}<option value={defaultClineSource}>{defaultClineSource}</option>{/if}
+          </select>
+          <small>The billing source new Cline sessions start on.</small>
         </label>
       {/if}
 

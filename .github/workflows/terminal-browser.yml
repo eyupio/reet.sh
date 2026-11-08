@@ -90,6 +90,7 @@ jobs:
           node web/tests/empty-states.e2e.mjs
           node web/tests/lists.e2e.mjs
           node web/tests/community.e2e.mjs
+          node web/tests/supporting-nav.e2e.mjs
           node web/tests/spaces.e2e.mjs
           node web/tests/machines-search.e2e.mjs
           node web/tests/machines-fleet.e2e.mjs

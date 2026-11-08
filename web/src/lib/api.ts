@@ -1050,7 +1050,8 @@ export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; da
   defaultBaseBranch?: string; worktreesByDefault?: boolean
   /** New sessions without a project: the agent, its model and its thinking level; '' is the agent's own default. */
   defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string }
-export type ProfileInfo = { user: User; profile: Profile; sessionCount: number; accounts: boolean }
+/** chatEnabled is the effective on or off state of each gated chat (Claude Code, Codex); profile.chatAgents holds only the explicit choices. */
+export type ProfileInfo = { user: User; profile: Profile; chatEnabled?: Record<string, boolean>; sessionCount: number; accounts: boolean }
 export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
 
 // Sent on window whenever the page theme changes, so a mounted form holding the theme follows instead of saving a stale one.
@@ -1104,7 +1105,7 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean> }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 

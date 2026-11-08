@@ -15,3 +15,16 @@ export function jumpMatches(items: JumpItem[], query: string, limit = 8): JumpIt
     .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || a.label.localeCompare(b.label))
     .slice(0, limit)
 }
+
+/** The section a supporting page belongs to: its name and every entry of that section, in order. */
+export type PageGroup = { group: string; items: { label: string; href: string; current: boolean }[] }
+
+/** The group of the `more` entry in view, with all of its siblings (the caller shows the row only when there are two or more); null when the page is not in a group. */
+export function pageGroup(more: Tab[]): PageGroup | null {
+  const group = more.find(tab => tab.current && tab.group)?.group
+  if (!group) return null
+  return {
+    group,
+    items: more.filter(tab => tab.group === group).map(({ label, href, current }) => ({ label, href, current })),
+  }
+}

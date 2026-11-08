@@ -98,7 +98,6 @@ func TestReattachFollowsTheAgentsOwnClaim(t *testing.T) {
 	if changed.State != terminalproto.Running || loads.count() != 1 || loads.loads[0] != proc.SessionID() {
 		t.Fatalf("cline reattach %+v loads %v", changed, loads.loads)
 	}
-	t.Setenv(acpagent.ClaudeSwitch, "1")
 	body.Tool = "claude"
 	if _, err := h.reattach("request-claude-reattach001", "session-claude-reattach0001", body); !errors.Is(err, acpagent.ErrUnsupported) {
 		t.Fatalf("an agent without the reattach claim was asked: %v", err)

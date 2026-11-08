@@ -450,3 +450,10 @@ Latest supervision: the actual `40f47ca4` full-list benchmark failed. Contributo
 PR #665 was merged into `feat/canonical-library-stage-2` as `13af8370780f676303210b07d110967d48354af9`, not into main. Its tree exactly matches reviewed Stage 3 head `463e35b3`; the merge introduced no further source change. PR #664 now carries both Stage 2 and Stage 3 to main. Current combined-head CI, including the unchanged 15% benchmark and CodeQL, remains required before that merge. Stage 3 therefore remains unchecked; a closed/merged #665 alone does not establish main-branch delivery. No Stage 4 work is started.
 
 The earlier statements that #665 is draft are historical checkpoints. #670 has merged into main with per-account chat opt-in defaulting off; the separate signed-in acceptance gate for final default-on activation remains in force. #671 is being integrated with that current main, preserving both navigation and chat-settings tests. No deployment is implied.
+
+
+### Current-main integration and browser gate correction
+
+#671 merged to main as `83f564c8`. The combined Stage 2/3 branch integrates that exact main, preserving its navigation, per-account chat settings and all tests. Web unit checks, svelte-check (zero errors/warnings), production build, selected-library browser checks at 320/390/1280px and supporting-navigation browser checks pass on the combined source.
+
+The current-head Gaffer settings retry failed its widget keyboard-restore assertion (expected y=936, actual y=701). The same fixture reproduced locally (936 versus 708): after closing the dialog, it captured a newly mounted launcher's position before the clearance action's next animation frame. The fixture now waits for the existing exact size/in-view/dock-clearance contract before saving that baseline. It retains the exact keyboard/scroll restore assertion, timeouts and all twelve width/theme scenarios. The complete corrected widget fixture passes locally. Fresh current-head CI and the unchanged benchmark remain required; no stage is marked delivered to main in advance.

@@ -53,7 +53,7 @@ try {
       expect(Math.abs(finalLogo[edge] - bootLogo[edge]), `${path} ${width}: logo ${edge} moved`).toBeLessThanOrEqual(0.6)
     }
     if (path === '/') await expect(page.locator('.home.writer > .column')).toBeVisible()
-    if (path === '/machines') await expect(page.locator('h1').first()).toContainText('Your machines')
+    if (path === '/machines') await expect(page.locator('h1').first()).toHaveText('Machines')
     const loadedBox = await page.locator('#main-content').boundingBox()
     for (const box of [authBox, chunkBox]) {
       expect(box.x, `${path} ${width}: main left changed`).toBe(loadedBox.x)

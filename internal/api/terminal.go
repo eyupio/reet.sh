@@ -206,6 +206,11 @@ func terminalError(w http.ResponseWriter, err error) {
 	}
 	writeErr(w, status, message)
 }
+
+// chatOffMessage is the one refusal for a chat whose switch the account has turned off. It names the setting, because
+// updating reet on the machine would change nothing.
+const chatOffMessage = "This chat is turned off for your account. Turn it on in Settings > Agents."
+
 func (s *server) terminalMachines(w http.ResponseWriter, r *http.Request) {
 	agents, err := s.st.SyncAgentsFor(s.uid(r))
 	if err != nil {
@@ -416,6 +421,8 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusConflict, "acp_history_unsupported", "", "Update reet on that machine to reopen reet sessions with their history.", "")
 	case errors.Is(err, terminalbroker.ErrACPResumeNotFound):
 		writeErrCode(w, http.StatusNotFound, "acp_resume_not_found", "", "That reet session's history is no longer available on that machine.", "")
+	case errors.Is(err, terminalbroker.ErrChatOff):
+		writeErrCode(w, http.StatusConflict, "chat_off", "", chatOffMessage, "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):
 		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use Gaffer chats.", "")
 	case errors.Is(err, terminalbroker.ErrACPVersion):

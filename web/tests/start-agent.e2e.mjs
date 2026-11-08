@@ -997,7 +997,7 @@ try{
  await page.goto(`${base}/sessions?agent=${A}`)
  // The session address shows the Machines page instead of the workspace, under its own name: its heading is there, the workspace's is not.
  await expect(page).toHaveTitle('Machines · reet.sh')
- await expect(page.getByRole('heading',{name:'Your machines, connected.',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
  viewer=false;authMode='none'
@@ -1007,7 +1007,7 @@ try{
  await page.goto(`${base}/sessions?agent=${A}`)
  // The session address shows the Machines page instead of the workspace, under its own name: its heading is there, the workspace's is not.
  await expect(page).toHaveTitle('Machines · reet.sh')
- await expect(page.getByRole('heading',{name:'Your machines, connected.',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
 

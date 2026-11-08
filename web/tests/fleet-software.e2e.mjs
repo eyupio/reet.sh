@@ -46,6 +46,10 @@ async function open(options, world) {
 }
 const openModal = async page => {
   await page.goto(`${base}/machines`)
+  // On a phone the section row is folded into one menu; open it to reach the Software action.
+  await page.locator('nav[aria-label="Machines"]').waitFor()
+  const folded = page.locator('nav[aria-label="Machines"] summary')
+  if (await folded.isVisible()) await folded.click()
   await page.getByRole('button', { name: 'Software', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Fleet software' })
   await expect(dialog).toBeVisible()

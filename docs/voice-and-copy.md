@@ -10,13 +10,14 @@ Use a little local language at visible, everyday moments: the shelf heading, sta
 
 | Moment | Example | Meaning remains clear through |
 | --- | --- | --- |
-| Shelf introduction | Ey up. Your skill shelf. | The page’s purpose follows the greeting. |
+| Shelf label | Your skill shelf | The plain label names the page; the lede explains what it holds. |
 | Main heading | A reet good toolkit. | The lede explains finding, trying and using skills. |
 | In use | Earning their keep. | The stage label stays In use. |
 | To test | Give these a proper go. | The stage label stays To test. |
 | Empty search | Nowt matches just yet. | Follow with Try another search or clear your filters. |
 | Success | Sorted. Note saved. | State the completed action explicitly. |
-| Community | Have a nosy. | The eyebrow stays Public community and the lede explains what is public. |
+
+Navigation titles are the menu names, and the group label names where a page sits; the lede is where a page's character belongs.
 
 “Ey up”, “reet”, “nowt”, “proper”, “give it a go” and “earning their keep” fit. Use ordinary spelling and natural sentences, rather than a phonetic accent or a string of dialect words. Local character should not become a joke about the user, a novelty mascot or a barrier to understanding.
 

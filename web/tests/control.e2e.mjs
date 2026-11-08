@@ -267,7 +267,7 @@ try {
  failSource=false
  viewer=true
  await page.goto(`${base}/machines`)
- await expect(page.getByRole('heading',{name:'Your machines, connected.'})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
  await expect(page.getByRole('link',{name:'Sessions',exact:true})).toHaveCount(0)
  viewer=false
  expect(errors).toEqual([])

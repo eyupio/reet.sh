@@ -44,9 +44,11 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 	// session/load, images in the prompt, a confirmed model switch and native
 	// approval requests. Each agent's profile controls its permission policy.
 	entry.History, entry.Images, entry.Model, entry.Approval = true, true, true, true
-	// Both reopen a stored conversation in place, which the controller offers
-	// only on a connection that negotiated acp-agent-reattach-v1.
-	entry.Reattach = true
+	// Only an adapter whose profile can reopen a stored conversation in place
+	// says so. The controller offers that only on a connection that negotiated
+	// acp-agent-reattach-v1, and the connector refuses a reattach for any other
+	// profile, so claiming it would offer a reconnect that can only fail.
+	entry.Reattach = spec.Reattach
 	return entry
 }
 

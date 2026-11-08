@@ -354,3 +354,11 @@ func TestHandshakeWithoutAgentsV2IsRefusedAsInvalidHandshake(t *testing.T) {
 		})
 	}
 }
+
+// The controller applies the per-account chat setting, so it advertises the feature that lets a connector report the
+// gated agents.
+func TestControllerAdvertisesTheChatGate(t *testing.T) {
+	if !terminalproto.SupportsChatGate(privateControlFeatures) || !terminalproto.SupportsChatGate(agreedControlFeatures(terminalproto.Capabilities{})) {
+		t.Fatalf("the chat gate is not advertised: %q", privateControlFeatures)
+	}
+}

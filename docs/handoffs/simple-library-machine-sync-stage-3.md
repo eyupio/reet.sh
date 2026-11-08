@@ -139,3 +139,10 @@ The integrated current range-query source passes canonical API checks (36.752s, 
 ### Feature-branch merge checkpoint
 
 PR #665 is merged into its Stage 2 feature base, not main: merge `13af8370780f676303210b07d110967d48354af9` has exactly the reviewed `463e35b3` tree. Main-branch delivery now goes through #664, carrying the complete Stage 2/3 source. Current combined-head CI, main compatibility and the unchanged paired benchmark remain required. The earlier instructions to retain a draft/retarget #665 are superseded by this actual merge topology. Stage 3 stays unchecked until integration completes; do not infer production rollout or begin Stage 4.
+
+
+### Integration with main after navigation delivery
+
+The combined delivery branch merges main `83f564c8` after #671, with no source conflict. Its selected-library three-width and supporting-navigation browser suites pass, along with web checks/build. The Gaffer settings browser failure was independently reproduced and corrected by waiting for remount clearance before capturing the restore baseline; all twelve widget width/theme scenarios then pass without loosening the position assertion or timeouts. Current-head CI, including the benchmark, still gates #664 and Stage 3 completion. Stages 4–7 remain unstarted.
+
+The canonical/selected API integration checks pass against this combined main source (36.352s, non-race). The first local attempt hit a full `/tmp`; relocating test temporary files to a long workspace path then hit the Unix control-socket path limit. The successful rerun used the short `TMPDIR=/workspace/t` and `GOTMPDIR=/workspace/work/go-build`. These were local environment failures, not clean earlier runs. Strict docs/rendered checks pass for 51 pages. The final source still needs its current-head CI; no fresh repository-wide race sweep is claimed.

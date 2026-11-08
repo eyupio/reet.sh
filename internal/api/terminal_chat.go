@@ -232,6 +232,8 @@ func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 	case errors.Is(err, terminalbroker.ErrACPModelRejected), errors.Is(err, terminalbroker.ErrACPModelUnsupported),
 		errors.Is(err, terminalbroker.ErrACPAgentModeRejected), errors.Is(err, terminalbroker.ErrACPAgentModeUnsupported), errors.Is(err, terminalbroker.ErrACPModeUnknown):
 		writeErr(w, 409, err.Error())
+	case errors.Is(err, terminalbroker.ErrChatOff):
+		writeErrCode(w, 409, "chat_off", "", chatOffMessage, "")
 	case errors.Is(err, store.ErrRemoteNotFound):
 		writeErr(w, 404, "that reet session is not available")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported), errors.Is(err, terminalbroker.ErrACPClosed):

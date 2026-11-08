@@ -28,9 +28,14 @@ try{
       await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
       const launch=w.page.getByRole('button',{name:'Ask Gaffer',exact:true}),chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
       await expect(launch).toHaveCount(1)
-      // Workspace bounds are published on the next animation frame after mount.
-      // Poll the same geometry contract rather than reading before measurement.
-      await expect.poll(()=>launch.evaluate(el=>{const a=el.getBoundingClientRect(),workspace=document.querySelector('[aria-label="Remote terminal workspace"]')?.getBoundingClientRect();return {width:a.width,height:a.height,inView:a.bottom<=innerHeight&&a.top>=0,clear:!workspace||a.top>=workspace.bottom-1||a.left>=workspace.right+8||a.right<=workspace.left-8}}),{message:`${theme} ${width}x${height}: launcher fits and clears the measured workspace`}).toEqual({width:56,height:56,inView:true,clear:true})
+      // The launcher floats over the workspace instead of reserving a column, but it must stay in view and
+      // lift clear of the composer, queue and other opt-in docks that grow at the bottom of the screen.
+      const launcherPlacement=()=>launch.evaluate(el=>{
+        const a=el.getBoundingClientRect()
+        const docks=[...document.querySelectorAll('[data-floating-clearance]')].map(node=>node.getBoundingClientRect()).filter(r=>r.width&&r.height)
+        return {width:a.width,height:a.height,inView:a.bottom<=innerHeight&&a.top>=0,clear:docks.every(dock=>a.bottom<=dock.top||a.top>=dock.bottom||a.right<=dock.left||a.left>=dock.right)}
+      })
+      await expect.poll(launcherPlacement,{message:`${theme} ${width}x${height}: launcher fits and clears composer and queue docks`}).toEqual({width:56,height:56,inView:true,clear:true})
       await launch.click();await expect(chat).toBeVisible()
       for(const name of ['New conversation','Conversation history','Chat options','Close Gaffer'])await expect(chat.getByRole('button',{name,exact:true})).toBeVisible()
       await expect(chat.getByRole('group',{name:'Gaffer panel tools',exact:true})).toHaveCount(1)
@@ -87,6 +92,9 @@ try{
       expect(await chat.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       if(width===1440||width===390)await chat.screenshot({path:`${shots}/gaffer-widget-${width}-${theme}.png`})
       await w.page.keyboard.press('Escape');await expect(launch).toBeFocused()
+      // Closing remounts the launcher; its clearance action measures on the next frame.
+      // Capture the parked position only after it clears the docks, just as on first mount.
+      await expect.poll(launcherPlacement,{message:'remounted launcher clears docks before recording its keyboard-restore position'}).toEqual({width:56,height:56,inView:true,clear:true})
       const parked=await launch.boundingBox()
       if(width===390){
         await w.page.locator('.chat-pane .composer textarea').focus()

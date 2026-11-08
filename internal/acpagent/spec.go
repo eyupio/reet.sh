@@ -5,7 +5,6 @@ package acpagent
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -243,31 +242,15 @@ func (s Spec) minVersion() (semver, bool) {
 
 // Lookup returns the registered adapter for a catalogue tool.
 func Lookup(tool string) (Spec, bool) {
-	if tool == ClaudeCandidate.Key && ClaudeEnabled() {
+	if tool == ClaudeCandidate.Key {
 		return ClaudeCandidate, true
 	}
-	if tool == CodexCandidate.Key && CodexEnabled() {
+	if tool == CodexCandidate.Key {
 		return CodexCandidate, true
 	}
 	spec, ok := agents[tool]
 	return spec, ok
 }
-
-// ClaudeSwitch is the environment variable that opts one machine in to Claude
-// chats. It is off by default: until the real-credential and missing-credential
-// checks have been run, Claude is registered but dark.
-const ClaudeSwitch = "REET_EXPERIMENTAL_CLAUDE_CHAT"
-
-// ClaudeEnabled reports whether this machine has opted in to Claude chats.
-func ClaudeEnabled() bool { return os.Getenv(ClaudeSwitch) == "1" }
-
-// CodexSwitch is the environment variable that opts one machine in to Codex
-// chats. Off by default: Codex is registered but dark until a real-login run and
-// the approval card changes are done.
-const CodexSwitch = "REET_EXPERIMENTAL_CODEX_CHAT"
-
-// CodexEnabled reports whether this machine has opted in to Codex chats.
-func CodexEnabled() bool { return os.Getenv(CodexSwitch) == "1" }
 
 // VersionError explains why an adapter was refused.
 type VersionError struct {

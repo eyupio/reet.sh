@@ -298,3 +298,35 @@ func TestLargestPromptFitsTheControlFrame(t *testing.T) {
 		t.Fatalf("the largest valid create does not fit the control frame: %v", err)
 	}
 }
+
+func TestCreateProviderIsAClineChatOnly(t *testing.T) {
+	create := func(tool string, structured bool, provider string) Create {
+		return Create{Title: "Review", Cols: 100, Rows: 30, Tool: tool, Structured: structured, Provider: provider}
+	}
+	if err := create("cline", true, "cline-pass").Validate(); err != nil {
+		t.Fatalf("a Cline chat with a source was refused: %v", err)
+	}
+	for _, tool := range []string{"cline", "codex", "claude"} {
+		if err := create(tool, true, "").Validate(); err != nil && tool == "cline" {
+			t.Fatalf("an empty provider was refused: %v", err)
+		}
+	}
+	if create("codex", true, "cline-pass").Validate() == nil {
+		t.Fatal("a provider was accepted for another agent")
+	}
+	if create("cline", false, "cline-pass").Validate() == nil {
+		t.Fatal("a provider was accepted for a terminal session")
+	}
+	if create("cline", true, "bad value").Validate() == nil {
+		t.Fatal("a provider that fails the model-name rule was accepted")
+	}
+	if (Create{Title: "Review", Cols: 100, Rows: 30, Provider: "cline"}).Validate() == nil {
+		t.Fatal("a provider was accepted without a tool")
+	}
+	if !ValidProvider("") || !ValidProvider("cline-pass") || ValidProvider("bad value") {
+		t.Fatal("ValidProvider rule")
+	}
+	if !ToolTakesProvider("cline") || ToolTakesProvider("codex") || ToolTakesProvider("") {
+		t.Fatal("ToolTakesProvider rule")
+	}
+}

@@ -160,6 +160,10 @@ type Capabilities struct {
 	ACPLiveControls bool `json:"acpLiveControls,omitempty"`
 	ACPPreviews     bool `json:"acpPreviews,omitempty"`
 	ACPStartOptions bool `json:"acpStartOptions,omitempty"`
+	// ACPProvider is set on a connection that negotiated acp-provider-v1 and
+	// live controls: the connector may report a provider setting and take a
+	// provider on a structured Cline create.
+	ACPProvider bool `json:"acpProvider,omitempty"`
 	// ACPAgentMode is set on a connection that negotiated acp-agent-mode-v1.
 	ACPAgentMode bool `json:"acpAgentMode,omitempty"`
 	// ACPAgentOptions is set on a connection that negotiated
@@ -216,6 +220,9 @@ func (c Capabilities) Validate() error {
 	if c.ACPStartOptions {
 		features = append(features, ACPStartOptionsFeature)
 	}
+	if c.ACPProvider {
+		features = append(features, ACPProviderFeature)
+	}
 	if c.ACPLiveControls {
 		features = append(features, ACPLiveControlsFeature)
 	}
@@ -264,6 +271,10 @@ func (c Capabilities) ValidateFor(features string) error {
 	}
 	validStartOptions := SupportsACPStartOptions(features) && c.ACPLiveControls
 	if c.ACPStartOptions && !validStartOptions {
+		return ErrInvalid
+	}
+	validProvider := SupportsACPProvider(features) && c.ACPLiveControls
+	if c.ACPProvider && !validProvider {
 		return ErrInvalid
 	}
 	if c.ACPLiveControls && !SupportsACPLiveControls(features) {
@@ -483,13 +494,20 @@ type Create struct {
 	// It is the controller's own record: never encoded, so never sent to a
 	// machine nor stored with the create's parameters.
 	ProjectID string `json:"-"`
+	// TitleOrigin is who owns Title (see TitleOrigin). Like ProjectID it is
+	// the controller's own record: never encoded.
+	TitleOrigin TitleOrigin `json:"-"`
 	// LaunchSession opens the tool's terminal on that native session id (for
 	// OpenCode, `--session`). Never encoded: the connector builds the Create
 	// locally. Incompatible with Resume and Structured.
 	LaunchSession string `json:"-"`
 	Base          string `json:"base,omitempty"`
 	Effort        string `json:"effort,omitempty"`
-	Yolo          bool   `json:"yolo,omitempty"`
+	// Provider is the billing source a structured Cline chat starts on (a
+	// provider id Cline reports). Empty keeps Cline's own choice. It is only
+	// sent to a connector that negotiated acp-provider-v1.
+	Provider string `json:"provider,omitempty"`
+	Yolo     bool   `json:"yolo,omitempty"`
 	// Resume continues the agent's last conversation in Dir. It is offered
 	// only for a closed session, and only on a machine that negotiated
 	// resume-v1 and whose preset has a reviewed resume command.

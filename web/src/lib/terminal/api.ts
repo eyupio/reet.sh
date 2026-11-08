@@ -19,7 +19,7 @@ export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'fail
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
 export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number }
-export type Capabilities = { nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -42,9 +42,11 @@ export class TerminalError extends Error {
   constructor(status: number, message: string, code?: string, detail?: string, field?: string, worktree?: UnsavedWorktree) { super(message); this.status = status; if (code) this.code = code; if (detail) this.detail = detail; if (field) this.field = field; if (worktree) this.worktree = worktree }
 }
 /** What to start instead of a plain shell. Only the fields that are set are sent; the machine decides the program and flags. */
-export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: string; yolo?: boolean; resume?: boolean; worktree?: string; project?: string; structured?: boolean; trust?: boolean; resumeAcp?: string
+export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: string; provider?: string; yolo?: boolean; resume?: boolean; worktree?: string; project?: string; structured?: boolean; trust?: boolean; resumeAcp?: string
   /** The folder project the session belongs to (checked by the controller, never sent to the machine). */
-  projectId?: string }
+  projectId?: string
+  /** Who named the session, sent only with a tool launch: `prompt` when the title comes from the task, `fallback` when it is the generic agent and folder name. */
+  titleOrigin?: 'prompt' | 'fallback' }
 export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(title)}
 // Interactive terminals intentionally use only the browser cookie, never the
 // generic API helper's localStorage API token or a capability in a URL.
@@ -174,12 +176,13 @@ export async function terminalSessions(signal?: AbortSignal): Promise<TerminalSe
 export async function createTerminal(agentId: string, requestId: string, title: string, cols = 100, rows = 30, signal?: AbortSignal, launch?: LaunchRequest): Promise<TerminalSession> {
   // A plain create stays byte-identical to before: the launch keys are added only when they have a value.
   const body: Record<string, string | number | boolean> = { agentId, requestId, title, cols, rows }
-  for (const key of ['tool', 'model', 'dir', 'prompt', 'projectId', 'base', 'effort', 'worktree', 'project'] as const) if (launch?.[key]) body[key] = launch[key]
+  for (const key of ['tool', 'model', 'dir', 'prompt', 'projectId', 'base', 'effort', 'provider', 'worktree', 'project'] as const) if (launch?.[key]) body[key] = launch[key]
   if (launch?.yolo) body.yolo = true
   if (launch?.resume) body.resume = true
   if (launch?.structured) body.structured = true
   if (launch?.trust) body.trust = true
   if (launch?.resumeAcp) body.resumeAcp = launch.resumeAcp
+  if (launch?.tool && launch.titleOrigin) body.titleOrigin = launch.titleOrigin
   return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', signal, body: JSON.stringify(body) })).json()
 }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal, nativeView = false): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover, ...(nativeView ? { nativeView: true } : {}) }), signal })).json()).ticket }
@@ -529,7 +532,7 @@ export async function inspectSession(id: string, view: InsightView = 'status', p
 }
 
 /** Runtime selectors and delivery capabilities reported by this exact session. */
-export type ChatSetting = { id: string; category: 'model' | 'thought_level'; current: string; values: string[] }
+export type ChatSetting = { id: string; category: 'model' | 'thought_level' | 'provider'; current: string; values: string[] }
 export type ChatControls = { configuring: boolean; working: boolean; waiting: boolean; compacting: boolean; steering: boolean; model: string; options: ChatSetting[] }
 export type ChatControlAnswer = { controls: ChatControls; error?: string }
 export async function chatControls(id: string, signal?: AbortSignal): Promise<ChatControlAnswer> {

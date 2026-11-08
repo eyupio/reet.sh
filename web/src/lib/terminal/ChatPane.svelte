@@ -3,11 +3,13 @@
  import { fly } from 'svelte/transition'
  import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { copyText } from '../clipboard'
+ import { signalAttentionChanged } from '../attentionSignal'
  import { composerPrefill } from '../sessions/composerPrefill'
  import { prefillText } from '../sessions/fixMessages'
  import { alreadyThere } from '../sessions/fixDelivery'
  import { chatToolName, setAgentMode, chatAnswer, chatCancel, chatQuestionAnswer, chatModel, machineModels, chatPrompt, chatURL, getSessionSkills, launchUpload, terminalClosed, type TerminalSession } from './api'
- import { addModelFavourite, listModelFavourites, setModelFavouriteDefault } from '../api'
+ import { addModelFavourite, getProfile, listModelFavourites, saveProfile, setModelFavouriteDefault } from '../api'
+ import { creditGuidance, sourceChoices, sourceLabel } from '../clineSource'
  import { defaultLabel, modelOptions, modelStatus, type MachineModels, type ModelFavourite } from '../models'
  import { modelSuggestions, validateModel } from '../agentLaunch'
  import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
@@ -68,6 +70,12 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  const liveModel = $derived(runtime?.options.find(o => o.category === 'model'))
  const modelAvailable = $derived(acpModel || !!liveModel)
  const liveEffort = $derived(runtime?.options.find(o => o.category === 'thought_level'))
+ // Cline's billing source. One value is not a choice, so nothing is offered; a switch is refused mid-turn, and the control says so.
+ const liveProvider = $derived(runtime?.options.find(o => o.category === 'provider'))
+ // Another agent's own provider option is not a Cline billing source.
+ const sourceList = $derived.by(() => tool === 'cline' && liveProvider ? sourceChoices(liveProvider.values) : [])
+ const offersSource = $derived(sourceList.length > 0)
+ const sourceBlocked = $derived.by(() => sending || changingModel || working || chat.connection !== 'open' || !!runtime?.configuring)
  const modelBlocked = $derived.by(() => sending || changingModel || chat.connection !== 'open' || (liveControls ? !liveModel || runtime?.configuring : working))
  $effect(() => {
   const id = session.id, enabled = liveControls && !ended
@@ -94,8 +102,11 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  async function changeSetting(id: string, value: string) {
   changingModel = true; feedback = ''; settingSerial++
   try {
+   const previous = currentModel
    const answer = await chatSetting(session.id, id, value)
    runtime = answer.controls; currentModel = answer.controls.model
+   // A source switch moves the model underneath the picker: it follows the session unless the person had picked another.
+   if (selectedModel === previous) selectedModel = currentModel
    if (answer.error) feedback = answer.error
    else flash('Session setting updated.')
   } catch (e) {
@@ -106,6 +117,9 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  let modelMachine = $state<MachineModels | null>(null), modelNote = $state('')
  let modelOpen = $state(false), modelButton = $state<HTMLButtonElement>(), touchModels = $state(false)
  let favourites = $state<ModelFavourite[]>([]), favouriteBusy = $state(false)
+ let defaultSource = $state(''), sourceBusy = $state(false)
+ const currentSource = $derived(liveProvider?.current ?? '')
+ const sourceIsDefault = $derived(!!currentSource && currentSource === defaultSource)
  // Confirmations (model changed, default saved) say it once and fade away: the star and the model field already show the result.
  let toast = $state<{ id: number; text: string; bad: boolean } | null>(null), toastSeq = 0
  function flash(text: string, bad = false) {
@@ -145,9 +159,7 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  const signIn = $derived(failed && chat.status.code === 'login')
  const guidance = $derived.by(() => {
   const detail = chat.status.detail
-  if (/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(detail)) return acpModel
-   ? 'This model has reached its usage or credit limit. Choose another model below, or add credits with your provider, then send a message to continue.'
-   : 'This model has reached its usage or credit limit. Add credits with your provider, then send a message to continue.'
+  if (/credit|quota|usage limit|billing|balance|insufficient_quota/i.test(detail)) return creditGuidance({ acpModel, offered: sourceList.map(c => c.id), current: currentSource })
   if (/rate.?limit|too many requests|429/i.test(detail)) return acpModel
    ? 'Wait for the provider’s rate limit to reset, or choose another model below, then send your message again.'
    : 'Wait for the provider’s rate limit to reset, then send your message again.'
@@ -165,6 +177,18 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   try { await chatModel(session.id, selectedModel); currentModel = selectedModel; flash(`Model changed to ${selectedModel}.`) }
   catch (e) { feedback = e instanceof Error ? e.message : 'The model could not be changed. Try again.' }
   finally { changingModel = false }
+ }
+ async function toggleSourceDefault() {
+  if (!currentSource || sourceBusy) return
+  const wasDefault = sourceIsDefault
+  sourceBusy = true
+  try {
+   const answer = await saveProfile({ defaultClineSource: wasDefault ? '' : currentSource })
+   defaultSource = answer.profile.defaultClineSource ?? ''
+   flash(wasDefault ? 'Cleared the default source.' : `New Cline sessions start on ${sourceLabel(currentSource)}.`)
+  } catch (e) {
+   flash(e instanceof Error ? e.message : 'Couldn’t save the default source just now. Try again.', true)
+  } finally { sourceBusy = false }
  }
  async function toggleDefault() {
   const model = selectedModel.trim()
@@ -524,7 +548,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  async function answer(permissionId: string, allow: boolean, forSession = false) {
   if (answering) return
   answering = permissionId; feedback = ''
-  try { await chatAnswer(session.id, permissionId, allow, forSession) }
+  try { await chatAnswer(session.id, permissionId, allow, forSession); signalAttentionChanged() }
   catch (e) { feedback = e instanceof Error ? e.message : 'That answer was not sent.' }
   finally { answering = '' }
  }
@@ -558,7 +582,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
    answers = check.answers
   }
   asking = item.questionId
-  try { await chatQuestionAnswer(session.id, item.questionId, action, answers); if (answers) sentAnswers[item.questionId] = answers }
+  try { await chatQuestionAnswer(session.id, item.questionId, action, answers); signalAttentionChanged(); if (answers) sentAnswers[item.questionId] = answers }
   catch (e) { questionNote[item.questionId] = e instanceof Error ? e.message : 'That answer was not sent.' }
   finally { asking = '' }
  }
@@ -613,6 +637,14 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
    if (!life.signal.aborted) modelMachine = result
   }).catch(() => { if (!life.signal.aborted) modelNote = 'Model list unavailable. Enter a model ID configured on this machine.' })
   void listModelFavourites(life.signal).then(answer => { if (!life.signal.aborted) favourites = answer.favourites }).catch(() => {})
+  return () => life.abort()
+ })
+
+ // The saved default source is read once when the session offers a source.
+ $effect(() => {
+  if (!offersSource) return
+  const life = new AbortController()
+  void getProfile().then(answer => { if (!life.signal.aborted) defaultSource = answer.profile.defaultClineSource ?? '' }).catch(() => {})
   return () => life.abort()
  })
 
@@ -988,6 +1020,17 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
         <span class="star-word">{favouriteBusy ? 'Saving…' : selectedIsDefault ? 'Default' : 'Make default'}</span>
        </button>
       </div>{/if}
+      {#if offersSource}<div class="source-controls" data-keeps-focus>
+       <label for={`${session.id}-source`}>Source</label>
+       <select id={`${session.id}-source`} value={currentSource} disabled={sourceBlocked} title={working ? 'A source can be changed when the agent is idle.' : undefined} onchange={event => void changeSetting(liveProvider!.id, event.currentTarget.value)}>
+        {#if !currentSource}<option value="" disabled>Unconfirmed</option>{/if}
+        {#each sourceList as choice (choice.id)}<option value={choice.id}>{choice.label}</option>{/each}
+       </select>
+       <button type="button" class="star" class:on={sourceIsDefault} disabled={!currentSource || sourceBusy || chat.connection !== 'open'} aria-pressed={sourceIsDefault} aria-label={sourceIsDefault ? `${sourceLabel(currentSource)} is the default source. Clear it` : `Make ${sourceLabel(currentSource)} the default source`} title={sourceIsDefault ? 'New Cline sessions start on this source. Click to clear.' : 'Make this the source new Cline sessions start on'} onclick={() => void toggleSourceDefault()}>
+        <svg viewBox="0 0 24 24" fill={sourceIsDefault ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z" /></svg>
+        <span class="star-word">{sourceBusy ? 'Saving…' : sourceIsDefault ? 'Default' : 'Make default'}</span>
+       </button>
+      </div>{/if}
     </div>
     <span class="hint">Enter to send · Shift + Enter for a new line</span>
    </div>
@@ -1011,8 +1054,9 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  .error-panel > strong { color: var(--bad); font-size: 1rem; }
  .error-panel p { margin: 8px 0; line-height: 1.5; }
  .error-panel summary { cursor: pointer; }
- .effort-controls { display: flex; align-items: center; gap: 6px; font-size: 14px; }
- .effort-controls select { min-height: 30px; max-width: 10rem; color: var(--ink); background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 6px; }
+ .effort-controls, .source-controls { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+ .source-controls label { flex: none; font: 600 14px var(--sans); letter-spacing: 0.01em; color: var(--faint); }
+ .effort-controls select, .source-controls select { min-height: 30px; max-width: 10rem; color: var(--ink); background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 6px; }
  /* The model is a labelled dropdown in the composer's toolbar, with a star for the default. */
  .model-controls { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 18rem; max-width: 44rem; }
  .model-controls label { flex: none; font: 600 14px var(--sans); letter-spacing: 0.01em; color: var(--faint); }

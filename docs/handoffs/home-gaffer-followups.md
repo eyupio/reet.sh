@@ -14,6 +14,7 @@ The summary uses the existing read-only goals endpoint, refreshed with Home's 15
 - No new panel or projects column is added. Compact projects, saved expansion, Home view preference and Planning board remain intact.
 - No backend, schema, protocol or connector change is required. This slice needs a controller/web deployment. A merge alone is not deployment verification.
 - Broader Home/bell/session attention unification needs an explicit identity and deduplication contract. Navigation and supporting-page refinements remain separate work.
+  That contract is now recorded in [attention-contract.md](attention-contract.md).
 
 ## Released outcome
 

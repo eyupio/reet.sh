@@ -758,7 +758,7 @@ func (b *Broker) auditYoloLaunch(uid int64, agent string, in terminalproto.Creat
 }
 
 func launchRequested(in terminalproto.Create) bool {
-	return in.Base != "" || in.Effort != "" || in.Yolo || in.Resume || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
+	return in.Base != "" || in.Effort != "" || in.Provider != "" || in.Yolo || in.Resume || in.Tool != "" || in.Model != "" || in.Dir != "" || in.Prompt != "" || worktreeRequested(in)
 }
 func worktreeRequested(in terminalproto.Create) bool { return in.Worktree != "" || in.Project != "" }
 
@@ -855,6 +855,11 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		// by the machine after a session is reserved.
 		needsStartOptions := in.Structured && in.Effort != ""
 		if needsStartOptions && !caps.Capabilities.ACPStartOptions {
+			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
+		}
+		// A provider is a Cline chat's billing source. It is sent only to a
+		// machine that negotiated acp-provider-v1, and only for a chat.
+		if in.Provider != "" && !(caps.Capabilities.ACPProvider && in.Structured && terminalproto.ToolTakesProvider(in.Tool)) {
 			return store.TerminalSession{}, false, ErrLaunchOptionUnsupported
 		}
 		badEffort := !in.Structured && in.Effort != "" && !terminalproto.ToolTakesEffort(in.Tool)

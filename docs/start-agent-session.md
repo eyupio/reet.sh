@@ -201,6 +201,7 @@ It is one screen:
 | **Agent** | Claude Code, Codex, OpenCode, Gemini CLI and, on a machine with `agents-v2`, Cline and Google Antigravity (AGY). Only an agent the machine reports as installed can be chosen. Any other is listed but disabled, with the reason "Not installed on <machine>." |
 | **Model** (optional) | The shared picker: **Agent default**, the account's favourites for this agent, the machine's list by provider, reet's suggestions and **Other…** for any model name made of letters, digits and `. _ : / @ + -`, up to 100 characters. A star adds or removes a favourite. A list is only a hint; if a model name doesn't exist, the agent says so itself. Nothing is sent for Agent default. |
 | **Thinking** | Only for an agent that takes an effort level (Cline and Google Antigravity): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
+| **Source** | Only for a Cline Gaffer chat on a machine that negotiated `acp-provider-v1`: **Cline's own choice**, **Usage-Billing** or **ClinePass**. It opens on your saved default source; a saved source reet has no label for is shown as given and sent, because the dialog cannot know what the machine's Cline offers; Cline's own refusal at launch is what says no. The star saves or clears the default. Nothing is sent for Cline's own choice. If Cline cannot use the chosen source the chat is not started and the dialog says so. The default model is offered only while the chosen source is your default source. |
 | **Folder** (only under **No project**) | **Home folder**, the project folders that machine has reported, and **Type a path…**. A typed path must be absolute. The machine decides whether it may start there: the folder must exist and be inside the home folder it was enrolled with. |
 | **Opening prompt** (optional) | Up to 8,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |
 
@@ -292,6 +293,7 @@ attempt did start, it appears in your sessions list on the next refresh.
   syntax is confirmed.
 - Folder: inside the enrolled home, symlinks followed. Wider roots would be a deliberate later
   setting.
+- Source: a provider id Cline reports, from the same character set as a model name. It is sent as `provider` only for a structured Cline create, only to a machine that negotiated `acp-provider-v1`, and never stored with the session. Not yet checked against a signed-in Cline (see the Cline probe notes).
 - Model: 1 to 100 characters from the set above. Prompt: 8,000 bytes. Typed folder: 4,096 bytes.
 - The opening prompt can't start with `-`. For Claude Code, Codex and Cline it must be at least two words.
 - No agent status (working, waiting or idle), no resuming an earlier conversation and no Windows

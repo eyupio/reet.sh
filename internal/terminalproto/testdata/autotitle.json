@@ -190,6 +190,91 @@
    "name": "nothing to say: only whitespace",
    "prompt": "   \n\t",
    "want": ""
+  },
+  {
+   "name": "image only: the Image line is not task text",
+   "prompt": "Image: /home/dev/.reet/uploads/shot.png",
+   "want": ""
+  },
+  {
+   "name": "filler then an image line names nothing",
+   "prompt": "please\n\nImage: /tmp/a.png",
+   "want": ""
+  },
+  {
+   "name": "plural Images line is ignored",
+   "prompt": "Images: /tmp/a.png /tmp/b.jpeg",
+   "want": ""
+  },
+  {
+   "name": "image extension is case-insensitive",
+   "prompt": "Image: /tmp/A.PNG",
+   "want": ""
+  },
+  {
+   "name": "quoted upload reference with spaces is an image line",
+   "prompt": "Image: '/home/dev/My Images/img-0123.png'",
+   "want": ""
+  },
+  {
+   "name": "quoted reference with an escaped quote, then a bare one",
+   "prompt": "Images: '/home/dev/it'\\\\''s/a.png' /tmp/b.png",
+   "want": ""
+  },
+  {
+   "name": "quoted reference with a single-backslash escaped quote (the real upload form)",
+   "prompt": "Image: '/home/o'\\''neil/img-1.png'",
+   "want": ""
+  },
+  {
+   "name": "quoted reference with a non-ASCII path and an uppercase extension",
+   "prompt": "Image: '/home/é ü/a.PNG'",
+   "want": ""
+  },
+  {
+   "name": "quoted reference with an uppercase extension",
+   "prompt": "Images: '/tmp/My Dir/A.JPG'",
+   "want": ""
+  },
+  {
+   "name": "bare and quoted references on one line",
+   "prompt": "Images: /tmp/a.png '/tmp/My Dir/b.jpeg'",
+   "want": ""
+  },
+  {
+   "name": "quoted token that is not an image stays the title",
+   "prompt": "Image: '/tmp/a.txt'",
+   "want": "Image: '/tmp/a.txt'"
+  },
+  {
+   "name": "text right after the closing quote is not an image line",
+   "prompt": "Image: '/tmp/a.png'x",
+   "want": "Image: '/tmp/a.png'x"
+  },
+  {
+   "name": "a stray apostrophe in a bare token is not an image line",
+   "prompt": "Image: /tmp/it's.png",
+   "want": "Image: /tmp/it's.png"
+  },
+  {
+   "name": "task then a quoted image line keeps the task",
+   "prompt": "Fix the login redirect loop\n\nImage: '/tmp/My Dir/a.png'",
+   "want": "Fix the login redirect loop"
+  },
+  {
+   "name": "unterminated quote is not an image line",
+   "prompt": "Image: '/home/dev/My Images/a.png",
+   "want": "Image: '/home/dev/My Images/a.png"
+  },
+  {
+   "name": "task then a trailing image line keeps the task",
+   "prompt": "Fix the login redirect loop\n\nImage: /tmp/a.png",
+   "want": "Fix the login redirect loop"
+  },
+  {
+   "name": "an Image line on the first line is kept: only the final line is ignored",
+   "prompt": "Image: /tmp/a.png\nFix the login redirect loop",
+   "want": "Image: /tmp/a.png"
   }
  ],
  "auto": [
@@ -290,6 +375,58 @@
    "prompt": "Check disk usage on the backup volume",
    "dir": "/srv",
    "want": "Check disk usage on the backup volume"
+  }
+ ],
+ "origin": [
+  {
+   "name": "a task prompt names the session",
+   "prompt": "Please fix session end navigation",
+   "want": "prompt"
+  },
+  {
+   "name": "a greeting alone is a fallback",
+   "prompt": "hi",
+   "want": "fallback"
+  },
+  {
+   "name": "an empty prompt is a fallback",
+   "prompt": "",
+   "want": "fallback"
+  },
+  {
+   "name": "a skills-picker line is a fallback",
+   "prompt": "Use the reet skill.",
+   "want": "fallback"
+  },
+  {
+   "name": "a greeting then a task on the second line names the session",
+   "prompt": "Hi there\nRefactor the session list",
+   "want": "prompt"
+  },
+  {
+   "name": "an image-only prompt is a fallback",
+   "prompt": "Image: /tmp/a.png",
+   "want": "fallback"
+  },
+  {
+   "name": "filler and an image line is a fallback",
+   "prompt": "please\n\nImage: /tmp/a.png",
+   "want": "fallback"
+  },
+  {
+   "name": "a task and an image line names the session",
+   "prompt": "Fix the login redirect loop\n\nImage: /tmp/a.png",
+   "want": "prompt"
+  },
+  {
+   "name": "a quoted image-only prompt is a fallback",
+   "prompt": "Image: '/tmp/My Dir/a.png'",
+   "want": "fallback"
+  },
+  {
+   "name": "a task and a quoted image line names the session",
+   "prompt": "Fix the login redirect loop\n\nImage: '/tmp/My Dir/a.png'",
+   "want": "prompt"
   }
  ]
 }

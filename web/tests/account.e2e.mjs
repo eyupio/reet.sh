@@ -125,6 +125,39 @@ try {
     await context.close()
   }
 
+  // A Cline default also offers its billing source, saved in the same PATCH; another agent's save never carries a stale one.
+  if (run('default source')) {
+    const {context, page, errors, unmocked} = await open()
+    const source = page.getByLabel('Default source', {exact:true})
+    await expect(source).toHaveCount(0)
+    await page.getByLabel('Default agent', {exact:true}).selectOption('claude')
+    await expect(source).toHaveCount(0)
+    await page.getByLabel('Default agent', {exact:true}).selectOption('cline')
+    await expect(source).toBeVisible()
+    await expect(source.locator('option')).toHaveText(['Cline’s own choice', 'Usage-Billing', 'ClinePass'])
+    await expect(source).toHaveValue('')
+    await source.selectOption('cline-pass')
+    await page.getByRole('button', {name:'Save defaults'}).click()
+    await expect(page.getByText(/defaults saved/)).toBeVisible()
+    expect(patches).toHaveLength(1)
+    expect(patches[0]).toMatchObject({defaultTool:'cline', defaultClineSource:'cline-pass'})
+    await page.getByLabel('Default agent', {exact:true}).selectOption('claude')
+    await expect(source).toHaveCount(0)
+    await page.getByRole('button', {name:'Save defaults'}).click()
+    await expect(page.getByText(/defaults saved/)).toBeVisible()
+    expect(patches).toHaveLength(2)
+    expect('defaultClineSource' in patches[1]).toBe(false)
+    await page.getByLabel('Default agent', {exact:true}).selectOption('cline')
+    await expect(source).toHaveValue('cline-pass')
+    await source.selectOption('')
+    await page.getByRole('button', {name:'Save defaults'}).click()
+    await expect.poll(() => patches.length).toBe(3)
+    expect(patches[2]).toMatchObject({defaultTool:'cline', defaultClineSource:''})
+    expect(errors).toEqual([])
+    expect(unmocked).toEqual([])
+    await context.close()
+  }
+
   // A model needs its agent: the page refuses before the server, and nothing is PATCHed.
   if (run('a failed profile read keeps Save locked')) {
     const {context, page, errors} = await open({failProfile:true})

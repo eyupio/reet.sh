@@ -107,13 +107,27 @@ func TestFakeACP(t *testing.T) {
 		clineModel = "stub/default"
 	}
 	clineApprove := scenario == "cline-approve-on"
-	clineConfig := func() []map[string]any {
-		return []map[string]any{
-			{"type": "select", "id": "provider", "category": "_provider", "currentValue": "cline", "options": []map[string]string{{"value": "cline"}}},
-			{"type": "select", "id": "model", "category": "model", "currentValue": clineModel, "options": []map[string]string{{"value": "stub/model"}, {"value": "provider/other"}}},
-			{"type": "select", "id": "mode", "category": "mode", "currentValue": clineMode, "options": []map[string]string{{"value": "act"}, {"value": "plan"}}},
-			{"type": "boolean", "id": "auto_approve", "currentValue": clineApprove},
+	// The provider decides which models exist: a switch replaces the catalogue,
+	// as Cline's own reply does. cline-provider-no-models answers a switch with
+	// a snapshot that has no model option at all.
+	clineProvider, clineOmitModel := "cline", false
+	clineModels := func() []map[string]string {
+		if clineProvider == "cline-pass" {
+			return []map[string]string{{"value": "cline-pass/deepseek-v4"}, {"value": "cline-pass/other"}}
 		}
+		return []map[string]string{{"value": "stub/model"}, {"value": "provider/other"}}
+	}
+	clineConfig := func() []map[string]any {
+		options := []map[string]any{
+			{"type": "select", "id": "provider", "category": "_provider", "currentValue": clineProvider, "options": []map[string]string{{"value": "cline"}, {"value": "cline-pass"}}},
+		}
+		if !clineOmitModel {
+			options = append(options, map[string]any{"type": "select", "id": "model", "category": "model", "currentValue": clineModel, "options": clineModels()})
+		}
+		return append(options,
+			map[string]any{"type": "select", "id": "mode", "category": "mode", "currentValue": clineMode, "options": []map[string]string{{"value": "act"}, {"value": "plan"}}},
+			map[string]any{"type": "boolean", "id": "auto_approve", "currentValue": clineApprove},
+		)
 	}
 	liveSettings := func() []map[string]any {
 		return []map[string]any{
@@ -178,10 +192,28 @@ func TestFakeACP(t *testing.T) {
 				// configOptions snapshot, and refuses an unknown config id.
 				switch params.ConfigID {
 				case "model":
-					if scenario == "cline-model-refused" {
+					listed := false
+					for _, m := range clineModels() {
+						listed = listed || m["value"] == params.Value
+					}
+					if scenario == "cline-model-refused" || !listed {
 						send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid model"}})
 					} else {
 						clineModel = params.Value
+						reply(message.ID, map[string]any{"configOptions": clineConfig()})
+					}
+				case "provider":
+					switch scenario {
+					case "cline-provider-refused":
+						send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": "invalid provider"}})
+					case "cline-provider-error":
+						send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32603, "message": "internal error"}})
+					case "cline-provider-unconfirmed":
+						reply(message.ID, map[string]any{"configOptions": clineConfig()})
+					default:
+						clineProvider = params.Value
+						clineModel = clineModels()[0]["value"]
+						clineOmitModel = scenario == "cline-provider-no-models"
 						reply(message.ID, map[string]any{"configOptions": clineConfig()})
 					}
 				case "mode":

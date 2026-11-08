@@ -990,6 +990,9 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 		b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "notice", Text: text, Bad: true})
 		return ack
 	}
+	// The agent took the message, so it is a real task. A naming failure must
+	// never fail a send that already went out, hence the ignored error.
+	_, _ = b.st.RetitleChatFromPrompt(uid, session, text)
 	return nil
 }
 

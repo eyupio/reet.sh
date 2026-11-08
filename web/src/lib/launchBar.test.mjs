@@ -72,7 +72,7 @@ test('non-repository hides branch and worktree', () => {
   const home = sentence(choice({ projectIds: [], homeMachine: 'm-server' }), projects, machines)
   assert.equal(words(home), 'Run Claude Code with sonnet on the home folder at server')
   const create = toCreate(choice({ projectIds: ['p-notes'] }), notes, 'r'.repeat(16), 'a'.repeat(16))
-  assert.deepEqual(create.launch, { tool: 'claude', model: 'sonnet', dir: '/home/u/notes', projectId: 'p-notes' })
+  assert.deepEqual(create.launch, { tool: 'claude', model: 'sonnet', dir: '/home/u/notes', projectId: 'p-notes', titleOrigin: 'fallback' })
 })
 
 test('thinking shows only for an agent that takes effort', () => {
@@ -251,12 +251,28 @@ test('yolo gates read the account, each machine, the agent and the worktree', ()
 test('toCreate adds base, effort and yolo only when set', () => {
   const made = toCreate(choice({ prompt: 'Fix the failing tests\nThen push' }), reet, 'r'.repeat(16), 'a'.repeat(16))
   assert.deepEqual(made, { agentId: 'm-studio', requestId: 'r'.repeat(16), title: 'Fix the failing tests', launch: {
-    tool: 'claude', model: 'sonnet', dir: '/home/u/reet', prompt: 'Fix the failing tests\nThen push', projectId: 'p-reet', worktree: 'a'.repeat(16), project: 'reet', base: 'main' } })
+    tool: 'claude', model: 'sonnet', dir: '/home/u/reet', prompt: 'Fix the failing tests\nThen push', projectId: 'p-reet', worktree: 'a'.repeat(16), project: 'reet', base: 'main', titleOrigin: 'prompt' } })
   const all = toCreate(choice({ agent: 'cline', model: ' ', effort: 'medium', approvals: 'yolo', branch: '' }), reet, 'r'.repeat(16), 'a'.repeat(16))
-  assert.deepEqual(all.launch, { tool: 'cline', dir: '/home/u/reet', projectId: 'p-reet', worktree: 'a'.repeat(16), project: 'reet', effort: 'medium', yolo: true })
+  assert.deepEqual(all.launch, { tool: 'cline', dir: '/home/u/reet', projectId: 'p-reet', worktree: 'a'.repeat(16), project: 'reet', effort: 'medium', yolo: true, titleOrigin: 'fallback' })
   assert.equal(all.title, 'Cline · reet')
   const home = toCreate(choice({ projectIds: [], homeMachine: 'm-desk' }), null, 'r'.repeat(16), 'a'.repeat(16))
-  assert.deepEqual(home, { agentId: 'm-desk', requestId: 'r'.repeat(16), title: 'Claude Code', launch: { tool: 'claude', model: 'sonnet' } })
+  assert.deepEqual(home, { agentId: 'm-desk', requestId: 'r'.repeat(16), title: 'Claude Code', launch: { tool: 'claude', model: 'sonnet', titleOrigin: 'fallback' } })
+})
+
+test('toCreate says who named the session: the task, or the folder fallback', () => {
+  const make = over => toCreate(choice(over), reet, 'r'.repeat(16), 'a'.repeat(16))
+  assert.equal(make({ prompt: 'Fix the failing tests' }).launch.titleOrigin, 'prompt')
+  for (const prompt of ['', '   ', 'please', 'hi,']) {
+    const made = make({ prompt })
+    assert.equal(made.launch.titleOrigin, 'fallback', JSON.stringify(prompt))
+    assert.equal(made.title, 'Claude Code \u00b7 reet')
+  }
+  // The origin never changes the title text.
+  assert.equal(make({ prompt: 'Fix the failing tests' }).title, 'Fix the failing tests')
+  // A plain terminal has no tool and no origin to send.
+  const plain = make({ agent: '' })
+  assert.ok(!plain.launch.tool)
+  assert.equal('titleOrigin' in plain.launch, false)
 })
 
 test('project slug is a valid worktree slug', () => {
@@ -569,7 +585,7 @@ test('AGY Gaffer needs its own descriptor and folder trust', () => {
  assert.match(startable(selected,[picked],[target]),/trust this folder/)
  const trusted={...selected,trust:true}
  assert.equal(startable(trusted,[picked],[target]),null)
- assert.deepEqual(toCreate(trusted,picked,'r'.repeat(16),'a'.repeat(16)).launch,{tool:'antigravity',structured:true,trust:true,model:'gemini-4-argon',dir:picked.dir,projectId:picked.id,effort:'medium'})
+ assert.deepEqual(toCreate(trusted,picked,'r'.repeat(16),'a'.repeat(16)).launch,{tool:'antigravity',structured:true,trust:true,model:'gemini-4-argon',dir:picked.dir,projectId:picked.id,effort:'medium',titleOrigin:'fallback'})
  target.capabilities.acpAgents=[]
  assert.match(startable(trusted,[picked],[target]),/does not offer Gaffer/)
 })

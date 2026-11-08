@@ -18,6 +18,12 @@ const ACPStartOptionsFeature = "acp-start-options-v1"
 // a controller that predates the feature never receives a larger frame.
 const ACPModelCatalogueFeature = "acp-model-catalogue-v1"
 
+// ACPProviderFeature negotiates a provider ("billing source") setting in a live
+// controls snapshot and a provider on a structured create. Cline reports its
+// provider beside its model; without the feature a connector never sends the
+// setting and a controller never sends the create field.
+const ACPProviderFeature = "acp-provider-v1"
+
 const (
 	// MaxACPSettingValues bounds a model selector's values. Together with the
 	// id and current value, 512 ids of a realistic length stay inside
@@ -37,6 +43,15 @@ const (
 func SupportsACPModelCatalogue(features string) bool {
 	for _, f := range strings.Split(features, ",") {
 		if strings.TrimSpace(f) == ACPModelCatalogueFeature {
+			return true
+		}
+	}
+	return false
+}
+
+func SupportsACPProvider(features string) bool {
+	for _, f := range strings.Split(features, ",") {
+		if strings.TrimSpace(f) == ACPProviderFeature {
 			return true
 		}
 	}
@@ -81,7 +96,7 @@ type ACPControls struct {
 }
 
 func (s ACPControls) Valid() bool {
-	tooMany := len(s.Options) > 2
+	tooMany := len(s.Options) > 3
 	invalidModel := s.Model != "" && !ValidModel(s.Model)
 	if tooMany || invalidModel {
 		return false
@@ -90,7 +105,7 @@ func (s ACPControls) Valid() bool {
 	for _, o := range s.Options {
 		validID := validAgentOptionToken(o.ID) && !ids[o.ID]
 		validCategory := !categories[o.Category] &&
-			(o.Category == "model" || o.Category == "thought_level")
+			(o.Category == "model" || o.Category == "thought_level" || o.Category == "provider")
 		valueLimit := MaxACPThoughtLevelValues
 		if o.Category == "model" {
 			valueLimit = MaxACPSettingValues

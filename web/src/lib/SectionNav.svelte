@@ -1,11 +1,18 @@
+<script module lang="ts">
+  export type SectionLink = { label: string; href: string; current: boolean; children?: { label: string; href: string; current: boolean }[] }
+  export type SectionAction = { label: string; action: () => void }
+  export type SectionItem = SectionLink | SectionAction
+</script>
+
 <script lang="ts">
-  // A section's own navigation (Account, Admin): links in a row, folded into one menu on a narrow screen. The site's main
+  // A section's own navigation (Account, Admin, and the supporting pages' header): links in a row, folded into one menu on a
+  // narrow screen. An item is a link, a link with children, or an action (a button, never "current"). The site's main
   // navigation is the app shell (shell/AppShell.svelte).
-  let { label, items }: { label: string; items: { label: string; href: string; current: boolean; children?: { label: string; href: string; current: boolean }[] }[] } = $props()
+  let { label, items }: { label: string; items: SectionItem[] } = $props()
   let root = $state<HTMLElement>()
   let menu = $state<HTMLDetailsElement>()
   let trigger = $state<HTMLElement>()
-  const current = $derived(items.find(item => item.current)?.label)
+  const current = $derived(items.find((item): item is SectionLink => !('action' in item) && item.current)?.label)
   function close(event: KeyboardEvent) {
     if (event.key !== 'Escape') return
     const open = [...(root?.querySelectorAll<HTMLDetailsElement>('details[open]') ?? [])].at(-1)
@@ -15,8 +22,9 @@
 
 <svelte:window onkeydown={close} onclick={event => { if (event.target instanceof Node && !root?.contains(event.target)) root?.querySelectorAll<HTMLDetailsElement>('details[open]').forEach(detail => detail.open = false) }} />
 {#snippet links()}
-  {#each items as item (item.href)}
-    {#if item.children?.length}
+  {#each items as item (('action' in item) ? `action:${item.label}` : item.href)}
+    {#if 'action' in item}<button type="button" onclick={() => { if (menu) menu.open = false; item.action() }}>{item.label}</button>
+    {:else if item.children?.length}
       <details class="nav-group" name={`${label}-groups`}>
         <summary class:current={item.current}>{item.label}<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6" /></svg></summary>
         <div class="group-links">{#each item.children as child (child.href)}<a href={child.href} aria-current={child.current ? 'page' : undefined}>{child.label}</a>{/each}</div>
@@ -42,7 +50,8 @@
   .group-links { position: absolute; right: 0; top: 100%; display: grid; gap: 4px; z-index: 25; min-width: 200px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 12px 28px rgb(0 0 0 / 0.12); }
   .desktop { display: flex; gap: 4px; flex-wrap: wrap; }
   a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font-size: 0.875rem; font-weight: 500; text-decoration: none; border-radius: 8px; }
-  a:hover { background: var(--card); color: var(--ink); }
+  button { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--muted); font: inherit; font-size: 0.875rem; font-weight: 500; border: 0; background: none; border-radius: 8px; cursor: pointer; }
+  a:hover, button:hover { background: var(--card); color: var(--ink); }
   a[aria-current='page'] { color: var(--ink); background: var(--tint); font-weight: 600; }
   nav { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin: 12px 0 20px; }
   .mobile { display: none; }

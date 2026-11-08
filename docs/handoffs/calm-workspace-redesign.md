@@ -50,6 +50,8 @@ Use Continue working, Needs you and Start a session as the main hierarchy. Keep 
 
 Keep Machines, Skills and grouped More destinations. Lists, Setups, Sync, Teams, Community, Support, publishing, administration and account routes retain their permissions and deep links. Page-local workflows own software evidence, inventory, setup and sync diagnostics. Shared navigation and visual tokens may become quieter; moving a capability must not make it undiscoverable.
 
+Done in [supporting page navigation](supporting-page-navigation.md): one quiet header and a shared section row on the supporting pages.
+
 ## 3. Behaviour and capability contracts
 
 ### Conversation and terminal

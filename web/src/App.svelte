@@ -4,7 +4,8 @@
   import Skeleton from './lib/Skeleton.svelte'
   import AppShell from './lib/shell/AppShell.svelte'
   import ProgressBar from './lib/shell/ProgressBar.svelte'
-  import type { JumpItem, Tab } from './lib/shell/tabs'
+  import { pageGroup, type JumpItem, type Tab } from './lib/shell/tabs'
+  import { PAGE_GROUP } from './lib/shell/pageNav'
   import { onAttentionChanged, signalAttentionChanged } from './lib/attentionSignal'
   import { listFolderProjects, markSessionSeen, sessionHref, terminalMachines, terminalSessions, type FolderProject } from './lib/terminal/api'
   import { attentionCount, needsYou, sessionOwners, titleWithAttention, type NeedCard } from './lib/home'
@@ -12,7 +13,7 @@
   import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, skillSyncIntent, skillSyncSummary, type SyncFilter } from './lib/skillSync'
   import { audienceLabel } from './lib/api'
   import { DOCS_URL } from './lib/links'
-  import { onMount, tick } from 'svelte'
+  import { onMount, setContext, tick } from 'svelte'
   import {
     addSkill, addSkillTags, applyTheme, clearThemeChoice, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
     patchSkill, patchSkills, refreshSkill, removeSkill, removeSkills, resolveSkill, restoreAll, saveProfile, signOutAccount, syncLibraryMachines, tagSkills, takeThemeChoice, UnauthorizedError,
@@ -245,6 +246,12 @@
     { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
     ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
   ])
+  // Every routed page's header reads the current page's group from here (the getter keeps it current as `more` changes).
+  // Signed out, a public page names its group but has no siblings to offer (the other pages need a sign-in), so it gets the label only.
+  setContext(PAGE_GROUP, { get group() {
+    const found = pageGroup(more)
+    return found && !authenticated ? { ...found, items: found.items.filter(item => item.current) } : found
+  } })
   // Jump searches what the workspace already lists: sessions, folder projects and machines (a writer's terminal machines,
   // and the machines on the shelf inventory for everyone). Read when Jump is used; a list that cannot be read is left out.
   async function jumpItems(): Promise<JumpItem[]> {
@@ -1115,7 +1122,7 @@
       <PageLoadError />
     {/await}
   {:else if !authMode}
-    <PageHeader eyebrow="Connection problem" title="Your workspace is out of reach." />
+    <PageHeader group="Connection problem" title="Your workspace is out of reach." />
     <p class="notice bad" role="alert">Could not check how this instance signs in. Reload the page to try again.</p>
   {:else if isHosting}
     {#await pages.Hosting()}
@@ -1230,10 +1237,10 @@
       <PageLoadError />
     {/await}
   {:else if isAccount}
-    <PageHeader eyebrow="Your account" title="Accounts are not enabled." />
+    <PageHeader group="Your account" title="Accounts are not enabled." />
     <p class="notice bad" role="alert">Accounts are not enabled on this instance.</p>
   {:else if isAdmin && !isAdminUser}
-    <PageHeader eyebrow="Instance administration" title="Admin access is needed." />
+    <PageHeader group="Instance administration" title="Admin access is needed." />
     <p class="notice bad" role="alert">Admins only. Your account does not have access to this page.</p>
   {:else if isAdmin}
     {#await pages.Admin()}
@@ -1244,7 +1251,7 @@
       <PageLoadError />
     {/await}
   {:else if isSkills}
-    <PageHeader eyebrow="Ey up. Your skill shelf." title="Skills" lede="Add a skill once. Keep your library on every machine, including skills you write yourself.">
+    <PageHeader group="Your skill shelf" title="Skills" lede="Add a skill once. Keep your library on every machine, including skills you write yourself.">
       {#snippet actions()}{#if syncInPlace}<button class="btn" type="button" disabled={syncingAll} onclick={() => void syncAll()}>{syncingAll ? 'Starting…' : 'Sync all machines'}</button>{:else}<a class="btn" href="/sync">Sync all machines</a>{/if}{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}

@@ -125,7 +125,7 @@
 
 <svelte:head><title>Notifications · reet.sh</title></svelte:head>
 
-<PageHeader eyebrow="Notifications" title="What's happened." lede="Ticket replies, account security notices and the staff events you chose to receive. Everything is also kept here, so nothing depends on email alone." />
+<PageHeader group="Account" title="Notifications" lede="Ticket replies, account security notices and the staff events you chose to receive. Everything is also kept here, so nothing depends on email alone." />
 
 {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
 {#if notice}<p class="notice good" role="status">{notice}</p>{/if}

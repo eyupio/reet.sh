@@ -60,7 +60,6 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
    close(){}
   }
   window.EventSource=Stream
-  sessionStorage.setItem('reet-session-visit:session-insights-001',JSON.stringify({seq:1,at:Date.now()-600000}))
  },opts.streamDelay||0)
  await opened.page.goto(`${base}/sessions?agent=a1&session=${session.id}`,{timeout:120000})
  const panel=opened.page.getByRole('complementary',{name:'Session context'})
@@ -82,8 +81,10 @@ async function audit(page,panel) {
 try {
  for(const theme of ['light','dark']){
   const {page,context,panel,calls,box,errors}=await open(1600,theme)
-  await expect(panel.getByText('Since your last visit')).toBeVisible()
-  await expect(panel.getByText('3 new events',{exact:false})).toBeVisible()
+  await expect(panel.getByText('Since your last visit')).toHaveCount(0)
+  // Gaffer's entry sits in the panel rather than a floating column beside the workspace.
+  await expect(panel.getByRole('button',{name:'Ask Gaffer'})).toBeVisible()
+  await expect(page.locator('.gaffer-launcher')).toBeHidden()
   await expect(panel.getByText('Latest agent update')).toBeVisible()
   await expect(panel.getByText('Run browser checks',{exact:true}).first()).toBeVisible()
   await expect(panel.getByText('3 changed files',{exact:true})).toBeVisible()
@@ -208,7 +209,6 @@ try {
  expect(returning.calls.length).toBe(beforeHidden)
  await returning.page.evaluate(()=>{window.__insightStream.emit('chat',{seq:5,kind:'agent',messageId:'away',text:'The checks finished while you were away.'});window.__insightStream.emit('chat',{seq:6,kind:'status',state:'idle'})})
  await returning.page.evaluate(()=>{window.__testHidden=false;document.dispatchEvent(new Event('visibilitychange'))})
- await expect(returning.panel.getByText('2 new events',{exact:false})).toBeVisible()
  await expect(returning.panel.getByText('The checks finished while you were away.')).toBeVisible()
  await expect.poll(()=>returning.calls.length).toBeGreaterThan(beforeHidden)
  await returning.panel.getByRole('checkbox',{name:'Live updates'}).uncheck()
@@ -919,7 +919,7 @@ try {
   await expect(panel.getByRole('group',{name:'Pull request'})).toContainText('#42')
   await expect(panel.getByRole('group',{name:'You asked'})).toContainText('Rebuild the session overview')
   const settle=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
-  const pinned=()=>panel.evaluate(el=>{const top=n=>n?Math.round(n.getBoundingClientRect().top):null,h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{run:top(el.querySelector('.run-line')),notice:top(el.querySelector('.session-summary .notice')),facts:top(h('in progress')),latest:top(h('latest agent update')),prompt:top(h('you asked')),tracker:top(h('progress')),pull:top(h('pull request')),changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
+  const pinned=()=>panel.evaluate(el=>{const top=n=>n?Math.round(n.getBoundingClientRect().top):null,h=name=>[...el.querySelectorAll('.panel-body h4')].find(n=>n.textContent.trim().toLowerCase()===name);return{run:top(el.querySelector('.run-line')),notice:top(el.querySelector('.session-summary .status-line')),facts:top(h('in progress')),latest:top(h('latest agent update')),prompt:top(h('you asked')),tracker:top(h('progress')),pull:top(h('pull request')),changes:top(h('workspace changes')),where:top(h("where it's working")),details:top(el.querySelector('.session-details > summary'))}})
   const baseline=await pinned()
   expect(Object.values(baseline),'every block was found for the baseline').not.toContain(null)
   const long='Allow the agent to run a command that rewrites several generated files across the whole repository before the build starts?'
@@ -1018,5 +1018,19 @@ try {
    await context.close()
   }
  }
- console.log('Session workspace: tabs, return summary, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')
+ // The chosen view is sticky: picking GitHub keeps it when another session opens, and after a reload.
+ {
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{second:true})
+  await panel.getByRole('tab',{name:/^GitHub/}).click()
+  await expect(panel.getByRole('tab',{name:/^GitHub/})).toHaveAttribute('aria-selected','true')
+  await page.getByRole('button',{name:/Second session/}).first().click()
+  await expect(page.locator('.session-screen .title')).toHaveText('Second session')
+  await expect(panel.getByRole('tab',{name:/^GitHub/})).toHaveAttribute('aria-selected','true')
+  await page.reload()
+  await page.locator('.session-screen header.head').waitFor({state:'visible'})
+  const reloaded=page.getByRole('complementary',{name:'Session context'})
+  await expect(reloaded.getByRole('tab',{name:/^GitHub/})).toHaveAttribute('aria-selected','true')
+  expect(errors).toEqual([]);await context.close()
+ }
+ console.log('Session workspace: tabs, status line, changes, previews, folders, CI, stale data, sidebar signals, context panel resize/collapse and phone/tablet focus passed.')
 }finally{await browser.close()}

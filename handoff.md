@@ -28,6 +28,31 @@ been selected; older “next task” statements are historical. The checkpoint r
 completed UX/setup, offline acceptance, benchmark correction, limitations and
 standing permissions. Resume from current main and agree the next bounded slice.
 
+## OVERVIEW-4: the Overview leads with what matters (8 November 2026)
+
+Follow-up to OVERVIEW-3 on the session workspace's right-hand panel.
+
+- **Order.** The Overview now runs status header, **Progress**, **Pull request**, **You asked**, agent activity,
+  **Workspace changes**, **Where it's working**, then the Skills fold. The tracker and pull request were the most useful
+  facts and sat below the prompt and counters, so a 360 px panel made people scroll to reach them. The prompt moved below
+  the tracker and PR.
+- **Removed.** The "Since your last visit" block, its `newEvents` / `terminalAdvanced` derivations, the `sessionStorage`
+  visit marker and the per-tab "returning" logic in `ContextPanel` are gone. The tool tally and its counts line went too:
+  Gaffer's card chips and **In progress** already carry the same facts. This also closes OVERVIEW-3's deferred note that
+  the return markers could move inside.
+- **Status line.** The separate 64 px notice box became one fixed-height line under the headline. It shows a request
+  waiting for you, a chat error, or the state and last activity; the Review button appears only when something waits. The
+  panel no longer reserves a blank calm notice or a blank "nothing waiting" sentence.
+- **No Gaffer column.** The 88 px right margin that reserved a column beside the terminal workspace is removed (`app.css`,
+  `WorkspaceSkeleton.svelte`). The floating companion sits over the workspace's corner instead of widening the page. The
+  short-landscape phone still hides it.
+- **Sticky view.** The selected tab is a browser preference (`panelTab.ts`, `reet.workspace.context-tab`), so switching to
+  another session keeps **Changes**, **Files** or **GitHub** selected. A restored **Files** view reads its listing on mount;
+  **GitHub** already refetches through the Overview cadence.
+- **Validation.** `session-workspace.e2e.mjs` updated: the removed return-summary assertions are now absence checks and the
+  away-text assertion stays. `npm run check` and the session workspace suite should run before merge; see
+  `docs/ui-verification.md`.
+
 ## Gaffer AI session-companion MVP: agreed direction (5 November 2026)
 
 The user selected the [Gaffer session-companion MVP](docs/work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)

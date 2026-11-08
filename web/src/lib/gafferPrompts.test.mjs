@@ -20,6 +20,7 @@ test('the built-in prompts are distinct, non-empty and fit the goal box', () => 
     assert.ok(prompt.title && !titles.has(prompt.title), `duplicate or empty title: ${prompt.title}`)
     assert.ok(prompt.text.trim().length > 0)
     assert.ok(p.goalPromptBytes(prompt.text) <= p.MAX_GOAL_PROMPT_BYTES, `${prompt.id} is too big`)
+    assert.match(prompt.text, /Do not merge\.$/, `${prompt.id} must keep merging in the person's hands`)
     ids.add(prompt.id)
     titles.add(prompt.title)
   }

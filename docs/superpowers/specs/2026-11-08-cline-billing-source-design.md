@@ -43,9 +43,10 @@ Cline's ACP `session/new` reports a `provider` option (category `_provider`) bes
   parameters or an unsupported method are explicit refusals; any other error leaves the source
   *unconfirmed* and reports it, as `SetModel` does. It is refused while a turn is running.
 - **Catalogue swap.** A source switch changes which models exist. The reply's `configOptions` carries the
-  new model list; the session replaces its model setting from it. If the reply does not, the connector
-  reads the options again before announcing the switch. A model that is no longer listed is cleared,
-  and the chat shows Cline's own model for the new source.
+  new model list; the session replaces its model setting from it. If the reply carries no model option,
+  the session keeps its previous model values and forgets the current model, which the chat shows as
+  Cline's own model, rather than guessing a list for the new source (the measured ACP surface has no call
+  that reads the options again). A model that is no longer listed is cleared in the same way.
 - **At launch.** Cline ignores a chosen model at `session/new`, so the model is already applied after the
   session opens. The order becomes provider, then model, then effort, each confirmed before the opening
   prompt is sent. A refused or unconfirmed provider refuses the launch the way an unconfirmed model does.

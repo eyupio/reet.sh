@@ -44,8 +44,8 @@ Follow-up to OVERVIEW-3 on the session workspace's right-hand panel.
   waiting for you, a chat error, or the state and last activity; the Review button appears only when something waits. The
   panel no longer reserves a blank calm notice or a blank "nothing waiting" sentence.
 - **No Gaffer column.** The 88 px right margin that reserved a column beside the terminal workspace is removed (`app.css`,
-  `WorkspaceSkeleton.svelte`). The floating companion sits over the workspace's corner instead of widening the page. The
-  short-landscape phone still hides it.
+  `WorkspaceSkeleton.svelte`). The floating companion sits over the workspace's corner instead of widening the page and
+  lifts clear of composer docks with `keepLauncherClear` (`GafferChatWidget`). The short-landscape phone still hides it.
 - **Sticky view.** The selected tab is a browser preference (`panelTab.ts`, `reet.workspace.context-tab`), so switching to
   another session keeps **Changes**, **Files** or **GitHub** selected. A restored **Files** view reads its listing on mount;
   **GitHub** already refetches through the Overview cadence.

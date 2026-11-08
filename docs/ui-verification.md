@@ -27,6 +27,9 @@ Commands run in this container:
     and after a reload.
   - `node tests/gaffer-layout.e2e.mjs` — passes all eight theme/width views.
   - `node tests/sessions.e2e.mjs` — passes.
+  - `node tests/chat-controls.e2e.mjs`, `node tests/sessions-phone.e2e.mjs` — pass
+    after the launcher was made to lift clear of composer and queue docks
+    (`keepLauncherClear`) now that the reserved column is gone.
 
 Not run here: Firefox, Safari, physical devices, and the Go-backed terminal
 suite. Screenshots were not captured; the layout was exercised through the

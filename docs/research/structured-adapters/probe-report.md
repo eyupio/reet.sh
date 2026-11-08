@@ -468,7 +468,7 @@ claim that every value is valid for every model. This is installation evidence, 
 
 What Gaffer could turn on for Claude Code beyond approvals and a read-back model switch, measured against the same pinned adapter
 (`@agentclientprotocol/claude-agent-acp@0.99.1`, Node 22, Linux) with no login, no real provider and no model call that costs anything.
-Two kinds of run: `scripts/probe-claude-lifecycle.py <load|images|options>` drives the adapter through a loopback Anthropic-compatible
+Two kinds of run: `python3 scripts/probe-claude-lifecycle.py <load|images|options> --workspace <dir>` (the adapter installed under `<dir>/claude`, as in the Claude probes above) drives the adapter through a loopback Anthropic-compatible
 stub with a synthetic key, and the opt-in Go tests `TestRealClaudeOptions` and `TestRealClaudeLoadUnstored`
 (`REET_CLAUDE_ACP=<claude-agent-acp> go test ./internal/acpagent -run TestRealClaude -v`) drive it through reet's own client in the
 environment the connector profile gives it, with no prompt.
@@ -484,12 +484,15 @@ environment the connector profile gives it, with no prompt.
 | An image block reaches the provider request | Yes, the stub saw the `image` block and the turn ended `end_turn`. Whether a real model accepts or understands the image is not measured | `images` |
 | Thinking level offered at `session/new` | In the connector's environment (no `ANTHROPIC_MODEL`, model `default`): yes, `effort` with `default, low, medium, high, xhigh, max`, current `default`, beside `fast` and `ultracode`. With an explicit model id in `ANTHROPIC_MODEL` it is not offered until another listed model is chosen | `options` (run with and without `--add ANTHROPIC_MODEL=…`), `TestRealClaudeOptions` |
 | Thinking level reads back | Setting `low` reads back `low`. An unlisted value is refused by the adapter ("Invalid value for config option effort") and by reet before anything is sent | `options`, `TestRealClaudeOptions` |
-| `fast` reads back | Setting `on` reads back `on` for the default model and for `opus`. Choosing `sonnet` in the first run offered `effort` and `ultracode` but not `fast`, so the list depends on the model | `options` |
+| `fast` reads back | With the model still the one `session/new` opened with (`default`), setting `on` reads back `on`. After choosing `opus`, setting `off` reads back `off`. After choosing `sonnet` the adapter no longer offers `fast` at all (it offers `effort` and `ultracode`), so which options exist depends on the model | `options`, `options --set-model sonnet` |
 | A launch naming only an effort | Works: the effort is applied and read back before any prompt | `TestRealClaudeOptions` |
 | A launch naming a model other than the adapter's own | Refused by the profile as it stands ("the agent did not use the chosen model"), because the profile does not confirm a model by switching. The same launch works, with the effort applied, once the switch is confirmed by reading it back | `TestRealClaudeOptions` |
 
-**Not measured:** a signed-in turn, a real model accepting images, the effort values a real account is offered per model, and history
-replay through reet's own client against the real adapter. Nothing here is proof of a working signed-in session.
+**Not measured:** a signed-in turn, a real model accepting images, what the adapter does with an image type it does not support, the
+effort values a real account is offered per model, and history replay through reet's own client against the real adapter (the
+stored session a `load` run leaves under its throwaway home could be consumed by a later opt-in Go test). The refusal at the first
+prompt when there is no login was recorded on 4 November in [Device checks](../../device-checks.md) and was not repeated here.
+Nothing here is proof of a working signed-in session.
 
 **What this lets slice 2 turn on:** history and in-place reconnect (the adapter loads stored sessions and refuses unknown ones in a form
 reet already maps), image prompts (with the caveat above), a thinking level at launch, and a launch on a chosen model once the profile

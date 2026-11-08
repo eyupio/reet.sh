@@ -20,6 +20,7 @@ parser.add_argument("--workspace", type=Path, required=True)
 parser.add_argument("--setting-sources", default="", help="comma list sent as _meta.claudeCode.options.settingSources; empty sends none")
 parser.add_argument("--drop", action="append", default=[], help="environment variable to remove from the adapter environment")
 parser.add_argument("--add", action="append", default=[], help="KEY=VALUE to add to the adapter environment")
+parser.add_argument("--set-model", default="", help="options scenario: the model value to switch to (default: the first listed model other than the current one and 'default')")
 parser.add_argument("--node", default=shutil.which("node"))
 args = parser.parse_args()
 if args.node is None:
@@ -372,6 +373,14 @@ try:
         current_model = (model_option or {}).get("currentValue")
         summary["modelCurrentAtNew"] = current_model
         summary["modelValues"] = option_values(model_option)
+        effort_new = next((o for o in listed if o.get("id") == "effort"), None)
+        summary["effortValues"] = option_values(effort_new)
+        # fast, set while the model is still the one session/new opened with.
+        fast_new = next((o for o in listed if o.get("id") == "fast"), None)
+        fast_new_pick = next((v for v in option_values(fast_new) if v != (fast_new or {}).get("currentValue")), None)
+        summary["fastSetAtNew"] = fast_new_pick
+        if fast_new_pick:
+            summary["fastReadBackAtNew"] = read_option(a.call(10, "session/set_config_option", {"sessionId": native, "configId": "fast", "value": fast_new_pick}), "fast")
 
         def options_of(response):
             return ((response or {}).get("result") or {}).get("configOptions") or []
@@ -381,7 +390,7 @@ try:
         summary["optionIdsAfterSameModel"] = [o.get("id") for o in options_of(same)]
         summary["sameModelError"] = (same.get("error") or {}).get("message")
         # Does choosing another listed model do it, and what does it offer?
-        other_model = next((v for v in summary["modelValues"] if v not in (current_model, "default")), "sonnet")
+        other_model = args.set_model or next((v for v in summary["modelValues"] if v not in (current_model, "default")), "sonnet")
         summary["modelSet"] = other_model
         after_model = a.call(4, "session/set_config_option", {"sessionId": native, "configId": "model", "value": other_model})
         after = options_of(after_model)

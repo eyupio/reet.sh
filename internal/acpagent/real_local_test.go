@@ -11,8 +11,6 @@ import (
 	"slices"
 	"testing"
 	"time"
-
-	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // TestRealOpenCodeStart is opt-in: it runs the exact probed binary against a
@@ -106,16 +104,6 @@ func TestRealClaudeStart(t *testing.T) {
 	}
 }
 
-// hasSetting reports whether the session offers a setting of this category.
-func hasSetting(controls terminalproto.ACPControls, category string) bool {
-	for _, o := range controls.Options {
-		if o.Category == category {
-			return true
-		}
-	}
-	return false
-}
-
 // TestRealClaudeOptions is opt-in and sends no prompt, so it makes no model call.
 // Against the real adapter, in the environment the connector profile gives it, it
 // pins what the parity work depends on: the thinking level is offered at
@@ -186,11 +174,12 @@ func TestRealClaudeOptions(t *testing.T) {
 	}
 	chosen := options
 	chosen.Model, chosen.Effort = other, "low"
-	if started, err := Start(ctx, chosen); err == nil {
-		started.Close()
-		t.Logf("launch with model %q and effort low is accepted by the profile as it stands", other)
-	} else {
-		t.Logf("launch with model %q and effort low is refused by the profile as it stands: %v", other, err)
+	// Pinned as the profile stands today; the slice that sets ConfirmModelBySwitch flips this assertion.
+	if started, err := Start(ctx, chosen); !errors.Is(err, ErrModel) {
+		if started != nil {
+			started.Close()
+		}
+		t.Fatalf("launch with model %q and effort low as the profile stands: %v", other, err)
 	}
 	// The same launch when a model switch is confirmed by reading it back.
 	switched := options

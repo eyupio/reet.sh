@@ -1452,6 +1452,10 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 		if err != nil {
 			return "", false, false, err
 		}
+		if ok && wanted.ItemID != "" && !strings.HasPrefix(wanted.ID, "hosted/") {
+			id, err := s.st.RecordLibraryObservationFor(userID, wanted.ItemID, item.Host, item.Agent, item.Project, item.Path)
+			return id, false, false, err
+		}
 		if ok && strings.HasPrefix(wanted.ID, "hosted/") {
 			username, err := s.st.PublishingUsername(userID)
 			if err != nil {

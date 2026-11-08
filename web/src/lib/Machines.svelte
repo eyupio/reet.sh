@@ -1,5 +1,6 @@
 <script lang="ts">
   import EnvironmentSync from './EnvironmentSync.svelte'
+  import SelectedLibrary from './SelectedLibrary.svelte'
   import WorkspaceSkeleton from './terminal/WorkspaceSkeleton.svelte'
   import PageHeader from './PageHeader.svelte'
   import ProjectsBar from './ProjectsBar.svelte'
@@ -43,6 +44,7 @@
     {:else}<p>Use the token configured for this instance when the CLI asks. Instances without authentication do not require one.</p>{/if}
   {/snippet}
 </EnvironmentSync>
+{#if compare && accounts && canWrite}<SelectedLibrary />{/if}
 {/if}
 {#if softwareOpen}<FleetSoftware onclose={() => (softwareOpen = false)} />{/if}
 {#if !terminals && !compare && accounts && canWrite}

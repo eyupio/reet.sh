@@ -379,3 +379,10 @@ func planActions(plan json.RawMessage) []json.RawMessage {
 	}
 	return parsed.Actions
 }
+
+func planHasProblems(plan json.RawMessage) bool {
+	var parsed struct {
+		Problems map[string]string `json:"problems"`
+	}
+	return json.Unmarshal(plan, &parsed) == nil && len(parsed.Problems) > 0
+}

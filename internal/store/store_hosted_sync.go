@@ -44,12 +44,24 @@ func (s *Store) hostedPrivateSource(uid int64, sk HostedSkill) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s cannot be synced privately: %w", sk.Slug, err)
 	}
+	editorDigest := m.Digest
 	var bundle, revision, digest string
 	err = s.db.QueryRow(`SELECT bundle_id,revision_id,digest FROM hosted_sync_sources WHERE user_id=? AND slug=?`, uid, sk.Slug).Scan(&bundle, &revision, &digest)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
-	if err == nil && digest == m.Digest {
+	boundEditorDigest := digest
+	var storedEditorDigest string
+	if err == nil {
+		e := s.db.QueryRow(`SELECT digest FROM library_hosted_editor_digests WHERE user_id=? AND slug=?`, uid, sk.Slug).Scan(&storedEditorDigest)
+		if e != nil && !errors.Is(e, sql.ErrNoRows) {
+			return "", e
+		}
+		if e == nil {
+			boundEditorDigest = storedEditorDigest
+		}
+	}
+	if err == nil && boundEditorDigest == editorDigest {
 		var problem string
 		if e := s.db.QueryRow(`SELECT i.problem FROM library_items i JOIN library_aliases a ON a.user_id=i.user_id AND a.item_id=i.id WHERE a.user_id=? AND a.kind='hosted' AND a.reference=?`, uid, sk.Slug).Scan(&problem); e != nil {
 			return "", e
@@ -75,6 +87,25 @@ func (s *Store) hostedPrivateSource(uid int64, sk HostedSkill) (string, error) {
 		}
 		base = head.Head
 	}
+	// The text editor does not edit executable modes. Retain the modes of
+	// existing files when authoring bytes, while private content stays exact.
+	if bundle != "" && revision != "" {
+		prior, e := s.PrivateSkillRevisionFor(uid, bundle, revision)
+		if e != nil {
+			return "", e
+		}
+		modes := map[string]bool{}
+		for _, file := range prior.Files {
+			modes[file.Path] = file.Executable
+		}
+		for i := range files {
+			files[i].Executable = modes[files[i].Path]
+		}
+		m, err = skillbundle.FromContents(files)
+		if err != nil {
+			return "", err
+		}
+	}
 	// The request ID makes a retried write idempotent: the same draft bytes on
 	// the same base never produce two revisions.
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s\x00%s\x00%s", uid, sk.Slug, base, m.Digest)))
@@ -87,12 +118,15 @@ func (s *Store) hostedPrivateSource(uid int64, sk HostedSkill) (string, error) {
 			return e
 		}
 		manifest, e := skillbundle.FromContents(hostedContentFiles(current))
-		if e != nil || manifest.Digest != m.Digest {
+		if e != nil || manifest.Digest != editorDigest {
 			return ErrPrivateSkillConflict
 		}
 		return nil
 	}, func(tx *sql.Tx, result PrivateSkillResult) error {
 		if _, e := tx.Exec(`INSERT INTO hosted_sync_sources(user_id,slug,bundle_id,revision_id,digest) VALUES(?,?,?,?,?) ON CONFLICT(user_id,slug) DO UPDATE SET bundle_id=excluded.bundle_id,revision_id=excluded.revision_id,digest=excluded.digest`, uid, sk.Slug, result.Bundle.ID, result.Revision.ID, result.Revision.ManifestDigest); e != nil {
+			return e
+		}
+		if _, e := tx.Exec(`INSERT INTO library_hosted_editor_digests VALUES(?,?,?) ON CONFLICT(user_id,slug) DO UPDATE SET digest=excluded.digest`, uid, sk.Slug, editorDigest); e != nil {
 			return e
 		}
 		id, e := libraryAliasID(tx, uid, "hosted", sk.Slug)

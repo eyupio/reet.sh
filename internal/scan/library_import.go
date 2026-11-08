@@ -137,7 +137,12 @@ func runLibraryImport(args []string, out io.Writer, version string) error {
 	if configurationErr != nil && len(locations) == 0 {
 		return configurationErr
 	}
-	result := importLibraryLocations(context.Background(), c, locations, folders, version)
+	if c.AllowApply {
+		if err := syncLibraryEdits(context.Background(), c, *config, version, out); err != nil {
+			return err
+		}
+	}
+	result := importLibraryLocations(context.Background(), c, locations, folders, version, *config)
 	if configurationErr != nil {
 		result.Issues = append(result.Issues, libraryImportIssue{Code: "location_configuration_invalid"})
 	}
@@ -150,8 +155,19 @@ func runLibraryImport(args []string, out io.Writer, version string) error {
 	return nil
 }
 
-func importLibraryLocations(ctx context.Context, c agentConfig, locations []store.LibraryLocation, explicit []string, version string) libraryImportSummary {
+func importLibraryLocations(ctx context.Context, c agentConfig, locations []store.LibraryLocation, explicit []string, version string, configs ...string) libraryImportSummary {
 	result := libraryImportSummary{Issues: []libraryImportIssue{}}
+	managed := map[string]libraryBinding{}
+	if len(configs) > 0 {
+		state, err := loadLibraryState(configs[0], c)
+		if err != nil {
+			result.Issues = append(result.Issues, libraryImportIssue{Code: "journal_unavailable"})
+			return result
+		}
+		for _, binding := range state.Bindings {
+			managed[binding.Path] = binding
+		}
+	}
 	for _, location := range locations {
 		issue := func(name, code string) {
 			result.Issues = append(result.Issues, libraryImportIssue{location.ID, name, code})
@@ -230,8 +246,25 @@ func importLibraryLocations(ctx context.Context, c agentConfig, locations []stor
 				issue(name, "capture_incomplete")
 				continue
 			}
+			if binding, ok := managed[path]; ok {
+				// Receipted sources and installed copies already use the
+				// causal edit journal. Never import an applied copy as a new
+				// item, or rebase an unsent edit onto a fresh server head.
+				if binding.Digest != manifest.Digest {
+					issue(name, "capture_pending")
+				} else {
+					result.Unchanged++
+				}
+				continue
+			}
 			prior := known[name]
 			if prior.Digest == manifest.Digest {
+				if len(configs) > 0 && c.AllowApply && prior.ItemID != "" {
+					if err := recordLibrarySource(configs[0], c, path, prior.ItemID, prior.RevisionID, manifest); err != nil {
+						issue(name, "receipt_failed")
+						continue
+					}
+				}
 				result.Unchanged++
 				continue
 			}
@@ -259,6 +292,12 @@ func importLibraryLocations(ctx context.Context, c agentConfig, locations []stor
 			if receipt.Revision.ManifestDigest != manifest.Digest {
 				issue(name, "receipt_mismatch")
 				continue
+			}
+			if len(configs) > 0 && c.AllowApply && receipt.ItemID != "" {
+				if err := recordLibrarySource(configs[0], c, path, receipt.ItemID, receipt.Revision.ID, manifest); err != nil {
+					issue(name, "receipt_failed")
+					continue
+				}
 			}
 			result.Imported++
 		}

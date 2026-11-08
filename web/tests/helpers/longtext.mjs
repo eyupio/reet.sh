@@ -98,6 +98,7 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (/^\/api\/v2\/lists\/\d+$/.test(path)) return json(listDetail)
     if (/^\/api\/v2\/public\/lists\//.test(path)) return json({ ...listDetail, visibility: 'public', canEdit: false, canManage: false, canTransfer: false, members: undefined })
     if (path === '/api/community') return json({ lists, skills: listDetail.skills })
+    if (path === '/api/v2/library') return json({schemaVersion:1,items:[]})
     if (path === '/api/v2/sync') return json(sync)
     if (path === '/api/v2/sync/candidates') return json({ skills })
     if (path === '/api/v2/setup/profiles') return json({ profiles: [{ name: 'laptop-claude', revision: 2, snapshotId: 'snap-' + 'a'.repeat(24), snapshotDigest: 'sha256:' + 'b'.repeat(64), updatedAt: now }, { name: 'a_very_long_setup_profile_name_for_the_build_server', revision: 1, snapshotId: 'snap-x', snapshotDigest: 'sha256:' + 'd'.repeat(64), updatedAt: now - DAY }] })

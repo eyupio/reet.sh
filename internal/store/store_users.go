@@ -12,6 +12,8 @@ import (
 	"github.com/eyupio/reet.sh/internal/ref"
 )
 
+const canonicalShelfJoin = ` LEFT JOIN library_aliases la ON la.user_id=sh.user_id AND la.kind='shelf' AND la.reference=sh.skill_id LEFT JOIN library_items li ON li.user_id=la.user_id AND li.id=la.item_id `
+const canonicalShelfColumn = `,COALESCE(li.id||':'||li.status,'')`
 const shelfCols = `s.id,s.source,s.slug,s.source_type,s.url,s.name,s.description,sh.notes,s.installs,s.installs_week,s.trend,sh.liked,sh.bookmarked,sh.used,sh.created_at,sh.updated_at`
 
 func hasColumn(db *sql.DB, table, name string) (bool, error) {
@@ -263,27 +265,6 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 		return err
 	}
 	tagRows.Close()
-	libraryRows, err := s.readStmts.query(`SELECT a.reference,i.id,i.status FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference IN (`+placeholders(len(skills))+`)`, args...)
-	if err != nil {
-		return err
-	}
-	for libraryRows.Next() {
-		var reference, id, status string
-		if err = libraryRows.Scan(&reference, &id, &status); err != nil {
-			break
-		}
-		if i, ok := index[reference]; ok {
-			skills[i].LibraryItemID = id
-			skills[i].Status = status
-		}
-	}
-	if err == nil {
-		err = libraryRows.Err()
-	}
-	libraryRows.Close()
-	if err != nil {
-		return err
-	}
 	if compact {
 		envRows, err := s.readStmts.query(`SELECT se.skill_id,COUNT(*) FROM skill_envs se JOIN environments e ON e.id=se.env_id
 			WHERE e.user_id=? AND se.skill_id IN (`+placeholders(len(skills))+`)
@@ -360,8 +341,7 @@ func (s *Store) attachHiddenTagsFor(userID int64, skills []Skill) error {
 }
 
 func (s *Store) GetFor(userID int64, id string) (Skill, bool, error) {
-	k, err := scan(s.db.QueryRow(`SELECT `+shelfCols+` FROM skills s JOIN shelf sh ON sh.skill_id=s.id
-		WHERE sh.user_id=? AND s.id=?`, userID, id))
+	k, err := scan(s.db.QueryRow(`SELECT `+shelfCols+canonicalShelfColumn+` FROM skills s JOIN shelf sh ON sh.skill_id=s.id`+canonicalShelfJoin+` WHERE sh.user_id=? AND s.id=?`, userID, id), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Skill{}, false, nil
 	}
@@ -388,7 +368,7 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
 		return nil, c, err
 	}
-	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=? AND s.hidden=0`
+	q := `SELECT ` + shelfCols + canonicalShelfColumn + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id` + canonicalShelfJoin + ` WHERE sh.user_id=? AND s.hidden=0`
 	args := []any{userID}
 	tabWhere := map[string]string{
 		"liked":      ` AND sh.liked=1`,
@@ -474,7 +454,7 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	}
 	out := make([]Skill, 0, capHint)
 	for rows.Next() {
-		k, err := scan(rows)
+		k, err := scan(rows, true)
 		if err != nil {
 			rows.Close()
 			return nil, c, err

@@ -211,3 +211,9 @@ Selected-item automatic distribution is Stage 3, managed removal/restoration is 
 - **Rollback:** stop new ingestion, retain a consistent full database copy and all post-migration content/aliases. Prefer a forward-compatible fix. A Stage 1 binary cannot fully read typed content, and an old restore must refuse schema-2 archives. Do not automatically overwrite newer content with an old snapshot or reactivate a whole-library writer as a migration rollback.
 - **Field limits:** local subprocesses/HTTP/SQLite and temporary files, not two physical machines or a new production Tailcat diagnosis. Stage 1's field evidence gap remains. No application sign-in/provider calls were made.
 - **Next:** Stage 3. Rebaseline the stacked PR after Stage 1 merges, then implement explicit item/location selections and the single scheduler cutover. Keep status versions, content expected-base revisions and destination intent generations distinct.
+
+### PR check follow-up: library list performance
+
+The benchmark check on `ee7f2c5e` reported statistically significant regressions above its 15% budget for compact skill lists and paged API reads. The added identity/status metadata query scanned three extra values for every shelf item. Identity and status now come from the existing indexed shelf read, as one internal joined value; all public fields and canonical status filtering are unchanged. No benchmark threshold or fixture was relaxed.
+
+Focused store lifecycle/list/migration race tests passed (92.633s). Local diagnostic runs under concurrent Stage 3 tests reduced allocations from 9,842 to 8,613 per full list and 7,962 to 6,733 per compact list. Timing samples on the shared executor were noisy, so the GitHub paired benchmark remains the acceptance gate. The Codex review service reported its account usage limit; there are no inline review threads to resolve.

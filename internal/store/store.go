@@ -700,12 +700,21 @@ func (s *Store) upsert(id, source, slug, typ, url, name string, f Patch) (Skill,
 	return sk, err
 }
 
-func scan(r interface{ Scan(...any) error }) (Skill, error) {
+func scan(r interface{ Scan(...any) error }, canonical ...bool) (Skill, error) {
 	var k Skill
 	var l, b, u int
 	var trend string
-	err := r.Scan(&k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
-		&k.Installs, &k.InstallsWeek, &trend, &l, &b, &u, &k.CreatedAt, &k.UpdatedAt)
+	var err error
+	if len(canonical) > 0 && canonical[0] {
+		var identity string
+		err = r.Scan(&k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
+			&k.Installs, &k.InstallsWeek, &trend, &l, &b, &u, &k.CreatedAt, &k.UpdatedAt, &identity)
+		k.LibraryItemID, k.Status, _ = strings.Cut(identity, ":")
+	} else {
+		err = r.Scan(&k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
+			&k.Installs, &k.InstallsWeek, &trend, &l, &b, &u, &k.CreatedAt, &k.UpdatedAt)
+	}
+
 	if trend != "" {
 		_ = json.Unmarshal([]byte(trend), &k.Trend)
 	}

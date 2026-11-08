@@ -1034,6 +1034,16 @@ func (s *server) eventRequest(r *http.Request, action, skillID string, detail an
 }
 
 func stageLabel(sk store.Skill) string {
+	switch sk.Status {
+	case store.LibraryInUse:
+		return "In use"
+	case store.LibraryToTest:
+		return "To test"
+	case store.LibraryOnShelf:
+		return "On the shelf"
+	case store.LibraryDisabled:
+		return "Disabled"
+	}
 	if sk.Used {
 		return "In use"
 	}
@@ -1224,6 +1234,16 @@ func compactTagNames(sk store.Skill) []string {
 }
 
 func stageKey(sk store.Skill) string {
+	switch sk.Status {
+	case store.LibraryInUse:
+		return "use"
+	case store.LibraryToTest:
+		return "try"
+	case store.LibraryOnShelf:
+		return "shelf"
+	case store.LibraryDisabled:
+		return "disabled"
+	}
 	if sk.Used {
 		return "use"
 	}

@@ -153,9 +153,12 @@ func RunAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill|library-import [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
+	if action == "library-import" {
+		return runLibraryImport(args[1:], out, version)
+	}
 	applyMode := ""
 	if action == "allow-apply" {
 		mode, rest, err := parseAgentApply(args[1:], out)

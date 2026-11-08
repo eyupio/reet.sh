@@ -27,26 +27,28 @@ var ErrNotFound = errors.New("skill not found")
 var ErrUserExists = errors.New("user already exists")
 
 type Skill struct {
-	ID           string        `json:"id"`
-	Source       string        `json:"source"`
-	Slug         string        `json:"slug"`
-	SourceType   string        `json:"sourceType"`
-	URL          string        `json:"url"`
-	Name         string        `json:"name"`
-	Description  string        `json:"description"`
-	Notes        string        `json:"notes"`
-	Installs     int64         `json:"installs"`
-	InstallsWeek int64         `json:"installsWeek"`
-	Trend        []int64       `json:"trend"`
-	Liked        bool          `json:"liked"`
-	Bookmarked   bool          `json:"bookmarked"`
-	Used         bool          `json:"used"`
-	CreatedAt    int64         `json:"createdAt"`
-	UpdatedAt    int64         `json:"updatedAt"`
-	Tags         []Tag         `json:"tags,omitempty"`
-	HiddenTags   []Tag         `json:"hiddenTags,omitempty"`
-	Environments []Environment `json:"environments,omitempty"`
-	Lists        []ListRef     `json:"lists,omitempty"`
+	ID            string        `json:"id"`
+	Source        string        `json:"source"`
+	Slug          string        `json:"slug"`
+	SourceType    string        `json:"sourceType"`
+	URL           string        `json:"url"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description"`
+	Notes         string        `json:"notes"`
+	Installs      int64         `json:"installs"`
+	InstallsWeek  int64         `json:"installsWeek"`
+	Trend         []int64       `json:"trend"`
+	Liked         bool          `json:"liked"`
+	Bookmarked    bool          `json:"bookmarked"`
+	Used          bool          `json:"used"`
+	LibraryItemID string        `json:"libraryItemId,omitempty"`
+	Status        string        `json:"status,omitempty"`
+	CreatedAt     int64         `json:"createdAt"`
+	UpdatedAt     int64         `json:"updatedAt"`
+	Tags          []Tag         `json:"tags,omitempty"`
+	HiddenTags    []Tag         `json:"hiddenTags,omitempty"`
+	Environments  []Environment `json:"environments,omitempty"`
+	Lists         []ListRef     `json:"lists,omitempty"`
 	// EnvironmentCount is set for compact listings, where the full environment
 	// rows are not loaded but the card still shows how many there are.
 	EnvironmentCount int `json:"-"`
@@ -497,6 +499,10 @@ func Open(dir string) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
+	}
+	if err := st.migrateCanonicalLibrary(); err != nil {
+		db.Close()
+		return nil, err
 	}
 	if err := stampSchemaVersion(db); err != nil {
 		db.Close()

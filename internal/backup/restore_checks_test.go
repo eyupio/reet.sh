@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,7 +162,7 @@ func TestARestoreFromANewerCopyIsRefusedNamingBothVersionsAndChangesNothing(t *t
 	if !errors.Is(err, ErrNewerSchema) {
 		t.Fatalf("want ErrNewerSchema, got %v", err)
 	}
-	for _, want := range []string{"999", "9.9.9", "data format 1"} {
+	for _, want := range []string{"999", "9.9.9", fmt.Sprintf("data format %d", store.SchemaVersion)} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the refusal %q does not name %s", err, want)
 		}

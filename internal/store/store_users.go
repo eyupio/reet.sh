@@ -263,6 +263,27 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 		return err
 	}
 	tagRows.Close()
+	libraryRows, err := s.readStmts.query(`SELECT a.reference,i.id,i.status FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf' AND a.reference IN (`+placeholders(len(skills))+`)`, args...)
+	if err != nil {
+		return err
+	}
+	for libraryRows.Next() {
+		var reference, id, status string
+		if err = libraryRows.Scan(&reference, &id, &status); err != nil {
+			break
+		}
+		if i, ok := index[reference]; ok {
+			skills[i].LibraryItemID = id
+			skills[i].Status = status
+		}
+	}
+	if err == nil {
+		err = libraryRows.Err()
+	}
+	libraryRows.Close()
+	if err != nil {
+		return err
+	}
 	if compact {
 		envRows, err := s.readStmts.query(`SELECT se.skill_id,COUNT(*) FROM skill_envs se JOIN environments e ON e.id=se.env_id
 			WHERE e.user_id=? AND se.skill_id IN (`+placeholders(len(skills))+`)
@@ -379,11 +400,13 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	}
 	switch f.Stage {
 	case "use":
-		q += ` AND sh.used=1`
+		q += ` AND ` + canonicalShelfStatus + `='in_use'`
 	case "try":
-		q += ` AND sh.used=0 AND sh.bookmarked=1`
+		q += ` AND ` + canonicalShelfStatus + `='to_test'`
 	case "shelf":
-		q += ` AND sh.used=0 AND sh.bookmarked=0`
+		q += ` AND ` + canonicalShelfStatus + `='on_shelf'`
+	case "disabled":
+		q += ` AND ` + canonicalShelfStatus + `='disabled'`
 	}
 	for _, id := range f.Tags {
 		q += ` AND EXISTS (SELECT 1 FROM skill_tags st WHERE st.user_id=? AND st.skill_id=sh.skill_id AND st.tag_id=? AND st.hidden=0)`
@@ -510,14 +533,23 @@ func (s *Store) PatchFor(userID int64, id string, p Patch) (Skill, error) {
 	if p.Notes != nil {
 		notes = sql.NullString{String: *p.Notes, Valid: true}
 	}
-	res, err := s.db.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), notes=COALESCE(?,notes), updated_at=?
+	err := s.withTx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), notes=COALESCE(?,notes), updated_at=?
 		WHERE user_id=? AND skill_id=?`,
-		nullBool(p.Liked), nullBool(p.Bookmarked), nullBool(p.Used), notes, now(), userID, id)
+			nullBool(p.Liked), nullBool(p.Bookmarked), nullBool(p.Used), notes, now(), userID, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		if p.Used != nil || p.Bookmarked != nil {
+			return syncLibraryShelfStatus(tx, userID, id)
+		}
+		return nil
+	})
 	if err != nil {
 		return Skill{}, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return Skill{}, ErrNotFound
 	}
 	k, _, err := s.GetFor(userID, id)
 	return k, err
@@ -636,12 +668,26 @@ func (s *Store) PatchManyFor(userID int64, ids []string, p Patch) (int, error) {
 	for _, id := range ids {
 		args = append(args, id)
 	}
-	res, err := s.db.Exec(q, args...)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	var n int64
+	err := s.withTx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(q, args...)
+		if err != nil {
+			return err
+		}
+		n, err = res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if p.Used != nil || p.Bookmarked != nil {
+			for _, id := range ids {
+				if err = syncLibraryShelfStatus(tx, userID, id); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	return int(n), err
 }
 
 func (s *Store) TagManyFor(userID int64, ids []string, add []string, remove []int64) (int, error) {

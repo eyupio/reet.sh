@@ -37,10 +37,13 @@ type PrivateSkillOrigin struct {
 	DerivedFrom string `json:"derivedFrom,omitempty"`
 }
 type PrivateSkillBundle struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Head      string `json:"head"`
-	CreatedAt int64  `json:"createdAt"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Head        string `json:"head"`
+	CreatedAt   int64  `json:"createdAt"`
+	ItemType    string `json:"itemType"`
+	Format      string `json:"format,omitempty"`
+	Application string `json:"application,omitempty"`
 }
 type PrivateSkillRevision struct {
 	ID             string                    `json:"id"`
@@ -58,6 +61,9 @@ type PrivateSkillWrite struct {
 	Name         string                    `json:"name"`
 	Origin       PrivateSkillOrigin        `json:"origin"`
 	Files        []skillbundle.ContentFile `json:"files"`
+	ItemType     string                    `json:"itemType,omitempty"`
+	Format       string                    `json:"format,omitempty"`
+	Application  string                    `json:"application,omitempty"`
 }
 type PrivateSkillResult struct {
 	Bundle   PrivateSkillBundle   `json:"bundle"`
@@ -65,7 +71,7 @@ type PrivateSkillResult struct {
 }
 
 func (s *Store) migratePrivateSkills() error {
-	return s.withTx(func(tx *sql.Tx) error {
+	err := s.withTx(func(tx *sql.Tx) error {
 		for _, stmt := range []string{
 			`CREATE TABLE IF NOT EXISTS private_skill_bundles(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,id TEXT NOT NULL,name TEXT NOT NULL,head TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,PRIMARY KEY(user_id,id))`,
 			`CREATE TABLE IF NOT EXISTS private_skill_blobs(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,digest TEXT NOT NULL,data BLOB NOT NULL,PRIMARY KEY(user_id,digest))`,
@@ -78,6 +84,25 @@ func (s *Store) migratePrivateSkills() error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	for _, column := range []struct{ name, ddl string }{
+		{"item_type", "item_type TEXT NOT NULL DEFAULT 'skill'"},
+		{"format", "format TEXT NOT NULL DEFAULT ''"},
+		{"application", "application TEXT NOT NULL DEFAULT ''"},
+	} {
+		ok, e := hasColumn(s.db, "private_skill_bundles", column.name)
+		if e != nil {
+			return e
+		}
+		if !ok {
+			if _, e = s.db.Exec(`ALTER TABLE private_skill_bundles ADD COLUMN ` + column.ddl); e != nil {
+				return e
+			}
+		}
+	}
+	return nil
 }
 func privateSkillRandomID() (string, error) {
 	var raw [16]byte
@@ -119,6 +144,12 @@ func validatePrivateSkill(in PrivateSkillWrite) (skillbundle.Manifest, error) {
 			return skillbundle.Manifest{}, ErrPrivateSkillInvalid
 		}
 	}
+	if in.ItemType != LibrarySkill && in.ItemType != "" {
+		return validateTypedLibraryContent(in)
+	}
+	if in.Format != "" || in.Application != "" {
+		return skillbundle.Manifest{}, ErrPrivateSkillInvalid
+	}
 	m, err := skillbundle.FromContents(in.Files)
 	if err != nil {
 		return m, ErrPrivateSkillInvalid
@@ -145,12 +176,15 @@ func (s *Store) SavePrivateSkillRevisionFor(uid int64, id string, in PrivateSkil
 func (s *Store) savePrivateSkillRevisionFor(uid int64, id string, in PrivateSkillWrite, guard func(*sql.Tx) error) (PrivateSkillResult, error) {
 	return s.savePrivateSkillRevisionWithReceipt(uid, id, in, guard, nil)
 }
-func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in PrivateSkillWrite, guard func(*sql.Tx) error, finish func(*sql.Tx, PrivateSkillResult) error) (out PrivateSkillResult, err error) {
+func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in PrivateSkillWrite, guard func(*sql.Tx) error, finish func(*sql.Tx, PrivateSkillResult) error, committed ...func(*sql.Tx, PrivateSkillResult) error) (out PrivateSkillResult, err error) {
 	if id != "" && !privateSkillID.MatchString(id) {
 		return out, ErrPrivateSkillMissing
 	}
 	if in.Origin.Kind == "" {
 		in.Origin.Kind = "user"
+	}
+	if in.ItemType == "" {
+		in.ItemType = LibrarySkill
 	}
 	m, err := validatePrivateSkill(in)
 	if err != nil {
@@ -162,6 +196,14 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 		Target, Name, Base, Digest string
 		Origin                     PrivateSkillOrigin
 	}{id, in.Name, *in.ExpectedBase, m.Digest, in.Origin})
+	// Preserve the pre-Stage-2 skill fingerprint so existing receipt retries do
+	// not conflict merely because an additive type field was introduced.
+	if in.ItemType != LibrarySkill {
+		fingerprintData, _ = json.Marshal(struct {
+			Legacy                        json.RawMessage
+			ItemType, Format, Application string
+		}{fingerprintData, in.ItemType, in.Format, in.Application})
+	}
 	fingerprintSum := sha256.Sum256(fingerprintData)
 	fingerprint := hex.EncodeToString(fingerprintSum[:])
 	err = s.withTx(func(tx *sql.Tx) error {
@@ -218,7 +260,7 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 			if e != nil {
 				return e
 			}
-			if _, e = tx.Exec(`INSERT INTO private_skill_bundles(user_id,id,name,created_at) VALUES(?,?,?,?)`, uid, id, in.Name, now()); e != nil {
+			if _, e = tx.Exec(`INSERT INTO private_skill_bundles(user_id,id,name,created_at,item_type,format,application) VALUES(?,?,?,?,?,?,?)`, uid, id, in.Name, now(), in.ItemType, in.Format, in.Application); e != nil {
 				return e
 			}
 		}
@@ -226,7 +268,7 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 		if e != nil {
 			return e
 		}
-		if b.Name != in.Name || b.Head != *in.ExpectedBase {
+		if b.Name != in.Name || b.Head != *in.ExpectedBase || b.ItemType != in.ItemType || b.Format != in.Format || b.Application != in.Application {
 			return ErrPrivateSkillConflict
 		}
 		if in.Origin.DerivedFrom != "" {
@@ -307,6 +349,14 @@ func (s *Store) savePrivateSkillRevisionWithReceipt(uid int64, id string, in Pri
 		}
 		b.Head = rid
 		out = PrivateSkillResult{Bundle: b, Revision: PrivateSkillRevision{ID: rid, BundleID: id, Parent: *in.ExpectedBase, ManifestDigest: m.Digest, Origin: in.Origin, CreatedAt: created, Manifest: &m}}
+		if err := recordLibraryPrivateRevision(tx, uid, out); err != nil {
+			return err
+		}
+		for _, record := range committed {
+			if err := record(tx, out); err != nil {
+				return err
+			}
+		}
 		if finish != nil {
 			return finish(tx, out)
 		}
@@ -323,7 +373,7 @@ type privateSkillQuery interface {
 const privateSkillAccount = `EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`
 
 func privateSkillBundle(q privateSkillQuery, uid int64, id string) (b PrivateSkillBundle, err error) {
-	err = q.QueryRow(`SELECT id,name,head,created_at FROM private_skill_bundles WHERE user_id=? AND id=? AND `+privateSkillAccount, uid, id, uid).Scan(&b.ID, &b.Name, &b.Head, &b.CreatedAt)
+	err = q.QueryRow(`SELECT id,name,head,created_at,item_type,format,application FROM private_skill_bundles WHERE user_id=? AND id=? AND `+privateSkillAccount, uid, id, uid).Scan(&b.ID, &b.Name, &b.Head, &b.CreatedAt, &b.ItemType, &b.Format, &b.Application)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrPrivateSkillMissing
 	}
@@ -333,7 +383,7 @@ func (s *Store) PrivateSkillBundleFor(uid int64, id string) (PrivateSkillBundle,
 	return privateSkillBundle(s.db, uid, id)
 }
 func (s *Store) PrivateSkillBundlesFor(uid int64) ([]PrivateSkillBundle, error) {
-	rows, err := s.db.Query(`SELECT id,name,head,created_at FROM private_skill_bundles WHERE user_id=? AND `+privateSkillAccount+` ORDER BY name,id LIMIT ?`, uid, uid, MaxPrivateSkillBundles)
+	rows, err := s.db.Query(`SELECT id,name,head,created_at,item_type,format,application FROM private_skill_bundles WHERE user_id=? AND `+privateSkillAccount+` ORDER BY name,id LIMIT ?`, uid, uid, MaxPrivateSkillBundles)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +391,7 @@ func (s *Store) PrivateSkillBundlesFor(uid int64) ([]PrivateSkillBundle, error) 
 	out := []PrivateSkillBundle{}
 	for rows.Next() {
 		var b PrivateSkillBundle
-		if err = rows.Scan(&b.ID, &b.Name, &b.Head, &b.CreatedAt); err != nil {
+		if err = rows.Scan(&b.ID, &b.Name, &b.Head, &b.CreatedAt, &b.ItemType, &b.Format, &b.Application); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -389,7 +439,7 @@ func privateSkillRevision(q privateSkillQuery, uid int64, bundle, id string, con
 	if err != nil {
 		return r, err
 	}
-	recomputed, err := skillbundle.FromContents(r.Files)
+	recomputed, err := skillbundle.FromFiles(r.Files)
 	expected, _ := json.Marshal(m)
 	actual, _ := json.Marshal(recomputed)
 	same := err == nil && recomputed.Digest == r.ManifestDigest && bytes.Equal(expected, actual)

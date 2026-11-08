@@ -164,14 +164,16 @@ func TestSyncAllMachinesSkipsASkillThatCannotBeStoredPrivately(t *testing.T) {
 	if err := s.ClaimPublishingUsername(uid, "sam"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "reet-draft", Content: "---\nname: reet-draft\ndescription: Draft\n---\nBody\n"}); err != nil {
-		t.Fatal(err)
-	}
 	// Every private bundle slot holds a live skill, so the draft cannot get one.
 	for i := 0; i < MaxPrivateSkillBundles; i++ {
 		if _, err := s.SavePrivateSkillRevisionFor(uid, "", privateWrite(fmt.Sprintf("full_bundle_%06d", i), "", fmt.Sprintf("skill %d", i))); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// Stage 2 captures authored bytes on save; fill the store before saving this
+	// draft so the test still exercises an independently failed capture.
+	if _, err := s.SaveHostedSkill(uid, HostedSkill{Slug: "reet-draft", Content: "---\nname: reet-draft\ndescription: Draft\n---\nBody\n"}); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := s.SyncLibraryMachinesFor(uid, "owner", "https://reet.example"); err != nil {

@@ -103,4 +103,14 @@ See [the control centre workflow](control-centre.md) for fleet controls and sele
 
 ## Your own drafts sync without publishing
 
+The [Stage 2 library foundation](handoffs/simple-library-machine-sync-stage-2.md)
+adds stable item IDs, lifecycle and complete typed content beneath the current
+pages. An enrolled connector can explicitly capture known/project skill folders
+and additional absolute folders with `reet agent library-import --folder PATH`.
+It reports per-item issues and retains healthy captures, without creating machine
+selections. This is a staged inspection/import command; background integration is
+Stage 3. The legacy scheduler described here still has its existing rollout
+behaviour until that cutover. Managed removal/restoration and the new minimal
+interface follow in Stages 4 and 5.
+
 A skill written on the Hosting page reaches a machine the same way an imported private copy does: the agent downloads an immutable, account-owned private revision from this controller with its own token (`GET /api/v2/skill-bundles/{bundle}/revisions/{revision}`) and writes the files itself. Nothing is published and no public URL is created. The controller binds each hosted slug to the revision holding its current bytes (`hosted_sync_sources`); listing candidates for an unchanged draft writes nothing, and editing the draft appends one revision the next time it is listed or saved into a selection. Private storage is bounded (128 bundles, 256 revisions, 64 MiB per account), and the bounds apply to what is in use. When a write would pass one, earlier revisions that nothing depends on are freed first, and so are the bundles of written skills you have since deleted or renamed. Editing and re-syncing a draft as often as you like never fills the account. If every slot does hold a skill that is in use, that one skill is left out of the sync and named on the Sync page, the rest carry on, and deleting a written skill you no longer need makes room. A published skill keeps its public install source, so a machine that held the draft privately replaces it with the public install on its next sync. Drafts are chosen individually on the Sync page; **All my skills** still means the shelf. The session skill picker still installs public skills only.

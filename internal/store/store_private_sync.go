@@ -296,6 +296,21 @@ func bindPrivateSync(tx *sql.Tx, uid int64, r RemoteImport, result PrivateSkillR
 	if r.SyncSkillID == "" {
 		return nil
 	}
+	if id, e := libraryAliasID(tx, uid, "shelf", r.SyncSkillID); e == nil {
+		var bound string
+		if e = tx.QueryRow(`SELECT bundle_id FROM library_items WHERE user_id=? AND id=?`, uid, id).Scan(&bound); e != nil {
+			return e
+		}
+		// A local/name alias is ambiguous after a different complete capture.
+		// Preserve both imported items instead of silently merging that name.
+		if bound == "" || bound == result.Bundle.ID {
+			if e = attachLibraryBundle(tx, uid, id, result); e != nil {
+				return e
+			}
+		}
+	} else if !errors.Is(e, sql.ErrNoRows) {
+		return e
+	}
 	_, err := tx.Exec(`INSERT INTO sync_private_sources(user_id,skill_id,bundle_id,revision_id,digest) VALUES(?,?,?,?,?) ON CONFLICT(user_id,skill_id) DO UPDATE SET bundle_id=excluded.bundle_id,revision_id=excluded.revision_id,digest=excluded.digest`, uid, r.SyncSkillID, result.Bundle.ID, result.Revision.ID, result.Revision.ManifestDigest)
 	return err
 }

@@ -4,6 +4,8 @@
 
 Parent: [Simple library and machine sync](simple-library-machine-sync.md). Baseline: [Stage 0](simple-library-machine-sync-stage-0.md). Pull request: [#662](https://github.com/eyupio/reet.sh/pull/662).
 
+Continuation: [Stage 2 foundation and handover](simple-library-machine-sync-stage-2.md). The results below are the Stage 1 record; use the parent ledger and continuation for the current implementation checkpoint.
+
 **Status:** Stage 1 complete. All 44 Go test packages have passing race results across the broad run and complete corrected package reruns below. Web checks/build and `go vet` pass. The handover records remaining field-testing limits, actual CI observations and browser-testing instructions; no preview or production deployment was created.
 
 ## Starting point

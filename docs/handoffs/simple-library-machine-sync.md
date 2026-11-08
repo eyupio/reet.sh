@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stages 0 and 1 completed on 8 November 2026; see the [baseline and migration map](simple-library-machine-sync-stage-0.md) and [Stage 1 results and implementation handover](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662). All 44 Go test packages have passing race results, including the corrected package reruns documented there. Stage 2 is next; Stages 2–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stages 0 and 1 completed on 8 November 2026; see the [baseline and migration map](simple-library-machine-sync-stage-0.md) and [Stage 1 recovery handover](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662). [Stage 2 implementation](simple-library-machine-sync-stage-2.md) is in progress on a separate branch based on Stage 1, with focused acceptance checks passing and full validation running. Stages 3–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -273,6 +273,8 @@ Stages 1–4 therefore provide browser-accessible behaviour checks before the in
 - One failed capture or unreadable location leaves other complete imports available; incomplete observations preserve previous content.
 
 **Handover:** schemas/projections, compatibility translation, migration fixtures, manifest/identity rules and retention behaviour.
+
+**Implementation record:** [Stage 2 results](simple-library-machine-sync-stage-2.md) cover canonical identity/lifecycle, typed private content, metadata-preserving migration and explicit registered-root capture. Its status records validation progress; the later destination-policy cutover remains separate.
 
 ### Stage 3 — Automatic selected-item sync and edit propagation
 

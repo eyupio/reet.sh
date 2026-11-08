@@ -189,7 +189,9 @@ try {
     const claude = group.getByRole('checkbox', {name:'Claude Code in Gaffer'})
     await expect(claude).not.toBeChecked()
     profileFailure = true
-    await claude.check()
+    // A refused save restores unchecked before Playwright may finish the click;
+    // check() would incorrectly require the rejected state to remain checked.
+    await claude.click()
     await expect(page.getByRole('alert')).toHaveText('down')
     // The server still has the chat off, and the box says so.
     await expect(claude).not.toBeChecked()

@@ -106,3 +106,11 @@ Additional fixes proved while completing that flow:
 - Public controller-sync docs now lead with the selected-library process and identify advanced/older connector behaviour separately. Rendered docs checks pass for 51 pages; handoff links exist. CLI reference comparison is unchanged, web check/build and MCP's 16 tests pass.
 
 These fixes are concrete reviewable changes for #665's image/browser failures. Keep the PR draft and Stage 3 unchecked until the new-head CI checks pass. Stage 2's second performance correction materializes the requested page before canonical joins and adds covering indexes; it preserves ordering and does not relax the 15% benchmark gate. All open PRs continue to be monitored; #668 was added during this work and is included in that inventory.
+
+### CI integration checkpoint
+
+The integrated race check after Stage 2's page-query merge passed API 198.599s, store 40.720s, scan 7.748s and embedded web 1.075s; vet and rendered-doc checks passed. The next browser run exposed a second CTA regression on an already connected phone: placing selection before the existing primary sync flow pushed that flow's button below the viewport. Selection now follows that primary flow. The existing shared-library light/dark phone/desktop test, explicit selection test (320/390/1280), first-machine empty-state checks and four-width phone zoom checks pass together. The explicit selection browser test is now part of the terminal-browser CI workflow.
+
+A native acceptance job failed during Go setup, before its tests started, with no downloadable log blob. This is recorded as infrastructure failure, not a passing product check; the new commit retries it. No test assertion, benchmark threshold or per-test deadline was weakened.
+
+PR #667 is green documentation but its description explicitly requires owner review. Automatic approval review rejected its merge on that basis; it was returned to draft and a specific owner-approval question is pending. Do not retry that merge without the requested approval. Other PR work continues independently.

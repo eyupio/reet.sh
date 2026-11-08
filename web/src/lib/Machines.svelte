@@ -34,7 +34,6 @@
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} {ontitle} />{:else if error}<p class="notice bad" role="alert">{error}</p>{:else}
   <WorkspaceSkeleton label="Loading the terminal workspace" context={workspaceContext} />
   {/if}{:else}
-{#if compare && accounts && canWrite}<SelectedLibrary />{/if}
 <EnvironmentSync {canWrite} {accounts} {timeZone} {dateFormat} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
     {#if accounts && canWrite}
@@ -45,6 +44,7 @@
     {:else}<p>Use the token configured for this instance when the CLI asks. Instances without authentication do not require one.</p>{/if}
   {/snippet}
 </EnvironmentSync>
+{#if compare && accounts && canWrite}<SelectedLibrary />{/if}
 {/if}
 {#if softwareOpen}<FleetSoftware onclose={() => (softwareOpen = false)} />{/if}
 {#if !terminals && !compare && accounts && canWrite}

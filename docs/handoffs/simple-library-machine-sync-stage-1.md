@@ -4,7 +4,7 @@
 
 Parent: [Simple library and machine sync](simple-library-machine-sync.md). Baseline: [Stage 0](simple-library-machine-sync-stage-0.md). Pull request: [#662](https://github.com/eyupio/reet.sh/pull/662).
 
-**Status:** implementation and focused recovery checks pass; full repository race validation is in progress. This report must be updated with its final result before handing off.
+**Status:** Stage 1 complete. All 44 Go test packages have passing race results across the broad run and complete corrected package reruns below. Web checks/build and `go vet` pass. The handover records remaining field-testing limits, actual CI observations and browser-testing instructions; no preview or production deployment was created.
 
 ## Starting point
 
@@ -90,13 +90,14 @@ Local environment: Debian 13.6 amd64, Go 1.27.1 and Node 22.23.4.
 | `go vet ./...` | Passed. |
 | `npm run check` from `web/` | Passed; zero Svelte errors or warnings. |
 | `npm run build` from `web/`; `go test -race ./web -count=1` | Passed; fresh assets replace a stale local build. Web race package time 0.509 seconds. |
-| Full repository `go test -race -p 2 ./... -count=1 -timeout=15m` | Initial run completed with the observation/setup failures described below; every other package passed. Corrected complete API rerun is in progress. |
+| Full repository `go test -race -p 2 ./... -count=1 -timeout=15m` | Initial run: 41 packages passed, 3 required the correction/setup reruns below. Initial exit 1 is retained in the log; all 44 packages now have passing race results across these runs. |
+| Corrected complete API race package, `-count=1 -timeout=60m` | Passed; package time 700.658 seconds. No race reported. |
 | Complete terminal-host race package under a child subreaper | Passed; package time 47.170 seconds. Both process-group cleanup checks pass without changing their assertions. |
 | Remaining tagged future-stage probes | Four expected failures reproduced (selection, inactive authored skills, deletion/notification, inactive removal); promoted restart test passed. Package time 3.406 seconds; exit 1 is intentional for the four unimplemented contracts. |
 
 The full race run uses `GORACE=atexit_sleep_ms=0` to avoid an exit delay for helper processes. This does not disable race detection or its failure exit code.
 
-The first full run exposed a test-observation bug: the foreground outage assertion counted only failed polls, while a pending result was correctly retried before polling. The fixture now counts failed file-sync requests separately from private bootstrap. Three repeated focused race runs pass; the complete API race suite is being rerun on that correction. Do not describe the initial run as green.
+The first full run exposed a test-observation bug: the foreground outage assertion counted only failed polls, while a pending result was correctly retried before polling. The fixture now counts failed file-sync requests separately from private bootstrap. Three repeated focused race runs and the corrected complete API race suite pass. The initial run itself was not green; final coverage combines its 41 passing packages with complete API, terminal-host and web package reruns.
 
 The same run found stale local `web/dist` assets and two terminal-host process-group checks that observed already-killed children as zombies (`State: Z`, parent PID 1). Rebuilding the web assets resolves its package failures. This container's PID 1 does not reap those orphaned children; the complete terminal-host race package passes under a per-command Linux child subreaper. This runner change is scoped to test execution and changes no product code or test expectations. Use a proper reaping init on future container hosts.
 
@@ -152,9 +153,21 @@ The full race run passed the actual local encrypted Tailcat/relay and sealed-ide
 
 This container does not provide a normal logged-in systemd user session or a physical reboot/logout test. Keep the documented Linux lingering and macOS LaunchAgent boundaries. GitHub's existing native-services workflow exercises supported service hosts separately; report its observed state rather than claiming local service installation.
 
-For the published Stage 0 commit `31fa681e`, GitHub's [native services](https://github.com/eyupio/reet.sh/actions/runs/42487213389) and [private connection](https://github.com/eyupio/reet.sh/actions/runs/42487213435) workflows completed successfully. That confirms the baseline checks for unchanged lifecycle/transport paths, not a final Stage 1 CI result. Recheck the final PR head.
+For the Stage 1 implementation commit `df57df560a2aa4002c747a63467760f1cde5091e`, GitHub's [private connection](https://github.com/eyupio/reet.sh/actions/runs/42490748161) workflow passed. The [Linux native-service job](https://github.com/eyupio/reet.sh/actions/runs/42490748173/job/128762355530) passed, including native-agent kill/restart and root system-service recovery; the tmux 3.2 job also passed. The macOS native-service job and full image workflow are still running at this update. Recheck the final PR head; workflow completion is separate from production deployment.
 
 The reported production Tailcat outage still has no captured production connector/controller logs. Stage 0's connected reet read calls returned internal MCP errors. No production tokens, inventories or machines were changed, and this handoff does not claim that specific field incident has been diagnosed.
+
+## Web UI test checkpoint
+
+**Availability:** PR #662 contains the implementation. No preview URL or production deployment has been created by this work. These are manual test instructions, not a claim that the user has run them.
+
+Once the PR controller build is running in a preview, use a disposable account and two Linux test connectors, each enrolled against that controller with its own config/token:
+
+1. In the existing Machines/Skills pages, connect both machines and create an In use skill with supporting content. Confirm the expected files reach both machines.
+2. Restart one connector using its saved config. Confirm it returns under the same machine entry and sync continues. The automated suite additionally covers restart between private preview and upload.
+3. Take one connector offline, edit the skill centrally and confirm the other machine updates. Bring the first connector back and verify it catches up without enrolling again. Refresh the UI to confirm both machine entries remain.
+
+The Stage 1 change is recovery underneath the current UI. Stage 3 is the first selected-item automatic-sync checkpoint; Stage 4 adds removal/restoration notifications; Stage 5 delivers the new minimal interface. The parent handoff lists these checkpoints explicitly so later stages remain testable from the browser.
 
 ## Stage 2 entry
 
@@ -166,8 +179,9 @@ The reported production Tailcat outage still has no captured production connecto
 
 ## Stage 1 handover
 
-- **Status:** implementation complete; full validation pending.
+- **Status:** complete, with field-only checks and production diagnosis limits retained above. Local race coverage, web checks/build and vet pass; broader GitHub CI is still running for the implementation commit.
 - **Starting commit:** `31fa681e9409633560eb664f24edddc3a5a0d579`.
+- **Implementation commit:** `df57df560a2aa4002c747a63467760f1cde5091e`; subsequent documentation records final validation and browser-testing checkpoints.
 - **PR/branch:** [#662](https://github.com/eyupio/reet.sh/pull/662), `feat/simple-library-sync-recovery`.
 - **Runtime file:** `internal/store/store_remote_import.go`.
 - **Tests:** `internal/store/store_remote_import_recovery_test.go`, `internal/api/sync_recovery_test.go`, updated shared harness and tagged future-stage probes.
@@ -175,4 +189,4 @@ The reported production Tailcat outage still has no captured production connecto
 - **Activation:** ordinary authenticated source polling can recover eligible captures after upgrade; current policy schedules each fresh attempt.
 - **Rollback:** revert the Stage 1 runtime patch to restore old retry behaviour. Archived expired attempts remain ordinary retained history; no user content is deleted.
 - **Not part of this stage:** new Library/Machines UI, status-based distribution/removal, general latest-save conflict ordering, four-app provisioning, independent backup rollout or production deployment.
-- **Next:** Stage 2, once final verification below is recorded.
+- **Next:** Stage 2. Rebaseline the PR/checkout, read the authority/migration map and begin canonical item identity/content/status while preserving this recovery's request-generation fences.

@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stage 0 is complete; see its [baseline and migration map](simple-library-machine-sync-stage-0.md). Stage 1 implementation and focused recovery checks pass, with full validation still running; see the [Stage 1 results and implementation handover](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662). Stages 2–7 are not implemented. The reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stages 0 and 1 completed on 8 November 2026; see the [baseline and migration map](simple-library-machine-sync-stage-0.md) and [Stage 1 results and implementation handover](simple-library-machine-sync-stage-1.md) in [PR #662](https://github.com/eyupio/reet.sh/pull/662). All 44 Go test packages have passing race results, including the corrected package reruns documented there. Stage 2 is next; Stages 2–7 are not implemented. No preview or production deployment has been created, and the reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -205,6 +205,23 @@ Useful prior context: `docs/research/skills-sync-ux-review.md`, `docs/research/s
 ## 6. Implementation stages
 
 Stages are sequential integration checkpoints. A later model must receive the earlier model's evidence, schema/API decisions and unresolved issues. Internal rollout controls may keep incomplete policy changes inactive; they are not additional user-facing setup switches.
+
+### When the user can test in the web UI
+
+Each checkpoint needs its implementation build running in a preview or approved deployment. An open PR alone does not update reet.sh. Every stage handover must identify the build/URL actually available, give brief manual steps and distinguish automated checks from a user test that has been run.
+
+| Stage | What the user can try |
+| --- | --- |
+| 0 | Review the concept and reproduced failures; no new UI behaviour. |
+| 1 | Use the existing Machines pages to connect two test machines, restart/reconnect a connector, and verify sync resumes with the same machine records. |
+| 2 | Use existing authoring/organisation pages to check content and metadata preservation; canonical-library work is mainly underneath these pages. |
+| 3 | First functional test of the new selected-item automatic sync, through the existing pages: select an active skill for A/B, edit it and verify propagation without manual preview/apply. Keep the necessary existing UI/API controls usable for this checkpoint. |
+| 4 | Test deselection/inactive removal, automatic local-deletion restoration and web notifications. |
+| 5 | Test the complete new minimal Library/Machines interface and connection/selection flow. |
+| 6 | Test Linux installation/configuration for all four requested applications. |
+| 7 | Test independent backup/restore, migration and the complete release journey. |
+
+Stages 1–4 therefore provide browser-accessible behaviour checks before the interface redesign. Stage 5 remains the usability acceptance checkpoint for the new minimal experience.
 
 ### Stage 0 — Rebaseline and make the contract testable
 
@@ -407,7 +424,7 @@ Do not replace observed failures with a later broad claim of success. Do not req
 ## 9. Completion ledger
 
 - [x] Stage 0: baseline, migration design and real-connector harness
-- [ ] Stage 1: identity, supervision and connection recovery
+- [x] Stage 1: identity, supervision and connection recovery
 - [ ] Stage 2: complete library, authoring, status and metadata
 - [ ] Stage 3: selected-item automatic sync and edits
 - [ ] Stage 4: removal, restoration and notifications

@@ -9,6 +9,7 @@
   import StartAgentDialog from '../StartAgentDialog.svelte'
   import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import SessionSidebar from './SessionSidebar.svelte'
+  import { onAttentionChanged } from '../attentionSignal'
   import CopyButton from '../CopyButton.svelte'
   import { createTerminal, folderProjectList, machineHealth, readiness, terminalMachines, terminalSessions, updateFolderProject, type FolderProject, type HealthResponse, type LaunchRequest, type TerminalMachine, type TerminalSession } from './api'
   import type { ProjectColour } from '../projectColour'
@@ -607,7 +608,9 @@
     const clock=setInterval(()=>{elapsed=performance.now()-receivedAt},1000)
     const wake=()=>{if(document.visibilityState==='visible')void refresh(abort.signal)}
     document.addEventListener('visibilitychange',wake);window.addEventListener('online',wake)
-    return()=>{disposed=true;abort.abort();refreshRequest?.abort();creationRequest?.abort();clearInterval(poll);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}
+    // An answer made anywhere reloads this list now, through the same fenced refresh as the poll.
+    const offAttention=onAttentionChanged(()=>{void refresh(abort.signal)})
+    return()=>{offAttention();disposed=true;abort.abort();refreshRequest?.abort();creationRequest?.abort();clearInterval(poll);clearInterval(clock);document.removeEventListener('visibilitychange',wake);window.removeEventListener('online',wake)}
   })
 </script>
 

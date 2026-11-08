@@ -62,6 +62,9 @@ controller applies:
 - **The controller decides what the web sees.** Whatever a machine reports, the controller returns a gated agent's
   chat descriptor as unverified, with no capability flags, for an account that has it off. A create that names the
   agent is refused because it is not advertised. The change takes effect at once, with no reconnect.
+  The mask is applied when a record is read for use and never to the stored record: code that reads a record in
+  order to write it back, such as the software-update merge, uses an unmasked read, so the connector's own report is
+  never overwritten and turning the chat on takes effect without a new report.
 - **The connector stops deciding.** It reports Claude and Codex as it finds them (the adapter on PATH), but only to a
   controller that advertises a new feature, `chat-gate-v1`. Toward an older controller, which cannot apply the setting,
   the two stay unverified exactly as before. The environment variables, their constants and their checks are deleted.

@@ -56,6 +56,9 @@ type Broker struct {
 	// sessionClosed hears that a row reached a closed state, so the server can
 	// release what the end asked to remove (a worktree that is no longer in use).
 	sessionClosed func(uid int64, agent, session string)
+	// peerReady hears that a connection finished synchronizing, so the server
+	// can resume cleanups that were waiting for the machine, restart included.
+	peerReady func(uid int64, agent string)
 	// lateReplies counts browse and branches answers that came after their
 	// request gave up; they are dropped, never treated as protocol errors.
 	lateReplies atomic.Int64
@@ -350,7 +353,7 @@ func (p *Peer) observe() {
 			if code == nil && s.ExitStatus != nil {
 				code = s.ExitStatus
 			}
-			err := p.b.observe(p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, code)
+			err := p.b.observe(p, p.key.uid, p.key.agent, m.SessionID, p.Generation, s.State, code)
 			hasActivity := s.ActivityAt > 0 || s.BellAt > 0
 			hasOutcome := s.ExitStatus != nil || p.b.peerSupportsAttention(p.key.uid, p.key.agent)
 			signal := hasActivity || hasOutcome
@@ -661,7 +664,7 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 				code = observed.ExitStatus
 			}
 		}
-		if err := p.b.observe(p.key.uid, p.key.agent, s.ID, p.Generation, state, code); err != nil {
+		if err := p.b.observe(p, p.key.uid, p.key.agent, s.ID, p.Generation, state, code); err != nil {
 			// One row the store will not move must not stop the others from
 			// being reconciled, nor the pending ends below from being sent.
 			if errors.Is(err, store.ErrTerminalConflict) || errors.Is(err, store.ErrRemoteNotFound) {
@@ -714,6 +717,7 @@ func (p *Peer) Synchronize(ctx context.Context) error {
 	p.mu.Lock()
 	p.ready = true
 	p.mu.Unlock()
+	p.b.notifyPeerReady(p.key.uid, p.key.agent)
 	return nil
 }
 
@@ -969,7 +973,7 @@ func (b *Broker) CreateSession(ctx context.Context, uid int64, agent, request st
 		if code == nil && state.ExitStatus != nil {
 			code = state.ExitStatus
 		}
-		err = b.observe(uid, agent, s.ID, p.Generation, state.State, code)
+		err = b.observe(p, uid, agent, s.ID, p.Generation, state.State, code)
 		hasActivity := state.ActivityAt > 0 || state.BellAt > 0
 		hasOutcome := state.ExitStatus != nil || b.peerSupportsAttention(uid, agent)
 		signal := hasActivity || hasOutcome
@@ -1034,13 +1038,13 @@ func (p *Peer) end(ctx context.Context, session, request string) error {
 	}
 	switch body := reply.Body.(type) {
 	case *terminalproto.SessionChanged:
-		return p.b.observe(p.key.uid, p.key.agent, session, p.Generation, body.State, body.ExitCode)
+		return p.b.observe(p, p.key.uid, p.key.agent, session, p.Generation, body.State, body.ExitCode)
 	case *terminalproto.Result:
 		if body.Code == terminalproto.NotFound {
 			// The machine answers NotFound only when its registry no longer
 			// holds this session. That is a final answer, not a lost one:
 			// settle the row instead of waiting for a reconnect forever.
-			return p.b.observe(p.key.uid, p.key.agent, session, p.Generation, terminalproto.Lost, nil)
+			return p.b.observe(p, p.key.uid, p.key.agent, session, p.Generation, terminalproto.Lost, nil)
 		}
 	}
 	return ErrOffline
@@ -1055,11 +1059,21 @@ func (b *Broker) OnSessionClosed(fn func(uid int64, agent, session string)) {
 	b.mu.Unlock()
 }
 
-// observe applies one authenticated state observation, then tells the server
-// when that leaves the session closed.
-func (b *Broker) observe(uid int64, agent, session string, generation int64, state terminalproto.SessionState, code *int) error {
+// OnPeerReady sets fn to hear that a connection finished synchronizing. fn runs
+// off the caller's goroutine and must not block it; the server uses it to
+// resume cleanups that were waiting for the machine, including after a restart.
+func (b *Broker) OnPeerReady(fn func(uid int64, agent string)) {
+	b.mu.Lock()
+	b.peerReady = fn
+	b.mu.Unlock()
+}
+
+// observe applies one authenticated state observation. Only a ready peer can
+// reach the machine to release a worktree, so a close seen while a connection
+// is still synchronizing is left to the peer-ready sweep.
+func (b *Broker) observe(p *Peer, uid int64, agent, session string, generation int64, state terminalproto.SessionState, code *int) error {
 	err := b.st.ObserveTerminalStateFor(uid, agent, session, generation, state, code)
-	if err == nil && state.Closed() {
+	if err == nil && state.Closed() && p.isReady() {
 		b.mu.Lock()
 		fn := b.sessionClosed
 		b.mu.Unlock()
@@ -1068,6 +1082,21 @@ func (b *Broker) observe(uid int64, agent, session string, generation int64, sta
 		}
 	}
 	return err
+}
+
+func (p *Peer) isReady() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ready
+}
+
+func (b *Broker) notifyPeerReady(uid int64, agent string) {
+	b.mu.Lock()
+	fn := b.peerReady
+	b.mu.Unlock()
+	if fn != nil {
+		go fn(uid, agent)
+	}
 }
 
 func (b *Broker) End(ctx context.Context, uid int64, session, request string, removeHistory ...bool) (store.TerminalSession, error) {

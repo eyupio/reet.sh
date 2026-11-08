@@ -722,3 +722,40 @@ func TestTerminalEndWithRemoveHistoryKeepsUnsavedWorkVisible(t *testing.T) {
 		t.Fatal("a session with unsaved work left history", rows, err)
 	}
 }
+
+// A controller that committed closure but stopped before the cleanup finishes
+// resumes it when the machine next synchronizes; it does not depend on the
+// original observation callback surviving a restart.
+func TestPeerReadyResumesAnInterruptedRemoveOnClose(t *testing.T) {
+	f := launchAPIFixture(t, worktreeCaps("claude"))
+	id := startWorktreeSession(t, f)
+	caps, err := f.st.RemoteCapabilitiesFor(f.uid, f.agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.RequestTerminalEndFor(f.uid, f.agent.ID, id, terminalbroker.ID(), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, id, caps.Generation, terminalproto.Ended, nil); err != nil {
+		t.Fatal(err)
+	}
+	if archived, err := f.st.TerminalArchivedFor(f.uid, id); err != nil || archived {
+		t.Fatal("archived before its worktree was removed", archived, err)
+	}
+	f.answer(func(body terminalproto.Body) terminalproto.Body {
+		switch body.(type) {
+		case terminalproto.WorktreeStatus:
+			return freshState()
+		case terminalproto.WorktreeRemove:
+			return terminalproto.WorktreeResult{Code: terminalproto.OK, Path: worktreeTestPath, Branch: worktreeTestBranch}
+		}
+		return terminalproto.Result{Code: terminalproto.Unavailable}
+	})
+	f.srv.s.onPeerReady(f.uid, f.agent.ID)
+	if rows, err := f.st.TerminalSessionsFor(f.uid); err != nil || len(rows) != 0 {
+		t.Fatal("the restart replay did not finish the removal", rows, err)
+	}
+	if len(worktreeEvents(t, f.st, f.uid, "worktree-remove")) != 1 || len(worktreeEvents(t, f.st, f.uid, "session-remove")) != 1 {
+		t.Fatal("the resumed cleanup was not audited")
+	}
+}

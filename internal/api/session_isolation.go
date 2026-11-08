@@ -167,7 +167,7 @@ func (s *server) onSessionClosed(uid int64, agentID, sessionID string) {
 	if hold != nil {
 		// The worktree could not go safely, so the session stays visible with
 		// the reason; the person can confirm unsaved work from its menu.
-		s.event(uid, "system", "worktree-kept", "", map[string]string{"machine": sess.AgentID, "host": s.machineHost(uid, sess.AgentID), "path": sess.WorktreePath, "code": hold.Code})
+		_ = s.st.AddEventOnceFor(uid, "system", "worktree-kept", "", map[string]string{"machine": sess.AgentID, "host": s.machineHost(uid, sess.AgentID), "path": sess.WorktreePath, "code": hold.Code})
 		return
 	}
 	if err := s.st.ArchiveTerminalFor(uid, sessionID); err != nil {
@@ -175,6 +175,21 @@ func (s *server) onSessionClosed(uid int64, agentID, sessionID string) {
 	}
 	s.terminals.CloseChat(uid, sessionID)
 	s.event(uid, "system", "session-remove", "", map[string]string{"machine": sess.AgentID, "host": s.machineHost(uid, sess.AgentID), "session": sessionID})
+}
+
+// onPeerReady resumes cleanups that could not reach the machine before, such
+// as one observed while the connection was still synchronizing, or one
+// interrupted by a controller restart. It only looks at this machine's closed
+// remove-history sessions that still hold a worktree.
+func (s *server) onPeerReady(uid int64, agentID string) {
+	const maxCleanups = 50
+	sessions, err := s.st.TerminalCleanupCandidatesFor(uid, agentID, maxCleanups)
+	if err != nil {
+		return
+	}
+	for _, sess := range sessions {
+		s.onSessionClosed(uid, agentID, sess.ID)
+	}
 }
 
 func (s *server) claimSessionCleanup(sessionID string) bool {

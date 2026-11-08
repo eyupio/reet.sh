@@ -362,6 +362,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s.gafferProviders.StartGoalSupervisor()
 	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
 	s.terminals.OnSessionClosed(s.onSessionClosed)
+	s.terminals.OnPeerReady(s.onPeerReady)
 	s.runs = s.newProjectRuns()
 	s.softwareRuns = s.newSoftwareRuns()
 	if dir := st.Dir(); dir != "" {

@@ -242,8 +242,12 @@ func updateHostedFromLibraryEdit(tx *sql.Tx, uid int64, item LibraryItem, result
 	if _, err = tx.Exec(`INSERT INTO library_hosted_editor_digests VALUES(?,?,?) ON CONFLICT(user_id,slug) DO UPDATE SET digest=excluded.digest`, uid, slug, editorManifest.Digest); err != nil {
 		return err
 	}
+	check := HostedSkill{Slug: slug, Content: content, Files: supporting}
+	if err := ValidateHostedSkill(&check); err != nil {
+		return ErrPrivateSkillInvalid
+	}
 	raw, _ := json.Marshal(supporting)
-	if _, err = tx.Exec(`UPDATE hosted_skills SET content=?,files=?,updated_at=? WHERE user_id=? AND slug=?`, content, string(raw), now(), uid, slug); err != nil {
+	if _, err = tx.Exec(`UPDATE hosted_skills SET description=?,content=?,files=?,updated_at=? WHERE user_id=? AND slug=?`, check.Description, content, string(raw), now(), uid, slug); err != nil {
 		return err
 	}
 	_, err = tx.Exec(`UPDATE hosted_sync_sources SET bundle_id=?,revision_id=?,digest=? WHERE user_id=? AND slug=?`, result.Bundle.ID, result.Revision.ID, result.Revision.ManifestDigest, uid, slug)

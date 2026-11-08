@@ -157,6 +157,17 @@ func runLibraryImport(args []string, out io.Writer, version string) error {
 
 func importLibraryLocations(ctx context.Context, c agentConfig, locations []store.LibraryLocation, explicit []string, version string, configs ...string) libraryImportSummary {
 	result := libraryImportSummary{Issues: []libraryImportIssue{}}
+	managed := map[string]libraryBinding{}
+	if len(configs) > 0 {
+		state, err := loadLibraryState(configs[0], c)
+		if err != nil {
+			result.Issues = append(result.Issues, libraryImportIssue{Code: "journal_unavailable"})
+			return result
+		}
+		for _, binding := range state.Bindings {
+			managed[binding.Path] = binding
+		}
+	}
 	for _, location := range locations {
 		issue := func(name, code string) {
 			result.Issues = append(result.Issues, libraryImportIssue{location.ID, name, code})
@@ -233,6 +244,17 @@ func importLibraryLocations(ctx context.Context, c agentConfig, locations []stor
 			manifest, err := skillbundle.Scan(path, skillbundle.Limits{})
 			if err != nil {
 				issue(name, "capture_incomplete")
+				continue
+			}
+			if binding, ok := managed[path]; ok {
+				// Receipted sources and installed copies already use the
+				// causal edit journal. Never import an applied copy as a new
+				// item, or rebase an unsent edit onto a fresh server head.
+				if binding.Digest != manifest.Digest {
+					issue(name, "capture_pending")
+				} else {
+					result.Unchanged++
+				}
 				continue
 			}
 			prior := known[name]

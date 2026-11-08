@@ -176,7 +176,15 @@ func TestCanonicalSelectedMachineEditsAndOfflineOrdering(t *testing.T) {
 		t.Fatal("wrong conflict outcome", history)
 	}
 	before := len(history)
+	jobsBefore, err := h.st.SyncJobsFor(h.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
 	h.rounds(8, a, b)
+	jobsAfter, err := h.st.SyncJobsFor(h.uid)
+	if err != nil || len(jobsAfter) != len(jobsBefore) {
+		t.Fatal("converged content kept generating no-op jobs", len(jobsBefore), len(jobsAfter), err)
+	}
 	history, err = h.st.LibraryEditHistoryFor(h.uid, item.ID)
 	if err != nil || len(history) != before {
 		t.Fatal("import/apply loop", history, err)
@@ -190,6 +198,14 @@ func TestCanonicalImportedSourceEditsAndBlockedItemIsolation(t *testing.T) {
 	h := newSyncContractHarness(t)
 	source, destination := h.machine("root-source"), h.machine("root-destination")
 	source.localSkill("imported", "original imported bytes")
+	// Normal connectors report metadata before the first explicit content
+	// capture. That report's identity/status must survive this import.
+	h.rounds(1, source, destination)
+	reported, err := h.st.LibraryFor(h.uid)
+	if err != nil || len(reported) != 1 {
+		t.Fatal(reported, err)
+	}
+	reportedID := reported[0].ID
 	custom := filepath.Join(source.home, "custom-skills")
 	if err := os.MkdirAll(filepath.Join(custom, "reet-custom"), 0755); err != nil {
 		t.Fatal(err)
@@ -209,6 +225,9 @@ func TestCanonicalImportedSourceEditsAndBlockedItemIsolation(t *testing.T) {
 	}
 	ids := []string{}
 	for _, item := range items {
+		if item.Name == "reet-imported" && (item.ID != reportedID || item.Status != store.LibraryInUse) {
+			t.Fatal("first capture lost reported identity/status", item, reportedID)
+		}
 		if err := h.st.SetLibraryStatusFor(h.uid, item.ID, store.LibraryInUse, item.Version); err != nil {
 			t.Fatal(err)
 		}
@@ -263,6 +282,11 @@ func TestCanonicalEditReceiptsClockFallbackAndEnrollmentFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for i := range revision.Files {
+		if revision.Files[i].Path == "SKILL.md" {
+			revision.Files[i].Data = []byte(strings.Replace(string(revision.Files[i].Data), "description: Stage 0 fixture", "description: Edited on machine", 1))
+		}
+	}
 	event := store.LibraryEdit{EventID: strings.Repeat("a", 32), ItemID: item.ID, Base: item.RevisionID, SavedAt: time.Now().Add(24 * time.Hour).UnixMilli(), Uncertainty: 3600000, Files: revision.Files}
 	receipt, err := h.st.AcceptLibraryEditFor(h.uid, a.id, event)
 	if err != nil || !receipt.ClockFallback || !receipt.Won {
@@ -279,6 +303,10 @@ func TestCanonicalEditReceiptsClockFallbackAndEnrollmentFence(t *testing.T) {
 	second, err := h.st.AcceptLibraryEditFor(h.uid, b.id, later)
 	if err != nil || !second.Won {
 		t.Fatal(second, err)
+	}
+	authored, err := h.st.HostedSkillsFor(h.uid)
+	if err != nil || len(authored) != 1 || authored[0].Description != "Edited on machine" {
+		t.Fatal("authored metadata did not follow machine edit", authored, err)
 	}
 	replay, err := h.st.AcceptLibraryEditFor(h.uid, a.id, event)
 	if err != nil || replay != receipt {
@@ -447,9 +475,33 @@ func TestSimpleSyncContractInactiveAuthoredSkillsStayOffMachines(t *testing.T) {
 	if err != nil || !found || skill.Used || !skill.Bookmarked {
 		t.Fatalf("fixture is not an authored To test skill: %+v, found=%t: %v", skill, found, err)
 	}
+	h.hosted("shelved", "kept on shelf", false, false)
+	h.hosted("disabled", "kept disabled", false, false)
+	items, err := h.st.LibraryFor(h.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{}
+	for _, item := range items {
+		ids = append(ids, item.ID)
+		status := ""
+		if item.Name == "reet-shelved" {
+			status = store.LibraryOnShelf
+		}
+		if item.Name == "reet-disabled" {
+			status = store.LibraryDisabled
+		}
+		if status != "" {
+			if err := h.st.SetLibraryStatusFor(h.uid, item.ID, status, item.Version); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	m := h.machine("inactive-machine")
+	h.rounds(1, m)
+	h.mustRequest(http.MethodPut, "/api/v2/library/selections", store.LibrarySelection{TargetID: store.EnvironmentIDFor(h.uid, m.name, "agents", ""), ItemIDs: ids})
 	h.rounds(6, m)
-	for _, name := range []string{"private-draft", "published-to-test"} {
+	for _, name := range []string{"private-draft", "published-to-test", "shelved", "disabled"} {
 		if _, err := os.Stat(m.path(name, "SKILL.md")); !os.IsNotExist(err) {
 			t.Errorf("inactive authored skill %s was installed: %v", name, err)
 		}

@@ -54,3 +54,24 @@ func (s *Store) RecordLibraryObservationFor(uid int64, itemID, host, agent, proj
 	err = s.RecordEnvironmentFor(uid, id, host, agent, project, path, sourcePath)
 	return id, err
 }
+
+// Reuse a metadata-only shelf identity only when one observed source proves
+// exactly this registered standard root. Same-name multi-source reports remain
+// distinct; an already captured/bound item can never be claimed by a new root.
+func libraryUncapturedRootIdentity(tx *sql.Tx, uid int64, enrollment, location, name string) (string, error) {
+	var id string
+	err := tx.QueryRow(`SELECT i.id FROM library_locations l
+ JOIN sync_agents a ON a.id=l.enrollment_id AND a.user_id=l.user_id
+ JOIN environments e ON e.user_id=l.user_id AND e.host=a.host COLLATE NOCASE AND e.agent=l.legacy_agent AND e.project=l.project
+ JOIN skill_envs se ON se.env_id=e.id JOIN skills k ON k.id=se.skill_id
+ JOIN library_aliases b ON b.user_id=l.user_id AND b.kind='shelf' AND b.reference=k.id
+ JOIN library_items i ON i.user_id=b.user_id AND i.id=b.item_id
+ WHERE l.user_id=? AND l.enrollment_id=? AND l.id=? AND l.legacy_agent<>'' AND k.slug=? AND k.source_type='local' AND i.revision_id='' AND i.deleted_at=0
+ AND (e.path=l.path OR e.path=CASE l.legacy_agent WHEN 'agents' THEN '.agents/skills' WHEN 'claude' THEN '.claude/skills' WHEN 'codex' THEN '.codex/skills' WHEN 'opencode' THEN '.config/opencode/skills' END)
+ AND NOT EXISTS(SELECT 1 FROM library_aliases other WHERE other.user_id=i.user_id AND other.item_id=i.id AND other.kind<>'shelf')
+ AND (SELECT count(*) FROM skill_envs seen JOIN environments env ON env.id=seen.env_id WHERE env.user_id=l.user_id AND seen.skill_id=k.id)=1`, uid, enrollment, location, name).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
+}

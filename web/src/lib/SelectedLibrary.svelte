@@ -46,6 +46,7 @@
     loading=false
   }).catch(e=>{if(!disposed){error=describeError(e);loading=false}});return()=>{disposed=true;generation++} })
 </script>
+{#if targets.length > 0}
 <section aria-labelledby="selected-library-heading" class="selection">
   <h2 id="selected-library-heading">Skills to sync</h2>
   <p>Choose a machine folder and the skills to keep up to date. Only skills marked In use are sent.</p>
@@ -60,6 +61,7 @@
   {:else if loading}<p role="status">Loading selections…</p>{:else if !targets.length}<p>Connect a machine to choose its skills.</p>{/if}
   {#if notice}<p role="status">{notice}</p>{/if}
 </section>
+{/if}
 <style>
-.selection{border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:24px}h2{margin:0 0 8px;font-size:1.1rem}p,small{color:var(--muted)}label{display:grid;gap:8px}select{max-width:100%;padding:8px}fieldset{border:0;padding:0;margin:12px 0;max-height:320px;overflow:auto}legend{font-weight:600;padding:0 0 8px}.skill{display:flex;align-items:center;gap:10px;padding:8px 0}.skill input{flex:0 0 auto}.selection-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}small{font-size:.8rem}
+.selection{min-width:0;border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:24px}h2{margin:0 0 8px;font-size:1.1rem}p,small{color:var(--muted)}label{display:grid;gap:8px}select{max-width:100%;padding:8px}fieldset{min-width:0;border:0;padding:0;margin:12px 0;max-height:320px;overflow:auto}legend{font-weight:600;padding:0 0 8px}.skill{display:flex;align-items:center;gap:10px;padding:8px 0}.skill input{flex:0 0 auto}.skill span{min-width:0;overflow-wrap:anywhere}.selection-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}small{font-size:.8rem}
 </style>

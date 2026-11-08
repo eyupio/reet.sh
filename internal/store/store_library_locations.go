@@ -178,7 +178,14 @@ func (s *Store) ImportLibraryLocationFor(uid int64, enrollment string, in Librar
 			return err
 		}
 		if id == "" {
-			id, err = libraryAliasID(tx, uid, "bundle", result.Bundle.ID)
+			id, err = libraryUncapturedRootIdentity(tx, uid, enrollment, in.LocationID, in.Name)
+			if err != nil {
+				return err
+			}
+			if id == "" {
+				id, err = libraryAliasID(tx, uid, "bundle", result.Bundle.ID)
+			}
+
 			if err != nil {
 				return err
 			}

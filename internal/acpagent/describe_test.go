@@ -153,3 +153,27 @@ func TestDescribeAgentOptionValues(t *testing.T) {
 		t.Fatalf("opencode options: %+v", got)
 	}
 }
+
+// A descriptor claims in-place reattach only for an adapter whose profile can do it, because the connector refuses a
+// reattach for any other (ErrUnsupported). Claiming it for the rest would offer a reconnect that can only fail.
+func TestDescribeClaimsReattachOnlyWhereTheProfileCanReattach(t *testing.T) {
+	t.Setenv(ClaudeSwitch, "1")
+	t.Setenv(CodexSwitch, "1")
+	want := map[string]bool{"opencode": true, "cline": true, "antigravity": false, "claude": false, "codex": false}
+	for tool, reattach := range want {
+		spec, ok := Lookup(tool)
+		if !ok {
+			t.Fatalf("%s has no profile", tool)
+		}
+		if spec.Reattach != reattach {
+			t.Fatalf("%s profile Reattach = %v, want %v", tool, spec.Reattach, reattach)
+		}
+		got := Describe(tool, true, "")
+		if got.State != "available" || !got.Valid() {
+			t.Fatalf("%s descriptor: %+v", tool, got)
+		}
+		if got.Reattach != reattach {
+			t.Errorf("%s descriptor claims Reattach = %v, but its profile says %v", tool, got.Reattach, reattach)
+		}
+	}
+}

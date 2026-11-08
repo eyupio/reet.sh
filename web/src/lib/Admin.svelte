@@ -1,7 +1,7 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
-  import NavigationMenu from './NavigationMenu.svelte'
+  import SectionNav from './SectionNav.svelte'
   import CollectionPanel from './CollectionPanel.svelte'
   import { ADMIN_USER_SCOPES, adminUserCountLabel, adminUserMatchesSearch, adminUserRoleCounts } from './adminUsers'
   import { teamUsageCountLabel, teamUsageMatchesSearch } from './adminTeam'
@@ -510,7 +510,7 @@
 
 <div class="admin">
   <PageHeader eyebrow="Instance administration" title={sectionTitle} titleId="admin-title" lede={descriptions[section]} />
-  <NavigationMenu label="Admin" items={sections.map(s => ({ label: s.label, href: `/admin/${s.key}`, current: section === s.key }))} />
+  <SectionNav label="Admin" items={sections.map(s => ({ label: s.label, href: `/admin/${s.key}`, current: section === s.key }))} />
 
   {#if loading}
     <Skeleton label="Loading the administration page…" shape="cards" count={3} />

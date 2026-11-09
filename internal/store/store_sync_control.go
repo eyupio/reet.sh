@@ -983,3 +983,16 @@ func (s *Store) SyncHostedFor(uid int64, origin string) ([]SyncSkill, error) {
 	}
 	return out, nil
 }
+
+// AgentSecretHash is the stored hash of an enrolled machine's secret, read so a
+// controller can prove it holds the record (see internal/syncproof). It is
+// never returned to a caller outside the server. A machine whose account is
+// disabled has no usable record.
+func (s *Store) AgentSecretHash(id string) (string, bool, error) {
+	var h string
+	err := s.db.QueryRow(`SELECT a.secret_hash FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND u.disabled_at=0`, id).Scan(&h)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return h, err == nil, err
+}

@@ -291,6 +291,15 @@ choice is written to the activity log (`backup-restored`, with `allowLiveSource`
 fence recorded in a copy is never carried across: the controller a copy lands on
 is the one meant to be live, so a restore clears it.
 
+### Moving a controller, the order of it
+
+1. On the old controller, fence it (`reet backup fence --moved-to NEW`) so it stops acting.
+2. Take the final copy (`reet backup run`); it is marked fenced.
+3. On the new controller, restore or import it with `--public-url NEW`, and set what the report's checklist lists by hand.
+4. On each machine, `reet agent set-server NEW` (see [following a moved controller](controller-sync.md#follow-a-controller-that-has-moved)). The machine proves the new controller holds its record before it sends any credential.
+5. Resume the work the restore held back.
+6. When everything is working, the old controller can stay fenced or be retired.
+
 ### Fencing a controller that is moving
 
 Moving a controller safely means the old one stops acting before the final copy

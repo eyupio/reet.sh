@@ -40,6 +40,7 @@ func privateSkillSameOrigin(r *http.Request) bool {
 	return err == nil && mcpSameOrigin(r) && origin.Path == "" && origin.RawQuery == "" && !origin.ForceQuery && origin.Fragment == ""
 }
 func (s *server) registerPrivateSkillRoutes(mux *http.ServeMux) {
+	s.registerCanonicalLibrary(mux)
 	s.registerSkillContentTargets(mux)
 	s.registerSkillContentPreviews(mux)
 	s.registerSkillContentReceipts(mux)
@@ -53,7 +54,7 @@ func (s *server) registerPrivateSkillRoutes(mux *http.ServeMux) {
 func privateSkillError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrPrivateSkillInvalid):
-		writeErr(w, 400, "Invalid private skill revision. Supply a request ID, explicit expected base, matching skill name, valid SKILL.md and bounded portable file paths.")
+		writeErr(w, 400, "Invalid private content revision. Supply a request ID, explicit expected base, matching name, valid content for its item type and bounded portable file paths.")
 	case errors.Is(err, store.ErrPrivateSkillMissing):
 		writeErr(w, 404, "Private skill unavailable.")
 	case errors.Is(err, store.ErrPrivateSkillConflict):
@@ -111,7 +112,7 @@ func (s *server) privateSkillSave(w http.ResponseWriter, r *http.Request) {
 		privateSkillError(w, store.ErrPrivateSkillMissing)
 		return
 	}
-	item, err := s.st.SavePrivateSkillRevisionFor(s.uid(r), id, in)
+	item, err := s.st.SaveLibraryContentFor(s.uid(r), id, in)
 	if err != nil {
 		privateSkillError(w, err)
 		return

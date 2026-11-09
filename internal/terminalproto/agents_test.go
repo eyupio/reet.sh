@@ -118,8 +118,20 @@ func TestCapabilitiesAgentsV2AndOSVersion(t *testing.T) {
 	}
 }
 
+// Every agent started under agents-v2 now has a reviewed YOLO option. The controller's "this agent has no YOLO option"
+// refusals (broker CreateSession, project runs and their API tests) are therefore defensive: no enabled agent reaches
+// them today. This pins that fact, so the day an agent without a YOLO option is added the person adding it sees that
+// those refusals need a test of their own.
+func TestEveryStartedAgentTakesYolo(t *testing.T) {
+	for id := range agentOptions {
+		if !ToolTakesYolo(id) {
+			t.Fatalf("%s has no reviewed YOLO option: add tests for the controller's option-gate refusals", id)
+		}
+	}
+}
+
 func TestAgentsV2ToolsAndOptions(t *testing.T) {
-	for _, id := range []string{"pi", "cursor", "nonesuch", ""} {
+	for _, id := range []string{"pi", "cursor", "gemini", "nonesuch", ""} {
 		if ValidToolV2(id) {
 			t.Fatalf("%q accepted under agents-v2", id)
 		}
@@ -127,7 +139,7 @@ func TestAgentsV2ToolsAndOptions(t *testing.T) {
 	for _, tc := range []struct {
 		tool          string
 		effort, model bool
-	}{{"claude", false, true}, {"codex", false, true}, {"opencode", false, true}, {"gemini", false, true}, {"cline", true, true}, {"antigravity", true, true}, {"pi", false, false}} {
+	}{{"claude", true, true}, {"codex", false, true}, {"opencode", false, true}, {"cline", true, true}, {"antigravity", true, true}, {"pi", false, false}} {
 		if ToolTakesEffort(tc.tool) != tc.effort || ToolTakesModel(tc.tool) != tc.model {
 			t.Fatalf("%s: effort=%v model=%v", tc.tool, ToolTakesEffort(tc.tool), ToolTakesModel(tc.tool))
 		}

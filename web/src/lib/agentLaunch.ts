@@ -1,5 +1,5 @@
 import type { Machine } from './api'
-import { CATALOGUE, agentChoices } from './catalogue'
+import { CATALOGUE, agentChoices, agentDisplayName } from './catalogue'
 import type { TerminalMachine } from './terminal/api'
 
 // What the "Start an agent" dialog checks before it asks a machine to start an agent CLI, and the exact sentences it
@@ -11,14 +11,13 @@ export const TOOLS: { id: string; name: string }[] = [
   { id: 'claude', name: 'Claude Code' },
   { id: 'codex', name: 'Codex' },
   { id: 'opencode', name: 'OpenCode' },
-  { id: 'gemini', name: 'Gemini CLI' },
 ]
 // These take the prompt as an operand and could read a one-word prompt as a subcommand.
 const NEEDS_TWO_WORDS = new Set(['claude', 'codex', 'cline'])
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}$/
 const SOMETHING_CHANGED = 'Something changed. Check again.'
 
-const nameOf = (tool: string): string => CATALOGUE.find(agent => agent.id === tool)?.name ?? tool
+const nameOf = (tool: string): string => agentDisplayName(tool)
 
 /** The display name for a tool id; an unknown id is shown as given, and a missing one as "an agent". */
 export const toolName = (tool: string | undefined): string => (tool ? nameOf(tool) : 'an agent')
@@ -26,7 +25,7 @@ export const toolName = (tool: string | undefined): string => (tool ? nameOf(too
 const UPDATE_TO_LAUNCH = 'Update reet on this machine to start agents.'
 export type ToolChoice = { id: string; name: string; available: boolean; reason: string }
 /** Every catalogue agent, offered only when the machine takes launch requests and reports it installed. The catalogue and
- *  the machine's own gate decide: an old connector keeps the original four, an agents-v2 one may offer newer agents too. */
+ *  the machine's own gate decide: an old connector keeps the three original agents, an agents-v2 one may offer newer agents too. */
 export function toolChoices(machine: TerminalMachine | undefined): ToolChoice[] {
   if (!machine) return CATALOGUE.map(agent => ({ id: agent.id, name: agent.name, available: false, reason: UPDATE_TO_LAUNCH }))
   return agentChoices(machine).map(choice => ({
@@ -125,7 +124,7 @@ const TITLE_TRAIL = /[ ,:;.!?\-–—]+$/
 // Leading words that ask rather than say: greetings, "please", "can you", "I'd like you to", "help me", "let's".
 // English only; any other language passes through untouched.
 const TITLE_FILLER = [
-  /^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|gemini|cline|agy|antigravity|there|team|all|everyone))?[ ,!.:;-]*/i,
+  /^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|cline|agy|antigravity|there|team|all|everyone))?[ ,!.:;-]*/i,
   /^(?:please|pls|kindly)\b[ ,:-]*/i,
   /^(?:can|could|would|will) you(?: please| kindly)?\b[ ,:-]*/i,
   /^i(?:['’]d| would)? (?:like|love|want|need) (?:you )?to\b[ ,:-]*/i,
@@ -134,6 +133,16 @@ const TITLE_FILLER = [
 ]
 const TITLE_SKILL_LINE = /^use the .+ skill\.?$/i // the line the skills picker puts in a prompt: not what the work is
 const TITLE_MARKER = /^(?:[#>*-]+ )+/ // a heading, quote or list marker at the start of a line
+const TITLE_IMAGE_LEAD = /^images?: /i // the Image: / Images: line the Start dialog appends for uploads (tested after cleanTitleLine)
+const TITLE_IMAGE_TOKEN = /(?:\\'|[^ ']|'[^']*')+/g // one upload reference: bare, or POSIX single-quoted (may contain spaces)
+const TITLE_IMAGE_EXT = /\.(?:png|jpe?g|gif|webp)'?$/i
+const isImageLine = (line: string): boolean => {
+  const lead = TITLE_IMAGE_LEAD.exec(line)
+  if (!lead) return false
+  const rest = line.slice(lead[0].length)
+  const tokens = rest.match(TITLE_IMAGE_TOKEN) ?? []
+  return tokens.length > 0 && tokens.join(' ') === rest && tokens.every((t) => TITLE_IMAGE_EXT.test(t))
+}
 const INVISIBLE_ALL = new RegExp(INVISIBLE.source, 'gu')
 
 const cleanTitleLine = (line: string): string => line.replace(/\t/g, ' ').replace(INVISIBLE_ALL, '').replace(/ {2,}/g, ' ').replace(/^ +| +$/g, '')
@@ -179,9 +188,18 @@ function capTitle(text: string): string {
  * A short name for the work a prompt asks for, or '' when it says nothing a name could be made from: the first line
  * with something to say, without greetings or "please", up to the end of its first sentence, at most 60 characters.
  * An ASCII first letter is capitalised; other scripts are left alone so this and the controller agree to the character.
+ * A final `Image:` / `Images:` line of image paths (the Start dialog's uploads) is not task text and is ignored.
  */
 export function promptTitle(prompt: string): string {
-  for (const raw of String(prompt ?? '').split('\n')) {
+  const lines = String(prompt ?? '').split('\n')
+  // Only the last non-empty line counts, so an Image line at the top or in the middle of a prompt is never dropped.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const last = cleanTitleLine(lines[i])
+    if (last === '') continue
+    if (isImageLine(last)) lines.length = i
+    break
+  }
+  for (const raw of lines) {
     const line = cleanTitleLine(raw)
     if (skipTitleLine(line)) continue
     const text = trimTitleEnd(cutSentence(Array.from(stripTitleFiller(line.replace(TITLE_MARKER, '')))).join(''))
@@ -189,6 +207,11 @@ export function promptTitle(prompt: string): string {
     return capTitle(text.replace(/^[a-z]/, first => first.toUpperCase()))
   }
   return ''
+}
+
+/** Who named a session started from this prompt: the task (`prompt`) when `promptTitle` finds a name in it, else the generic folder name (`fallback`). Sent with the launch so the controller can replace a fallback once, from the first real task. */
+export function titleOriginFor(prompt: string): 'prompt' | 'fallback' {
+  return promptTitle(prompt) ? 'prompt' : 'fallback'
 }
 
 /** The session title when the prompt gives none: the agent ("Terminal" for a plain shell), and the last part of the folder when one is chosen. At most 80 characters, no control or format characters. */

@@ -309,10 +309,10 @@ try {
   await openDialog(page)
   const d = dialog(page)
   await d.locator('summary', {hasText:'More defaults'}).click()
-  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode','Gemini CLI','Cline'])
-  // desk is an old connector: it keeps the original four, with no Cline option at all.
+  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode','Cline'])
+  // desk is an old connector: it keeps the three original agents, with no Cline option at all.
   await d.getByRole('combobox', {name:'Machine'}).selectOption('a2')
-  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode','Gemini CLI'])
+  await expect(agentField(page).locator('option')).toHaveText(["The launch bar's choice",'Claude Code','Codex','OpenCode'])
   await expect(agentField(page).locator('option[value="cline"]')).toHaveCount(0)
   await d.getByRole('combobox', {name:'Machine'}).selectOption('a1')
   await expect(agentField(page).locator('option[value="cline"]')).toHaveCount(1)
@@ -356,10 +356,10 @@ try {
   await openDialog(page)
   const d = dialog(page)
   await d.locator('summary', {hasText:'More defaults'}).click()
-  // Thinking is Cline's alone: choosing an agent without it clears the level rather than sending one it cannot take.
+  // Thinking is for the agents that take it: choosing one without it (Codex) clears the level rather than sending one it cannot take.
   await agentField(page).selectOption('cline')
   await effortField(page).selectOption('high')
-  await agentField(page).selectOption('claude')
+  await agentField(page).selectOption('codex')
   await expect(effortField(page)).toHaveCount(0)
   await pickOtherModel(page, 'custom/model-1')
   await expect(modelField(page)).toContainText('custom/model-1')
@@ -368,7 +368,7 @@ try {
   await d.getByRole('button', {name:'Add project', exact:true}).click()
   await expect(d).toBeHidden()
   expect(box.writes[0].body).toEqual({host:'a1', dir:`${HOME}/reet`, isRepo:true, worktreeDefault:'inherit',
-   defaultTool:'claude', defaultModel:'custom/model-1'})
+   defaultTool:'codex', defaultModel:'custom/model-1'})
   expect(errors).toEqual([])
   await context.close()
  }
@@ -393,7 +393,7 @@ try {
   await context.close()
 
   const routes = {'/api/v2/folder-projects/fp1': request => request.method() === 'GET'
-   ? saved({defaultTool:'claude', defaultEffort:'high', starterPrompt:''})
+   ? saved({defaultTool:'codex', defaultEffort:'high', starterPrompt:''})
    : refuse(422, 'invalid_effort', 'A default effort needs a default agent that takes one.')}
   const second = await open({query:'?edit=fp1', routes})
   await second.page.getByRole('button', {name:'Edit', exact:true}).click()

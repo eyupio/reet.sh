@@ -5,6 +5,7 @@
   import type { Machine, ReleaseInfo, SyncAgent, SyncEnvironment } from './api'
   import { agentBuild, agentGroups, channelBuild, groupLabel } from './machines'
   import { CATALOGUE } from './catalogue'
+  import { claudeAdapterHint, CLAUDE_ADAPTER_INSTALL } from './claudeAdapter'
   import { softwareLine, softwarePlanActions, type SoftwarePlanAction } from './software'
   import { formatAge, type MachineModels } from './models'
   import { allModels, applyMachineSoftware, machineModels, machineSoftwarePlan, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
@@ -269,6 +270,10 @@
             <div class="copy">
               <strong>{item.name}</strong>
               <small class="model-state" aria-live="polite">{modelLine(read)}</small>
+              {#if item.id === 'claude'}
+                {@const adapterHint = claudeAdapterHint(terminal)}
+                {#if adapterHint}<small class="claude-adapter">{adapterHint.split(CLAUDE_ADAPTER_INSTALL)[0]}<code>{CLAUDE_ADAPTER_INSTALL}</code></small>{/if}
+              {/if}
             </div>
             <button class="btn" type="button" disabled={!ready || refreshing === item.id} onclick={() => void refresh(item.id)} aria-label={`Refresh ${item.name} models`}>
               {refreshing === item.id ? 'Refreshing…' : 'Refresh'}
@@ -409,6 +414,7 @@
   .hint { margin: 4px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.5; }
   .model-state { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .software-detail { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .claude-adapter { overflow-wrap: anywhere; }
   .plan { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
   .plan p, .plan ol { margin: 0; }
   .plan ol { display: grid; gap: 4px; padding-left: 18px; }

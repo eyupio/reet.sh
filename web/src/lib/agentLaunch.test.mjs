@@ -9,20 +9,19 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
 const source = compile('./agentLaunch.ts').replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`)
 const m = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
-const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor, promptTitle, notStartedText } = m
+const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor, promptTitle, titleOriginFor, notStartedText } = m
 // The controller's cases (internal/terminalproto/testdata/autotitle.json): the same file drives its Go tests, so the
 // name the dialog suggests is the name the controller would give.
 const autoTitles = JSON.parse(readFileSync(new URL('../../../internal/terminalproto/testdata/autotitle.json', import.meta.url), 'utf8'))
 
-test('tools are the four built-in ids', () => {
-  assert.deepEqual(TOOLS, [{ id: 'claude', name: 'Claude Code' }, { id: 'codex', name: 'Codex' }, { id: 'opencode', name: 'OpenCode' }, { id: 'gemini', name: 'Gemini CLI' }])
+test('tools are the three built-in ids', () => {
+  assert.deepEqual(TOOLS, [{ id: 'claude', name: 'Claude Code' }, { id: 'codex', name: 'Codex' }, { id: 'opencode', name: 'OpenCode' }])
 })
 
 test('model suggestions are short hints', () => {
   assert.deepEqual(modelSuggestions('claude'), ['sonnet', 'opus', 'haiku'])
   assert.deepEqual(modelSuggestions('codex'), ['gpt-5-codex'])
   assert.deepEqual(modelSuggestions('opencode'), [])
-  assert.deepEqual(modelSuggestions('gemini'), ['gemini-2.5-pro', 'gemini-2.5-flash'])
   assert.deepEqual(modelSuggestions('nope'), [])
   for (const t of TOOLS) for (const s of modelSuggestions(t.id)) assert.equal(validateModel(s), null)
 })
@@ -47,7 +46,7 @@ test('prompt rule', () => {
   assert.equal(validatePrompt('claude', 'fix\nthe build'), null)
   assert.equal(validatePrompt('claude', 'fix it;'), null)
   assert.equal(validatePrompt('opencode', 'purge'), null)
-  assert.equal(validatePrompt('gemini', 'purge'), null)
+  assert.equal(validatePrompt('opencode', 'purge'), null)
   const two = 'Write the opening prompt as at least two words.'
   assert.equal(validatePrompt('claude', 'purge'), two)
   assert.equal(validatePrompt('codex', 'update'), two)
@@ -61,7 +60,7 @@ test('prompt rule', () => {
   assert.equal(validatePrompt('claude', han + ' ab'), long)
   assert.equal(validatePrompt('claude', han + '中' + ' '), long)
   assert.equal(validatePrompt('claude', '-a b'), 'Start the prompt with a word, not a dash.')
-  assert.equal(validatePrompt('gemini', '-x'), 'Start the prompt with a word, not a dash.')
+  assert.equal(validatePrompt('opencode', '-x'), 'Start the prompt with a word, not a dash.')
   const ctl = 'Use a prompt without control characters other than line breaks.'
   assert.equal(validatePrompt('claude', 'a\tb'), ctl)
   assert.equal(validatePrompt('claude', 'a b\u0000'), ctl)
@@ -79,7 +78,7 @@ test('prompts: separators and the two-word rule', () => {
   const ctl = 'Use a prompt without control characters other than line breaks.'
   assert.equal(validatePrompt('claude', 'a b' + ch(0x2028)), ctl)
   assert.equal(validatePrompt('claude', 'a b' + ch(0x2029)), ctl)
-  assert.equal(validatePrompt('gemini', 'a' + ch(0x2028) + 'b'), ctl)
+  assert.equal(validatePrompt('opencode', 'a' + ch(0x2028) + 'b'), ctl)
   const two = 'Write the opening prompt as at least two words.'
   assert.equal(validatePrompt('claude', 'a\nb'), null)
   assert.equal(validatePrompt('codex', 'a b'), null)
@@ -89,7 +88,7 @@ test('prompts: separators and the two-word rule', () => {
   assert.equal(validatePrompt('cline', 'word'), two)
   assert.equal(validatePrompt('codex', 'word'), two)
   assert.equal(validatePrompt('opencode', 'word'), null)
-  assert.equal(validatePrompt('gemini', 'word'), null)
+  assert.equal(validatePrompt('opencode', 'word'), null)
 })
 
 test('cleanModel returns the trimmed value', () => {
@@ -139,9 +138,9 @@ test('launch sentence follows the spec', () => {
 
 test('titles', () => {
   assert.equal(titleFor('claude', ''), 'Claude Code')
-  assert.equal(titleFor('gemini', '/work/app'), 'Gemini CLI \u00b7 app'.replace('\\u00b7', ch(0xb7)))
-  assert.equal(titleFor('gemini', '/work/app/'), 'Gemini CLI ' + ch(0xb7) + ' app')
-  assert.equal(titleFor('gemini', '/'), 'Gemini CLI')
+  assert.equal(titleFor('codex', '/work/app'), 'Codex \u00b7 app'.replace('\\u00b7', ch(0xb7)))
+  assert.equal(titleFor('codex', '/work/app/'), 'Codex ' + ch(0xb7) + ' app')
+  assert.equal(titleFor('codex', '/'), 'Codex')
   assert.ok(Array.from(titleFor('claude', '/x/' + 'y'.repeat(200))).length <= 80)
   for (const [name, c] of Object.entries(BAD_CHARS)) assert.equal(titleFor('claude', '/x/a' + c + 'b'), 'Claude Code', name)
   // A plain shell has no agent: it is a Terminal, in its folder when it has one.
@@ -157,6 +156,11 @@ test('prompt titles agree with the controller', () => {
 test('automatic titles agree with the controller', () => {
   assert.ok(autoTitles.auto.length >= 10, 'the shared cases are loaded')
   for (const c of autoTitles.auto) assert.equal(promptTitle(c.prompt) || titleFor(c.tool, c.dir), c.want, c.name)
+})
+
+test('title origins agree with the controller', () => {
+  assert.ok(autoTitles.origin.length >= 4, 'the shared cases are loaded')
+  for (const c of autoTitles.origin) assert.equal(titleOriginFor(c.prompt), c.want, c.name)
 })
 
 test('refusal sentences', () => {
@@ -199,9 +203,10 @@ test('toolChoices offers what the machine reports, including Cline under agents-
   assert.equal(out.find(t => t.id === 'cline').available, true)
 })
 
-test('an old machine keeps the original four agents and refuses newer agents', () => {
+test('an old machine keeps the three original agents and refuses newer agents', () => {
   const out = m.toolChoices(machine(['claude', 'codex', 'opencode', 'gemini', 'cline', 'antigravity'], { agentsV2: false }))
-  assert.deepEqual(out.filter(t => t.available).map(t => t.id), ['claude', 'codex', 'opencode', 'gemini'])
+  assert.deepEqual(out.filter(t => t.available).map(t => t.id), ['claude', 'codex', 'opencode'])
+  assert.ok(!out.some(t => t.id === 'gemini'))
   assert.equal(out.find(t => t.id === 'cline').available, false)
   assert.equal(out.find(t => t.id === 'cline').reason, 'Update reet on that machine')
   assert.equal(out.find(t => t.id === 'antigravity').reason, 'Update reet on that machine')
@@ -219,14 +224,14 @@ test('Google AGY is named and launched through the shared catalogue', () => {
 test('toolChoices offers nothing on a machine that cannot take launch requests', () => {
   for (const caps of [undefined, {}, { launch: false, tools: ['claude'] }, { tools: ['claude'] }]) {
     const out = m.toolChoices({ agentId: 'a', host: 'studio', ready: true, capabilities: caps })
-    assert.equal(out.length, 8)
+    assert.equal(out.length, 7)
     assert.ok(out.every(t => !t.available))
-    for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cline', 'antigravity']) assert.equal(out.find(t => t.id === id).reason, 'Update reet on that machine')
+    for (const id of ['claude', 'codex', 'opencode', 'cline', 'antigravity']) assert.equal(out.find(t => t.id === id).reason, 'Update reet on that machine')
     for (const id of ['pi', 'cursor']) assert.equal(out.find(t => t.id === id).reason, "reet doesn't start this agent yet.")
   }
   const none = m.toolChoices(machine([]))
   assert.ok(none.every(t => !t.available))
-  for (const id of ['claude', 'codex', 'opencode', 'gemini', 'cline', 'antigravity']) assert.equal(none.find(t => t.id === id).reason, 'Not installed on studio')
+  for (const id of ['claude', 'codex', 'opencode', 'cline', 'antigravity']) assert.equal(none.find(t => t.id === id).reason, 'Not installed on studio')
   assert.ok(m.toolChoices(machine(undefined)).every(t => !t.available))
 })
 

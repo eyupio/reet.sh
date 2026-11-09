@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeader from './PageHeader.svelte'
   import Skeleton from './Skeleton.svelte'
   import { onMount } from 'svelte'
   import { closeTicket, getTicket, replyTicket, type Ticket, type TicketMessage, type TicketStatus } from './api'
@@ -73,14 +74,10 @@
 {#if !ticket && !error}
   <Skeleton label="Loading the ticket…" count={4} />
 {:else if ticket}
-  <header class="head">
-    <div>
-      <span class="eyebrow">Support ticket #{ticket.id}</span>
-      <h1>{ticket.subject}</h1>
-      <p class="meta">{ticket.opener}{ticket.groupName ? ` · ${ticket.groupName}` : ' · personal'} · opened {elapsed(ticket.createdAt)}{ticket.assignee ? ` · held by ${ticket.assignee}` : ''}</p>
-    </div>
-    <span class="state {ticket.status}">{labels[ticket.status]}</span>
-  </header>
+  <PageHeader group="Support" groupHref="/support" title={ticket.subject}>
+    {#snippet meta()}<span>Ticket #{ticket!.id} · {ticket!.opener}{ticket!.groupName ? ` · ${ticket!.groupName}` : ' · personal'} · opened {elapsed(ticket!.createdAt)}{ticket!.assignee ? ` · held by ${ticket!.assignee}` : ''}</span>{/snippet}
+    {#snippet actions()}<span class="state {ticket!.status}">{labels[ticket!.status]}</span>{/snippet}
+  </PageHeader>
 
   <section class="thread" aria-label="Conversation">
     {#each messages as m (m.id)}
@@ -107,10 +104,6 @@
 <style>
   .back { display: inline-flex; min-height: 44px; align-items: center; color: var(--muted); font-size: 0.875rem; text-decoration: none; }
   .back:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-  .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: 8px 0 20px; }
-  .eyebrow { color: var(--muted); font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-  h1 { margin: 4px 0 6px; font: 500 clamp(1.8rem, 3vw, 2.6rem)/1.15 var(--serif); letter-spacing: -0.03em; overflow-wrap: anywhere; }
-  .meta { margin: 0; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .state { flex: none; padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 0.875rem; }
   .state.open { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent-text); }
   .state.waiting { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }

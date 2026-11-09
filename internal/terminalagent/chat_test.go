@@ -868,7 +868,6 @@ func TestChatHostClaudeLoginErrorReachesTheBrowser(t *testing.T) {
 }
 
 func TestChatHostForwardsCodexLoginNoticeDuringStart(t *testing.T) {
-	t.Setenv(acpagent.CodexSwitch, "1")
 	h, proc, out := testChatHost(t)
 	h.sup.start = func(_ context.Context, opts acpagent.Options) (chatProcess, error) {
 		opts.OnEvent(acpagent.Event{Kind: "notice", Text: "Codex sign-in: ChatGPT Pro"})

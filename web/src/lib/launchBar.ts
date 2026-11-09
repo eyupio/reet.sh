@@ -4,7 +4,7 @@ import { chatNeedsTrust, isChatTool, readiness, structuredAgent } from './termin
 import { CATALOGUE, agentChoices } from './catalogue'
 import { launchEfforts } from './terminal/launchOptions'
 import { resolveLaunchDefaults, type ModelFavourite } from './models'
-import { MAX_PROMPT_BYTES, cleanModel, codeSentence, promptTitle, refusalText, titleFor, toolName, validateModel, validatePrompt } from './agentLaunch'
+import { MAX_PROMPT_BYTES, cleanModel, codeSentence, promptTitle, refusalText, titleFor, titleOriginFor, toolName, validateModel, validatePrompt } from './agentLaunch'
 
 // The launch bar's logic: what the sentence says, what it starts from, whether Start may be pressed, and the one create
 // request per session. Pure: no DOM, no fetch, no storage. The controller and the machine check everything again.
@@ -359,6 +359,7 @@ export function toCreate(choice: LaunchChoice, project: LaunchProject | null, re
   }
   if (choice.effort && (chat || takesEffort(choice.agent))) launch.effort = choice.effort
   if (choice.approvals === 'yolo') launch.yolo = true
+  if (launch.tool) launch.titleOrigin = titleOriginFor(choice.prompt)
   return {
     agentId: project ? project.host : choice.homeMachine ?? '',
     requestId,

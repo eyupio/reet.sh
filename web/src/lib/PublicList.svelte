@@ -45,12 +45,12 @@
   <Skeleton label="Loading the shared list…" shape="rows" count={4} />
 {:else if !detail}
   <section class="missing">
-<PageHeader eyebrow="Shared list" title="That link is not available." lede={error || 'The list may be private, deleted, or link sharing may be turned off.'} />
+<PageHeader group="Shared list" title="That link is not available." lede={error || 'The list may be private, deleted, or link sharing may be turned off.'} />
     <p><a class="back" href="/">Go to reet.sh</a></p>
   </section>
 {:else}
   <article class="public">
-    <PageHeader eyebrow={detail.visibility === 'public' ? 'Public community list' : 'Unlisted read-only list'} title={detail.name} lede={detail.description}>
+    <PageHeader group={detail.visibility === 'public' ? 'Public community list' : 'Unlisted read-only list'} title={detail.name} lede={detail.description}>
       {#snippet meta()}{#if detail}<span class="badge">{detail.skillCount} {detail.skillCount === 1 ? 'skill' : 'skills'}</span>{/if}{/snippet}
     </PageHeader>
 

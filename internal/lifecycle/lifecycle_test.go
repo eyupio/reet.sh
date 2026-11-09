@@ -120,7 +120,7 @@ func TestReleaseVerification(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := releaseClient(t, "dev", archive(t, tc.names, tc.kind), tc.mutate)
-			path, err := fetchBinary(context.Background(), client, "https://example.invalid", "dev", t.TempDir())
+			path, err := fetchBinary(context.Background(), client, "https://api.example.invalid/releases", "https://example.invalid", "dev", t.TempDir())
 			if (err == nil) != tc.want {
 				t.Fatalf("path=%s err=%v", path, err)
 			}
@@ -680,7 +680,7 @@ func TestDevDownloadUsesOneImmutableBuild(t *testing.T) {
 		}
 		return response(404, ""), nil
 	})}
-	path, err := fetchBinary(context.Background(), client, "https://example.invalid", "dev", t.TempDir())
+	path, err := fetchBinary(context.Background(), client, "https://api.example.invalid/releases", "https://example.invalid", "dev", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -692,12 +692,12 @@ func TestDevDownloadUsesOneImmutableBuild(t *testing.T) {
 	}
 	for _, bad := range []string{"../other", strings.Repeat("a", 39), ""} {
 		client.Transport = transport(func(r *http.Request) (*http.Response, error) { return response(200, bad), nil })
-		if _, err := fetchBinary(context.Background(), client, "https://example.invalid", "dev", t.TempDir()); err == nil {
+		if _, err := fetchBinary(context.Background(), client, "https://api.example.invalid/releases", "https://example.invalid", "dev", t.TempDir()); err == nil {
 			t.Fatalf("accepted pointer %q", bad)
 		}
 	}
 	client.Transport = transport(func(r *http.Request) (*http.Response, error) { return response(503, ""), nil })
-	if _, err := fetchBinary(context.Background(), client, "https://example.invalid", "dev", t.TempDir()); err == nil {
+	if _, err := fetchBinary(context.Background(), client, "https://api.example.invalid/releases", "https://example.invalid", "dev", t.TempDir()); err == nil {
 		t.Fatal("pointer outage silently fell back to mutable archives")
 	}
 }
@@ -713,5 +713,81 @@ func TestResolveDevDoesNotQueryReleaseAPI(t *testing.T) {
 	got, err := resolveRelease(context.Background(), client, "https://api.example.invalid/releases", "dev")
 	if err != nil || got != "dev" {
 		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestAssetDownloadFallsBackToGitHubAPI(t *testing.T) {
+	blob := []byte("0123456789abcdef0123456789abcdef01234567\n")
+	var paths []string
+	client := &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/download/dev/dev-build.txt":
+			return response(504, ""), nil
+		case "/releases/tags/dev":
+			return response(200, `{"id":42,"assets":[{"id":7,"name":"dev-build.txt"}]}`), nil
+		case "/releases/assets/7":
+			if r.Header.Get("Accept") != "application/octet-stream" {
+				t.Fatalf("API asset download did not ask for the bytes: %q", r.Header.Get("Accept"))
+			}
+			return response(200, string(blob)), nil
+		}
+		return response(404, ""), nil
+	})}
+	got, err := FetchAsset(context.Background(), client, "https://api.example.invalid/releases", "https://example.invalid/download", "dev", "dev-build.txt", 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(blob) {
+		t.Fatalf("wrong bytes: %q", got)
+	}
+	want := []string{"/download/dev/dev-build.txt", "/releases/tags/dev", "/releases/assets/7"}
+	if strings.Join(paths, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected requests: %v", paths)
+	}
+}
+
+func TestAssetDownloadSearchPagesForLargeReleaseLists(t *testing.T) {
+	blob := []byte("new binary")
+	client := &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/download/dev/checksums.txt":
+			return response(503, ""), nil
+		case r.URL.Path == "/releases/tags/dev":
+			return response(200, `{"id":42,"assets":[]}`), nil
+		case r.URL.Path == "/releases/42/assets":
+			if r.URL.Query().Get("page") == "2" {
+				return response(200, `[{"id":9,"name":"checksums.txt"}]`), nil
+			}
+			var assets []string
+			for i := 0; i < 100; i++ {
+				assets = append(assets, `{"id":1,"name":"other"}`)
+			}
+			return response(200, "["+strings.Join(assets, ",")+"]"), nil
+		case r.URL.Path == "/releases/assets/9":
+			return response(200, string(blob)), nil
+		}
+		return response(404, ""), nil
+	})}
+	got, err := FetchAsset(context.Background(), client, "https://api.example.invalid/releases", "https://example.invalid/download", "dev", "checksums.txt", 1<<20)
+	if err != nil || string(got) != string(blob) {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestAssetDownloadDoesNotRetryAnAbsentAsset(t *testing.T) {
+	requests := 0
+	client := &http.Client{Transport: transport(func(r *http.Request) (*http.Response, error) {
+		requests++
+		if r.URL.Path != "/download/dev/dev-build.txt" {
+			t.Fatalf("unexpected fallback for a 404: %s", r.URL.Path)
+		}
+		return response(404, ""), nil
+	})}
+	if _, err := FetchAsset(context.Background(), client, "https://api.example.invalid/releases", "https://example.invalid/download", "dev", "dev-build.txt", 128); err == nil {
+		t.Fatal("absent asset accepted")
+	}
+	if requests != 1 {
+		t.Fatalf("unexpected requests: %d", requests)
 	}
 }

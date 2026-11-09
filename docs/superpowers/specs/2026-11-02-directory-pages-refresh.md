@@ -107,6 +107,7 @@ page's job (browsing versus administration), the page keeps its job.
 - **R8 — Page titles and voice stay as they are.** "Lists.", "Have a nosy.", "A proper
   toolkit. Together." and "Setups." keep their character. *Cost if wrong:* the family is
   unified in structure rather than in headline; that is deliberate.
+  *Superseded by `docs/superpowers/specs/2026-11-08-supporting-page-navigation-design.md`: those pages now carry the menu name as their title.*
 
 ## Testing
 

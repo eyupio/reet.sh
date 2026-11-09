@@ -363,6 +363,7 @@ func TestFolderProjectCreateValidatesAndAudits(t *testing.T) {
 		{"base branch with a space", map[string]any{"baseBranch": "my branch"}, 422, "invalid_branch", "baseBranch", ""},
 		{"worktree maybe", map[string]any{"worktreeDefault": "maybe"}, 422, "invalid_worktree_default", "worktreeDefault", "Choose whether each session gets a worktree: inherit, yes or no."},
 		{"unknown tool", map[string]any{"defaultTool": "bash"}, 422, "invalid_tool", "defaultTool", "Choose one of the agents reet can start."},
+		{"retired tool", map[string]any{"defaultTool": "gemini"}, 422, "invalid_tool", "defaultTool", "Choose one of the agents reet can start."},
 		{"bad model", map[string]any{"defaultModel": "-rm"}, 422, "invalid_model", "defaultModel", sentenceModel},
 		{"bad colour", map[string]any{"colour": "chartreuse"}, 422, "invalid_colour", "colour", "Choose a colour from the palette, or no colour."},
 		{"prompt starting with a dash", map[string]any{"starterPrompt": "--yolo " + folderSentinel}, 422, "invalid_prompt", "starterPrompt", fmt.Sprintf("The starter prompt must be valid text of at most %d bytes, without control characters other than line breaks, and must not start with a dash.", terminalproto.MaxPromptBytes)},

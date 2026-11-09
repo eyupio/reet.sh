@@ -64,6 +64,7 @@ type AgentConfig struct {
 	acpModel           bool
 	acpLiveControls    bool
 	acpStartOptions    bool
+	acpProvider        bool
 	acpPreviews        bool
 	acpAgentMode       bool
 	acpAgentOptions    bool
@@ -74,6 +75,7 @@ type AgentConfig struct {
 	chatReattach       bool
 	chatReattachDetail bool
 	acpAgentReattach   bool
+	chatGate           bool
 	acpQuestion        bool
 	inspect            bool
 	shellDir           bool
@@ -773,10 +775,12 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpModel = terminalproto.SupportsACPModel(advertised)
 	cfg.acpLiveControls = terminalproto.SupportsACPLiveControls(advertised)
 	cfg.acpStartOptions = terminalproto.SupportsACPStartOptions(advertised)
+	cfg.acpProvider = terminalproto.SupportsACPProvider(advertised)
 	cfg.acpPreviews = terminalproto.SupportsACPPreviews(advertised)
 	cfg.acpAgentMode = terminalproto.SupportsACPAgentMode(advertised)
 	cfg.acpAgentOptions = terminalproto.SupportsACPAgentOptions(advertised)
 	cfg.acpAgentReattach = terminalproto.SupportsACPAgentReattach(advertised)
+	cfg.chatGate = terminalproto.SupportsChatGate(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
 	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
 	// session-mode-v1 stands on chats, their history and launches; it is
@@ -862,6 +866,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	if cfg.acpLiveControls {
 		features = append(features, terminalproto.ACPLiveControlsFeature)
 	}
+	if cfg.acpProvider {
+		features = append(features, terminalproto.ACPProviderFeature)
+	}
 	if cfg.acpModel {
 		features = append(features, terminalproto.ACPModelFeature)
 	}
@@ -873,6 +880,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpAgentReattach {
 		features = append(features, terminalproto.ACPAgentReattachFeature)
+	}
+	if cfg.chatGate {
+		features = append(features, terminalproto.ChatGateFeature)
 	}
 	if cfg.acpWorktree {
 		features = append(features, terminalproto.ACPWorktreeFeature)
@@ -1005,6 +1015,11 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 			if entry.Tool == "antigravity" && !cfg.antigravityACP {
 				continue
 			}
+			// Only a controller that applies the per-account setting can hide a
+			// gated agent, so toward any other it stays unverified.
+			if !cfg.chatGate && slices.Contains(terminalproto.GatedChatTools(), entry.Tool) {
+				entry = terminalproto.ACPAgent{Tool: entry.Tool, Adapter: entry.Adapter, State: "unverified"}
+			}
 			described = append(described, entry)
 		}
 	}
@@ -1096,6 +1111,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		ACPModel:        acp && cfg.acpModel,
 		ACPLiveControls: acp && cfg.acpLiveControls,
 		ACPStartOptions: acp && cfg.acpLiveControls && cfg.acpStartOptions,
+		ACPProvider:     acp && cfg.acpLiveControls && cfg.acpProvider,
 		ACPPreviews:     acp && cfg.acpPreviews,
 		// Only when a descriptor lists a mode, so the flag never appears without one.
 		ACPAgentMode: acp && cfg.acpAgentMode && anyModes(chatAgents),

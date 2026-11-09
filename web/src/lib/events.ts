@@ -98,6 +98,8 @@ export function eventLabel(e: Event): string {
     case 'project-remove': return d.name ? `Removed project ${d.name}; its folder on ${d.host || 'its machine'} is untouched` : 'Removed a project'
     case 'folder-browse': return d.path ? `Browsed folders from ${d.path}${typeof d.pages === 'number' ? ` (${d.pages} ${d.pages === 1 ? 'page' : 'pages'})` : ''}` : 'Browsed folders on a machine'
     case 'worktree-remove': return `Removed a worktree on ${d.host || 'a machine'}${d.branch ? `; the branch ${d.branch} is kept` : ''}`
+    case 'worktree-kept': return `Kept a session's worktree on ${d.host || 'a machine'}; it has work that needs your decision`
+    case 'session-remove': return `Removed a finished session from history on ${d.host || 'a machine'}`
     case 'software-apply':
       if (d.state !== 'applied') return `Tried to ${d.action || 'change'} OpenCode on ${d.host || 'a machine'}${d.reason ? ` (${String(d.reason).replaceAll('_', ' ')})` : ''}`
       if (d.action === 'remove') return `Removed reet's managed OpenCode from ${d.host || 'a machine'}`
@@ -332,6 +334,8 @@ const CATEGORY_ACTIONS: Record<string, EventCategory> = {
   'model-favourite-removed': 'agents',
   'model-favourite-default': 'agents',
   'worktree-remove': 'agents',
+  'worktree-kept': 'agents',
+  'session-remove': 'agents',
   'software-apply': 'agents',
   'merge-machines': 'agents',
   'forget-machine': 'agents',

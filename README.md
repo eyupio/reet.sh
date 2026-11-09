@@ -138,7 +138,9 @@ running, while **Cancel answer** stops it. Chat starts with typed messages only;
 
 **Look after this session** reviews its provider/model, recent conversation access,
 worker messaging and agreed goal in one place, then saves them together. Defaults
-are **12 Gaffer reviews over 24 hours**, editable under Change limits. Selected
+are **12 Gaffer reviews over 24 hours**, editable under Change limits. **Use a prompt**
+offers a few reet-written goals, and **Save as prompt** keeps your own in this browser
+for reuse. Selected
 goals continue on the controller while you are away, follow new worker progress
 and pause for decisions, uncertain delivery or limits. Advanced session controls
 keep detailed sharing and a separate one-request worker relay optional. Gaffer
@@ -283,7 +285,7 @@ Start a new shell with the + beside a machine in Control or Terminals. Right-cli
 
 To start an AI agent instead of a shell, use **New agent session** in Terminals or **Start an agent** on a machine's card (disabled, with the reason, while the machine isn't ready): choose the agent, an optional model, a folder inside the machine's home and an optional opening prompt, and you land in the new session; the machine decides how the agent is started. [What it does and what it does not establish](docs/start-agent-session.md).
 
-**Google Antigravity (AGY)** is supported alongside Gemini CLI. Install the official `agy` command on the machine and update its reet connector; the picker offers AGY when the machine reports it installed. Model selection, an opening prompt and low/medium/high thinking are supported. Approvals stay on by default; YOLO uses the existing account, machine and confirmation controls. Updated machines also offer Gaffer through AGY’s native ACP server, with its configured permission rules, approval cards and history; see [AGY in Gaffer](docs/structured-sessions.md#google-antigravity-agy-in-gaffer).
+**Google Antigravity (AGY)** is supported. Install the official `agy` command on the machine and update its reet connector; the picker offers AGY when the machine reports it installed. Model selection, an opening prompt and low/medium/high thinking are supported. Approvals stay on by default; YOLO uses the existing account, machine and confirmation controls. Updated machines also offer Gaffer through AGY’s native ACP server, with its configured permission rules, approval cards and history; see [AGY in Gaffer](docs/structured-sessions.md#google-antigravity-agy-in-gaffer).
 
 A closed agent session offers **Continue session…** under its actions: reet starts a new terminal in the same folder and asks the agent to resume its last conversation there. OpenCode is supported today; other agents wait for a reviewed resume command, and the machine must run a reet that negotiated `resume-v1`.
 
@@ -360,8 +362,8 @@ See [CLI home and terminal handling](docs/cli-home.md), the generated
 ### Local AI agent setup discovery
 
 `reet setup scan` provides a standalone, read-only inventory of known configuration
-locations and executables for Claude Code, Codex, OpenCode, Pi, Cursor and Gemini
-CLI. It does not require a reet account or server:
+locations and executables for Claude Code, Codex, OpenCode, Pi and Cursor. It does
+not require a reet account or server:
 
 ```sh
 reet setup scan
@@ -487,7 +489,7 @@ references are protected.
 This is still not complete setup backup/restore: memory databases, conversation/session
 history and skill dependency resolution are not implemented; runtime health
 verification and verified cross-OS restore remain unproven. Discovered global and
-project instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`) are
+project instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`) are
 included as encrypted text; other instruction locations are not inventoried. Existing
 instance and shelf backups below remain separate.
 See [setup discovery and limits](docs/setup-discovery.md) and

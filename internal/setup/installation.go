@@ -27,7 +27,6 @@ func nodePackageNames(agent string) []string {
 		"claude": {"@anthropic-ai/claude-code"}, "codex": {"@openai/codex"},
 		"opencode": {"@opencode/cli", "opencode-ai"},
 		"pi":       {"@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"},
-		"gemini":   {"@google/gemini-cli"},
 	}[agent]
 }
 

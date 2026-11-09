@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -207,6 +206,11 @@ func terminalError(w http.ResponseWriter, err error) {
 	}
 	writeErr(w, status, message)
 }
+
+// chatOffMessage is the one refusal for a chat whose switch the account has turned off. It names the setting, because
+// updating reet on the machine would change nothing.
+const chatOffMessage = "This chat is turned off for your account. Turn it on in Settings > Agents."
+
 func (s *server) terminalMachines(w http.ResponseWriter, r *http.Request) {
 	agents, err := s.st.SyncAgentsFor(s.uid(r))
 	if err != nil {
@@ -279,11 +283,13 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		Tool      string `json:"tool"`
 		Base      string `json:"base"`
 		Effort    string `json:"effort"`
-		Yolo      bool   `json:"yolo"`
-		Resume    bool   `json:"resume"`
-		Model     string `json:"model"`
-		Dir       string `json:"dir"`
-		Prompt    string `json:"prompt"`
+		// Provider is the billing source a structured Cline chat starts on.
+		Provider string `json:"provider"`
+		Yolo     bool   `json:"yolo"`
+		Resume   bool   `json:"resume"`
+		Model    string `json:"model"`
+		Dir      string `json:"dir"`
+		Prompt   string `json:"prompt"`
 		// Worktree is a run token chosen by the caller (the Projects run
 		// derives it), never generated here: a retried request must carry the
 		// same token so the machine adopts the worktree it already made.
@@ -298,17 +304,20 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		Structured bool   `json:"structured"`
 		Trust      bool   `json:"trust"`
 		ResumeACP  string `json:"resumeAcp"`
+		// TitleOrigin says who named a supplied title: the client may claim
+		// "prompt" or "fallback" only for the exact title the controller would
+		// have chosen. Anything else, or no claim, is the person's own title.
+		TitleOrigin string `json:"titleOrigin"`
 	}
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust, ResumeACP: in.ResumeACP}
+	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Provider: in.Provider, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust, ResumeACP: in.ResumeACP}
 	// A session started without a title is named from its prompt, or its agent
-	// and folder. The name depends only on the request, so a retry whose reply
-	// was lost asks for the same session under the same name.
-	if strings.TrimSpace(create.Title) == "" {
-		create.Title = terminalproto.AutoTitle(in.Tool, in.Prompt, in.Dir)
-	}
+	// and folder, and the name's owner is recorded with it. Both depend only on
+	// the request, so a retry whose reply was lost asks for the same session
+	// under the same name and origin.
+	create.Title, create.TitleOrigin = terminalproto.ResolveTitle(in.Title, in.TitleOrigin, in.Tool, in.Prompt, in.Dir)
 	uid := s.uid(r)
 	// The project is checked before any machine is asked, so an unknown
 	// project is refused the same way whether the machine is online or not.
@@ -412,6 +421,8 @@ func (s *server) terminalCreateError(w http.ResponseWriter, err error, uid int64
 		writeErrCode(w, http.StatusConflict, "acp_history_unsupported", "", "Update reet on that machine to reopen reet sessions with their history.", "")
 	case errors.Is(err, terminalbroker.ErrACPResumeNotFound):
 		writeErrCode(w, http.StatusNotFound, "acp_resume_not_found", "", "That reet session's history is no longer available on that machine.", "")
+	case errors.Is(err, terminalbroker.ErrChatOff):
+		writeErrCode(w, http.StatusConflict, "chat_off", "", chatOffMessage, "")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported):
 		writeErrCode(w, http.StatusConflict, "acp_unavailable", "", "Update reet on that machine to use Gaffer chats.", "")
 	case errors.Is(err, terminalbroker.ErrACPVersion):
@@ -444,7 +455,7 @@ func (s *server) terminalToolInstalled(uid int64, agent, tool string) bool {
 // prompt is deliberately absent: it is user text kept only with the session.
 func (s *server) auditTerminalLaunch(uid int64, agent string, in terminalproto.Create, session store.TerminalSession) {
 	host := s.machineHost(uid, agent)
-	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir, "effort": in.Effort, "base": in.Base, "yolo": strconv.FormatBool(in.Yolo), "resume": strconv.FormatBool(in.Resume), "structured": strconv.FormatBool(in.Structured)}
+	detail := map[string]string{"machine": agent, "host": host, "tool": in.Tool, "model": in.Model, "dir": in.Dir, "effort": in.Effort, "provider": in.Provider, "base": in.Base, "yolo": strconv.FormatBool(in.Yolo), "resume": strconv.FormatBool(in.Resume), "structured": strconv.FormatBool(in.Structured)}
 	if in.ProjectID != "" {
 		detail["projectId"] = in.ProjectID
 	}
@@ -491,15 +502,10 @@ func (s *server) terminalEnd(w http.ResponseWriter, r *http.Request) {
 	if !terminalJSON(w, r, &in) {
 		return
 	}
-	// Removing history automatically when the session closes would leave its
-	// worktree behind with nobody asked about unsaved work. A session with a
-	// worktree stays in history; removing it later (terminalArchive) takes the
-	// worktree with it.
-	if in.RemoveHistory {
-		if sess, err := s.st.TerminalSessionFor(s.uid(r), r.PathValue("id")); err == nil && sess.WorktreePath != "" {
-			in.RemoveHistory = false
-		}
-	}
+	// A session with a worktree keeps its place in history until the worktree
+	// is gone: onSessionClosed checks and removes it once the machine confirms
+	// the session stopped, and archives the session only when nothing is left
+	// behind. Uncommitted changes are never discarded without a person.
 	session, err := s.terminals.End(r.Context(), s.uid(r), r.PathValue("id"), in.RequestID, in.RemoveHistory)
 	if err != nil {
 		terminalError(w, err)

@@ -117,7 +117,7 @@ try {
  if (run('dark')) {
   const {context,page} = await open({width:1440,theme:'dark'})
   await page.goto(`${base}/machines`)
-  await expect(page.getByRole('heading',{name:'Your machines, connected.'})).toBeVisible()
+  await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
   expect(await page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark')
   expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--warn').trim())).toBe('#e9b44c')
   await context.close()

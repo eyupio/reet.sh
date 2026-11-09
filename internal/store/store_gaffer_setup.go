@@ -34,6 +34,7 @@ func (s *Store) SetupGafferGoal(uid, conversationRevision, expected int64, g Gaf
 		if json.Unmarshal([]byte(rawCaps), &caps) != nil {
 			return ErrNotFound
 		}
+		caps = caps.WithoutChats(disabledChats(tx, uid))
 		_, available := caps.ChatAgent(tool)
 		if !available || !caps.ACPLiveControls || state != string(terminalproto.Running) {
 			return ErrNotFound

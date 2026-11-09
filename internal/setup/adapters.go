@@ -69,11 +69,5 @@ func adapters() []adapter {
 			directory("global", "skills", ".cursor/skills", "", ""),
 			directory("project", "skills", ".cursor/skills", "", ""),
 		}},
-		{"gemini", "Gemini CLI", "gemini", []locationSpec{
-			directory("global", "configuration", ".gemini", "", ""),
-			file("global", "instructions", ".gemini/GEMINI.md", "", ""),
-			directory("project", "configuration", ".gemini", "", ""),
-			file("project", "instructions", "GEMINI.md", "", ""),
-		}},
 	}
 }

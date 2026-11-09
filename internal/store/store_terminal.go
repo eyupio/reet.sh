@@ -85,7 +85,10 @@ func (s *Store) migrateTerminal() error {
 			return err
 		}
 	}
-	return s.migrateAttention()
+	if err := s.migrateAttention(); err != nil {
+		return err
+	}
+	return s.migrateTitleOrigin()
 }
 
 func (s *Store) migrateTerminalTables() error {
@@ -277,6 +280,22 @@ func (s *Store) BeginRemoteConnectionFor(uid int64, agentID, instanceID string, 
 	return c, err
 }
 func (s *Store) RemoteCapabilitiesFor(uid int64, agentID string) (RemoteAgentCapabilities, error) {
+	c, err := s.RemoteCapabilitiesRawFor(uid, agentID)
+	if err != nil {
+		return c, err
+	}
+	// A gated agent's chat is hidden from an account that has not turned it on.
+	// The mask is applied here, when the record is read for use, never to the
+	// stored record.
+	c.Capabilities = c.Capabilities.WithoutChats(disabledChats(s.db, uid))
+	return c, nil
+}
+
+// RemoteCapabilitiesRawFor returns the stored record exactly as the connector
+// reported it, without the account's chat setting applied. It is for code that
+// reads a record in order to write it back; everything else reads
+// RemoteCapabilitiesFor.
+func (s *Store) RemoteCapabilitiesRawFor(uid int64, agentID string) (RemoteAgentCapabilities, error) {
 	return readCapabilities(s.db.QueryRow(`SELECT `+capabilityCols+` FROM remote_agent_capabilities WHERE agent_id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0)`, agentID, uid, uid))
 }
 
@@ -480,6 +499,36 @@ func (s *Store) TerminalSessionsFor(uid int64) ([]TerminalSession, error) {
 	return out, nil
 }
 
+// TerminalCleanupCandidatesFor lists one machine's sessions whose end asked to
+// remove history, that are closed and still hold a not-yet-archived worktree.
+// Cleanup removes the worktree, then archives the session. It is how a
+// controller restart or a reconnect resumes a cleanup that was interrupted.
+func (s *Store) TerminalCleanupCandidatesFor(uid int64, agentID string, limit int) ([]TerminalSession, error) {
+	rows, err := s.readStmts.query(`SELECT `+terminalSessionCols+` FROM terminal_sessions
+		WHERE user_id=? AND agent_id=? AND worktree_path<>'' AND state IN ('ended','exited','lost')
+		AND NOT EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=terminal_sessions.id)
+		AND EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}')
+		ORDER BY updated_at,id LIMIT ?`, uid, agentID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := []TerminalSession{}
+	for rows.Next() {
+		t, err := readTerminal(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	return out, nil
+}
+
 // terminalSeenFor reads the seen stamps for a page of sessions in one query.
 func (s *Store) terminalSeenFor(uid int64, sessions []TerminalSession) (map[string]int64, error) {
 	seen := make(map[string]int64, len(sessions))
@@ -630,9 +679,13 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		if project.Valid {
 			t.ProjectID = &project.String
 		}
+		origin := in.TitleOrigin
+		if !terminalproto.ValidTitleOrigin(string(origin)) {
+			origin = terminalproto.TitleManual
+		}
 		// The prompt is written here and nowhere else, so a retry (which returns
 		// the recorded session above) can never change it.
-		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id,dir,structured,acp_session_id,prompt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project, t.Dir, t.Structured, t.ACPSessionID, in.Prompt); err != nil {
+		if _, err := tx.Exec(`INSERT INTO terminal_sessions(id,user_id,agent_id,title,state,created_at,updated_at,tool,model,effort,yolo,project_id,dir,structured,acp_session_id,prompt,title_origin) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.ID, uid, agentID, t.Title, t.State, t.CreatedAt, t.UpdatedAt, t.Tool, t.Model, t.Effort, t.Yolo, project, t.Dir, t.Structured, t.ACPSessionID, in.Prompt, origin); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(`INSERT INTO terminal_operations(request_id,user_id,agent_id,session_id,kind,state,parameters,created_at,updated_at) VALUES(?,?,?,?,'create','pending',?,?,?)`, requestID, uid, agentID, t.ID, string(parameters), t.CreatedAt, t.UpdatedAt); err != nil {
@@ -803,8 +856,11 @@ func (s *Store) PendingTerminalOperationsFor(uid int64, agentID string, generati
 }
 
 // archiveTerminalOnClose only runs inside a transaction that has confirmed closure.
+// A session that worked in a worktree stays in history until that worktree is
+// gone: the controller removes it once the machine is no longer using it, so
+// the archive never leaves a worktree behind.
 func archiveTerminalOnClose(tx *sql.Tx, uid int64, agentID, sessionID string) error {
-	_, err := tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) SELECT id,user_id,agent_id,? FROM terminal_sessions WHERE id=? AND user_id=? AND agent_id=? AND state IN ('ended','exited','lost') AND EXISTS(SELECT 1 FROM terminal_operations WHERE session_id=? AND user_id=? AND agent_id=? AND kind='end' AND parameters='{"removeHistory":true}') ON CONFLICT(session_id) DO NOTHING`, now(), sessionID, uid, agentID, sessionID, uid, agentID)
+	_, err := tx.Exec(`INSERT INTO terminal_session_archives(session_id,user_id,agent_id,archived_at) SELECT id,user_id,agent_id,? FROM terminal_sessions WHERE id=? AND user_id=? AND agent_id=? AND worktree_path='' AND state IN ('ended','exited','lost') AND EXISTS(SELECT 1 FROM terminal_operations WHERE session_id=? AND user_id=? AND agent_id=? AND kind='end' AND parameters='{"removeHistory":true}') ON CONFLICT(session_id) DO NOTHING`, now(), sessionID, uid, agentID, sessionID, uid, agentID)
 	if err != nil {
 		return err
 	}
@@ -1091,7 +1147,7 @@ func (s *Store) RenameTerminalFor(uid int64, sessionID, title string) error {
 	if !terminalproto.ValidTitle(title) {
 		return terminalproto.ErrInvalid
 	}
-	r, err := s.db.Exec(`UPDATE terminal_sessions SET title=?,updated_at=? WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, title, now(), sessionID, uid, uid)
+	r, err := s.db.Exec(`UPDATE terminal_sessions SET title=?,title_origin='manual',updated_at=? WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled_at=0 AND role<>'viewer')`, title, now(), sessionID, uid, uid)
 	if err != nil {
 		return err
 	}

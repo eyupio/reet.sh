@@ -40,7 +40,7 @@ func updateAgentBinary(ctx context.Context, config, jobID, requested, current st
 		return "", "", err
 	}
 	defer os.RemoveAll(stage)
-	candidate, err := lifecycle.FetchReleaseBinary(ctx, client, lifecycle.ReleaseDownloads, resolved, stage)
+	candidate, err := lifecycle.FetchReleaseBinary(ctx, client, lifecycle.ReleaseAPI, lifecycle.ReleaseDownloads, resolved, stage)
 	if err != nil {
 		return "", "", err
 	}

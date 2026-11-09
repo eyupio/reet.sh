@@ -299,21 +299,6 @@ func settingsExportPolicy(agent, base string) ComponentExportPolicy {
 			{"extensions", "exclude"},
 		}
 		return policy
-	case "gemini":
-		policy.Fields = []FieldExportPolicy{
-			{"model", "include"},
-			{"selectedAuthType", "include"},
-			{"theme", "include"},
-			{"autoAccept", "include"},
-			{"fileFiltering", "include"},
-			{"sandbox", "include"},
-			{"contextFileName", "include"},
-			{"checkpointing", "include"},
-			{"tools", "include"},
-			{"env", "encrypted_only"},
-			{"mcpServers", "exclude"},
-		}
-		return policy
 	default:
 		policy.Selection = "unsupported"
 		policy.Handling = "not_implemented"

@@ -190,11 +190,26 @@ try{
  // Agents: what the machine reports, the rest listed and disabled with the reason.
  await p.chosen('Claude Code')
  await expect(p.opt('Codex')).toBeEnabled()
- await expect(p.opt('Gemini CLI')).toBeEnabled()
+ // The machine still reports the retired agent in its tools: it is never offered.
+ await expect(p.opt('Gemini CLI')).toHaveCount(0)
  await expect(p.opt('Cline')).toBeEnabled()
  await expect(p.opt('OpenCode')).toBeDisabled()
  await expect(p.agentWhy).toContainText('OpenCode · Not installed on dev-laptop')
  await expect(p.agentWhy).not.toContainText('Claude Code ·')
+ // Claude Code's Gaffer adapter: a machine that reports it missing says what to install; with it available, or with nothing
+ // reported, the dialog is silent.
+ await expect(d.locator('p.claude-adapter')).toHaveCount(0)
+ const reopen=async()=>{await page.goto(`${base}/sessions?agent=${A}`);await expect(sidebarEntry()).toBeEnabled();d=await openFromSidebar(false);p=parts(d);await useFolder(d);await texts(d);await p.chosen('Claude Code')}
+ const claudeCaps=tmachines[0].capabilities
+ claudeCaps.acp=true;claudeCaps.acpAgents=[{tool:'claude',adapter:'claude-agent-acp',state:'missing',minimumVersion:'0.99.1'}]
+ await reopen()
+ await expect(d.locator('p.claude-adapter')).toContainText('npm install --global @agentclientprotocol/claude-agent-acp@0.99.1')
+ await expect(d.locator('p.claude-adapter')).toContainText('dev-laptop')
+ claudeCaps.acpAgents=[{tool:'claude',adapter:'claude-agent-acp',state:'available',minimumVersion:'0.99.1',approval:true}]
+ await reopen()
+ await expect(d.locator('p.claude-adapter')).toHaveCount(0)
+ delete claudeCaps.acp;delete claudeCaps.acpAgents
+ await reopen()
  // The reason is text to read, not a disabled control: it is not faded (an axe scan found it below contrast when it was).
  expect(await p.agentWhy.evaluate(el=>{let o=1;for(let n=el;n&&n.tagName!=='DIALOG';n=n.parentElement)o*=Number(getComputedStyle(n).opacity);return o})).toBe(1)
  // Machines: every machine listed; the one not ready cannot be chosen.
@@ -213,11 +228,6 @@ try{
  await p.pick('Codex')
  list=await openModel(d)
  await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gpt-5-codex/})).toBeVisible()
- await page.keyboard.press('Escape')
- await p.pick('Gemini CLI')
- list=await openModel(d)
- await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gemini-2.5-pro/})).toBeVisible()
- await expect(list.getByRole('group',{name:'reet’s suggestions'}).getByRole('option',{name:/^gemini-2.5-flash/})).toBeVisible()
  await page.keyboard.press('Escape')
  await p.pick('Claude Code')
  // Folders: home first, each reported project once, never a relative path or another machine's.
@@ -261,14 +271,11 @@ try{
  await expect(p.count).toHaveText("8,000 of 8,000 bytes. Secrets don't belong here.")
  await expect(p.status).toHaveText('')
  await expect(d.getByText('That prompt is too long.',{exact:false})).toHaveCount(0)
- // One word could be read as a subcommand by claude and codex; gemini takes the prompt as a flag value, so one word is fine.
+ // One word could be read as a subcommand by claude and codex.
  await p.prompt.fill('purge')
  await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toBeVisible()
  await p.pick('Codex')
  await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toBeVisible()
- await p.pick('Gemini CLI')
- await expect(d.getByText('Write the opening prompt as at least two words.',{exact:true})).toHaveCount(0)
- await expect(p.prompt).not.toHaveAttribute('aria-invalid','true')
  // A different agent re-resolves the model (here no project/account default, so Agent default) and starts the folder afresh.
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.folder).toHaveValue('')
@@ -313,7 +320,7 @@ try{
  expect(posts).toHaveLength(1)
  const first=body(0)
  expect(first.requestId).toMatch(UUID)
- expect(first).toEqual({agentId:A,requestId:first.requestId,title:'Fix the failing build please',cols:100,rows:30,tool:'claude',model:'opus-4.1',dir:SITE,prompt:'fix the failing build please'})
+ expect(first).toEqual({agentId:A,requestId:first.requestId,title:'Fix the failing build please',cols:100,rows:30,tool:'claude',model:'opus-4.1',dir:SITE,prompt:'fix the failing build please',titleOrigin:'prompt'})
  const opened=`session-${first.requestId.replaceAll('-','').slice(0,20)}`
  await expect(page).toHaveURL(new RegExp(`[?&]session=${opened}(&|$)`))
  await expect(page.locator('#terminal-sessions').locator('.session-row[aria-current="true"]')).toContainText('Fix the failing build please')
@@ -360,7 +367,7 @@ try{
  expect(posts.length).toBe(sentFirst+1)
  firstHold.resolve()
  await expect(d).toHaveCount(0)
- expect(body(-1)).toEqual({agentId:A,requestId:body(-1).requestId,title:'Wait for me please',cols:100,rows:30,tool:'claude',model:'sonnet-4',dir:'/home/dev/held',prompt:'wait for me please'})
+ expect(body(-1)).toEqual({agentId:A,requestId:body(-1).requestId,title:'Wait for me please',cols:100,rows:30,tool:'claude',model:'sonnet-4',dir:'/home/dev/held',prompt:'wait for me please',titleOrigin:'prompt'})
 
  // ── A lost reply: plain words, Retry focused, the same request id and body; nothing changes while it is in flight. ──
  d=await openFromSidebar();p=parts(d)
@@ -376,7 +383,7 @@ try{
  const heldSentence=await p.sentence.textContent()
  expect(heldSentence).toContain('Starts Codex in the home folder on dev-laptop.')
  const readsBefore=machineReads
- tmachines[0].capabilities.tools=['claude','gemini']
+ tmachines[0].capabilities.tools=['claude']
  await page.evaluate(()=>window.dispatchEvent(new Event('online')))
  await expect.poll(()=>machineReads).toBeGreaterThan(readsBefore)
  await settle()
@@ -411,7 +418,7 @@ try{
  await expect(d).toHaveCount(0)
  expect(posts.slice(-3)).toEqual([lost,lost,lost])
  tmachines[0].capabilities.tools=['claude','codex','gemini','cline']
- expect(JSON.parse(lost)).toEqual({agentId:A,requestId:JSON.parse(lost).requestId,title:'Tidy the readme',cols:100,rows:30,tool:'codex',model:'gpt-5-codex',prompt:'tidy the readme'})
+ expect(JSON.parse(lost)).toEqual({agentId:A,requestId:JSON.parse(lost).requestId,title:'Tidy the readme',cols:100,rows:30,tool:'codex',model:'gpt-5-codex',prompt:'tidy the readme',titleOrigin:'prompt'})
 
  // ── Definite refusals: the exact sentence, the field concerned focused, and the next Start is a new request. ──
  d=await openFromSidebar();p=parts(d)
@@ -439,7 +446,7 @@ try{
   ids.push(body(-1).requestId)
  }
  expect(new Set(ids).size).toBe(refusals.length)
- expect(body(-1)).toEqual({agentId:A,requestId:ids.at(-1),title:'Look around here',cols:100,rows:30,tool:'claude',dir:'/home/dev/typed',prompt:'look around here'})
+ expect(body(-1)).toEqual({agentId:A,requestId:ids.at(-1),title:'Look around here',cols:100,rows:30,tool:'claude',dir:'/home/dev/typed',prompt:'look around here',titleOrigin:'prompt'})
  // A 200 for a session the machine did not start: a definite outcome, said plainly, no landing, and the next Start is a new request.
  const urlBefore=page.url()
  answers.push({state:'lost'})
@@ -470,7 +477,7 @@ try{
  await p.machine.selectOption(B)
  await expect(p.machine).toHaveAccessibleDescription('Update reet on this machine to start agents.')
  await expect(d.locator('p.reason')).toHaveText(['Update reet on this machine to start agents.'])
- for(const name of ['Claude Code','Codex','OpenCode','Gemini CLI','Cline']){await expect(p.opt(name)).toBeDisabled();await expect(p.agentWhy).toContainText(name+' · Update reet on that machine')}
+ for(const name of ['Claude Code','Codex','OpenCode','Cline']){await expect(p.opt(name)).toBeDisabled();await expect(p.agentWhy).toContainText(name+' · Update reet on that machine')}
  await expect(p.opt('Pi')).toBeDisabled()
  await expect(p.opt('Cursor Agent')).toBeDisabled()
  await expect(p.start).toBeDisabled()
@@ -539,11 +546,11 @@ try{
  // The simplest start: only the tool is sent, and the Terminals page opens on the new session.
  d=await openFromCard('dev-laptop');p=parts(d)
  await expect(p.machine).toHaveValue(A)
- await p.pick('Gemini CLI')
+ await p.pick('Codex')
  await p.start.click()
  await expect(page).toHaveURL(/\/sessions\?/)
  const simple=body(-1)
- expect(posts.at(-1)).toBe(JSON.stringify({agentId:A,requestId:simple.requestId,title:'Gemini CLI',cols:100,rows:30,tool:'gemini'}))
+ expect(posts.at(-1)).toBe(JSON.stringify({agentId:A,requestId:simple.requestId,title:'Codex',cols:100,rows:30,tool:'codex',titleOrigin:'fallback'}))
  await expect(page).toHaveURL(`${base}/sessions?agent=${A}&session=session-${simple.requestId.replaceAll('-','').slice(0,20)}`)
  // From Terminals, Not listed? goes to the Machines page with Add a machine open, and leaves no marker in the address.
  d=await openFromSidebar()
@@ -621,6 +628,7 @@ try{
  await expect(p.project).toHaveValue('')
  await expect(p.folder).toHaveCount(0)
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
+ // This older machine offers no thinking choice at all (it lacks the launch-effort capability), whatever the agent.
  await expect(p.effort).toHaveCount(0)
  await p.project.selectOption(PROJECT_ID)
  await expect(p.machine).toHaveValue(A)
@@ -629,6 +637,8 @@ try{
  await expect(p.effort).toHaveValue('high')
  await p.pick('Claude Code')
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
+ await expect(p.effort).toHaveValue('')
+ await p.pick('Codex')
  await expect(p.effort).toHaveCount(0)
  await p.pick('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
@@ -1004,7 +1014,7 @@ try{
  await page.goto(`${base}/sessions?agent=${A}`)
  // The session address shows the Machines page instead of the workspace, under its own name: its heading is there, the workspace's is not.
  await expect(page).toHaveTitle('Machines · reet.sh')
- await expect(page.getByRole('heading',{name:'Your machines, connected.',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
  viewer=false;authMode='none'
@@ -1014,7 +1024,7 @@ try{
  await page.goto(`${base}/sessions?agent=${A}`)
  // The session address shows the Machines page instead of the workspace, under its own name: its heading is there, the workspace's is not.
  await expect(page).toHaveTitle('Machines · reet.sh')
- await expect(page.getByRole('heading',{name:'Your machines, connected.',exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
  await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
 
@@ -1042,6 +1052,36 @@ try{
  expect(uploads[0].type).toBe('image/png')
  expect(JSON.parse(posts.at(-1)).title).toBe('Look at this please')
  expect(JSON.parse(posts.at(-1)).prompt).toBe(`look at this please\n\nImage: ${UPLOAD_REF}`)
+ // The origin comes from the typed task, never from the image paths added to the prompt.
+ expect(JSON.parse(posts.at(-1)).titleOrigin).toBe('prompt')
+ // A blank prompt names the session from the agent and folder, and says so: the controller may replace that name once.
+ d=await openFromSidebar();p=parts(d)
+ await p.folder.selectOption(SITE)
+ const blankPosts=posts.length
+ await p.start.click()
+ await expect(d).toHaveCount(0)
+ await expect.poll(()=>posts.length).toBe(blankPosts+1)
+ expect(JSON.parse(posts.at(-1))).toMatchObject({tool:'claude',dir:SITE,title:'Claude Code \u00b7 site',titleOrigin:'fallback'})
+ expect(JSON.parse(posts.at(-1)).prompt).toBeUndefined()
+ // For an image-only launch the CLIENT claims titleOrigin 'fallback': the path the prompt gains is not a task. The real
+ // controller ignores the trailing "Image:" line when it derives the title, so it agrees with that claim and stores
+ // 'fallback'; this mocked test only records what the client sends.
+ d=await openFromSidebar();p=parts(d)
+ await p.folder.selectOption(SITE)
+ await page.evaluate(() => {
+  const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], 'only.png', {type:'image/png'})
+  const transfer = new DataTransfer()
+  transfer.items.add(image)
+  const event = new Event('paste', {bubbles:true, cancelable:true})
+  Object.defineProperty(event, 'clipboardData', {value: transfer})
+  document.querySelector('dialog textarea').dispatchEvent(event)
+ })
+ const onlyPosts=posts.length
+ await p.start.click()
+ await expect(d).toHaveCount(0)
+ await expect.poll(()=>posts.length).toBe(onlyPosts+1)
+ expect(JSON.parse(posts.at(-1))).toMatchObject({title:'Claude Code \u00b7 site',titleOrigin:'fallback'})
+ expect(JSON.parse(posts.at(-1)).prompt).toContain(UPLOAD_REF)
  // The image paths must fit under the same limit as the prompt: an 8,000-byte prompt plus a path is refused before the
  // session is asked to start, keeping the dialog and the attached image.
  d=await openFromSidebar();p=parts(d)
@@ -1141,5 +1181,5 @@ try{
  await page.keyboard.press('Escape')
  tmachines[0].capabilities.agentsV2=true
  expect(errors).toEqual([])
- console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old four otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, a pasted image uploaded before the start with its path joined to the opening prompt, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
+ console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old three otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, a pasted image uploaded before the start with its path joined to the opening prompt, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

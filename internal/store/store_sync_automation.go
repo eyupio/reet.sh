@@ -28,7 +28,7 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 	// A binary update that is waiting for the machine is not skill work. It must
 	// not stop the library from being planned, or an offline machine that queued
 	// an update would never be brought onto the shared library at all.
-	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind<>'update' AND status IN ('queued','running','awaiting-approval')`, uid, agent.ID).Scan(&pending); err != nil {
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND kind<>'update' AND status IN ('queued','running') AND (?=1 OR NOT EXISTS(SELECT 1 FROM canonical_library_selections c WHERE c.user_id=sync_jobs.user_id AND c.target_id=sync_jobs.target_id))`, uid, agent.ID, agent.LibraryProtocol).Scan(&pending); err != nil {
 		return err
 	}
 	if pending > 0 {
@@ -60,7 +60,7 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 			_, e := s.db.Exec(`UPDATE sync_policies SET problem=? WHERE target_id=?`, message, target.Target.ID)
 			return e
 		}
-		if !fresh {
+		if !fresh && !target.Canonical {
 			if err := problem("A fresh complete scan is needed before sync can continue."); err != nil {
 				return err
 			}
@@ -192,12 +192,48 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if latestStatus == "failed" || latestStatus == "cancelled" {
+		if !target.Canonical && (latestStatus == "failed" || latestStatus == "cancelled") {
 			continue
 		}
 		noMissing := len(target.Missing) == 0
 		additive := target.Mode == "additive" || len(target.Extra) == 0
-		if noMissing && additive {
+		if noMissing && additive && (!target.Canonical || target.AppliedRevision == target.Revision) {
+			continue
+		}
+		if target.Canonical {
+			if agent.LibraryProtocol != 1 {
+				continue
+			}
+			// A separate additive job does not cancel reviews or other scopes.
+			// Back off repeat failures/partial no-op previews while allowing
+			// another scope on this machine to make progress immediately.
+			queued := false
+			err = s.withTx(func(tx *sql.Tx) error {
+				var pending int
+				if err := tx.QueryRow(`SELECT count(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND target_id=? AND (status IN ('queued','running','awaiting-approval') OR (revision=? AND updated_at>?))`, uid, agent.ID, target.Target.ID, target.Revision, now()-60000).Scan(&pending); err != nil {
+					return err
+				}
+				if pending > 0 {
+					return nil
+				}
+				_, err := insertSyncJobTx(tx, uid, agent.ID, target.Target.ID, "auto")
+				queued = err == nil
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			if queued {
+				return nil
+			}
+			continue
+		}
+		// Legacy runs retain their review semantics.
+		var reviews int
+		if err = s.db.QueryRow(`SELECT count(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND status='awaiting-approval'`, uid, agent.ID).Scan(&reviews); err != nil {
+			return err
+		}
+		if reviews > 0 {
 			continue
 		}
 		if _, err = s.StartSyncRun(uid, agent.ID, []string{target.Target.ID}); err != nil {

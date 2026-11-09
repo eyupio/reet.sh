@@ -2,7 +2,8 @@ import { effortChoices } from '../models'
 import { structuredAgent, type Capabilities } from './api'
 
 /** Launch suggestions are installation evidence. The running agent must still
- * confirm that the chosen model accepts an effort before any prompt is sent. */
+ * confirm that the chosen model accepts an effort before any prompt is sent.
+ * The values are the agent's own thinking levels, read from its descriptor, not a list of ours. */
 export function launchEfforts(tool: string, caps: Capabilities | undefined, chat: boolean): string[] {
  if (!chat) return effortChoices(tool)
  if (!caps?.acpStartOptions) return ['']

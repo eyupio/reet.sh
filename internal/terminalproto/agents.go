@@ -33,10 +33,9 @@ func SupportsAgents(features string) bool {
 // refuse an option before it reserves a session. Disabled presets (pi, cursor)
 // are absent until the connector starts them.
 var agentOptions = map[string]struct{ effort, model, yolo bool }{
-	"claude":      {model: true},
+	"claude":      {effort: true, model: true, yolo: true},
 	"codex":       {model: true, yolo: true},
 	"opencode":    {model: true, yolo: true},
-	"gemini":      {model: true},
 	"cline":       {effort: true, model: true, yolo: true},
 	"antigravity": {effort: true, model: true, yolo: true},
 }
@@ -46,6 +45,10 @@ func ValidToolV2(id string) bool {
 	_, ok := agentOptions[id]
 	return ok
 }
+
+// ToolTakesProvider reports whether a structured chat of this agent can start
+// on a chosen provider. Only Cline reports one.
+func ToolTakesProvider(id string) bool { return id == "cline" }
 
 // ToolTakesEffort reports whether the agent's preset maps an effort level.
 func ToolTakesEffort(id string) bool { return agentOptions[id].effort }

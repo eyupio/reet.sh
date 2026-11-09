@@ -18,3 +18,4 @@ __pycache__/
 # Local documentation development
 /work/
 /.venv-docs/
+/web/work/

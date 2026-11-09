@@ -7,12 +7,20 @@ const page=await context.newPage(),errors=[],inputs=[],tickets=[]
 page.on('pageerror',error=>errors.push(error.message))
 const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builder00000001',sessionA='session-build00000000001',sessionB='session-deploy0000000001'
 let denied=false
-const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null}]
+// Plain terminals carry attention as the server lists it: quiet and seen needs nothing.
+const quiet={attention:'quiet',attentionSource:'terminal',changedSinceSeen:false}
+const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null,...quiet},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null,...quiet}]
+// A user-ended plain terminal as the server reports it: ended with no exit code (the machine kills the shell, see
+// internal/terminalhost/manager.go), no attention word for an ended session (internal/store/store_attention.go), and
+// updated_at past the seen time. It must raise no card.
+const ended=item=>{item.state='ended';item.exitCode=null;delete item.attention;item.changedSinceSeen=true;item.updatedAt=Date.now()}
+const seen=[]
+let holdSeen=null
 const machines=[{agentId:agentA,host:'dev-laptop',ready:true,serverEnabled:true,capabilities:{osUser:'developer',terminalEnabled:true,terminalControl:true,readiness:'ready'}},{agentId:agentB,host:'build-server',ready:true,serverEnabled:true,capabilities:{osUser:'builder',terminalEnabled:true,terminalControl:true,readiness:'ready'}}]
 const operations=[],receipts=new Map(),mutations=[],archived=new Set(),archiveRequests=[]
 let failArchive=false
 let sequence=0,failFirstCreate=true,claimed=false,listReads=0,pendingList=null,pendingMutation=null
-const makeSession=(agentId,title)=>({id:`new-session-${String(++sequence).padStart(24,'0')}`,agentId,title,state:'running',createdAt:now,updatedAt:now,exitCode:null})
+const makeSession=(agentId,title)=>({id:`new-session-${String(++sequence).padStart(24,'0')}`,agentId,title,state:'running',createdAt:now,updatedAt:now,exitCode:null,...quiet})
 machines.push({agentId:'connector-offline00000001',host:'offline workstation',ready:false,serverEnabled:true,capabilities:{osUser:'offline-user',terminalEnabled:true,terminalControl:true,readiness:'ready'}})
 function hold(which){let entered,release;const gate={entered:new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(`No ${which} request reached the gate`)),10000);entered=()=>{clearTimeout(timer);resolve()}}),wait:new Promise(resolve=>release=resolve),release:()=>release(),mark:()=>entered(),reads:listReads};if(which==='list')pendingList=gate;else pendingMutation=gate;return gate}
 const holdNextList=()=>hold('list'),holdNextMutation=()=>hold('mutation')
@@ -58,11 +66,12 @@ await page.route('**/api/**',async route=>{
   const gate=pendingMutation;pendingMutation=null;if(gate){gate.mark();await gate.wait}
   archived.add(id);data={ok:true}
  }
+ else if(path.endsWith('/seen')){const id=path.split('/').at(-2),item=sessions.find(s=>s.id===id);seen.push(id);const gate=holdSeen;holdSeen=null;if(gate){gate.mark();await gate.wait};if(item)item.changedSinceSeen=false;data={seenAt:Date.now()}}
  else if(method==='PATCH'||path.endsWith('/end')){
   const id=path.split('/').at(path.endsWith('/end')?-2:-1),body=request.postDataJSON(),item=sessions.find(s=>s.id===id)
   const gate=pendingMutation;pendingMutation=null;if(gate){gate.mark();await gate.wait}
   if(method==='PATCH'){item.title=body.title;mutations.push({kind:'rename',id,...body})}
-  else{item.state=machines.find(m=>m.agentId===item.agentId).ready?'ended':'end_requested';mutations.push({kind:'end',id,...body})}
+  else{if(machines.find(m=>m.agentId===item.agentId).ready)ended(item);else item.state='end_requested';mutations.push({kind:'end',id,...body})}
   data={ok:true}
  }
  else if(path.endsWith('/history'))return route.fulfill({body:'Read-only history'})
@@ -72,6 +81,20 @@ await page.route('**/api/**',async route=>{
 await page.routeWebSocket('**/api/v2/terminal/socket',socket=>{
  socket.onMessage(message=>{if(typeof message==='string'){if(JSON.parse(message).ticket){socket.send('{"type":"ready"}');socket.send(Buffer.from('Existing shell\r\nready> '))}}else{inputs.push(message.toString());socket.send(message)}})
 })
+// The 15-second polls still run; this also lets the test run them now, so an attention count is read after a fresh list.
+await page.addInitScript(()=>{const set=window.setInterval.bind(window),clear=window.clearInterval.bind(window),polls=new Map();window.setInterval=(f,d,...a)=>{const id=set(f,d,...a);if(d===15000)polls.set(id,()=>f(...a));return id};window.clearInterval=id=>{polls.delete(id);clear(id)};window.__poll=()=>{for(const f of [...polls.values()])f()}})
+// The attention count every surface shows, read after the bell's and the workspace's lists are read again: the tab title's
+// prefix, the bell, and the workspace sidebar's badge when the sidebar is on screen.
+async function needs(n){
+ const before=listReads;await page.evaluate(()=>window.__poll())
+ await expect.poll(()=>listReads).toBeGreaterThan(before)
+ await page.waitForTimeout(300)
+ await expect.poll(()=>page.title()).toMatch(n?new RegExp(`^\\(${n}\\) `):/^[^(]/)
+ const bell=page.getByRole('button',{name:/^Needs you: /})
+ if(await bell.count())await expect(bell).toHaveAttribute('aria-label',`Needs you: ${n}`)
+ const side=page.getByRole('complementary',{name:'Session navigation'})
+ if(await side.count()){const badge=side.locator('header .need-badge');if(n)await expect(badge).toHaveText(String(n));else await expect(badge).toHaveCount(0)}
+}
 const pane=page.locator('.pane')
 const selected=()=>new URL(page.url()).searchParams.get('session')
 async function live(){await expect(pane).toHaveAttribute('data-connection-state','live')}
@@ -81,6 +104,7 @@ async function refresh(){const toggle=page.locator('.workspace-actions').getByRo
 async function manage(name){await page.locator('.session-menu summary').click();await page.getByRole('button',{name,exact:true}).click()}
 try{
  await page.goto(`${base}/sessions?agent=${agentA}&session=${sessionA}`);await live()
+ await needs(0)
  // An accepted creation with an ambiguous response stays bound to A after working on B.
  await create('Uncertain A')
  await expect(page.getByRole('dialog')).toContainText('Creation response interrupted')
@@ -144,6 +168,8 @@ try{
  await manage('End session');await expect(page.getByRole('dialog')).toContainText('Renamed A')
  await page.getByRole('dialog').getByRole('button',{name:'End session',exact:true}).click()
  await expect(page.getByText(/End requested. Waiting for this machine/)).toBeVisible()
+ // A pending end holds the view and counts nothing.
+ await needs(0)
  await page.locator('.session-menu summary').click()
  await page.getByRole('button',{name:'Remove from history',exact:true}).click()
  await expect(page.getByRole('dialog')).toContainText('end request stays queued')
@@ -154,13 +180,16 @@ try{
  const ends=mutations.filter(m=>m.kind==='end');expect(ends[0]).toEqual(ends[1]);expect(ends[0].id).toBe(renamedId)
  await chooseMachine(agentB);await live()
  expect(sessions.find(item=>item.id===sessionB).state).toBe('running')
- machines[0].ready=true;sessions.find(item=>item.id===renamedId).state='ended'
+ machines[0].ready=true;ended(sessions.find(item=>item.id===renamedId))
  // Closed-history removal works while execution is disabled and preserves a newer selection.
  const builderBeforeArchive=selected()
  await refresh();expect(selected()).toBe(builderBeforeArchive)
+ // The person's own end of a plain terminal, now confirmed, raises no Failed or Finished card and no count.
+ await needs(0)
  // Explicitly reopening history may show an ended session; a delayed end must not steal the newer selection.
  await page.goto(`${base}/sessions?agent=${agentA}&session=${renamedId}`)
  await expect(pane).toHaveAttribute('data-connection-state','ended')
+ await needs(0)
  machines[0].serverEnabled=false;machines[0].ready=false;await refresh()
  await manage('Remove from history')
  await expect(page.getByRole('dialog')).toContainText('Files on the machine are kept')
@@ -194,6 +223,7 @@ try{
  const beforePendingRemoval=operations.length,beforePendingEnd=mutations.filter(m=>m.kind==='end').length
  await page.goto(`${base}/sessions?agent=${agentA}&session=${pending.id}`)
  await expect(pane).toHaveAttribute('data-connection-state','ending')
+ await needs(0)
  await page.getByRole('button',{name:'Session actions',exact:true}).click()
  await page.getByRole('dialog',{name:'Session actions',exact:true}).getByRole('button',{name:'Remove from history…',exact:true}).click()
  await expect(page.getByRole('dialog')).toContainText('without confirming that it has stopped')
@@ -215,9 +245,19 @@ try{
  expect(operations.length).toBe(beforeTakeover)
  // A lost shell has recovery guidance and never creates a replacement.
  const lostId=selected(),beforeLost=operations.length
- sessions.find(item=>item.id===lostId).state='lost'
+ // As the server lists it: a lost shell is a Connection lost card until the person has seen it.
+ // The lost shell is the selected session, so the workspace marks it seen as soon as it lists it as unseen.
+ // Hold that /seen answer: the card is only observable while the server still says unseen (the count drops at
+ // once when the answer lands, which the signal now makes immediate).
+ let releaseSeen;const seenHeld=new Promise(r=>{releaseSeen=r}),seenArrived=new Promise(r=>{holdSeen={wait:seenHeld,mark:r}})
+ Object.assign(sessions.find(item=>item.id===lostId),{state:'lost',attention:'failed',changedSinceSeen:true,updatedAt:Date.now()})
+ await needs(1)
+ await seenArrived;releaseSeen()
  await page.reload()
  await expect(pane).toHaveAttribute('data-connection-state','lost')
+ // The reload reopens an already-seen shell, so this stays a no-op mark; the card stays cleared (the held answer above is what proved it counted once).
+ await expect.poll(()=>seen).toContain(lostId)
+ await needs(0)
  await expect(pane).toContainText('No replacement was created')
  expect(operations.length).toBe(beforeLost)
  // Quota blocks an extra creation, but existing sessions remain usable.
@@ -234,5 +274,5 @@ try{
  await expect(page.getByRole('heading',{name:'Terminal access unavailable'})).toBeVisible()
  await expect(pane).toHaveCount(0)
  expect(errors).toEqual([])
- console.log('Terminal lifecycle passed: machine search/context, per-machine immutable retries, stale-poll fencing, rename targeting, pending end/retry, explicit takeover, quota, revocation and persistent closed-history removal without affecting another selected shell.')
+ console.log('Terminal lifecycle passed: machine search/context, per-machine immutable retries, stale-poll fencing, rename targeting, pending end/retry, explicit takeover, quota, revocation and persistent closed-history removal without affecting another selected shell; attention counts stayed 0 across pending and confirmed ends and history reopening, and a lost shell counted once until seen.')
 }catch(error){if(process.env.REET_UI_SCREENSHOTS){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/lifecycle-failure.png`,fullPage:true})}throw error}finally{await browser.close()}

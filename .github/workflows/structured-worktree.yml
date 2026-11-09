@@ -16,8 +16,10 @@ concurrency:
 
 jobs:
   real-agent:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: zoomies-linux-x64
+    # Cold race builds can exceed ten minutes before all packages start.
+    # Individual acceptance tests retain their existing three-minute timeout.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

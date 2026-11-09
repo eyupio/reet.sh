@@ -9,6 +9,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func TestProfileDefaultsRoundTrip(t *testing.T) {
@@ -235,5 +236,186 @@ func TestCreateRetryAfterTheProjectIsRemoved(t *testing.T) {
 	// A new request for the removed project is still refused.
 	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "projectId": project.ID})); code != 404 || out["code"] != "project_not_found" {
 		t.Fatal("new request", code, raw)
+	}
+}
+
+// The default Cline source is a provider id Cline reports: blank clears it, an
+// id that fails the model-name rule is refused without changing anything, and a
+// read-only account cannot set it. The audit row names the value.
+func TestProfileDefaultClineSource(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	patch := func(cookie string, body map[string]any) (int, map[string]any, string) {
+		return f.do(t, cookie, "PATCH", "/api/v2/profile", body)
+	}
+	code, out, raw := patch(f.cookie, map[string]any{"defaultClineSource": "cline-pass"})
+	profile, _ := out["profile"].(map[string]any)
+	if code != 200 || profile["defaultClineSource"] != "cline-pass" {
+		t.Fatal("save", code, raw)
+	}
+	// Leaving the field out keeps it.
+	code, out, raw = patch(f.cookie, map[string]any{"theme": "dark"})
+	profile, _ = out["profile"].(map[string]any)
+	if code != 200 || profile["defaultClineSource"] != "cline-pass" {
+		t.Fatal("partial save", code, raw)
+	}
+	for _, bad := range []string{"bad value", "-lead", strings.Repeat("s", 101)} {
+		code, out, raw = patch(f.cookie, map[string]any{"defaultClineSource": bad, "theme": "light"})
+		if code != 400 || !strings.Contains(out["error"].(string), "defaultClineSource") {
+			t.Fatal("invalid source accepted", bad, code, raw)
+		}
+	}
+	// A refused save changes nothing, not even the field it carried.
+	if p, err := f.st.ProfileFor(f.uid); err != nil || p.DefaultClineSource != "cline-pass" || p.Theme != "dark" {
+		t.Fatal("refused save applied", err, p)
+	}
+	viewer, err := f.st.CreateUser("source-viewer@example.test", "Viewer", "viewer", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, raw := patch(terminalLogin(t, f.st, viewer.ID), map[string]any{"defaultClineSource": "cline"}); code != 403 {
+		t.Fatal("a viewer set a launch default", code, raw)
+	}
+	if code, out, raw = patch(f.cookie, map[string]any{"defaultClineSource": ""}); code != 200 || out["profile"].(map[string]any)["defaultClineSource"] != "" {
+		t.Fatal("clear", code, raw)
+	}
+	found := false
+	for _, e := range projectEvents(t, f.st, f.uid, "profile") {
+		found = found || e["defaultClineSource"] == "cline-pass"
+	}
+	if !found {
+		t.Fatal("the audit row did not name the saved source")
+	}
+}
+
+// An older browser can still send a retired agent as a default: it is refused as
+// an unknown agent and nothing is stored.
+func TestRetiredToolIsNotAcceptedAsADefault(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	code, out, raw := f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"defaultTool": "gemini"})
+	if code != 400 || !strings.Contains(out["error"].(string), "defaultTool must be blank or one of the agents reet can start") {
+		t.Fatal("a retired default agent was accepted", code, raw)
+	}
+	if p, err := f.st.ProfileFor(f.uid); err != nil || p.DefaultTool != "" {
+		t.Fatal("a refused default was stored", err, p)
+	}
+}
+
+// The per-account switches for gated chats: a writer turns Claude Code and Codex chats on or off, the effective values
+// come back beside the profile, an unknown agent is refused without changing anything, a viewer cannot change them and
+// the audit row names agent and value only.
+func TestProfileChatAgentsValidationPermissionAndAudit(t *testing.T) {
+	f := launchAPIFixture(t, launchCaps("claude"))
+	patch := func(cookie string, body map[string]any) (int, map[string]any, string) {
+		return f.do(t, cookie, "PATCH", "/api/v2/profile", body)
+	}
+	enabled := func(out map[string]any) map[string]any {
+		got, _ := out["chatEnabled"].(map[string]any)
+		return got
+	}
+	code, out, raw := f.do(t, f.cookie, "GET", "/api/v2/profile", nil)
+	if got := enabled(out); code != 200 || got["claude"] != false || got["codex"] != false || len(got) != 2 {
+		t.Fatal("default", code, raw)
+	}
+	code, out, raw = patch(f.cookie, map[string]any{"chatAgents": map[string]any{"claude": true}})
+	if got := enabled(out); code != 200 || got["claude"] != true || got["codex"] != false {
+		t.Fatal("turn claude on", code, raw)
+	}
+	// Leaving the field out keeps the choice; a partial map changes only what it names.
+	code, out, raw = patch(f.cookie, map[string]any{"theme": "dark"})
+	if got := enabled(out); code != 200 || got["claude"] != true {
+		t.Fatal("partial save", code, raw)
+	}
+	for _, bad := range []map[string]any{{"gemini": true}, {"opencode": false}, {"": true}} {
+		code, out, raw = patch(f.cookie, map[string]any{"chatAgents": bad, "theme": "light"})
+		if code != 400 || !strings.Contains(out["error"].(string), "chatAgents") {
+			t.Fatal("unknown agent accepted", bad, code, raw)
+		}
+	}
+	if code, _, raw = patch(f.cookie, map[string]any{"chatAgents": map[string]any{"claude": "yes"}}); code != 400 {
+		t.Fatal("a non-boolean was accepted", code, raw)
+	}
+	// A refused save changes nothing, not even the other fields it carried.
+	if p, err := f.st.ProfileFor(f.uid); err != nil || !p.ChatEnabled("claude") || p.Theme != "dark" {
+		t.Fatal("refused save applied", err, p)
+	}
+	viewer, err := f.st.CreateUser("chat-viewer@example.test", "Viewer", "viewer", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, raw := patch(terminalLogin(t, f.st, viewer.ID), map[string]any{"chatAgents": map[string]any{"codex": true}}); code != 403 {
+		t.Fatal("a viewer changed a chat switch", code, raw)
+	}
+	if code, out, raw = patch(f.cookie, map[string]any{"chatAgents": map[string]any{"claude": false}}); code != 200 || enabled(out)["claude"] != false {
+		t.Fatal("turn claude off", code, raw)
+	}
+	found := false
+	for _, e := range projectEvents(t, f.st, f.uid, "profile") {
+		if got, ok := e["chatAgents"].(map[string]any); ok && got["claude"] == true && len(got) == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the audit row did not name the agent and value")
+	}
+}
+
+func gatedChatCaps() terminalproto.Capabilities {
+	caps := chatCaps()
+	caps.AgentsV2, caps.ACPLiveControls, caps.ACPStartOptions, caps.ACPModel = true, true, true, true
+	caps.Tools = []string{"claude", "opencode"}
+	entries := []terminalproto.ACPAgent{
+		{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1", Model: true, Approval: true},
+		{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", History: true, Images: true, Model: true, Approval: true},
+	}
+	caps.ACPAgents = &entries
+	return caps
+}
+
+// A machine reports Claude Code's chat as available, but an account that has not turned it on cannot start one; once it
+// does, the same machine accepts it.
+func TestStructuredClaudeCreateFollowsTheAccountSetting(t *testing.T) {
+	f := launchAPIFixture(t, gatedChatCaps())
+	create := func() (int, string) {
+		status, _, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "structured": true, "dir": "/tmp", "prompt": "hello there"}))
+		return status, raw
+	}
+	// The refusal names the account's switch, not the machine: updating reet there would change nothing.
+	if status, raw := create(); status != 409 || !strings.Contains(raw, `chat_off`) || strings.Contains(raw, "Update reet") {
+		t.Fatalf("a Claude chat for an account that has them off: %d %s", status, raw)
+	}
+	if code, _, raw := f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"chatAgents": map[string]any{"claude": true}}); code != 200 {
+		t.Fatal("turn on", code, raw)
+	}
+	if status, raw := create(); status != 200 {
+		t.Fatalf("a Claude chat was refused for an account that turned them on: %d %s", status, raw)
+	}
+}
+
+// Recording a software update reads a machine's record and stores the whole of it back. The account's setting must not
+// leak into what is stored: turning a chat on afterwards needs no new report from the machine.
+func TestSoftwareRefreshWhileChatsAreOffDoesNotPersistTheMask(t *testing.T) {
+	f := launchAPIFixture(t, gatedChatCaps())
+	entry := terminalproto.SoftwareEntry{Tool: "opencode", State: terminalproto.SoftwareInstalled, Version: "1.19.5", CheckedAt: 1}
+	f.srv.s.recordSoftwareEntry(f.uid, f.agent.ID, 0, entry)
+	raw, err := f.st.RemoteCapabilitiesRawFor(f.uid, f.agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]string{}
+	for _, a := range *raw.Capabilities.ACPAgents {
+		states[a.Tool] = a.State
+	}
+	if states["claude"] != "available" {
+		t.Fatalf("the software refresh stored the mask: %v", states)
+	}
+	if code, _, body := f.do(t, f.cookie, "PATCH", "/api/v2/profile", map[string]any{"chatAgents": map[string]any{"claude": true}}); code != 200 {
+		t.Fatal("turn on", code, body)
+	}
+	caps, err := f.st.RemoteCapabilitiesFor(f.uid, f.agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, ok := caps.Capabilities.ChatAgent("claude"); !ok || !a.Approval {
+		t.Fatalf("Claude is not available after turning it on: %+v %v", a, ok)
 	}
 }

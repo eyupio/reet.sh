@@ -74,7 +74,7 @@ func TestClaudeChatDoesNotNeedOpenCodeInstalled(t *testing.T) {
 		return []terminalproto.ACPAgent{claude}
 	}}
 	features := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPAgentsFeature + "," + terminalproto.ACPHistoryFeature + "," + terminalproto.ACPApprovalFeature + "," + terminalproto.ACPModelFeature
-	negotiateFeatures(&cfg, features)
+	negotiateFeatures(&cfg, features+","+terminalproto.ChatGateFeature)
 	c := capabilitiesFor(cfg, true, terminalproto.Ready)
 	if !c.ACP || c.ACPAgents == nil || len(*c.ACPAgents) != 1 {
 		t.Fatalf("claude was dropped without opencode: %+v", c)
@@ -163,7 +163,7 @@ func TestCapabilitiesReportSessionModeOnlyWithHistory(t *testing.T) {
 	claudeOnly := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"claude"} }, StructuredAgents: func() []terminalproto.ACPAgent {
 		return []terminalproto.ACPAgent{{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1", History: true}}
 	}}
-	negotiateFeatures(&claudeOnly, base+","+terminalproto.ACPAgentsFeature+","+terminalproto.ACPHistoryFeature+","+terminalproto.SessionModeFeature)
+	negotiateFeatures(&claudeOnly, base+","+terminalproto.ACPAgentsFeature+","+terminalproto.ACPHistoryFeature+","+terminalproto.SessionModeFeature+","+terminalproto.ChatGateFeature)
 	c = capabilitiesFor(claudeOnly, true, terminalproto.Ready)
 	if !c.ACP || !c.ACPHistory {
 		t.Fatalf("claude chats not reported: %+v", c)
@@ -341,6 +341,86 @@ func TestAgentReattachClaimEnablesAnotherAgentsReattach(t *testing.T) {
 	}
 }
 
+// Claude Code and Codex are reported as available only to a controller that advertises the chat gate, because only
+// such a controller hides them from the accounts that have not turned them on.
+func TestGatedChatsAreReportedAvailableOnlyWhenTheGateIsNegotiated(t *testing.T) {
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature +
+		"," + terminalproto.ACPAgentsFeature + "," + terminalproto.AgentsFeature
+	agents := func() []terminalproto.ACPAgent {
+		return []terminalproto.ACPAgent{
+			{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1"},
+			{Tool: "codex", Adapter: "codex-acp", State: "available", MinimumVersion: "1.13.1"},
+			{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5", History: true},
+		}
+	}
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"claude", "codex", "opencode"} }, StructuredAgents: agents}
+	states := func(c terminalproto.Capabilities) map[string]string {
+		out := map[string]string{}
+		if c.ACPAgents != nil {
+			for _, a := range *c.ACPAgents {
+				out[a.Tool] = a.State
+			}
+		}
+		return out
+	}
+	negotiateFeatures(&cfg, base)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if got := states(c); got["claude"] != "unverified" || got["codex"] != "unverified" || got["opencode"] != "available" {
+		t.Fatalf("without the gate: %v", got)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ChatGateFeature)
+	c = capabilitiesFor(cfg, true, terminalproto.Ready)
+	if got := states(c); got["claude"] != "available" || got["codex"] != "available" || got["opencode"] != "available" {
+		t.Fatalf("with the gate: %v", got)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !terminalproto.SupportsChatGate(terminalFeatures(cfg)) {
+		t.Fatal("the negotiated gate was not advertised")
+	}
+	// A machine whose only chat agent is gated has no chat at all while the gate is not negotiated.
+	only := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"claude"} }, StructuredAgents: func() []terminalproto.ACPAgent { return agents()[:1] }}
+	negotiateFeatures(&only, base)
+	if c := capabilitiesFor(only, true, terminalproto.Ready); c.ACP {
+		t.Fatalf("chat reported by a gated-only machine without the gate: %+v", c)
+	}
+}
+
+// Claude Code's in-place reconnect is claimed only toward a peer that negotiated acp-agent-reattach-v1, and its history
+// follows the machine-wide history feature, like every other agent that reconnects.
+func TestClaudeReattachIsStrippedWithoutTheAgentReattachFeature(t *testing.T) {
+	base := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPHistoryFeature +
+		"," + terminalproto.ChatReattachFeature + "," + terminalproto.ACPAgentsFeature + "," + terminalproto.AgentsFeature +
+		"," + terminalproto.ChatGateFeature
+	agents := func() []terminalproto.ACPAgent {
+		return []terminalproto.ACPAgent{{Tool: "claude", Adapter: "claude-agent-acp", State: "available", MinimumVersion: "0.99.1", History: true, Reattach: true}}
+	}
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"claude"} }, StructuredAgents: agents}
+	negotiateFeatures(&cfg, base)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if c.ACPAgents == nil || len(*c.ACPAgents) != 1 {
+		t.Fatalf("descriptor missing: %+v", c)
+	}
+	if got := (*c.ACPAgents)[0]; got.Reattach || !got.History || c.ChatReattachFor("claude") {
+		t.Fatalf("the claim leaked to a peer that did not negotiate it: %+v", got)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	negotiateFeatures(&cfg, base+","+terminalproto.ACPAgentReattachFeature)
+	c = capabilitiesFor(cfg, true, terminalproto.Ready)
+	if got := (*c.ACPAgents)[0]; !got.Reattach || !got.History || !c.ChatReattachFor("claude") {
+		t.Fatalf("the negotiated claim: %+v", got)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStartupOptionsDoNotLeakToLiveControlsOnlyPeer(t *testing.T) {
 	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
 	live := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature
@@ -374,5 +454,27 @@ func TestPreviewCapabilityRequiresIndependentNegotiation(t *testing.T) {
 	negotiateFeatures(&cfg, base)
 	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPPreviews {
 		t.Fatal("preview survived reconnect to older peer")
+	}
+}
+
+func TestACPProviderCapabilityNeedsLiveControlsAndItsFeature(t *testing.T) {
+	cfg := AgentConfig{TerminalSession: testTerminalFactory, LaunchTools: func() []string { return []string{"opencode"} }}
+	live := terminalproto.LaunchFeature + "," + terminalproto.ACPFeature + "," + terminalproto.ACPLiveControlsFeature
+	negotiateFeatures(&cfg, live)
+	if c := capabilitiesFor(cfg, true, terminalproto.Ready); !c.ACPLiveControls || c.ACPProvider {
+		t.Fatalf("a peer without the feature was offered a provider: %+v", c)
+	}
+	negotiateFeatures(&cfg, live+","+terminalproto.ACPProviderFeature)
+	c := capabilitiesFor(cfg, true, terminalproto.Ready)
+	if !c.ACPProvider || c.ValidateFor(terminalFeatures(cfg)) != nil {
+		t.Fatalf("provider missing or not negotiated: %+v", c)
+	}
+	negotiateFeatures(&cfg, terminalproto.LaunchFeature+","+terminalproto.ACPFeature+","+terminalproto.ACPProviderFeature)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPProvider {
+		t.Fatal("provider claimed without live controls")
+	}
+	negotiateFeatures(&cfg, live)
+	if capabilitiesFor(cfg, true, terminalproto.Ready).ACPProvider || terminalproto.SupportsACPProvider(terminalFeatures(cfg)) {
+		t.Fatal("provider feature survived a reconnect to an older controller")
 	}
 }

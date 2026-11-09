@@ -493,7 +493,7 @@ func TestManagerRefusedLaunchLeavesNothingBehind(t *testing.T) {
 		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: filepath.Join(opts.Home, "file")},
 		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: filepath.Join(opts.Home, "missing")},
 		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Dir: outside},
-		{Title: "a", Cols: 80, Rows: 24, Tool: "gemini"},
+		{Title: "a", Cols: 80, Rows: 24, Tool: "opencode"},
 		{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Prompt: "purge"},
 	}
 	for i, in := range refused {
@@ -584,7 +584,7 @@ func TestManagerLaunchKeepsTrailingSemicolons(t *testing.T) {
 		{"folder", "work;", terminalproto.Create{Tool: "claude"}, []string{""}},
 		{"folder twice", "a;;", terminalproto.Create{Tool: "claude"}, []string{""}},
 		{"positional prompt", "", terminalproto.Create{Tool: "claude", Prompt: "fix it;"}, []string{"--", "fix it;"}},
-		{"flag prompt only semicolon", "", terminalproto.Create{Tool: "gemini", Prompt: ";"}, []string{"--prompt-interactive", ";"}},
+		{"flag prompt only semicolon", "", terminalproto.Create{Tool: "opencode", Prompt: ";"}, []string{"--prompt", ";"}},
 		{"flag prompt opencode", "", terminalproto.Create{Tool: "opencode", Prompt: "a; b;"}, []string{"--prompt", "a; b;"}},
 		{"escaped semicolon", "", terminalproto.Create{Tool: "claude", Prompt: `a b\;`}, []string{"--", `a b\;`}},
 		{"middle semicolon", "", terminalproto.Create{Tool: "claude", Model: "m", Prompt: "a;b c"}, []string{"--model", "m", "--", "a;b c"}},

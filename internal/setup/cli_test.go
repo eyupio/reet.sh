@@ -44,12 +44,12 @@ func TestCLIJSONWithoutServerOrCredentials(t *testing.T) {
 func TestCLITextAndProject(t *testing.T) {
 	isolatedCLI(t)
 	project := t.TempDir()
-	mkdir(t, filepath.Join(project, ".gemini"))
+	mkdir(t, filepath.Join(project, ".pi"))
 	var out bytes.Buffer
 	if err := Run([]string{"scan", "--project", project}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Gemini CLI: detected", "project configuration: present", "no values are read by this inventory"} {
+	for _, want := range []string{"Pi: detected", "project configuration: present", "no values are read by this inventory"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("missing %q in output: %s", want, out.String())
 		}

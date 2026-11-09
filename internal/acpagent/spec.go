@@ -5,7 +5,6 @@ package acpagent
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -27,6 +26,11 @@ var (
 	// ErrModelUnconfirmed means a switch may have been applied, but the reply
 	// did not establish the current model. It is never reported as the old one.
 	ErrModelUnconfirmed = fmt.Errorf("%w: the current model is not confirmed", ErrModel)
+	// ErrProvider means the agent did not use the session's chosen provider.
+	ErrProvider = errors.New("the agent did not use the chosen provider")
+	// ErrProviderUnconfirmed means a provider switch may have been applied, but
+	// the reply did not read it back.
+	ErrProviderUnconfirmed = fmt.Errorf("%w: the current provider is not confirmed", ErrProvider)
 	// ErrUnsupported means the catalogue tool has no ACP adapter here.
 	ErrUnsupported = errors.New("that agent does not support chats")
 	// ErrCodexLogin means session creation needs a login made outside reet.
@@ -112,6 +116,9 @@ type Spec struct {
 	// place rather than continued as a new row. It is published in the
 	// descriptor only on a connection that negotiated acp-agent-reattach-v1.
 	Reattach bool
+	// Provider reports that this agent's provider option is a billing source reet
+	// surfaces and switches (Cline). Another adapter's own option list is left alone.
+	Provider bool
 	// ConfirmModelBySwitch applies a chosen model with session/set_config_option
 	// once the session is open, and requires the reply to report it. An adapter
 	// that starts on its configured model and ignores a model at session/new
@@ -235,31 +242,15 @@ func (s Spec) minVersion() (semver, bool) {
 
 // Lookup returns the registered adapter for a catalogue tool.
 func Lookup(tool string) (Spec, bool) {
-	if tool == ClaudeCandidate.Key && ClaudeEnabled() {
+	if tool == ClaudeCandidate.Key {
 		return ClaudeCandidate, true
 	}
-	if tool == CodexCandidate.Key && CodexEnabled() {
+	if tool == CodexCandidate.Key {
 		return CodexCandidate, true
 	}
 	spec, ok := agents[tool]
 	return spec, ok
 }
-
-// ClaudeSwitch is the environment variable that opts one machine in to Claude
-// chats. It is off by default: until the real-credential and missing-credential
-// checks have been run, Claude is registered but dark.
-const ClaudeSwitch = "REET_EXPERIMENTAL_CLAUDE_CHAT"
-
-// ClaudeEnabled reports whether this machine has opted in to Claude chats.
-func ClaudeEnabled() bool { return os.Getenv(ClaudeSwitch) == "1" }
-
-// CodexSwitch is the environment variable that opts one machine in to Codex
-// chats. Off by default: Codex is registered but dark until a real-login run and
-// the approval card changes are done.
-const CodexSwitch = "REET_EXPERIMENTAL_CODEX_CHAT"
-
-// CodexEnabled reports whether this machine has opted in to Codex chats.
-func CodexEnabled() bool { return os.Getenv(CodexSwitch) == "1" }
 
 // VersionError explains why an adapter was refused.
 type VersionError struct {

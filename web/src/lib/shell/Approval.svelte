@@ -1,5 +1,6 @@
 <script lang="ts">
   import { chatAnswer } from '../terminal/api'
+  import { signalAttentionChanged } from '../attentionSignal'
   import type { NeedCard } from '../home'
 
   // One unanswered tool approval on a Needs you card (Home and the bell): what the agent wants to run, and Allow once /
@@ -20,6 +21,7 @@
     failed = false
     try {
       await chatAnswer(sessionId, approval.permissionId, allow)
+      signalAttentionChanged()
     } catch {
       failed = true
     }

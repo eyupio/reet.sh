@@ -70,8 +70,8 @@ func TestSessionRequestMeta(t *testing.T) {
 	if err != nil || string(raw) != `{"claudeCode":{"options":{"settingSources":["user"]}}}` {
 		t.Fatalf("meta %s %v", raw, err)
 	}
-	// The registered OpenCode profile is unchanged and Claude is not registered.
-	if _, ok := Lookup("claude"); ok || OpenCode.SessionMeta != nil {
+	// The registered OpenCode profile carries no session meta; Claude's is the one that does.
+	if spec, ok := Lookup("claude"); !ok || spec.SessionMeta == nil || OpenCode.SessionMeta != nil {
 		t.Fatal("profiles changed")
 	}
 }
@@ -98,7 +98,7 @@ func TestClaudeCandidateEnvironment(t *testing.T) {
 	if ClaudeCandidate.RequireMode != "default" || ClaudeCandidate.SessionMeta == nil {
 		t.Fatal("approval contract not pinned")
 	}
-	if _, registered := Lookup("claude"); registered {
-		t.Fatal("candidate must stay unregistered")
+	if registered, ok := Lookup("claude"); !ok || registered.Command != ClaudeCandidate.Command {
+		t.Fatal("the candidate is the registered Claude profile")
 	}
 }

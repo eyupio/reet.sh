@@ -30,6 +30,53 @@ const MaxACPAgents = 8
 // agent's chat.
 const ACPAgentReattachFeature = "acp-agent-reattach-v1"
 
+// ChatGateFeature is advertised by a controller that applies the per-account
+// setting for gated chats (Claude Code and Codex): it hides a gated agent from
+// every account that has not turned it on. A connector reports a gated agent as
+// available only to a controller that advertises it; toward any other it keeps
+// the agent unverified, because that controller cannot hide it.
+const ChatGateFeature = "chat-gate-v1"
+
+func SupportsChatGate(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ChatGateFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// gatedChats are the agents whose Gaffer chat an account turns on itself.
+var gatedChats = []string{"claude", "codex"}
+
+// GatedChatTools lists the gated agents, sorted.
+func GatedChatTools() []string { return slices.Clone(gatedChats) }
+
+// ChatDefaultOn reports whether an agent's chat is on for an account that has
+// made no choice. An agent that is not gated is always on; the gated ones are
+// off until the owner records the signed-in run that would retire the gate.
+func ChatDefaultOn(tool string) bool { return !slices.Contains(gatedChats, tool) }
+
+// WithoutChats returns a copy of the capabilities in which every descriptor for
+// a listed tool, whatever its state, reads as unverified with no capability
+// flags. The original is not modified. It is how the controller hides a gated
+// agent from an account that has it off, and it is applied when a record is read
+// for use, never to the stored record.
+func (c Capabilities) WithoutChats(tools []string) Capabilities {
+	if c.ACPAgents == nil || len(tools) == 0 {
+		return c
+	}
+	masked := make([]ACPAgent, len(*c.ACPAgents))
+	for i, a := range *c.ACPAgents {
+		if slices.Contains(tools, a.Tool) {
+			a = ACPAgent{Tool: a.Tool, Adapter: a.Adapter, State: "unverified"}
+		}
+		masked[i] = a
+	}
+	c.ACPAgents = &masked
+	return c
+}
+
 func SupportsACPAgents(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == ACPAgentsFeature {
@@ -130,7 +177,9 @@ func chatAdapter(tool string) string {
 }
 
 func (a ACPAgent) Valid() bool {
-	validTool := ValidToolV2(a.Tool) && plainText(a.Adapter, 64) && a.Adapter != ""
+	// A connector from before an agent was retired may still describe it. That only validates as not usable: the
+	// "available" arm needs a reviewed chat tool, which a retired one never is.
+	validTool := (ValidToolV2(a.Tool) || RetiredTool(a.Tool)) && plainText(a.Adapter, 64) && a.Adapter != ""
 	validText := plainText(a.Version, 64) && plainText(a.MinimumVersion, 64)
 	if !validTool || !validText {
 		return false

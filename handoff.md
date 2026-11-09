@@ -28,6 +28,31 @@ been selected; older “next task” statements are historical. The checkpoint r
 completed UX/setup, offline acceptance, benchmark correction, limitations and
 standing permissions. Resume from current main and agree the next bounded slice.
 
+## OVERVIEW-4: the Overview leads with what matters (8 November 2026)
+
+Follow-up to OVERVIEW-3 on the session workspace's right-hand panel.
+
+- **Order.** The Overview now runs status header, **Progress**, **Pull request**, **You asked**, agent activity,
+  **Workspace changes**, **Where it's working**, then the Skills fold. The tracker and pull request were the most useful
+  facts and sat below the prompt and counters, so a 360 px panel made people scroll to reach them. The prompt moved below
+  the tracker and PR.
+- **Removed.** The "Since your last visit" block, its `newEvents` / `terminalAdvanced` derivations, the `sessionStorage`
+  visit marker and the per-tab "returning" logic in `ContextPanel` are gone. The tool tally and its counts line went too:
+  Gaffer's card chips and **In progress** already carry the same facts. This also closes OVERVIEW-3's deferred note that
+  the return markers could move inside.
+- **Status line.** The separate 64 px notice box became one fixed-height line under the headline. It shows a request
+  waiting for you, a chat error, or the state and last activity; the Review button appears only when something waits. The
+  panel no longer reserves a blank calm notice or a blank "nothing waiting" sentence.
+- **No Gaffer column.** The 88 px right margin that reserved a column beside the terminal workspace is removed (`app.css`,
+  `WorkspaceSkeleton.svelte`). The floating companion sits over the workspace's corner instead of widening the page and
+  lifts clear of composer docks with `keepLauncherClear` (`GafferChatWidget`). The short-landscape phone still hides it.
+- **Sticky view.** The selected tab is a browser preference (`panelTab.ts`, `reet.workspace.context-tab`), so switching to
+  another session keeps **Changes**, **Files** or **GitHub** selected. A restored **Files** view reads its listing on mount;
+  **GitHub** already refetches through the Overview cadence.
+- **Validation.** `session-workspace.e2e.mjs` updated: the removed return-summary assertions are now absence checks and the
+  away-text assertion stays. `npm run check` and the session workspace suite should run before merge; see
+  `docs/ui-verification.md`.
+
 ## Gaffer AI session-companion MVP: agreed direction (5 November 2026)
 
 The user selected the [Gaffer session-companion MVP](docs/work-orchestration-handoff.md#active-direction-gaffer-session-companion-mvp-5-november-2026)
@@ -787,9 +812,13 @@ when a release changes the schema incompatibly. See [docs/backups.md](docs/backu
 [docs/research/structured-adapters/probe-report.md](docs/research/structured-adapters/probe-report.md) (what each adapter was
 measured to do). This section is the position and the order of what is left.
 
-**Where it stands.** OpenCode is the only structured chat anyone is offered. Claude Code and Codex are built end to end but
-dark: a machine reports one as available only when its connector runs with `REET_EXPERIMENTAL_CLAUDE_CHAT=1` or
-`REET_EXPERIMENTAL_CODEX_CHAT=1` (`internal/acpagent/spec.go`: `ClaudeEnabled`, `CodexEnabled`). Descriptors are per agent
+**Where it stands.** OpenCode, Cline and Google Antigravity chats are offered to every account. Claude Code and Codex are built end
+to end but off by default: each account turns them on in Settings > Agents, a stored per-account setting
+(`user_profiles.chat_agents`) that the controller applies when it reads a machine's capabilities (`internal/terminalproto/acp_agents.go`:
+`ChatDefaultOn`, `WithoutChats`), and a connector reports them as available only to a controller that advertises `chat-gate-v1`. The
+environment switches were removed. Claude Code is feature-complete for a chat (history, reconnect, model and thinking level,
+images, a terminal launch with resume, YOLO and effort, a missing-adapter hint) and waits on the owner's signed-in Run B before it
+is on by default. Descriptors are per agent
 (`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
 a descriptor that says `available`.
 
@@ -851,8 +880,8 @@ says "Authentication required", stop and ask the owner which way to go. No hardw
 **Owner checks, still unverified:** the owner deferred section 3 signed-in Run B ("skip this, assume it works for now"). This is permission to
 continue independent SC5 work, not evidence of a real login. Do not re-ask while it remains deferred. When resumed, signed-in Run B runs first,
 then Run A's follow-up; if Run B still reports "Authentication required", stop and ask which direction to take. Next are the signed-in runs
-(section 2 Run B for Claude and section 3 Run B for Codex), then section 1's physical touch and screen-reader checks. Neither experimental switch nor
-`elicitation.form` is retired before its required evidence is recorded. Record each result in the ledger at the top of
+(section 2 Run B for Claude and section 3 Run B for Codex), then section 1's physical touch and screen-reader checks. Claude Code and Codex chats are not on by default, and
+`elicitation.form` is not turned on, before the required evidence is recorded. Record each result in the ledger at the top of
 [docs/device-checks.md](docs/device-checks.md#recorded-results) with its date and the PR that carries it. Reet never calls `authenticate`.
 
 **Recorded 4 November 2026 (logged-out runs, pinned adapters):** Claude `claude-agent-acp@0.99.1` advertises no login methods, creates a session

@@ -12,6 +12,8 @@ import (
 	"github.com/eyupio/reet.sh/internal/ref"
 )
 
+const canonicalShelfJoin = ` LEFT JOIN library_aliases la INDEXED BY library_shelf_projection ON la.user_id=sh.user_id AND la.kind='shelf' AND la.reference=sh.skill_id LEFT JOIN library_items li INDEXED BY library_item_projection ON li.user_id=la.user_id AND li.id=la.item_id `
+const canonicalShelfColumn = `,COALESCE(li.id||':'||li.status,'')`
 const shelfCols = `s.id,s.source,s.slug,s.source_type,s.url,s.name,s.description,sh.notes,s.installs,s.installs_week,s.trend,sh.liked,sh.bookmarked,sh.used,sh.created_at,sh.updated_at`
 
 func hasColumn(db *sql.DB, table, name string) (bool, error) {
@@ -223,11 +225,38 @@ func (s *Store) MigrateToOwner(ownerID int64) error {
 	})
 }
 
+// attachMetaFor attaches tags and environments to skills read with
+// canonicalShelfColumn, which already carry their library item and status.
 func (s *Store) attachMetaFor(userID int64, skills []Skill) error {
-	return s.attachMetaForMode(userID, skills, false)
+	return s.attachMetaForMode(userID, skills, attachMode{})
 }
 
-func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) error {
+// attachMode selects what attachMetaForMode loads and how.
+type attachMode struct {
+	// compact loads environment counts instead of environment rows.
+	compact bool
+	// library loads the canonical library item id and status.
+	library bool
+	// whole reports that the skills hold every visible shelf row of the user
+	// (for example an unfiltered, unpaged listing).
+	whole bool
+}
+
+// libraryStatusCode reads library_items.status as a small integer so a listing
+// does not allocate a string per row for a value from a fixed set; the CHECK
+// constraint on the column names exactly the values in libraryStatuses.
+const libraryStatusCode = `CASE i.status WHEN 'in_use' THEN 1 WHEN 'to_test' THEN 2 WHEN 'on_shelf' THEN 3 WHEN 'disabled' THEN 4 ELSE 0 END`
+
+var libraryStatuses = [...]string{"", LibraryInUse, LibraryToTest, LibraryOnShelf, LibraryDisabled}
+
+// attachMetaForMode loads tags, environments and (with mode.library) the
+// canonical library item for skills, which all belong to userID. With
+// mode.whole the per-user queries read the user's rows by range instead of
+// probing an IN (...) list of every id. Both forms return a superset of the
+// rows the skills need and rows for other skills are ignored through index, so
+// the result is the same; whole only decides which form is cheaper.
+func (s *Store) attachMetaForMode(userID int64, skills []Skill, mode attachMode) error {
+	compact := mode.compact
 	if len(skills) == 0 {
 		return nil
 	}
@@ -238,22 +267,29 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 		index[skills[i].ID] = i
 		args = append(args, skills[i].ID)
 	}
-	tagRows, err := s.readStmts.query(`SELECT st.skill_id,t.id,t.name,st.source,st.hidden
+	forSkills := func(column string) (string, []any) {
+		if mode.whole {
+			return ``, args[:1]
+		}
+		return ` AND ` + column + ` IN (` + placeholders(len(skills)) + `)`, args
+	}
+	scope, scopeArgs := forSkills(`st.skill_id`)
+	tagRows, err := s.readStmts.query(`SELECT st.skill_id,t.id,t.name,st.source
 		FROM skill_tags st JOIN tags t ON t.id=st.tag_id
-		WHERE st.user_id=? AND st.hidden=0 AND st.skill_id IN (`+placeholders(len(skills))+`)
-		ORDER BY lower(t.name)`, args...)
+		WHERE st.user_id=? AND st.hidden=0`+scope+`
+		ORDER BY lower(t.name)`, scopeArgs...)
 	if err != nil {
 		return err
 	}
+	var skillID string
+	var tag Tag
 	for tagRows.Next() {
-		var skillID string
-		var tag Tag
-		var hidden int
-		if err := tagRows.Scan(&skillID, &tag.ID, &tag.Name, &tag.Source, &hidden); err != nil {
+		if err := tagRows.Scan(&skillID, &tag.ID, &tag.Name, &tag.Source); err != nil {
 			tagRows.Close()
 			return err
 		}
-		tag.Hidden = hidden != 0
+		// The query returns only visible tags.
+		tag.Hidden = false
 		if i, ok := index[skillID]; ok {
 			skills[i].Tags = append(skills[i].Tags, tag)
 		}
@@ -263,10 +299,38 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 		return err
 	}
 	tagRows.Close()
+	if mode.library {
+		scope, scopeArgs = forSkills(`a.reference`)
+		libraryRows, err := s.readStmts.query(`SELECT a.reference,i.id,`+libraryStatusCode+` FROM library_aliases a JOIN library_items i ON i.user_id=a.user_id AND i.id=a.item_id WHERE a.user_id=? AND a.kind='shelf'`+scope, scopeArgs...)
+		if err != nil {
+			return err
+		}
+		for libraryRows.Next() {
+			var reference, id string
+			var status int
+			if err = libraryRows.Scan(&reference, &id, &status); err != nil {
+				break
+			}
+			if i, ok := index[reference]; ok {
+				skills[i].LibraryItemID = id
+				if status > 0 && status < len(libraryStatuses) {
+					skills[i].Status = libraryStatuses[status]
+				}
+			}
+		}
+		if err == nil {
+			err = libraryRows.Err()
+		}
+		libraryRows.Close()
+		if err != nil {
+			return err
+		}
+	}
+	scope, scopeArgs = forSkills(`se.skill_id`)
 	if compact {
 		envRows, err := s.readStmts.query(`SELECT se.skill_id,COUNT(*) FROM skill_envs se JOIN environments e ON e.id=se.env_id
-			WHERE e.user_id=? AND se.skill_id IN (`+placeholders(len(skills))+`)
-			GROUP BY se.skill_id`, args...)
+			WHERE e.user_id=?`+scope+`
+			GROUP BY se.skill_id`, scopeArgs...)
 		if err != nil {
 			return err
 		}
@@ -286,8 +350,8 @@ func (s *Store) attachMetaForMode(userID int64, skills []Skill, compact bool) er
 	envRows, err := s.readStmts.query(`SELECT se.skill_id,e.id,e.name,e.kind,e.agent,e.host,e.path,e.project,
 		e.first_seen,se.last_seen,se.source_path
 		FROM skill_envs se JOIN environments e ON e.id=se.env_id
-		WHERE e.user_id=? AND se.skill_id IN (`+placeholders(len(skills))+`)
-		ORDER BY lower(e.name)`, args...)
+		WHERE e.user_id=?`+scope+`
+		ORDER BY lower(e.name)`, scopeArgs...)
 	if err != nil {
 		return err
 	}
@@ -339,8 +403,7 @@ func (s *Store) attachHiddenTagsFor(userID int64, skills []Skill) error {
 }
 
 func (s *Store) GetFor(userID int64, id string) (Skill, bool, error) {
-	k, err := scan(s.db.QueryRow(`SELECT `+shelfCols+` FROM skills s JOIN shelf sh ON sh.skill_id=s.id
-		WHERE sh.user_id=? AND s.id=?`, userID, id))
+	k, err := scan(s.db.QueryRow(`SELECT `+shelfCols+canonicalShelfColumn+` FROM skills s JOIN shelf sh ON sh.skill_id=s.id`+canonicalShelfJoin+` WHERE sh.user_id=? AND s.id=?`, userID, id), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Skill{}, false, nil
 	}
@@ -367,6 +430,11 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
 		return nil, c, err
 	}
+	// An unpaged list attaches the canonical item and status after its rows are
+	// read (attachMode.library), by user range when it is the whole library:
+	// a join is evaluated for every matching row and costs more than one range
+	// read. A page selects its rows first and joins the metadata for those only.
+	paged := f.Limit > 0 || f.Offset > 0
 	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=? AND s.hidden=0`
 	args := []any{userID}
 	tabWhere := map[string]string{
@@ -379,11 +447,13 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	}
 	switch f.Stage {
 	case "use":
-		q += ` AND sh.used=1`
+		q += ` AND ` + canonicalShelfStatus + `='in_use'`
 	case "try":
-		q += ` AND sh.used=0 AND sh.bookmarked=1`
+		q += ` AND ` + canonicalShelfStatus + `='to_test'`
 	case "shelf":
-		q += ` AND sh.used=0 AND sh.bookmarked=0`
+		q += ` AND ` + canonicalShelfStatus + `='on_shelf'`
+	case "disabled":
+		q += ` AND ` + canonicalShelfStatus + `='disabled'`
 	}
 	for _, id := range f.Tags {
 		q += ` AND EXISTS (SELECT 1 FROM skill_tags st WHERE st.user_id=? AND st.skill_id=sh.skill_id AND st.tag_id=? AND st.hidden=0)`
@@ -438,6 +508,20 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		q += ` LIMIT ? OFFSET ?`
 		args = append(args, limit, f.Offset)
 	}
+	if paged {
+		// Select the requested page before looking up canonical metadata.
+		// Joining first makes SQLite probe the entire shelf before LIMIT.
+		q = `WITH selected AS MATERIALIZED (` + q + `) SELECT selected.*` + canonicalShelfColumn + ` FROM selected LEFT JOIN library_aliases la INDEXED BY library_shelf_projection ON la.user_id=? AND la.kind='shelf' AND la.reference=selected.id LEFT JOIN library_items li INDEXED BY library_item_projection ON li.user_id=la.user_id AND li.id=la.item_id`
+		args = append(args, userID)
+		switch f.Sort {
+		case "name":
+			q += ` ORDER BY lower(selected.name) ASC`
+		case "installs":
+			q += ` ORDER BY selected.installs DESC,lower(selected.name) ASC`
+		default:
+			q += ` ORDER BY selected.updated_at DESC,selected.created_at DESC`
+		}
+	}
 	rows, err := s.readStmts.query(q, args...)
 	if err != nil {
 		return nil, c, err
@@ -450,8 +534,9 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		capHint = 256
 	}
 	out := make([]Skill, 0, capHint)
+	reader := newSkillRowScanner(paged)
 	for rows.Next() {
-		k, err := scan(rows)
+		k, err := reader.scan(rows)
 		if err != nil {
 			rows.Close()
 			return nil, c, err
@@ -463,7 +548,9 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		return nil, c, err
 	}
 	rows.Close()
-	if err := s.attachMetaForMode(userID, out, f.Compact); err != nil {
+	// c.All counts the same rows as the unfiltered query, so a result of that
+	// size is the user's whole visible library.
+	if err := s.attachMetaForMode(userID, out, attachMode{compact: f.Compact, library: !paged, whole: len(out) == c.All}); err != nil {
 		return nil, c, err
 	}
 	return out, c, nil
@@ -510,14 +597,23 @@ func (s *Store) PatchFor(userID int64, id string, p Patch) (Skill, error) {
 	if p.Notes != nil {
 		notes = sql.NullString{String: *p.Notes, Valid: true}
 	}
-	res, err := s.db.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), notes=COALESCE(?,notes), updated_at=?
+	err := s.withTx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE shelf SET liked=COALESCE(?,liked), bookmarked=COALESCE(?,bookmarked), used=COALESCE(?,used), notes=COALESCE(?,notes), updated_at=?
 		WHERE user_id=? AND skill_id=?`,
-		nullBool(p.Liked), nullBool(p.Bookmarked), nullBool(p.Used), notes, now(), userID, id)
+			nullBool(p.Liked), nullBool(p.Bookmarked), nullBool(p.Used), notes, now(), userID, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		if p.Used != nil || p.Bookmarked != nil {
+			return syncLibraryShelfStatus(tx, userID, id)
+		}
+		return nil
+	})
 	if err != nil {
 		return Skill{}, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return Skill{}, ErrNotFound
 	}
 	k, _, err := s.GetFor(userID, id)
 	return k, err
@@ -636,12 +732,26 @@ func (s *Store) PatchManyFor(userID int64, ids []string, p Patch) (int, error) {
 	for _, id := range ids {
 		args = append(args, id)
 	}
-	res, err := s.db.Exec(q, args...)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	var n int64
+	err := s.withTx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(q, args...)
+		if err != nil {
+			return err
+		}
+		n, err = res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if p.Used != nil || p.Bookmarked != nil {
+			for _, id := range ids {
+				if err = syncLibraryShelfStatus(tx, userID, id); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	return int(n), err
 }
 
 func (s *Store) TagManyFor(userID int64, ids []string, add []string, remove []int64) (int, error) {

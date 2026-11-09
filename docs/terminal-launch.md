@@ -1,7 +1,7 @@
 # Launch requests: starting an agent in a terminal session
 
 A launch request asks a machine to start one of its installed agent CLIs (`claude`,
-`codex`, `opencode`, `gemini`, `cline`, `antigravity`) in a chosen folder, with an optional model and an
+`codex`, `opencode`, `cline`, `antigravity`) in a chosen folder, with an optional model and an
 optional opening prompt, instead of the plain login shell that a terminal session
 starts today. It is an optional field set on the existing create-session call.
 Nothing changes for a plain shell: the arguments the connector gives tmux for a
@@ -47,7 +47,7 @@ comparable struct and `omitempty` keeps a plain create unchanged. They are named
 
 | Field | Meaning | Limits |
 | --- | --- | --- |
-| `tool` | Tool id | One of `claude`, `codex`, `opencode`, `gemini`; `cline` and `antigravity` under `agents-v2` |
+| `tool` | Tool id | One of `claude`, `codex`, `opencode`; `cline` and `antigravity` under `agents-v2`. `gemini` is retired and refused like any unknown tool |
 | `model` | Model id, optional | 1 to 100 bytes; letters, digits and `. _ : / @ + -`; the first character must be a letter or digit |
 | `dir` | Folder, optional | Absolute; at most 4,096 bytes; valid UTF-8; no control characters |
 | `prompt` | Opening prompt, optional | At most 8,000 bytes; valid UTF-8; no control characters except newline; must not begin with `-` |
@@ -91,7 +91,7 @@ whose reply was lost asks for the same session under the same name. It is:
    60 characters it is cut at the last space (not earlier than the 20th character), or at 60 if there is
    none, and ends in an ellipsis.
 2. **Otherwise the agent and folder**: the agent's name ("Claude Code", "Codex", "OpenCode",
-   "Gemini CLI", "Cline", "Google Antigravity (AGY)") or "Terminal" for a plain shell, then · and the last
+   "Cline", "Google Antigravity (AGY)") or "Terminal" for a plain shell, then · and the last
    part of the folder when there is one and it holds no control or format characters.
 
 The rules live in `terminalproto.PromptTitle` and `terminalproto.AutoTitle`. The browser mirrors them
@@ -104,7 +104,7 @@ this; Rename works as before.
 
 `terminalproto.Create` also has `structured`, `trust` and `resumeAcp` fields, sent only after `acp-v1` (see
 [structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md)). `structured: true` is accepted only with a reviewed chat tool
-(`opencode`, `cline`, or Claude Code and Codex behind their machine switches) and without a
+(`opencode`, `cline`, or Claude Code and Codex for an account that has turned their chats on in Settings > Agents) and without a
 worktree, resume, YOLO, base or effort; the machine starts that agent's chat process (`opencode acp`, `cline --acp`, or
 the pinned Claude/Codex adapter) instead of tmux. `trust: true` confirms the
 repository-plugin warning, which OpenCode is the only reviewed tool to read. `resumeAcp` is a native session id owned by one of the account's closed structured sessions
@@ -128,10 +128,9 @@ test pins the ordinary flags to `--model`, `--prompt` and
 
 | Tool | Arguments (with a model and a prompt) | Confirmed from |
 | --- | --- | --- |
-| `claude` | `claude --model <model> -- <prompt>` | `claude --help` on Claude Code 2.1.310: "Usage: claude [options] [command] [prompt]", "starts an interactive session by default, use -p/--print for non-interactive output", "--model <model>  Model for the current session". The bundled argument parser was read to confirm that `--` ends options. |
+| `claude` | `claude [--dangerously-skip-permissions] [--continue \| --resume <id>] [--effort <level>] [--model <model>] [-- <prompt>]` | `claude --help` on Claude Code 2.1.319, captured in `internal/terminalhost/testdata/help/claude.txt` with the registry tarball and integrity in `sources.json`: "Usage: claude [options] [command] [prompt]", `-c, --continue` ("Continue the most recent conversation in the current directory"), `-r, --resume [value]`, `--dangerously-skip-permissions`, `--effort <level>` and `--model <model>`. The bundled argument parser of 2.1.310 was read to confirm that `--` ends options. Only version and help were run. |
 | `codex` | `codex --model <model> -- <prompt>` | https://learn.chatgpt.com/docs/developer-commands?surface=cli (reached from https://developers.openai.com/codex/cli/reference): "Running `codex` with no subcommand launches the interactive terminal UI", `--model, -m`, and an optional `PROMPT`. Source: `codex-rs/tui/src/cli.rs` in openai/codex has a positional `prompt: Option<String>`. |
 | `opencode` | `opencode --model <model> --prompt <prompt>` | https://opencode.ai/docs/cli/: "opencode [project]" starts the terminal UI, with `--prompt` and `--model`. The positional is a project path, so the prompt goes through the flag. |
-| `gemini` | `gemini --model <model> --prompt-interactive <prompt>` | https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md and `packages/cli/src/config/config.ts`: `--prompt-interactive` runs the prompt and continues interactively; `--model` sets the model. `-p/--prompt` is headless and is deliberately not used. |
 | `antigravity` | `agy --model <model> --prompt-interactive <prompt>` | Antigravity CLI 1.5.0 captured version/help in `internal/terminalhost/testdata/help/agy.txt`; official archive and verified SHA-256 in `sources.json`. `--prompt` is a print-mode alias and is not used. The `agy` alias distinguishes the CLI from the desktop app. |
 
 ## Models read from the machine
@@ -164,9 +163,8 @@ versions has not been checked, so the interface says it is a path. See
 [terminal workspace](terminal-workspace.md) for the upload limits and privacy.
 
 With no model the `--model <model>` pair is left out; with no prompt the prompt
-part is left out. All rows were confirmed on 2026-10-25. Only `claude` was
-confirmed against a binary's own help text; the others were confirmed from the
-documentation and source cited. A tool whose syntax cannot be confirmed is not
+part is left out. Claude Code's row was re-confirmed against its 2.1.319 captured help; the other rows were
+confirmed on 2026-10-25 from the documentation and source cited, or from the captured help named in their row. A tool whose syntax cannot be confirmed is not
 offered. `pi` and `cursor` are not offered for that reason.
 
 ### The one-word prompt rule (claude and codex)
@@ -177,8 +175,8 @@ parser would run `claude purge`, `claude update` or `claude install` for a promp
 that is just `purge`, `update` or `install`. A subcommand name is one word, so for
 these two tools a prompt must contain a space or a newline. The same rule is
 applied to `codex` as defence in depth; whether codex needs it is not documented
-(see "Known limits"). `opencode` and `gemini` take the prompt as the value of a
-flag and are not affected. The controller refuses a one-word prompt before it
+(see "Known limits"). `opencode` takes the prompt as the value of a
+flag and is not affected. The controller refuses a one-word prompt before it
 sends anything (`prompt_unsupported`), and the connector refuses it again.
 
 ## Starting the program
@@ -276,7 +274,7 @@ write nothing.
 - Standard clap behaviour ends subcommand matching after `--`, so `codex` is
   probably safe from the subcommand problem, but codex documents `--` only for
   `codex mcp add`. The one-word rule is applied to it regardless.
-- `opencode` and `gemini` are safe from a prompt being read as a flag only because
+- `opencode` is safe from a prompt being read as a flag only because
   the prompt cannot begin with `-`. opencode's current parser was not read from
   source; its flags come from its documentation.
 - A retry of an already-recorded request id does not look up the binary or the
@@ -300,7 +298,7 @@ and the Activity label for `terminal-launch` are described in
 
 The controller advertises `agents-v2` alongside the existing feature tokens. A
 connector reports `agentsV2:true` and optional `osVersion` only after negotiating
-that token. The additional `antigravity-cli-v1` token gates the AGY tool id: an older controller whose `agents-v2` catalogue predates AGY receives no AGY claim. Without `agents-v2`, the connector reports only the original four tool ids
+that token. The additional `antigravity-cli-v1` token gates the AGY tool id: an older controller whose `agents-v2` catalogue predates AGY receives no AGY claim. Without `agents-v2`, the connector reports only the original three tool ids
 and never sends the added capability fields. OS version is informational: Linux
 reports its kernel release and macOS its product version; a failed local reading
 leaves it absent.
@@ -314,14 +312,22 @@ answers 422 `base_missing`, naming the machine in the sentence. An empty base
 keeps the existing HEAD behaviour.
 
 Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its
-confirmed `--thinking` option and Antigravity CLI 1.5.0 to `--effort`; other presets have no effort mapping until their
+confirmed `--thinking` option, and Claude Code 2.1.319 and Antigravity CLI 1.5.0 to `--effort` (Claude Code's own help also lists `xhigh` and `max`, which a launch does not carry); other presets have no effort mapping until their
 exact CLI arguments have captured help evidence. An
 unsupported mapping answers `launch_option_unsupported`; it never silently
-ignores the choice. YOLO maps to a reviewed option only for Codex
-(`--ask-for-approval never`), OpenCode (`--auto`), Cline
+ignores the choice. YOLO maps to a reviewed option only for Claude Code
+(`--dangerously-skip-permissions`), Codex (`--ask-for-approval never`), OpenCode (`--auto`), Cline
 (`--yolo --tui`) and Antigravity (`--dangerously-skip-permissions`); every other preset refuses it with
 `launch_option_unsupported`. A machine switch (`reet terminal yolo off`) refuses
-it with `yolo_refused`, and the account setting must allow it first.
+it with `yolo_refused`, and the account setting must allow it first. A Claude Code chat in Gaffer takes YOLO through the
+same three gates: the account setting, the machine switch and the confirmation.
+
+Terminal resume exists for OpenCode (`--continue`, and `--session <id>`) and Claude Code (`--continue`, and
+`--resume <id>`). `--continue` continues the tool's most recent conversation in the launch folder. The preset carries
+`--resume <id>` for a Claude Code session id, but nothing in the browser starts it yet: the only path that sends a session
+id is the switch from a running Gaffer chat to the agent's own terminal, which the web offers for OpenCode only. Whether a
+Claude Code chat's id is one the CLI's `--resume` opens is not measured, because only the CLI's help was captured. Offering
+that switch for Claude Code is a separate, later change.
 
 Cline 3.0.74 is enabled after a pinned, help-only installation confirmed its
 `--auto-approve false --tui` safety and interactive arguments, `--model` and

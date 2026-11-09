@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ func (s *server) profileGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"user":         user,
 		"profile":      profile,
+		"chatEnabled":  chatEnabled(profile),
 		"sessionCount": len(sessions),
 		"accounts":     s.authMode == AuthAccounts,
 	})
@@ -44,21 +46,23 @@ func (s *server) profileGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		GafferAnimations      *bool   `json:"gafferAnimations"`
-		GafferCompact         *bool   `json:"gafferCompact"`
-		Name                  *string `json:"name"`
-		Theme                 *string `json:"theme"`
-		Timezone              *string `json:"timezone"`
-		DateFormat            *string `json:"dateFormat"`
-		ShelfView             *string `json:"shelfView"`
-		CardsExpanded         *bool   `json:"cardsExpanded"`
-		TerminalRemoveOnClose *bool   `json:"terminalRemoveOnClose"`
-		HostedPrefix          *string `json:"hostedPrefix"`
-		DefaultBaseBranch     *string `json:"defaultBaseBranch"`
-		WorktreesByDefault    *bool   `json:"worktreesByDefault"`
-		DefaultTool           *string `json:"defaultTool"`
-		DefaultModel          *string `json:"defaultModel"`
-		DefaultEffort         *string `json:"defaultEffort"`
+		GafferAnimations      *bool            `json:"gafferAnimations"`
+		GafferCompact         *bool            `json:"gafferCompact"`
+		Name                  *string          `json:"name"`
+		Theme                 *string          `json:"theme"`
+		Timezone              *string          `json:"timezone"`
+		DateFormat            *string          `json:"dateFormat"`
+		ShelfView             *string          `json:"shelfView"`
+		CardsExpanded         *bool            `json:"cardsExpanded"`
+		TerminalRemoveOnClose *bool            `json:"terminalRemoveOnClose"`
+		HostedPrefix          *string          `json:"hostedPrefix"`
+		DefaultBaseBranch     *string          `json:"defaultBaseBranch"`
+		WorktreesByDefault    *bool            `json:"worktreesByDefault"`
+		DefaultTool           *string          `json:"defaultTool"`
+		DefaultModel          *string          `json:"defaultModel"`
+		DefaultEffort         *string          `json:"defaultEffort"`
+		DefaultClineSource    *string          `json:"defaultClineSource"`
+		ChatAgents            *map[string]bool `json:"chatAgents"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -89,6 +93,29 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		if baseBranch != "" && !terminalproto.ValidRefName(baseBranch) {
 			writeErr(w, http.StatusBadRequest, "defaultBaseBranch must be blank or a valid git branch name of at most 255 bytes")
 			return
+		}
+	}
+	if in.DefaultClineSource != nil {
+		if user.Role == "viewer" {
+			writeErr(w, http.StatusForbidden, "read-only accounts can't change launch defaults")
+			return
+		}
+		if !terminalproto.ValidProvider(*in.DefaultClineSource) {
+			writeErr(w, 400, "defaultClineSource must be blank or a source id reet can pass on")
+			return
+		}
+	}
+	if in.ChatAgents != nil {
+		if user.Role == "viewer" {
+			writeErr(w, http.StatusForbidden, "read-only accounts can't change which chats are on")
+			return
+		}
+		gated := terminalproto.GatedChatTools()
+		for tool := range *in.ChatAgents {
+			if !slices.Contains(gated, tool) {
+				writeErr(w, http.StatusBadRequest, "chatAgents can only name "+strings.Join(gated, " or "))
+				return
+			}
 		}
 	}
 	profile, err := s.st.ProfileFor(user.ID)
@@ -228,6 +255,19 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		profile.DefaultEffort = defaultEffort
 		detail["defaultEffort"] = defaultEffort
 	}
+	if in.DefaultClineSource != nil {
+		profile.DefaultClineSource = *in.DefaultClineSource
+		detail["defaultClineSource"] = *in.DefaultClineSource
+	}
+	if in.ChatAgents != nil {
+		if profile.ChatAgents == nil {
+			profile.ChatAgents = map[string]bool{}
+		}
+		for tool, on := range *in.ChatAgents {
+			profile.ChatAgents[tool] = on
+		}
+		detail["chatAgents"] = *in.ChatAgents
+	}
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -239,7 +279,18 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		s.event(user.ID, "ui", "profile", "", detail)
 	}
 	updated, _, _ := s.st.UserByID(user.ID)
-	writeJSON(w, 200, map[string]any{"user": updated, "profile": profile})
+	writeJSON(w, 200, map[string]any{"user": updated, "profile": profile, "chatEnabled": chatEnabled(profile)})
+}
+
+// chatEnabled is the effective on or off state of every gated chat for the
+// profile: the account's explicit choice, else the built-in default. The profile
+// itself carries only the explicit choices.
+func chatEnabled(p store.Profile) map[string]bool {
+	out := map[string]bool{}
+	for _, tool := range terminalproto.GatedChatTools() {
+		out[tool] = p.ChatEnabled(tool)
+	}
+	return out
 }
 
 func (s *server) profilePassword(w http.ResponseWriter, r *http.Request) {

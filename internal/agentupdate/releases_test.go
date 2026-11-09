@@ -110,3 +110,30 @@ func TestVersionComparison(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckerFallsBackToAPIForDevPointer(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dev/dev-build.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusGatewayTimeout)
+	})
+	mux.HandleFunc("/releases/tags/dev", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"id":42,"assets":[{"id":7,"name":"dev-build.txt"}]}`))
+	})
+	mux.HandleFunc("/releases/assets/7", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept") != "application/octet-stream" {
+			t.Fatalf("API asset download did not ask for the bytes: %q", r.Header.Get("Accept"))
+		}
+		w.Write([]byte(sha + "\n"))
+	})
+	mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"tag_name":"v1.4.2"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := &Checker{Client: srv.Client(), ReleasesAPI: srv.URL + "/releases", DownloadsRoot: srv.URL}
+	info := c.Info(context.Background())
+	if info.Dev.Commit != sha || info.Dev.Error != "" {
+		t.Fatalf("dev channel: %+v", info.Dev)
+	}
+}

@@ -552,7 +552,7 @@ reet.sh is a self-hosted control room for the AI agents, skills and reusable set
 
 - Connect a laptop, VPS or lab machine with an outbound enrolment command; no inbound port is required.
 - Open a browser terminal on any enrolled machine and work with agents already installed there.
-- Start and continue sessions with Claude Code, Codex, OpenCode and Gemini CLI.
+- Start and continue sessions with Claude Code, Codex and OpenCode.
 - Keep a central skill library, bring discoveries back, and distribute skills with a reviewed plan before anything changes.
 - Save reusable setup profiles and restore them on a new machine.
 - Back up the instance or a personal shelf with encrypted, verified copies.

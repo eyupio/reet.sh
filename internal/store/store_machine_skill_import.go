@@ -57,5 +57,7 @@ func (s *Store) saveMachineSkillImportFor(uid int64, enrollment string, in Machi
 			return guard(tx)
 		}
 		return nil
-	}, finish)
+	}, finish, func(tx *sql.Tx, result PrivateSkillResult) error {
+		return recordLibraryMachineCapture(tx, uid, enrollment, in.Agent, in.Project, in.Name, result)
+	})
 }

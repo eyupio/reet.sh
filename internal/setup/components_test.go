@@ -87,7 +87,6 @@ func TestComponentFormatsAndAgentSpecificMCP(t *testing.T) {
 	writeConfig(t, filepath.Join(e.home, ".config", "opencode", "opencode.jsonc"), "// configuration\n{}")
 	writeConfig(t, filepath.Join(e.project, "opencode.json"), `{"mcp":{"remote":{"type":"remote","url":"https://example.test","headers":{"Authorization":"{env:TOKEN}"}},"local":{"type":"local","command":["npx","server"],"environment":{"TOKEN":"literal"}}}}`)
 	writeConfig(t, filepath.Join(e.home, ".pi", "agent", "settings.json"), `{"defaultModel":"model","packages":["npm:package"],"mcpServers":{"ignored":{}}}`)
-	writeConfig(t, filepath.Join(e.home, ".gemini", "settings.json"), `{"mcpServers":{"remote":{"httpUrl":"https://example.test"}}}`)
 	writeConfig(t, filepath.Join(e.home, ".cursor", "mcp.json"), `{"mcpServers":{"local":{"command":"server"}}}`)
 	r := inspectFixture(t, e)
 	for _, tc := range []struct{ agent, suffix string }{{"codex", "config.toml"}, {"opencode", "opencode.jsonc"}} {
@@ -108,10 +107,6 @@ func TestComponentFormatsAndAgentSpecificMCP(t *testing.T) {
 	pi := findSource(t, r, "pi", "settings.json")
 	if !pi.Settings.ModelConfigured || !pi.Settings.PackagesConfigured || pi.MCPState != "not_supported_by_adapter" || len(pi.MCP) != 0 {
 		t.Fatalf("Pi support overstated: %+v", pi)
-	}
-	gemini := findSource(t, r, "gemini", "settings.json")
-	if gemini.MCPState != "parsed" || gemini.MCP[0].Transport != "http" {
-		t.Fatalf("Gemini HTTP config missing: %+v", gemini)
 	}
 	if source := findSource(t, r, "cursor", "mcp.json"); source.MCPState != "parsed" {
 		t.Fatalf("Cursor MCP missing: %+v", source)

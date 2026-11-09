@@ -124,6 +124,14 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 		}
 	}
 	save(content)
+	items, err := st.LibraryFor(uid)
+	if err != nil || len(items) != 1 {
+		t.Fatal(items, err)
+	}
+	item := items[0]
+	if err := st.SetLibraryStatusFor(uid, item.ID, store.LibraryInUse, item.Version); err != nil {
+		t.Fatal(err)
+	}
 	srv := httptest.NewServer(New(st, deadFetcher(t), "", WithAuthMode(AuthAccounts)))
 	defer srv.Close()
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -156,7 +164,19 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 			t.Fatalf("%s: got %q, want %q: %v", m.name, got, want, err)
 		}
 	}
+	selectFor := func(m machine) {
+		t.Helper()
+		tick(m)
+		path := filepath.Join(m.home, ".agents", "skills", "reet-demo", "SKILL.md")
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatal("new machine received content before selection", err)
+		}
+		if _, err := st.SaveLibrarySelectionFor(uid, store.LibrarySelection{TargetID: store.EnvironmentIDFor(uid, m.name, "agents", ""), ItemIDs: []string{item.ID}}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	laptop := newMachine("laptop")
+	selectFor(laptop)
 	for range 5 {
 		tick(laptop)
 	}
@@ -165,6 +185,7 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 		t.Fatal("private written skill created a duplicate local shelf card", err)
 	}
 	desktop := newMachine("desktop")
+	selectFor(desktop)
 	for range 5 {
 		tick(desktop)
 	}
@@ -180,7 +201,7 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 		tick(desktop)
 	}
 	assertFiles(desktop, content)
-	// A skill written after both machines joined follows the same policy.
+	// Later additions require explicit selection; neither machine subscribes.
 	added := "---\nname: reet-added\ndescription: Added later\n---\nNew instructions.\n"
 	if _, err := st.SaveHostedSkill(uid, store.HostedSkill{Slug: "reet-added", Content: added}); err != nil {
 		t.Fatal(err)
@@ -197,6 +218,40 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(localDir, "example.txt"), []byte("Supporting content"), 0644); err != nil {
 		t.Fatal(err)
+	}
+	tick(laptop)
+	for _, m := range []machine{laptop, desktop} {
+		if _, err := os.Stat(filepath.Join(m.home, ".agents", "skills", "reet-added", "SKILL.md")); !os.IsNotExist(err) {
+			t.Fatal("future addition was implicitly selected", err)
+		}
+	}
+	t.Setenv("HOME", laptop.home)
+	t.Chdir(laptop.home)
+	if err := scan.RunAgentInput([]string{"library-import", "--config", laptop.config}, strings.NewReader(""), io.Discard, "test"); err != nil {
+		t.Fatal(err)
+	}
+	imported, err := st.LibraryFor(uid)
+	if err != nil || len(imported) != 3 {
+		t.Fatal("capture duplicated a managed copy", imported, err)
+	}
+	selected := []string{}
+	for _, item := range imported {
+		if item.Status != store.LibraryInUse {
+			if err := st.SetLibraryStatusFor(uid, item.ID, store.LibraryInUse, item.Version); err != nil {
+				t.Fatal(err)
+			}
+		}
+		selected = append(selected, item.ID)
+	}
+	for _, m := range []machine{laptop, desktop} {
+		target := store.EnvironmentIDFor(uid, m.name, "agents", "")
+		previous, err := st.LibrarySelectionFor(uid, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.SaveLibrarySelectionFor(uid, store.LibrarySelection{TargetID: target, ItemIDs: selected, Version: previous.Version}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for range 12 {
 		tick(laptop)
@@ -225,7 +280,7 @@ func TestLibrarySyncNewMachinesDraftEditsAndReconnect(t *testing.T) {
 		t.Fatalf("want automatic home-folder policies for both machines: %+v", targets)
 	}
 	for _, target := range targets {
-		if len(target.Missing) != 0 || target.SourceID != "library" || !target.FollowSource {
+		if len(target.Missing) != 0 || target.SourceID != "library" || target.FollowSource || !target.Canonical || len(target.Desired) != 3 {
 			t.Fatalf("not converged: %+v", target)
 		}
 	}

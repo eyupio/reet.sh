@@ -37,7 +37,6 @@ var toolNames = map[string]string{
 	"claude":      "Claude Code",
 	"codex":       "Codex",
 	"opencode":    "OpenCode",
-	"gemini":      "Gemini CLI",
 	"cline":       "Cline",
 	"antigravity": "Google Antigravity (AGY)",
 }
@@ -47,7 +46,7 @@ var (
 	// "I'd like you to", "help me", "let's". English only; any other language
 	// passes through untouched.
 	titleFiller = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|gemini|cline|agy|antigravity|there|team|all|everyone))?[ ,!.:;-]*`),
+		regexp.MustCompile(`(?i)^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|cline|agy|antigravity|there|team|all|everyone))?[ ,!.:;-]*`),
 		regexp.MustCompile(`(?i)^(?:please|pls|kindly)\b[ ,:-]*`),
 		regexp.MustCompile(`(?i)^(?:can|could|would|will) you(?: please| kindly)?\b[ ,:-]*`),
 		regexp.MustCompile("(?i)^i(?:['’]d| would)? (?:like|love|want|need) (?:you )?to\\b[ ,:-]*"),
@@ -58,14 +57,54 @@ var (
 	titleSkillLine = regexp.MustCompile(`(?i)^use the .+ skill\.?$`)
 	// A heading, quote or list marker at the start of a line.
 	titleMarker = regexp.MustCompile(`^(?:[#>*-]+ )+`)
+	// The `Image:` / `Images:` line the Start dialog appends for uploads. It
+	// is matched after cleanTitleLine, so tabs are spaces and runs are folded.
+	titleImageLead = regexp.MustCompile(`(?i)^images?: `)
+	// One upload reference: bare, or POSIX single-quoted when the path needs it
+	// (internal/api/terminal_upload.go: uploadReference), where a quote inside
+	// the path is written '\''. Quoted references may contain spaces.
+	titleImageToken = regexp.MustCompile(`(?:\\'|[^ ']|'[^']*')+`)
+	titleImageExt   = regexp.MustCompile(`(?i)\.(?:png|jpe?g|gif|webp)'?$`)
 )
+
+// isImageLine reports whether a cleaned line is only `Image:` / `Images:`
+// followed by image file references.
+func isImageLine(line string) bool {
+	loc := titleImageLead.FindStringIndex(line)
+	if loc == nil {
+		return false
+	}
+	rest := line[loc[1]:]
+	tokens := titleImageToken.FindAllString(rest, -1)
+	if len(tokens) == 0 || strings.Join(tokens, " ") != rest {
+		return false
+	}
+	for _, t := range tokens {
+		if !titleImageExt.MatchString(t) {
+			return false
+		}
+	}
+	return true
+}
 
 // PromptTitle is a short name for the work a prompt asks for, or "" when the
 // prompt says nothing a name could be made from. It takes the first line that
 // says something, without greetings or "please", up to the end of its first
-// sentence, and at most 60 characters (cut at a word, with an ellipsis).
+// sentence, and at most 60 characters (cut at a word, with an ellipsis). A
+// final `Image:` / `Images:` line of image paths is not task text.
 func PromptTitle(prompt string) string {
-	for _, line := range strings.Split(prompt, "\n") {
+	lines := strings.Split(prompt, "\n")
+	// Only the last non-empty line counts, so an Image line at the top or in
+	// the middle of a prompt is never dropped.
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := cleanTitleLine(lines[i]); line != "" {
+			if isImageLine(line) {
+				lines = lines[:i]
+			}
+			break
+		}
+	}
+	for _, line := range lines {
 		line = cleanTitleLine(line)
 		if skipTitleLine(line) {
 			continue
@@ -112,6 +151,52 @@ func AutoTitle(tool, prompt, dir string) string {
 		title = "Session"
 	}
 	return title
+}
+
+// TitleOrigin says who owns a session's title: a person (manual), the first
+// prompt's own name (prompt), or the generic agent-and-folder name (fallback).
+// Only a fallback title may later be replaced from the first Chat message.
+type TitleOrigin string
+
+const (
+	TitleManual   TitleOrigin = "manual"
+	TitlePrompt   TitleOrigin = "prompt"
+	TitleFallback TitleOrigin = "fallback"
+)
+
+// ValidTitleOrigin reports whether s is exactly one of the three origins.
+func ValidTitleOrigin(s string) bool {
+	switch TitleOrigin(s) {
+	case TitleManual, TitlePrompt, TitleFallback:
+		return true
+	}
+	return false
+}
+
+// PromptOrigin is the origin AutoTitle gives a session started with this
+// prompt: prompt when the prompt has a name of its own, otherwise fallback.
+func PromptOrigin(prompt string) TitleOrigin {
+	if PromptTitle(prompt) != "" {
+		return TitlePrompt
+	}
+	return TitleFallback
+}
+
+// ResolveTitle settles the title and its origin for a create request. A blank
+// title (after trimming) is named by AutoTitle. A supplied title keeps the
+// origin the client claims only when it is exactly what AutoTitle would have
+// chosen and the claim matches PromptOrigin; any other title, or a missing or
+// mismatched claim, is the person's own and manual.
+func ResolveTitle(title, claim, tool, prompt, dir string) (string, TitleOrigin) {
+	auto := AutoTitle(tool, prompt, dir)
+	origin := PromptOrigin(prompt)
+	if strings.TrimSpace(title) == "" {
+		return auto, origin
+	}
+	if title == auto && (claim == string(TitlePrompt) || claim == string(TitleFallback)) && claim == string(origin) {
+		return title, origin
+	}
+	return title, TitleManual
 }
 
 // cleanTitleLine turns tabs into spaces, drops control and format characters

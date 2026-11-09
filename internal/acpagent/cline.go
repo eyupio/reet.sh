@@ -43,6 +43,8 @@ var Cline = Spec{
 	// auto-approve switch is off.
 	RequireOptions:       map[string]string{"auto_approve": "false"},
 	ConfirmModelBySwitch: true,
+	// Cline's provider option is its billing source (Usage-Billing, ClinePass).
+	Provider: true,
 	// session/load replays a stored conversation, so a lost chat reconnects in
 	// place under the same reet session id.
 	Reattach: true,

@@ -31,6 +31,15 @@ test('a start today shows the clock time and an earlier day adds the date', () =
   assert.equal(c.startLabel(at('2026-11-04T14:02:00Z'), now, 'en-GB'), '4 Nov, 14:02')
 })
 
+test('a run that crossed midnight keeps the date, so the line reads the same an hour after midnight as at noon', () => {
+  // The browser fixtures start a session an hour before now; between 00:00 and 01:00 that start is yesterday evening.
+  const justAfterMidnight = at('2026-11-09T00:49:00Z')
+  const s = { state: 'running', createdAt: at('2026-11-08T23:49:00Z') }
+  assert.equal(c.startLabel(s.createdAt, justAfterMidnight, 'en-GB'), '8 Nov, 23:49')
+  assert.equal(c.runLine(s, justAfterMidnight, 'en-GB'), 'Started 8 Nov, 23:49 · running 1h 0m')
+  assert.equal(c.runLine(s, justAfterMidnight, 'en-US'), 'Started Nov 8, 23:49 · running 1h 0m')
+})
+
 test('a live session shows when it started and how long it has run', () => {
   const s = { state: 'running', createdAt: at('2026-11-05T14:02:00Z') }
   assert.equal(c.runLine(s, now, 'en-GB'), 'Started 14:02 · running 1h 12m')

@@ -14,6 +14,10 @@ The help also includes `--acp`; that mode was measured separately, without a
 model turn except two refused tool calls, in
 [docs/research/cline-acp-probe.md](../../docs/research/cline-acp-probe.md).
 
+Claude Code 2.1.319 help establishes `-c, --continue` (continue the most recent conversation in
+the current directory), `-r, --resume [value]` (a session id or name), `--dangerously-skip-permissions`
+and `--effort <level>` (low, medium, high, xhigh, max). Only version and help were run.
+
 Pi 0.73.1 is installed and captured but remains disabled. Its packaged README says:
 
 > **No permission popups.** Run in a container, or build your own confirmation flow with [extensions](#extensions) inline with your environment and security requirements.

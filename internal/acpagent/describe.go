@@ -4,10 +4,14 @@ package acpagent
 
 import "github.com/eyupio/reet.sh/internal/terminalproto"
 
+// claudeTakesImages is true because the probe measured that the adapter advertises image prompts and forwards the block
+// to the provider request. Whether the real model accepts an image is not measured, and the docs say so.
+const claudeTakesImages = true
+
 // Describe uses installation evidence only. No program runs: available means a
 // reviewed adapter is installed; --version and initialize remain launch gates.
 func Describe(tool string, installed bool, version string) terminalproto.ACPAgent {
-	adapters := map[string]string{"opencode": "opencode", "claude": "claude-agent-acp", "codex": "codex-acp", "gemini": "gemini", "cline": "cline", "antigravity": "agy"}
+	adapters := map[string]string{"opencode": "opencode", "claude": "claude-agent-acp", "codex": "codex-acp", "cline": "cline", "antigravity": "agy"}
 	entry := terminalproto.ACPAgent{Tool: tool, Adapter: adapters[tool], State: "missing"}
 	spec, reviewed := Lookup(tool)
 	if reviewed {
@@ -29,9 +33,12 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 	entry.Modes = append([]string(nil), spec.ChoosableModes...)
 	entry.Options = cloneAgentOptions(spec.Options)
 	if tool == "claude" {
-		// Only what the probe verified: approvals and a read-back model switch.
-		// Native-session replay and image prompts were not verified, so they stay off.
-		entry.Model, entry.Approval = true, true
+		// Only what the probe proved: approvals, a read-back model switch, stored
+		// history that session/load reopens, in-place reconnect, and image prompts
+		// (the adapter advertises them and forwards the block). Questions stay off.
+		entry.Model, entry.Approval, entry.History = true, true, true
+		entry.Images = claudeTakesImages
+		entry.Reattach = spec.Reattach
 		return entry
 	}
 	if tool == "codex" {
@@ -44,9 +51,11 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 	// session/load, images in the prompt, a confirmed model switch and native
 	// approval requests. Each agent's profile controls its permission policy.
 	entry.History, entry.Images, entry.Model, entry.Approval = true, true, true, true
-	// Both reopen a stored conversation in place, which the controller offers
-	// only on a connection that negotiated acp-agent-reattach-v1.
-	entry.Reattach = true
+	// Only an adapter whose profile can reopen a stored conversation in place
+	// says so. The controller offers that only on a connection that negotiated
+	// acp-agent-reattach-v1, and the connector refuses a reattach for any other
+	// profile, so claiming it would offer a reconnect that can only fail.
+	entry.Reattach = spec.Reattach
 	return entry
 }
 

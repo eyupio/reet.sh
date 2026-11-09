@@ -21,7 +21,6 @@ func TestReportedVersionFormats(t *testing.T) {
 		{"opencode", "1.2.3\n", "1.2.3"},
 		{"pi", "v0.58.1-rc.1", "0.58.1-rc.1"},
 		{"cursor", "1.2.3\ncommit-hash\narm64", "1.2.3"},
-		{"gemini", "gemini 0.22.0+build.1\r\n", "0.22.0+build.1"},
 		{"codex", "SECRET=1.2.3", ""},
 		{"codex", "warning\ncodex-cli 0.77.0", ""},
 		{"codex", "codex-cli codex 0.77.0", ""},
@@ -49,7 +48,6 @@ func TestVersionProbeReportsPartialFailuresWithoutRawOutput(t *testing.T) {
 		"opencode": {err: context.DeadlineExceeded},
 		"pi":       {output: []byte("SECRET_UNKNOWN")},
 		"cursor":   {output: []byte("1.2.3"), overflow: true},
-		"gemini":   {output: []byte("0.22.1\n")},
 	}
 	err = probeVersions(context.Background(), &r, func(ctx context.Context, path string) versionResult {
 		if _, ok := ctx.Deadline(); !ok {
@@ -60,7 +58,7 @@ func TestVersionProbeReportsPartialFailuresWithoutRawOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"claude": "reported", "codex": "error", "opencode": "timeout", "pi": "unknown", "cursor": "unknown", "gemini": "reported"}
+	want := map[string]string{"claude": "reported", "codex": "error", "opencode": "timeout", "pi": "unknown", "cursor": "unknown"}
 	for _, a := range r.Agents {
 		if a.ApplicationVersion.State != want[a.ID] || a.ApplicationVersion.InstallMethod != "unknown" || a.Capabilities.Version != "command_report_only" {
 			t.Fatalf("wrong observation: %+v", a)

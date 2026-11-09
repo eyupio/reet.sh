@@ -85,7 +85,7 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     ...pagination,
     q: z.string().max(500).optional().describe('Search text, e.g. testing #development.'),
     tab: z.enum(['all', 'liked', 'bookmarked', 'used']).optional().describe('Optional flag filter.'),
-    stage: z.enum(['shelf', 'try', 'use']).optional().describe('On shelf, to test, or in use.'),
+    stage: z.enum(['shelf', 'try', 'use', 'disabled']).optional().describe('On shelf, to test, in use, or disabled. Reads the canonical library lifecycle.'),
     sort: z.enum(['recent', 'name', 'installs']).default('recent').describe('Order by last update, name, or install popularity.'),
     tags: z.array(z.number().int().positive()).max(50).optional().describe('Require every tag ID; discover IDs using reet_list_tags.'),
     env: environmentId.optional(),

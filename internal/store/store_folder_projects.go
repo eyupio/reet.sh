@@ -249,7 +249,7 @@ func normalizeFolderWith(p FolderProject, checkPrompt, checkDefaults bool) (Fold
 		return p, folderInvalid("project colour must be blank, red, amber, green, blue or violet")
 	}
 	if p.DefaultTool != "" && !terminalproto.ValidToolV2(p.DefaultTool) {
-		return p, folderInvalid("default agent must be one of claude, codex, opencode, gemini or cline")
+		return p, folderInvalid("default agent must be one of claude, codex, opencode or cline")
 	}
 	if p.DefaultModel != "" && !terminalproto.ValidModel(p.DefaultModel) {
 		return p, folderInvalid("default model has characters or a length the connector would refuse")

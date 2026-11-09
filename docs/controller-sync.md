@@ -1,6 +1,8 @@
 # Reet.sh skills and enrolled machines
 
-Compare & sync now starts from **Reet.sh shelf & lists**, **My reet.sh skills** (published skills by their public URL, and unpublished drafts served privately from this controller), or a reported machine/agent scope. A reference machine is not required to prepare a new machine. Select skills, choose the target agent/project scope, and save a desired set. Nothing installs merely because a skill is bookmarked or a desired set is saved.
+New connectors keep **selected In use skills** up to date through your private library. In **Sync → Skills to sync**, choose a machine folder, select its skills and save. The selection survives an offline machine; a new machine receives nothing until you choose items for it. Select all adds the current In use items without subscribing to future additions.
+
+Advanced custom plans and older connector compatibility remain available below. Managed removal/restoration and the replacement minimal pages are separate rollout stages.
 
 ## Connect an installation
 
@@ -15,7 +17,7 @@ reet agent run
 
 Enrollment stores the controller, personal token, random installation credential, actual hostname, home directory and tracked project directories in a mode-0600 configuration file (`~/.config/reet/agent.json` on Linux; the platform user config directory on macOS). The controller stores a hash of the installation credential. A personal token remains necessary: revoking it also stops access. Configuration is local to the installation; do not copy it to another machine.
 
-`--allow-apply` is optional and off by default. It opts this installation into executing plans approved through the web UI. Without it, scans and previews work, but remote apply reports a failure without changing skills. The connection wizard has an explicit checkbox to include this option. To change the switch later, run `reet agent allow-apply on` (or `off`) on the machine; a running agent reads the change on its next job, so no re-enrollment is needed. Only the machine itself can flip it: the web UI never turns remote apply on.
+`--allow-apply` is optional and off by default. It opts this installation into managed writes. For selected-library sync, it also allows background capture of edits to skills explicitly imported or installed by reet; these complete private contents are uploaded to your controller. Existing advanced plans retain their approval rules. Without it, scans and previews work, but remote apply reports a failure without changing skills. The connection wizard has an explicit checkbox to include this option. To change the switch later, run `reet agent allow-apply on` (or `off`) on the machine; a running agent reads the change on its next job, so no re-enrollment is needed. Only the machine itself can flip it: the web UI never turns remote apply on.
 
 Enroll projects with repeatable absolute paths:
 
@@ -32,7 +34,29 @@ reet agent status
 reet doctor
 ```
 
-## Compare, select and apply
+## Keep selected skills up to date
+
+1. Open **Sync → Skills to sync** and choose an enrolled machine folder.
+2. Select individual skills or **Select all In use**, then **Save selection**. An offline machine or stale inventory does not prevent saving intent.
+3. Leave the connector running. It verifies and installs ready items automatically, with no browser preview/apply chain. Edits from either selected machine or the controller propagate through immutable private revisions. A failed item leaves healthy items running.
+
+To capture local content initially, run this explicitly on the source machine:
+
+```sh
+reet agent library-import
+# Include another absolute skill folder when needed:
+reet agent library-import --folder /work/shared-skills
+```
+
+Capture retains complete supporting files and executable flags. A proven existing source keeps its identity and lifecycle; a new capture starts To test. Library-only captures use the canonical status API during this staged rollout (`PATCH /api/v2/library/{item}` with `status` and `expectedVersion`); the existing Skills controls remain available for shelf-backed items. Only In use items are sent, even when an inactive item remains selected. Imported root receipts let subsequent edits sync automatically when local apply consent is enabled.
+
+Latest saved edits win with causal bases, calibrated file modification times and a stable tie-breaker. An unusable clock falls back to its base's logical time plus one, rather than controller arrival time. Both concurrent versions remain in history. Offline pending bytes and installed bases are retained across restart. Missing local files are never interpreted as central deletions.
+
+Clearing a selection stops updates in this stage. Removing managed copies on deselection/inactivation, restoring accidental local deletion and their notifications follow separately. See the [Stage 3 handoff](https://github.com/eyupio/reet.sh/blob/main/docs/handoffs/simple-library-machine-sync-stage-3.md) for the exact protocol, ordering fallback, limits and validation.
+
+## Advanced custom plans and older connectors
+
+### Compare, select and apply
 
 1. Choose the source collection and target machine/agent/project. Select individual skills or Select visible after searching.
 2. Review selected-only, machine-only, matching, unknown-source and source-conflict counts. A complete recent scan is required to save the target.
@@ -97,8 +121,19 @@ Unreadable scopes, permission errors on skill entries and broken symlinks produc
 
 Controller state, enrollment hashes, jobs/receipts, desired sets and baselines live in SQLite and survive restart. Use a consistent full database backup to retain them. Personal shelf JSON exports do not include these operational records. Keep each local enrollment configuration private and backed up separately.
 
+If a connector restarts or its preview expires during automatic library content capture, the old attempt stays expired and the controller can schedule a fresh preview under the same enrollment. This also recovers eligible captures left expired before a controller upgrade. The replacement uses current policy and content checks; old approvals are never reused. Manual imports, cancelled requests and permanent capture failures keep their existing review/retry behaviour.
+
 See [the control centre workflow](control-centre.md) for fleet controls and selecting all machines.
 
 ## Your own drafts sync without publishing
 
-A skill written on the Hosting page reaches a machine the same way an imported private copy does: the agent downloads an immutable, account-owned private revision from this controller with its own token (`GET /api/v2/skill-bundles/{bundle}/revisions/{revision}`) and writes the files itself. Nothing is published and no public URL is created. The controller binds each hosted slug to the revision holding its current bytes (`hosted_sync_sources`); listing candidates for an unchanged draft writes nothing, and editing the draft appends one revision the next time it is listed or saved into a selection. Private storage is bounded (128 bundles, 256 revisions, 64 MiB per account), and the bounds apply to what is in use. When a write would pass one, earlier revisions that nothing depends on are freed first, and so are the bundles of written skills you have since deleted or renamed. Editing and re-syncing a draft as often as you like never fills the account. If every slot does hold a skill that is in use, that one skill is left out of the sync and named on the Sync page, the rest carry on, and deleting a written skill you no longer need makes room. A published skill keeps its public install source, so a machine that held the draft privately replaces it with the public install on its next sync. Drafts are chosen individually on the Sync page; **All my skills** still means the shelf. The session skill picker still installs public skills only.
+The [Stage 2 library foundation](https://github.com/eyupio/reet.sh/blob/main/docs/handoffs/simple-library-machine-sync-stage-2.md)
+adds stable item IDs, lifecycle and complete typed content beneath the current
+pages. An enrolled connector can explicitly capture known/project skill folders
+and additional absolute folders with `reet agent library-import --folder PATH`.
+It reports per-item issues and retains healthy captures, without creating machine
+selections. Selected-library connectors use those import receipts for subsequent background edits. Older/custom plans keep the compatibility behaviour described above. Managed removal/restoration and the new minimal interface follow separately.
+
+A skill written on the Hosting page reaches a selected machine through an immutable, account-owned private revision, whether published or private. Publishing is not required and does not select a destination. The connector fetches the exact revision from `GET /api/v2/skill-bundles/{bundle}/revisions/{revision}` and verifies paths, bytes and modes before applying it. Unchanged content creates no revision or repeated install.
+
+Private storage remains bounded (128 bundles, 256 revisions, 64 MiB per account). Reclamation never frees content still required by a canonical head, offline installed/source base or retained machine edit. A full store leaves changed machine bytes protected for retry; it does not replace them with older controller content or turn an incomplete capture into a deletion. Version history is not an independent backup. The selected-library database format is 3: an older controller must refuse it instead of reopening it and reactivating policies it does not understand.

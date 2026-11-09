@@ -1,5 +1,40 @@
 # UI verification — 4 November 2026
 
+## Session workspace: valuable facts first (8 November 2026)
+
+The Overview no longer spends its first screen on the "Since your last visit"
+block, tool tally or a calm notice. It leads with the status line, then
+**Progress** and the **Pull request**, then **You asked** and the agent activity.
+The removed return marker also deleted its `sessionStorage` writes. The Gaffer
+floating circle no longer reserves an 88 px column beside the terminal workspace;
+with the session panel open the panel header carries **Ask Gaffer** instead, so
+the circle cannot sit on the panel's footer. The selected tab is saved in
+`localStorage` (`reet.workspace.context-tab`), so opening another session keeps
+**Changes**, **Files** or **GitHub** selected; `panelTab.test.mjs` covers the
+saved value falling back to Overview when it is missing or unknown.
+
+Commands run in this container:
+
+- `cd web && npm ci --no-audit --no-fund`
+- `cd web && npm run check` — 0 errors, 0 warnings; all unit tests pass.
+- `cd web && npm run build`
+- `npx vite preview` (port 4177 here; 4173 was taken) and, with
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` pointing at the cached Chromium:
+  - `node tests/session-workspace.e2e.mjs` — passes both themes and widths,
+    including the revised stability block that now pins the fixed-height
+    `.status-line`, checks **Ask Gaffer** is in the panel while the floating
+    launcher is hidden, and keeps **GitHub** selected after switching sessions
+    and after a reload.
+  - `node tests/gaffer-layout.e2e.mjs` — passes all eight theme/width views.
+  - `node tests/sessions.e2e.mjs` — passes.
+  - `node tests/chat-controls.e2e.mjs`, `node tests/sessions-phone.e2e.mjs` — pass
+    after the launcher was made to lift clear of composer and queue docks
+    (`keepLauncherClear`) now that the reserved column is gone.
+
+Not run here: Firefox, Safari, physical devices, and the Go-backed terminal
+suite. Screenshots were not captured; the layout was exercised through the
+browser contracts above.
+
 ## Gaffer panel header tools (7 November 2026)
 
 The floating companion's desktop header now carries the reviewed reference tools

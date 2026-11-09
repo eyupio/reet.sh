@@ -12,12 +12,13 @@ const now = Date.now()
 const owner = {id:1, name:'Sam Example', email:'sam@example.test', role:'owner'}
 const viewer = {id:3, name:'Viewer', email:'v@example.test', role:'viewer'}
 let currentUser = owner, profileFailure = false
-let profile, favourites, patches, addCalls, deleteCalls, orderCalls, defaultCalls, staleOrder, defaultGate
+let chatEnabled, profile, favourites, patches, addCalls, deleteCalls, orderCalls, defaultCalls, staleOrder, defaultGate
 
 function reset(user = owner) {
   currentUser = user
   profile = {theme:'system', timezone:'Europe/London', dateFormat:'', shelfView:'list', cardsExpanded:false, hostedPrefix:'reet-', updatedAt:now,
     defaultBaseBranch:'', worktreesByDefault:false, defaultTool:'', defaultModel:'', defaultEffort:''}
+  chatEnabled = {claude:false, codex:false}
   favourites = {version:1, favourites:[{tool:'claude', model:'sonnet', agentDefault:false}, {tool:'opencode', model:'anthropic/claude-sonnet-4-5', agentDefault:false}]}
   patches = []; addCalls = []; deleteCalls = []; orderCalls = []; defaultCalls = []; staleOrder = false; defaultGate = null; profileFailure = false
 }
@@ -27,9 +28,11 @@ const extra = {
     if (req.method() === 'PATCH') {
       const body = req.postDataJSON()
       patches.push(body)
-      profile = {...profile, ...body, updatedAt:Date.now()}
+      const {chatAgents, ...rest} = body
+      if (chatAgents) chatEnabled = {...chatEnabled, ...chatAgents}
+      profile = {...profile, ...rest, updatedAt:Date.now()}
     }
-    return {user:currentUser, profile, sessionCount:1, accounts:true}
+    return {user:currentUser, profile, chatEnabled, sessionCount:1, accounts:true}
   },
   '/api/v2/profile/model-favourites': req => {
     const url = new URL(req.url())
@@ -125,7 +128,91 @@ try {
     await context.close()
   }
 
+  // A Cline default also offers its billing source, saved in the same PATCH; another agent's save never carries a stale one.
+  if (run('default source')) {
+    const {context, page, errors, unmocked} = await open()
+    const source = page.getByLabel('Default source', {exact:true})
+    await expect(source).toHaveCount(0)
+    await page.getByLabel('Default agent', {exact:true}).selectOption('claude')
+    await expect(source).toHaveCount(0)
+    await page.getByLabel('Default agent', {exact:true}).selectOption('cline')
+    await expect(source).toBeVisible()
+    await expect(source.locator('option')).toHaveText(['Cline’s own choice', 'Usage-Billing', 'ClinePass'])
+    await expect(source).toHaveValue('')
+    await source.selectOption('cline-pass')
+    await page.getByRole('button', {name:'Save defaults'}).click()
+    await expect(page.getByText(/defaults saved/)).toBeVisible()
+    expect(patches).toHaveLength(1)
+    expect(patches[0]).toMatchObject({defaultTool:'cline', defaultClineSource:'cline-pass'})
+    await page.getByLabel('Default agent', {exact:true}).selectOption('claude')
+    await expect(source).toHaveCount(0)
+    await page.getByRole('button', {name:'Save defaults'}).click()
+    await expect(page.getByText(/defaults saved/)).toBeVisible()
+    expect(patches).toHaveLength(2)
+    expect('defaultClineSource' in patches[1]).toBe(false)
+    await page.getByLabel('Default agent', {exact:true}).selectOption('cline')
+    await expect(source).toHaveValue('cline-pass')
+    await source.selectOption('')
+    await page.getByRole('button', {name:'Save defaults'}).click()
+    await expect.poll(() => patches.length).toBe(3)
+    expect(patches[2]).toMatchObject({defaultTool:'cline', defaultClineSource:''})
+    expect(errors).toEqual([])
+    expect(unmocked).toEqual([])
+    await context.close()
+  }
+
   // A model needs its agent: the page refuses before the server, and nothing is PATCHed.
+  if (run('gated chat switches')) {
+    const {context, page, errors} = await open()
+    const group = page.getByRole('group', {name:'Gaffer chats still being verified'})
+    await expect(group).toBeVisible()
+    await expect(group.getByText(/Not yet checked with a signed-in account/)).toBeVisible()
+    const claude = group.getByRole('checkbox', {name:'Claude Code in Gaffer'}), codex = group.getByRole('checkbox', {name:'Codex in Gaffer'})
+    await expect(claude).not.toBeChecked()
+    await expect(codex).not.toBeChecked()
+    await claude.check()
+    await expect.poll(() => patches.length).toBe(1)
+    expect(patches[0]).toEqual({chatAgents:{claude:true}})
+    await expect(claude).toBeChecked()
+    await expect(codex).not.toBeChecked()
+    await claude.uncheck()
+    await expect.poll(() => patches.length).toBe(2)
+    expect(patches[1]).toEqual({chatAgents:{claude:false}})
+    await expect(claude).not.toBeChecked()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  if (run('a refused gated chat switch puts the box back')) {
+    const {context, page, errors} = await open()
+    const group = page.getByRole('group', {name:'Gaffer chats still being verified'})
+    const claude = group.getByRole('checkbox', {name:'Claude Code in Gaffer'})
+    await expect(claude).not.toBeChecked()
+    profileFailure = true
+    // A refused save restores unchecked before Playwright may finish the click;
+    // check() would incorrectly require the rejected state to remain checked.
+    await claude.click()
+    await expect(page.getByRole('alert')).toHaveText('down')
+    // The server still has the chat off, and the box says so.
+    await expect(claude).not.toBeChecked()
+    expect(patches).toEqual([])
+    profileFailure = false
+    await claude.check()
+    await expect.poll(() => patches.length).toBe(1)
+    await expect(claude).toBeChecked()
+    await context.close()
+  }
+
+  if (run('gated chat switches are read-only for a viewer')) {
+    const {context, page, errors} = await open({user:viewer})
+    const group = page.getByRole('group', {name:'Gaffer chats still being verified'})
+    await expect(group.getByRole('checkbox', {name:'Claude Code in Gaffer'})).toBeDisabled()
+    await expect(group.getByRole('checkbox', {name:'Codex in Gaffer'})).toBeDisabled()
+    expect(patches).toEqual([])
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
   if (run('a failed profile read keeps Save locked')) {
     const {context, page, errors} = await open({failProfile:true})
     const save = page.getByRole('button', {name:'Save defaults'})

@@ -489,12 +489,12 @@ try {
  if (run('viewer at /sessions')) {
   const opened = await openWorkspace(browser, {width:1440, status:{user:{id:2,name:'Pat',email:'pat@example.test',role:'viewer'}}})
   await opened.page.goto(`${base}/sessions?view=list`)
-  await expect(opened.page.getByRole('heading',{level:1})).toHaveText('Your machines, connected.')
+  await expect(opened.page.getByRole('heading',{level:1})).toHaveText('Machines')
   expect(await opened.page.title()).toBe('Machines · reet.sh')
   await expect(opened.page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
   // A session's own address too: the Machines page with its heading, never a headerless page called Sessions.
   await opened.page.goto(`${base}/sessions?agent=a1&session=s1`)
-  await expect(opened.page.getByRole('heading',{level:1})).toHaveText('Your machines, connected.')
+  await expect(opened.page.getByRole('heading',{level:1})).toHaveText('Machines')
   expect(await opened.page.title()).toBe('Machines · reet.sh')
   await expect(opened.page.getByRole('navigation',{name:'Main navigation'}).getByRole('link',{name:'Machines',exact:true})).toHaveAttribute('aria-current','page')
   await expect(opened.page.getByRole('region',{name:'Remote terminal workspace'})).toHaveCount(0)

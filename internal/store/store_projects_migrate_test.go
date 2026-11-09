@@ -168,7 +168,7 @@ func TestMigrationNamesAndDefaults(t *testing.T) {
 		{Host: m, Dir: "/d/web", Model: "opus"},                 // member model with the Project's tool
 	}}
 	mustProject(t, s, uid, multi)
-	mustProject(t, s, uid, Project{Name: "Solo", DefaultTool: "gemini", UseWorktrees: false, Members: []ProjectMember{{Host: m, Dir: "/e/solo-folder"}}})
+	mustProject(t, s, uid, Project{Name: "Solo", DefaultTool: "opencode", UseWorktrees: false, Members: []ProjectMember{{Host: m, Dir: "/e/solo-folder"}}})
 	mustProject(t, s, uid, Project{Name: "taken", DefaultTool: "claude", Members: []ProjectMember{{Host: m, Dir: "/f/site"}}})
 	migrate(t, s)
 	got := byDir(t, s, uid)
@@ -177,7 +177,7 @@ func TestMigrationNamesAndDefaults(t *testing.T) {
 		"/b/site":        {Name: "site (2)", DefaultTool: "codex", DefaultModel: "", WorktreeDefault: "yes"},
 		"/c/api":         {Name: "api", DefaultTool: "codex", DefaultModel: "gpt-5", WorktreeDefault: "yes"},
 		"/d/web":         {Name: "web", DefaultTool: "claude", DefaultModel: "opus", WorktreeDefault: "yes"},
-		"/e/solo-folder": {Name: "Solo", DefaultTool: "gemini", DefaultModel: "", WorktreeDefault: "no"},
+		"/e/solo-folder": {Name: "Solo", DefaultTool: "opencode", DefaultModel: "", WorktreeDefault: "no"},
 		// A one-repository Project whose name another project has falls back to the folder's name.
 		"/f/site": {Name: "site (3)", DefaultTool: "claude", DefaultModel: "", WorktreeDefault: "no"},
 	} {
@@ -228,7 +228,7 @@ func TestMigrationSkipsRegisteredFolder(t *testing.T) {
 	s := newStore(t)
 	uid := projectUser(t, s, "a")
 	m := enrolledID(t, s, uid, "studio")
-	mine := mustFP(t, s, uid, FolderProject{Host: m, Dir: "/w/reet", Name: "Mine", StarterPrompt: "my own words", WorktreeDefault: "no", DefaultTool: "gemini"})
+	mine := mustFP(t, s, uid, FolderProject{Host: m, Dir: "/w/reet", Name: "Mine", StarterPrompt: "my own words", WorktreeDefault: "no", DefaultTool: "opencode"})
 	p := mustProject(t, s, uid, project("Shop", "their words here", true, ProjectMember{Host: m, Dir: "/w/reet"}, ProjectMember{Host: m, Dir: "/w/new"}))
 	mustProject(t, s, uid, project("Later", "other words here", true, ProjectMember{Host: m, Dir: "/w/reet"}))
 	rep := migrate(t, s)
@@ -794,5 +794,22 @@ func TestMigrationOnAnOldDatabaseWithoutTheMappingTable(t *testing.T) {
 	}
 	if got, err := s.FolderProjectForLegacyFor(uid, p.ID); err != nil || got.Dir != "/w/a" {
 		t.Fatal(err, got)
+	}
+}
+
+// A saved Project whose agent has since been retired still migrates: its folder
+// arrives with no default agent, rather than carrying one reet would now refuse.
+func TestLegacyProjectMemberWithARetiredAgentMigratesWithoutIt(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	m := enrolledID(t, s, uid, "studio")
+	p := mustProject(t, s, uid, Project{Name: "Old", DefaultTool: "claude", DefaultModel: "sonnet", Members: []ProjectMember{{Host: m, Dir: "/g/site"}}})
+	if _, err := s.db.Exec(`UPDATE projects SET default_tool='gemini', default_model='pro' WHERE id=?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	migrate(t, s)
+	got, ok := byDir(t, s, uid)[m+" /g/site"]
+	if !ok || got.DefaultTool != "" || got.DefaultModel != "" {
+		t.Fatalf("the folder did not migrate without the retired agent: %+v present=%v", got, ok)
 	}
 }

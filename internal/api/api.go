@@ -107,6 +107,9 @@ type server struct {
 	folderWrites   *auth.Limiter
 	// Bounded lock stripes serialize start/recovery of one backlog request.
 	backlogStarts [64]sync.Mutex
+	// Session cleanup after a confirmed close (session_isolation.go).
+	sessionCleanupMu sync.Mutex
+	sessionCleanup   map[string]bool
 }
 
 // AuthMode selects how the instance authenticates requests.
@@ -358,6 +361,8 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s.gafferProviders.SetWorker(s.terminals, s.terminalEnabled)
 	s.gafferProviders.StartGoalSupervisor()
 	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
+	s.terminals.OnSessionClosed(s.onSessionClosed)
+	s.terminals.OnPeerReady(s.onPeerReady)
 	s.runs = s.newProjectRuns()
 	s.softwareRuns = s.newSoftwareRuns()
 	if dir := st.Dir(); dir != "" {
@@ -547,7 +552,11 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) buildInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]string{"version": s.version, "commit": s.commit})
+	doc := map[string]any{"version": s.version, "commit": s.commit}
+	if f := featureList(); f != nil {
+		doc["features"] = f
+	}
+	writeJSON(w, 200, doc)
 }
 
 func guardedPath(path string) bool {
@@ -1029,6 +1038,16 @@ func (s *server) eventRequest(r *http.Request, action, skillID string, detail an
 }
 
 func stageLabel(sk store.Skill) string {
+	switch sk.Status {
+	case store.LibraryInUse:
+		return "In use"
+	case store.LibraryToTest:
+		return "To test"
+	case store.LibraryOnShelf:
+		return "On the shelf"
+	case store.LibraryDisabled:
+		return "Disabled"
+	}
 	if sk.Used {
 		return "In use"
 	}
@@ -1219,6 +1238,16 @@ func compactTagNames(sk store.Skill) []string {
 }
 
 func stageKey(sk store.Skill) string {
+	switch sk.Status {
+	case store.LibraryInUse:
+		return "use"
+	case store.LibraryToTest:
+		return "try"
+	case store.LibraryOnShelf:
+		return "shelf"
+	case store.LibraryDisabled:
+		return "disabled"
+	}
 	if sk.Used {
 		return "use"
 	}
@@ -1426,6 +1455,10 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 		wanted, ok, err := s.st.PrivateSyncIdentityFor(userID, item.Host, item.Agent, item.Project, name)
 		if err != nil {
 			return "", false, false, err
+		}
+		if ok && wanted.ItemID != "" && !strings.HasPrefix(wanted.ID, "hosted/") {
+			id, err := s.st.RecordLibraryObservationFor(userID, wanted.ItemID, item.Host, item.Agent, item.Project, item.Path)
+			return id, false, false, err
 		}
 		if ok && strings.HasPrefix(wanted.ID, "hosted/") {
 			username, err := s.st.PublishingUsername(userID)

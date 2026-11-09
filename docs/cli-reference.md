@@ -58,6 +58,7 @@ Enroll a machine and manage its local agent.
 
 - `reet agent enroll` — Enroll with a controller.
 - `reet agent status` — This machine's enrollment and daemon.
+- `reet agent library-import` — Capture complete skills from known or explicitly selected folders.
 
 ## reet terminal
 

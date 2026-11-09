@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,19 +44,21 @@ type RestoreOptions struct {
 // RestoreReport says what a copy holds and what was done to it so it is safe
 // on the controller it lands on.
 type RestoreReport struct {
-	ID            string         `json:"id"`
-	Release       string         `json:"release,omitempty"`
-	TakenAt       int64          `json:"takenAt"`
-	SchemaVersion int            `json:"schemaVersion"`
-	Users         int            `json:"users"`
-	UsersByRole   map[string]int `json:"usersByRole"`
-	Shelves       int            `json:"shelves"`
-	Skills        int            `json:"skills"`
-	Lists         int            `json:"lists"`
-	Tags          int            `json:"tags"`
-	Environments  int            `json:"environments"`
-	Machines      int            `json:"machines"`
-	Destinations  int            `json:"destinations"`
+	ID             string         `json:"id"`
+	Release        string         `json:"release,omitempty"`
+	TakenAt        int64          `json:"takenAt"`
+	SchemaVersion  int            `json:"schemaVersion"`
+	Users          int            `json:"users"`
+	UsersByRole    map[string]int `json:"usersByRole"`
+	Shelves        int            `json:"shelves"`
+	Skills         int            `json:"skills"`
+	LibraryItems   int            `json:"libraryItems"`
+	PrivateBundles int            `json:"privateBundles"`
+	Lists          int            `json:"lists"`
+	Tags           int            `json:"tags"`
+	Environments   int            `json:"environments"`
+	Machines       int            `json:"machines"`
+	Destinations   int            `json:"destinations"`
 
 	SessionsKept          int  `json:"sessionsKept"`
 	SessionsEnded         int  `json:"sessionsEnded"`
@@ -71,6 +75,14 @@ type RestoreReport struct {
 	// Unreadable names each stored secret the key on this controller cannot
 	// open, with what to do about it. Each is cleared in the copy.
 	Unreadable []string `json:"unreadable"`
+
+	// StagedSHA256 is the digest of the adapted database a staged import
+	// holds, taken when it was staged, so the next start can tell the file
+	// was not changed in between.
+	StagedSHA256 string `json:"stagedSha256,omitempty"`
+	// Refusal says why a staged import was not applied at the next start. It
+	// is written beside the refused stage, never to a live database.
+	Refusal string `json:"refusal,omitempty"`
 }
 
 // Inventory is what the copy holds, as a person reads it.
@@ -87,10 +99,14 @@ func (r RestoreReport) Inventory() []string {
 	if len(roles) > 0 {
 		accounts += " (" + strings.Join(roles, ", ") + ")"
 	}
-	return []string{
+	lines := []string{
 		fmt.Sprintf("The copy %s holds %s, %d shelves, %d skills, %d lists, %d tags, %d environments, %d connected machines and %d backup destinations.",
 			r.ID, accounts, r.Shelves, r.Skills, r.Lists, r.Tags, r.Environments, r.Machines, r.Destinations),
 	}
+	if r.LibraryItems > 0 || r.PrivateBundles > 0 {
+		lines = append(lines, fmt.Sprintf("It also holds %d library items and %d private content bundles.", r.LibraryItems, r.PrivateBundles))
+	}
+	return lines
 }
 
 // Lines is the whole report as a person reads it.
@@ -196,6 +212,7 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 	}
 	rep.SchemaVersion = sum.SchemaVersion
 	rep.Users, rep.UsersByRole, rep.Shelves, rep.Skills = sum.Users, sum.UsersByRole, sum.Shelves, sum.Skills
+	rep.LibraryItems, rep.PrivateBundles = sum.LibraryItems, sum.PrivateBundles
 	rep.Lists, rep.Tags, rep.Environments, rep.Machines, rep.Destinations = sum.Lists, sum.Tags, sum.Environments, sum.Machines, sum.Destinations
 	rep.SessionsKept = sum.Sessions - ad.SessionsEnded
 	rep.TokensKept = !opts.DropTokens
@@ -323,7 +340,7 @@ var ErrNotEmpty = errors.New("this controller already holds data")
 
 // holds says what a controller holds that an import would replace. A new
 // controller has its first owner and nothing else: no other account and no
-// skills, shelves, lists, tags, environments or connected machines. The topic
+// skills, shelves, library content, lists, tags, environments or connected machines. The topic
 // tags the daily sync adds and the server's own machine report are not
 // counted: a controller makes them for itself before anyone uses it. Backup
 // destinations and settings are configuration, set up before an import on
@@ -340,6 +357,8 @@ func holds(h store.RestoreSummary) []string {
 	}
 	add(h.Shelves, "shelves")
 	add(h.Skills, "skills")
+	add(h.LibraryItems, "library items")
+	add(h.PrivateBundles, "private content bundles")
 	add(h.Lists, "lists")
 	add(h.MadeTags, "tags")
 	add(h.MadeEnvironments, "environments")
@@ -406,6 +425,9 @@ func (s *Service) StageImport(ctx context.Context, dataDir string, raw []byte, p
 		return rep, err
 	}
 	rep.SafetyCopy = safety
+	if rep.StagedSHA256, err = fileDigest(filepath.Join(stage, pendingDB)); err != nil {
+		return rep, err
+	}
 	state, _ := json.Marshal(rep)
 	if err := os.WriteFile(filepath.Join(stage, pendingState), state, 0o600); err != nil {
 		return rep, err
@@ -441,15 +463,80 @@ func CancelImport(dataDir string) error {
 	return os.RemoveAll(filepath.Join(dataDir, pendingDir))
 }
 
+// fileDigest is the SHA-256 of a file, as hex.
+func fileDigest(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// recheckStaged asks of a staged import what was asked of the copy when it was
+// staged, now that time has passed: it is still the file that was checked, it
+// still opens and passes SQLite's own check, and it is no newer than this
+// binary reads. The copy's own password is not asked for again. It was spent
+// opening the copy, and what is staged is the opened database, so the digest
+// taken at staging stands in for "still opens with its password".
+func recheckStaged(ctx context.Context, path string, rep *RestoreReport) error {
+	if rep.StagedSHA256 != "" {
+		got, err := fileDigest(path)
+		if err != nil {
+			return fmt.Errorf("the staged database cannot be read: %w", err)
+		}
+		if got != rep.StagedSHA256 {
+			return errors.New("the staged database changed after it was checked, so it is no longer the copy that was staged")
+		}
+	}
+	if err := store.CheckDatabaseFile(ctx, path); err != nil {
+		return fmt.Errorf("the staged database no longer passes an integrity check: %w", err)
+	}
+	sum, err := store.InspectDatabaseFile(ctx, path)
+	if err != nil {
+		return fmt.Errorf("the staged database cannot be opened: %w", err)
+	}
+	if sum.SchemaVersion > store.SchemaVersion {
+		return fmt.Errorf("%w: it is data format %d and this reet reads up to data format %d; upgrade reet, then stage it again", ErrNewerSchema, sum.SchemaVersion, store.SchemaVersion)
+	}
+	return nil
+}
+
+// refuseStaged moves a stage that failed its re-check aside, with the reason
+// written into its report, and leaves the live database alone.
+func refuseStaged(dir string, rep *RestoreReport, why error) error {
+	rep.Refusal = why.Error()
+	aside := dir + ".refused-" + time.Now().UTC().Format("20060102T150405Z")
+	if err := os.Rename(dir, aside); err != nil {
+		return fmt.Errorf("the staged import was not applied (%v), and could not be moved aside: %w", why, err)
+	}
+	if state, err := json.Marshal(rep); err == nil {
+		_ = os.WriteFile(filepath.Join(aside, pendingState), state, 0o600)
+	}
+	return fmt.Errorf("the staged import %s was not applied and the live database was left as it is; it was moved to %s: %w", rep.ID, aside, why)
+}
+
 // ApplyPendingImport swaps a staged import in. It runs before the database is
-// opened, at the start of serve. It returns nil when nothing is staged. A
-// stage that cannot be applied is moved aside so the controller still starts.
+// opened, at the start of serve. It returns nil when nothing is staged. The
+// stage is checked again first, because it may have waited a long time; one
+// that fails is moved aside with the reason and the live database is not
+// touched. A stage that cannot be applied is moved aside so the controller
+// still starts.
 func ApplyPendingImport(dataDir string) (*RestoreResult, error) {
 	rep, err := PendingImport(dataDir)
 	if err != nil || rep == nil {
 		return nil, err
 	}
 	dir := filepath.Join(dataDir, pendingDir)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := recheckStaged(ctx, filepath.Join(dir, pendingDB), rep); err != nil {
+		return nil, refuseStaged(dir, rep, err)
+	}
 	previous, err := swapIn(dataDir, filepath.Join(dir, pendingDB))
 	if err != nil {
 		aside := dir + ".failed-" + time.Now().UTC().Format("20060102T150405Z")

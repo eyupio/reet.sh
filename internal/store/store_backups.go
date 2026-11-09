@@ -3,10 +3,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // BackupRemote is one off-site destination. OwnerID 0 is the instance's own
@@ -111,7 +115,69 @@ type Profile struct {
 	DefaultTool   string `json:"defaultTool"`
 	DefaultModel  string `json:"defaultModel"`
 	DefaultEffort string `json:"defaultEffort"`
-	UpdatedAt     int64  `json:"updatedAt"`
+	// DefaultClineSource is the billing source a new Cline session starts on (a
+	// provider id Cline reports); blank means Cline's own choice. Like the other
+	// defaults the server only stores it: the browser resolves and sends it.
+	DefaultClineSource string `json:"defaultClineSource"`
+	// ChatAgents holds the account's explicit on or off choice for each gated
+	// chat (Claude Code, Codex). Only explicit choices are stored: an agent with
+	// none takes terminalproto.ChatDefaultOn, so changing a default later keeps
+	// every choice an account made.
+	ChatAgents map[string]bool `json:"chatAgents"`
+	UpdatedAt  int64           `json:"updatedAt"`
+}
+
+// ChatEnabled reports whether a gated agent's chat is on for this account: its
+// explicit choice, else the built-in default.
+func (p Profile) ChatEnabled(tool string) bool {
+	if on, ok := p.ChatAgents[tool]; ok {
+		return on
+	}
+	return terminalproto.ChatDefaultOn(tool)
+}
+
+// encodeChatAgents stores only the choices for gated agents.
+func encodeChatAgents(choices map[string]bool) string {
+	kept := map[string]bool{}
+	for _, tool := range terminalproto.GatedChatTools() {
+		if on, ok := choices[tool]; ok {
+			kept[tool] = on
+		}
+	}
+	raw, _ := json.Marshal(kept)
+	return string(raw)
+}
+
+func decodeChatAgents(raw string) map[string]bool {
+	var choices map[string]bool
+	if json.Unmarshal([]byte(raw), &choices) != nil || len(choices) == 0 {
+		return nil
+	}
+	return choices
+}
+
+// disabledChats lists the gated agents whose chat is off for an account. An
+// account with no profile row, or an unreadable one, has the defaults.
+func disabledChats(q interface {
+	QueryRow(query string, args ...any) *sql.Row
+}, userID int64) []string {
+	var raw string
+	if err := q.QueryRow(`SELECT chat_agents FROM user_profiles WHERE user_id=?`, userID).Scan(&raw); err != nil {
+		raw = "{}"
+	}
+	p := Profile{ChatAgents: decodeChatAgents(raw)}
+	var off []string
+	for _, tool := range terminalproto.GatedChatTools() {
+		if !p.ChatEnabled(tool) {
+			off = append(off, tool)
+		}
+	}
+	return off
+}
+
+// ChatOffFor reports whether this account has turned a gated agent's chat off. Agents without a gate are never off.
+func (s *Store) ChatOffFor(userID int64, tool string) bool {
+	return slices.Contains(disabledChats(s.db, userID), tool)
 }
 
 // SessionInfo is one signed-in browser.
@@ -198,6 +264,8 @@ func (s *Store) migrateBackups() error {
 		{"default_tool", "default_tool TEXT NOT NULL DEFAULT ''"},
 		{"default_model", "default_model TEXT NOT NULL DEFAULT ''"},
 		{"default_effort", "default_effort TEXT NOT NULL DEFAULT ''"},
+		{"default_cline_source", "default_cline_source TEXT NOT NULL DEFAULT ''"},
+		{"chat_agents", "chat_agents TEXT NOT NULL DEFAULT '{}'"},
 	} {
 		ok, err := hasColumn(s.db, "user_profiles", column.name)
 		if err != nil {
@@ -476,9 +544,11 @@ func (s *Store) DeleteBackupRemote(ownerID int64, name string) error {
 // time so the page has something to show.
 func (s *Store) ProfileFor(userID int64) (Profile, error) {
 	var p Profile
-	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,updated_at FROM user_profiles WHERE user_id=?`, userID).
-		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.GafferAnimations, &p.GafferCompact, &p.HostedPrefix, &p.DefaultBaseBranch, &p.WorktreesByDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.UpdatedAt)
+	var chatRaw string
+	err := s.db.QueryRow(`SELECT theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,default_cline_source,chat_agents,updated_at FROM user_profiles WHERE user_id=?`, userID).
+		Scan(&p.Theme, &p.Timezone, &p.DateFormat, &p.ShelfView, &p.CardsExpanded, &p.TerminalRemoveOnClose, &p.GafferAnimations, &p.GafferCompact, &p.HostedPrefix, &p.DefaultBaseBranch, &p.WorktreesByDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultClineSource, &chatRaw, &p.UpdatedAt)
 	if err == nil {
+		p.ChatAgents = decodeChatAgents(chatRaw)
 		return p, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -496,13 +566,13 @@ func (s *Store) SaveProfileFor(userID int64, p Profile) error {
 	if p.ShelfView == "" {
 		p.ShelfView = "list"
 	}
-	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO user_profiles(user_id,theme,timezone,date_format,shelf_view,cards_expanded,terminal_remove_on_close,gaffer_animations,gaffer_compact,hosted_prefix,default_base_branch,worktrees_by_default,default_tool,default_model,default_effort,default_cline_source,chat_agents,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme, timezone=excluded.timezone,
 			date_format=excluded.date_format, shelf_view=excluded.shelf_view, cards_expanded=excluded.cards_expanded, terminal_remove_on_close=excluded.terminal_remove_on_close, gaffer_animations=excluded.gaffer_animations, gaffer_compact=excluded.gaffer_compact,
 			hosted_prefix=excluded.hosted_prefix, default_base_branch=excluded.default_base_branch, worktrees_by_default=excluded.worktrees_by_default,
-			default_tool=excluded.default_tool, default_model=excluded.default_model, default_effort=excluded.default_effort, updated_at=excluded.updated_at`,
+			default_tool=excluded.default_tool, default_model=excluded.default_model, default_effort=excluded.default_effort, default_cline_source=excluded.default_cline_source, chat_agents=excluded.chat_agents, updated_at=excluded.updated_at`,
 		userID, p.Theme, p.Timezone, p.DateFormat, p.ShelfView, p.CardsExpanded, p.TerminalRemoveOnClose, p.GafferAnimations, p.GafferCompact, p.HostedPrefix, p.DefaultBaseBranch, p.WorktreesByDefault,
-		p.DefaultTool, p.DefaultModel, p.DefaultEffort, now())
+		p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultClineSource, encodeChatAgents(p.ChatAgents), now())
 	return err
 }
 

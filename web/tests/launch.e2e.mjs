@@ -27,7 +27,7 @@ const run = name => !obsolete.has(name) && (!only || only === name)
 const now = Date.now()
 const MIN = 60_000
 const caps = (extra = {}) => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,
- worktree:true,agentsV2:true,yolo:true,branches:true,browse:true,models:true,uploads:true,tools:['claude','codex','gemini','cline'],...extra})
+ worktree:true,agentsV2:true,yolo:true,branches:true,browse:true,models:true,uploads:true,tools:['claude','codex','cline'],...extra})
 // studio is ready; desk is reconnecting (not ready), so its projects and its home folder are offered disabled with the sentence.
 const tmachines = () => [
  {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps()},
@@ -177,7 +177,7 @@ try {
   await rail.getByRole('button',{name:'Start in these projects'}).click()
   const launchDialog = page.getByRole('dialog',{name:'Start a session'})
   await launchDialog.waitFor({timeout:5000})
-  await expect.poll(() => sentenceText(page)).toBe("Run Claude Code with default on 3 projects at studio from each project's default in a fresh worktree")
+  await expect.poll(() => sentenceText(page)).toBe("Run Claude Code with default on 3 projects at studio from each project's default in a fresh worktree · thinking default")
   await expect(slot(page,'Project')).toHaveCount(0)
   await prompt(page).fill('Fix the failing tests')
   await startButton(page).click()
@@ -232,7 +232,7 @@ try {
   const {context,page,errors,box} = await launch({projects:[...fprojects(), blog()], routes})
   await page.goto(base); await openQuick(page)
   const rail = page.locator('aside.rail')
-  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   await rail.getByRole('button',{name:'Projects menu'}).click()
   await page.getByRole('menuitem',{name:'Select projects'}).click()
   for (const name of [/^Site/, /^Blog/, /^Store rewrite/]) await rail.getByRole('checkbox',{name}).click()
@@ -243,7 +243,7 @@ try {
   // While the request is kept the bar still names it; once discarded it names one project, as the rail does.
   await expect.poll(() => sentenceText(page)).toContain('on 3 projects')
   await bar(page).getByRole('button',{name:'Discard this request'}).click()
-  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   await expect(slot(page,'Project')).toHaveAccessibleName('Project: Store rewrite')
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
@@ -263,7 +263,7 @@ try {
   for (const name of [/^Site/, /^Blog/, /^Store rewrite/]) await heldRail.getByRole('checkbox',{name}).click()
   await expect(heldRail.getByText('3 chosen.',{exact:true})).toBeVisible()
   release()
-  await expect.poll(() => sentenceText(held.page)).toBe("Run Claude Code with default on 3 projects at studio from each project's default in a fresh worktree")
+  await expect.poll(() => sentenceText(held.page)).toBe("Run Claude Code with default on 3 projects at studio from each project's default in a fresh worktree · thinking default")
   expect(held.errors).toEqual([])
   await held.context.close()
  }
@@ -381,7 +381,7 @@ try {
   await expect(page.locator('aside.rail').getByRole('checkbox',{name:/^Blog/})).toHaveAttribute('aria-checked','true')
   await expect.poll(() => page.evaluate(() => location.pathname + location.search + location.hash)).toBe('/?from=sessions#top')
   await page.reload(); await openQuick(page)
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   await expect(page.locator('aside.rail').getByRole('checkbox')).toHaveCount(0)
   // One id names one project: the bar names it.
   await page.goto(`${base}/?projects=fp3`); await openQuick(page)
@@ -395,7 +395,7 @@ try {
   const routes = {'/api/v2/folder-projects/fp3': () => ({...projects.find(p => p.id === 'fp3'), starterPrompt:'Tidy the site build and say what changed'})}
   const {context,page,errors,box} = await launch({projects, routes})
   await page.goto(base); await openQuick(page)
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   const rail = page.locator('aside.rail')
   await rail.locator('.card').filter({hasText:'Site'}).click()
   await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio in the checkout')
@@ -405,7 +405,7 @@ try {
   // Site's defaults.
   await pick(page,'Agent','Claude Code')
   await rail.locator('.card').filter({hasText:'Store rewrite'}).click()
-  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   await rail.locator('.card').filter({hasText:'Site'}).click()
   await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio in the checkout')
   await bar(page).getByRole('button',{name:'Use the starter prompt'}).click()
@@ -423,7 +423,7 @@ try {
  if (run('a refusal after a kept request survives the same selection')) {
   const {context,page,errors,box} = await launch({answer:(body, n) => n === 1 ? {status:502, json:{error:'bad gateway'}} : {status:422, json:{error:'tool unavailable', code:'tool_unavailable'}}})
   await page.goto(base); await openQuick(page)
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   await startButton(page).click()
   await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
   const rail = page.locator('aside.rail')
@@ -435,7 +435,7 @@ try {
   await expect(startButton(page)).toHaveAccessibleName('Start the session')
   await settled(page)
   await expect(bar(page).locator('.status')).toHaveText("reet doesn't start this agent yet.")
-  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   // A different project set is a new start: the old sentence goes.
   await rail.getByRole('checkbox',{name:/^Site/}).click()
   await expect.poll(() => sentenceText(page)).toContain('on 2 projects')
@@ -532,7 +532,7 @@ try {
   await expect(rail.locator('.card[aria-current="true"]')).toHaveCount(1)
   await expect(rail.locator('.card[aria-current="true"]')).toContainText('Site')
   await pick(page,'Project','Home folder on studio')
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on the home folder at studio')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on the home folder at studio · thinking default')
   await expect(rail.locator('[aria-current="true"]')).toHaveCount(0)
   expect(errors).toEqual([])
   await context.close()
@@ -647,7 +647,7 @@ try {
   const {context,page,errors,box} = await launch({answer:() => ({status:502, json:{error:'bad gateway'}})})
   await page.clock.install()
   await page.goto(base); await openQuick(page)
-  const said = 'Run Claude Code with default on Store rewrite at studio from main in a fresh worktree'
+  const said = 'Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default'
   await expect.poll(() => sentenceText(page)).toBe(said)
   await startButton(page).click()
   await expect(startButton(page)).toHaveAccessibleName('Try the same request again')
@@ -707,7 +707,7 @@ try {
   await page.goto(base); await openQuick(page)
   await expect(bar(page)).toBeVisible()
   await expect(page.getByRole('button',{name:'Start an agent',exact:true})).toHaveCount(0)
-  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Claude Code')
   await expect(slot(page,'Model')).toHaveAccessibleName('Model: default')
   await expect(prompt(page)).toHaveValue('')
@@ -988,7 +988,7 @@ try {
  if (run('Tab and Escape from a slot list keep focus in the bar')) {
   const {context,page,errors,box} = await launch()
   await page.goto(base); await openQuick(page)
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   await slot(page,'Agent').click()
   const agents = page.getByRole('listbox',{name:'Agent'})
   await expect(agents.getByRole('option',{name:/^Claude Code/})).toBeFocused()
@@ -1015,7 +1015,7 @@ try {
  if (run('each slot opens and sets its value')) {
   const {context,page,errors,box} = await launch()
   await page.goto(base); await openQuick(page)
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
   // Escape closes a list and gives focus back to its slot; arrow keys move through the options.
   await slot(page,'Agent').click()
   const agents = page.getByRole('listbox',{name:'Agent'})
@@ -1025,9 +1025,9 @@ try {
   await page.keyboard.press('Escape')
   await expect(agents).toBeHidden()
   await expect(slot(page,'Agent')).toBeFocused()
-  await pick(page,'Agent','Gemini CLI')
-  await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Gemini CLI')
-  await pick(page,'Model','gemini-2.5-flash')
+  await pick(page,'Agent','Codex')
+  await expect(slot(page,'Agent')).toHaveAccessibleName('Agent: Codex')
+  await pick(page,'Model','gpt-5-codex')
   await pick(page,'Project',/^Site/)
   await expect(slot(page,'Branch')).toHaveAccessibleName('Branch: main')
   await slot(page,'Branch').click()
@@ -1036,10 +1036,10 @@ try {
   await branches.getByRole('option',{name:'develop',exact:true}).click()
   // The machine follows the project (R18): it is named, not chosen.
   await expect(bar(page).getByRole('button',{name:/^Machine: /})).toHaveCount(0)
-  await expect.poll(() => sentenceText(page)).toBe('Run Gemini CLI with gemini-2.5-flash on Site at studio from develop in a fresh worktree')
+  await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio from develop in a fresh worktree')
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
-  expect(box.posts[0]).toMatchObject({agentId:'a1', tool:'gemini', model:'gemini-2.5-flash', dir:'/home/dev/site', projectId:'fp3', project:'site', base:'develop'})
+  expect(box.posts[0]).toMatchObject({agentId:'a1', tool:'codex', model:'gpt-5-codex', dir:'/home/dev/site', projectId:'fp3', project:'site', base:'develop'})
   // Cline takes effort; the checkout has no branch slot and says where it works.
   await page.goto(base); await openQuick(page)
   await pick(page,'Agent','Cline')
@@ -1080,7 +1080,7 @@ try {
   await page.goto(base); await openQuick(page)
   const reason = 'The machine is reconnecting. Existing shells will be kept.'
   // The first project is on desk: Start waits, and says why.
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Notes at desk')
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on Notes at desk · thinking default')
   await expect(startButton(page)).toBeDisabled()
   await expect(bar(page).locator('.status')).toHaveText(reason)
   await slot(page,'Project').click()
@@ -1178,7 +1178,7 @@ try {
   const projects = [fproject('fpx','-x','a1','/home/dev/-x'), ...fprojects()]
   const {context,page,errors,box} = await launch({projects})
   await page.goto(base); await openQuick(page)
-  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on -x at studio in a fresh worktree'.replace('in a fresh', 'from main in a fresh'))
+  await expect.poll(() => sentenceText(page)).toBe('Run Claude Code with default on -x at studio in a fresh worktree'.replace('in a fresh', 'from main in a fresh')+' · thinking default')
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0]).toMatchObject({dir:'/home/dev/-x', projectId:'fpx', project:'x', title:'Claude Code · -x'})
@@ -1280,7 +1280,7 @@ try {
  if (run('landscape phone shows one Change')) {
   const {context,page,errors} = await launch({width:844, height:390, touch:true})
   await page.goto(base); await openQuick(page)
-  await expect(bar(page).locator('.summary-text')).toHaveText('Claude Code on Store rewrite at studio · main · fresh worktree')
+  await expect(bar(page).locator('.summary-text')).toHaveText('Claude Code on Store rewrite at studio · main · fresh worktree · thinking default')
   await expect(bar(page).getByRole('button',{name:'Change',exact:true})).toHaveCount(1)
   expect(await bar(page).locator('button.change').evaluateAll(list => list.filter(b => b.getClientRects().length > 0).map(b => b.parentElement.className.split(' ')[0]))).toEqual(['summary'])
   await expect(bar(page).locator('.sentence')).toBeHidden()
@@ -1303,7 +1303,7 @@ try {
   expect(Math.round(ask.height), 'prompt row').toBe(Math.round(go.height))
   await expect(bar(page).locator('.sentence')).toBeHidden()
   const line = bar(page).locator('.summary-text')
-  await expect(line).toHaveText('Claude Code on Store rewrite at studio · main · fresh worktree')
+  await expect(line).toHaveText('Claude Code on Store rewrite at studio · main · fresh worktree · thinking default')
   await bar(page).getByRole('button',{name:'Change',exact:true}).click()
   const sheet = page.getByRole('dialog',{name:'Change the launch'})
   await expect(sheet).toBeVisible()
@@ -1467,7 +1467,7 @@ try {
   const {context,page,errors} = await launch({width:834, height:1112, touch:true})
   await page.goto(base); await openQuick(page)
   const visible = () => bar(page).locator('.sentence').evaluate(el => [...el.querySelectorAll('.part')].filter(p => p.getClientRects().length).map(p => p.textContent.trim()).join(' '))
-  await expect.poll(visible).toBe('Run Claude Code on Store rewrite at studio from main')
+  await expect.poll(visible).toBe('Run Claude Code on Store rewrite at studio from main · thinking default')
   await expect(slot(page,'Model')).toBeHidden()
   await expect(slot(page,'Worktree')).toBeHidden()
   await bar(page).getByRole('button',{name:'Change',exact:true}).click()
@@ -1560,7 +1560,7 @@ try {
    await page.goto(base); await openQuick(page)
    if (how === 'hangs') { await expect.poll(() => reads).toBe(2); await page.clock.runFor(11_000) }
    await expect(startButton(page), how).toBeEnabled()
-   await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree')
+   await expect.poll(() => sentenceText(page), { timeout: 20000 }).toBe('Run Claude Code with default on Store rewrite at studio from main in a fresh worktree · thinking default')
    await startButton(page).click()
    await expect.poll(() => box.posts.length).toBe(1)
    expect(errors).toEqual([])

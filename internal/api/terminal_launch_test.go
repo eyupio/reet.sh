@@ -74,6 +74,8 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 		case terminalproto.Reconcile:
 			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: []terminalproto.SessionSnapshot{}}
 		case terminalproto.Create:
+			// The title's owner is controller-side state and never on the wire.
+			op.TitleOrigin = ""
 			f.mu.Lock()
 			f.creates = append(f.creates, op)
 			respond := f.reply
@@ -346,7 +348,7 @@ func TestTerminalLaunchFailedMapsToToolOrFolder(t *testing.T) {
 		tool, code, sentence string
 	}{
 		{"claude", "folder_unavailable", "That folder isn't available on that machine."},
-		{"gemini", "tool_not_installed", "That agent isn't installed on that machine."},
+		{"opencode", "tool_not_installed", "That agent isn't installed on that machine."},
 	} {
 		request := terminalbroker.ID()
 		body := launchBody(f.agent.ID, request, map[string]any{"tool": tc.tool, "dir": "/somewhere/else", "prompt": launchTestPrompt})
@@ -357,7 +359,7 @@ func TestTerminalLaunchFailedMapsToToolOrFolder(t *testing.T) {
 			}
 		}
 	}
-	// Only the folder refusal reaches the machine: gemini is not advertised, so
+	// Only the folder refusal reaches the machine: opencode is not advertised, so
 	// it is refused before any session is reserved.
 	if len(f.sent()) != 1 {
 		t.Fatal("a refused launch was dispatched again on retry", len(f.sent()))
@@ -437,6 +439,25 @@ func TestTerminalLaunchCapabilitiesReachTheWeb(t *testing.T) {
 	_, _, raw = legacy.do(t, legacy.cookie, "GET", "/api/v2/terminal/machines", nil)
 	if strings.Contains(raw, `"launch"`) || strings.Contains(raw, `"tools"`) {
 		t.Fatal("old machine reported launch", raw)
+	}
+}
+
+// A connector from before the retirement described Gemini CLI in acpAgents as well as tools. The machine stays
+// connected, its stored record still reads, and it still starts the agents reet offers.
+func TestMachineWithAnOlderConnectorsGeminiDescriptorStaysReady(t *testing.T) {
+	caps := launchCaps("claude", "gemini")
+	described := []terminalproto.ACPAgent{{Tool: "gemini", Adapter: "gemini", State: "missing"}}
+	caps.ACPAgents = &described
+	f := launchAPIFixture(t, caps)
+	code, _, raw := f.do(t, f.cookie, "GET", "/api/v2/terminal/machines", nil)
+	if code != 200 || !strings.Contains(raw, `"launch":true`) {
+		t.Fatal("terminal machines", code, raw)
+	}
+	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "dir": "/tmp"})); code != 200 && code != 201 {
+		t.Fatal("claude on that machine", code, out, raw)
+	}
+	if code, out, raw := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "gemini", "dir": "/tmp"})); code != 422 && code != 400 {
+		t.Fatal("gemini was not refused", code, out, raw)
 	}
 }
 

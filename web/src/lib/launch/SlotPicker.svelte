@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** One choice in a slot's list. A disabled one stays in the list (it can be focused and read) with its reason beside it. */
-export type SlotOption = { value: string; label: string; description?: string; detail?: string; group?: string; disabled?: boolean; reason?: string; starred?: boolean; starLabel?: string; onstar?: () => void; isDefault?: boolean; defaultLabel?: string; ondefault?: () => void }
+export type SlotOption = { value: string; label: string; description?: string; detail?: string; group?: string; disabled?: boolean; reason?: string; starred?: boolean; starLabel?: string; onstar?: () => void; isDefault?: boolean; defaultLabel?: string; ondefault?: () => void; onremove?: () => void; removeLabel?: string }
 </script>
 
 <script lang="ts">
@@ -94,6 +94,12 @@ export type SlotOption = { value: string; label: string; description?: string; d
     const next = row?.querySelector<HTMLElement>('[role=option]') ?? list
     next?.focus()
   }
+  async function removeOption(o: SlotOption) {
+    o.onremove?.()
+    announcement = `Removed ${o.label}`
+    await tick()
+    list?.focus()
+  }
   function keys(event: KeyboardEvent) {
     if ((event.target as HTMLElement)?.closest('.star')) {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() }
@@ -114,6 +120,10 @@ export type SlotOption = { value: string; label: string; description?: string; d
     else if ((event.key.toLowerCase() === 'd' || event.key === 'D') && at >= 0) {
       const setDefault = all[at].parentElement?.querySelector<HTMLButtonElement>('button.make-default')
       if (setDefault) { event.preventDefault(); setDefault.click() }
+    }
+    else if ((event.key === 'Delete' || event.key === 'Backspace') && at >= 0) {
+      const remove = all[at].parentElement?.querySelector<HTMLButtonElement>('button.remove')
+      if (remove) { event.preventDefault(); remove.click() }
     }
     else if (event.key === 'Tab' && !sheet) tabOut()
   }
@@ -185,6 +195,14 @@ export type SlotOption = { value: string; label: string; description?: string; d
         title={o.defaultLabel ?? (o.isDefault ? `Clear ${o.label} as the default` : `Make ${o.label} the default`)}
         onclick={(event) => { event.stopPropagation(); void makeDefault(o) }}>
         <span aria-hidden="true">{o.isDefault ? 'Default' : 'Make default'}</span>
+      </button>
+    {/if}
+    {#if o.onremove}
+      <button type="button" class="remove"
+        aria-label={o.removeLabel ?? `Remove ${o.label}`}
+        title={o.removeLabel ?? `Remove ${o.label}`}
+        onclick={(event) => { event.stopPropagation(); void removeOption(o) }}>
+        <span aria-hidden="true">×</span>
       </button>
     {/if}
   </div>
@@ -275,6 +293,12 @@ export type SlotOption = { value: string; label: string; description?: string; d
   }
   .make-default[aria-pressed=true] { color: var(--accent-text); border-color: var(--line); font-weight: 600; }
   .make-default:hover { background: var(--tint); border-color: var(--line); }
+  .remove {
+    flex-shrink: 0; display: grid; place-items: center; min-width: 34px; min-height: 34px; padding: 4px;
+    border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer;
+  }
+  .remove:hover { background: var(--tint); border-color: var(--line); color: var(--bad); }
+  .remove:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .status-action {
     margin-left: 8px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px;
     background: var(--card); color: var(--accent-text); font: inherit; font-size: 0.875rem; cursor: pointer;
@@ -324,6 +348,6 @@ export type SlotOption = { value: string; label: string; description?: string; d
   @media (pointer: coarse) {
     .option { min-height: 48px; padding: 8px 12px; font-size: 15px; }
     .filter, .other input { min-height: 44px; font-size: 16px; }
-    .use, .star, .make-default, .status-action { min-width: 44px; min-height: 44px; }
+    .use, .star, .make-default, .remove, .status-action { min-width: 44px; min-height: 44px; }
   }
 </style>

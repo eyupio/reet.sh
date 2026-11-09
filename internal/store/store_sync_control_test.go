@@ -857,3 +857,50 @@ func TestSyncRunStopsAfterReplanLimit(t *testing.T) {
 		t.Fatalf("run did not stop at the limit: %+v", runs)
 	}
 }
+
+func TestSyncPartialPlanDoesNotAcknowledgeWholeDestination(t *testing.T) {
+	for _, actions := range []string{`[]`, `[{"add":true,"skill":{"slug":"one"}}]`} {
+		t.Run(actions, func(t *testing.T) {
+			s, uid, target := controlFixture(t)
+			if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+				t.Fatal(err)
+			}
+			agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.Exec(`UPDATE sync_options SET baseline='[]',applied_revision='previous' WHERE target_id=?`, target); err != nil {
+				t.Fatal(err)
+			}
+			job, err := s.QueueSyncJob(uid, agent.ID, target, "auto")
+			if err != nil {
+				t.Fatal(err)
+			}
+			claimed, err := s.ClaimSyncJob(uid, agent)
+			if err != nil || claimed == nil || claimed.ID != job.ID {
+				t.Fatal(claimed, err)
+			}
+			plan := json.RawMessage(`{"actions":` + actions + `,"problems":{"blocked":"Local edits retained"}}`)
+			hash := strings.Repeat("a", 64)
+			if err := s.FinishSyncJob(uid, agent.ID, job.ID, "awaiting-approval", hash, "", plan); err != nil {
+				t.Fatal(err)
+			}
+			if actions != `[]` {
+				apply, err := s.ClaimSyncJob(uid, agent)
+				if err != nil || apply == nil || apply.Kind != "apply" {
+					t.Fatal(apply, err)
+				}
+				if err := s.FinishSyncJob(uid, agent.ID, apply.ID, "succeeded", hash, "", plan); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var baseline, revision string
+			if err := s.db.QueryRow(`SELECT baseline,applied_revision FROM sync_options WHERE target_id=?`, target).Scan(&baseline, &revision); err != nil {
+				t.Fatal(err)
+			}
+			if baseline != `[]` || revision != "previous" {
+				t.Fatalf("partial result acknowledged blocked work: baseline=%s revision=%s", baseline, revision)
+			}
+		})
+	}
+}

@@ -45,7 +45,9 @@ func (v *optionValue) UnmarshalJSON(data []byte) error {
 
 // readSettings admits only non-permission selectors from the live session.
 // Static installation descriptors never authorise a configuration change.
-func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
+// readSettings admits only non-permission selectors from the live session. The
+// provider option is a billing source only for an agent whose spec says so.
+func readSettings(raw json.RawMessage, provider bool) ([]terminalproto.ACPSetting, bool) {
 	var reply struct {
 		Options json.RawMessage `json:"configOptions"`
 	}
@@ -67,12 +69,20 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 		if category == "" && o.ID == "model" {
 			category = "model"
 		}
+		// Cline reports its provider (its billing source) with category
+		// "_provider"; reet surfaces it as the "provider" setting.
+		if category == "_provider" || (category == "" && o.ID == "provider") {
+			if !provider {
+				continue
+			}
+			category = "provider"
+		}
 		isMode := o.ID == "mode"
 		isModel := o.ID == "model" && category != "model"
 		if isMode || isModel {
 			continue
 		}
-		if category != "model" && category != "thought_level" {
+		if category != "model" && category != "thought_level" && category != "provider" {
 			continue
 		}
 		current := string(o.Current)
@@ -119,7 +129,7 @@ func readSettings(raw json.RawMessage) ([]terminalproto.ACPSetting, bool) {
 }
 
 func (s *Session) updateSettings(raw json.RawMessage) {
-	if options, ok := readSettings(raw); ok {
+	if options, ok := readSettings(raw, s.opts.Agent.Provider); ok {
 		s.mu.Lock()
 		s.settings = options
 		for _, o := range options {
@@ -170,6 +180,7 @@ func (s *Session) SetOption(ctx context.Context, id, value string) error {
 		return ErrClosed
 	}
 	s.configuring = true
+	busy := s.working || s.nativeBusy
 	s.turnMu.Unlock()
 	defer func() { s.turnMu.Lock(); s.configuring = false; s.turnMu.Unlock() }()
 	s.mu.Lock()
@@ -186,10 +197,16 @@ func (s *Session) SetOption(ctx context.Context, id, value string) error {
 	if closed {
 		return ErrClosed
 	}
+	listedOnly := setting != nil && (setting.Category == "thought_level" || setting.Category == "provider")
 	invalid := setting == nil || value == "" || !terminalproto.ValidModel(value) ||
-		(setting.Category == "thought_level" && !slices.Contains(setting.Values, value))
+		(listedOnly && !slices.Contains(setting.Values, value))
 	if invalid {
 		return ErrControl
+	}
+	// A source switch replaces the model catalogue, so it never lands under a
+	// turn that is already on its way.
+	if setting.Category == "provider" && busy {
+		return ErrBusy
 	}
 	ackErr := ErrControl
 	_, err := s.requestWithReply(ctx, "session/set_config_option", map[string]string{"sessionId": acpID, "configId": id, "value": value}, func(raw json.RawMessage) {
@@ -208,9 +225,13 @@ func (s *Session) SetOption(ctx context.Context, id, value string) error {
 
 func (s *Session) applySettingReply(setting terminalproto.ACPSetting, value string, raw json.RawMessage) error {
 	id := setting.ID
-	options, ok := readSettings(raw)
+	options, ok := readSettings(raw, s.opts.Agent.Provider)
 	if ok {
+		previousModel := s.modelSetting()
 		s.updateSettings(raw)
+		if setting.Category == "provider" {
+			s.keepModelValues(options, previousModel)
+		}
 		for _, o := range options {
 			matches := o.ID == id && o.Category == setting.Category
 			if matches && o.Current == value {
@@ -243,6 +264,39 @@ func (s *Session) applySettingReply(setting terminalproto.ACPSetting, value stri
 		}
 	}
 	return ErrControl
+}
+
+// modelSetting is a copy of the current model setting, or nil.
+func (s *Session) modelSetting() *terminalproto.ACPSetting {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, o := range s.settings {
+		if o.Category == "model" {
+			copy := o
+			return &copy
+		}
+	}
+	return nil
+}
+
+// keepModelValues handles a provider reply that carries no model option: there
+// is no list for the new source to learn, so the previous values stay and the
+// current model is forgotten rather than guessed.
+func (s *Session) keepModelValues(reply []terminalproto.ACPSetting, previous *terminalproto.ACPSetting) {
+	if previous == nil {
+		return
+	}
+	for _, o := range reply {
+		if o.Category == "model" {
+			return
+		}
+	}
+	kept := *previous
+	kept.Current = ""
+	s.mu.Lock()
+	s.settings = append(s.settings, kept)
+	s.model = ""
+	s.mu.Unlock()
 }
 
 func (s *Session) forgetSetting(id string) {

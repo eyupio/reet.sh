@@ -46,7 +46,7 @@ func TestEmptyHomeReportsAllAdaptersWithoutClaimingRestoreSupport(t *testing.T) 
 	if r.SchemaVersion != 1 || r.CapturedAt.IsZero() || r.OS == "" || r.Architecture == "" {
 		t.Fatalf("missing inventory identity: %+v", r)
 	}
-	for _, id := range []string{"claude", "codex", "opencode", "pi", "cursor", "gemini"} {
+	for _, id := range []string{"claude", "codex", "opencode", "pi", "cursor"} {
 		a := findAgent(t, r, id)
 		if a.State != "not_detected" || a.Executable.State != "missing" || a.Capabilities.Restore != "not_implemented" || a.Capabilities.Backup != "not_implemented" {
 			t.Fatalf("unexpected capability or observation: %+v", a)
@@ -265,5 +265,30 @@ func TestMetadataOnlyChecksRegisteredLocations(t *testing.T) {
 	r, err := discover(e)
 	if err != nil || findAgent(t, r, "pi").State != "detected" {
 		t.Fatalf("unexpected scan: %v", err)
+	}
+}
+
+// A machine that still has the retired agent's files is simply not reported on
+// for it: no agent, no location and no error.
+func TestDiscoveryIgnoresAMachineThatStillHasGeminiFiles(t *testing.T) {
+	e := fixture(t)
+	e.project = t.TempDir()
+	writeConfig(t, filepath.Join(e.home, ".gemini", "settings.json"), `{"mcpServers":{"remote":{"httpUrl":"https://example.test"}}}`)
+	writeConfig(t, filepath.Join(e.home, ".gemini", "GEMINI.md"), "instructions")
+	writeConfig(t, filepath.Join(e.project, "GEMINI.md"), "project instructions")
+	r, err := discover(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the agent's id, name and its own files are checked: the temporary folder's name contains the test's.
+	for _, agent := range r.Agents {
+		if agent.ID == "gemini" || strings.Contains(strings.ToLower(agent.Name), "gemini") {
+			t.Fatalf("the retired agent was reported: %+v", agent)
+		}
+		for _, loc := range agent.Locations {
+			if base := filepath.Base(loc.Path); base == ".gemini" || base == "GEMINI.md" {
+				t.Fatalf("a retired agent's file was inventoried: %+v", loc)
+			}
+		}
 	}
 }

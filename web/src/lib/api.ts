@@ -1010,6 +1010,7 @@ export async function restoreUserBackup(id: string, password?: string): Promise<
   return (await req(`/api/v2/backups/items/${encodeURIComponent(id)}/restore`, { method: 'POST', body: json(body) })).json()
 }
 export type RestoreReport = {
+  libraryItems?: number; privateBundles?: number
   id: string; release?: string; takenAt: number; schemaVersion: number
   users: number; usersByRole: Record<string, number>; shelves: number; skills: number; lists: number; tags: number; environments: number
   machines: number; destinations: number
@@ -1048,8 +1049,9 @@ export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; da
   /** Launch defaults: the base branch for fresh worktrees ('' for none) and whether sessions get a worktree by default. */
   defaultBaseBranch?: string; worktreesByDefault?: boolean
   /** New sessions without a project: the agent, its model and its thinking level; '' is the agent's own default. */
-  defaultTool?: string; defaultModel?: string; defaultEffort?: string }
-export type ProfileInfo = { user: User; profile: Profile; sessionCount: number; accounts: boolean }
+  defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string }
+/** chatEnabled is the effective on or off state of each gated chat (Claude Code, Codex); profile.chatAgents holds only the explicit choices. */
+export type ProfileInfo = { user: User; profile: Profile; chatEnabled?: Record<string, boolean>; sessionCount: number; accounts: boolean }
 export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
 
 // Sent on window whenever the page theme changes, so a mounted form holding the theme follows instead of saving a stale one.
@@ -1103,7 +1105,7 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean> }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 
@@ -1285,3 +1287,12 @@ export async function releaseContentReceipt(id: string, expectedVersion: string)
 export async function getAdoptionBreakdown(previewId: string, revisionId: string, signal?: AbortSignal): Promise<AdoptionBreakdown> { return (await req(`/api/v2/skill-content-previews/${encodeURIComponent(previewId)}/adoption/${encodeURIComponent(revisionId)}`, { signal })).json() }
 
 export async function syncFromMachine(input: {skillId:string;destination:string;sourceId?:string;destinationId?:string;followShelf?:boolean;requestKey:string}):Promise<ImportRequest>{return(await req('/api/v2/sync/from-machine',{method:'POST',body:json(input)})).json()}
+
+export type LibraryItem = { id: string; name: string; itemType: string; status: string; contentState: string; problem?: string; revisionId?: string }
+export type LibrarySelection = { targetId: string; itemIds: string[]; version: string }
+export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[] }> { return (await req('/api/v2/library')).json() }
+export async function getLibrarySelection(target: string): Promise<LibrarySelection> {
+  const response = await req(`/api/v2/library/selections/${encodeURIComponent(target)}`)
+  return response.json()
+}
+export async function saveLibrarySelection(selection: LibrarySelection): Promise<LibrarySelection> { return (await req('/api/v2/library/selections', {method:'PUT', body:json(selection)})).json() }

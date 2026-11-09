@@ -3,6 +3,7 @@ package terminalproto
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -143,7 +144,7 @@ func TestLaunchLimits(t *testing.T) {
 	if err := good.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, tool := range []string{"claude", "codex", "opencode", "gemini"} {
+	for _, tool := range []string{"claude", "codex", "opencode"} {
 		if !ValidTool(tool) {
 			t.Fatal(tool)
 		}
@@ -212,7 +213,7 @@ func TestPromptNeedsWordsForPositionalPrompts(t *testing.T) {
 			}
 		}
 	}
-	for _, tool := range []string{"opencode", "gemini", "", "vim"} {
+	for _, tool := range []string{"opencode", "", "vim"} {
 		if PromptNeedsWords(tool, "hello") {
 			t.Error("flag-form or unknown tool refused a single word", tool)
 		}
@@ -296,5 +297,71 @@ func TestLargestPromptFitsTheControlFrame(t *testing.T) {
 	c.Dir = "/" + strings.Repeat("d", MaxDirBytes-1)
 	if _, err := Encode(testMessage(c)); err != nil {
 		t.Fatalf("the largest valid create does not fit the control frame: %v", err)
+	}
+}
+
+func TestCreateProviderIsAClineChatOnly(t *testing.T) {
+	create := func(tool string, structured bool, provider string) Create {
+		return Create{Title: "Review", Cols: 100, Rows: 30, Tool: tool, Structured: structured, Provider: provider}
+	}
+	if err := create("cline", true, "cline-pass").Validate(); err != nil {
+		t.Fatalf("a Cline chat with a source was refused: %v", err)
+	}
+	for _, tool := range []string{"cline", "codex", "claude"} {
+		if err := create(tool, true, "").Validate(); err != nil && tool == "cline" {
+			t.Fatalf("an empty provider was refused: %v", err)
+		}
+	}
+	if create("codex", true, "cline-pass").Validate() == nil {
+		t.Fatal("a provider was accepted for another agent")
+	}
+	if create("cline", false, "cline-pass").Validate() == nil {
+		t.Fatal("a provider was accepted for a terminal session")
+	}
+	if create("cline", true, "bad value").Validate() == nil {
+		t.Fatal("a provider that fails the model-name rule was accepted")
+	}
+	if (Create{Title: "Review", Cols: 100, Rows: 30, Provider: "cline"}).Validate() == nil {
+		t.Fatal("a provider was accepted without a tool")
+	}
+	if !ValidProvider("") || !ValidProvider("cline-pass") || ValidProvider("bad value") {
+		t.Fatal("ValidProvider rule")
+	}
+	if !ToolTakesProvider("cline") || ToolTakesProvider("codex") || ToolTakesProvider("") {
+		t.Fatal("ToolTakesProvider rule")
+	}
+}
+
+// An older connector may still report a tool reet has retired. Its capability
+// record must keep validating; the tool is simply never offered or launched.
+func TestRetiredToolsAreToleratedInAToolsList(t *testing.T) {
+	if !RetiredTool("gemini") {
+		t.Fatal("gemini is not retired")
+	}
+	for _, id := range []string{"claude", "antigravity", "", "vim"} {
+		if RetiredTool(id) {
+			t.Fatalf("%q reported as retired", id)
+		}
+	}
+	if got := RetiredTools(); !reflect.DeepEqual(got, []string{"gemini"}) {
+		t.Fatalf("retired tools: %v", got)
+	}
+	c := Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "dev", TerminalEnabled: true, TerminalControl: true, Launch: true, Tools: []string{"claude", "gemini"}, Readiness: Ready}
+	for _, features := range []string{LaunchFeature, LaunchFeature + "," + AgentsFeature} {
+		if err := c.ValidateFor(features); err != nil {
+			t.Fatalf("features %q: %v", features, err)
+		}
+	}
+}
+
+// A retired tool is not a launchable agent in any generation of the protocol.
+func TestRetiredToolCannotBeLaunched(t *testing.T) {
+	if ValidTool("gemini") || ValidToolV2("gemini") || ToolTakesModel("gemini") {
+		t.Fatal("gemini is still a launchable agent")
+	}
+	for _, structured := range []bool{false, true} {
+		if (Create{Title: "A", Cols: 80, Rows: 24, Tool: "gemini", Structured: structured}).Validate() == nil {
+			t.Fatalf("a create naming gemini was accepted (structured=%v)", structured)
+		}
 	}
 }

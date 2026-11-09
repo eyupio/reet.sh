@@ -6,6 +6,7 @@
   import { gafferMessageBytes, gafferMessageId, gafferSendKey, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt, type PendingGafferSend } from './gafferChat'
   import GafferCompanionAvatar from './GafferCompanionAvatar.svelte'
   import {readGafferLayout,moveGafferPanel,type GafferPanelSize,type GafferPanelSide} from './gafferPanel'
+  import {keepLauncherClear} from './floatingLauncher'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import GafferChatHistory from './GafferChatHistory.svelte'
   import GafferProse from './GafferProse.svelte'
@@ -298,7 +299,7 @@
 
 <div class="gaffer-anchor-space" data-gaffer-space aria-hidden="true"></div>
 {#if !open&&!keyboardEditing}
-  <button class="gaffer-launcher" data-side={panelSide} bind:this={launcher} aria-label="Ask Gaffer" aria-expanded="false" aria-haspopup="dialog" title="Ask Gaffer" onclick={() => open = true}>
+  <button class="gaffer-launcher" data-side={panelSide} bind:this={launcher} use:keepLauncherClear aria-label="Ask Gaffer" aria-expanded="false" aria-haspopup="dialog" title="Ask Gaffer" onclick={() => open = true}>
     <GafferCompanionAvatar size={56}/>
   </button>
 {/if}
@@ -403,15 +404,15 @@
 </WorkspaceDialog>{/if}
 
 {#if sessionPickerOpen}<GafferSessionPicker onclose={()=>{sessionPickerOpen=false;void tick().then(()=>composer?.focus({preventScroll:true}))}} onselect={()=>{mode='session';sessionPickerOpen=false}} />{/if}
-{#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {timeZone} {dateFormat} onchanged={goalChanged}/></WorkspaceDialog>{/if}
-{#if followedOpen}<GafferFollowedSessions {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(open&&scope&&current)await goalChanged();else window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))}} onselect={()=>{mode='session';followedOpen=false;open=true}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>focusEntry(open ? optionsButton : undefined))}}/>{/if}
+{#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {userId} {timeZone} {dateFormat} onchanged={goalChanged}/></WorkspaceDialog>{/if}
+{#if followedOpen}<GafferFollowedSessions {userId} {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(open&&scope&&current)await goalChanged();else window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))}} onselect={()=>{mode='session';followedOpen=false;open=true}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>focusEntry(open ? optionsButton : undefined))}}/>{/if}
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 
 <style>
 
   .gaffer-launcher,.gaffer-chat{--gaffer-floor:calc(var(--bottom-chrome,0px) - var(--gaffer-reserve,0px) + 40px)}
   .gaffer-anchor-space{position:fixed;inset:auto 0 0;height:var(--bottom-chrome,0px);pointer-events:none;z-index:-1}
-  .gaffer-launcher{position:fixed;z-index:18;right:20px;bottom:var(--gaffer-floor);display:flex;width:56px;height:56px;padding:0;border:0;border-radius:50%;background:var(--card);box-shadow:0 5px 22px var(--scrim);cursor:pointer}
+  .gaffer-launcher{position:fixed;z-index:18;right:20px;bottom:var(--launcher-clearance,var(--gaffer-floor));display:flex;width:56px;height:56px;padding:0;border:0;border-radius:50%;background:var(--card);box-shadow:0 5px 22px var(--scrim);cursor:pointer}
   .gaffer-launcher[data-side=left]{right:auto;left:20px}
   .gaffer-chat{box-sizing:border-box;position:fixed;z-index:30;inset:auto 16px var(--gaffer-floor) auto;margin:0;width:min(28rem,calc(100vw - 32px));height:min(42rem,calc(100dvh - var(--gaffer-floor) - 24px));min-width:min(22rem,calc(100vw - 32px));min-height:min(26rem,calc(100dvh - var(--gaffer-floor) - 24px));max-width:calc(100vw - 32px);max-height:calc(100dvh - var(--gaffer-floor) - 24px);padding:0;border:1px solid var(--line-strong);border-radius:12px;background:var(--card);color:var(--ink);box-shadow:0 16px 64px var(--scrim);overflow:hidden;resize:both}
   .gaffer-chat[open]{display:flex;flex-direction:column}.gaffer-chat[data-side=left]{inset:auto auto var(--gaffer-floor) 16px}

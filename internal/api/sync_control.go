@@ -286,6 +286,9 @@ func (s *server) agentIdentity(w http.ResponseWriter, r *http.Request) (store.Sy
 		writeErr(w, 403, err.Error())
 		return a, false
 	}
+	if r.Header.Get("X-Reet-Library-Protocol") == "1" {
+		a.LibraryProtocol = 1
+	}
 	return a, true
 }
 func (s *server) syncIdentity(w http.ResponseWriter, r *http.Request) {

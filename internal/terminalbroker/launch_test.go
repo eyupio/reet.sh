@@ -125,7 +125,7 @@ func TestLaunchIsNeverSentToAPeerWithoutTheLaunchCapability(t *testing.T) {
 	f := launchFixture(t, legacyCapabilities())
 	for _, in := range []terminalproto.Create{
 		{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude"},
-		{Title: "Agent", Cols: 80, Rows: 24, Tool: "gemini", Model: "pro", Dir: "/home/test/site", Prompt: "fix it"},
+		{Title: "Agent", Cols: 80, Rows: 24, Tool: "opencode", Model: "pro", Dir: "/home/test/site", Prompt: "fix it"},
 	} {
 		if _, err := f.b.Create(t.Context(), f.uid, f.agent, ID(), in); !errors.Is(err, ErrLaunchUnsupported) {
 			t.Fatal("launch to a legacy peer", err)
@@ -194,7 +194,7 @@ func TestResumeIsOnlySentToAPeerThatNegotiatedIt(t *testing.T) {
 }
 
 func TestLaunchRefusesSingleWordPositionalPromptBeforeSending(t *testing.T) {
-	f := launchFixture(t, launchCapabilities("claude", "codex", "gemini"))
+	f := launchFixture(t, launchCapabilities("claude", "codex", "opencode"))
 	for _, tool := range []string{"claude", "codex"} {
 		if _, err := f.b.Create(t.Context(), f.uid, f.agent, ID(), terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: tool, Prompt: "purge"}); !errors.Is(err, ErrPromptUnsupported) {
 			t.Fatal(tool, err)
@@ -206,7 +206,7 @@ func TestLaunchRefusesSingleWordPositionalPromptBeforeSending(t *testing.T) {
 	if sessions, _ := f.st.TerminalSessionsFor(f.uid); len(sessions) != 0 {
 		t.Fatal("refused prompt reserved a session", sessions)
 	}
-	if _, err := f.b.Create(t.Context(), f.uid, f.agent, ID(), terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "gemini", Prompt: "hello"}); err != nil {
+	if _, err := f.b.Create(t.Context(), f.uid, f.agent, ID(), terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "opencode", Prompt: "hello"}); err != nil {
 		t.Fatal("flag-form single word refused", err)
 	}
 }
@@ -283,5 +283,21 @@ func TestRejectedChatStartupDoesNotRetainAnUnconfirmedModel(t *testing.T) {
 				t.Fatal("replaying a model refusal started the agent again")
 			}
 		})
+	}
+}
+
+// An older machine can still report a retired tool: it stays connected and can
+// start the agents reet offers, but a create naming the retired tool is refused
+// before anything reaches the connector.
+func TestRetiredToolIsRefusedButAnOlderMachineStaysReady(t *testing.T) {
+	f := launchFixture(t, launchCapabilities("claude", "gemini"))
+	if _, err := f.b.Create(t.Context(), f.uid, f.agent, ID(), terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "gemini"}); err == nil {
+		t.Fatal("a create naming a retired tool was accepted")
+	}
+	if len(f.sent()) != 0 {
+		t.Fatal("a retired tool reached the connector", f.sent())
+	}
+	if _, err := f.b.Create(t.Context(), f.uid, f.agent, ID(), terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude"}); err != nil {
+		t.Fatal("an older machine could not start an agent reet still offers", err)
 	}
 }

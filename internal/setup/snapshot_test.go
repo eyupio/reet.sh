@@ -164,7 +164,7 @@ func TestSnapshotPreviewCLIIsPreviewOnly(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 		t.Fatal(err)
 	}
-	if preview.SchemaVersion != snapshotPreviewSchemaVersion || preview.PolicyVersion != exportPolicyVersion || len(preview.Agents) != 6 {
+	if preview.SchemaVersion != snapshotPreviewSchemaVersion || preview.PolicyVersion != exportPolicyVersion || len(preview.Agents) != 5 {
 		t.Fatalf("wrong preview identity: %+v", preview)
 	}
 	if strings.Contains(out.String(), secret) {

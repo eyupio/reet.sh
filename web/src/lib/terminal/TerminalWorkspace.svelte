@@ -368,7 +368,7 @@
       await refresh()
     } catch(e){
       if(disposed)return
-      if(e instanceof TerminalError&&[400,422].includes(e.status)){const next={...creations};delete next[agent];creations=next;if(terminalAgent===agent)error=e.message}
+      if(e instanceof TerminalError&&[400,422].includes(e.status)){const next={...creations};delete next[agent];creations=next;if(e.status===422)terminalProjectId='';if(terminalAgent===agent)error=e.message}
       else creations={...creations,[agent]:{...operation,error:e instanceof Error?e.message:'Creation could not be confirmed. Retry the same operation.'}}
     } finally{clearTimeout(timeout);busy=false}
   }

@@ -10,6 +10,7 @@ import (
 
 func (s *server) registerCanonicalLibrary(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/library/deployment-intent", s.privateSkillAccess(s.libraryDeploymentIntent))
+	mux.HandleFunc("POST /api/v2/library/install-evidence", s.privateSkillAccess(s.libraryInstallEvidence))
 	mux.HandleFunc("POST /api/v2/library/deletion-observed", s.privateSkillAccess(s.libraryDeletionObserved))
 	mux.HandleFunc("POST /api/v2/library/restore-receipt", s.privateSkillAccess(s.libraryRestoreReceipt))
 	mux.HandleFunc("POST /api/v2/library/bases", s.privateSkillAccess(s.libraryBase))
@@ -35,6 +36,30 @@ func (s *server) libraryDeploymentIntent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	out, err := s.st.LibraryDeploymentIntentFor(s.uid(r), agent.ID, in)
+	if err != nil {
+		if errors.Is(err, store.ErrContentObservationStale) {
+			writeErr(w, http.StatusConflict, "The machine is paused or its deployment observation changed; retry from current intent.")
+			return
+		}
+		libraryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// libraryInstallEvidence tells a machine whether the controller itself recorded
+// installing this revision of this item into this target. It is evidence for
+// migrating a legacy local binding, never an instruction to change a file.
+func (s *server) libraryInstallEvidence(w http.ResponseWriter, r *http.Request) {
+	agent, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in store.LibraryDeploymentCheck
+	if !importDecode(w, r, 4096, &in) {
+		return
+	}
+	out, err := s.st.LibraryInstallEvidenceFor(s.uid(r), agent.ID, in)
 	if err != nil {
 		if errors.Is(err, store.ErrContentObservationStale) {
 			writeErr(w, http.StatusConflict, "The machine is paused or its deployment observation changed; retry from current intent.")

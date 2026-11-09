@@ -184,3 +184,56 @@ func TestLibraryRestoreEndpointsConnectorFence(t *testing.T) {
 		t.Fatal("expected exactly one factual notification", list, err)
 	}
 }
+
+func TestLibraryInstallEvidenceEndpointConnectorFence(t *testing.T) {
+	srv, st, agent, secret, token := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	if err := st.ClaimPublishingUsername(uid, "writer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveHostedSkill(uid, store.HostedSkill{Slug: "managed", Content: "---\nname: managed\ndescription: Managed example\n---\nPrivate instructions\n"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := st.LibraryFor(uid)
+	if err != nil || len(items) != 1 {
+		t.Fatal(items, err)
+	}
+	item := items[0]
+	st.TouchEnvironmentFor(uid, agent.Host, "agents", "", "")
+	target := store.EnvironmentIDFor(uid, agent.Host, "agents", "")
+	if _, err = st.SaveLibrarySelectionFor(uid, store.LibrarySelection{TargetID: target, ItemIDs: []string{item.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	base := store.LibraryBase{BindingID: strings.Repeat("a", 64), ItemID: item.ID, RevisionID: item.RevisionID}
+	if err = st.RecordLibraryBaseFor(uid, agent.ID, base); err != nil {
+		t.Fatal(err)
+	}
+	call := func(payload, key string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "https://reet.example/api/v2/library/install-evidence", strings.NewReader(payload))
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Reet-Agent", agent.ID)
+		r.Header.Set("X-Reet-Agent-Key", key)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		return w
+	}
+	raw, _ := json.Marshal(store.LibraryDeploymentCheck{TargetID: target, LibraryBase: base})
+	if w := call(string(raw), "wrong"); w.Code != 403 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := call(strings.TrimSuffix(string(raw), "}")+`,"unknown":true}`, secret); w.Code != 400 {
+		t.Fatal("unknown field accepted", w.Code, w.Body.String())
+	}
+	// No apply ever installed it: a normal "not proven" answer, not an error.
+	if w := call(string(raw), secret); w.Code != 200 || !strings.Contains(w.Body.String(), `"installed":false`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	// An unpinned binding is refused rather than answered.
+	missing := base
+	missing.BindingID = strings.Repeat("b", 64)
+	raw, _ = json.Marshal(store.LibraryDeploymentCheck{TargetID: target, LibraryBase: missing})
+	if w := call(string(raw), secret); w.Code != 403 {
+		t.Fatal("an unpinned binding was answered", w.Code, w.Body.String())
+	}
+}

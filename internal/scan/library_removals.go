@@ -72,7 +72,8 @@ func planLibraryRemovals(ctx context.Context, config string, c agentConfig, targ
 	for slug, message := range held {
 		problems[slug] = message
 	}
-	if recovered {
+	migrated := migrateLegacyLibraryOwnership(ctx, config, c, &state, target.Target.ID, path, version)
+	if recovered || migrated {
 		if err := writePrivate(config+".library", state); err != nil {
 			return nil, problems, err
 		}
@@ -317,4 +318,50 @@ func recoverLibraryRemovals(state *libraryLocalState, targetID, path string) (bo
 		}
 	}
 	return changed, held
+}
+
+// migrateLegacyLibraryOwnership gives a legacy local binding (an edit base or
+// adopted copy recorded before deployments were journalled, with no source
+// flag) a verified deployment receipt, but only when the controller has its own
+// record of installing exactly that revision into this target, and the bytes on
+// disk are still exactly those bytes. Everything else stays unowned:
+//
+//   - imported sources and bindings that already carry a deployment are never
+//     touched, and a copy that merely matched a selected revision (adopted) has
+//     no recorded install, so it has no evidence;
+//   - a locally changed copy is not claimed: its edits are captured through the
+//     edit path, not by granting removal rights;
+//   - consent, the target's own folder, a safe parent and the digest before and
+//     after the controller is asked must all hold;
+//   - a controller that cannot answer (older, refusing, unreachable) leaves the
+//     copy unowned and breaks nothing, and one binding never blocks another.
+//
+// Ownership only makes a copy eligible to be considered; removal still needs
+// the negotiated capability, a controller plan and a current remove intent.
+func migrateLegacyLibraryOwnership(ctx context.Context, config string, c agentConfig, state *libraryLocalState, targetID, path, version string) bool {
+	changed := false
+	for i := range state.Bindings {
+		binding := &state.Bindings[i]
+		if binding.Source || binding.Deployment != nil || binding.ItemID == "" || binding.Revision == "" || binding.Digest == "" ||
+			filepath.Dir(binding.Path) != filepath.Clean(path) || !safeSlug.MatchString(filepath.Base(binding.Path)) {
+			continue
+		}
+		if libraryApplyConsent(config, c) != nil || safeLibraryParent(binding.Path) != nil {
+			continue
+		}
+		if digest, err := privateSkillDigest(binding.Path); err != nil || digest != binding.Digest {
+			continue
+		}
+		var evidence store.LibraryInstallEvidence
+		if err := agentRequestContext(ctx, c, "/api/v2/library/install-evidence", libraryDeletionCheck(binding.Path, targetID, binding.ItemID, binding.Revision), &evidence, version); err != nil || !evidence.Installed {
+			continue
+		}
+		// The copy must be unchanged across the question, not just before it.
+		if digest, err := privateSkillDigest(binding.Path); err != nil || digest != binding.Digest || libraryApplyConsent(config, c) != nil {
+			continue
+		}
+		binding.Deployment = &libraryDeployment{TargetID: targetID, Revision: binding.Revision, Digest: binding.Digest, Verified: true}
+		changed = true
+	}
+	return changed
 }

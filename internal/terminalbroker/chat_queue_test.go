@@ -221,3 +221,47 @@ func TestEnqueueChatSendsAtOnceWhenIdleAndQueuesWhenWorking(t *testing.T) {
 		t.Fatalf("busy message was not queued: %+v", q)
 	}
 }
+
+func TestQueueFailsWhenControlReadConflicts(t *testing.T) {
+	prompts := 0
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch m.Body.(type) {
+		case *terminalproto.ACPControl:
+			// A read is refused when the chat is quiet or no longer running.
+			return terminalproto.Result{Code: terminalproto.Conflict}, true
+		case *terminalproto.ACPPrompt:
+			prompts++
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), "follow on", nil); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	if prompts != 0 {
+		t.Fatalf("conflicting read still sent the message: %d prompts", prompts)
+	}
+	q, _ := b.st.TerminalQueueFor(uid, s.ID)
+	if len(q) != 1 || q[0].State != "failed" || q[0].Note != "The session ended before this message was sent. Reconnect it, then retry." {
+		t.Fatalf("queued message kept waiting on a chat that could not answer: %+v", q)
+	}
+}
+
+func TestQueueFailsWhenSessionEnds(t *testing.T) {
+	b, p, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, nil)
+	s := chatSession(t, b, uid, agent)
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), "follow on", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, terminalproto.Exited, nil); err != nil {
+		t.Fatal(err)
+	}
+	q, err := b.ChatQueue(uid, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q) != 1 || q[0].State != "failed" || q[0].Note != "The session ended before this message was sent. Reconnect it, then retry." {
+		t.Fatalf("queued message outlived its session: %+v", q)
+	}
+}

@@ -165,6 +165,15 @@ func (s *Store) RecoverTerminalQueueFor(uid int64, session, owner string) error 
 	return err
 }
 
+// FailQueuedTerminalFor stops every message that never started delivery when
+// its chat can no longer take one. A row already 'sending' is left to
+// RecoverTerminalQueueFor, and an 'uncertain' row keeps the person's explicit
+// acknowledgement, so neither is silently turned into a failure.
+func (s *Store) FailQueuedTerminalFor(uid int64, session, note string) error {
+	_, err := s.db.Exec(`UPDATE terminal_chat_queue SET state='failed',intent='wait',note=?,revision=revision+1 WHERE user_id=? AND session_id=? AND state='queued'`, note, uid, session)
+	return err
+}
+
 // TransitionTerminalQueueFor atomically reserves or completes one immutable
 // revision. A crash after reservation is deliberately treated as uncertain.
 func (s *Store) TransitionTerminalQueueFor(uid int64, session string, q TerminalQueuedMessage, state, intent, note, owner string) (bool, error) {

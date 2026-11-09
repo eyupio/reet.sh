@@ -185,7 +185,7 @@
   }
 </script>
 
-<PageHeader eyebrow="Teams & organisations" title="A proper toolkit. Together." lede="Organisations group your teams; each has explicit membership. Share lists with a whole group, with additional people or individual exclusions when needed.">
+<PageHeader title="Teams & organisations" lede="Organisations group your teams; each has explicit membership. Share lists with a whole group, with additional people or individual exclusions when needed.">
   {#snippet actions()}
     {#if canWrite}<button id="create-group-button" class="btn primary" type="button" onclick={startCreate}>Create a group</button>{/if}
   {/snippet}

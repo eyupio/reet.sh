@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 
 const source = readFileSync(new URL('./home.ts', import.meta.url), 'utf8')
-const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const compileTs = text => ts.transpileModule(text, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const attention = `data:text/javascript;base64,${Buffer.from(compileTs(readFileSync(new URL('./attention.ts', import.meta.url), 'utf8'))).toString('base64')}`
+const compiled = compileTs(source).replace("from './attention'", `from '${attention}'`)
 const h = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 const { fleetCards, sessionOwners, inFlight, rowSubtitle, stateWord, needsYou, attentionCount, announceWaiting, reporting, sessionTabTitle, titleWithAttention } = h
 
@@ -290,8 +292,49 @@ test('a waiting chat with a question is labelled as one and carries its preview,
   assert.equal(byId('b1').question.questionId, 'qc')
   assert.equal(byId('p1').label, 'Waiting for you')
   assert.equal(byId('p1').question, undefined)
-  // A question that was already seen is not a card.
-  assert.deepEqual(needsYou([session('q3', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: false, pendingQuestion: { questionId: 'qd', message: 'x' } })], NOW), [])
+  // A question still held open is a card even when the page was already seen: it stays until it is answered.
+  assert.deepEqual(needsYou([session('q3', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: false, pendingQuestion: { questionId: 'qd', message: 'x' } })], NOW).map(c => [c.kind, c.label, c.markSeen]), [['waiting', 'Question for you', false]])
+})
+
+test('a blocked chat is a card until answered, whether or not it was seen', () => {
+  const chat = over => session('c1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - MIN, ...over })
+  const permission = { permissionId: 'p1', title: 'go test' }
+  const [a] = needsYou([chat({ changedSinceSeen: false, pendingPermission: permission })], NOW)
+  assert.equal(a.kind, 'waiting')
+  assert.equal(a.approval.permissionId, 'p1')
+  assert.deepEqual(a.reasons, ['approval'])
+  // A Home-style optimistic mark-seen on a pending approval keeps its card.
+  const optimistic = { ...chat({ changedSinceSeen: true, pendingPermission: permission }), changedSinceSeen: false }
+  assert.equal(needsYou([optimistic], NOW).length, 1)
+  // A waiting terminal bell that was seen, with nothing pending, is not a card.
+  assert.deepEqual(needsYou([session('t1', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: false })], NOW), [])
+  assert.deepEqual(needsYou([chat({ changedSinceSeen: false })], NOW), [])
+})
+
+test('card reasons name why each card needs the person', () => {
+  const sessions = [
+    session('a', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: true, pendingPermission: { permissionId: 'p1' } }),
+    session('q', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: true, pendingQuestion: { questionId: 'q1' } }),
+    session('b', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', changedSinceSeen: false, pendingPermission: { permissionId: 'p1' }, pendingQuestion: { questionId: 'q1' } }),
+    session('f', 'a1', 'exited', { exitCode: 2, attention: 'failed', changedSinceSeen: true }),
+    session('n', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: true }),
+    session('w', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: true, ...tree('web') }),
+    session('t', 'a1', 'running', { attention: 'waiting', attentionSource: 'terminal', changedSinceSeen: true }),
+  ]
+  const reasons = Object.fromEntries(needsYou(sessions, NOW).map(c => [c.sessionId, c.reasons]))
+  assert.deepEqual(reasons, { a: ['approval'], q: ['question'], b: ['approval', 'question'], f: ['failed'], n: ['finished'], w: ['review'], t: [] })
+})
+
+test('a seen failed or finished session, and one past the 24 hour window, are not cards', () => {
+  const old = NOW - 25 * HOUR
+  const cards = needsYou([
+    session('f1', 'a1', 'exited', { exitCode: 2, attention: 'failed', changedSinceSeen: false }),
+    session('f2', 'a1', 'exited', { exitCode: 2, attention: 'failed', changedSinceSeen: true, updatedAt: old }),
+    session('n1', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: false }),
+    session('n2', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: true, updatedAt: old }),
+    session('n3', 'a1', 'exited', { exitCode: 0, attention: 'finished', changedSinceSeen: true, updatedAt: NOW - 23 * HOUR }),
+  ], NOW)
+  assert.deepEqual(cards.map(c => c.sessionId), ['n3'])
 })
 
 test('bell count equals queue length', () => {
@@ -410,4 +453,45 @@ test('handed projects: known ids only, once each, in rail order, at most 12', ()
   assert.deepEqual(h.handedProjects(list.map(p => p.id).reverse().join(','), list), list.slice(0, 12).map(p => p.id))
   assert.deepEqual(h.handedProjects(null, list), [])
   assert.deepEqual(h.handedProjects('', list), [])
+})
+
+// A Gaffer goal that needs review on a session that already has a card is that card's second reason, not a second thing
+// to count; any other goal that needs review is still counted by itself.
+test('a Gaffer goal for a carded session folds into that card once, and the rest are counted apart', () => {
+  const goal = (sessionId, attention = true, over = {}) => ({ goal: { id: `g-${sessionId}` }, session: sessionId ? { id: sessionId, agentId: 'a1', title: 't', state: 'running' } : undefined, available: true, attention, ...over })
+  const cards = needsYou([
+    session('c1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - MIN, changedSinceSeen: true, pendingPermission: { permissionId: 'p1', title: 'go test' } }),
+    session('c2', 'a1', 'exited', { exitCode: 2, attention: 'failed', changedSinceSeen: true }),
+  ], NOW)
+  assert.deepEqual(cards.map(c => c.reasons), [['approval'], ['failed']])
+  const before = JSON.stringify(cards)
+
+  const folded = h.foldGafferGoals(cards, [goal('c1')])
+  assert.equal(folded.unfolded, 0)
+  assert.deepEqual(folded.cards.map(c => c.reasons), [['approval', 'gaffer'], ['failed']])
+  assert.equal(folded.cards.length, cards.length, 'folding never changes the number of cards')
+  assert.equal(JSON.stringify(cards), before, 'the input cards are not changed')
+
+  const apart = h.foldGafferGoals(cards, [goal('elsewhere')])
+  assert.equal(apart.unfolded, 1)
+  assert.deepEqual(apart.cards, cards)
+
+  const twice = h.foldGafferGoals(cards, [goal('c1'), goal('c1', true, { goal: { id: 'g2' } })])
+  assert.deepEqual(twice.cards.find(c => c.sessionId === 'c1').reasons, ['approval', 'gaffer'])
+  assert.equal(twice.unfolded, 0)
+
+  assert.deepEqual(h.foldGafferGoals(cards, [goal('c1', false), goal('elsewhere', false)]), { cards, unfolded: 0 })
+  assert.deepEqual(h.foldGafferGoals(cards, undefined), { cards, unfolded: 0 })
+  assert.deepEqual(h.foldGafferGoals(cards, [goal(undefined)]).unfolded, 1, 'a goal with no session cannot fold')
+  assert.deepEqual(h.foldGafferGoals(cards, [goal(undefined)]).cards, cards)
+  assert.deepEqual(h.foldGafferGoals([], [goal('c1'), goal('c2')]), { cards: [], unfolded: 2 })
+})
+
+test('folding twice leaves a single gaffer reason', () => {
+  const cards = needsYou([session('c1', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat', bellAt: NOW - MIN, changedSinceSeen: true, pendingPermission: { permissionId: 'p1', title: 'go test' } })], NOW)
+  const goals = [{ goal: { id: 'g1' }, session: { id: 'c1', agentId: 'a1', title: 't', state: 'running' }, available: true, attention: true }]
+  const once = h.foldGafferGoals(cards, goals)
+  const twice = h.foldGafferGoals(once.cards, goals)
+  assert.deepEqual(twice.cards[0].reasons, ['approval', 'gaffer'])
+  assert.equal(twice.unfolded, 0)
 })

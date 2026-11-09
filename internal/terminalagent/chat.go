@@ -138,7 +138,10 @@ type chatLink struct {
 	// catalogue is acp-model-catalogue-v1 on this connection: a model selector
 	// may then carry the agent's whole catalogue instead of 16 values.
 	catalogue bool
-	live      bool
+	// provider is acp-provider-v1 on this connection: a controls snapshot may then
+	// carry the provider setting.
+	provider bool
+	live     bool
 }
 
 // ChatSupervisor is the process-scoped ACP session owner. The connector creates
@@ -253,7 +256,7 @@ func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalh
 }
 
 func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, flags ...bool) *chatHost {
-	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(flags) > 0 && flags[0], previews: len(flags) > 1 && flags[1], catalogue: len(flags) > 2 && flags[2]}
+	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(flags) > 0 && flags[0], previews: len(flags) > 1 && flags[1], catalogue: len(flags) > 2 && flags[2], provider: len(flags) > 3 && flags[3]}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -487,7 +490,7 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		started.Store(true)
 	}
 	process, err := h.sup.start(startCtx, acpagent.Options{
-		Agent: spec, NativeTerminal: in.Tool == "opencode", Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Effort: in.Effort, Trust: in.Trust, Resume: in.ResumeACP,
+		Agent: spec, NativeTerminal: in.Tool == "opencode", Binary: binary, Dir: dir, Home: h.sup.opts.Home, Model: in.Model, Effort: in.Effort, Provider: in.Provider, Trust: in.Trust, Resume: in.ResumeACP,
 		BaseEnv: os.Environ(),
 		// Start calls OnReady after the replay and before its own closes of
 		// interrupted tool calls and its first idle status, which the
@@ -1425,6 +1428,8 @@ func chatResult(err error) terminalproto.Result {
 	case errors.Is(err, acpagent.ErrSafety):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not confirm that it asks before each command or edit, so the chat was not started."}
 
+	case errors.Is(err, acpagent.ErrProvider):
+		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen source, so the chat was not started."}
 	case errors.Is(err, acpagent.ErrModel):
 		return terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "The agent did not use the chosen model, so the chat was not started."}
 	default:

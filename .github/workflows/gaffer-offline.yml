@@ -16,7 +16,9 @@ concurrency:
 
 jobs:
   offline:
-    runs-on: ubuntu-latest
+    # The container leg needs a Docker daemon (scripts/test-gaffer-offline.sh talks to /var/run/docker.sock),
+    # which the Zoomies runners do not provide; the native leg runs there.
+    runs-on: ${{ matrix.runtime == 'docker' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false

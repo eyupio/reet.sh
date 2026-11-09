@@ -36,6 +36,7 @@ type SyncEnvironment struct {
 }
 
 type SyncSkill struct {
+	ItemID     string `json:"itemId,omitempty"`
 	URL        string `json:"url,omitempty"`
 	ID         string `json:"id"`
 	Name       string `json:"name"`
@@ -48,6 +49,7 @@ type SyncSkill struct {
 }
 
 type SyncTarget struct {
+	Canonical       bool        `json:"canonical,omitempty"`
 	Problem         string      `json:"problem,omitempty"`
 	FollowSource    bool        `json:"followSource"`
 	Mode            string      `json:"mode"`
@@ -256,6 +258,11 @@ func (s *Store) SyncTargetsFor(userID int64) ([]SyncTarget, error) {
 		return nil, err
 	}
 	for i := range out {
+		var canonical int
+		if err := s.db.QueryRow(`SELECT count(*) FROM canonical_library_selections WHERE user_id=? AND target_id=?`, userID, out[i].Target.ID).Scan(&canonical); err != nil {
+			return nil, err
+		}
+		out[i].Canonical = canonical > 0
 		err := s.db.QueryRow(`SELECT follow_source,problem FROM sync_policies WHERE target_id=?`, out[i].Target.ID).Scan(&out[i].FollowSource, &out[i].Problem)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err

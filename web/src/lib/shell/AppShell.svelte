@@ -209,6 +209,8 @@
 <style>
   .workspace-label { display: none; }
   @media (min-width: 1100px) {
+    /* The session route's slim bar keeps the sidebar's logo size, so moving between pages never resizes it. */
+    .shell-bar.compact .home :global(.logo) { width: 134px; }
     .shell-bar.workspace { padding-left: calc(var(--workspace-sidebar-width, 228px) + 36px); gap: 20px; }
     .sidebar-toggle { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
     .sidebar-toggle:hover { background: var(--card); color: var(--ink); }

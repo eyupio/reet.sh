@@ -24,7 +24,7 @@ const agents = [{ id: A, host: 'dev-laptop', version: 'test', lastSeen: now, pau
 const updateJobs = [{ id: 'u2', agentId: B, targetId: '', kind: 'update', status: 'failed', revision: 'latest', hash: '', plan: {}, message: 'The checksum did not match.', createdAt: now - 120000, updatedAt: now - 60000, stages: [{ key: 'queued', label: 'Queued for the machine', status: 'done' }, { key: 'verify', label: 'Verifying the checksum and build', status: 'failed', detail: 'Checksum mismatch' }] }]
 const targets = environments.map(target => ({ target, sourceId: 'shelf', sourceName: 'Central library', mode: 'additive', desired: skills.slice(0, 3), missing: skills.slice(0, 3).filter(s => !target.skills.some(a => a.id === s.id)), extra: [], revision: `rev-${target.id}`, updatedAt: now }))
 export const sync = { environments, machines, agents, releases: { latest: { version: 'v1.4.2' } }, updateJobs, targets, jobs: [], runs: [] }
-const caps = over => ({ protocolVersion: 1, os: 'linux', osUser: 'dev', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready', launch: true, worktree: true, models: true, tools: ['claude', 'codex', 'gemini'], ...over })
+const caps = over => ({ protocolVersion: 1, os: 'linux', osUser: 'dev', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready', launch: true, worktree: true, models: true, tools: ['claude', 'codex'], ...over })
 export const tmachines = [{ agentId: A, host: 'dev-laptop', ready: true, serverEnabled: true, capabilities: caps() }, { agentId: B, host: LONGHOST, ready: true, serverEnabled: true, capabilities: caps({ osUser: 'root' }) }, { agentId: C, host: 'pi', ready: false, serverEnabled: true, capabilities: caps({ terminalEnabled: false, readiness: 'terminal_disabled' }) }]
 export const sessions = [{ id: 'session-build00000000001', agentId: A, title: 'OpenCode', state: 'running', createdAt: now, updatedAt: now, exitCode: null }, { id: 'session-build00000000002', agentId: B, title: 'Claude Code in a_really_long_session_title_without_any_spaces', state: 'running', createdAt: now, updatedAt: now, exitCode: null }]
 const member = (host, dir, position, over = {}) => ({ host, dir, tool: '', model: '', position, ...over })
@@ -98,6 +98,7 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (/^\/api\/v2\/lists\/\d+$/.test(path)) return json(listDetail)
     if (/^\/api\/v2\/public\/lists\//.test(path)) return json({ ...listDetail, visibility: 'public', canEdit: false, canManage: false, canTransfer: false, members: undefined })
     if (path === '/api/community') return json({ lists, skills: listDetail.skills })
+    if (path === '/api/v2/library') return json({schemaVersion:1,items:[]})
     if (path === '/api/v2/sync') return json(sync)
     if (path === '/api/v2/sync/candidates') return json({ skills })
     if (path === '/api/v2/setup/profiles') return json({ profiles: [{ name: 'laptop-claude', revision: 2, snapshotId: 'snap-' + 'a'.repeat(24), snapshotDigest: 'sha256:' + 'b'.repeat(64), updatedAt: now }, { name: 'a_very_long_setup_profile_name_for_the_build_server', revision: 1, snapshotId: 'snap-x', snapshotDigest: 'sha256:' + 'd'.repeat(64), updatedAt: now - DAY }] })

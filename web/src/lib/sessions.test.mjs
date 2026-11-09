@@ -9,7 +9,8 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
 const catalogue = asURL(compile('./catalogue.ts'))
 const agentLaunch = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${catalogue}'`))
-const home = asURL(compile('./home.ts'))
+const attention = asURL(compile('./attention.ts'))
+const home = asURL(compile('./home.ts').replace("from './attention'", `from '${attention}'`))
 const colour = asURL(compile('./projectColour.ts'))
 const api = asURL(compile('./terminal/api.ts'))
 const source = compile('./sessions.ts').replace("from './home'", `from '${home}'`).replace("from './agentLaunch'", `from '${agentLaunch}'`).replace("from './catalogue'", `from '${catalogue}'`).replace("from './projectColour'", `from '${colour}'`).replaceAll("from './terminal/api'", `from '${api}'`)
@@ -84,7 +85,10 @@ test('a closed session continues in the folder it ran in', () => {
   assert.equal(continueLaunch({ ...exited, dir: '' }, projects), null)
   assert.deepEqual(continueLaunch({ ...exited, projectId: null }, projects), { tool: 'opencode', dir: '/home/u/reet', resume: true })
   assert.equal(continueLaunch(sessions[0], projects), null)
-  assert.equal(canContinue({ ...exited, tool: 'claude' }, resumeMachine, projects), false)
+  assert.equal(canContinue({ ...exited, tool: 'codex' }, resumeMachine, projects), false)
+  assert.equal(canContinue({ ...exited, tool: 'claude' }, resumeMachine, projects), true)
+  // A past session of a retired agent is never offered Continue.
+  assert.equal(canContinue({ ...exited, tool: 'gemini' }, resumeMachine, projects), false)
   assert.equal(canContinue(exited, { capabilities: {} }, projects), false)
 })
 

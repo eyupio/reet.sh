@@ -72,6 +72,18 @@
         "antigravity --help"
       ],
       "notes": "Official archive located through the Homebrew antigravity-cli cask; its published SHA-256 matched before extraction. The extracted executable is named antigravity; the cask installs the agy alias. Only version and help ran in work/agy-capture with isolated home, XDG directories and project, without credentials or a model request."
+    },
+    {
+      "capture": "claude",
+      "package": "@anthropic-ai/claude-code",
+      "version": "2.1.319",
+      "tarball": "https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.319.tgz",
+      "integrity": "sha512-XoyAxGXBmNsb9ahz0xLAtyz/I6b1j+4lyLpucyTQIq4FcKUxrMDM2AzA2sHipHoN1DdMJINQQrLZxRZRq7FqBA==",
+      "commands": [
+        "claude --version",
+        "claude --help"
+      ],
+      "notes": "The installed Claude Code binary ran for version and help only, with no credentials and no model request."
     }
   ],
   "limits": [

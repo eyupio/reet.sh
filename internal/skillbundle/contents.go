@@ -19,6 +19,17 @@ type ContentFile struct {
 // FromContents computes the same canonical identity as Scan, without filesystem
 // access. It rejects ambiguous file/directory names and never normalizes bytes.
 func FromContents(files []ContentFile) (Manifest, error) {
+	return fromFiles(files, true)
+}
+
+// FromFiles retains the same bounded path, byte and executable-mode identity for
+// typed library content that is not an Agent Skills bundle. Its caller validates
+// the actual item format; a synthetic SKILL.md must never be required.
+func FromFiles(files []ContentFile) (Manifest, error) {
+	return fromFiles(files, false)
+}
+
+func fromFiles(files []ContentFile, requireSkill bool) (Manifest, error) {
 	m := Manifest{SchemaVersion: SchemaVersion, Algorithm: Algorithm, ModeSemantics: ModeSemantics, Files: []File{}}
 	invalid := errors.New("invalid skill bundle contents")
 	if len(files) == 0 || len(files) > MaxFiles {
@@ -58,7 +69,7 @@ func FromContents(files []ContentFile) (Manifest, error) {
 		m.Files = append(m.Files, File{Path: file.Path, Bytes: int64(len(file.Data)), Digest: hex.EncodeToString(sum[:]), Executable: file.Executable})
 		found = found || file.Path == "SKILL.md"
 	}
-	if !found {
+	if requireSkill && !found {
 		return m, invalid
 	}
 	sort.Slice(m.Files, func(i, j int) bool { return m.Files[i].Path < m.Files[j].Path })

@@ -27,26 +27,28 @@ var ErrNotFound = errors.New("skill not found")
 var ErrUserExists = errors.New("user already exists")
 
 type Skill struct {
-	ID           string        `json:"id"`
-	Source       string        `json:"source"`
-	Slug         string        `json:"slug"`
-	SourceType   string        `json:"sourceType"`
-	URL          string        `json:"url"`
-	Name         string        `json:"name"`
-	Description  string        `json:"description"`
-	Notes        string        `json:"notes"`
-	Installs     int64         `json:"installs"`
-	InstallsWeek int64         `json:"installsWeek"`
-	Trend        []int64       `json:"trend"`
-	Liked        bool          `json:"liked"`
-	Bookmarked   bool          `json:"bookmarked"`
-	Used         bool          `json:"used"`
-	CreatedAt    int64         `json:"createdAt"`
-	UpdatedAt    int64         `json:"updatedAt"`
-	Tags         []Tag         `json:"tags,omitempty"`
-	HiddenTags   []Tag         `json:"hiddenTags,omitempty"`
-	Environments []Environment `json:"environments,omitempty"`
-	Lists        []ListRef     `json:"lists,omitempty"`
+	ID            string        `json:"id"`
+	Source        string        `json:"source"`
+	Slug          string        `json:"slug"`
+	SourceType    string        `json:"sourceType"`
+	URL           string        `json:"url"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description"`
+	Notes         string        `json:"notes"`
+	Installs      int64         `json:"installs"`
+	InstallsWeek  int64         `json:"installsWeek"`
+	Trend         []int64       `json:"trend"`
+	Liked         bool          `json:"liked"`
+	Bookmarked    bool          `json:"bookmarked"`
+	Used          bool          `json:"used"`
+	LibraryItemID string        `json:"libraryItemId,omitempty"`
+	Status        string        `json:"status,omitempty"`
+	CreatedAt     int64         `json:"createdAt"`
+	UpdatedAt     int64         `json:"updatedAt"`
+	Tags          []Tag         `json:"tags,omitempty"`
+	HiddenTags    []Tag         `json:"hiddenTags,omitempty"`
+	Environments  []Environment `json:"environments,omitempty"`
+	Lists         []ListRef     `json:"lists,omitempty"`
 	// EnvironmentCount is set for compact listings, where the full environment
 	// rows are not loaded but the card still shows how many there are.
 	EnvironmentCount int `json:"-"`
@@ -285,6 +287,7 @@ var schemaV12 = []string{
 		notes TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
 		PRIMARY KEY (user_id, skill_id))`,
 	`CREATE INDEX IF NOT EXISTS idx_shelf_skill ON shelf(skill_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_shelf_recent ON shelf(user_id,updated_at DESC,created_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS lists (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -472,6 +475,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.retireAgents(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateSoftwareBatches(); err != nil {
 		db.Close()
 		return nil, err
@@ -493,6 +500,10 @@ func Open(dir string) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
+	}
+	if err := st.migrateCanonicalLibrary(); err != nil {
+		db.Close()
+		return nil, err
 	}
 	if err := stampSchemaVersion(db); err != nil {
 		db.Close()
@@ -690,17 +701,44 @@ func (s *Store) upsert(id, source, slug, typ, url, name string, f Patch) (Skill,
 	return sk, err
 }
 
-func scan(r interface{ Scan(...any) error }) (Skill, error) {
-	var k Skill
-	var l, b, u int
-	var trend string
-	err := r.Scan(&k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
-		&k.Installs, &k.InstallsWeek, &trend, &l, &b, &u, &k.CreatedAt, &k.UpdatedAt)
-	if trend != "" {
-		_ = json.Unmarshal([]byte(trend), &k.Trend)
+// skillRowScanner reuses Scan destinations across a list. Each returned Skill
+// is a value copy; resetting the working row keeps slices independent.
+type skillRowScanner struct {
+	skill                   Skill
+	liked, bookmarked, used int
+	trend, identity         string
+	canonical               bool
+	destinations            []any
+}
+
+func newSkillRowScanner(canonical bool) *skillRowScanner {
+	r := &skillRowScanner{canonical: canonical}
+	k := &r.skill
+	r.destinations = []any{&k.ID, &k.Source, &k.Slug, &k.SourceType, &k.URL, &k.Name, &k.Description, &k.Notes,
+		&k.Installs, &k.InstallsWeek, &r.trend, &r.liked, &r.bookmarked, &r.used, &k.CreatedAt, &k.UpdatedAt}
+	if canonical {
+		r.destinations = append(r.destinations, &r.identity)
 	}
-	k.Liked, k.Bookmarked, k.Used = l != 0, b != 0, u != 0
-	return k, err
+	return r
+}
+
+func (r *skillRowScanner) scan(row interface{ Scan(...any) error }) (Skill, error) {
+	r.skill = Skill{}
+	if err := row.Scan(r.destinations...); err != nil {
+		return Skill{}, err
+	}
+	if r.canonical {
+		r.skill.LibraryItemID, r.skill.Status, _ = strings.Cut(r.identity, ":")
+	}
+	if r.trend != "" {
+		_ = json.Unmarshal([]byte(r.trend), &r.skill.Trend)
+	}
+	r.skill.Liked, r.skill.Bookmarked, r.skill.Used = r.liked != 0, r.bookmarked != 0, r.used != 0
+	return r.skill, nil
+}
+
+func scan(r interface{ Scan(...any) error }, canonical ...bool) (Skill, error) {
+	return newSkillRowScanner(len(canonical) > 0 && canonical[0]).scan(r)
 }
 
 func (s *Store) Get(id string) (Skill, bool, error) {

@@ -1,6 +1,7 @@
 // Pure logic for the session panel's cleaner view: which sessions need the person, which sections are folded, and how many
 // projects show before "Show more". Kept free of Svelte so node:test can run it.
 import type { TerminalSession } from './api'
+import { attentionRuleOf, isBlocked } from '../attention'
 
 export type NeedKind = 'approval' | 'question'
 
@@ -8,12 +9,13 @@ export type NeedKind = 'approval' | 'question'
 export const PROJECT_CAP = 5
 
 /**
- * What a session is waiting on, or null. This is the bell's rule for a waiting card (home.ts `needsYou`): the session is
- * waiting and has changed since the person last saw it, so opening or answering it clears both together. An approval is
- * named first when an approval and a question both wait, as the bell does.
+ * What a session is waiting on, or null. This is the shared attention rule for a waiting card (attention.ts `isBlocked`):
+ * the session is waiting and either changed since the person last saw it or still holds an approval or question, so a chat
+ * the person opened but did not answer still reads as needing them. An approval is named first when an approval and a
+ * question both wait, as the bell does.
  */
 export function needsInput(session: Pick<TerminalSession, 'attention' | 'changedSinceSeen' | 'pendingPermission' | 'pendingQuestion'>): NeedKind | null {
-  if (session.attention !== 'waiting' || !session.changedSinceSeen) return null
+  if (!isBlocked(session)) return null
   if (session.pendingPermission?.permissionId) return 'approval'
   if (session.pendingQuestion?.questionId) return 'question'
   return 'approval'
@@ -49,11 +51,17 @@ export function sessionMark(session: Pick<TerminalSession, 'state' | 'attention'
   }
 }
 
-/** How many of the sessions need the person: the badge on a project row or a section header. */
-export function needCount(sessions: readonly Pick<TerminalSession, 'attention' | 'changedSinceSeen' | 'pendingPermission' | 'pendingQuestion'>[]): number {
+/** How many of the sessions need the person under the shared attention rule (waiting, or an unseen failed or finished
+ *  turn within a day): the badge on a project row or a section header. */
+export function needCount(sessions: readonly Pick<TerminalSession, 'attention' | 'changedSinceSeen' | 'updatedAt' | 'pendingPermission' | 'pendingQuestion'>[], now: number = Date.now()): number {
   let n = 0
-  for (const s of sessions) if (needsInput(s)) n++
+  for (const s of sessions) if (attentionRuleOf(s, now) !== null) n++
   return n
+}
+
+/** The badge wording for a count of sessions that need the person: waiting, or an unseen failed or finished turn. */
+export function needLabel(n: number): string {
+  return n === 1 ? `${n} needs you` : `${n} need you`
 }
 
 /** Section keys the person folded, as saved in the browser: only strings survive, deduplicated and bounded. */

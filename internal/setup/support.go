@@ -35,7 +35,6 @@ func BuildSupportMatrix() SupportMatrix {
 		{AgentID: "opencode", Name: "OpenCode", Settings: "supported", MCP: "supported", Instructions: "supported", Skills: "supported", Memory: "unsupported", History: "unsupported", Credentials: "references_only", Restore: "files_and_fields", Notes: "JSON/JSONC settings and MCP declarations are supported; memory and sessions are not."},
 		{AgentID: "pi", Name: "Pi", Settings: "supported", MCP: "unsupported", Instructions: "supported", Skills: "supported", Memory: "unsupported", History: "unsupported", Credentials: "references_only", Restore: "files_and_fields", Notes: "Settings are supported; MCP declarations are not parsed for this adapter."},
 		{AgentID: "cursor", Name: "Cursor", Settings: "unsupported", MCP: "supported", Instructions: "supported", Skills: "supported", Memory: "unsupported", History: "unsupported", Credentials: "references_only", Restore: "files_and_fields", Notes: "The MCP file and instructions are supported; full desktop preferences are not."},
-		{AgentID: "gemini", Name: "Gemini CLI", Settings: "supported", MCP: "supported", Instructions: "supported", Skills: "unsupported", Memory: "unsupported", History: "unsupported", Credentials: "references_only", Restore: "files_and_fields", Notes: "Settings and the adapter's MCP policy are supported; Gemini skills locations are not inventoried."},
 	}
 	return SupportMatrix{
 		SchemaVersion: setupSupportSchemaVersion,

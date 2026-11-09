@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
-const source = ts.transpileModule(readFileSync(new URL('./panelState.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const compileTs = text => ts.transpileModule(text, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const attention = `data:text/javascript;base64,${Buffer.from(compileTs(readFileSync(new URL('../attention.ts', import.meta.url), 'utf8'))).toString('base64')}`
+const source = compileTs(readFileSync(new URL('./panelState.ts', import.meta.url), 'utf8')).replace("from '../attention'", `from '${attention}'`)
 const p = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 
 const waiting = extra => ({ state: 'running', attention: 'waiting', changedSinceSeen: true, ...extra })
@@ -19,6 +21,14 @@ test('a waiting, unseen session needs the person; seen or working ones do not', 
 
 test('an approval is named before a question when both wait, as the bell does', () => {
   assert.equal(p.needsInput(waiting({ pendingPermission: { permissionId: 'a' }, pendingQuestion: { questionId: 'q' } })), 'approval')
+})
+
+test('a seen chat still holding an approval or question needs the person; a seen bell does not', () => {
+  const seen = waiting({ changedSinceSeen: false })
+  assert.equal(p.needsInput({ ...seen, pendingPermission: { permissionId: 'a' } }), 'approval')
+  assert.equal(p.needsInput({ ...seen, pendingQuestion: { questionId: 'q' } }), 'question')
+  assert.equal(p.needsInput(seen), null)
+  assert.equal(p.statusLine({ ...seen, pendingPermission: { permissionId: 'a' } }), 'Needs you · approval')
 })
 
 test('the status line says what is awaited, else the state', () => {
@@ -54,6 +64,23 @@ test('the row mark follows attention before the lifecycle state', () => {
 test('needCount counts only sessions that need the person', () => {
   assert.equal(p.needCount([waiting({}), { state: 'running' }, waiting({ changedSinceSeen: false }), waiting({ pendingQuestion: { questionId: 'q' } })]), 2)
   assert.equal(p.needCount([]), 0)
+})
+
+test('needCount follows the shared attention rule, including unseen failed and finished within a day', () => {
+  const now = 2 * 24 * 60 * 60_000
+  const HOUR = 60 * 60_000
+  const blockedSeen = waiting({ changedSinceSeen: false, pendingPermission: { permissionId: 'a' }, updatedAt: now - 30 * HOUR })
+  const failedRecent = { state: 'exited', attention: 'failed', changedSinceSeen: true, updatedAt: now - HOUR }
+  const finishedOld = { state: 'running', attention: 'finished', changedSinceSeen: true, updatedAt: now - 25 * HOUR }
+  const failedSeen = { state: 'exited', attention: 'failed', changedSinceSeen: false, updatedAt: now - HOUR }
+  const working = { state: 'running', attention: 'working', changedSinceSeen: true, updatedAt: now }
+  assert.equal(p.needCount([blockedSeen, failedRecent, finishedOld, failedSeen, working], now), 2)
+})
+
+test('needLabel words the badge count for one or many', () => {
+  assert.equal(p.needLabel(1), '1 needs you')
+  assert.equal(p.needLabel(2), '2 need you')
+  assert.equal(p.needLabel(0), '0 need you')
 })
 
 test('saved collapse state keeps only usable strings', () => {

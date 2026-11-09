@@ -313,8 +313,8 @@
   </section>
 {:else}
   <article class="listpage">
-    <PageHeader eyebrow={visibilityLabel(detail.visibility)} title={detail.name} lede={detail.description}>
-      {#snippet meta()}{#if detail}<span class="badge">{detail.skillCount} {detail.skillCount === 1 ? 'skill' : 'skills'} · {detail.memberCount} {detail.memberCount === 1 ? 'person' : 'people'} · {roleLabel(detail.role ?? '')}</span>{/if}{/snippet}
+    <PageHeader group="Lists" groupHref="/shared" title={detail.name} lede={detail.description}>
+      {#snippet meta()}{#if detail}<span class="badge">{visibilityLabel(detail.visibility)}</span><span class="badge">{detail.skillCount} {detail.skillCount === 1 ? 'skill' : 'skills'} · {detail.memberCount} {detail.memberCount === 1 ? 'person' : 'people'} · {roleLabel(detail.role ?? '')}</span>{/if}{/snippet}
     </PageHeader>
 
     <div class="actions">

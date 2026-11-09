@@ -390,13 +390,35 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	// this session can be announced or receive its opening prompt. An adapter
 	// that ignores a model at session/new (Cline) applies it by a confirmed
 	// switch instead; an unconfirmed switch still refuses the chat.
+	if opts.Provider != "" && opts.Resume == "" {
+		providerID, providerNow := "", ""
+		for _, o := range s.Controls().Options {
+			if o.Category == "provider" {
+				providerID, providerNow = o.ID, o.Current
+			}
+		}
+		if providerID == "" {
+			s.Close()
+			return nil, ErrProvider
+		}
+		// Already on the chosen source: nothing to switch, nothing to confirm.
+		if providerNow != opts.Provider {
+			if err := s.SetOption(newCtx, providerID, opts.Provider); err != nil {
+				s.Close()
+				if errors.Is(err, ErrControl) {
+					return nil, ErrProviderUnconfirmed
+				}
+				return nil, ErrProvider
+			}
+		}
+	}
 	if opts.Model != "" {
 		// Startup has no omitted-list exception, including for OpenCode.
 		confirmed, ok := acknowledgedModel(raw, opts.Model, false)
 		switch {
 		case ok && confirmed == opts.Model:
 		case spec.ConfirmModelBySwitch:
-			if err := s.SetModel(newCtx, opts.Model); err != nil {
+			if err := s.setModel(newCtx, opts.Model, true); err != nil {
 				s.Close()
 				return nil, ErrModel
 			}
@@ -1658,6 +1680,11 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 				s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
 				return nil
 			}
+			// These adapters end a failed turn without an ACP frame, so a turn
+			// that said and did nothing and logged no reason is not a finished
+			// turn. Saying so is better than a ready chat under an unanswered
+			// prompt; the notice comes first so the chat never reads as done.
+			s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " ended the turn without a reply and gave no reason. Check the model and provider it is using, or try another.", Bad: true})
 		}
 		s.emit(Event{Kind: "status", State: "idle"})
 	default:
@@ -1853,6 +1880,12 @@ func (s *Session) Close() {
 
 // SetModel changes the model without replacing the ACP session or its history.
 func (s *Session) SetModel(ctx context.Context, model string) error {
+	return s.setModel(ctx, model, false)
+}
+
+// setModel is SetModel. At startup a switch that is not confirmed fails the whole start, so nothing is announced: the
+// person must not see an idle chat, or a "model unknown" notice, for a chat that never opened.
+func (s *Session) setModel(ctx context.Context, model string, startup bool) error {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	s.turnMu.Lock()
@@ -1875,29 +1908,37 @@ func (s *Session) SetModel(ctx context.Context, model string) error {
 		if unsupported {
 			return err
 		}
-		s.unconfirmedModel()
+		s.unconfirmedModel(startup)
 		return fmt.Errorf("%w: %w", ErrModelUnconfirmed, err)
 	}
 	s.updateSettings(raw)
 	applied, confirmed := acknowledgedModel(raw, model, s.opts.Agent.AllowOmittedModelAck)
 	if !confirmed {
-		s.unconfirmedModel()
+		s.unconfirmedModel(startup)
 		return ErrModelUnconfirmed
 	}
 	s.mu.Lock()
 	s.model = applied
 	s.mu.Unlock()
-	s.emit(Event{Kind: "status", State: "idle", Detail: applied})
+	// A live chat shows the model it is now on even when that is not the one asked for.
+	// Startup announces readiness only after every launch option is confirmed: a later
+	// thinking-level refusal must not leave an idle status for a chat that never opened.
+	if !startup {
+		s.emit(Event{Kind: "status", State: "idle", Detail: applied})
+	}
 	if applied != model {
 		return ErrModel
 	}
 	return nil
 }
 
-func (s *Session) unconfirmedModel() {
+func (s *Session) unconfirmedModel(startup bool) {
 	s.mu.Lock()
 	s.model = ""
 	s.mu.Unlock()
+	if startup {
+		return
+	}
 	// The connector retains status for reconnects. Retire the old model detail
 	// as well as the process value, so replay cannot present it as current.
 	s.emit(Event{Kind: "status", State: "idle"})

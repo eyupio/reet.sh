@@ -43,9 +43,13 @@ changing it on a retry with the same request ID returns 409. Pending termination
 remains visible unless explicitly removed through the archive endpoint. An
 authenticated, generation-fenced ended/exited/lost
 observation (or confirmed failed creation) adds the archive tombstone, in the
-same transaction as closure. Controller restart preserves this decision. End
-still requires the existing execution/account/Origin gates; no automatic end is
-introduced by changing preferences.
+same transaction as closure. A session that worked in a worktree is not archived
+at closure: the controller checks the worktree, removes it when nothing would be
+lost, and only then archives the session. Uncommitted changes are never discarded
+automatically; they keep the session in history so a person can confirm the
+removal. Controller restart preserves this decision. End still requires the
+existing execution/account/Origin gates; no automatic end is introduced by
+changing preferences.
 
 `terminalRemoveOnClose` in the account profile defaults to false and sets the
 checkbox's initial value for new stop confirmations. The user can override it per

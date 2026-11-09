@@ -41,4 +41,4 @@ A session is never removed from history while its worktree stays behind. Removin
 - Uncommitted changes: the removal is refused (`worktree_unsaved`) with the changed files and a fingerprint. Only a repeat of the request that confirms those exact changes (`discard`, the counts and the fingerprint) deletes them. The web UI asks with a warning.
 - Anything else (the session not yet stopped, the machine offline or failing, unreferenced commits, hidden changes, a nested repository): the removal is refused and the session stays, with nothing lost.
 
-Ending a session with "remove from history" keeps a session that has a worktree in history, so it goes through the same check when you remove it.
+Ending a session with "remove from history" checks and removes its worktree once the machine confirms the session has stopped, then hides the session: the worktree is never left behind. Uncommitted changes are never discarded automatically; that worktree keeps the session in history, where removing it asks you to confirm what would be deleted.

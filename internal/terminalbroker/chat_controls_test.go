@@ -3,6 +3,7 @@ package terminalbroker
 import (
 	"errors"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
+	"sync"
 	"testing"
 )
 
@@ -63,5 +64,52 @@ func TestLiveControlsRequireNegotiationAndPersistReadback(t *testing.T) {
 	}
 	if _, err := b.ChatControl(t.Context(), uid+1, s.ID, terminalproto.ACPControl{Action: "get"}); err == nil {
 		t.Fatal("foreign account accessed controls")
+	}
+}
+
+// A create that names a provider reaches the machine only when it negotiated
+// acp-provider-v1, for a structured Cline chat.
+func TestProviderRequiresTheNegotiatedCapability(t *testing.T) {
+	for _, supported := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "provider"}[supported], func(t *testing.T) {
+			var mu sync.Mutex
+			var sent []terminalproto.Create
+			b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) {
+				c.AgentsV2, c.ACPLiveControls, c.ACPProvider = true, true, supported
+				c.Tools = []string{"cline"}
+				entries := []terminalproto.ACPAgent{{Tool: "cline", Adapter: "cline", State: "available", MinimumVersion: "3.0.74", History: true, Model: true, Approval: true}}
+				c.ACPAgents = &entries
+			}, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+				if create, ok := m.Body.(terminalproto.Create); ok {
+					mu.Lock()
+					sent = append(sent, create)
+					mu.Unlock()
+					// Cline's own session id shape, which a Cline create requires.
+					return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: "1793848855723_8zvJS_cli"}, true
+				}
+				return nil, true
+			})
+			create := terminalproto.Create{Title: "Source", Cols: 100, Rows: 30, Tool: "cline", Structured: true, Dir: "/tmp", Provider: "cline-pass"}
+			_, err := b.Create(t.Context(), uid, agent, ID(), create)
+			if !supported {
+				if !errors.Is(err, ErrLaunchOptionUnsupported) {
+					t.Fatal("a machine without acp-provider-v1 admitted a provider", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(sent) != 1 || sent[0].Provider != "cline-pass" {
+				t.Fatalf("the machine did not receive the provider: %+v", sent)
+			}
+			notChat := create
+			notChat.Structured = false
+			if _, err := b.Create(t.Context(), uid, agent, ID(), notChat); err == nil {
+				t.Fatal("a provider was admitted for a terminal session")
+			}
+		})
 	}
 }

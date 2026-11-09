@@ -7,6 +7,8 @@
     type ModelFavourites,
   } from './api'
   import { CATALOGUE } from './catalogue'
+  import { KNOWN_SOURCES } from './clineSource'
+  import { CHAT_GATE_HELP, chatToggles, chatTogglePatch } from './chatAgents'
   import { cleanModel, modelSuggestions, toolName, validateModel } from './agentLaunch'
   import {
     dedupeModels, defaultLabel, effortChoices, favouriteKey, modelOptions, starLabel,
@@ -20,7 +22,11 @@
   const agents = CATALOGUE.filter(agent => agent.enabled)
   const life = new AbortController()
   let loading = $state(true), busy = $state(''), profileLoaded = $state(false)
-  let defaultTool = $state(''), defaultModel = $state(''), defaultEffort = $state('')
+  let chatOn = $state<Record<string, boolean>>({})
+  // The checkboxes themselves: a click changes the box before the save answers, and Svelte does not write an unchanged
+  // value back, so a refused save has to put the box back by hand.
+  const chatBoxes: Record<string, HTMLInputElement | undefined> = {}
+  let defaultTool = $state(''), defaultModel = $state(''), defaultEffort = $state(''), defaultClineSource = $state('')
   let defaultBaseBranch = $state(''), worktreesByDefault = $state(false)
   let formMessage = $state(''), notice = $state('')
   let modelButton = $state<HTMLButtonElement | null>(null)
@@ -84,14 +90,15 @@
     else if (e instanceof ApiError && e.status === 401) onerror?.(new UnauthorizedError())
   }
 
-  let loaded = { tool: '', model: '', effort: '', base: '', worktrees: false }
+  let loaded = { tool: '', model: '', effort: '', source: '', base: '', worktrees: false }
   function fillProfile(profile: Awaited<ReturnType<typeof getProfile>>['profile']) {
     defaultTool = profile.defaultTool ?? ''
     defaultModel = profile.defaultModel ?? ''
     defaultEffort = profile.defaultEffort ?? ''
+    defaultClineSource = profile.defaultClineSource ?? ''
     defaultBaseBranch = profile.defaultBaseBranch ?? ''
     worktreesByDefault = profile.worktreesByDefault ?? false
-    loaded = { tool: defaultTool, model: defaultModel, effort: defaultEffort, base: defaultBaseBranch, worktrees: worktreesByDefault }
+    loaded = { tool: defaultTool, model: defaultModel, effort: defaultEffort, source: defaultClineSource, base: defaultBaseBranch, worktrees: worktreesByDefault }
     profileLoaded = true
   }
 
@@ -101,6 +108,7 @@
       const answer = await getProfile()
       if (life.signal.aborted) return
       fillProfile(answer.profile)
+      chatOn = answer.chatEnabled ?? {}
     } catch (e) {
       if (life.signal.aborted) return
       fail(e)
@@ -380,6 +388,8 @@
     if (defaultTool !== loaded.tool) patch.defaultTool = defaultTool
     if (model !== loaded.model) patch.defaultModel = model
     if (defaultEffort !== loaded.effort) patch.defaultEffort = defaultEffort
+    // The billing source belongs to Cline: only a Cline default carries it, so another agent's save never sends a stale one.
+    if (defaultTool === 'cline' && defaultClineSource !== loaded.source) patch.defaultClineSource = defaultClineSource
     if (base !== loaded.base) patch.defaultBaseBranch = base
     if (worktreesByDefault !== loaded.worktrees) patch.worktreesByDefault = worktreesByDefault
     if (!Object.keys(patch).length) { busy = ''; notice = 'Nothing changed.'; return }
@@ -392,6 +402,24 @@
       if (life.signal.aborted) return
       fail(err)
       formMessage = err instanceof ApiError && err.message ? err.message : "Couldn't save your defaults just now. Try again."
+    } finally {
+      if (!life.signal.aborted) busy = ''
+    }
+  }
+
+  // A gated chat's switch applies at once and sends only its own agent. A refused save puts the box back as the server has it.
+  async function toggleChat(id: string, on: boolean) {
+    busy = 'chat'; formMessage = ''; notice = ''
+    try {
+      const answer = await saveProfile(chatTogglePatch(id, on))
+      if (life.signal.aborted) return
+      chatOn = answer.chatEnabled ?? chatOn
+    } catch (err) {
+      if (life.signal.aborted) return
+      fail(err)
+      const box = chatBoxes[id]
+      if (box) box.checked = chatOn[id] === true
+      formMessage = err instanceof ApiError && err.message ? err.message : "Couldn't change that just now. Try again."
     } finally {
       if (!life.signal.aborted) busy = ''
     }
@@ -445,6 +473,17 @@
         </label>
       {/if}
 
+      {#if defaultTool === 'cline'}
+        <label><span>Default source</span>
+          <select id="agents-source" aria-label="Default source" bind:value={defaultClineSource} disabled={!canWrite || busy === 'profile'}>
+            <option value="">Cline’s own choice</option>
+            {#each KNOWN_SOURCES as choice (choice.id)}<option value={choice.id}>{choice.label}</option>{/each}
+            {#if defaultClineSource && !KNOWN_SOURCES.some(choice => choice.id === defaultClineSource)}<option value={defaultClineSource}>{defaultClineSource}</option>{/if}
+          </select>
+          <small>The billing source new Cline sessions start on.</small>
+        </label>
+      {/if}
+
       <label><span>Base branch for fresh worktrees</span>
         <input id="agents-branch" aria-label="Base branch for fresh worktrees" bind:value={defaultBaseBranch} placeholder="The repository's default" autocomplete="off" spellcheck="false" maxlength="255" disabled={!canWrite || busy === 'profile'} />
         <small>Used when a session starts in a new worktree. Empty follows the repository.</small>
@@ -463,6 +502,14 @@
       {#if !profileLoaded && !loading}<button type="button" class="btn" onclick={() => void loadProfile()}>Retry</button>{/if}
     </div>
   </form>
+
+  <fieldset class="chatgate" disabled={!canWrite || loading || !profileLoaded || busy !== ''}>
+    <legend>Gaffer chats still being verified</legend>
+    <p class="muted">{CHAT_GATE_HELP}</p>
+    {#each chatToggles(chatOn) as chat (chat.id)}
+      <label class="check"><input type="checkbox" bind:this={chatBoxes[chat.id]} checked={chat.on} onchange={event => void toggleChat(chat.id, event.currentTarget.checked)} /> <span>{chat.label}</span></label>
+    {/each}
+  </fieldset>
 
   <h3>Favourite models</h3>
   {#if favMessage}<p class="notice bad" role="alert">{favMessage}</p>{/if}
@@ -560,6 +607,11 @@
   .picker .value { min-width: 0; overflow-wrap: anywhere; }
   .picker .chev { flex: none; color: var(--muted); }
   .formacts { display: flex; justify-content: flex-end; }
+  .chatgate { margin: 24px 0 0; padding: 0; border: 0; min-width: 0; }
+  .chatgate legend { padding: 0; font: 600 1.02rem/1.3 var(--sans); }
+  .chatgate .check { display: flex; align-items: center; gap: 10px; min-height: 36px; margin-top: 8px; color: var(--ink); font-size: 0.95rem; }
+  .chatgate .check input { flex: none; width: 18px; height: 18px; min-height: 0; padding: 0; accent-color: var(--accent); }
+  @media (pointer: coarse) { .chatgate .check { min-height: 44px; } }
   .favgroup { margin-top: 16px; min-width: 0; }
   .favs { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   .favs li { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--line); min-width: 0; }

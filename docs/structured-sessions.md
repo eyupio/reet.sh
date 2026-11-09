@@ -26,8 +26,8 @@ the connection's capabilities rather than querying a package registry.
 - `unverified`: an adapter is present but reet has not verified its integration.
 - `incompatible`: readable installation evidence does not meet the reviewed floor.
 
-OpenCode, Claude Code (behind its switch), Codex (behind its switch), Cline and Google Antigravity
-have reviewed integrations. Gemini entries describe missing or unverified support;
+OpenCode, Claude Code (off until an account turns it on), Codex (the same), Cline and Google Antigravity
+have reviewed integrations;
 installing an adapter alone does not enable its chat. No CLI is executed to build
 these descriptors, and availability does not establish a successful model turn or
 authentication.
@@ -90,23 +90,72 @@ that only supports AGY terminals continues to offer the terminal UI.
 The real executable was checked against a local provider stub, without a real
 Google model call. See the [AGY ACP probe](research/antigravity-acp-probe.md).
 
-### Experimental: Claude Code and Codex chats
+### Claude Code in Gaffer
 
-Claude Code and Codex chats are built end to end but dark. A machine reports either one only when the agent process itself
-runs with `REET_EXPERIMENTAL_CLAUDE_CHAT=1` or `REET_EXPERIMENTAL_CODEX_CHAT=1` in its environment, and restarting that agent
-is what applies it. An installed adapter, a machine-wide `acp` flag or a terminal session does not switch them on, and one
-machine's choice never changes another's.
+Claude Code chats run through a separate adapter, `@agentclientprotocol/claude-agent-acp`, version 0.99.1 or newer (reet was
+checked against 0.99.1; the `claude` command itself does not speak ACP). A machine needs `claude-agent-acp` on its `PATH` besides Claude Code, and an account sees the
+chat only after it turns it on in **Settings > Agents** (see [the gate](#gaffer-chats-still-being-verified-claude-code-and-codex)
+below); it is off for every account until then.
 
-When a machine opts in, its descriptor reports that agent as available and the browser offers its chat beside OpenCode. A
-Codex chat starts in `read-only` and carries the approvals control; `agent` is chosen per chat and `agent-full-access` is
-never offered. Claude reports approvals and the model switch only. Neither is proof of a signed-in turn: the descriptor is
-an observation. Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
+- **Approvals.** A chat starts only in the adapter's `default` mode, which asks before it edits a file or runs a command; a
+  session that starts in any other mode (`acceptEdits`, `plan`, `auto`) is refused rather than switched. Only the person's own
+  Claude settings apply (`settingSources` is `user`): the folder's repository settings and hooks are ignored. Provider redirects
+  and a changed configuration directory are never inherited from the environment; the only credentials passed on are
+  `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`.
+- **Model.** A chosen model is applied by switching to it and reading the switch back. The adapter resets a model it does not
+  know to `default` and says so, so a start on such a model is refused instead of claiming it.
+- **Thinking level.** The live control reads the levels from the session's own list. The Start dialog, which has no session yet,
+  offers the levels the machine's descriptor lists; a start applies the chosen one and reads it back before any prompt, and is
+  refused if the adapter does not confirm it. Which options exist depends
+  on the model. `fast` and `ultracode` are listed but not controlled.
+- **History and reconnect.** The chat's transcript is kept by reet. A lost chat reconnects under the same session id by loading
+  the adapter's stored conversation (the replay is dropped), and a closed one can continue with its history, in the same folder,
+  machine and account only. A conversation the adapter never stored is refused with its own sentence.
+- **Images.** The adapter advertises image prompts and an attachment reaches it as an image block.
+- **YOLO.** A chat takes YOLO through the same three gates as every other agent: the account setting, the machine switch and the
+  confirmation.
+- **Sign-in.** reet never starts a login. Without one on the machine the first prompt comes back as "Sign in to Claude on that
+  machine first.", with `code: "login"` on its status event.
+- **A machine with Claude Code but no adapter** says so: the Start dialog and the machine's Agents settings say reet on that
+  machine cannot find the adapter on its `PATH` and show the install command,
+  `npm install --global @agentclientprotocol/claude-agent-acp@0.99.1`, but only when the machine itself reports the adapter
+  missing. An adapter installed where reet's `PATH` does not reach it reads as missing too, in which case the command installs
+  nothing new. An older connector that reports nothing, and an account whose chat is off, get no hint.
+- **The terminal launch** is a separate path with its own options (resume, YOLO, thinking level); see
+  [launch requests](terminal-launch.md).
+
+What was measured, and where: the adapter's identity, version floor and required mode, `session/load` replay and its refusal of an
+unstored conversation, image prompts, a thinking level at `session/new`, and a launch naming a model, in the
+[probe report](research/structured-adapters/probe-report.md).
+
+**Not measured:** a signed-in Claude turn (none has been run, so the chat is not on by default); whether a real model accepts or
+understands an image; the thinking levels a real account is offered for each model; whether a Claude Code chat's id opens in
+the CLI's own `--resume`; typed questions and modes (the descriptor reports none). The first-run [device checks](device-checks.md)
+say what to record to close the signed-in gap.
+
+### Gaffer chats still being verified: Claude Code and Codex
+
+Claude Code and Codex chats are built end to end but not yet checked with a signed-in account, so each account turns them on
+for itself. In **Settings > Agents**, the group *Gaffer chats still being verified* has a box for each. The choice is stored
+with the account in reet's database, takes effect at once, and is read by every signed-in account but changed only by a
+writer. Until an account turns a chat on, its machines' descriptors show that agent as unverified, whatever is installed
+there, and a request to start one is refused as not advertised. No environment variable decides this.
+
+A machine needs the agent's chat adapter installed (`claude-agent-acp` or `codex-acp`) and a controller that advertises
+`chat-gate-v1`, the feature that says the controller applies the setting. A connector reports these two agents as available
+only to such a controller; toward an older one they stay unverified, because it could not hide them from an account that has
+not turned them on.
+
+With a chat on, the descriptor reports that agent as available and the browser offers its chat beside OpenCode. A Codex chat
+starts in `read-only` and carries the approvals control; `agent` is chosen per chat and `agent-full-access` is never
+offered. What Claude Code reports, and what was and was not measured, is in [Claude Code in Gaffer](#claude-code-in-gaffer).
+Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
 that machine first." or "Sign in to Codex on that machine first." — and the turn ends without an edit or command. That refusal
 carries `code: "login"` on its status event, so the chat heads it *"{agent} needs a sign-in"* instead of *"could not
 continue"*: it is a step a person takes, not a fault to diagnose.
 
-The switches are not a support statement. The device and login checks that would retire them, and the ledger that records
-them, are in [Device checks](device-checks.md).
+The switches are not a support statement. The device and login checks that would make these chats on by default, and the
+ledger that records them, are in [Device checks](device-checks.md).
 
 An explicit list is authoritative: a missing tool or an empty list does not fall
 back to machine-wide flags. Older peers omit the list and retain the OpenCode-only
@@ -114,6 +163,8 @@ behaviour. New descriptors are never sent to an older controller. Launches and
 history continuation both enforce the per-agent result; stored history must also
 belong to the same account, machine, tool and folder, from a closed reet session.
 No transcript, database migration or new execution control is introduced.
+
+A live Cline chat also shows a **Source** control beside **Chat model** when the session reports more than one billing source (Usage-Billing, ClinePass, or another id Cline reports). Choosing one is a confirmed switch: the connector reads the value back, and a switch that Cline refuses leaves the chat on its previous source with a plain sentence, and one it does not confirm leaves the source shown as Unconfirmed, because the change may already have happened. The model list then follows the new source. The control is disabled while a turn runs, and its star saves or clears the default source. When a chat stops for lack of credit, the error names the other sources the session offers. A source switch may be remembered by Cline for the whole machine rather than for this chat alone; that is not yet checked.
 
 The live chat's **Model** dropdown and **Make default** control appear only when that agent's available descriptor offers model switching. The dropdown lists the machine's models, any live selector values, favourites and suggestions, and choosing one applies it at once; **Other…** accepts a model the machine did not list.
 An explicit descriptor overrides machine-wide flags; an older OpenCode peer must report `acpModel`. Without that capability, the pane does not request

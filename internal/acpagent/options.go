@@ -20,7 +20,11 @@ type Options struct {
 	Home   string
 	Model  string
 	Effort string
-	Trust  bool
+	// Provider is the billing source to apply once the session is open, before
+	// Model and Effort. Empty keeps the agent's own choice. It is ignored when
+	// Resume is set: a reattach restores what the agent stored.
+	Provider string
+	Trust    bool
 	// Questions lets the session accept typed agent questions (elicitation/create).
 	// It is off in every launch today: the form capability is not advertised to
 	// the adapter, and a question that arrives anyway is cancelled.

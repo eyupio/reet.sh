@@ -37,7 +37,7 @@ func TestInstallationMatchesDeclaredBinAcrossKnownPackages(t *testing.T) {
 	for _, tc := range []struct{ agent, command, bin string }{
 		{"claude", "claude", "cli.js"}, {"claude", "claude", "bin/claude.exe"},
 		{"codex", "codex", "bin/codex.js"}, {"opencode", "opencode", "bin/opencode"},
-		{"pi", "pi", "dist/cli.js"}, {"gemini", "gemini", "bundle/gemini.js"},
+		{"pi", "pi", "dist/cli.js"},
 	} {
 		t.Run(tc.agent+tc.bin, func(t *testing.T) {
 			a, dir := packageFixture(t, tc.agent, tc.command, tc.bin)

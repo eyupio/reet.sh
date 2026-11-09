@@ -487,6 +487,10 @@ func addName(names []string, name string) ([]string, bool) {
 // in the note so the person can find it in the kept record.
 func migratedFolderProject(p Project, m ProjectMember, dir, key string) (FolderProject, []string, bool) {
 	tool, model := resolvedLaunch(p, m)
+	// A Project saved while an agent was offered may name one reet has since retired.
+	if terminalproto.RetiredTool(tool) {
+		tool, model = "", ""
+	}
 	worktrees := "no"
 	if p.UseWorktrees {
 		worktrees = "yes"

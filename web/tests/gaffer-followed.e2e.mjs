@@ -56,7 +56,7 @@ try {
       if(width===1440||width===390)await overview.screenshot({path:`${shots}/gaffer-followed-${width}-${theme}.png`})
       f.box.rows[0].goal.summary+=' <img src=x onerror="window.__overviewXss=true">'
       await overview.getByRole('button',{name:'Refresh',exact:true}).click()
-      await overview.getByRole('button',{name:'Needs you',exact:true}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
+      await overview.getByRole('button',{name:'Needs review',exact:true}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
       await overview.getByText('Review & evidence',{exact:true}).click()
       await expect(overview.getByText('<img src=x onerror="window.__overviewXss=true">',{exact:false}).first()).toBeVisible()
       expect(await w.page.evaluate(()=>window.__overviewXss)).toBeUndefined()

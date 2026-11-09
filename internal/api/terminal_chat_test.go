@@ -39,6 +39,39 @@ func TestAntigravityChatCreateKeepsItsOptionsAndTrust(t *testing.T) {
 	}
 }
 
+func clineProviderCaps(provider bool) terminalproto.Capabilities {
+	caps := chatCaps()
+	caps.AgentsV2, caps.ACPLiveControls, caps.ACPStartOptions, caps.ACPModel, caps.ACPProvider = true, true, true, true, provider
+	caps.Tools = []string{"cline"}
+	entries := []terminalproto.ACPAgent{{Tool: "cline", Adapter: "cline", State: "available", MinimumVersion: "3.0.74", History: true, Images: true, Model: true, Approval: true}}
+	caps.ACPAgents = &entries
+	return caps
+}
+
+// The browser names a Cline billing source; the controller sends it on and
+// records it in the audit detail, and refuses it for a machine that did not
+// negotiate acp-provider-v1.
+func TestTerminalCreateSendsAClineProvider(t *testing.T) {
+	f := launchAPIFixture(t, clineProviderCaps(true))
+	status, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "structured": true, "dir": "/tmp", "provider": "cline-pass", "prompt": "hello there"}))
+	if status != 200 || out["tool"] != "cline" {
+		t.Fatalf("create: %d %s", status, body)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Provider != "cline-pass" {
+		t.Fatalf("sent: %+v", sent)
+	}
+	events := launchEvents(t, f.st, f.uid)
+	if len(events) != 1 || !strings.Contains(events[0].Detail, `"provider":"cline-pass"`) {
+		t.Fatalf("audit detail: %+v", events)
+	}
+
+	old := launchAPIFixture(t, clineProviderCaps(false))
+	status, _, body = old.create(t, launchBody(old.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "structured": true, "dir": "/tmp", "provider": "cline-pass", "prompt": "hello there"}))
+	if status != 409 || !strings.Contains(body, "launch_option_unsupported") || len(old.sent()) != 0 {
+		t.Fatalf("a machine without the feature: %d %s sent=%+v", status, body, old.sent())
+	}
+}
+
 func TestChatCreatePromptAndSSE(t *testing.T) {
 	f := launchAPIFixture(t, chatCaps())
 	code, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{

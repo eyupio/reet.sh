@@ -122,6 +122,8 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   A project default is confirmed the same way when Start is pressed. YOLO is available only when an
   owner or admin has allowed it for the account, the machine accepts it and the agent has a reviewed
   option. The controller refuses it with 403 `yolo_not_allowed` or 409 `yolo_refused` otherwise.
+  Claude Code takes a thinking level, a resume (Continue) and YOLO in a terminal launch, and a Claude Code
+  chat takes YOLO through the same three gates. Opening a stored Claude Code conversation in its terminal is not offered yet.
 - **The rail.** Choosing a rail card narrows the board to that project. Its **+** and **New session
   here** open the Start an agent dialog with that project's machine, folder and defaults already
   chosen; `/?project=<id>` opens the launch modal on it once. **Select projects** in the heading's
@@ -198,11 +200,19 @@ It is one screen:
 | --- | --- |
 | **Project** (required) | The folder projects this account can start in. A project on a machine that isn't ready is listed but can't be chosen. **No project — start in a folder** is an explicit choice which reveals the folder fields. |
 | **Machine** (required) | Every terminal machine. A machine that isn't ready is listed but can't be chosen. Only a machine an action named is preselected; otherwise nothing is chosen. A machine change leaves a project that belongs to another machine. **Not listed? Add a machine** opens [Add a machine](add-machine-in-context.md). |
-| **Agent** | Claude Code, Codex, OpenCode, Gemini CLI and, on a machine with `agents-v2`, Cline and Google Antigravity (AGY). Only an agent the machine reports as installed can be chosen. Any other is listed but disabled, with the reason "Not installed on <machine>." |
+| **Agent** | Claude Code, Codex, OpenCode and, on a machine with `agents-v2`, Cline and Google Antigravity (AGY). Only an agent the machine reports as installed can be chosen. Any other is listed but disabled, with the reason "Not installed on <machine>." |
 | **Model** (optional) | The shared picker: **Agent default**, the account's favourites for this agent, the machine's list by provider, reet's suggestions and **Other…** for any model name made of letters, digits and `. _ : / @ + -`, up to 100 characters. A star adds or removes a favourite. A list is only a hint; if a model name doesn't exist, the agent says so itself. Nothing is sent for Agent default. |
-| **Thinking** | Only for an agent that takes an effort level (Cline and Google Antigravity): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
+| **Thinking** | Only for an agent that takes an effort level (Claude Code, Cline and Google Antigravity): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
+| **Source** | Only for a Cline Gaffer chat on a machine that negotiated `acp-provider-v1`: **Cline's own choice**, **Usage-Billing** or **ClinePass**. It opens on your saved default source; a saved source reet has no label for is shown as given and sent, because the dialog cannot know what the machine's Cline offers; Cline's own refusal at launch is what says no. The star saves or clears the default. Nothing is sent for Cline's own choice. If Cline cannot use the chosen source the chat is not started and the dialog says so. The default model is offered only while the chosen source is your default source. |
 | **Folder** (only under **No project**) | **Home folder**, the project folders that machine has reported, and **Type a path…**. A typed path must be absolute. The machine decides whether it may start there: the folder must exist and be inside the home folder it was enrolled with. |
 | **Opening prompt** (optional) | Up to 8,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |
+
+When Claude Code is chosen on a machine that has it installed but reports the adapter its Gaffer chat needs as missing, the dialog
+says reet on the machine cannot find the adapter on its `PATH` and shows the install command
+(`npm install --global @agentclientprotocol/claude-agent-acp@0.99.1`) under the agent list, and the
+machine's Agents settings show it under Claude Code. Nothing is shown when the adapter is there, when the machine reports nothing
+about it, or when your account has the Claude Code chat turned off. See [Claude Code in
+Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#claude-code-in-gaffer).
 
 Opening the dialog applies a model marked as the default for the chosen agent first; otherwise the
 project's default model applies (when the dialog has a project), then the account's. A project also
@@ -287,11 +297,15 @@ attempt did start, it appears in your sessions list on the next refresh.
 
 ## Limits
 
-- Agents: `claude`, `codex`, `opencode`, `gemini` and, with `agents-v2`, `cline`. A machine offers only
+- Agents: `claude`, `codex`, `opencode` and, with `agents-v2`, `cline`. A machine offers only
   the ones whose program it finds on its `PATH`. `pi` and `cursor` aren't offered until their launch
   syntax is confirmed.
+- Gemini CLI is retired. reet no longer starts or manages it, a request that names `gemini` is refused like any
+  unknown agent, an older connector that still reports it is ignored, and a saved default that named it is cleared
+  when reet upgrades. Past sessions and run records are kept and still read as "Gemini CLI".
 - Folder: inside the enrolled home, symlinks followed. Wider roots would be a deliberate later
   setting.
+- Source: a provider id Cline reports, from the same character set as a model name. It is sent as `provider` only for a structured Cline create, only to a machine that negotiated `acp-provider-v1`, and never stored with the session. Not yet checked against a signed-in Cline (see the Cline probe notes).
 - Model: 1 to 100 characters from the set above. Prompt: 8,000 bytes. Typed folder: 4,096 bytes.
 - The opening prompt can't start with `-`. For Claude Code, Codex and Cline it must be at least two words.
 - No agent status (working, waiting or idle), no resuming an earlier conversation and no Windows

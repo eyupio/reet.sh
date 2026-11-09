@@ -15,7 +15,7 @@ func TestLaunchCapabilityRequiresNegotiationAndTerminalControl(t *testing.T) {
 	factory := func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
 		return nil, func() {}
 	}
-	tools := func() []string { return []string{"claude", "gemini"} }
+	tools := func() []string { return []string{"claude", "codex"} }
 	for _, tc := range []struct {
 		name      string
 		cfg       AgentConfig
@@ -25,7 +25,7 @@ func TestLaunchCapabilityRequiresNegotiationAndTerminalControl(t *testing.T) {
 		{"not negotiated", AgentConfig{TerminalSession: factory, LaunchTools: tools}, false, nil},
 		{"no terminal control", AgentConfig{launch: true, LaunchTools: tools}, false, nil},
 		{"no launch helper", AgentConfig{TerminalSession: factory, launch: true}, false, nil},
-		{"negotiated", AgentConfig{TerminalSession: factory, launch: true, LaunchTools: tools}, true, []string{"claude", "gemini"}},
+		{"negotiated", AgentConfig{TerminalSession: factory, launch: true, LaunchTools: tools}, true, []string{"claude", "codex"}},
 		{"nothing installed", AgentConfig{TerminalSession: factory, launch: true, LaunchTools: func() []string { return []string{} }}, true, nil},
 		{"unknown ids dropped", AgentConfig{TerminalSession: factory, launch: true, LaunchTools: func() []string { return []string{"vim", "codex"} }}, true, []string{"codex"}},
 	} {

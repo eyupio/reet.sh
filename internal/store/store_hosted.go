@@ -213,7 +213,16 @@ func (s *Store) SaveHostedSkill(userID int64, sk HostedSkill) (HostedSkill, erro
 	if err != nil {
 		return sk, err
 	}
-	return scanHosted(s.db.QueryRow(`SELECT `+hostedCols+` FROM hosted_skills WHERE user_id=? AND slug=?`, userID, sk.Slug))
+	saved, err := scanHosted(s.db.QueryRow(`SELECT `+hostedCols+` FROM hosted_skills WHERE user_id=? AND slug=?`, userID, sk.Slug))
+	if err != nil {
+		return saved, err
+	}
+	// The author's saved bytes remain available even if this item's private
+	// capture hits a limit. Keep its last complete revision and report locally.
+	if _, captureErr := s.hostedPrivateSource(userID, saved); captureErr != nil {
+		_, err = s.db.Exec(`UPDATE library_items SET problem=? WHERE user_id=? AND id=(SELECT item_id FROM library_aliases WHERE user_id=? AND kind='hosted' AND reference=?)`, captureErr.Error(), userID, userID, sk.Slug)
+	}
+	return saved, err
 }
 
 func (s *Store) DeleteHostedSkill(userID int64, slug, skillID string) error {
@@ -314,6 +323,14 @@ func (s *Store) RenameHostedSkill(userID int64, slug, newSlug string, oldRef, ne
 		}
 		content := renameHostedContent(old.Content, newSlug)
 		at := now()
+		// Move the logical identity before inserting the new display slug. The
+		// insert trigger reuses it; deleting the old slug cannot retire it.
+		if _, err := tx.Exec(`UPDATE library_aliases SET reference=? WHERE user_id=? AND kind='hosted' AND reference=?`, newSlug, userID, slug); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE library_items SET name=?,updated_at=? WHERE user_id=? AND id=(SELECT item_id FROM library_aliases WHERE user_id=? AND kind='hosted' AND reference=?)`, newSlug, at, userID, userID, newSlug); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`INSERT INTO hosted_skills(user_id,slug,description,content,files,published,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
 			userID, newSlug, old.Description, content, string(files), old.Published, old.CreatedAt, at); err != nil {
 			return err
@@ -339,6 +356,9 @@ func moveHostedReferencesTx(tx *sql.Tx, oldRef, newRef ref.Ref) error {
 	notHosted := oldRef.SourceType != "hosted" || newRef.SourceType != "hosted"
 	if notHosted || oldRef.ID == newRef.ID {
 		return nil
+	}
+	if _, err := tx.Exec(`UPDATE library_aliases SET reference=? WHERE kind='shelf' AND reference=?`, newRef.ID, oldRef.ID); err != nil {
+		return err
 	}
 	var one int
 	err := tx.QueryRow(`SELECT 1 FROM skills WHERE id=?`, oldRef.ID).Scan(&one)

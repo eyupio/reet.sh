@@ -96,11 +96,61 @@ id, `err.message` and `msg` `Interactive turn failed`; a failed stream adds
 lines for this chat after the turn started, so the turn now ends with the reason
 instead of no reply. The message store itself is still display-only and not read.
 
+## Provider (billing source) switching
+
+Cline's `session/new` reports a `provider` option (category `_provider`) beside the model. reet surfaces it as a
+billing source (Usage-Billing for `cline`, ClinePass for `cline-pass`) and switches it with
+`session/set_config_option`, confirmed by reading it back, behind the `acp-provider-v1` feature. This has been built
+against a fake Cline only. Three facts are **not yet checked against a signed-in Cline**:
+
+1. Whether Cline accepts `provider` in `session/set_config_option` (the probe above proved `model` and `mode`).
+2. How a free source is exposed: as its own provider id, or as a filter over the `cline` provider's models. Until it
+   is known, Start an agent and Settings offer Usage-Billing and ClinePass, and a live chat shows whatever sources
+   Cline reports.
+3. Whether a switch is kept for one chat or written to Cline's own folder for the whole machine.
+
+`scripts/probe-cline-provider.py` answers all three without a model call. It copies a signed-in Cline folder to a
+private temporary directory, sets each provider the session lists, and reports the read-back, the size of the model
+list after each switch, whether a fresh session sees the switch, the files that changed and any provider or model id
+that looks like a free source. Run it on a machine where Cline is signed in, then record the result here.
+
+## Gaffer | Cline TUI switching (not yet checked)
+
+The Chat | Terminal switch is offered for OpenCode only (`switchModeState` in `web/src/lib/sessions.ts`), and Cline's
+catalogue row has no `SessionArgs`, so `launchArgv` refuses a launch on a chat's id with `launch_option_unsupported`.
+Cline's own `--help` lists `--id <session-id>` ("Resume an existing session by ID"), but nobody has checked what
+`cline --tui --id <chat id>` does with an id that `cline --acp` created. Three things decide whether the switch can be
+built, and the other two parts of it (the controller's `SwitchSessionMode` and the connector's `swap`) already work for
+any reviewed chat tool:
+
+1. Does the TUI accept the chat's `_cli` id, or refuse it?
+2. Does it keep that id, or start a new task id? reet accepts only `_cli` handles (`validClineSessionID`), so a forked
+   id could not be carried back to Gaffer, which is what the TUI's own un-suffixed ids look like.
+3. Does `session/load` still open the id after the TUI has run on it?
+
+`scripts/probe-cline-tui-resume.py` answers all three without a model call, against a private copy of `~/.cline`, and
+ends with plain-sentence verdicts. Run it on a machine where Cline is signed in, then record the result here before
+adding `SessionArgs: []string{"--id"}` to the Cline row and opening the web gate.
+
+## A turn that ends with no reply
+
+Cline ends a failed turn without an ACP frame (see "Failure without an ACP frame"). When it also logs nothing reet can
+read for that chat, for example a provider id that Cline does not accept, the chat used to show "Ready for your next
+instruction" under an unanswered prompt. It now adds a notice that the agent ended the turn without a reply and gave no
+reason. The cause of an empty turn on a real machine is read from the tail of `<CLINE_DIR>/data/logs/cline.log`.
+
 ## What this does not establish
 
 - A successful turn with images, MCP tools or a subagent.
+- That the `provider` option can be set, how a free source is named, or whether a switch outlives the chat (see above).
 - That every future 3.0.x reports the same ids, option names or kinds. The
   version floor is 3.0.74, and a changed shape is refused at launch rather than
   guessed.
 - That a signed-in Cline on another machine has the same provider selection; the
   descriptor carries no version or login claim.
+
+### Interpreting the TUI resume probe
+
+A failed or missing history read means continuity is unknown. A TUI process that stays alive with `--id`, or a successful history comparison showing no new task id, does not by itself establish that the TUI displayed the same conversation. A successful `session/load` afterward establishes that the id can be loaded, not that transcript continuity through the TUI was verified. Keep the switch disabled until the signed-in content check establishes that behavior.
+
+Credential-free verdict regressions run through `go test ./scripts -run '^TestClineTUIProbeVerdicts$'` when Python 3 is installed, or directly with `python3 -B scripts/test_probe_cline_tui_resume.py`. They cover failed/missing history, TUI refusal, absent chat ids, no observed new ids and a possible fork. They start no Cline process and spend no model tokens.

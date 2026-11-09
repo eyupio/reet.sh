@@ -135,7 +135,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)),
 			terminalproto.SupportsACPToolDetails(headers.Get(terminalproto.FeatureHeader)),
 			terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)), terminalproto.SupportsACPPreviews(headers.Get(terminalproto.FeatureHeader)),
-			terminalproto.SupportsACPModelCatalogue(headers.Get(terminalproto.FeatureHeader)))
+			terminalproto.SupportsACPModelCatalogue(headers.Get(terminalproto.FeatureHeader)), terminalproto.SupportsACPProvider(headers.Get(terminalproto.FeatureHeader)))
 		m, managerErr := terminalhost.NewManager(ctx, opts)
 		switcher := &agentSwitch{chats: chats, shells: swapShells(m)}
 		// swaps tracks the mode swaps in flight. A swap outlives a lost
@@ -303,6 +303,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 				needsStartOptions := create.Structured && create.Effort != ""
 				if needsStartOptions && !terminalproto.SupportsACPStartOptions(headers.Get(terminalproto.FeatureHeader)) {
+					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
+					return send(callCtx, reply)
+				}
+				if create.Provider != "" && !terminalproto.SupportsACPProvider(headers.Get(terminalproto.FeatureHeader)) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}

@@ -24,11 +24,21 @@ test('Gaffer launch effort follows the selected machine and agent, while termina
   { id: 'reasoning_effort', category: 'thought_level', values: ['low','high','ultra'] },
   { id: 'collaboration_mode', category: 'collaboration_mode', values: ['default','plan'] },
  ] }] }
+ // The Start dialog reads the agent's own thinking levels, never a list of ours; the agent confirms the value before any prompt.
  assert.deepEqual(launchOptions.launchEfforts('codex', caps, true), ['', 'low','high','ultra'])
+ const claudeCaps = { acp: true, acpLiveControls: true, acpStartOptions: true, acpAgents: [{ tool: 'claude', adapter: 'claude-agent-acp', state: 'available', options: [
+  { id: 'effort', category: 'thought_level', values: ['default','low','medium','high','xhigh','max'] },
+  { id: 'fast', category: 'model_config', values: ['on','off'] },
+ ] }] }
+ assert.deepEqual(launchOptions.launchEfforts('claude', claudeCaps, true), ['', 'low','medium','high','xhigh','max'])
  assert.deepEqual(launchOptions.launchEfforts('claude', caps, true), [''])
  assert.deepEqual(launchOptions.launchEfforts('codex', {...caps,acpStartOptions:false}, true), [''])
  assert.deepEqual(launchOptions.launchEfforts('cline', caps, false), ['', 'low','medium','high'])
  assert.match(launchOptions.effortHelp('codex', caps, true), /chosen model/)
+})
+
+test('a terminal launch of Claude Code offers the three thinking levels a start carries', () => {
+ assert.deepEqual(effortChoices('claude'), ['', 'low', 'medium', 'high'])
 })
 
 test('providers, deduplication and recent models', () => {
@@ -140,7 +150,7 @@ test('model options without a machine list stay honest and selectedModel wins ov
 
 test('launch defaults follow the precedence chain and never take a mismatched default', () => {
   assert.deepEqual(resolveLaunchDefaults({ availableAgents: [] }), { agent: '', model: '', effort: '' })
-  assert.deepEqual(resolveLaunchDefaults({ availableAgents: ['gemini', 'claude'] }), { agent: 'gemini', model: '', effort: '' })
+  assert.deepEqual(resolveLaunchDefaults({ availableAgents: ['opencode', 'claude'] }), { agent: 'opencode', model: '', effort: '' })
 
   assert.deepEqual(resolveLaunchDefaults({
     explicitAgent: 'cline',
@@ -157,24 +167,24 @@ test('launch defaults follow the precedence chain and never take a mismatched de
   }), { agent: 'cline', model: 'account-model', effort: 'low' })
 
   assert.deepEqual(resolveLaunchDefaults({
-    explicitAgent: 'gemini',
+    explicitAgent: 'opencode',
     project: { defaultTool: 'claude', defaultModel: 'project-model', defaultEffort: 'high' },
     account: { defaultTool: 'claude', defaultModel: 'account-model', defaultEffort: 'high' },
     favouriteDefault: { tool: 'claude', model: 'favourite-model' },
-    availableAgents: ['claude', 'gemini'],
-  }), { agent: 'gemini', model: '', effort: '' })
+    availableAgents: ['claude', 'opencode'],
+  }), { agent: 'opencode', model: '', effort: '' })
 
   assert.deepEqual(resolveLaunchDefaults({
     project: { defaultTool: 'claude', defaultModel: 'project-model' },
     account: { defaultTool: 'claude', defaultModel: 'account-model', defaultEffort: 'high' },
     availableAgents: ['claude'],
-  }), { agent: 'claude', model: 'project-model', effort: '' })
+  }), { agent: 'claude', model: 'project-model', effort: 'high' })
 
   assert.deepEqual(resolveLaunchDefaults({
-    project: { defaultTool: 'gemini', defaultModel: '' },
-    account: { defaultTool: 'gemini', defaultModel: 'account-model' },
-    availableAgents: ['gemini'],
-  }), { agent: 'gemini', model: 'account-model', effort: '' })
+    project: { defaultTool: 'opencode', defaultModel: '' },
+    account: { defaultTool: 'opencode', defaultModel: 'account-model' },
+    availableAgents: ['opencode'],
+  }), { agent: 'opencode', model: 'account-model', effort: '' })
 
   assert.deepEqual(resolveLaunchDefaults({
     account: { defaultTool: 'cline', defaultModel: 'account-model', defaultEffort: 'low' },
@@ -203,13 +213,13 @@ test('launch defaults follow the precedence chain and never take a mismatched de
 
   assert.deepEqual(resolveLaunchDefaults({
     favouriteDefault: 'string-model',
-    availableAgents: ['gemini'],
-  }), { agent: 'gemini', model: 'string-model', effort: '' })
+    availableAgents: ['opencode'],
+  }), { agent: 'opencode', model: 'string-model', effort: '' })
 
   assert.deepEqual(resolveLaunchDefaults({
     project: { defaultTool: 'claude', defaultModel: 'project-model', defaultEffort: 'high' },
     availableAgents: ['claude'],
-  }), { agent: 'claude', model: 'project-model', effort: '' })
+  }), { agent: 'claude', model: 'project-model', effort: 'high' })
 })
 
 const now = Date.now()
@@ -266,7 +276,7 @@ test('formatAge uses seconds, minutes, hours and days and leaves gaps blank', ()
 
 test('effort choices, favourite moves, keys and star labels', () => {
   assert.deepEqual(effortChoices('cline'), ['', 'low', 'medium', 'high'])
-  assert.deepEqual(effortChoices('claude'), [''])
+  assert.deepEqual(effortChoices('claude'), ['', 'low', 'medium', 'high'])
   assert.deepEqual(effortChoices('unknown'), [''])
 
   const items = ['a', 'b', 'c']
@@ -408,4 +418,19 @@ test('model favourite clients use the documented routes, methods and bodies', as
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('the default model follows the saved Cline source', () => {
+  const favourite = { tool: 'cline', model: 'm/fav' }
+  const resolve = (account, chosenSource) => resolveLaunchDefaults({ explicitAgent: 'cline', account, favouriteDefault: favourite, chosenSource, availableAgents: ['cline'] }).model
+  const saved = { defaultTool: 'cline', defaultClineSource: 'cline-pass' }
+  assert.equal(resolve(saved, 'cline'), '')
+  assert.equal(resolve(saved, 'cline-pass'), 'm/fav')
+  assert.equal(resolve(saved, undefined), 'm/fav')
+  assert.equal(resolve({ defaultTool: 'cline' }, 'cline'), 'm/fav')
+  const withModel = { defaultTool: 'cline', defaultModel: 'm/acct', defaultClineSource: 'cline-pass' }
+  assert.equal(resolveLaunchDefaults({ explicitAgent: 'cline', account: withModel, chosenSource: 'cline', availableAgents: ['cline'] }).model, '')
+  assert.equal(resolveLaunchDefaults({ explicitAgent: 'cline', account: withModel, chosenSource: 'cline-pass', availableAgents: ['cline'] }).model, 'm/acct')
+  // Another agent's model is never touched by a Cline source.
+  assert.equal(resolveLaunchDefaults({ explicitAgent: 'codex', account: { defaultTool: 'codex', defaultModel: 'm/codex', defaultClineSource: 'cline-pass' }, chosenSource: 'cline', availableAgents: ['codex'] }).model, 'm/codex')
 })

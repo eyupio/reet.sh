@@ -1,5 +1,6 @@
 import type { FolderProject, MachineHealth, TerminalMachine, TerminalSession, SessionState } from './terminal/api'
-import type { SyncJob, SyncState } from './api'
+import type { GafferGoalOverview, SyncJob, SyncState } from './api'
+import { ATTENTION_WINDOW_MS, attentionRuleOf } from './attention'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
 // No DOM, no fetch. Every figure is labelled with what it measures and comes from a record that exists today:
@@ -42,8 +43,11 @@ export type HomeSession = TerminalSession
 export type GroupBy = 'project' | 'machine' | 'state'
 export type Group = { key: string; label: string; count: number; sessions: HomeSession[] }
 export type NeedKind = 'waiting' | 'failed' | 'review' | 'finished'
+/** Why a card needs the person: what the session holds open for them, or how it ended. */
+export type NeedReason = 'approval' | 'question' | 'failed' | 'finished' | 'review' | 'gaffer'
 export type NeedCard = {
   kind: NeedKind
+  reasons: NeedReason[]
   label: string
   tone: Tone
   sessionId: string
@@ -64,7 +68,7 @@ export type NeedCard = {
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR
 const LIVE: ReadonlySet<SessionState> = new Set(['creating', 'running', 'end_requested'])
 /** A finished session stays in In flight this long after its last state change, then only Sessions lists it. */
-export const FINISHED_KEPT_MS = DAY
+export const FINISHED_KEPT_MS = ATTENTION_WINDOW_MS
 
 const live = (s: Pick<TerminalSession, 'state'>): boolean => LIVE.has(s.state)
 
@@ -338,17 +342,19 @@ export function needsYou(
 ): NeedCard[] {
   const out: NeedCard[] = []
   for (const s of sessions) {
-    if (!s.attention) continue
+    const rule = attentionRuleOf(s, now)
+    if (!rule) continue
     const owner = owners.get(s.id)
     const host = machineName(s.agentId, [...machines])
     const where = [owner?.name, host].filter(Boolean).join(' · ')
     const href = `/sessions?agent=${encodeURIComponent(s.agentId)}&session=${encodeURIComponent(s.id)}`
-    if (s.attention === 'waiting' && s.changedSinceSeen) {
+    if (rule === 'waiting') {
       const at = s.bellAt && s.bellAt > 0 ? s.bellAt : s.updatedAt
       // A question is answered in the chat, where its whole card is; an approval, when both wait, is answered first.
       const asking = !s.pendingPermission?.permissionId && !!s.pendingQuestion?.questionId
       out.push({
         kind: 'waiting',
+        reasons: [...(s.pendingPermission?.permissionId ? ['approval' as const] : []), ...(s.pendingQuestion?.questionId ? ['question' as const] : [])],
         label: asking ? 'Question for you' : 'Waiting for you',
         tone: 'warn',
         sessionId: s.id,
@@ -365,11 +371,11 @@ export function needsYou(
       })
       continue
     }
-    if (!s.changedSinceSeen || now - s.updatedAt > FINISHED_KEPT_MS) continue
-    if (s.attention === 'failed') {
+    if (rule === 'failed') {
       const at = s.updatedAt
       out.push({
         kind: 'failed',
+        reasons: ['failed'],
         label: s.state === 'lost' ? 'Connection lost' : 'Exited with an error',
         tone: 'bad',
         sessionId: s.id,
@@ -382,11 +388,12 @@ export function needsYou(
         markSeen: true,
         worktreeTarget: null,
       })
-    } else if (s.attention === 'finished') {
+    } else {
       const at = s.updatedAt
       const review = !!s.worktreePath
       out.push({
         kind: review ? 'review' : 'finished',
+        reasons: [review ? 'review' : 'finished'],
         label: review ? 'Ready to review' : 'Finished',
         tone: review ? 'good' : 'muted',
         sessionId: s.id,
@@ -406,6 +413,25 @@ export function needsYou(
 
 export function attentionCount(cards: NeedCard[]): number {
   return cards.length
+}
+
+/**
+ * A Gaffer goal that needs review on a session which already has a card is a second reason on that card, not a second thing
+ * to count. Every other goal that needs review is returned as `unfolded`. The cards passed in are not changed.
+ */
+export function foldGafferGoals(cards: NeedCard[], goals: readonly GafferGoalOverview[] | undefined): { cards: NeedCard[]; unfolded: number } {
+  if (!goals) return { cards, unfolded: 0 }
+  const carded = new Set(cards.map(c => c.sessionId))
+  const folded = new Set<string>()
+  let unfolded = 0
+  for (const row of goals) {
+    if (!row.attention) continue
+    const id = row.session?.id
+    if (id && carded.has(id)) folded.add(id)
+    else unfolded++
+  }
+  if (!folded.size) return { cards, unfolded }
+  return { cards: cards.map(c => folded.has(c.sessionId) && !c.reasons.includes('gaffer') ? { ...c, reasons: [...c.reasons, 'gaffer'] } : c), unfolded }
 }
 
 /**

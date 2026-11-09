@@ -13,6 +13,8 @@
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from '../launchBar'
+  import { signalAttentionChanged } from '../attentionSignal'
+  import { attentionRuleOf } from '../attention'
   import { structuredAgent, markSessionSeen, setApprovalMode, setSessionMode, terminalArchivable, terminalClosed, TerminalError, type ApprovalMode, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import ContextPanel from './ContextPanel.svelte'
   import type { ChatState } from '../chat'
@@ -24,6 +26,7 @@
   import SessionViewSwitch from './SessionViewSwitch.svelte'
   import { PHONE_SCREEN } from '../terminal/sizing'
   import { CONTEXT_DEFAULT, CONTEXT_MIN, clampContextWidth, contextLayoutRecord, readContextLayout, widestContext } from './contextLayout'
+  import { SWITCH_LIVE_CHAT_HINT } from '../chatAgents'
 
   // The session screen: identity above a wrapping toolbar for interface, approvals, theatre, management and terminal
   // actions. The live terminal is the workspace's (children), and the context panel sits beside it, toggled from the
@@ -129,12 +132,22 @@
 
   // Opening a session marks it seen on the controller so its Needs you card clears across devices.
   let lastMarkedId = ''
+  // The session the surfaces were last told about. It is cleared only once the session is seen as seen, so one unseen
+  // stretch signals once: a session the server keeps calling unseen (a bell that keeps ringing, a shell still printing)
+  // is re-marked on each refresh but must not signal each time, or every refresh would trigger the next.
+  let signalledFor = ''
   $effect(() => {
     const sid = session.id
+    if (!session.changedSinceSeen && signalledFor === sid) signalledFor = ''
     if (!sid || (sid === lastMarkedId && !session.changedSinceSeen && session.attention !== 'waiting')) return
     lastMarkedId = sid
     if (session.changedSinceSeen || session.attention === 'waiting') {
-      void markSessionSeen(sid).catch(() => {})
+      // Read before the await: only clearing something the surfaces were counting changes what they show (a busy shell is
+      // unseen again whenever its terminal moves but is never counted). A failed mark signals nothing.
+      const wasCounted = !!session.changedSinceSeen && attentionRuleOf(session, Date.now()) !== null
+      void markSessionSeen(sid).then(() => {
+        if (wasCounted && signalledFor !== sid) { signalledFor = sid; signalAttentionChanged() }
+      }, () => {})
     }
   })
 
@@ -185,7 +198,7 @@
     { label: 'This agent has an option reet can use', ok: agentTakesYolo,
       detail: agentTakesYolo ? 'the option is recorded for this session' : 'This agent has no option reet can use for that.' },
     { label: 'This chat can switch while it runs', ok: !!structuredAgent(machineCaps, session.tool)?.approval,
-      detail: structuredAgent(machineCaps, session.tool)?.approval ? 'update reet on the machine if this is ever refused' : 'Update reet on that machine to switch a live chat.' },
+      detail: structuredAgent(machineCaps, session.tool)?.approval ? 'update reet on the machine if this is ever refused' : SWITCH_LIVE_CHAT_HINT(session.tool ?? '') },
   ])
   $effect(() => {
     if (session.id !== modeFor) { modeFor = session.id; approvalMode = session.yolo ? 'yolo' : 'ask' }

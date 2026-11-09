@@ -86,18 +86,20 @@ func TestLaunchArgvResumeOnlyForAReviewedPreset(t *testing.T) {
 	}{
 		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", Resume: true}, []string{"/opt/fake/bin/opencode", "--continue"}},
 		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", Model: "m", Resume: true}, []string{"/opt/fake/bin/opencode", "--continue", "--model", "m"}},
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Resume: true}, []string{"/opt/fake/bin/claude", "--continue"}},
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Model: "m", Resume: true}, []string{"/opt/fake/bin/claude", "--continue", "--model", "m"}},
 	} {
 		got, err := LaunchArgv(tc.in, look)
 		if err != nil || !reflect.DeepEqual(got, tc.want) {
 			t.Fatalf("resume %q: got %q, %v; want %q", tc.in.Model, got, err, tc.want)
 		}
 	}
-	for _, tool := range []string{"claude", "codex", "cline", "antigravity"} {
+	for _, tool := range []string{"codex", "cline", "antigravity"} {
 		if _, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, Resume: true}, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
 			t.Fatal(tool, "resume without a reviewed command", err)
 		}
 	}
-	if SupportsResume("claude") || !SupportsResume("opencode") {
+	if !SupportsResume("claude") || !SupportsResume("opencode") || SupportsResume("codex") {
 		t.Fatal("resume advertised for the wrong presets")
 	}
 }
@@ -391,6 +393,36 @@ func TestLaunchArgvOpenCodeSession(t *testing.T) {
 	}
 }
 
+// Claude Code opens its terminal on a stored conversation with --resume <id>; YOLO and the model come before and after it.
+func TestLaunchArgvClaudeSession(t *testing.T) {
+	look := fakeLookPath("claude")
+	const id = "0b9f6a1c-3d2e-4f5a-8b7c-1234567890ab"
+	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "claude", LaunchSession: id, Model: "m", Yolo: true}
+	got, err := LaunchArgv(in, look)
+	want := []string{"/opt/fake/bin/claude", "--dangerously-skip-permissions", "--resume", id, "--model", "m"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, %v; want %q", got, err, want)
+	}
+	in.Yolo, in.Model = false, ""
+	got, err = LaunchArgv(in, look)
+	want = []string{"/opt/fake/bin/claude", "--resume", id}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, %v; want %q", got, err, want)
+	}
+}
+
+// Claude Code's thinking level maps only the three levels a terminal launch carries.
+func TestLaunchArgvClaudeEffort(t *testing.T) {
+	look := fakeLookPath("claude")
+	for _, level := range []string{"low", "medium", "high"} {
+		got, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "claude", Effort: level}, look)
+		want := []string{"/opt/fake/bin/claude", "--effort", level}
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("effort %s: got %q, %v; want %q", level, got, err, want)
+		}
+	}
+}
+
 func TestLaunchArgvSessionRefusesResumeAndStructured(t *testing.T) {
 	look := fakeLookPath("opencode")
 	base := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", LaunchSession: "ses_abc123XYZ"}
@@ -412,8 +444,8 @@ func TestLaunchArgvSessionRefusesResumeAndStructured(t *testing.T) {
 // preset has no sessionArgs and which still passes Validate: today that is
 // claude with a UUID-shaped id.
 func TestLaunchArgvSessionUnsupportedTool(t *testing.T) {
-	look := fakeLookPath("claude")
-	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "claude", LaunchSession: "11111111-2222-3333-4444-555555555555"}
+	look := fakeLookPath("codex")
+	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", LaunchSession: "11111111-2222-3333-4444-555555555555"}
 	if _, err := LaunchArgv(in, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@
   import { shell } from '../dialogShell'
   import CopyButton from '../CopyButton.svelte'
   import type { TerminalSession } from '../terminal/api'
+  import PromptMessage from './PromptMessage.svelte'
   import { startLabel } from './runClock'
 
   // The parent decides what the text is and whether it is the whole prompt: `ready` means it is, `loading` and `failed`
@@ -34,7 +35,7 @@
     {#if session.yolo}<span class="chip warn">YOLO</span>{/if}
   </div>
   <div class="body" data-shell-body>
-    {#if phase === 'none'}<p class="muted">{notKept}</p>{:else}<div class="text">{text}</div>{/if}
+    {#if phase === 'none'}<p class="muted">{notKept}</p>{:else}<PromptMessage text={text} />{/if}
   </div>
   <footer data-shell-foot>
     <p class="status" role="status">{#if phase === 'loading'}Loading the full prompt…{/if}</p>
@@ -53,7 +54,6 @@
   .chip { border-radius: 6px; padding: 3px 9px; background: var(--tint); color: var(--muted); font: 500 14px var(--mono); overflow-wrap: anywhere; }
   .chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
   .body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 20px; }
-  .text { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 var(--sans); }
   .muted { margin: 0; color: var(--muted); font-size: 14px; }
   footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px 12px; padding: 12px 20px; border-top: 1px solid var(--line); }
   footer .status, footer .failure { margin: 0; flex: 1 1 12em; min-width: 0; font-size: 14px; color: var(--muted); }

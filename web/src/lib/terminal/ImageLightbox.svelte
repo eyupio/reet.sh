@@ -24,7 +24,7 @@
  })
 </script>
 
-<svelte:window onkeydown={keydown} />
+<svelte:window onkeydowncapture={keydown} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="lightbox" role="dialog" tabindex="-1" aria-modal="true" aria-label={`Image preview: ${current?.name ?? ''}`} transition:fade={{ duration: 140 }} onclick={(event) => { if (event.target === event.currentTarget) onclose() }}>

@@ -86,11 +86,40 @@ controller's Activity.
 
 ## Automation
 
-An owner or admin can turn on **Settings › Admin › Repository maintenance**:
-after a worktree is removed, reet plans and prunes the merged local branches in
-the repository that worktree came from. It is off by default, uses the same
-proof and deletion rules, and writes the same `branches-prune` audit row with
-`automatic` set. Anything that fails is left for the person to see.
+After a worktree is removed, reet cleans up the repository that worktree came
+from, in this order:
+
+1. **Sync.** It fetches `origin`'s main (the repository's default branch) and
+   fast-forwards the folder to it, so work merged by a pull request is in the
+   local main before anything is judged merged.
+2. **Prune.** It plans and prunes the merged local branches, with the same
+   proof and deletion rules as above.
+
+It is **on by default**. An owner or admin can turn it off in
+**Settings › Admin › Repository maintenance**. Each run writes a `branch-sync`
+and a `branches-prune` audit row with `automatic` set. Anything that fails is
+left for the person to see, and a failed sync does not stop the prune.
+
+The sync only ever fast-forwards. It changes the folder with
+`git merge --ff-only` and nothing else: no stash, reset, checkout or force. The
+folder is left exactly as it was, with the reason in the audit row's `status`,
+when:
+
+| `status` | Why nothing changed |
+| --- | --- |
+| `current` | Already up to date. |
+| `dirty` | Uncommitted changes to tracked files, or git would overwrite a file. |
+| `off_base` | Another branch (or a detached HEAD) is checked out; main was fetched only. |
+| `diverged` | The local main has commits the remote lacks. |
+| `busy` | A merge, rebase, cherry-pick, revert or bisect is in progress. |
+| `no_remote` | No `origin`, or it has no such branch. |
+| `fetch_failed` | git could not reach the remote (network, or credentials that need an ssh agent or helper outside reet's pinned git environment). |
+
+A successful fast-forward is `updated`. The merge runs with repository hooks
+disabled, like a worktree add.
+
+A squash merge on the remote lands as a new commit, so the branch it came from
+is still not provably merged locally and is kept; see the proof above.
 
 ## Protocol
 
@@ -100,6 +129,12 @@ The machine answers two messages after negotiating `branch-prune-v1`:
   with its tip and a skip reason or none.
 - `branch_prune {dir, base, branches[{name, oid}]}` → `branch_prune_result`,
   the deleted names and anything skipped.
+
+After negotiating `branch-sync-v1`, a third:
+
+- `branch_sync {dir, base?}` → `branch_sync_result {status, base}` (or a
+  `reason` when the folder is refused). The deadline is 45 seconds, since a
+  fetch reaches the network. A machine without the capability is skipped.
 
 The folder must be the top of a git repository inside the user's home, git
 runs as an argument vector with the hardened environment, and the work is

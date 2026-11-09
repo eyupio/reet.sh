@@ -107,8 +107,8 @@ try {
     await expect(page.getByText('YOLO is allowed for this account.', { exact: true })).toBeVisible()
     expect(calls.yolo).toEqual([{ allowed: true }])
 
-    await page.getByRole('checkbox', { name: 'Prune merged branches after a worktree is removed' }).check()
-    await expect(page.getByText('Merged local branches are pruned after a worktree is removed.', { exact: true })).toBeVisible()
+    await page.getByRole('checkbox', { name: 'Clean up after a worktree is removed (update main, prune merged branches)' }).check()
+    await expect(page.getByText('The repository is updated to main and merged local branches are pruned after a worktree is removed.', { exact: true })).toBeVisible()
     expect(calls.prune).toEqual([{ afterWorktree: true }])
 
     await page.getByRole('checkbox', { name: 'Serve the reviewed artifact to machines' }).check()

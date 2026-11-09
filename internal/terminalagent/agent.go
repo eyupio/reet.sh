@@ -44,6 +44,9 @@ var (
 	// branchPruneAnswerAfter bounds a plan or prune that has not returned.
 	// Its own deadline is 20 s, which is under this answer.
 	branchPruneAnswerAfter = 22 * time.Second
+	// branchSyncAnswerAfter bounds a sync that has not returned. Its own
+	// deadline is 45 s, which is under this answer.
+	branchSyncAnswerAfter = 48 * time.Second
 	// modelsAnswerAfter is when a model listing that has not returned is
 	// answered timed_out and its slot freed. ListModels kills its process at
 	// 10 s; this leaves room for the reply and process reaping.
@@ -512,6 +515,23 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.BranchPruneResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchPruneResult{Reason: terminalproto.BranchesGitFailed},
 					func(ctx context.Context) terminalproto.Body {
 						return terminalhost.PruneBranches(ctx, home, req, git)
+					})
+			case *terminalproto.BranchSync:
+				if !terminalproto.SupportsBranchSync(headers.Get(terminalproto.FeatureHeader)) {
+					return terminalproto.ErrInvalid
+				}
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesDenied}
+					return send(callCtx, reply)
+				}
+				req, home, git := *op, opts.Home, opts.Git
+				if git == nil {
+					git = terminalhost.ExecGit
+				}
+				return aside(callCtx, reply, pruneSlot, &prunesRunning, branchSyncAnswerAfter,
+					terminalproto.BranchSyncResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchSyncResult{Reason: terminalproto.BranchesGitFailed},
+					func(ctx context.Context) terminalproto.Body {
+						return terminalhost.SyncBranch(ctx, home, req, git)
 					})
 			case *terminalproto.Models:
 				// Models are served only on a generation that negotiated

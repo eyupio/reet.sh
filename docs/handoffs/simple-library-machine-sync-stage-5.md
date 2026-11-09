@@ -74,6 +74,27 @@ Validation: 11 node tests cover every state and its ordering, the per-item probl
 
 Still open for Stage 5 acceptance: the minimal Library view, the single connect/import/selection flow, retiring the remaining `/sync` navigation, the empty-state and status-removal screenshots, browser close/reopen against durable state, and an acceptance run against a real signed-in machine. Stage 5 is not complete, and its dependency on the unfinished Stage 4 (#680) stands.
 
+## Minimal Library page (9 November 2026)
+
+**Decision (owner, via the decision prompt):** the Library is a new `/library` page, listed first under **More → Skills & distribution**. `/skills` and `/hosting` are deliberately left exactly as they were for now and are recorded below as legacy entry points; nothing redirects yet, so no existing bookmark, list, like or authoring flow changed.
+
+`web/src/lib/Library.svelte` reads the canonical library (`GET /api/v2/library`) and shows one entry per logical item:
+
+- **Status**: a select over the four product statuses (In use, To test, On the shelf, Disabled). A change sends the item's `expectedVersion`, updates the row from the server's answer, and keeps its machine selections. A stale change is refused by the server (409): the row says the item changed somewhere else, the select returns to its real value and the list is re-read. Viewers see everything but cannot change a status.
+- **Search and status filter** combine, with per-status counts over the whole library. Every inactive item is findable; nothing is hidden by All.
+- **Machines**: from the saved selections of each enrolled folder, one entry per machine ("Selected on Dev laptop, Office desktop", "Not selected on any machine", or "… not installed while to test" for an inactive item), with a link to Machines. This is saved intent, not installation; installed state stays on Machines. A failure reading selections is said once with a retry and never hides the library.
+- **Shelf details migration preserved**: written-here (private or public), liked, lists and tags, from the item's metadata. Likes and lists are shown, not edited, here; editing them remains on `/skills`.
+- **History**: read on demand per item from `GET /api/v2/library-history/{item}`: when each save happened, and whether it became the current version or was kept as another version, with "time estimated" when the save time came from a fallback clock.
+- **Waiting content** (pending capture or a content problem) is said beside the item. **Empty** library offers Connect a machine and (for writers) Write a skill. A failed read shows the reason with a retry.
+
+`web/embed.go` now serves `/library` as a private SPA route (and disallows it in `robots.txt`); `web/embed_test.go` covers it, and the Go web tests pass.
+
+**Legacy entry points and their disposition:** `/skills` (shelf, likes, lists, bookmarks, tags, notes, visibility), `/hosting` (authoring) and `/sync` remain fully working. They are not retired by this slice. Authoring is only linked, from the empty state; creating or editing an item is not duplicated in Library. **No restore control is offered**: the API has history but no restore endpoint, and none is invented here.
+
+Validation: 7 node tests (`libraryView.test.mjs`: statuses, search plus filter, counts, machines per item, notes, history lines) and `npm --prefix web run check` (zero svelte-check errors or warnings). `web/tests/library.e2e.mjs` runs in real Chromium with fixture responses: the populated page at 320, 390 and 1280px in light and dark, search and filter, a status change with its exact request, a stale-change refusal, history open and close by keyboard, empty history, the empty library, a read failure and retry, a machine-selection failure, a viewer, and keyboard use of the filters. It is registered in `terminal-browser.yml`. `navigation.e2e.mjs` and `supporting-nav.e2e.mjs` were updated for the new More entry and pass, as do `machine-item-states`, `selected-library` and `sync-vocabulary`. Curated images: [phone, populated](../images/ui/library-page-phone-dark.png), [desktop, populated](../images/ui/library-page-desktop-light.png), [desktop, history open](../images/ui/library-page-history-desktop.png), [phone, empty](../images/ui/library-page-empty-phone.png). These are fixture-driven UI checks, not a signed-in controller.
+
+Still open for Stage 5 acceptance: the single connect/import/selection flow, retiring the remaining `/sync` navigation, status-removal and partial-failure screenshots on Machines with real data, browser close/reopen against durable state, and an acceptance run against a real signed-in machine. Stage 5 is not complete, and its dependency on the unfinished Stage 4 (#680) stands. #687 adds a Prompts entry to the same More list and edits the same expectation lines in `navigation.e2e.mjs`; whichever merges second needs a one-line reconciliation.
+
 ## Workspace and ongoing PR supervision
 
 Use `/workspace/.reet-tools/activate.sh` for Node/Go; system `go` is not the compiler. Dependencies are an untracked symlink from `web/node_modules` to `/workspace/reet.sh/web/node_modules`; never commit it. Disks are constrained: use short `TMPDIR=/workspace/t`, preserve user files, and reclaim only inspected owned regenerable outputs if needed. The preview used for this branch is port 4174 because another session owns 4173; `REET_UI_URL` selects the test origin. Do not stop unrelated preview processes.

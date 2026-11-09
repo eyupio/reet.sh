@@ -131,6 +131,7 @@ jobs:
           node web/tests/skills-sync-simple.e2e.mjs
           node web/tests/selected-library.e2e.mjs
           node web/tests/machine-item-states.e2e.mjs
+          node web/tests/library.e2e.mjs
           node web/tests/sync-left-out.e2e.mjs
           node web/tests/sync-in-place.e2e.mjs
           node web/tests/fleet-software.e2e.mjs

@@ -1288,8 +1288,19 @@ export async function getAdoptionBreakdown(previewId: string, revisionId: string
 
 export async function syncFromMachine(input: {skillId:string;destination:string;sourceId?:string;destinationId?:string;followShelf?:boolean;requestKey:string}):Promise<ImportRequest>{return(await req('/api/v2/sync/from-machine',{method:'POST',body:json(input)})).json()}
 
-export type LibraryItem = { id: string; name: string; itemType: string; status: string; contentState: string; problem?: string; revisionId?: string }
+export type LibraryItem = {
+  id: string; name: string; itemType: string; status: string; contentState: string; problem?: string; revisionId?: string
+  /** For safe status changes: the version this view was read at. */
+  version?: number; published?: boolean; createdAt?: number; updatedAt?: number
+  /** The shelf details migration preserves (likes, lists, tags). */
+  metadata?: { liked?: boolean; bookmarked?: boolean; lists?: { id: number; name: string }[]; tags?: { id: number; name: string }[] }
+  aliases?: { kind: string; reference: string }[]
+}
+/** One saved version of an item: whether it became current or was kept beside the current one. */
+export type LibraryReceipt = { eventId: string; revisionId: string; won: boolean; base: string; savedAt: number; orderAt: number; uncertainty: number; clockFallback: boolean }
 export type LibrarySelection = { targetId: string; itemIds: string[]; version: string }
+export async function setLibraryStatus(id: string, status: string, expectedVersion: number): Promise<LibraryItem> { return (await req(`/api/v2/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: json({ status, expectedVersion }) })).json() }
+export async function getLibraryHistory(id: string): Promise<LibraryReceipt[]> { return (await req(`/api/v2/library-history/${encodeURIComponent(id)}`)).json() }
 export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[] }> { return (await req('/api/v2/library')).json() }
 export async function getLibrarySelection(target: string): Promise<LibrarySelection> {
   const response = await req(`/api/v2/library/selections/${encodeURIComponent(target)}`)

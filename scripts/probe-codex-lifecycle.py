@@ -133,7 +133,11 @@ class Adapter:
                     if key.data == "stderr":
                         records.append({self.label + " stderr": line.decode(errors="replace")[:500]})
                         continue
-                    m = json.loads(line)
+                    try:
+                        m = json.loads(line)
+                    except ValueError:
+                        records.append({self.label + " stdout (not JSON)": line.decode(errors="replace")[:200]})
+                        continue
                     records.append({"<" + self.label: m})
                     if "method" in m and "id" in m:
                         self.send({"jsonrpc": "2.0", "id": m["id"], "error": {"code": -32601, "message": "probe does not implement this callback"}})

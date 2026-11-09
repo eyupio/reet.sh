@@ -143,7 +143,8 @@ below). The adapter was measured signed out against a loopback stand-in for the 
   chosen per chat and `agent-full-access` is never offered.
 - **Model.** A chosen model is applied by switching to it and reading the switch back, and the provider's request carries that model.
 - **Reasoning effort.** The values depend on the model (`ultra` is not offered on every model). A start that names a model and an effort
-  applies the model first, then the effort, reads both back before any prompt, and is refused if the model does not offer the effort. After a
+  (a structured create can carry one; the Start dialog's effort control for Codex comes with the terminal and web slice) applies the model
+  first, then the effort, reads both back before any prompt, and is refused if the model does not offer the effort. After a
   model switch the chosen effort is kept where the new model offers it, and otherwise the adapter falls back to `medium`. The chosen effort
   reaches the provider's request.
 - **History and reconnect.** A lost chat reconnects under the same session id by loading the adapter's stored conversation (the replay is
@@ -151,7 +152,8 @@ below). The adapter was measured signed out against a loopback stand-in for the 
   stored is refused with its own sentence.
 - **Images.** The adapter advertises image prompts and an attachment reaches the provider's request as an image input.
 - **YOLO.** A chat takes YOLO through the same three gates as every other agent, and answers permission cards for you only in `read-only`.
-  In `agent` mode Codex's own reviewer decides, and the cards that still arrive are the ones it judged unsafe, so they are left to you.
+  In `agent` mode Codex's own reviewer decides, so a card that still arrives is left to you, whether it arrives after YOLO is on or was already
+  waiting when you turned it on.
 - **Sign-in.** reet never starts a login. A machine with no Codex folder at all (someone who has never used Codex), or a folder with no login
   in it, is told "Sign in to Codex on that machine first."
 - **The terminal launch** is a separate path; see [launch requests](terminal-launch.md).

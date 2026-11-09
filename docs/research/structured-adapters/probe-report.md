@@ -564,7 +564,7 @@ python3 -I scripts/probe-codex-lifecycle.py options --workspace /path/to/probe
 
 **What this turned on in the product:** the Codex descriptor now reports a read-back model switch, history, in-place reconnect and image prompts (and still no
 questions). The profile applies a chosen model by switching to it and reading it back, before any chosen effort. A machine with no Codex folder is told to sign in
-instead of seeing "the agent exited". YOLO answers Codex permission cards only in `read-only`.
+instead of seeing "the agent exited". YOLO answers Codex permission cards only in `read-only` (in `agent` mode the probe saw no request at all for the escalation, so a card that does arrive is left to the person, including one already waiting when YOLO is switched on).
 
 **Still not measured:** a signed-in turn, a real model accepting an image, the lists a real account is offered, and whether a Codex chat's id opens in `codex resume`.
 These wait for Run B in [Device checks](../../device-checks.md).

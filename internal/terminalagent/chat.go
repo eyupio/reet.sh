@@ -550,8 +550,9 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(in.Tool, acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}, nil
 }
 
-// yoloAnswers reports whether YOLO may answer a permission card for this chat. Codex asks only in read-only; in agent mode its own
-// reviewer decides, and the cards that still arrive are the ones it judged unsafe, so those are left to the person.
+// yoloAnswers reports whether YOLO may answer a permission card for this chat, whether the card arrives now or was already waiting
+// when YOLO was switched on. Codex asks only in read-only; in agent mode its own reviewer decides, so a card that still arrives is
+// left to the person.
 func yoloAnswers(tool string, process chatProcess) bool {
 	if tool != "codex" {
 		return true
@@ -811,7 +812,7 @@ func (h *chatHost) mode(sessionID string, yolo bool) error {
 	process := cs.process
 	h.sup.mu.Unlock()
 	h.sup.touchRecord(sessionID, yolo)
-	if yolo {
+	if yolo && yoloAnswers(cs.tool, process) {
 		if allower, ok := process.(interface{ AllowAllPending() error }); ok {
 			_ = allower.AllowAllPending()
 		}

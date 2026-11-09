@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -219,7 +220,8 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	if spec.LoginFolderMustExist {
 		// The adapter exits at once when its login folder is not there, which would read as a crash; no folder is no sign-in.
 		if folder, err := loginHome(spec, opts.BaseEnv); err == nil {
-			if info, statErr := os.Stat(folder); statErr != nil || !info.IsDir() {
+			// Only a folder that is not there (or is not a folder) is a missing sign-in; another stat error is left to the adapter to report.
+			if info, statErr := os.Stat(folder); errors.Is(statErr, fs.ErrNotExist) || (statErr == nil && !info.IsDir()) {
 				return nil, signInError(spec)
 			}
 		}

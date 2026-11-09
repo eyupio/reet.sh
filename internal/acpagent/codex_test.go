@@ -221,3 +221,20 @@ func TestCodexUnstoredLoadIsTheMissingConversation(t *testing.T) {
 		}
 	}
 }
+
+// A stored Codex conversation reopens under its own id, and the chat still starts in read-only: the adapter loads it in its default
+// mode, which asks less, so the profile switches it and confirms the switch before the chat is offered.
+func TestCodexLoadsAStoredConversationInReadOnly(t *testing.T) {
+	opts, _ := options(t, "codex-load", "1.13.1")
+	opts.Agent = CodexCandidate
+	opts.BaseEnv = append(opts.BaseEnv, codexFolderHome(t))
+	opts.Resume = "6f1c2c3a-0b4d-4f6e-8a2b-9d3e5f7a1b2c"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if session.SessionID() != opts.Resume || session.Mode() != "read-only" {
+		t.Fatalf("reopened %q in mode %q", session.SessionID(), session.Mode())
+	}
+}

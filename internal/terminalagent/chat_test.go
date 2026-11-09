@@ -343,6 +343,29 @@ func TestChatHostYoloAnswersCodexOnlyWhereItAsks(t *testing.T) {
 	}
 }
 
+// Turning YOLO on in a live chat answers the cards already waiting, and the same Codex rule applies: only in read-only.
+func TestChatHostSwitchingYoloOnAnswersWaitingCodexCardsOnlyWhereItAsks(t *testing.T) {
+	for mode, want := range map[string]int{"read-only": 1, "agent": 0} {
+		h, proc, _ := testChatHost(t)
+		h.sup.opts.YoloConsent = func() error { return nil }
+		proc.mode = mode
+		if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
+			Title: "Chat", Cols: 100, Rows: 30, Tool: "codex", Structured: true, Trust: true, Dir: h.sup.opts.Home,
+		}); err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if err := h.mode("session-0123456789", true); err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		proc.mu.Lock()
+		got := proc.allPending
+		proc.mu.Unlock()
+		if got != want {
+			t.Fatalf("Codex in %s: waiting cards answered %d times, want %d", mode, got, want)
+		}
+	}
+}
+
 func TestChatHostYoloRefusedWithoutMachineConsent(t *testing.T) {
 	h, _, _ := testChatHost(t)
 	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{

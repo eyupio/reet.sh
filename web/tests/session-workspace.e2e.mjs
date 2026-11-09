@@ -13,6 +13,10 @@ const pull = () => ({...snapshot(),pull:{number:42,title:'Improve the session wo
 const FULL_PROMPT = 'Rebuild the session overview so the opening prompt is readable at a glance.\n\n' + 'Keep the quote short and the status header where it is. '.repeat(6) + '\n\nFINAL-LINE-ONLY-IN-FULL-TEXT'
 const EXCERPT = FULL_PROMPT.slice(0, 300)
 session.promptExcerpt = EXCERPT; session.promptMore = true
+// A prompt whose image line is all the server kept of the attachment; the browser holds the thumbnail under the same path.
+const IMAGE_PATH = '/home/dev/reet/launch-uploads/img-shot.png'
+const IMAGE_PROMPT = 'Show me the screenshot that came with this job.\n\nImage: ' + IMAGE_PATH
+const THUMB_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 const ok = name => ({name,state:'SUCCESS'})
 const second = {...session, id:'session-insights-002', title:'Second session', promptExcerpt:'SECOND-SESSION-PROMPT is a short one.', promptMore:false}
 async function open(width=1600,theme='dark', supported=true, hold=null, opts={}) {
@@ -52,7 +56,7 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
   [`/api/v2/terminal/sessions/${session.id}/inspect`]:inspect,
  }
  const opened=await openWorkspace(browser,{width,height:1000,touch:width<800,theme,routes})
- await opened.page.addInitScript(delay=>{
+ await opened.page.addInitScript(({delay,thumb})=>{
   class Stream {
    constructor(){this.listeners={};window.__insightStream=this;setTimeout(()=>{this.onopen?.({});this.emit('reset',{truncated:false});this.emit('chat',{seq:1,kind:'agent',messageId:'reply',text:'The workspace is connected. I am checking the browser layout.'});this.emit('chat',{seq:2,kind:'tool',toolCallId:'done',title:'Read session component',toolKind:'read',status:'completed'});this.emit('chat',{seq:3,kind:'tool',toolCallId:'current',title:'Run browser checks',toolKind:'execute',status:'in_progress',command:'npm run check'});this.emit('chat',{seq:4,kind:'status',state:'working'})},delay)}
    addEventListener(type,fn){(this.listeners[type]??=[]).push(fn)}
@@ -60,8 +64,10 @@ async function open(width=1600,theme='dark', supported=true, hold=null, opts={})
    close(){}
   }
   window.EventSource=Stream
+  // A thumbnail the browser kept when the prompt's image was sent, so the full prompt can show a picture instead of its path.
+  if(thumb)localStorage.setItem('reet.chat.thumbs.v1',JSON.stringify({order:[thumb.path],map:{[thumb.path]:{n:thumb.name,u:thumb.url}}}))
   sessionStorage.setItem('reet-session-visit:session-insights-001',JSON.stringify({seq:1,at:Date.now()-600000}))
- },opts.streamDelay||0)
+ },{delay:opts.streamDelay||0,thumb:opts.thumb||null})
  await opened.page.goto(`${base}/sessions?agent=a1&session=${session.id}`,{timeout:120000})
  const panel=opened.page.getByRole('complementary',{name:'Session context'})
  // Details is optional on every screen; an existing saved choice still takes precedence.
@@ -265,6 +271,26 @@ try {
   expect(await page.evaluate(()=>navigator.clipboard.readText())).toBe(FULL_PROMPT)
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden();await expect(trigger).toBeFocused()
+  expect(errors).toEqual([]);await context.close()
+ }
+ // A prompt that carried an image shows the picture, not the upload path, and the picture opens at full size.
+ {
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{session:{promptExcerpt:IMAGE_PROMPT,promptMore:false},prompt:()=>({prompt:IMAGE_PROMPT}),thumb:{path:IMAGE_PATH,name:'shot.png',url:THUMB_URL}})
+  const card=panel.getByRole('group',{name:'You asked'})
+  await expect(card).toContainText('Show me the screenshot')
+  await expect(card).not.toContainText('img-shot.png')
+  await card.getByRole('button',{name:'Read full prompt'}).click()
+  const dialog=page.getByRole('dialog',{name:'You asked'})
+  await expect(dialog).toContainText('Show me the screenshot')
+  await expect(dialog).not.toContainText('launch-uploads')
+  const picture=dialog.getByRole('button',{name:'Preview shot.png'})
+  await expect(picture).toBeVisible()
+  await picture.click()
+  const lightbox=page.getByRole('dialog',{name:'Image preview: shot.png'})
+  await expect(lightbox).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(lightbox).toBeHidden()
+  await expect(dialog).toBeVisible()
   expect(errors).toEqual([]);await context.close()
  }
  // A refresh of the session list hands the card a fresh copy of the same session: the open dialog, its whole text and the focus stay.

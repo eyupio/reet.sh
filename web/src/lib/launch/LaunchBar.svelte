@@ -14,6 +14,7 @@
   import { createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from '../terminal/upload'
+  import { rememberUpload } from '../terminal/thumbs'
   import { memberLine, runPending, STARTED_MEANS, type ProjectRun } from '../projects'
   import { keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker, browserViewport } from '../terminal/sizing'
   import { chromeFocus } from '../shell/chrome.svelte'
@@ -739,7 +740,9 @@
           try {
             for (let i = 0; i < files.length; i++) {
               message = files.length === 1 ? 'Attaching the image…' : `Attaching image ${i + 1} of ${files.length}…`
-              references.push((await launchUpload(req.agentId, files[i], life.signal)).reference)
+              const uploaded = await launchUpload(req.agentId, files[i], life.signal)
+              rememberUpload(files[i], files[i].name, uploaded.path, uploaded.reference)
+              references.push(uploaded.reference)
             }
           } catch (e) {
             busy = false

@@ -11,6 +11,7 @@
  import { defaultLabel, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, launchUpload, machineModels, readiness, refreshMachineModels, refusalSentence, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
  import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './terminal/upload'
+ import { rememberUpload } from './terminal/thumbs'
  import { MAX_PROMPT_BYTES, cleanModel, notStartedText, folderChoices, launchSentence, modelSuggestions, preselect, refusalField, refusalText, rekey, promptTitle, titleFor, toolChoices, toolName, validateDir, validateModel, validatePrompt } from './agentLaunch'
  import { projectSlug } from './launchBar'
  import { chatNeedsTrust, chatToolName, structuredAgent } from './terminal/api'
@@ -537,7 +538,9 @@
     try {
      for (let i = 0; i < attachments.length; i++) {
       message = attachments.length === 1 ? 'Attaching the image…' : `Attaching image ${i + 1} of ${attachments.length}…`
-      references.push((await launchUpload(machine.agentId, attachments[i].file, life.signal)).reference)
+      const uploaded = await launchUpload(machine.agentId, attachments[i].file, life.signal)
+      rememberUpload(attachments[i].file, attachments[i].file.name, uploaded.path, uploaded.reference)
+      references.push(uploaded.reference)
      }
     } catch (e) {
      busy = false

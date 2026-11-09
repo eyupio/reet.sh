@@ -7,7 +7,9 @@
  import SlotPicker,{type SlotOption} from './launch/SlotPicker.svelte'
  import {BUILT_IN_GOAL_PROMPTS,MAX_GOAL_PROMPT_BYTES,addGoalPrompt,goalPromptTitle,readGoalPrompts,removeGoalPrompt,writeGoalPrompts,type GoalPrompt} from './gafferPrompts'
  import {insertSkillPrompt} from './skillPrompt'
- let {id,userId=0,timeZone='',dateFormat='locale',onchanged}:{id:string;userId?:number;timeZone?:string;dateFormat?:string;onchanged:()=>void|Promise<void>}=$props()
+ let {id,userId=0,timeZone='',dateFormat='locale',draft='',onchanged}:{id:string;userId?:number;timeZone?:string;dateFormat?:string;draft?:string;onchanged:()=>void|Promise<void>}=$props()
+ // A goal written for the person by the session overview: it is put in the editor once, on the first read, and never started for them.
+ let draftUsed=false
  const goalId=$props.id()
  let view=$state<GafferGoalView|null>(null),text=$state(''),maxReviews=$state(12),hours=$state(24),loading=$state(true),busy=$state(false),error=$state(''),notice=$state(''),confirming=$state(''),editOpen=$state(false)
  let goalInput=$state<HTMLTextAreaElement>(),promptButton=$state<HTMLButtonElement>(),promptOpen=$state(false),touch=$state(false)
@@ -23,7 +25,7 @@
  const stateLabel=(state:string)=>state==='active'?'Looking after this session':state==='needs_user'?'Needs your attention':state==='limit'?'Limit reached':state==='completed'?'You marked this complete':state==='stopped'?'Stopped':'Paused'
  async function load(reset=false){
   controller?.abort();controller=new AbortController();const current=controller,mine=++epoch
-  try{const next=await getGafferGoal(id,current.signal);if(mine!==epoch)return;if(reset){text=next.goal?.text??'';maxReviews=next.goal?.maxReviews??12;hours=next.goal?Math.max(1,Math.round((next.goal.expiresAt-next.goal.createdAt)/3600000)):24}view=next;error=''}catch(e){if(mine===epoch&&!current.signal.aborted)error=e instanceof Error?e.message:'The goal could not be read.'}finally{if(mine===epoch)loading=false}
+  try{const next=await getGafferGoal(id,current.signal);if(mine!==epoch)return;if(reset){text=next.goal?.text??'';maxReviews=next.goal?.maxReviews??12;hours=next.goal?Math.max(1,Math.round((next.goal.expiresAt-next.goal.createdAt)/3600000)):24;if(draft&&!draftUsed){draftUsed=true;text=draft;editOpen=true;void tick().then(()=>document.getElementById(`${goalId}-goal`)?.focus())}}view=next;error=''}catch(e){if(mine===epoch&&!current.signal.aborted)error=e instanceof Error?e.message:'The goal could not be read.'}finally{if(mine===epoch)loading=false}
  }
  onMount(()=>{touch=matchMedia('(pointer: coarse)').matches;userPrompts=readGoalPrompts(userId);void load(true);const timer=setInterval(()=>{if(!busy&&view?.goal?.state==='active')void load()},4000);return()=>{epoch++;controller?.abort();clearInterval(timer)}})
  function usePrompt(value:string){

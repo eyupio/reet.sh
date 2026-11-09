@@ -59,8 +59,9 @@ type rpcMessage struct {
 }
 
 type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 func (e *rpcError) Error() string { return safeRPCText(e.Message) }
@@ -83,6 +84,11 @@ func loginError(spec Spec, err error) error {
 	if !authRequired(err) {
 		return nil
 	}
+	return signInError(spec)
+}
+
+// signInError is the refusal that asks the person to sign in outside reet, for the adapters that have one.
+func signInError(spec Spec) error {
 	switch spec.Key {
 	case CodexCandidate.Key:
 		return ErrCodexLogin
@@ -98,10 +104,21 @@ func loginError(spec Spec, err error) error {
 
 // noStoredConversation reports an adapter's refusal to load a conversation it
 // does not have. Cline answers -32002 "Resource not found: <id>", because it
-// stores a chat only when its first prompt arrives.
+// stores a chat only when its first prompt arrives. Codex answers a thread it has
+// no rollout for with a generic -32603 "Internal error" whose details name the
+// missing thread; an internal error that names anything else is not this.
 func noStoredConversation(err error) bool {
 	var rpcErr *rpcError
-	return errors.As(err, &rpcErr) && rpcErr.Code == -32002 && strings.HasPrefix(rpcErr.Message, "Resource not found")
+	if !errors.As(err, &rpcErr) {
+		return false
+	}
+	if rpcErr.Code == -32002 && strings.HasPrefix(rpcErr.Message, "Resource not found") {
+		return true
+	}
+	var data struct {
+		Details string `json:"details"`
+	}
+	return rpcErr.Code == -32603 && json.Unmarshal(rpcErr.Data, &data) == nil && strings.HasPrefix(data.Details, "no rollout found for thread id ")
 }
 
 type rpcResult struct {
@@ -198,6 +215,14 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	}
 	if err := spec.CheckTrust(opts.Dir, opts.Trust); err != nil {
 		return nil, err
+	}
+	if spec.LoginFolderMustExist {
+		// The adapter exits at once when its login folder is not there, which would read as a crash; no folder is no sign-in.
+		if folder, err := loginHome(spec, opts.BaseEnv); err == nil {
+			if info, statErr := os.Stat(folder); statErr != nil || !info.IsDir() {
+				return nil, signInError(spec)
+			}
+		}
 	}
 	version, err := ProbeVersion(ctx, binary, spec, opts.Dir, opts.Home, opts.BaseEnv)
 	if err != nil {

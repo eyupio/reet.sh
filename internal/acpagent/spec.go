@@ -140,6 +140,11 @@ type Spec struct {
 	// Profiles using this route do not inherit XDG home directories.
 	LoginHomeEnv string
 	LoginHomeDir string
+	// LoginFolderMustExist reports that the adapter exits at once when its login
+	// folder is not there (codex: "CODEX_HOME points to ..., but that path does
+	// not exist"). A start with no folder is then a missing sign-in, and the
+	// person is told so instead of seeing a crash.
+	LoginFolderMustExist bool
 	// SessionMeta is sent as _meta on session/new and session/load. A profile
 	// uses it for adapter options that must be fixed by reet, never by the
 	// repository. Nil sends no _meta.

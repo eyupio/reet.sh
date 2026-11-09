@@ -32,6 +32,14 @@ type fakeChat struct {
 	busy       bool
 	cancelled  bool
 	allPending int
+	mode       string
+}
+
+// Mode is the agent mode a chat is in, for the profiles that report one.
+func (f *fakeChat) Mode() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.mode
 }
 
 func (f *fakeChat) Prompt(ctx context.Context, text string) error {
@@ -310,6 +318,28 @@ func TestChatHostYoloAllowsOnce(t *testing.T) {
 	}
 	if !permission || !resolved {
 		t.Fatalf("events: permission=%v resolved=%v", permission, resolved)
+	}
+}
+
+// Codex asks only in read-only. In agent mode its own reviewer decides, and the cards that still arrive are the ones it judged unsafe,
+// so YOLO leaves those to the person instead of allowing them.
+func TestChatHostYoloAnswersCodexOnlyWhereItAsks(t *testing.T) {
+	for mode, want := range map[string]bool{"read-only": true, "agent": false} {
+		h, proc, _ := testChatHost(t)
+		h.sup.opts.YoloConsent = func() error { return nil }
+		proc.mode = mode
+		if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
+			Title: "Chat", Cols: 100, Rows: 30, Tool: "codex", Structured: true, Trust: true, Yolo: true, Dir: h.sup.opts.Home,
+		}); err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		proc.onEvent(acpagent.Event{Kind: "permission", PermissionID: "permission-0123456789", Title: "run tests"})
+		proc.mu.Lock()
+		answered := len(proc.allow) == 1 && proc.allow[0]
+		proc.mu.Unlock()
+		if answered != want {
+			t.Fatalf("Codex in %s: YOLO answered=%v, want %v", mode, answered, want)
+		}
 	}
 }
 

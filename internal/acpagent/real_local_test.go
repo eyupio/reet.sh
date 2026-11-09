@@ -347,9 +347,8 @@ func TestRealCodexStart(t *testing.T) {
 		return Options{Agent: CodexCandidate, Binary: binary, Dir: t.TempDir(), Home: t.TempDir(), BaseEnv: []string{"PATH=" + filepath.Dir(binary) + ":" + os.Getenv("PATH"), "HOME=" + home, "LANG=C.UTF-8"}, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second}
 	}
 
-	// A Codex folder with no login in it: the person is told to sign in. When there is no Codex folder at all (someone who has never
-	// used Codex) the profile still points CODEX_HOME at it, and codex refuses to start ("CODEX_HOME points to ..., but that path does
-	// not exist"), so the chat reports that the agent exited instead of asking for a sign-in. That is logged, not pinned: the parity work fixes it.
+	// A Codex folder with no login in it, and no Codex folder at all (someone who has never used Codex; codex itself refuses to start
+	// when CODEX_HOME names a folder that is not there): both tell the person to sign in.
 	emptyFolder := codexHome(t, false)
 	if err := os.MkdirAll(filepath.Join(emptyFolder, ".codex"), 0o700); err != nil {
 		t.Fatal(err)
@@ -360,11 +359,11 @@ func TestRealCodexStart(t *testing.T) {
 		}
 		t.Fatalf("a Codex folder with no login: %v", err)
 	}
-	if session, err := Start(ctx, opts(codexHome(t, false))); err == nil {
-		session.Close()
-		t.Fatal("started with no Codex folder")
-	} else {
-		t.Logf("no Codex folder at all: %v", err)
+	if session, err := Start(ctx, opts(codexHome(t, false))); !errors.Is(err, ErrCodexLogin) {
+		if session != nil {
+			session.Close()
+		}
+		t.Fatalf("no Codex folder at all: %v", err)
 	}
 
 	session, err := Start(ctx, opts(codexHome(t, true)))
@@ -379,6 +378,9 @@ func TestRealCodexStart(t *testing.T) {
 	}()
 	if session.SessionID() == "" || session.Model() == "" {
 		t.Fatalf("session %q model %q", session.SessionID(), session.Model())
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(session.SessionID()) {
+		t.Fatalf("session id %q is not the UUID form the controller accepts for Codex", session.SessionID())
 	}
 	effort := settingOf(t, session.Controls(), "thought_level")
 	if effort.ID != "reasoning_effort" || effort.Current != "low" {
@@ -411,6 +413,7 @@ func TestRealCodexStart(t *testing.T) {
 		t.Fatalf("choosing ultra on %q: %v", session.Model(), err)
 	}
 	sawFallback := false
+	withUltra, withoutUltra := "", ""
 	for _, value := range model.Values {
 		before := settingOf(t, session.Controls(), "thought_level").Current
 		if err := session.SetOption(ctx, model.ID, value); err != nil {
@@ -427,14 +430,41 @@ func TestRealCodexStart(t *testing.T) {
 		} else {
 			sawFallback = true
 		}
+		if slices.Contains(after.Values, "ultra") {
+			withUltra = value
+		} else {
+			withoutUltra = value
+		}
 		if err := session.SetOption(ctx, "reasoning_effort", "ultra"); err != nil && slices.Contains(after.Values, "ultra") {
 			t.Fatalf("choosing ultra on %q: %v", value, err)
 		}
 	}
 	t.Logf("across %d models: an effort the new model lacked was replaced=%v", len(model.Values), sawFallback)
 
-	// A conversation the adapter never stored cannot be opened. Its refusal is a generic internal error that names the missing
-	// thread, not the stored-conversation code the other adapters use; mapping it is part of the history work.
+	// A launch that names a model and an effort applies the model first and then the effort the model offers, and confirms both by read-back.
+	if withUltra == "" || withoutUltra == "" {
+		t.Fatalf("expected a model that offers ultra and one that does not, got %q and %q", withUltra, withoutUltra)
+	}
+	chosen := opts(codexHome(t, true))
+	chosen.Model, chosen.Effort = withoutUltra, "high"
+	started, err := Start(ctx, chosen)
+	if err != nil {
+		t.Fatalf("launch with model %q and effort high: %v", withoutUltra, err)
+	}
+	if got := settingOf(t, started.Controls(), "thought_level").Current; started.Model() != withoutUltra || got != "high" {
+		started.Close()
+		t.Fatalf("started on model %q with effort %q", started.Model(), got)
+	}
+	started.Close()
+	// An effort the chosen model does not offer is refused before the chat opens, not accepted and ignored.
+	refused := opts(codexHome(t, true))
+	refused.Model, refused.Effort = withoutUltra, "ultra"
+	if bad, err := Start(ctx, refused); err == nil {
+		bad.Close()
+		t.Fatalf("started model %q on an effort it does not offer", withoutUltra)
+	}
+
+	// A conversation the adapter never stored is the missing stored conversation, so it is reported as that and not as a crash.
 	stray, err := Start(ctx, func() Options {
 		o := opts(codexHome(t, true))
 		o.Resume = "6f1c2c3a-0b4d-4f6e-8a2b-9d3e5f7a1b2c"
@@ -444,8 +474,7 @@ func TestRealCodexStart(t *testing.T) {
 		stray.Close()
 		t.Fatal("opened a conversation that was never stored")
 	}
-	if err == nil {
-		t.Fatal("no error for a conversation that was never stored")
+	if !errors.Is(err, ErrNoStoredConversation) {
+		t.Fatalf("a conversation that was never stored: %v", err)
 	}
-	t.Logf("load of a conversation that was never stored: %v (is ErrNoStoredConversation: %v)", err, errors.Is(err, ErrNoStoredConversation))
 }

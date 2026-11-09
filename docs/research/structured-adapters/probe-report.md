@@ -537,3 +537,34 @@ reconnect to a stored conversation (the adapter advertises `session/load` and re
 waits for Run B); model and effort can be offered and confirmed by read-back, with the effort list refreshed after a model
 switch; the Codex-folder-missing start failure should read as a sign-in request; and the pin is a floor, not a version, because the offered models
 and modes move between adapter versions.
+
+## Codex lifecycle probes (9 November 2026)
+
+What a stored conversation, an image and a chosen effort or model do, measured with the new `scripts/probe-codex-lifecycle.py` against the same two adapters as
+above (`@agentclientprotocol/codex-acp@1.13.1` with codex-cli 0.156.1, and `2.6.0` with 0.166.0). The adapter runs in a throwaway HOME and CODEX_HOME with a
+`model_providers` entry that points at a loopback Responses-API stand-in, so no account, network or real model is involved; the stand-in answers every request with
+one short text message and records what it was sent. Nothing here shows what a real model does with an image or a stored conversation.
+
+```sh
+python3 -I scripts/probe-codex-lifecycle.py load --workspace /path/to/probe
+python3 -I scripts/probe-codex-lifecycle.py images --workspace /path/to/probe
+python3 -I scripts/probe-codex-lifecycle.py options --workspace /path/to/probe
+```
+
+| Fact | Measured (both adapters) | Source |
+| --- | --- | --- |
+| A stored conversation loads | After one turn and a stop, a second adapter process on the same Codex folder answers `session/load` for the stored id | `load` |
+| What the replay carries | `user_message_chunk` and `agent_message_chunk` for the earlier turn, `available_commands_update` and `session_info_update`. reet drops replay before the chat is ready, since it keeps its own transcript | `load` |
+| The loaded conversation continues | A follow-up prompt on the loaded session reaches the provider with the earlier reply in its input | `load` |
+| Load from a different folder | Succeeds. The adapter does not bind a conversation to a folder, so reet's account, machine, tool and folder binding is the only guard | `load` |
+| A conversation never stored | `-32603` "Internal error" with `data.details` "no rollout found for thread id …". reet now maps exactly that detail to the missing stored conversation, and any other internal error is still a generic failure | `load`, `TestRealCodexStart`, `TestCodexUnstoredLoadIsTheMissingConversation` |
+| An image block reaches the provider | The request's input carries it as an `input_image` part, and the turn ends `end_turn`. Whether a real model accepts the image is not measured | `images` |
+| A chosen model reaches the provider | After `session/set_config_option` the request's `model` is the chosen one. The adapter also sends a small helper request on a built-in model of its own that reet does not control | `options` |
+| A chosen effort reaches the provider | After the model switch, setting `high` and then `low` sends `reasoning.effort` `high` and then `low`. The effort option is not offered for the stand-in's own made-up model, so a listed model must be chosen first | `options` |
+
+**What this turned on in the product:** the Codex descriptor now reports a read-back model switch, history, in-place reconnect and image prompts (and still no
+questions). The profile applies a chosen model by switching to it and reading it back, before any chosen effort. A machine with no Codex folder is told to sign in
+instead of seeing "the agent exited". YOLO answers Codex permission cards only in `read-only`.
+
+**Still not measured:** a signed-in turn, a real model accepting an image, the lists a real account is offered, and whether a Codex chat's id opens in `codex resume`.
+These wait for Run B in [Device checks](../../device-checks.md).

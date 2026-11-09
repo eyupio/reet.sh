@@ -67,6 +67,9 @@ are the logged-out behaviour of the pinned adapters on Linux with Node 24.
   effort list depends on the model and a switch keeps the chosen effort where the new model offers it. A missing `~/.codex` makes codex exit instead of asking for a
   sign-in. Details in the [probe report](https://github.com/eyupio/reet.sh/blob/main/docs/research/structured-adapters/probe-report.md). The signed-in run (Run B) is still to do and
   will be recorded for Claude Code and Codex in one sitting.
+- **Codex, lifecycle probes against a loopback stand-in provider, 9 November:** a stored conversation loads and continues, an unstored one answers `-32603` "no rollout found"
+  (now mapped), an image block and a chosen model and effort reach the provider's request. No account, network or real model; see the probe report. These close the Codex
+  history, reconnect and image claims for the stand-in only; a signed-in turn is still Run B.
 
 
 ## 1. Typed questions on a phone and with a screen reader

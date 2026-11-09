@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import { getLibrary, getLibrarySelection, getSyncState, saveLibrarySelection, type LibraryItem, type SyncEnvironment, type SyncState } from './api'
   import { describeError } from './contentReview'
   import { agentOnline } from './machines'
@@ -7,7 +7,6 @@
   let { host = '', snapshot, onsaved }: { host?: string; snapshot?: SyncState; onsaved?: () => void } = $props()
   const headingId = $props.id()
   let items = $state<LibraryItem[]>([])
-  let targets = $state<SyncEnvironment[]>([])
   let target = $state('')
   let selected = $state<string[]>([])
   let version = $state('')
@@ -16,6 +15,8 @@
   let loadedState = $state<SyncState>()
   let loadedSelection = $state(false)
   let loading = $state(true)
+  // True once the library has been read; a failed read keeps its message and offers a retry instead of moving on.
+  let libraryReady = $state(false)
   let busy = $state(false)
   let error = $state('')
   let notice = $state('')
@@ -24,6 +25,21 @@
   let disposed = false
   // The newest snapshot wins, so a machine card that refreshes updates these rows too.
   const current = $derived(snapshot ?? loadedState)
+  // Folders follow the live snapshot: a machine that has only just connected reports its folders a moment later, and they
+  // appear here when they arrive rather than only if they were there when this opened.
+  const targets = $derived<SyncEnvironment[]>(current
+    ? current.environments.filter(env => ['agents','claude','opencode','cursor'].includes(env.agent)
+      && (!host || env.host.toLowerCase()===host.toLowerCase())
+      && current.agents?.some(agent=>agent.host.toLowerCase()===env.host.toLowerCase()))
+    : [])
+  // On a machine's own dialog a single folder needs no choice. Tried once per folder, so a failed read is retried by hand.
+  let autoChosen = ''
+  $effect(() => {
+    const only = targets.length === 1 ? targets[0].id : ''
+    if (!host || loading || !libraryReady || target || !only || autoChosen === only) return
+    autoChosen = only
+    untrack(() => { void choose(only) })
+  })
   const destination = $derived(targets.find(option => option.id === target))
   const online = $derived(agentOnline(current?.agents?.find(agent => agent.host.toLowerCase() === (destination?.host ?? host).toLowerCase())))
   const stateOf = (item: LibraryItem) => itemMachineState({ item, selected: savedSelection.includes(item.id), target: current?.targets.find(option => option.target.id === target), jobs: current?.jobs ?? [], online })
@@ -60,17 +76,14 @@
     finally { busy=false }
   }
   async function load() {
-    loading=true; error=''
+    loading=true; error=''; libraryReady=false
     try {
       const [library,state] = await Promise.all([getLibrary(),snapshot ? Promise.resolve(snapshot) : getSyncState()])
       if(disposed)return
       items=library.items
       loadedState=state
-      targets=state.environments.filter(env=>['agents','claude','opencode','cursor'].includes(env.agent)
-        && (!host || env.host.toLowerCase()===host.toLowerCase())
-        && state.agents?.some(agent=>agent.host.toLowerCase()===env.host.toLowerCase()))
+      libraryReady=true
       loading=false
-      if (host && targets.length === 1) await choose(targets[0].id)
     } catch(e) { if(!disposed){error=describeError(e);loading=false} }
   }
   onMount(()=>{void load();return()=>{disposed=true;generation++}})

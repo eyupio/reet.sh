@@ -493,7 +493,7 @@
             <span class="dot {enrolled ? (agentTone(enrolled) === 'online' ? 'current' : agentTone(enrolled)) : 'empty'}" aria-hidden="true"></span>
             <div>
               <h3 id={`machine-${encodeURIComponent(machine.host)}`} title={machine.host}>{machine.host}</h3>
-              {#if highlight === machine.host}<p class="added-note">Just added</p>{/if}
+              {#if highlight === machine.host}<p class="added-note">Just added{#if accounts && canWrite && enrolled} — choose its skills next{/if}</p>{/if}
               {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and install locations</p>{/if}
             </div>
           </div>
@@ -506,7 +506,7 @@
             <div><strong>{sync.label}</strong><small>{sync.detail}</small></div>
           </div>
           <div class="sync-cta">
-            {#if accounts && canWrite && enrolled}<button class="btn" type="button" onclick={(event) => (libraryFor = { host: machine.host, opener: event.currentTarget })}>Choose skills</button>{/if}
+            {#if accounts && canWrite && enrolled}<button class="btn" class:primary={highlight === machine.host} type="button" onclick={(event) => (libraryFor = { host: machine.host, opener: event.currentTarget })}>Choose skills</button>{/if}
             {#if offersDedupe(sync.detail)}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); void dedupe(machine) }}>{busy === `dedupe-${machine.host}` ? 'Checking…' : 'Dedupe skills'}</button>
             {:else if offersSourceFix(sync.detail)}

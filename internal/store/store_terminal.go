@@ -112,6 +112,13 @@ func (s *Store) migrateTerminalTables() error {
                 name TEXT NOT NULL, command TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
                 revision INTEGER NOT NULL CHECK(revision>0), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
 			`CREATE INDEX IF NOT EXISTS terminal_commands_owner ON terminal_commands(user_id)`,
+			`CREATE TABLE IF NOT EXISTS terminal_prompts (
+                id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT '', tool TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',
+                effort TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL CHECK(revision>0),
+                created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+			`CREATE INDEX IF NOT EXISTS terminal_prompts_owner ON terminal_prompts(user_id)`,
 			`CREATE TABLE IF NOT EXISTS worktree_cleanups (
 				user_id INTEGER NOT NULL, agent_id TEXT NOT NULL, path TEXT NOT NULL, removed_at INTEGER NOT NULL,
 				PRIMARY KEY(user_id,agent_id,path))`,

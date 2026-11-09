@@ -7,7 +7,7 @@
   import { UnauthorizedError, addModelFavourite, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type YoloSetting } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { defaultLabel, favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
-  import { cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
+  import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
   import { launchEfforts } from '../terminal/launchOptions'
   import { afterLaunch, chatEffort, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
@@ -18,6 +18,11 @@
   import { keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker, browserViewport } from '../terminal/sizing'
   import { chromeFocus } from '../shell/chrome.svelte'
   import SlotPicker, { type SlotOption } from './SlotPicker.svelte'
+ import InlinePromptMenu from '../prompts/InlinePromptMenu.svelte'
+ import PromptPicker from '../prompts/PromptPicker.svelte'
+ import { readPromptLibrary, type PromptLibrary } from '../prompts/library'
+ import { promptTrigger, replacePromptTrigger } from '../terminal/prompts'
+ import { insertSkillPrompt } from '../skillPrompt'
   import YoloDialog from './YoloDialog.svelte'
 
   // The launch bar docked at the foot of Home: "Describe the job" and a sentence whose bold words are the choices (spec: The
@@ -117,6 +122,58 @@
   let yoloIntent = $state<'enable' | 'start'>('enable'), yoloConfirmed = $state(false)
   const life = new AbortController()
   let form = $state<HTMLFormElement>(), field = $state<HTMLTextAreaElement>(), startButton = $state<HTMLButtonElement>()
+  // Your saved prompts: a backslash token opens them above the bar; the Prompts button opens the full picker.
+  let promptMenu = $state<{ start: number; query: string } | null>(null)
+  let promptLibrary = $state<PromptLibrary | null>(null), promptLoading = $state(false), promptError = $state('')
+  let promptSuppressed = false, promptLife: AbortController | undefined
+  let promptMenuEl = $state<InlinePromptMenu>(), promptButton = $state<HTMLButtonElement>(), promptPickerOpen = $state(false)
+  async function loadPromptLibrary() {
+    if (promptLibrary || promptLoading) return
+    promptLife?.abort()
+    const life = promptLife = new AbortController()
+    promptLoading = true; promptError = ''
+    try { promptLibrary = await readPromptLibrary(life.signal) }
+    catch (e) { if (!life.signal.aborted) promptError = e instanceof Error && e.message ? e.message : 'Prompts could not be read. Try again.' }
+    finally { if (!life.signal.aborted) promptLoading = false }
+  }
+  function openPromptMenu(trigger: { start: number; query: string }) {
+    if (locked || !choice) return
+    promptMenu = trigger
+    void loadPromptLibrary()
+  }
+  function closePromptMenu(dismissed = true) {
+    promptMenu = null
+    if (dismissed) promptSuppressed = true
+  }
+  function promptText(next: string, title: string, unresolved: string[], caret: number) {
+    if (!choice) return
+    choice = { ...choice, prompt: next }
+    message = unresolved.length ? `Inserted “${title}”. ${unresolved.join(', ')} ${unresolved.length === 1 ? 'was' : 'were'} not known here, so ${unresolved.length === 1 ? 'it stays' : 'they stay'} as written.` : ''
+    failed = false
+    void tick().then(() => { field?.focus(); field?.setSelectionRange(caret, caret) })
+  }
+  function pickPrompt(result: { prompt: { title: string }; text: string; unresolved: string[] }) {
+    if (!choice || !promptMenu) return
+    const out = replacePromptTrigger(choice.prompt, promptMenu, result.text, MAX_PROMPT_BYTES)
+    if ('error' in out) { failed = true; message = out.error; return }
+    promptSuppressed = true; promptMenu = null
+    promptText(out.draft, result.prompt.title, result.unresolved, out.caret)
+  }
+  function usePromptFromPicker(result: { prompt: { title: string }; text: string; unresolved: string[] }) {
+    if (!choice) return
+    const at = field?.selectionStart ?? choice.prompt.length, end = field?.selectionEnd ?? at
+    const inserted = insertSkillPrompt(choice.prompt, result.text, at, end)
+    if (new TextEncoder().encode(inserted.text).length > MAX_PROMPT_BYTES) { failed = true; message = `That prompt is too long for this bar. Keep it under ${MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes.`; return }
+    promptText(inserted.text, result.prompt.title, result.unresolved, inserted.caret)
+  }
+  function typedPrompt(event: Event) {
+    if (!choice) return
+    const input = event.currentTarget as HTMLTextAreaElement
+    choice = { ...choice, prompt: input.value }; message = ''
+    const trigger = promptTrigger(input.value, input.selectionStart ?? input.value.length)
+    if (!trigger) { promptSuppressed = false; promptMenu = null; return }
+    if (!promptSuppressed) openPromptMenu(trigger)
+  }
   // The session screen's + arrives at /#launch: the prompt takes focus once the bar is ready, and the address forgets it.
   let launchFocus = location.hash === '#launch'
   $effect(() => {
@@ -499,6 +556,7 @@
   const shownStatus = $derived([imagesReason, message || (!choice && projectsFailed ? UNREAD : '') || (!locked ? reason ?? '' : ''), hint].filter(Boolean).join(' '))
   // The session's title, shown before sending (the prompt's first line).
   const titled = $derived(choice?.prompt ? defaultTitle(choice.prompt) : '')
+  const promptContext = $derived({ project: one?.name, branch: choice?.branch || one?.baseBranch || '', folder: one?.dir || '', sessionTitle: titled })
   const starter = $derived(!!choice && choice.prompt === '' && !!one?.hasStarterPrompt && !locked)
 
   // Touch gets sheets and never sends on a key; a phone gets the one-line layout and the keyboard rule.
@@ -703,6 +761,13 @@
     }
   }
   function keydown(event: KeyboardEvent) {
+    if (promptMenu) {
+      if (event.key === 'ArrowDown') { event.preventDefault(); promptMenuEl?.move(1); return }
+      if (event.key === 'ArrowUp') { event.preventDefault(); promptMenuEl?.move(-1); return }
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closePromptMenu(true); return }
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); promptMenuEl?.choose(); return }
+      if (event.key === 'Tab') closePromptMenu(false)
+    }
     if (!sendKey(event, touch)) return
     event.preventDefault()
     void start()
@@ -1063,10 +1128,13 @@
     <div class="ask">
       <label class="vh" for={`${id}-prompt`}>Describe the job</label>
       <textarea id={`${id}-prompt`} bind:this={field} rows="1" placeholder={phone ? 'Describe the job…' : 'Describe the job. Say what done looks like.'}
-        value={choice?.prompt ?? ''} oninput={(e) => { if (choice) { choice = { ...choice, prompt: e.currentTarget.value }; message = '' } }}
-        onkeydown={keydown} onpaste={pasted} onfocus={() => { focused = true }} onblur={() => { focused = false }}
+        value={choice?.prompt ?? ''} oninput={typedPrompt}
+        onkeydown={keydown} onpaste={pasted} onfocus={() => { focused = true }} onblur={() => { focused = false; closePromptMenu(false) }}
         aria-describedby={[choice?.prompt ? `${id}-secrets` : '', shownStatus ? `${id}-status` : ''].filter(Boolean).join(' ') || undefined}
         autocomplete="off" spellcheck="true"></textarea>
+      {#if promptMenu}
+        <InlinePromptMenu bind:this={promptMenuEl} prompts={promptLibrary?.prompts ?? []} skills={promptLibrary?.skills ?? {}} query={promptMenu.query} context={promptContext} loading={promptLoading} error={promptError} oninsert={pickPrompt} onclose={() => closePromptMenu(false)} />
+      {/if}
     </div>
     {#if choice?.chat && chatNeedsTrust(choice.agent)}
       <label class="trust" class:missing={trustMissing}>
@@ -1135,6 +1203,7 @@
     </div>
   {/if}
   <div class="go">
+    <button type="button" class="prompts" bind:this={promptButton} disabled={locked || !choice} aria-haspopup="dialog" title="Use one of your saved prompts · or type \ in the prompt" onclick={() => (promptPickerOpen = true)}><span class="prompts-word">Prompts</span><span class="prompts-mark" aria-hidden="true">\</span></button>
     {#if operation && !busy}<button type="button" class="discard" onclick={discard}>Discard this request</button>{/if}
     <button type="submit" class="start" bind:this={startButton} disabled={busy || leaving || !choice || (!operation && (reason !== null || !!imagesReason || (choice?.approvals === 'yolo' && !!yoloWhy)))} aria-busy={busy || leaving}
       aria-label={operation ? 'Try the same request again' : 'Start the session'} aria-describedby={shownStatus ? `${id}-status` : undefined}>
@@ -1154,6 +1223,11 @@
     statusAction={slot === 'model' ? modelStatusAction : undefined}
     other={slot === 'model' ? { label: 'Other…', field: 'Model name', validate: validateModel } : undefined}
     onpick={(value) => set(slot, value)} onclose={() => { open = null; branchFilter = null }} />
+{/if}
+
+{#if promptPickerOpen && choice}
+  <PromptPicker opener={promptButton ?? null} sheet={touch}
+    context={promptContext} oninsert={usePromptFromPicker} onclose={() => { promptPickerOpen = false }} />
 {/if}
 
 {#if changing && choice}
@@ -1239,8 +1313,12 @@
     line-height: 1.5;
   }
   fieldset { display: contents; margin: 0; padding: 0; border: 0; min-width: 0; }
-  .ask { grid-column: 1; grid-row: 1; padding: 14px 0 8px 18px; min-width: 0; display: flex; }
-  .go { grid-column: 2; grid-row: 1; display: flex; align-items: flex-start; gap: 10px; padding: 14px 18px 8px 12px; }
+  .ask { position: relative; grid-column: 1; grid-row: 1; padding: 14px 0 8px 18px; min-width: 0; display: flex; }
+  .go { grid-column: 2; grid-row: 1; display: flex; align-items: flex-start; gap: 8px; padding: 14px 18px 8px 12px; }
+  .prompts { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: transparent; color: var(--ink-soft); font: inherit; font-size: 14px; cursor: pointer; }
+  .prompts:hover { background: var(--tint); color: var(--ink); }
+  .prompts:disabled { opacity: .55; cursor: default; }
+  .prompts-mark { font: 600 14px var(--mono); color: var(--muted); }
   .under { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 0 18px 8px; }
   .line { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding: 8px 18px 14px; border-top: 1px solid var(--line-soft); }
   .checkout { grid-column: 1 / -1; grid-row: 4; margin: -8px 0 0; padding: 0 18px 12px; font-size: 14px; color: var(--muted); }
@@ -1415,6 +1493,8 @@
     textarea { min-height: 44px; max-height: 116px; padding: 10px 0; }
     .go { padding: 6px 6px 6px 8px; align-items: center; }
     .start { width: 48px; height: 48px; padding: 0; justify-content: center; border-radius: 50%; }
+    .prompts { width: 44px; min-height: 44px; justify-content: center; padding: 0; }
+    .prompts-word { display: none; }
     .start .word, .start kbd { display: none; }
     .start .arrow { display: block; }
     .discard { height: 48px; }

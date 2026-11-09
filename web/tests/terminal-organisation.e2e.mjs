@@ -180,7 +180,7 @@ try{
  // The panel's own toggle sits at the top of the panel, above the project strip and the sessions list, so it keeps the same
  // place and icon whether the panel is open or closed.
  const panelCollapse=sidebar.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true})
- expect((await panelCollapse.boundingBox()).y).toBeLessThan((await sidebar.getByRole('heading',{name:'Inactive projects'}).boundingBox()).y)
+ expect((await panelCollapse.boundingBox()).y).toBeLessThan((await sidebar.getByRole('heading',{name:/^(Inactive )?projects$/i}).boundingBox()).y)
  // On a wide screen the chevron shrinks the panel to the mini rail, and the rail's own chevron closes it.
  await panelCollapse.click()
  await page.getByRole('complementary',{name:'Session rail'}).getByRole('button',{name:'Close session navigation',exact:true}).click()

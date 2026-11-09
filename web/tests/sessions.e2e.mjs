@@ -1344,6 +1344,9 @@ try {
     // A row clipped by a pixel or two at the panel's edge is scrolled into view to be used, not covered by the separator.
     if ((r.left + r.right) / 2 < side.left + 2 || (r.left + r.right) / 2 > side.right - 2 || (r.top + r.bottom) / 2 < side.top + 2 || (r.top + r.bottom) / 2 > side.bottom - 2) continue
     if (!near(r) || r.width === 0 || r.bottom < 0 || r.top > innerHeight) continue
+    // Nor is one the panel's scroll area clips: what lies past the clip is not the panel's to cover, and scrolling brings it whole.
+    const clip = el.closest('.panel-scroll')?.getBoundingClientRect()
+    if (clip && (r.top < clip.top - 0.5 || r.bottom > clip.bottom + 0.5)) continue
     const pts = [[(r.left + r.right) / 2, (r.top + r.bottom) / 2], [r.left + 1, (r.top + r.bottom) / 2], [r.right - 1, (r.top + r.bottom) / 2], [(r.left + r.right) / 2, r.top + 1], [(r.left + r.right) / 2, r.bottom - 1]]
     for (const [x, y] of pts) { const hit = document.elementFromPoint(x, y); if (hit && hit !== el && !el.contains(hit)) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().slice(0, 30)} at ${Math.round(x)},${Math.round(y)} → ${hit.className || hit.tagName}`) }
    }

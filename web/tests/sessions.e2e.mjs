@@ -1302,6 +1302,13 @@ try {
   expect(small, 'targets under 44 px (40 px for the terminal keys)').toEqual([])
   // A row's menu in the panel, and a project row's menu: their items and colour swatches too.
   for (const opener of ['Actions for Docs pass', 'Actions for machine studio', 'Actions for reet']) {
+   // A project with sessions has its menu on its group header, which only the project grouping draws (every fixture project has sessions, so none is under Inactive projects).
+   if (opener === 'Actions for reet') {
+    const panel = page.locator('aside#terminal-sessions')
+    const toggle = panel.getByRole('button',{name:/^View options/})
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+    await panel.getByLabel('Group sessions').selectOption('project')
+   }
    await page.locator('aside#terminal-sessions').getByRole('button',{name:opener,exact:true}).click()
    const items = await page.locator('.session-context[role=menu] :is(button, a[href])').evaluateAll(els => els.filter(e => e.getClientRects().length).map(e => { const r = e.getBoundingClientRect(); return `${(e.getAttribute('aria-label') || e.textContent).trim().slice(0,24)} ${Math.round(r.width)}×${Math.round(r.height)}` }))
    expect(items.length, opener).toBeGreaterThan(1)

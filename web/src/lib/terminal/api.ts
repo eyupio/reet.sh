@@ -251,6 +251,13 @@ export async function savedCommands(signal?:AbortSignal):Promise<TerminalCommand
 export async function saveCommand(item:Pick<TerminalCommand,'name'|'command'|'description'>,current?:TerminalCommand):Promise<TerminalCommand>{return(await terminalRequest('/api/v2/terminal/commands'+(current?`/${encodeURIComponent(current.id)}`:''),{method:current?'PATCH':'POST',signal:AbortSignal.timeout(15000),body:JSON.stringify({...item,revision:current?.revision||0})})).json()}
 export async function removeCommand(item:TerminalCommand):Promise<void>{await terminalRequest(`/api/v2/terminal/commands/${encodeURIComponent(item.id)}`,{method:'DELETE',signal:AbortSignal.timeout(15000),body:JSON.stringify({revision:item.revision})})}
 
+export type TerminalPrompt={id:string;title:string;description:string;body:string;category:string;tool:string;model:string;effort:string;revision:number;createdAt:number;updatedAt:number}
+export type TerminalPromptWrite=Pick<TerminalPrompt,'title'|'description'|'body'|'category'|'tool'|'model'|'effort'>
+const promptSignal=(signal?:AbortSignal)=>signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)
+export async function savedPrompts(signal?:AbortSignal):Promise<TerminalPrompt[]>{return(await(await terminalRequest('/api/v2/terminal/prompts',{signal:promptSignal(signal)})).json()).prompts}
+export async function savePrompt(item:TerminalPromptWrite,current?:TerminalPrompt):Promise<TerminalPrompt>{return(await terminalRequest('/api/v2/terminal/prompts'+(current?`/${encodeURIComponent(current.id)}`:''),{method:current?'PATCH':'POST',signal:AbortSignal.timeout(15000),body:JSON.stringify({...item,revision:current?.revision||0})})).json()}
+export async function removePrompt(item:Pick<TerminalPrompt,'id'|'revision'>):Promise<void>{await terminalRequest(`/api/v2/terminal/prompts/${encodeURIComponent(item.id)}`,{method:'DELETE',signal:AbortSignal.timeout(15000),body:JSON.stringify({revision:item.revision})})}
+
 export type CommandHistoryEntry={command:string;source:'bash'|'zsh';timestamp?:number}
 export type CommandHistorySnapshot={entries:CommandHistoryEntry[];sources:{source:'bash'|'zsh';available:boolean;reason?:string}[];truncated:boolean;skipped:number}
 export async function commandHistory(id:string,signal?:AbortSignal):Promise<CommandHistorySnapshot>{return(await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/command-history`,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)})).json()}

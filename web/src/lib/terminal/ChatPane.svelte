@@ -22,13 +22,18 @@ import ImageLightbox from './ImageLightbox.svelte'
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import ChatQueue from './ChatQueue.svelte'
+import InlinePromptMenu from '../prompts/InlinePromptMenu.svelte'
+import PromptPicker from '../prompts/PromptPicker.svelte'
+import { readPromptLibrary, type PromptLibrary } from '../prompts/library'
+import { promptTrigger, replacePromptTrigger } from './prompts'
+import { insertSkillPrompt } from '../skillPrompt'
 import { chatControls, chatSetting, chatEnqueue, type ChatControls } from './api'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
 import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, project, liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
@@ -245,11 +250,62 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
   composerInput?.focus()
   composerInput?.setSelectionRange(draft.length, draft.length)
  }
+ // The prompt palette: typing a backslash token opens the person's own prompts above the composer.
+ // It inserts editable text and never sends; the same list is also reachable from the Prompts button.
+ let promptMenu = $state<{ start: number; query: string } | null>(null)
+ let promptLibrary = $state<PromptLibrary | null>(null), promptLoading = $state(false), promptError = $state('')
+ let promptSuppressed = false, promptLife: AbortController | undefined
+ let promptMenuEl = $state<InlinePromptMenu>(), promptButton = $state<HTMLButtonElement>(), promptPickerOpen = $state(false)
+ const promptContext = $derived({ project: project?.name, branch: session.worktreeBranch || project?.baseBranch || '', folder: session.worktreePath || session.dir || project?.dir || '', sessionTitle: session.title })
+ async function loadPromptLibrary() {
+  if (promptLibrary || promptLoading) return
+  promptLife?.abort()
+  const life = promptLife = new AbortController()
+  promptLoading = true; promptError = ''
+  try { promptLibrary = await readPromptLibrary(life.signal) }
+  catch (e) { if (!life.signal.aborted) promptError = e instanceof Error && e.message ? e.message : 'Prompts could not be read. Try again.' }
+  finally { if (!life.signal.aborted) promptLoading = false }
+ }
+ function openPromptMenu(trigger: { start: number; query: string }) {
+  if (promptBlocked) return
+  promptMenu = trigger
+  void loadPromptLibrary()
+ }
+ function closePromptMenu(dismissed = true) {
+  promptMenu = null
+  if (dismissed) promptSuppressed = true
+ }
+ function pickPrompt(result: { prompt: { title: string }; text: string; unresolved: string[] }) {
+  if (!promptMenu) return
+  const out = replacePromptTrigger(draft, promptMenu, result.text, MAX_CHAT_BYTES)
+  if ('error' in out) { feedback = out.error; return }
+  draft = out.draft
+  feedback = result.unresolved.length ? `Inserted “${result.prompt.title}”. ${result.unresolved.join(', ')} ${result.unresolved.length === 1 ? 'was' : 'were'} not known here, so ${result.unresolved.length === 1 ? 'it stays' : 'they stay'} as written.` : ''
+  promptSuppressed = true
+  promptMenu = null
+  void tick().then(() => { composerInput?.focus(); composerInput?.setSelectionRange(out.caret, out.caret) })
+ }
+ function usePromptFromPicker(result: { prompt: { title: string }; text: string; unresolved: string[] }) {
+  const at = composerInput?.selectionStart ?? draft.length, end = composerInput?.selectionEnd ?? at
+  const inserted = insertSkillPrompt(draft, result.text, at, end)
+  if (new TextEncoder().encode(inserted.text).length > MAX_CHAT_BYTES) { feedback = `That prompt is too long for this message. Keep it under ${MAX_CHAT_BYTES.toLocaleString('en-GB')} bytes.`; return }
+  draft = inserted.text
+  feedback = result.unresolved.length ? `Inserted “${result.prompt.title}”. ${result.unresolved.join(', ')} ${result.unresolved.length === 1 ? 'was' : 'were'} not known here, so ${result.unresolved.length === 1 ? 'it stays' : 'they stay'} as written.` : ''
+  void tick().then(() => { composerInput?.focus(); composerInput?.setSelectionRange(inserted.caret, inserted.caret) })
+ }
  function typed(event: Event) {
-  const value = (event.currentTarget as HTMLTextAreaElement).value
+  const input = event.currentTarget as HTMLTextAreaElement
+  const value = input.value
   const query = slashQuery(value)
-  if (query === null) { slashDismissed = false; return }
-  if (!slashDismissed) openSkills(query)
+  if (query !== null) {
+   promptMenu = null
+   if (!slashDismissed) openSkills(query)
+   return
+  }
+  slashDismissed = false
+  const trigger = promptTrigger(value, input.selectionStart ?? value.length)
+  if (!trigger) { promptSuppressed = false; promptMenu = null; return }
+  if (!promptSuppressed) openPromptMenu(trigger)
  }
  function pickSkill(skill: SessionSkill) {
   if (skillsOff) { feedback = ended ? `${skillsOff} Nothing was inserted.` : chat.connection !== 'open' ? 'Connection changed. Nothing was inserted.' : 'The message box is busy. Nothing was inserted.'; void closeSkills(); return }
@@ -322,6 +378,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  const working = $derived(isWorking(chat))
  // One value says whether the message box can take text; the textarea, the Skills button and a pick all use it, so they cannot drift apart.
  const composerBlocked = $derived(sending || uploading || changingModel || working || chat.connection === 'reconnecting')
+const promptBlocked = $derived(reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting')
  const skillsOff = $derived(reattaching ? 'Skills can be inserted once the chat is back.' : ended ? 'This reet session has ended.' : chat.connection !== 'open' ? 'Skills can be inserted once reet is connected.' : sending || uploading || changingModel ? 'Skills can be inserted once the message has been sent.' : working ? 'Skills can be inserted when the agent is idle.' : '')
  const pending = $derived(pendingPermissions(chat))
  const asked = $derived(pendingQuestions(chat))
@@ -592,6 +649,13 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
   return item.reason === 'timeout' ? 'Closed: the question timed out.' : 'Closed without an answer.'
  }
  function keydown(event: KeyboardEvent) {
+  if (promptMenu) {
+   if (event.key === 'ArrowDown') { event.preventDefault(); promptMenuEl?.move(1); return }
+   if (event.key === 'ArrowUp') { event.preventDefault(); promptMenuEl?.move(-1); return }
+   if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closePromptMenu(true); return }
+   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); promptMenuEl?.choose(); return }
+   if (event.key === 'Tab') closePromptMenu(false)
+  }
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
   event.preventDefault(); void send()
  }
@@ -953,6 +1017,9 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}
  {:else}
   <div class="composer" data-floating-clearance onpaste={pasted} class:dropping={dropping}>
+   {#if promptMenu}
+    <InlinePromptMenu bind:this={promptMenuEl} prompts={promptLibrary?.prompts ?? []} skills={promptLibrary?.skills ?? {}} query={promptMenu.query} context={promptContext} loading={promptLoading} error={promptError} oninsert={pickPrompt} onclose={() => closePromptMenu(false)} />
+   {/if}
    {#if liveControls}<ChatQueue sessionId={session.id} controls={runtime} active={!ended} reloadKey={queuePulse} />{/if}
    {#if runtimeNote}<p class="notice" role="status">{runtimeNote}</p>{/if}
    {#if queued.length}
@@ -993,7 +1060,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
-    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
+    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…  Type \\ for a saved prompt.`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} onblur={() => closePromptMenu(false)} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
     <div class="field-actions">
      {#if working && !reattaching}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
      <button type="button" class="btn primary send" disabled={reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
@@ -1001,6 +1068,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
    </div>
    <div class="composer-bar">
     <div class="composer-tools">
+     <button type="button" class="skills-btn" bind:this={promptButton} aria-label="Prompts" aria-haspopup="dialog" title="Insert one of your saved prompts · or type \ in the message" disabled={promptBlocked} onclick={() => (promptPickerOpen = true)}>Prompts</button>
      <button type="button" class="skills-btn" aria-label="Skills" aria-haspopup="dialog" title={skillsOff || 'Insert a skill into your message'} disabled={!!skillsOff} onclick={() => openSkills()}>+ Skills</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
      {#if liveEffort}<div class="effort-controls" data-keeps-focus>
@@ -1042,6 +1110,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
       onpick={value => { selectedModel = value; modelOpen = false; void changeModel() }} onclose={() => modelOpen = false} />
     {/if}
     {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName} initialQuery={skillQuery} sessionId={session.id} onrefresh={() => void loadSkills()} onpick={pickSkill} onclose={() => void closeSkills()} onretry={() => void loadSkills()} />{/if}
+    {#if promptPickerOpen}<PromptPicker opener={promptButton ?? null} sheet={touchModels} context={promptContext} limit={MAX_CHAT_BYTES} oninsert={usePromptFromPicker} onclose={() => { promptPickerOpen = false; void tick().then(() => composerInput?.focus()) }} />{/if}
    {#if canAttach}<input class="vh" bind:this={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple onchange={picked} />{/if}
   </div>
  {/if}

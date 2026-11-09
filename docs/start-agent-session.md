@@ -26,6 +26,31 @@ machine before the session starts; its absolute path joins the opening prompt, s
 with it in view. At most 20 images and 50 MiB at once. A machine with uploads off, or an older reet,
 says so and Start waits.
 
+## Reusable prompts
+
+Open **Prompts** under **More → Skills & distribution** to save instructions you use
+often. Prompts are private to your account. You can search, organise by category,
+duplicate, edit or delete them, and export or import JSON. Import creates new entries;
+it does not overwrite existing prompts. Each account can keep up to 200 prompts, with
+an 8,000-byte body per prompt.
+
+Choose **Use a prompt** in the Start dialog or backlog composer, or **Prompts** in
+Home's launch bar or a session. In text composers, typing a backslash at the start of
+the field or after whitespace opens an inline search. A selection inserts editable
+text; it does not start a session or send a message. In a raw terminal it types the
+text without pressing Enter, and multiline text goes through the existing paste review.
+
+Templates can include `{{project}}`, `{{branch}}`, `{{folder}}`, `{{sessionTitle}}`
+and `{{date}}`. A skill reference such as `{{skill:review}}` or
+`{{skill:owner/repository/review}}` inserts that skill's current ready-to-use prompt
+from your shelf. Missing values and unknown skills remain written in the text and are
+reported, so you can fill them yourself. Inserted skill text is not expanded a second
+time. The resulting text still has to fit the destination message box.
+
+A prompt can also store suggested agent, model and effort choices. Check the launch
+settings before starting; saving or inserting a prompt does not install an agent,
+change its sign-in, or execute anything.
+
 ## Gaffer or the agent TUI
 
 Google Antigravity (AGY) offers **Gaffer** on an updated machine that reports its

@@ -375,10 +375,14 @@ try {
  }
 
  // The run clock: one line under the subline, a real time element, and nothing that a screen reader announces every minute.
+ // The fixtures start a session an hour (or three) before now. The line leads with a bare HH:MM only when that start is on
+ // today's date; in the first hours after midnight it correctly adds the day ("Nov 8, 23:49"), so the tests accept both.
+ // runClock.test.mjs pins each form against a fixed clock.
+ const startedAt=String.raw`(?:[A-Za-z]+ \d{1,2}, |\d{1,2} [A-Za-z]+, )?\d\d:\d\d`
  {
   const {context,panel,errors}=await open(1600,'dark')
   const line=panel.locator('.run-line')
-  await expect(line).toHaveText(/^Started \d\d:\d\d · running 1h \d+m$/)
+  await expect(line).toHaveText(new RegExp(`^Started ${startedAt} · running 1h \\d+m$`))
   await expect(line.locator('time')).toHaveAttribute('datetime',/^\d{4}-\d\d-\d\dT/)
   expect(await line.locator('time').getAttribute('title')).toMatch(/\d{4}/)
   expect(await line.evaluate(el=>!el.closest('[aria-live],[role=status],[role=alert]')&&!el.querySelector('[aria-live]'))).toBe(true)
@@ -390,7 +394,7 @@ try {
   await expect(done.panel.locator('.run-line')).toHaveText('Ran 1h 12m')
   expect(done.errors).toEqual([]);await done.context.close()
   const lost=await open(1600,'light',true,null,{session:{state:'lost',createdAt:created}})
-  await expect(lost.panel.locator('.run-line')).toHaveText(/^Started \d\d:\d\d$/)
+  await expect(lost.panel.locator('.run-line')).toHaveText(new RegExp(`^Started ${startedAt}$`))
   expect(lost.errors).toEqual([]);await lost.context.close()
  }
  // The Where card: the repo is a link only for a well-formed owner/name, branch and worktree copy, the base shows once known, and the old facts stay.

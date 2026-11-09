@@ -196,6 +196,20 @@ try{
  await expect(p.opt('OpenCode')).toBeDisabled()
  await expect(p.agentWhy).toContainText('OpenCode · Not installed on dev-laptop')
  await expect(p.agentWhy).not.toContainText('Claude Code ·')
+ // Claude Code's Gaffer adapter: a machine that reports it missing says what to install; with it available, or with nothing
+ // reported, the dialog is silent.
+ await expect(d.locator('p.claude-adapter')).toHaveCount(0)
+ const reopen=async()=>{await page.goto(`${base}/sessions?agent=${A}`);await expect(sidebarEntry()).toBeEnabled();d=await openFromSidebar(false);p=parts(d);await useFolder(d);await texts(d);await p.chosen('Claude Code')}
+ const claudeCaps=tmachines[0].capabilities
+ claudeCaps.acp=true;claudeCaps.acpAgents=[{tool:'claude',adapter:'claude-agent-acp',state:'missing',minimumVersion:'0.99.1'}]
+ await reopen()
+ await expect(d.locator('p.claude-adapter')).toContainText('npm install --global @agentclientprotocol/claude-agent-acp@0.99.1')
+ await expect(d.locator('p.claude-adapter')).toContainText('dev-laptop')
+ claudeCaps.acpAgents=[{tool:'claude',adapter:'claude-agent-acp',state:'available',minimumVersion:'0.99.1',approval:true}]
+ await reopen()
+ await expect(d.locator('p.claude-adapter')).toHaveCount(0)
+ delete claudeCaps.acp;delete claudeCaps.acpAgents
+ await reopen()
  // The reason is text to read, not a disabled control: it is not faded (an axe scan found it below contrast when it was).
  expect(await p.agentWhy.evaluate(el=>{let o=1;for(let n=el;n&&n.tagName!=='DIALOG';n=n.parentElement)o*=Number(getComputedStyle(n).opacity);return o})).toBe(1)
  // Machines: every machine listed; the one not ready cannot be chosen.

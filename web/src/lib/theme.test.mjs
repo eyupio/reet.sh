@@ -124,6 +124,21 @@ test('the logo draws the real logo.svg with the ink and accent tokens', () => {
   assert.match(svg, /var\(--accent[,)]/)
 })
 
+test('the boot logo paints the same accent as the app logo', () => {
+  const html = readFileSync(join(web, 'index.html'), 'utf8')
+  const accents = [...css.matchAll(/--accent:\s*(#[0-9a-fA-F]{6})/g)].map(match => match[1].toLowerCase())
+  assert.ok(accents.length >= 2, 'app.css declares --accent for each palette')
+  assert.equal(new Set(accents).size, 1, `the app logo's accent is the same in every palette, got ${accents.join(', ')}`)
+  const boot = html.slice(html.indexOf('<div id="boot"'), html.indexOf('<div id="boot-slow"'))
+  const token = html.match(/--boot-logo-accent:\s*(#[0-9a-fA-F]{6})/)
+  assert.ok(token, 'the boot shell declares its logo accent')
+  assert.equal(token[1].toLowerCase(), accents[0], 'the boot logo accent matches the app logo accent')
+  const brand = boot.slice(boot.indexOf('<span class="boot-brand">'))
+  const svg = brand.slice(0, brand.indexOf('</span>'))
+  assert.match(svg, /fill="var\(--boot-logo-accent\)"/, 'the boot wordmark uses the logo accent token')
+  assert.doesNotMatch(svg, /var\(--boot-accent\)/, 'the boot wordmark does not use the skeleton accent')
+})
+
 // Components use tokens only. Files listed here are always checked whole; with a git base (REET_THEME_BASE, or the merge
 // base with origin/main) every line this branch adds to a component is checked too.
 const LITERAL = /(?<![\w/])#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|lab|lch)\(|\b(white|black)\b(?=\s*[;}"'])/

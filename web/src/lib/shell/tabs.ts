@@ -6,6 +6,12 @@ export type JumpItem = { kind: 'session' | 'project' | 'skill' | 'machine'; labe
 
 const KIND_ORDER: JumpItem['kind'][] = ['session', 'project', 'skill', 'machine']
 
+/** The fetched rows followed by the live ones not already among them (same kind and address), so a row is listed once. */
+export function jumpRows(fetched: JumpItem[], live: JumpItem[]): JumpItem[] {
+  const seen = new Set(fetched.map(item => item.kind + item.href))
+  return [...fetched, ...live.filter(item => !seen.has(item.kind + item.href))]
+}
+
 /** The rows whose name contains the query (case-insensitive), sessions, Projects and skills first, then machines; at most `limit`. */
 export function jumpMatches(items: JumpItem[], query: string, limit = 8): JumpItem[] {
   const q = query.trim().toLowerCase()

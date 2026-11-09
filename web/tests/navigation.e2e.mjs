@@ -110,6 +110,22 @@ try {
   await context.close()
  }
 
+ // Jump reads sessions and Projects when it is first used and holds them for 15 seconds, but a skill list that finishes
+ // loading after that first use must still be found: the skills answer is held back here, Jump is used before it arrives,
+ // and the skill appears once it has. (The list used to be built once, so the skill was missing for the 15 seconds.)
+ if (run('jump finds a skill that finished loading after it was first used')) {
+  const {context,page,errors} = await open({width:1440,skills:[skill('code-review')]})
+  await page.route('**/api/skills*', async route => { await new Promise(resolve => setTimeout(resolve, 1500)); await route.fallback() })
+  await page.goto(`${base}/skills`)
+  const jump = page.getByRole('combobox',{name:'Jump to a session, project, skill or machine'})
+  await jump.fill('code')
+  const results = page.getByRole('listbox',{name:'Jump results'})
+  await expect(results.getByRole('option',{name:/code-review/})).toHaveAttribute('href','/skills?skill=demo%2Ftoolkit%2Fcode-review')
+  await expect(results.getByRole('option',{name:/code-review/})).toContainText('Skill ·')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A phone has four tabs along the bottom: Home, Sessions, Machines and More, 64 px tall with 44 px targets; More lists the rest.
  if (run('phone shows four bottom tabs and More lists the rest')) {
   for (const width of [320,390]) {

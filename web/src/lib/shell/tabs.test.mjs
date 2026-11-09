@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 
 const { outputText } = ts.transpileModule(readFileSync(new URL('./tabs.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { jumpMatches, pageGroup } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { jumpMatches, jumpRows, pageGroup } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const item = (kind, label) => ({ kind, label, detail: kind, href: `/${kind}/${label}` })
 
@@ -17,6 +17,18 @@ test('a skill is found by its name, case-insensitively, and other rows are left 
   const items = [item('session', 'Unrelated'), item('skill', 'Code review'), item('machine', 'build-box')]
   assert.deepEqual(jumpMatches(items, 'CODE').map((i) => i.label), ['Code review'])
   assert.deepEqual(jumpMatches(items, 'code review').map((i) => i.label), ['Code review'])
+})
+
+test('fetched and live rows are listed together, and a row present in both is listed once', () => {
+  const fetched = [item('session', 'Store split'), item('machine', 'studio')]
+  const live = [item('skill', 'Code review'), item('machine', 'studio'), item('machine', 'build-box')]
+  assert.deepEqual(jumpRows(fetched, live).map((i) => `${i.kind}:${i.label}`), ['session:Store split', 'machine:studio', 'skill:Code review', 'machine:build-box'])
+  assert.deepEqual(jumpRows([], live), live)
+  assert.deepEqual(jumpRows(fetched, []), fetched)
+})
+
+test('a skill that is live is found even when the fetched rows were read before it existed', () => {
+  assert.deepEqual(jumpMatches(jumpRows([], [item('skill', 'Code review')]), 'code').map((i) => i.label), ['Code review'])
 })
 
 test('an empty query shows nothing, and the list is capped after sorting', () => {

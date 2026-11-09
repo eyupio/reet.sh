@@ -176,6 +176,9 @@ try {
   await yoloGroup.getByRole('radio', { name: 'Let Codex decide' }).click()
   await expect(yoloGroup.getByText('YOLO is on, but it does not answer there', { exact: false })).toBeVisible()
   await expect(yoloGroup.getByText('left to you', { exact: false })).toBeVisible()
+  // Back to the sandbox mode, so the layout checks and screenshots below keep showing the state they always did.
+  await yoloGroup.getByRole('radio', { name: 'Ask before leaving the sandbox' }).click()
+  await expect(yoloGroup.getByText('when it asks to leave the sandbox you are not asked.', { exact: false })).toBeVisible()
   if (process.env.REET_UI_SCREENSHOTS) await mkdir(process.env.REET_UI_SCREENSHOTS, { recursive: true })
   for (const theme of ['dark', 'light']) for (const width of [1360, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })

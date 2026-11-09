@@ -9,7 +9,7 @@
     /** The mode the machine last confirmed, or '' when it is not known. */
     current: string
     disabled?: boolean
-    /** YOLO answers every request for the person, so the sandbox mode cannot promise that they are asked. */
+    /** YOLO answers the requests Codex asks for in the sandbox mode, so that mode cannot promise that the person is asked. In the agent mode it answers none. */
     yolo?: boolean
     onchoose: (mode: string) => Promise<void>
   } = $props()

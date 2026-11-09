@@ -176,6 +176,9 @@ test('session header: agent · model · started, and the decisions line', () => 
   assert.equal(decisionsLine({ yolo: false }), 'Asked in the terminal.')
   assert.equal(decisionsLine({}), 'Asked in the terminal.')
   assert.equal(decisionsLine({ yolo: true, structured: true }), 'YOLO: reet answers yes, this once, to each request.')
+  assert.equal(decisionsLine({ yolo: true, structured: true, tool: 'claude' }), 'YOLO: reet answers yes, this once, to each request.')
+  // Codex asks only in "Ask before leaving the sandbox"; in "Let Codex decide" a request it still raises is left to the person.
+  assert.equal(decisionsLine({ yolo: true, structured: true, tool: 'codex' }), 'YOLO: reet answers yes, this once, when Codex asks before leaving its sandbox. In “Let Codex decide”, a request it raises is left to you.')
   assert.equal(decisionsLine({ yolo: true, structured: false }), 'YOLO: the agent asked not to be prompted; the launch is audited.')
   assert.equal(decisionsLine({ structured: true }), 'Asked in the chat: Allow once or Deny.')
   assert.deepEqual(continueChatLaunch({ tool: 'opencode', structured: true, acpSessionId: 'ses_1', state: 'exited', dir: '/home/u/site', projectId: 'p1', model: 'anthropic/claude-sonnet-4-5' }), { tool: 'opencode', dir: '/home/u/site', model: 'anthropic/claude-sonnet-4-5', structured: true, trust: true, resumeAcp: 'ses_1', projectId: 'p1' })

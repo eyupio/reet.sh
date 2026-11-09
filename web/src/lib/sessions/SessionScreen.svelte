@@ -183,7 +183,7 @@
   const serverOff = $derived(machines.find(m => m.agentId === session.agentId)?.serverEnabled === false)
   const live = $derived(!terminalClosed(session.state))
 
-  // Approvals: a structured chat can switch between asking for every card and YOLO, which answers each one itself.
+  // Approvals: a structured chat can switch between asking for every card and YOLO, which answers each one itself (for Codex, only in its ask-before-leaving-the-sandbox mode).
   // The account setting, the machine's acceptance and the agent's reviewed option are the same gates as a launch.
   let approvalMode = $state<ApprovalMode>('ask'), modeFor = ''
   let yoloSetting = $state<YoloSetting | null | undefined>(undefined)

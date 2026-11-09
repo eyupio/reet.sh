@@ -48,10 +48,7 @@
         var bootPath = location.pathname
         if (/^\/projects(?:\/[^/]+)?\/?$/.test(bootPath) || /^\/control\/?$/.test(bootPath)) bootPath = '/'
         if (/^\/(sessions|terminals)\/?$/.test(bootPath)) bootPath = '/sessions'
-        document.documentElement.dataset.bootRail = 'collapsed'
-        try {
-          if (localStorage.getItem('reet.rail.collapsed') === '0') delete document.documentElement.dataset.bootRail
-        } catch (e) { /* Keep projects compact when storage is blocked. */ }
+        // Home's project list lives inside the workspace panel, so there is no separate boot rail to reserve.
         document.documentElement.dataset.bootLayout = bootPath === '/' ? 'home'
           : ((bootPath === '/sessions' || bootPath === '/terminals') && bootQuery.get('view') !== 'list')
             || (['/machines', '/account/machines', '/account/sync'].indexOf(bootPath) !== -1 && bootQuery.get('view') === 'terminal') ? 'workspace'
@@ -281,12 +278,8 @@
          with its own padding. */
       html[data-boot='app'][data-boot-layout='workspace'] .boot-bar-inner { height: 56px; padding: 0 16px; }
       html[data-boot='app'][data-boot-layout='workspace'] .boot-brand { width: 120px; }
-      html[data-boot='app'][data-boot-layout='home'] .boot-main { max-width: none; padding: 20px 24px; margin-left: 301px; }
-      html[data-boot='app'][data-boot-layout='home'][data-boot-rail='collapsed'] .boot-main { margin-left: 56px; }
+      html[data-boot='app'][data-boot-layout='home'] .boot-main { max-width: none; padding: 20px 24px; margin-left: 300px; }
       html[data-boot='app'][data-boot-layout='workspace'] .boot-main { max-width: none; padding: 8px 12px; }
-      @media (max-width: 1239px) {
-        html[data-boot='app'][data-boot-layout='home'] .boot-main { margin-left: 56px; }
-      }
       @media (min-width: 651px) and (max-width: 799px) {
         html[data-boot='app']:not([data-boot-layout='workspace']) .boot-bar-inner { padding-inline: 16px; }
       }
@@ -296,8 +289,7 @@
       }
       @media (max-width: 1099px) {
         html[data-boot='app'] .boot-bar-inner { height: 64px; }
-        html[data-boot='app'][data-boot-layout='home'] .boot-main,
-        html[data-boot='app'][data-boot-layout='home'][data-boot-rail='collapsed'] .boot-main { margin-left: 0; }
+        html[data-boot='app'][data-boot-layout='home'] .boot-main { margin-left: 0; }
       }
       @media (max-width: 700px) {
         html[data-boot='app'][data-boot-layout='workspace'] .boot-main { padding: 4px 6px; }
@@ -331,12 +323,12 @@
         html[data-workspace-shell] #boot .boot-bar-inner { padding-left: 264px; }
         html[data-workspace-shell] #boot .boot-brand { position: fixed; top: 24px; left: 28px; width: 134px; z-index: 1; }
         html[data-workspace-shell] #boot .boot-main { max-width: none; margin-left: 228px; margin-right: 0; width: calc(100% - 228px); }
-        html[data-workspace-shell][data-boot-layout='home'] #boot .boot-main { margin-left: calc(228px + var(--boot-project-rail, 56px)); width: calc(100% - 228px - var(--boot-project-rail, 56px)); }
+        /* Home's panel also holds the project list, so it is 300 px wide and there is no second rail column. */
+        html[data-workspace-shell][data-boot-layout='home'] #boot .boot-workspace-sidebar { width: 300px; }
+        html[data-workspace-shell][data-boot-layout='home'] #boot .boot-bar-inner { padding-left: 336px; }
+        html[data-workspace-shell][data-boot-layout='home'] #boot .boot-main { margin-left: 300px; width: calc(100% - 300px); }
         /* The session's slim bar draws the same 134 px logo as the sidebar on every other desktop page. */
         html[data-boot='app'][data-boot-layout='workspace'] .boot-brand { width: 134px; }
-      }
-      @media (min-width: 1240px) {
-        html[data-workspace-shell][data-boot-layout='home']:not([data-boot-rail='collapsed']) { --boot-project-rail: 301px; }
       }
 
       /* The terminal workspace's boot shape: the same card, toolbar, sessions panel, session screen and details panel

@@ -252,3 +252,55 @@ func TestAFencedControllerDeliversNoQueuedMessageUntilTheLift(t *testing.T) {
 		t.Fatalf("after the lift %d prompts were sent, want 1", prompts)
 	}
 }
+
+func TestQueueRetriesWhenControlReadConflicts(t *testing.T) {
+	prompts, controls := 0, 0
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch m.Body.(type) {
+		case *terminalproto.ACPControl:
+			controls++
+			if controls == 1 {
+				// The machine may be temporarily at its control-request limit.
+				return terminalproto.Result{Code: terminalproto.Conflict}, true
+			}
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{}}, true
+		case *terminalproto.ACPPrompt:
+			prompts++
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), "follow on", nil); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	if prompts != 0 {
+		t.Fatalf("conflicting read still sent the message: %d prompts", prompts)
+	}
+	q, _ := b.st.TerminalQueueFor(uid, s.ID)
+	if len(q) != 1 || q[0].State != "queued" || q[0].Note != "" {
+		t.Fatalf("transient overload lost the queued message: %+v", q)
+	}
+	b.stepChatQueue(uid, s.ID)
+	if prompts != 1 {
+		t.Fatalf("recovered control capacity did not send exactly once: %d", prompts)
+	}
+}
+
+func TestQueueFailsWhenSessionEnds(t *testing.T) {
+	b, p, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, nil)
+	s := chatSession(t, b, uid, agent)
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), "follow on", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.st.ObserveTerminalStateFor(uid, agent, s.ID, p.Generation, terminalproto.Exited, nil); err != nil {
+		t.Fatal(err)
+	}
+	q, err := b.ChatQueue(uid, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q) != 1 || q[0].State != "failed" || q[0].Note != "The session ended before this message was sent. Reconnect it, then retry." {
+		t.Fatalf("queued message outlived its session: %+v", q)
+	}
+}

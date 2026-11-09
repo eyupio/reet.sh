@@ -52,9 +52,9 @@
   let groups = $state<ProjectGroup[] | undefined>()
   // The project or group the board is narrowed to (null: everything).
   let scope = $state<{ kind: 'project' | 'group'; id: string } | null>(null)
-  // Projects use a compact strip unless an expanded rail was explicitly saved. The choice stays in this browser.
+  // The project list starts open; a fold is kept in this browser.
   let railCollapsed = $state((() => {
-    try { return localStorage.getItem('reet.rail.collapsed') !== '0' } catch { return true }
+    try { return localStorage.getItem('reet.rail.collapsed') === '1' } catch { return false }
   })())
   // The rail's width on a wide desktop, also remembered in this browser.
   const savedRailWidth = (() => {
@@ -238,6 +238,29 @@
 
   // The rail and what its cards do (ProjectRailHost); the launch bar's project slot opens its Add project too.
   let host = $state<ProjectRailHost>()
+  // On a desktop the project list is moved into the workspace navigation panel, so Home keeps one left column. Where that
+  // panel is not on screen (a tablet, a phone, or folded navigation) the rail stays in Home's own column.
+  const RAIL_TARGET = '[data-workspace-rail]'
+  let railInSidebar = $state(false)
+  function railPortal(node: HTMLElement) {
+    const parent = node.parentNode as HTMLElement | null
+    const anchor = node.nextSibling
+    let target: Element | null | undefined
+    let queued = false
+    const place = () => {
+      queued = false
+      const next = document.querySelector(RAIL_TARGET)
+      if (next === target) return
+      target = next
+      if (next) { next.appendChild(node); railInSidebar = true }
+      else if (parent && node.parentNode !== parent) { parent.insertBefore(node, anchor); railInSidebar = false }
+    }
+    const schedule = () => { if (!queued) { queued = true; requestAnimationFrame(place) } }
+    place()
+    const observer = new MutationObserver(schedule)
+    observer.observe(document.body, { childList: true, subtree: true })
+    return { destroy() { observer.disconnect(); node.remove() } }
+  }
   function openAdd(opener: HTMLElement) { void host?.openAdd(opener) }
   // Choosing a card marks it as the project the board's Start a session dialog starts in too.
   let launchProject = $state<string | null>(null)
@@ -360,7 +383,7 @@
   let movedShown = $state(false)
   onMount(() => {
     try {
-      railCollapsed = localStorage.getItem('reet.rail.collapsed') !== '0'
+      railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1'
       if (localStorage.getItem(`reet.home.view.${userId}`) === 'continue') homeView = 'continue'
     } catch { /* Keep projects compact when storage is unavailable. */ }
     // The session screen's + and the Sessions page's New session arrive at /#launch: the bar opens in its modal.
@@ -391,12 +414,13 @@
   })
 </script>
 
-<div class="home" class:writer class:rail-collapsed={railCollapsed} style:--rail-width={`${railWidth}px`}>
+<div class="home" class:writer class:rail-collapsed={railCollapsed} class:rail-embedded={railInSidebar && !narrow} style:--rail-width={`${railWidth}px`}>
 
-  <!-- On a desktop the rail is the left column; on a tablet or phone it lives on the Sessions screen, and Home keeps only what
-       adds a project from the launch sentence. -->
+  <!-- On a desktop the project list is moved into the workspace navigation panel (use:railPortal); on a tablet or phone it
+       lives on the Sessions screen, and Home keeps only what adds a project from the launch sentence. -->
   {#if writer}
-    <ProjectRailHost bind:this={host} rail={!narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
+    <div class="rail-portal" use:railPortal>
+    <ProjectRailHost bind:this={host} rail={!narrow} embedded={railInSidebar && !narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
       chosen={launchProject ?? chosen} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected} onchoose={(project) => chooseProject(project)}
       {scope} onscope={(next) => (scope = next)} collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId}
       width={railWidth} onwidth={setRailWidth} onwidthcommit={commitRailWidth}
@@ -407,11 +431,12 @@
         {#if selected.length >= 2}<button type="button" class="start-chosen" onclick={() => (launchOpen = true)}>Start in these projects</button>{/if}
       {/snippet}
     </ProjectRailHost>
+    </div>
   {/if}
   <div class="column">
     <header class="workspace-heading">
       <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
-      {#if writer}<div class="home-controls"><button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Expand the project names and groups' : 'Keep projects in a compact strip'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
+      {#if writer}<div class="home-controls"><button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Show the project names and groups' : 'Hide the project list'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
       <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
         {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed)}<button type="button" class="followups" disabled={!$gafferChatEntry} aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget, 'followed')}>
           {#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'follow-up needs' : 'follow-ups need'} review{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if foldedGoals}Gaffer: {foldedGoals} {foldedGoals === 1 ? 'follow-up is' : 'follow-ups are'} in Needs you{:else if followupsFailed}Gaffer follow-ups unavailable{/if}{#if followupsFailed && (followupsNeedReview || following || foldedGoals)}{' · last read'}{/if}
@@ -478,7 +503,7 @@
   .welcome-note { color: var(--muted); font-size: 14px; margin: 4px 0 0; }
   .home-controls { display: flex; align-items: center; gap: 8px; }
   .home-projects { display: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
-  @media (min-width: 1240px) { .home-projects { display: inline-flex; align-items: center; } }
+  @media (min-width: 1100px) { .home-projects { display: inline-flex; align-items: center; } }
   .home-start { min-height: 44px; padding: 8px 14px; border-radius: 8px; font: 500 14px var(--sans); white-space: nowrap; }
   .attention-window { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 13px; color: var(--muted); }
   .attention-window button { min-height: 44px; padding: 4px 0; background: transparent; border: 0; color: var(--ink); font: inherit; text-decoration: underline; cursor: pointer; }
@@ -491,18 +516,20 @@
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
   .home :global(p) { line-height: 1.55; }
-  /* The rail is the mock-up's 272 px of cards inside 14 px padding and a 1 px rule: 301 px by default, and as wide as
-     the person drags it (Home hands it --rail-width). */
-  .home.writer { grid-template-columns: var(--rail-width, 301px) minmax(0, 1fr); }
-  .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
+  /* On a wide desktop the project list lives in the workspace panel (rail-embedded), so Home is one column. Where the panel
+     is not on screen the rail returns to Home's own column: 301 px by default, as wide as the person drags it, or its
+     56 px strip while folded. */
+  .home.writer:not(.rail-embedded) { grid-template-columns: var(--rail-width, 301px) minmax(0, 1fr); }
+  .home.writer:not(.rail-embedded).rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
   /* Name the two columns explicitly: the rail and the board are the page's two grid items, and an absolute heading
      must never leave either of them waiting for the next row. */
   .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked)) { border-color: transparent; border-radius: 8px; background: transparent; }
   .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked):hover) { background: var(--line-soft); }
   .home.writer :global(aside.rail .strip) { height: calc(100dvh - var(--top)); min-height: 0; overflow-y: auto; scrollbar-width: thin; }
   .home.writer :global(aside.rail .strip > button) { flex-shrink: 0; }
-  .home.writer > :global(aside.rail) { grid-column: 1; grid-row: 1; }
+  .home.writer > .rail-portal { grid-column: 1; grid-row: 1; min-width: 0; }
   .home.writer > .column { grid-column: 2; grid-row: 1; }
+  .home.writer.rail-embedded > .column { grid-column: 1; grid-row: 1; }
   .home:not(.writer) > .column { grid-column: 1; grid-row: 1; }
   .column { min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
   .home:not(.writer) .column { padding-bottom: 36px; }
@@ -525,14 +552,16 @@
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 
-  @media (max-width: 1239px) { .home.writer, .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); } }
+  @media (max-width: 1239px) {
+    .home.writer:not(.rail-embedded) { grid-template-columns: 56px minmax(0, 1fr); }
+  }
   @media (max-width: 1099px) {
     .home.writer > .column { grid-column: 1; }
   }
   /* Tablet: machines, Needs you, then In flight, one column; the project rail is on the Sessions screen. */
   @media (max-width: 1099px) {
     .home { font-size: 15px; --top: 65px; }
-    .home.writer, .home.writer.rail-collapsed { grid-template-columns: minmax(0, 1fr); }
+    .home.writer, .home.writer:not(.rail-embedded), .home.writer.rail-collapsed:not(.rail-embedded), .home.writer.rail-embedded { grid-template-columns: minmax(0, 1fr); }
   }
   /* Phone: one column with 16 px gutters; the launch bar sits above the tab bar. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {

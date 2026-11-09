@@ -38,8 +38,9 @@ var CodexCandidate = Spec{
 	// "agent-full-access".
 	ChoosableModes: []string{"read-only", "agent"},
 	// Measured from codex-acp 1.13.1 (2 November 2026). These are descriptive
-	// only; no effort or other option control is offered yet. Reasoning effort
-	// can also be embedded in a model id, and the values can depend on the model.
+	// only; no effort or other option control is offered yet. The effort values
+	// depend on the model (probe report, "Codex parity probes"); the adapters
+	// measured on 9 November carry no effort in a model id.
 	Options: []terminalproto.ACPAgentOption{
 		{ID: "collaboration_mode", Category: terminalproto.AgentOptionCollaborationMode, Values: []string{"default", "plan"}},
 		{ID: "reasoning_effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},

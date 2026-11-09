@@ -57,6 +57,17 @@ export function loadThumb(path: string): { url: string; name: string } | null {
   return hit ? { url: hit.u, name: hit.n } : null
 }
 
+/** Remember a picture that was just sent to a machine under every name its prompt may carry: the machine's path, the
+ *  reference joined to an opening prompt, or both. A full prompt is later read back from the server, so this keeps its
+ *  image a picture rather than a path. */
+export function rememberUpload(file: Blob | null | undefined, name: string, ...paths: string[]) {
+  if (!file || !file.size) return
+  void makeThumb(file).then(url => {
+    if (!url) return
+    for (const path of paths) if (path) saveThumb(path, name || 'Image', url)
+  })
+}
+
 // Which uploads belong to which message. An embedded-image message replays as text only, so the link is kept here.
 const BIND_KEY = 'reet.chat.bind.v1'
 const MAX_BINDINGS = 200

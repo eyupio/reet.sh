@@ -226,7 +226,11 @@ export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode' | 
     case 'working':
       return { word: 'Working', source: fromActivity, tone: 'good' }
     case 'quiet':
-      return { word: 'Quiet', source: fromActivity, tone: 'muted' }
+      // A quiet chat is a finished turn in a session kept open for the next instruction, so every surface calls it
+      // Finished; only an idle terminal, where the shell is still sitting there, reads Quiet.
+      return session.attentionSource === 'chat'
+        ? { word: 'Finished', source: 'from the chat', tone: 'muted' }
+        : { word: 'Quiet', source: fromActivity, tone: 'muted' }
     case 'starting':
       return { word: 'Starting', source: session.attentionSource === 'chat' ? 'from the chat' : fromState, tone: 'muted' }
     case 'finished':

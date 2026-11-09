@@ -18,6 +18,11 @@
   import type { LaunchDefaults } from '../launchBar'
   import FolderBrowser from './FolderBrowser.svelte'
   import SkillPromptPicker from './SkillPromptPicker.svelte'
+  import PromptPicker from '../prompts/PromptPicker.svelte'
+  import InlinePromptMenu from '../prompts/InlinePromptMenu.svelte'
+  import { readPromptLibrary, type PromptLibrary } from '../prompts/library'
+  import { promptTrigger, replacePromptTrigger } from '../terminal/prompts'
+  import type { TerminalPrompt } from '../terminal/api'
 
   let { draft = null, startNow = false, startCheck, projects, machines, profile, initialProject = '', onsaved, onclose, onerror }: {
     draft?: SessionDraft | null; projects: FolderProject[]; machines: TerminalMachine[]; profile: LaunchDefaults
@@ -32,8 +37,8 @@
   let idea = $state(false), yolo = $state(false), worktree = $state(false), base = $state(''), chat = $state(true), trust = $state(false)
   let images = $state<DraftImage[]>([]), busy = $state(false), reading = $state(false), message = $state('')
   let browse = $state(false), titleTouched = $state(false)
-  let modelButton = $state<HTMLButtonElement>(), effortButton = $state<HTMLButtonElement>(), skillButton = $state<HTMLButtonElement>()
-  let modelOpen = $state(false), effortOpen = $state(false), skillOpen = $state(false), touch = $state(false)
+  let modelButton = $state<HTMLButtonElement>(), effortButton = $state<HTMLButtonElement>(), skillButton = $state<HTMLButtonElement>(), promptButton = $state<HTMLButtonElement>()
+  let modelOpen = $state(false), effortOpen = $state(false), skillOpen = $state(false), promptOpen = $state(false), touch = $state(false)
   let modelKey = $state(''), modelRead = $state<MachineModels | null>(null), modelLoading = $state(false), modelReadError = $state('')
   let favourites = $state<ModelFavourite[]>([]), favouriteNote = $state('')
   let favouriteQueue: Promise<void> = Promise.resolve(), favouriteMutationSeq = 0, favouritesLoadSeq = 0
@@ -231,6 +236,71 @@
       promptInput.setSelectionRange(inserted.caret, inserted.caret)
     })
   }
+  function usePrompt(result: { prompt: TerminalPrompt; text: string; unresolved?: string[] }) {
+    const { prompt: item, text } = result
+    const start = promptInput?.selectionStart ?? prompt.length
+    const end = promptInput?.selectionEnd ?? start
+    const inserted = insertSkillPrompt(prompt, text, start, end)
+    if (new TextEncoder().encode(inserted.text).length > MAX_PROMPT_BYTES) { message = `That prompt is too long. Keep it under ${MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes.`; return }
+    const firstPrompt = prompt.trim() === '' && !titleTouched
+    prompt = inserted.text
+    if (firstPrompt) { title = item.title; titleTouched = true }
+    if (result.unresolved?.length) message = `${result.unresolved.join(', ')} ${result.unresolved.length === 1 ? 'was' : 'were'} not known here; ${result.unresolved.length === 1 ? 'it stays' : 'they stay'} as written.`
+    void tick().then(() => {
+      if (!promptInput) return
+      promptInput.focus()
+      promptInput.setSelectionRange(inserted.caret, inserted.caret)
+    })
+  }
+  // The same prompts are reachable with a backslash token in the prompt field.
+  let promptMenu = $state<{ start: number; query: string } | null>(null)
+  let promptLibrary = $state<PromptLibrary | null>(null), promptLoading = $state(false), promptError = $state('')
+  let promptSuppressed = false, promptLife: AbortController | undefined
+  let promptMenuEl = $state<InlinePromptMenu>()
+  const promptContext = $derived({ project: project?.name, branch: project?.baseBranch || base || '', folder: project?.dir || dir || '', sessionTitle: title })
+  async function loadPromptLibrary() {
+    if (promptLibrary || promptLoading) return
+    promptLife?.abort()
+    const life = promptLife = new AbortController()
+    promptLoading = true; promptError = ''
+    try { promptLibrary = await readPromptLibrary(life.signal) }
+    catch (e) { if (!life.signal.aborted) promptError = e instanceof Error && e.message ? e.message : 'Prompts could not be read. Try again.' }
+    finally { if (!life.signal.aborted) promptLoading = false }
+  }
+  function openPromptMenu(trigger: { start: number; query: string }) {
+    if (busy || reading) return
+    promptMenu = trigger
+    void loadPromptLibrary()
+  }
+  function closePromptMenu(dismissed = true) {
+    promptMenu = null
+    if (dismissed) promptSuppressed = true
+  }
+  function typedPrompt(event: Event) {
+    const input = event.currentTarget as HTMLTextAreaElement
+    prompt = input.value
+    const trigger = promptTrigger(input.value, input.selectionStart ?? input.value.length)
+    if (!trigger) { promptSuppressed = false; promptMenu = null; return }
+    if (!promptSuppressed) openPromptMenu(trigger)
+  }
+  function pickPrompt(result: { prompt: TerminalPrompt; text: string; unresolved: string[] }) {
+    if (!promptMenu) return
+    const out = replacePromptTrigger(prompt, promptMenu, result.text, MAX_PROMPT_BYTES)
+    if ('error' in out) { message = out.error; return }
+    const firstPrompt = prompt.trim() === '' && !titleTouched
+    prompt = out.draft; promptSuppressed = true; promptMenu = null
+    if (firstPrompt) { title = result.prompt.title; titleTouched = true }
+    message = result.unresolved.length ? `${result.unresolved.join(', ')} ${result.unresolved.length === 1 ? 'was' : 'were'} not known here; ${result.unresolved.length === 1 ? 'it stays' : 'they stay'} as written.` : ''
+    void tick().then(() => { promptInput?.focus(); promptInput?.setSelectionRange(out.caret, out.caret) })
+  }
+  function promptKeys(event: KeyboardEvent) {
+    if (!promptMenu) return
+    if (event.key === 'ArrowDown') { event.preventDefault(); promptMenuEl?.move(1); return }
+    if (event.key === 'ArrowUp') { event.preventDefault(); promptMenuEl?.move(-1); return }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closePromptMenu(true); return }
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); promptMenuEl?.choose(); return }
+    if (event.key === 'Tab') closePromptMenu(false)
+  }
   function close() {
     if (busy || reading) return
     if (original !== initial()) { confirmClose = true; void tick().then(() => { const b = dialog?.querySelector<HTMLElement>('.discard'); b?.scrollIntoView({ block: 'nearest' }); b?.querySelector<HTMLElement>('button')?.focus() }); return }
@@ -284,8 +354,9 @@
       <fieldset disabled={busy || reading}>
         {#if !startNow}<label class="idea-toggle"><input type="checkbox" bind:checked={idea} /> <span><strong>Just capture an idea</strong><small>A placeholder so you don’t forget. Choose Start on it later and you’ll add the prompt then.</small></span></label>{/if}
         <label class="field"><span>Session title <small>{idea ? 'Required if there’s no note' : 'Optional · suggested from your prompt'}</small></span><input aria-label="Session title" bind:value={title} oninput={() => titleTouched = true} maxlength="80" placeholder="A short name for this piece of work" /></label>
-        <label class="field"><span>{idea ? 'Note' : 'Prompt'} <em>{idea ? 'Optional' : 'Required'}</em></span><textarea bind:this={promptInput} aria-label="Prompt" bind:value={prompt} rows="6" required={!idea} placeholder={idea ? 'A rough note is plenty. You can turn it into a full prompt later.' : 'What should the agent do? Include the context, the outcome you want, and anything it should keep in mind.'} onpaste={e => { const files = Array.from(e.clipboardData?.files ?? []); if (files.length) { e.preventDefault(); void attach(files) } }}></textarea></label>
-        <div class="prompt-foot"><div class="prompt-actions"><label class="attach"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>Use a skill</button></div><span class="count" class:over={bytes > MAX_PROMPT_BYTES}>{bytes.toLocaleString()} / {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes</span></div>
+        <label class="field"><span>{idea ? 'Note' : 'Prompt'} <em>{idea ? 'Optional' : 'Required'}</em></span><textarea bind:this={promptInput} aria-label="Prompt" bind:value={prompt} rows="6" required={!idea} placeholder={idea ? 'A rough note is plenty. You can turn it into a full prompt later.' : 'What should the agent do? Include the context, the outcome you want, and anything it should keep in mind.'} oninput={typedPrompt} onkeydown={promptKeys} onblur={() => closePromptMenu(false)} onpaste={e => { const files = Array.from(e.clipboardData?.files ?? []); if (files.length) { e.preventDefault(); void attach(files) } }}></textarea></label>
+        {#if promptMenu}<InlinePromptMenu inline bind:this={promptMenuEl} prompts={promptLibrary?.prompts ?? []} skills={promptLibrary?.skills ?? {}} query={promptMenu.query} context={promptContext} loading={promptLoading} error={promptError} oninsert={pickPrompt} onclose={() => closePromptMenu(false)} />{/if}
+        <div class="prompt-foot"><div class="prompt-actions"><label class="attach"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={reading} onchange={e => { void attach(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }} /></label><button type="button" class="skill-add" bind:this={promptButton} aria-haspopup="dialog" aria-expanded={promptOpen} onclick={() => { closePromptMenu(false); promptOpen = true }}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>Use a prompt</button><button type="button" class="skill-add" bind:this={skillButton} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>Use a skill</button></div><span class="count" class:over={bytes > MAX_PROMPT_BYTES}>{bytes.toLocaleString()} / {MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes</span></div>
         {#if images.length}<div class="images">{#each images as image, i}<div class="image"><img src={image.data} alt={image.name} /><span>{image.name}</span><button type="button" aria-label={`Remove ${image.name}`} onclick={() => images = images.filter((_, index) => index !== i)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18" /></svg></button></div>{/each}</div>{/if}
         <div class="section-title">Where should it work?</div>
         <div class="mode" role="group" aria-label="Session location"><button type="button" class:on={mode === 'project'} onclick={() => changeMode('project')}>In a project</button><button type="button" class:on={mode === 'folder'} onclick={() => changeMode('folder')}>Machine & folder</button></div>
@@ -333,6 +404,7 @@
   {#if skillOpen}
     <SkillPromptPicker opener={skillButton ?? null} sheet={touch} oninsert={useSkill} onclose={() => skillOpen = false} />
   {/if}
+  {#if promptOpen}<PromptPicker opener={promptButton ?? null} sheet={touch} context={{ project: project?.name, branch: project?.baseBranch || base || '', folder: project?.dir || dir || '', sessionTitle: title }} oninsert={usePrompt} onclose={() => { promptOpen = false; void tick().then(() => promptInput?.focus()) }} />{/if}
 </dialog>
 
 <style>

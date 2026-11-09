@@ -44,8 +44,8 @@ test('a finished or failed turn is named over the still-running state', () => {
   assert.equal(p.statusLine({ state: 'running', attention: 'working' }), 'running')
 })
 
-test('a quiet turn is not still running, in the chat or at an idle terminal', () => {
-  assert.equal(p.statusLine({ state: 'running', attention: 'quiet', attentionSource: 'chat' }), 'Quiet')
+test('a quiet chat is a finished turn; an idle terminal is quiet', () => {
+  assert.equal(p.statusLine({ state: 'running', attention: 'quiet', attentionSource: 'chat' }), 'Finished')
   assert.equal(p.statusLine({ state: 'running', attention: 'quiet', attentionSource: 'terminal' }), 'Quiet')
 })
 

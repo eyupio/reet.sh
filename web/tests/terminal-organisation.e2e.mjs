@@ -64,7 +64,7 @@ try{
  await page.goto(`${base}/sessions?agent=${a}&session=${sessions[0].id}`);await live()
  await expect(sidebar.getByLabel('Machine',{exact:true})).toHaveCount(0)
  await expect(sidebar.getByText('Choose multiple machines',{exact:true})).toHaveCount(0)
- await expect(sidebar.getByRole('heading',{name:'Projects',exact:true})).toBeVisible()
+ await expect(sidebar.getByRole('heading',{name:'Inactive projects',exact:true})).toBeVisible()
  await expect(sidebar.getByRole('button',{name:/^reet, no live sessions/})).toBeVisible()
  await expect(sidebar.locator('.session-row')).toHaveCount(4)
  const originalTicket=tickets.at(-1)
@@ -177,10 +177,10 @@ try{
  await expect(page.getByRole('dialog')).toContainText('Paste')
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
  expect(inputs.length).toBe(beforeReview)
- // The panel's own toggle sits at the top of the panel, above Projects and the sessions list, so it keeps the same
+ // The panel's own toggle sits at the top of the panel, above the project strip and the sessions list, so it keeps the same
  // place and icon whether the panel is open or closed.
  const panelCollapse=sidebar.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true})
- expect((await panelCollapse.boundingBox()).y).toBeLessThan((await sidebar.getByRole('heading',{name:'Projects'}).boundingBox()).y)
+ expect((await panelCollapse.boundingBox()).y).toBeLessThan((await sidebar.getByRole('heading',{name:/^(Inactive )?projects$/i}).boundingBox()).y)
  // On a wide screen the chevron shrinks the panel to the mini rail, and the rail's own chevron closes it.
  await panelCollapse.click()
  await page.getByRole('complementary',{name:'Session rail'}).getByRole('button',{name:'Close session navigation',exact:true}).click()

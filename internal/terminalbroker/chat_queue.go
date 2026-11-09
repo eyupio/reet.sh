@@ -56,8 +56,26 @@ func (b *Broker) ChatQueue(uid int64, session string) ([]store.TerminalQueuedMes
 	if err := b.st.RecoverTerminalQueueFor(uid, session, b.queueOwner); err != nil {
 		return nil, err
 	}
+	if err := b.failQueueIfClosed(uid, session); err != nil {
+		return nil, err
+	}
 	b.startChatQueue(uid, session)
 	return b.st.TerminalQueueFor(uid, session)
+}
+
+// failQueueIfClosed resolves messages that can never be delivered because
+// their chat has ended, exited or is ending. A queue left behind by a session
+// that stopped would otherwise keep saying it waits for a turn that is over.
+func (b *Broker) failQueueIfClosed(uid int64, session string) error {
+	s, err := b.st.TerminalSessionFor(uid, session)
+	if err != nil {
+		return err
+	}
+	switch s.State {
+	case terminalproto.Exited, terminalproto.Ended, terminalproto.Lost, terminalproto.EndRequested:
+		return b.st.FailQueuedTerminalFor(uid, session, "The session ended before this message was sent. Reconnect it, then retry.")
+	}
+	return nil
 }
 
 func (b *Broker) EnqueueChat(uid int64, session, id, text string, images []string) error {
@@ -106,6 +124,9 @@ func (b *Broker) ChangeChatQueue(uid int64, session, id string, revision int64, 
 func (b *Broker) startChatQueue(uid int64, session string) {
 	s, err := b.st.TerminalSessionFor(uid, session)
 	if err != nil || s.State != terminalproto.Running {
+		if err == nil {
+			_ = b.failQueueIfClosed(uid, session)
+		}
 		return
 	}
 	b.mu.Lock()
@@ -134,6 +155,9 @@ func (b *Broker) startChatQueue(uid int64, session string) {
 			b.stepChatQueue(uid, session)
 			s, err := b.st.TerminalSessionFor(uid, session)
 			if err != nil || s.State != terminalproto.Running {
+				if err == nil {
+					_ = b.failQueueIfClosed(uid, session)
+				}
 				return
 			}
 			select {
@@ -170,6 +194,8 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 	state, err := b.ChatControl(ctx, uid, session, terminalproto.ACPControl{Action: "get"})
 	if err != nil {
 		if errors.Is(err, ErrACPClosed) {
+			// Conflict can also mean temporary machine-wide control overload.
+			// Only confirmed closure makes delivery permanently impossible.
 			_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "failed", q.Intent, "The session ended before this message was sent. Reconnect it, then retry.", b.queueOwner)
 		}
 		return

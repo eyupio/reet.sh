@@ -101,10 +101,15 @@ try {
   await page.goto(`${base}/sessions?view=list`)
   const listed=page.locator('main .session-row').filter({hasText:'Browser durability'})
   await expect(listed).toHaveCount(1)
-  const continuedAt=Date.now()
+  const continuedAt=Date.now(),socketsBefore=sockets
   await listed.locator('a.open').click()
   await live()
-  expect(Date.now()-continuedAt).toBeLessThan(2000)
+  // Continuing is one full page load and one attach. The time is CPU-bound (about 0.5 to 1 s locally, 1.4 s with the page's
+  // CPU throttled 3x, 3.3 s at 8x, 2.2 s once on the Zoomies pool), so it is only a guard against a hang. What a slow
+  // continue would really mean is a failed first attach retried after the client's one-second back-off, and that is
+  // counted exactly: one socket, no reconnect.
+  expect(sockets-socketsBefore).toBe(1)
+  expect(Date.now()-continuedAt).toBeLessThan(6000)
   expect(await state()).toEqual(original)
   const bounds=await page.getByRole('region',{name:'Remote terminal screen',exact:true}).boundingBox()
   expect(bounds.height).toBeGreaterThan(600)

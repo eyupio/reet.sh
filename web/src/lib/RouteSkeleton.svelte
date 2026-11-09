@@ -10,9 +10,6 @@
   let slow = $state(false)
   const query = new URLSearchParams(location.search)
   const context = query.get('theatre') !== '1' && !!(query.get('session') || query.get('agent'))
-  const railCollapsed = (() => {
-    try { return localStorage.getItem('reet.rail.collapsed') !== '0' } catch { return true }
-  })()
   onMount(() => {
     const timer = setTimeout(() => (slow = true), 10000)
     return () => clearTimeout(timer)
@@ -24,7 +21,7 @@
     <WorkspaceSkeleton {context} />
   </div>
 {:else}
-  <div class="route-skeleton {variant}" class:rail-collapsed={railCollapsed} data-loading-page={variant} role="status" aria-busy="true" aria-label="Loading page">
+  <div class="route-skeleton {variant}" data-loading-page={variant} role="status" aria-busy="true" aria-label="Loading page">
     <span class="vh">Loading page…</span>
     {#if variant === 'auth'}
       <div class="structure" aria-hidden="true">
@@ -32,7 +29,6 @@
       </div>
     {:else if variant === 'home'}
       <div class="structure" aria-hidden="true">
-        <div class="workspace-rail"><i class="eyebrow"></i><div class="field"></div><i></i><i></i><i class="short"></i></div>
         <div class="workspace-content">
           <div class="head"><i class="eyebrow"></i><i class="title"></i></div>
           <div class="columns">{#each [1, 2, 3] as column (column)}<div class="column"><i class="eyebrow"></i><div class="tile"><i></i><i class="short"></i></div><div class="tile"><i></i><i class="short"></i></div></div>{/each}</div>
@@ -67,10 +63,9 @@
   .hero-title { height: clamp(34px, 4.4vw, 52px); width: 94%; }
   .hero-title.short { width: 68%; }
   .home { height: 100%; min-height: calc(100dvh - 100px); }
-  .home .structure { grid-template-columns: 301px minmax(0, 1fr); min-height: inherit; gap: 0; }
-  .home.rail-collapsed .structure { grid-template-columns: 56px minmax(0, 1fr); }
+  /* Home's project list lives inside the workspace panel, so the page skeleton is one column. */
+  .home .structure { grid-template-columns: minmax(0, 1fr); min-height: inherit; gap: 0; }
   .home .workspace-content { padding: 20px 24px; }
-  .workspace-rail { display: grid; align-content: start; gap: 24px; padding: 24px 18px; border-right: 1px solid var(--line); }
   .workspace-content { padding: 24px; display: flex; flex-direction: column; gap: 24px; min-width: 0; }
   .columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .column { display: grid; align-content: start; gap: 16px; }
@@ -80,8 +75,6 @@
     i, .button { background: linear-gradient(90deg, var(--line), var(--line-soft), var(--line)); background-size: 200% 100%; animation: route-shimmer 1.8s ease-in-out infinite; }
   }
   @keyframes route-shimmer { to { background-position: -200% 0; } }
-  @media (max-width: 1239px) { .home .structure { grid-template-columns: 56px minmax(0, 1fr); } .home .workspace-rail { overflow: hidden; } }
-  @media (max-width: 1099px) { .home .structure, .home.rail-collapsed .structure { grid-template-columns: minmax(0, 1fr); } .home .workspace-rail { display: none; } }
   @media (max-width: 850px) { .hero { grid-template-columns: 1fr; gap: 30px; } .columns { grid-template-columns: 1fr; } .column:not(:first-child) { display: none; } }
-  @media (max-width: 650px) { .home .structure, .home.rail-collapsed .structure { grid-template-columns: minmax(0, 1fr); } .workspace-rail { display: none; } .workspace-content { padding: 16px; } .home .workspace-content { padding: 14px 16px; } .title { height: 32px; } .auth-card, .preview { padding: 22px; } }
+  @media (max-width: 650px) { .workspace-content { padding: 16px; } .home .workspace-content { padding: 14px 16px; } .title { height: 32px; } .auth-card, .preview { padding: 22px; } }
 </style>

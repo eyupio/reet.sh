@@ -16,6 +16,17 @@ test('the sidebar clamps to 192..360 and defaults to 228', () => {
   assert.equal(p.clampSidebarWidth(Number.NaN), 228)
 })
 
+test('Home\'s panel clamps to 260..460 and starts at 300', () => {
+  assert.equal(p.HOME_SIDEBAR_MIN, 260)
+  assert.equal(p.HOME_SIDEBAR_MAX, 460)
+  assert.equal(p.HOME_SIDEBAR_DEFAULT, 300)
+  const home = width => p.clampSidebarWidth(width, p.HOME_SIDEBAR_MIN, p.HOME_SIDEBAR_MAX, p.HOME_SIDEBAR_DEFAULT)
+  assert.equal(home(100), 260)
+  assert.equal(home(300), 300)
+  assert.equal(home(9000), 460)
+  assert.equal(home(Number.NaN), 300)
+})
+
 test('the rail clamps to 240..460 and keeps the board at least 60 %', () => {
   assert.equal(p.RAIL_DEFAULT, 301)
   assert.equal(p.clampRailWidth(100, 1440), 240)

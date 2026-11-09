@@ -13,6 +13,8 @@
   import { copyText } from '../clipboard'
   import { onDestroy } from 'svelte'
   import { offerPrefill } from './composerPrefill'
+  import { offerGoalPrefill } from './goalPrefill'
+  import type { FollowItem } from './stageActions'
   import { copyNote, fixRoute } from './fixDelivery'
   import { fixMessage, type FixKind } from './fixMessages'
   import { deriveStages } from './overviewStages'
@@ -84,6 +86,21 @@
     }
     say(copyNote(structured, await copyText(message)))
   }
+  // A stage's follow-up item is only words. In a chat it opens Gaffer's follow-up editor with them written in, for the person to adjust and
+  // start; where Gaffer cannot take it (a terminal session, the panel not showing this chat) the same words are copied for the agent.
+  async function follow(item: FollowItem) {
+    if (offering) return
+    offering = true
+    try {
+      fixNote = ''
+      if (session.structured && await offerGoalPrefill(session.id, item.text)) {
+        if (!docked) onterminal?.()
+        return
+      }
+      const copied = await copyText(item.text)
+      say(!copied ? 'Could not copy the message. Try again.' : session.structured ? 'Copied. Open Gaffer on this chat to start a follow-up.' : 'Copied')
+    } finally { offering = false }
+  }
   const errorDetail = $derived(chat?.status.state === 'error' ? chat.status.detail : '')
   const statusText = $derived(attention || errorDetail || subline)
 </script>
@@ -99,7 +116,7 @@
   <!-- With no real start time there is nothing to say, and the line keeps its height empty. -->
   <p class="run-line one-line">{#if runText}<time datetime={startedIso} title={startedFull}>{runText}</time>{/if}</p>
 </section>
-<div class="stage-slot"><StageTracker {id} {stages} {now} onsession={() => onterminal?.()} onfix={fix} terminal={!session.structured} note={fixNote} stale={attention ? '' : githubMarker} /></div>
+<div class="stage-slot"><StageTracker {id} {stages} {now} onsession={() => onterminal?.()} onfix={fix} onfollow={follow} terminal={!session.structured} note={fixNote} stale={attention ? '' : githubMarker} /></div>
 <div class="pull-slot"><PullCard {id} {pull} {placeholder} {now} {onfull} stale={githubMarker} /></div>
 <div class="prompt-slot"><PromptCard {session} {chat} {now} /></div>
 {#if session.structured}

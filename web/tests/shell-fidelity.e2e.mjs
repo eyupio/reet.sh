@@ -51,7 +51,8 @@ try {
    expect(values.logo.width).toBeCloseTo(width>=1100?134:120,0)
    if(width>=1100) {
     expect(values.sidebar.x).toBe(0)
-    expect(values.sidebar.width).toBe(228)
+    // Home's panel also holds the project list, so it starts at 300 px.
+    expect(values.sidebar.width).toBe(300)
     for(const target of await page.locator('.workspace-sidebar nav a, .workspace-sidebar nav button').all()) expect((await target.boundingBox()).height).toBeGreaterThanOrEqual(44)
    } else expect(values.sidebar).toBeNull()
    expect(values.avatar.width).toBe(36)

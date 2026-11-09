@@ -53,7 +53,7 @@
           onclick={event => choose(event, s)}
           onmousedown={event => { if (event.button === 1) event.preventDefault() }}
           onauxclick={event => { if (event.button === 1) { event.preventDefault(); void close(s) } }}>
-          <span class="dot" aria-hidden="true"></span><span class="name">{s.title}</span><span class="state" aria-hidden="true">{statusLabel(status)}</span><span class="vh">, {word.word}</span>
+          {#if status === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}<span class="name">{s.title}</span><span class="state" aria-hidden="true">{statusLabel(status)}</span><span class="vh">, {word.word}</span>
         </a>
         <button type="button" class="close" aria-label={`Close ${s.title}`} title={terminalClosed(s.state) ? 'Close the tab (the session stays in its history)' : 'Close the tab (the session keeps running)'} onclick={() => void close(s)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>

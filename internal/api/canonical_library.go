@@ -154,7 +154,13 @@ func (s *server) libraryProtocol(w http.ResponseWriter, r *http.Request) {
 		libraryError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"schemaVersion": 1, "serverTime": time.Now().UnixMilli()})
+	response := map[string]any{"schemaVersion": 1, "serverTime": time.Now().UnixMilli()}
+	// Omitted unless the controller's internal rollout control is on, so older
+	// and unflagged controllers never invite connectors to remove anything.
+	if s.st.ManagedRemovalsEnabled() {
+		response["managedRemovals"] = 1
+	}
+	writeJSON(w, 200, response)
 }
 func (s *server) libraryEdit(w http.ResponseWriter, r *http.Request) {
 	agent, ok := s.agentIdentity(w, r)

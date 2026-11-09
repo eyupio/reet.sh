@@ -85,3 +85,35 @@ func TestLibraryDeploymentIntentConnectorFence(t *testing.T) {
 		t.Fatal("paused machine received intent", w.Code, w.Body.String())
 	}
 }
+
+func TestLibraryProtocolAdvertisesManagedRemovalsOnlyWhenEnabled(t *testing.T) {
+	srv, st, agent, secret, token := privateFixture(t, AuthAccounts, "")
+	call := func() map[string]any {
+		r := httptest.NewRequest("POST", "https://reet.example/api/v2/library/protocol", strings.NewReader("{}"))
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Reet-Agent", agent.ID)
+		r.Header.Set("X-Reet-Agent-Key", secret)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if out := call(); out["schemaVersion"] != float64(1) || out["managedRemovals"] != nil {
+		t.Fatalf("capability advertised by default: %v", out)
+	}
+	st.SetManagedRemovals(true)
+	if out := call(); out["managedRemovals"] != float64(1) {
+		t.Fatalf("capability not advertised when enabled: %v", out)
+	}
+	st.SetManagedRemovals(false)
+	if out := call(); out["managedRemovals"] != nil {
+		t.Fatalf("capability retained after disabling: %v", out)
+	}
+}

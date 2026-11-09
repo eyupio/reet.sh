@@ -5,6 +5,36 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The checklist at the end of a restore report now names
+  `REET_LIBRARY_MANAGED_REMOVALS`, a setting the server reads that the checklist
+  had missed. The test that compares the checklist with what the server reads
+  caught it, and was failing on `main` until it was added.
+- When a worktree is removed, reet now also brings the repository it was made
+  from up to date with main, then prunes the merged local branches. It is on by
+  default (owners and admins can turn it off in Settings › Admin › Repository
+  maintenance). The folder is only ever fast-forwarded: a folder with
+  uncommitted changes, on another branch, mid-merge or diverged from main is
+  left exactly as it was. Each run is recorded in Activity as `branch-sync`.
+  Needs the new `branch-sync-v1` on the machine; older machines are skipped.
+- `reet agent set-server URL` points a machine's enrollment at a controller that
+  holds the same machine record, for following a controller that has moved. The
+  machine first has the controller prove it holds its record (a fresh nonce
+  answered with an HMAC keyed by the stored secret hash, over the new
+  unauthenticated `POST /api/v2/sync/agent-proof`) and only then sends its
+  credentials once to confirm them. Any failed check changes nothing and names
+  the check. On success only the address changes and the agent restarts. Machines
+  do not yet learn a fence's `--moved-to` address on their own.
+- `reet backup restore` and `reet backup import` take `--public-url ADDRESS` (form
+  field `publicUrl`) to rewrite the saved mail base URL and sync library origin to
+  the controller's new address and to remove MCP grants issued for the old one. An
+  address that is not a plain http or https origin is refused before anything
+  changes. `GET /api/version` lists `"restore-public-url"` under `features`.
+- A restore or import now holds back project run members, software batches and
+  queued mail, as it already did Gaffer goals, so the restored controller does not
+  repeat them. Each is resumed with the existing retry, and is listed in the
+  report.
+- The restore report ends with a checklist of what lives outside the database and
+  must be set by hand on the new machine.
 - **A controller can be fenced as moved.** `reet backup fence [--moved-to URL]
   [--lift]` and `GET`, `POST` and `DELETE /api/v2/admin/fence` (owner only) raise,
   read and lift a persisted state that refuses every write with 423 (Locked), with

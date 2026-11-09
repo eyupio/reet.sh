@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stages 0–3 are implemented and merged to main. Stage 1 landed in [#662](https://github.com/eyupio/reet.sh/pull/662); Stage 2 and Stage 3 landed together in [#664](https://github.com/eyupio/reet.sh/pull/664), merge `d85699b410951dce35d63a5de0dad5013da695f4`. All applicable checks on its reviewed final head `46bb9ae3` are now successful, including the unchanged paired benchmark and CodeQL. See the [Stage 2 handover](simple-library-machine-sync-stage-2.md) and [Stage 3 handover](simple-library-machine-sync-stage-3.md) for local evidence and limits. Historical broad race evidence is distinguished from later focused checks; no new repository-wide race sweep is claimed here. Stage 4 is in progress; see its [implementation handover](simple-library-machine-sync-stage-4.md). The owner separately authorised a limited Stage 5 UI slice in [draft #686](https://github.com/eyupio/reet.sh/pull/686); full Stage 5 acceptance still depends on Stage 4. Stages 6–7 remain unstarted. No preview/production deployment or live provisioning is claimed, and the reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stages 0–3 are implemented and merged to main. Stage 1 landed in [#662](https://github.com/eyupio/reet.sh/pull/662); Stage 2 and Stage 3 landed together in [#664](https://github.com/eyupio/reet.sh/pull/664), merge `d85699b410951dce35d63a5de0dad5013da695f4`. All applicable checks on its reviewed final head `46bb9ae3` are now successful, including the unchanged paired benchmark and CodeQL. See the [Stage 2 handover](simple-library-machine-sync-stage-2.md) and [Stage 3 handover](simple-library-machine-sync-stage-3.md) for local evidence and limits. Historical broad race evidence is distinguished from later focused checks; no new repository-wide race sweep is claimed here. Stage 4's implementation landed in [#680](https://github.com/eyupio/reet.sh/pull/680) (merge `eb8a12297cc9742442894ff83f5bad49bf0c8995`) with the managed-removal capability **off by default**; its acceptance is not complete (two real machines, sleep, reboot, real network loss and a long-lived real account migration are not proven): see the [Stage 4 handover](simple-library-machine-sync-stage-4.md). Stage 5 has an authorised UX slice in [#686](https://github.com/eyupio/reet.sh/pull/686): see its [handover](simple-library-machine-sync-stage-5.md). Full Stage 5 acceptance still needs real-machine and sign-up proof; neither stage is complete. Stages 6–7 remain unstarted. No preview/production deployment or live provisioning is claimed, and the reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -431,12 +431,16 @@ Stage 3 is complete as a source implementation: see its [implementation handover
 - [x] Stage 1: identity, supervision and connection recovery
 - [x] Stage 2: complete library, authoring, status and metadata
 - [x] Stage 3: selected-item automatic sync and edits
-- [ ] Stage 4: removal, restoration and notifications (in progress)
-- [ ] Stage 5: Library and Machines UX (limited first slice in draft #686; Stage 4 acceptance remains required)
+- [ ] Stage 4: removal, restoration and notifications (implementation merged in #680, capability off by default; acceptance incomplete)
+- [ ] Stage 5: Library and Machines UX (slices in #686; real-machine and sign-up acceptance remain)
 - [ ] Stage 6: Linux provisioning for all four applications
 - [ ] Stage 7: independent backup, migration and release proof
 
 **Evidence:** the original specification records the user's decisions. Stage 0 added the real-controller/subprocess harness and reproduced five contract gaps. Stage 1 fixes the import-restart gap and promotes its regression into ordinary tests. Stage 2 adds canonical identity/status, typed complete content, metadata-preserving migration, registered-root capture and backup compatibility, with store/API/connector checks and the full race suite passing. Four future-stage execution probes remain tagged. The linked handovers retain actual commands and field-testing limits. No live provisioning or production deployment has been performed.
+
+### Stage 5 owner instruction and session handoff (2026-11-09)
+
+The owner explicitly requested Stage 5 and approved starting a limited UI slice against existing APIs while Stage 4 remains unfinished, then asked for a PR-linked handoff before changing sessions. [Draft #686](https://github.com/eyupio/reet.sh/pull/686) adds machine-scoped selection from Machines; its [Stage 5 handoff](simple-library-machine-sync-stage-5.md) records source, screenshots, checks and remaining work. Earlier statements that Stage 5 is unauthorised/unstarted are historical. This does not waive Stage 4 acceptance, enable its gated removal/restoration, complete Stage 5, authorise Stage 6 or permit deployment.
 
 ### PR integration update (2026-11-08)
 

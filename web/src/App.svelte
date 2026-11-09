@@ -70,6 +70,7 @@
     PublicList: () => loadPage(() => import('./lib/PublicList.svelte')),
     ResetPassword: () => loadPage(() => import('./lib/ResetPassword.svelte')),
     Setup: () => loadPage(() => import('./lib/Setup.svelte')),
+    Library: () => loadPage(() => import('./lib/Library.svelte')),
     SetupProfiles: () => loadPage(() => import('./lib/SetupProfiles.svelte')),
     Prompts: () => loadPage(() => import('./lib/Prompts.svelte')),
     SignIn: () => loadPage(() => import('./lib/SignIn.svelte')),
@@ -179,6 +180,7 @@
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
+  const isLibrary = location.pathname === '/library'
   const isProfiles = ['/profiles', '/setups'].includes(location.pathname)
   const isPrompts = location.pathname === '/prompts' || location.pathname === '/prompts/'
   // Without Sessions access (a viewer, a token or an open instance) /sessions shows Machines, as /terminals did.
@@ -240,6 +242,7 @@
   ])
   const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
+    ...(canWrite ? [{ href: '/library', label: 'Library', group: 'Skills & distribution', current: isLibrary }] : []),
     ...(authMode === 'accounts' && canWrite ? [{ href: '/prompts', label: 'Prompts', group: 'Skills & distribution', current: isPrompts }] : []),
     { href: '/profiles', label: 'Setups', group: 'Skills & distribution', current: isProfiles },
     { href: '/shared', label: 'Lists', group: 'Skills & distribution', current: isShared || isList },
@@ -991,7 +994,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -1172,6 +1175,14 @@
       <RouteSkeleton variant={terminalLayout ? 'workspace' : 'rows'} />
     {:then { default: Page }}
       <Page userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
+    {:catch}
+      <PageLoadError />
+    {/await}
+  {:else if isLibrary}
+    {#await pages.Library()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page {canWrite} {timeZone} onerror={fail} />
     {:catch}
       <PageLoadError />
     {/await}

@@ -295,6 +295,8 @@ Keep the folders you work in as **projects** in the rail on Home: one folder on 
 
 Machine terminals retain the OS account’s usual sudo permissions and authentication. See [sudo setup and migration](docs/terminal-controller-commands.md#sudo-in-a-machine-terminal) for older restricted Linux service units.
 
+When a controller moves, point a machine at the new one with `reet agent set-server URL`; it first has the controller prove it holds the machine's record, and sends no credential until it has ([following a moved controller](docs/controller-sync.md#follow-a-controller-that-has-moved)).
+
 Connect a machine’s terminal with `reet agent terminal setup`. Interactive install, enrollment and upgrades offer this resumable wizard; it checks tmux, asks for local shell consent and repairs native services while preserving running sessions. See [terminal connection setup](docs/terminal-controller-commands.md#first-class-machine-connection-setup).
 
 Manage the binary or a server with `reet install --mode binary|native|compose`, inspect updates with `reet upgrade --check` (or choose Upgrade from `reet` home), apply a verified update with `reet upgrade` (`--version` overrides `REET_VERSION`/saved defaults; otherwise dev stays dev; replacing the running dev CLI with stable requires an explicit `--version`), and diagnose problems with `reet doctor [--json]`. Managed server upgrades preserve configuration, back up SQLite and restore the previous deployment on a failed restart. Use `reet healthcheck --url https://your-site.example` for a remote health check; without `--url` it uses `REET_URL`/saved defaults. Use `--local` for the local server. Commands preview their intent and require confirmation before applying; see [managed installation and upgrades](docs/binary-installation.md#managed-install-upgrade-and-doctor).
@@ -510,7 +512,7 @@ reet backup run                       # take one now, and ship it
 reet backup open --password-file p f  # open a downloaded copy to stdout
 reet backup escrow --out f --passphrase-file p   # key and destinations, sealed
 reet backup fence --moved-to URL     # stop this controller acting before the final copy; --lift undoes it
-reet backup restore --yes <id>        # with the server stopped; without --yes it only checks and reports. --drop-sessions, --drop-tokens, --owner-email ADDR, --allow-live-source
+reet backup restore --yes <id>        # with the server stopped; without --yes it only checks and reports. --drop-sessions, --drop-tokens, --owner-email ADDR, --allow-live-source, --public-url URL
 reet backup import --server URL --token-file F COPY   # into a running controller; applied at its next start
 ```
 

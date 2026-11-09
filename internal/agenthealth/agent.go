@@ -47,6 +47,7 @@ type AgentConfig struct {
 	browse             bool
 	branches           bool
 	branchPrune        bool
+	branchSync         bool
 	browseAllowed      bool
 	clipboard          bool
 	clipboardAllowed   bool
@@ -428,6 +429,11 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 				m.Body = terminalproto.BranchPruneResult{Reason: terminalproto.BranchesDenied}
 				return send(ctx, m)
 			}
+		case *terminalproto.BranchSync:
+			if cfg.branchSync && !currentCapabilities(cfg).BranchSync {
+				m.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesDenied}
+				return send(ctx, m)
+			}
 		}
 		return control(ctx, m)
 	}
@@ -525,6 +531,11 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 			return m, false
 		}
 		m.Body = terminalproto.BranchPruneResult{Reason: terminalproto.BranchesConflict}
+	case *terminalproto.BranchSync:
+		if !terminalproto.SupportsBranchSync(features) {
+			return m, false
+		}
+		m.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesConflict}
 	default:
 		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 	}
@@ -763,6 +774,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
 	cfg.branchPrune = terminalproto.SupportsBranchPrune(advertised)
+	cfg.branchSync = terminalproto.SupportsBranchSync(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
@@ -841,6 +853,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.branchPrune {
 		features = append(features, terminalproto.BranchPruneFeature)
+	}
+	if cfg.branchSync {
+		features = append(features, terminalproto.BranchSyncFeature)
 	}
 	if cfg.clipboard {
 		features = append(features, terminalproto.ClipboardFeature)
@@ -1137,6 +1152,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,
 		BranchPrune:     cfg.branchPrune && worktree && enabled,
+		BranchSync:      cfg.branchSync && worktree && enabled,
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,

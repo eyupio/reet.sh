@@ -206,13 +206,40 @@ and omissions described below. It does not poll unchanged evidence or observe
 external PR/check changes on its own: the working model must monitor those and
 report progress. Unsupported channels and providers remain visible limitations.
 
-## Review all followed sessions
+## Run the factory floor
 
-Choose **Chat options → Followed sessions** from general or session chat. The job
-sheet shows only your explicitly selected session goals, with decisions first.
-Use **Needs you**, **Following** or **Finished** to narrow the view. Paused goals
-remain under **All**. Opening or refreshing this view starts no goal, model request
-or worker instruction.
+Choose **Chat options → Factory floor** from general or session chat. It is one
+job sheet for the whole floor: the sessions you asked Gaffer to look after, with
+decisions first, and under **Not followed** every running structured chat you
+have not. Use **Needs review**, **Following**, **Not followed** or **Finished**
+to narrow the view. Paused goals remain under **All**. Opening or refreshing this
+view starts no goal, model request or worker instruction.
+
+### Put several sessions in Gaffer's care
+
+Tick the running chats Gaffer should look after, or **Select all**, then choose
+**Look after selected**. Ticking shares nothing and starts nothing. One review
+lists the chosen sessions, Gaffer's default provider and model, what starting
+shares, one goal and one set of limits. Write the goal or pick one with **Use a
+prompt**; expand **Change limits** for the review budget and hours.
+
+**Start follow-up** then sets each session up in turn through the same reviewed
+setup a single session uses. Each session gets its own Gaffer conversation,
+access, goal and budget, so pausing or changing one leaves the others alone. A
+session that already has a Gaffer chat keeps the provider and model chosen there.
+The results name every session as **Following** or **Not started** with the
+reason; a session that could not start is left unchanged and stays ticked, so you
+can try it again or open it. The goal and limits you used are kept in this browser
+as the starting point for next time.
+
+Only running structured chats without a saved goal are offered. A plain terminal
+has no follow-up, and a session that already has a goal, finished or not, is
+managed from its card. Gaffer follows at most ten sessions at once: the floor
+says how much room is left before the review opens. The working model in each
+session still does the coding and PR work under its own approvals; Gaffer gains
+no shell, GitHub or merge path here.
+
+### Review followed sessions
 
 Each card shows the agreed work, latest Gaffer report, review budget and deadline.
 Worker evidence observation time and the actual review finish time stay separate
@@ -226,10 +253,12 @@ when switching within the current workspace. **Review goal** opens the existing
 controls with fresh permission checks and the same resume/completion confirmations.
 Archived or unavailable sessions retain your saved goal for review; use
 **Conversation history** to remove their saved chats. Their unavailable worker
-channels cannot be resumed from the overview.
+channels cannot be resumed from the floor.
 
 The view refreshes retained records while open. A failed refresh keeps the last
 successful read visibly labelled; source times are never replaced by refresh time.
+If the running sessions cannot be read, the followed work stays and the floor
+says what is missing.
 
 ## Add a provider
 

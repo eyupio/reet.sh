@@ -41,9 +41,9 @@ try {
       await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
       const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
       await chat.getByPlaceholder('Talk it through with Gaffer…').fill('Keep my general chat draft')
-      const open=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Followed sessions',exact:true}).click()}
+      const open=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Factory floor',exact:true}).click()}
       await open()
-      const overview=w.page.getByRole('dialog',{name:'Followed sessions',exact:true})
+      const overview=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
       await expect(overview.getByRole('listitem')).toHaveCount(5)
       await expect(overview.getByRole('listitem').first().getByRole('heading',{name:'Release needs a decision',exact:true})).toBeVisible()
       await expect(overview.getByText('Delivery uncertain',{exact:false}).first()).toBeVisible()

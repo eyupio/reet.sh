@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Gaffer's **Followed sessions** view is now the **Factory floor** (Ask Gaffer →
+  Chat options). Beside the sessions Gaffer already follows it lists every
+  running structured chat that is not followed. Tick several, review one goal
+  and one set of limits, and each session is started through its own reviewed
+  setup, with a per-session result. Each keeps its own access, goal and budget.
+  Browser-only: no server, database or connector change.
 - A portable copy can be taken with a password given for that copy alone.
   `POST /api/v2/admin/backups/run` accepts an optional body `{"password": "..."}`
   and `reet backup run` takes `--password-file F` (a file or `-`, never an

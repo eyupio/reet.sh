@@ -35,7 +35,7 @@ try {
       expect(await w.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
       if(width===1440||width===390)await w.page.screenshot({path:`${shots}/home-followups-${width}-${theme}.png`,fullPage:true})
       await entry.click()
-      const overview=w.page.getByRole('dialog',{name:'Followed sessions',exact:true})
+      const overview=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
       await expect(overview.getByRole('listitem')).toHaveCount(2)
       await expect(w.page.getByRole('dialog',{name:'Gaffer',exact:true})).toHaveCount(0)
       await expect(overview.getByRole('link',{name:'Open session',exact:true}).first()).toHaveAttribute('href','/sessions?agent=a1&session=worker-1&gaffer=1')
@@ -75,7 +75,7 @@ try {
   const w=await openWorkspace(browser,{width:390,routes:f.routes})
   try {
     await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Gaffer follow-ups unavailable',exact:true}).click()
-    const overview=w.page.getByRole('dialog',{name:'Followed sessions',exact:true})
+    const overview=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
     await expect(overview.getByRole('alert')).toBeVisible();f.box.fail=false
     await overview.getByRole('button',{name:'Refresh',exact:true}).click();await expect(overview.getByRole('listitem')).toHaveCount(2)
   } finally {await w.context.close()}
@@ -88,7 +88,7 @@ try {
     const page=historyWorkspace.page
     await page.goto(base+'/')
     const entry=page.getByRole('button',{name:'Gaffer: 1 follow-up needs review',exact:true})
-    const showHistory=async()=>{await entry.click();await page.getByRole('dialog',{name:'Followed sessions',exact:true}).getByRole('button',{name:'Conversation history',exact:true}).click()}
+    const showHistory=async()=>{await entry.click();await page.getByRole('dialog',{name:'Factory floor',exact:true}).getByRole('button',{name:'Conversation history',exact:true}).click()}
     await showHistory();await page.keyboard.press('Escape');await expect(entry).toBeFocused()
     await showHistory()
     await page.getByRole('dialog',{name:'Conversation history',exact:true}).getByRole('button',{name:'General Gaffer chat',exact:false}).click()
@@ -100,7 +100,7 @@ try {
   try {
     const page=finalWorkspace.page
     await page.goto(base+'/');await page.getByRole('button',{name:'Gaffer: 1 follow-up needs review',exact:true}).click()
-    await page.getByRole('dialog',{name:'Followed sessions',exact:true}).getByRole('button',{name:'Review goal',exact:true}).click()
+    await page.getByRole('dialog',{name:'Factory floor',exact:true}).getByRole('button',{name:'Review goal',exact:true}).click()
     await page.getByRole('dialog',{name:'Look after this session',exact:true}).getByRole('button',{name:'Stop goal',exact:true}).click()
     await page.getByRole('dialog',{name:'Stop this goal?',exact:true}).getByRole('button',{name:'Stop goal',exact:true}).click()
     await expect(page.locator('.workspace-summary .followups')).toHaveCount(0)
@@ -144,7 +144,7 @@ try {
     await expect(entry).toBeVisible()
     await expect(page.getByRole('button',{name:/follow-ups? needs? review/})).toHaveCount(0)
     await entry.click()
-    await expect(page.getByRole('dialog',{name:'Followed sessions',exact:true}).getByRole('listitem')).toHaveCount(1)
+    await expect(page.getByRole('dialog',{name:'Factory floor',exact:true}).getByRole('listitem')).toHaveCount(1)
     expect(onlyWorkspace.errors).toEqual([]);expect(onlyWorkspace.state.unexpected).toEqual([])
   } finally {await onlyWorkspace.context.close()}
   console.log('Home follow-ups: six theme/width views, a goal folded into its session card (counted once, entry kept), standalone overview, no implicit writes/provider reads, explicit control refresh, stale read/retry, focus, empty and viewer/open-mode boundaries passed.')

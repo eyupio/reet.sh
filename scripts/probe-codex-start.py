@@ -7,7 +7,12 @@ no credential variables, then records, in order:
   2. session/new BEFORE authenticate (does it say "Authentication required"?);
   3. session/new after a synthetic api-key authenticate: starting mode and the options offered;
   4. the mode switch reet uses (session/set_config_option configId=mode) and the one the earlier probes used (session/set_mode):
-     what each replies, and whether a fresh session/new in the same process reflects the change is not tested.
+     what each replies, and whether a fresh session/new in the same process reflects the change is not tested;
+  5. what the adapter advertises it can do (agentCapabilities: image prompts, session/load, the session methods);
+  6. every option with its type and values, and a sweep that sets each mode, each reasoning effort and each model on one session and
+     records what the adapter reads back (the new current value, and which effort values the model offers), so the descriptor can say only what was seen;
+  7. session/load of a session id that was never stored: the error it answers.
+Steps 5 to 7 are signed-out measurements; a signed-in run (Run B) adds what needs a real session.
 Prints a JSON summary and writes the full message log to <workspace>/codex-start.json. Installs nothing.
 """
 import argparse, json, os, selectors, shutil, signal, subprocess, tempfile, time
@@ -102,12 +107,70 @@ def modes(res):
     return out
 
 
+def option_table(res):
+    """Every option: its type, current value and the values offered, so a change in what Codex offers shows up in the record."""
+    out = {}
+    for o in res.get("configOptions") or []:
+        values = [v.get("value") for v in o.get("options") or [] if isinstance(v, dict)]
+        out[o.get("id")] = {"type": o.get("type"), "currentValue": o.get("currentValue"), "values": values}
+    return out
+
+
+seq = [100]
+
+
+def ask(method, params):
+    seq[0] += 1
+    return call(seq[0], method, params)
+
+
+def set_option(native, config_id, value):
+    """What the adapter answers to one option change and what it reports as the option's value afterwards (the read-back)."""
+    res = ask("session/set_config_option", {"sessionId": native, "configId": config_id, "value": value})
+    if "result" not in res:
+        return {"value": value, "error": res.get("error", res)}
+    table = option_table(res["result"])
+    return {"value": value, "readBack": (table.get(config_id) or {}).get("currentValue"), "effortValues": (table.get("reasoning_effort") or {}).get("values"),
+            "effortNow": (table.get("reasoning_effort") or {}).get("currentValue"), "optionIds": sorted(table)}
+
+
+def fresh():
+    """A new session from the default state, so one sweep's changes do not colour the next."""
+    res = ask("session/new", {"cwd": str(run / "project"), "mcpServers": []})
+    return res["result"]["sessionId"] if "result" in res else None
+
+
+def sweeps(native):
+    """Set each mode and each effort in turn, then each model on a session of its own (what that model offers and defaults to), then
+    carry one chosen effort across every model switch (does the choice survive, and what happens when the new model lacks it)."""
+    base = option_table(ask("session/set_config_option", {"sessionId": native, "configId": "mode", "value": args.mode}).get("result") or {})
+    out = {cid: [set_option(native, cid, v) for v in (base.get(cid) or {}).get("values") or []] for cid in ("mode", "reasoning_effort")}
+    models = (base.get("model") or {}).get("values") or []
+    out["model"] = [set_option(fresh(), "model", v) for v in models]
+    for effort in ("high", "ultra"):
+        carried = []
+        for v in models:
+            sid = fresh()
+            set_option(sid, "reasoning_effort", effort)
+            carried.append(set_option(sid, "model", v))
+        out["effortCarried:" + effort] = carried
+    return out
+
+
+def unstored_load():
+    res = ask("session/load", {"sessionId": "00000000-0000-4000-8000-000000000000", "cwd": str(run / "project"), "mcpServers": []})
+    return {"error": res.get("error"), "result": res.get("result")}
+
+
 summary = {}
 try:
     init = call(1, "initialize", {"protocolVersion": 1, "clientInfo": {"name": "reet-probe", "version": "1"},
                 "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False}})
     r = init.get("result", {})
     summary["initialize"] = {"agentInfo": r.get("agentInfo"), "authMethods": [m.get("id") for m in r.get("authMethods") or []]}
+    caps = r.get("agentCapabilities") or {}
+    summary["capabilities"] = {"loadSession": caps.get("loadSession"), "promptCapabilities": caps.get("promptCapabilities"),
+                               "sessionCapabilities": sorted((caps.get("sessionCapabilities") or {}).keys()), "mcpCapabilities": caps.get("mcpCapabilities")}
     before = call(2, "session/new", {"cwd": str(run / "project"), "mcpServers": []})
     summary["newBeforeAuthenticate"] = before.get("error", "ok" if "result" in before else before)
     if args.auth == "none":
@@ -125,6 +188,9 @@ try:
         summary["setConfigOptionMode"] = {"error": cfg.get("error"), "result": modes(cfg["result"]) if "result" in cfg else None, "rawKeys": sorted(cfg.get("result", {}))}
         legacy = call(6, "session/set_mode", {"sessionId": native, "modeId": args.mode})
         summary["setMode"] = {"error": legacy.get("error"), "rawResult": legacy.get("result")}
+        summary["options"] = option_table(created["result"])
+        summary["sweeps"] = sweeps(native)
+        summary["unstoredLoad"] = unstored_load()
     else:
         summary["newAfterAuthenticate"] = created
     drain()

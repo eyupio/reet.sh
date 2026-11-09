@@ -1,6 +1,6 @@
 # Codex fully supported natively: design (draft)
 
-Status: draft for owner review. Not committed: the working branch carries the stage follow-up menu PR until it merges.
+Status: agreed in outline with the owner; slice 1 is done (see the probe report).
 Modelled on `2026-11-08-claude-code-native-support-design.md`. Evidence comes from a read-only survey of the code, `docs/device-checks.md`
 and the captured help; no `codex` binary was available, so nothing here was freshly run.
 
@@ -30,8 +30,8 @@ not assumed, and each one that does not work is hidden or explained.
 
 ## Slices
 
-1. **Probe, no product change.** Extend the Codex probes to measure: effort and model read-back after `set_config_option`, options per model,
-   image capability, `session/load` replay and the unstored-load error code. Add an opt-in `TestRealCodexStart`. Record a `sources.json` entry for the captured CLI version.
+1. **Probe, no product change.** Extend the Codex probe to measure: effort and model read-back after `set_config_option`, options per model,
+   image capability and the unstored-load error code, with an opt-in `TestRealCodexStart`. Done, results in the probe report ("Codex parity probes"); history replay needs a stored turn and waits for Run B. The pinned CLI help capture and its `sources.json` entry move to slice 3, where the terminal preset needs them, as they did for Claude Code.
 2. **Gaffer parity, behind the setting.** Descriptor flags exactly as the probe shows (history, model, images, reattach, read-back confirmation), fake-frame tests,
    a chat-YOLO test for Codex, and wording for what YOLO means in `read-only` versus `agent`.
 3. **Terminal and web.** Resume, effort and image argv for the terminal preset once the decisions below are made; the web catalogue and Start dialog follow; docs rows.

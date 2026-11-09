@@ -58,7 +58,7 @@ for(const [width,theme] of [[390,'dark'],[1280,'light']]){
 }
 
 // The import step: what the machine reports that the library lacks is offered right in the picker, each skill leading into the
-// existing reviewed import with its source already chosen. Skills the library has are not offered, and a skill whose files could
+// private import with its source already chosen, saved without a separate review (see the direct-import block below). Skills the library has are not offered, and a skill whose files could
 // not be read completely is explained, not offered. Nothing is offered until the machine's content has actually been observed.
 const withContent=(state,skills)=>({...folder('shared'),content:{state,skills}})
 const seen=(name,changes={})=>({name,complete:true,files:1,bytes:10,...changes})
@@ -86,7 +86,7 @@ for(const [width,theme] of [[390,'dark'],[1280,'light']]){
  await expect(found).not.toContainText('code-review')
  await expect(found.getByRole('button',{name:/half-copied/})).toHaveCount(0)
  await expect(found).toContainText('1 more skill here cannot be imported yet')
- await expect(found).toContainText('You review the files before anything is uploaded')
+ await expect(found).toContainText('saved without a separate review')
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
  if(process.env.REET_UI_SCREENSHOTS&&width===390){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await found.scrollIntoViewIfNeeded();await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/connect-flow-phone-import-step.png`})}
 
@@ -98,12 +98,50 @@ for(const [width,theme] of [[390,'dark'],[1280,'light']]){
  await expect(imports).toBeVisible()
  await expect(imports.getByLabel('Source install location')).toHaveValue('new-box-agents')
  await expect(imports.getByLabel('Skill folder')).toHaveValue('local-helper')
- // Reviewed, not bypassed: the only action is to request a preview, and nothing is uploaded by it.
+ // This machine has not negotiated browser import, so nothing can start by itself: the ordinary form stays, and a preview is the only action.
  await expect(imports.getByRole('button',{name:'Request file preview'})).toBeVisible()
  await expect(imports).toContainText('No file contents are uploaded at this step')
  expect(errors).toEqual([])
  await context.close()
  console.log(`PASS import step at ${width}px ${theme}`)
+}
+
+// Direct import: choosing a found skill saves it to the library with no stop for review. The preview and the approval are the same
+// requests the review makes, made for the person; a blocked file or an invalid SKILL.md still stops for their decision.
+for(const [label,files,valid] of [['clean',[{path:'SKILL.md',bytes:10,digest:'a'.repeat(64),executable:false}],true],['blocked file',[{path:'SKILL.md',bytes:10,digest:'a'.repeat(64),executable:false},{path:'.env',bytes:4,digest:'b'.repeat(64),executable:false,blocked:'credential_like'}],true],['invalid skill',[{path:'SKILL.md',bytes:10,digest:'a'.repeat(64),executable:false}],false]]){
+ const world={folders:[withContent('observed',[seen('local-helper')])]}
+ const calls={preview:0,approve:[]}
+ let current=null
+ const request=(state,extra={})=>({id:'imp1',requestKey:'k',agentId:'agent-new',environmentId:'new-box-agents',host:'new-box',agent:'agents',project:'',name:'local-helper',state,bundleId:'',expectedBase:'',createdAt:1,updatedAt:1,expiresAt:Date.now()+600000,previewHash:'h1',excluded:files.filter(f=>f.blocked).map(f=>f.path).slice(0,0),preview:{schemaVersion:1,sourceDigest:'c'.repeat(64),skillValid:valid,files},...extra})
+ const {page,context,errors}=await openWorkspace(browser,{width:390,touch:true,
+  sync:{get environments(){return world.folders},get machines(){return [{host:'new-box',groups:world.folders,skillCount:0}]},agents:[{id:'agent-new',host:'new-box',paused:false,autoUpdate:false,keepSynced:true,lastSeen:Date.now()}],targets:[],jobs:[],runs:[],updateJobs:[]},
+  routes:{
+   '/api/v2/library':{schemaVersion:1,items:library},
+   '/api/v2/library/selections/new-box-agents':{status:404,json:{error:'private skill unavailable'}},
+   '/api/v2/skill-bundles':{bundles:[]},
+   '/api/v2/skill-imports':req=>req.method()==='POST'?(calls.preview++,current=request('reviewing'),{json:current}):{json:{requests:current?[current]:[],capabilities:[{agentId:'agent-new',ready:true,observedAt:Date.now()}]}},
+   '/api/v2/skill-imports/imp1':()=>({json:current}),
+   '/api/v2/skill-imports/imp1/approve':req=>{calls.approve.push(req.postDataJSON());current=request('completed',{receipt:{bundle:{id:'bundle-1',name:'local-helper',head:'rev-1'},revision:{id:'rev-1',manifestDigest:'d'.repeat(64)}}});return {json:current}}
+  }})
+ await page.goto(`${base}/machines`)
+ await page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Choose skills',exact:true}).click()
+ await page.getByRole('dialog',{name:'Skills on new-box',exact:true}).getByRole('button',{name:'Import local-helper privately'}).click()
+ const imports=page.getByRole('dialog',{name:'Bring a machine skill into reet'})
+ if(label==='clean'){
+  await expect(imports.getByText('Private copy saved: local-helper')).toBeVisible()
+  expect(calls.preview).toBe(1)
+  expect(calls.approve).toEqual([{previewHash:'h1',excluded:[]}])
+  await expect(imports).toContainText('straight into your library')
+ }else{
+  // Stops for a person: the review table is shown, and nothing is approved on their behalf.
+  await expect(imports.getByRole('table',{name:'Files on the machine'})).toBeVisible()
+  await page.waitForTimeout(800)
+  expect(calls.approve).toEqual([])
+  await expect(imports).toContainText('Review a skill')
+ }
+ expect(errors).toEqual([])
+ await context.close()
+ console.log(`PASS direct import: ${label}`)
 }
 
 { // Nothing is offered while the machine's content has not been observed: an unread scan is not evidence a skill is missing.

@@ -4,7 +4,7 @@
   import { describeError } from './contentReview'
   import { agentOnline } from './machines'
   import { foundNotInLibrary, itemMachineState } from './machineItems'
-  let { host = '', snapshot, onsaved, onimport }: { host?: string; snapshot?: SyncState; onsaved?: () => void; /** Opens the existing reviewed import for one skill found on this machine; absent when the person cannot import. */ onimport?: (source: { environmentId: string; name: string }) => void } = $props()
+  let { host = '', snapshot, onsaved, onimport }: { host?: string; snapshot?: SyncState; onsaved?: () => void; /** Starts a private import for one skill found on this machine; absent when the person cannot import. */ onimport?: (source: { environmentId: string; name: string; direct?: boolean }) => void } = $props()
   const headingId = $props.id()
   let items = $state<LibraryItem[]>([])
   let target = $state('')
@@ -109,8 +109,8 @@
       <section class="found" aria-label="Found on this machine, not in your library">
         <h3>On this machine, not in your library yet</h3>
         {#if found.importable.length}
-          <p>Importing saves a private copy to your library so any machine can keep it. You review the files before anything is uploaded.</p>
-          <ul>{#each found.importable as name (name)}<li><span>{name}</span><button class="btn quiet" type="button" aria-label={`Import ${name} privately`} onclick={() => destination && onimport?.({ environmentId: destination.id, name })}>Import privately</button></li>{/each}</ul>
+          <p>Importing saves a private copy to your library so any machine can keep it. The files are saved without a separate review; a file that looks like a credential, or a skill whose SKILL.md is invalid, stops for your decision.</p>
+          <ul>{#each found.importable as name (name)}<li><span>{name}</span><button class="btn quiet" type="button" aria-label={`Import ${name} privately`} onclick={() => destination && onimport?.({ environmentId: destination.id, name, direct: true })}>Import privately</button></li>{/each}</ul>
         {/if}
         {#if found.incomplete}<p>{found.incomplete === 1 ? '1 more skill here' : `${found.incomplete} more skills here`} cannot be imported yet because {found.incomplete === 1 ? 'its' : 'their'} files could not be read completely.</p>{/if}
       </section>

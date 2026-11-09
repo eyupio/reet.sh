@@ -59,7 +59,7 @@
   // Set when the dialog was opened from the Private skills dialog and a folder was chosen for the new machine: the fleet opens
   // the Private skills dialog on it once and clears this.
   let landing = $state<{ environmentId: string; name?: string; note: string } | null>(null)
-  let importSource = $state<{ environmentId: string; name: string } | null>(null)
+  let importSource = $state<{ environmentId: string; name: string; direct?: boolean } | null>(null)
   // ?choose=skills on a machine's own address opens its skill dialog once, then the address is tidied.
   let chooseHost = $state(new URLSearchParams(location.search).get('choose') === 'skills' ? (new URLSearchParams(location.search).get('machine') ?? '') : '')
   function choseDone() {

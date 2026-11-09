@@ -57,7 +57,7 @@
     monitorAccess?:boolean
     /** Opens the Add a machine dialog; absent when the person cannot use it. Given the button, which gets focus back. */
     onjoin?: (opener: HTMLElement | null, context?: JoinContext) => void
-    onimport: (source: { environmentId: string; name: string }) => void
+    onimport: (source: { environmentId: string; name: string; direct?: boolean }) => void
     /** A folder the Add a machine dialog chose for the Private skills dialog to open on, with the note saying which. Used once. */
     landing?: { environmentId: string; name?: string; note: string } | null
     /** Called as soon as `landing` has been turned into the dialog, so it cannot open again when this is drawn again. */

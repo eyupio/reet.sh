@@ -5,7 +5,7 @@
   import Icon from './Icon.svelte'
   import type { SyncState } from './api'
 
-  let { host, snapshot, opener, onclose, onimport }: { host: string; snapshot: SyncState; opener: HTMLElement; onclose: () => void; onimport?: (source: { environmentId: string; name: string }) => void } = $props()
+  let { host, snapshot, opener, onclose, onimport }: { host: string; snapshot: SyncState; opener: HTMLElement; onclose: () => void; onimport?: (source: { environmentId: string; name: string; direct?: boolean }) => void } = $props()
   const titleId = $props.id()
   let dialog = $state<HTMLDialogElement>()
   let closeButton = $state<HTMLButtonElement>()

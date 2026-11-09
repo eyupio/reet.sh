@@ -5,6 +5,9 @@ package acpagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -40,10 +43,20 @@ func TestCodexUsesOnlyItsOwnLoginFolder(t *testing.T) {
 	}
 }
 
+// codexFolderHome is a throwaway HOME that has a Codex folder, as a machine that has used Codex does; what is in the folder is the test's business.
+func codexFolderHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return "HOME=" + home
+}
+
 func TestCodexStartUsesExistingLoginWithoutAuthenticating(t *testing.T) {
 	opts, got := options(t, "codex-login", "1.13.1")
 	opts.Agent = CodexCandidate
-	opts.BaseEnv = append(opts.BaseEnv, "HOME="+t.TempDir())
+	opts.BaseEnv = append(opts.BaseEnv, codexFolderHome(t))
 	session, err := Start(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +91,11 @@ func TestCodexMissingLoginHasActionableStartError(t *testing.T) {
 		if strings.HasPrefix(scenario, "codex-") {
 			opts.Agent = CodexCandidate
 		}
-		opts.BaseEnv = append(opts.BaseEnv, "HOME="+t.TempDir())
+		home := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		opts.BaseEnv = append(opts.BaseEnv, "HOME="+home)
 		session, err := Start(context.Background(), opts)
 		if session != nil {
 			session.Close()
@@ -151,5 +168,73 @@ func TestOtherAgentsIgnoreCodexAuthNotifications(t *testing.T) {
 	s.handle(rpcMessage{Method: "_auth/status_update", Params: json.RawMessage(`{"authStatus":{"kind":"account","label":"ChatGPT Pro"}}`)})
 	if len(got.all) != 0 {
 		t.Fatalf("non-Codex notice: %+v", got.all)
+	}
+}
+
+// Someone who has never used Codex has no ~/.codex, and codex refuses to start when CODEX_HOME names a folder that is not there. That is a
+// missing sign-in, so the person is told to sign in, and the adapter is not started to find it out.
+func TestCodexWithNoLoginFolderAsksForSignIn(t *testing.T) {
+	for _, scenario := range []string{"codex-login", "codex-other-error"} {
+		opts, _ := options(t, scenario, "1.13.1")
+		opts.Agent = CodexCandidate
+		opts.BaseEnv = append(opts.BaseEnv, "HOME="+t.TempDir())
+		session, err := Start(context.Background(), opts)
+		if session != nil {
+			session.Close()
+			t.Fatalf("%s: started a chat with no Codex folder", scenario)
+		}
+		if !errors.Is(err, ErrCodexLogin) {
+			t.Fatalf("%s: no Codex folder: %v", scenario, err)
+		}
+	}
+	// An explicit CODEX_HOME that is not there is the same.
+	opts, _ := options(t, "codex-login", "1.13.1")
+	opts.Agent = CodexCandidate
+	opts.BaseEnv = append(opts.BaseEnv, "HOME="+t.TempDir(), "CODEX_HOME="+filepath.Join(t.TempDir(), "missing"))
+	if session, err := Start(context.Background(), opts); !errors.Is(err, ErrCodexLogin) {
+		if session != nil {
+			session.Close()
+		}
+		t.Fatalf("a CODEX_HOME that does not exist: %v", err)
+	}
+}
+
+// Codex answers a conversation it never stored with a generic internal error that names the missing thread. That is the missing
+// stored conversation; an internal error that names anything else is not.
+func TestCodexUnstoredLoadIsTheMissingConversation(t *testing.T) {
+	for scenario, want := range map[string]bool{"codex-no-store": true, "codex-load-error": false} {
+		opts, _ := options(t, scenario, "1.13.1")
+		opts.Agent = CodexCandidate
+		home := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		opts.BaseEnv = append(opts.BaseEnv, "HOME="+home)
+		opts.Resume = "6f1c2c3a-0b4d-4f6e-8a2b-9d3e5f7a1b2c"
+		session, err := Start(context.Background(), opts)
+		if session != nil {
+			session.Close()
+			t.Fatalf("%s: opened a conversation", scenario)
+		}
+		if errors.Is(err, ErrNoStoredConversation) != want {
+			t.Fatalf("%s: stored-conversation refusal=%v, want %v (%v)", scenario, errors.Is(err, ErrNoStoredConversation), want, err)
+		}
+	}
+}
+
+// A stored Codex conversation reopens under its own id, and the chat still starts in read-only: the adapter loads it in its default
+// mode, which asks less, so the profile switches it and confirms the switch before the chat is offered.
+func TestCodexLoadsAStoredConversationInReadOnly(t *testing.T) {
+	opts, _ := options(t, "codex-load", "1.13.1")
+	opts.Agent = CodexCandidate
+	opts.BaseEnv = append(opts.BaseEnv, codexFolderHome(t))
+	opts.Resume = "6f1c2c3a-0b4d-4f6e-8a2b-9d3e5f7a1b2c"
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if session.SessionID() != opts.Resume || session.Mode() != "read-only" {
+		t.Fatalf("reopened %q in mode %q", session.SessionID(), session.Mode())
 	}
 }

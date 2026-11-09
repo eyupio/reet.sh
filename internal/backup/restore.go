@@ -39,6 +39,15 @@ type RestoreOptions struct {
 	Source string
 	// Replace allows an import into a controller that already holds data.
 	Replace bool
+	// AllowLiveSource accepts a copy whose source was not fenced as it was
+	// taken, or that does not say. Without it such a copy is refused, because
+	// two live controllers would split one set of data.
+	AllowLiveSource bool
+	// PublicURL, when set, is the address the restored controller will answer
+	// at. The saved mail base URL and sync library origin are rewritten to it
+	// and MCP grants for the old address are removed. A plain http(s) origin;
+	// anything else is refused before anything changes.
+	PublicURL string
 }
 
 // RestoreReport says what a copy holds and what was done to it so it is safe
@@ -75,6 +84,17 @@ type RestoreReport struct {
 	// Unreadable names each stored secret the key on this controller cannot
 	// open, with what to do about it. Each is cleared in the copy.
 	Unreadable []string `json:"unreadable"`
+
+	// PublicURL is the address the saved addresses were rewritten to, with what
+	// was changed. MCPGrantsStale is how many OAuth grants were removed because
+	// they were issued for the old address, so each client authorises again.
+	PublicURL            string `json:"publicUrl,omitempty"`
+	MailBaseRewritten    bool   `json:"mailBaseRewritten,omitempty"`
+	SyncOriginsRewritten int    `json:"syncOriginsRewritten,omitempty"`
+	MCPGrantsStale       int    `json:"mcpGrantsStale,omitempty"`
+	// Paused lists the work held back so the restored controller does not start
+	// it again by itself, until the operator resumes it.
+	Paused []string `json:"paused,omitempty"`
 
 	// StagedSHA256 is the digest of the adapted database a staged import
 	// holds, taken when it was staged, so the next start can tell the file
@@ -140,7 +160,28 @@ func (r RestoreReport) Outcome() []string {
 		}
 		l = append(l, "The cleared values are still in the database that was replaced, which opens with the old key.")
 	}
-	return l
+	if r.PublicURL != "" {
+		l = append(l, "Rewrote the saved addresses to "+r.PublicURL+":")
+		l = append(l, "  - mail base URL: "+changed(r.MailBaseRewritten, "changed", "none was saved"))
+		l = append(l, fmt.Sprintf("  - sync library origin: %s", changed(r.SyncOriginsRewritten > 0, fmt.Sprintf("changed for %d account(s)", r.SyncOriginsRewritten), "none was saved")))
+		l = append(l, fmt.Sprintf("  - MCP grants: %d removed because they were issued for the old address; each client signs in again here.", r.MCPGrantsStale))
+	} else {
+		l = append(l, "Saved addresses were left as they were. Use --public-url ADDRESS if this controller answers at a new one.")
+	}
+	if len(r.Paused) > 0 {
+		l = append(l, "Held back, so this controller does not repeat it by itself; resume each when you are ready:")
+		for _, p := range r.Paused {
+			l = append(l, "  - "+p)
+		}
+	}
+	return append(l, ChecklistLines()...)
+}
+
+func changed(ok bool, yes, no string) string {
+	if ok {
+		return yes
+	}
+	return no
 }
 
 // RestoreResult names the copy that was restored and where the previous
@@ -150,6 +191,35 @@ type RestoreResult struct {
 	Previous string
 	Message  string
 	Report   RestoreReport
+}
+
+// ErrLiveSource is returned for a copy whose source controller was not fenced
+// as the copy was taken, or whose copy does not say.
+var ErrLiveSource = errors.New("this copy was taken from a controller that was not stopped")
+
+// sourceState says in a word what a copy records about its source: "fenced",
+// "live" or "unknown" (taken by a reet that did not record it).
+func sourceState(m Manifest) string {
+	switch {
+	case m.Fenced == nil:
+		return "unknown"
+	case *m.Fenced:
+		return "fenced"
+	}
+	return "live"
+}
+
+// checkLiveSource refuses a copy of a controller that may still be running.
+func checkLiveSource(m Manifest, allow bool) error {
+	state := sourceState(m)
+	if state == "fenced" || allow {
+		return nil
+	}
+	what := "it says its source controller was still running"
+	if state == "unknown" {
+		what = "it does not say whether its source controller was stopped (an older reet took it)"
+	}
+	return fmt.Errorf("%w: %s. If that controller is still live, two controllers would work from one set of data, and this copy may already be out of date. Fence the old controller with `reet backup fence`, take a final copy of it, and use that; or, if you know the old one is gone, say so with --allow-live-source", ErrLiveSource, what)
 }
 
 // ErrNewerSchema is returned for a copy taken by a newer reet.
@@ -164,6 +234,11 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 	rep := RestoreReport{ID: m.ID, Release: m.Version, TakenAt: m.TakenAt, UsersByRole: map[string]int{}, Unreadable: []string{}}
 	if m.Kind != "instance" {
 		return rep, errors.New("that is not an instance backup")
+	}
+	if opts.PublicURL != "" {
+		if _, err := store.ValidatePublicURL(opts.PublicURL); err != nil {
+			return rep, err
+		}
 	}
 	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		return rep, err
@@ -182,6 +257,9 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 		}
 		return rep, fmt.Errorf("%w: it is data format %d (release %s) and this reet reads up to data format %d; upgrade reet, then restore it", ErrNewerSchema, sum.SchemaVersion, release, store.SchemaVersion)
 	}
+	if err := checkLiveSource(m, opts.AllowLiveSource); err != nil {
+		return rep, err
+	}
 	if email := strings.TrimSpace(opts.OwnerEmail); email != "" {
 		found := false
 		for _, o := range sum.Owners {
@@ -196,6 +274,7 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 	ad, err := store.AdaptDatabaseFile(ctx, path, store.AdaptOptions{
 		DropSessions: opts.DropSessions,
 		DropTokens:   opts.DropTokens,
+		PublicURL:    opts.PublicURL,
 		Unreadable: func(sealed string) bool {
 			if s.cfg.Sealer == nil {
 				return true
@@ -205,7 +284,8 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 		},
 		EventSource: opts.Source,
 		EventAction: "backup-restored",
-		EventDetail: map[string]any{"id": m.ID, "release": m.Version, "ownerChecked": strings.TrimSpace(opts.OwnerEmail) != ""},
+		EventDetail: map[string]any{"id": m.ID, "release": m.Version, "ownerChecked": strings.TrimSpace(opts.OwnerEmail) != "",
+			"source": m.Source, "sourceState": sourceState(m), "allowLiveSource": opts.AllowLiveSource},
 	})
 	if err != nil {
 		return rep, fmt.Errorf("adapting the copy: %w", err)
@@ -219,6 +299,8 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 	rep.SessionsEnded, rep.TokensRevoked, rep.MCPConnectionsRevoked, rep.IdentityDropped =
 		ad.SessionsEnded, ad.TokensRevoked, ad.MCPConnectionsRevoked, ad.IdentityDropped
 	rep.Unreadable = ad.Cleared
+	rep.PublicURL, rep.MailBaseRewritten, rep.SyncOriginsRewritten, rep.MCPGrantsStale = opts.PublicURL, ad.MailBaseRewritten, ad.SyncOriginsRewritten, ad.MCPGrantsStale
+	rep.Paused = ad.Paused
 	return rep, nil
 }
 
@@ -229,6 +311,14 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 func RestoreInstance(ctx context.Context, svc *Service, dataDir, id, password string, opts RestoreOptions, closeStore func() error) (RestoreResult, error) {
 	if closeStore == nil {
 		closeStore = func() error { return nil }
+	}
+	// An address that is not a plain origin is refused before the copy is
+	// even fetched.
+	var err error
+	if opts.PublicURL != "" {
+		if opts.PublicURL, err = store.ValidatePublicURL(opts.PublicURL); err != nil {
+			return RestoreResult{}, err
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
@@ -394,6 +484,13 @@ func (s *Service) StageImportFile(ctx context.Context, dataDir, path, password s
 // check a restore makes. Then the live database is copied aside, and only
 // then is the import staged.
 func (s *Service) StageImport(ctx context.Context, dataDir string, raw []byte, password string, opts RestoreOptions) (RestoreReport, error) {
+	if opts.PublicURL != "" {
+		u, err := store.ValidatePublicURL(opts.PublicURL)
+		if err != nil {
+			return RestoreReport{}, err
+		}
+		opts.PublicURL = u
+	}
 	if !opts.Replace {
 		if what := holds(s.st.Holdings(ctx)); len(what) > 0 {
 			return RestoreReport{}, fmt.Errorf("%w (%s); importing would replace it, so say you want to replace it, or import into a new controller", ErrNotEmpty, strings.Join(what, ", "))

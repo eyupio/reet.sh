@@ -228,6 +228,7 @@ const RUN_SENTENCES: Record<string, string> = {
   not_failed: 'Only a repository that failed can be tried again.',
   terminals_disabled: "Remote terminals are switched off on this server, so agents can't be started.",
   unknown_outcome: "We didn't hear back, so the agent may have started. Check your sessions before retrying.",
+  paused_by_restore: 'This controller was restored from a copy, so this was held back. Retry it to start it here.',
   session_lost: 'That machine lost the session before it started. Start it again.',
   machine_refused: 'That machine refused to start the agent. Check the machine, then try again.',
   invalid_launch: "reet couldn't send that start request. Check the Project's settings and try again.",

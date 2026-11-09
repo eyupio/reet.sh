@@ -62,6 +62,14 @@ are the logged-out behaviour of the pinned adapters on Linux with Node 24.
   `api-key` and `chat-gpt`; `session/new` before any authenticate fails `-32000 Authentication required`; `_auth/status_update` is
   `{"kind": "none", "label": "Not logged in"}`. This is the refusal the profile already reports as "Sign in to Codex on that
   machine first."
+- **Codex, parity probes (signed out, placeholder login), 9 November:** adapters 1.13.1 (codex-cli 0.156.1) and 2.6.0 (codex-cli 0.166.0).
+  Image prompts and `session/load` are advertised; an unstored conversation answers `-32603` "no rollout found" (not mapped yet); effort and model read back, the
+  effort list depends on the model and a switch keeps the chosen effort where the new model offers it. A missing `~/.codex` makes codex exit instead of asking for a
+  sign-in. Details in the [probe report](https://github.com/eyupio/reet.sh/blob/main/docs/research/structured-adapters/probe-report.md). The signed-in run (Run B) is still to do and
+  will be recorded for Claude Code and Codex in one sitting.
+- **Codex, lifecycle probes against a loopback stand-in provider, 9 November:** a stored conversation loads and continues, an unstored one answers `-32603` "no rollout found"
+  (now mapped), an image block and a chosen model and effort reach the provider's request. No account, network or real model; see the probe report. These close the Codex
+  history, reconnect and image claims for the stand-in only; a signed-in turn is still Run B.
 
 
 ## 1. Typed questions on a phone and with a screen reader

@@ -170,6 +170,11 @@ func (b *Broker) startChatQueue(uid int64, session string) {
 }
 
 func (b *Broker) stepChatQueue(uid int64, session string) {
+	// A fenced controller delivers no queued message to a worker. Messages stay
+	// queued, and go once the fence is lifted.
+	if b.st.Fenced() {
+		return
+	}
 	list, err := b.st.TerminalQueueFor(uid, session)
 	if err != nil || len(list) == 0 {
 		return

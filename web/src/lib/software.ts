@@ -90,6 +90,7 @@ export function batchMemberNote(member: Pick<SoftwareBatchMember, 'code' | 'reas
     case 'in_another_batch': return 'That machine is already in another batch.'
     case 'unknown_machine': return "That machine isn't enrolled."
     case 'bad_answer': return 'The machine sent an unexpected answer.'
+    case 'paused_by_restore': return 'This controller was restored from a copy, so this machine was held back. Retry it to continue the batch.'
     case 'apply_failed': return "That machine's apply did not finish."
     default: return ''
   }

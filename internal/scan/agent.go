@@ -55,6 +55,25 @@ type agentConfig struct {
 
 func agentConfigPath() string { return AgentConfigPath() }
 
+// controllerOrigin checks a controller address the way enrollment does: an
+// origin without credentials, path, query or fragment, over HTTPS (plain HTTP
+// only to this machine), and returns it without a trailing slash.
+func controllerOrigin(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", errors.New("use the controller origin, e.g. https://reet.sh")
+	}
+	noCredentials := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
+	plainPath := u.Path == "" || u.Path == "/"
+	if !noCredentials || !plainPath {
+		return "", errors.New("use the controller origin, e.g. https://reet.sh")
+	}
+	if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")) {
+		return "", errors.New("remote enrollment requires HTTPS")
+	}
+	return strings.TrimRight(raw, "/"), nil
+}
+
 // AgentConfigPath is the default private enrollment file for this user.
 func AgentConfigPath() string {
 	dir, err := os.UserConfigDir()
@@ -112,6 +131,15 @@ func agentRequest(c agentConfig, path string, body any, result any, version stri
 	return agentRequestContext(context.Background(), c, path, body, result, version)
 }
 func agentRequestContext(ctx context.Context, c agentConfig, path string, body any, result any, version string) error {
+	client := httpClient
+	if strings.HasPrefix(path, "/api/v2/library/") {
+		client = noRedirectClient
+	}
+	return agentRequestWith(ctx, client, c, path, body, result, version)
+}
+
+// agentRequestWith sends one authenticated request with the given client.
+func agentRequestWith(ctx context.Context, client *http.Client, c agentConfig, path string, body any, result any, version string) error {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -127,10 +155,6 @@ func agentRequestContext(ctx context.Context, c agentConfig, path string, body a
 	req.Header.Set("X-Reet-Version", version)
 	req.Header.Set("X-Reet-Commit", buildCommit)
 	req.Header.Set("X-Reet-Library-Protocol", "1")
-	client := httpClient
-	if strings.HasPrefix(path, "/api/v2/library/") {
-		client = noRedirectClient
-	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -159,7 +183,7 @@ func RunAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill|library-import [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|set-server|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill|library-import [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
 	if action == "library-import" {
@@ -181,6 +205,9 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 	if action == "terminal" {
 		return runAgentTerminalInput(args[1:], in, out, version)
+	}
+	if action == "set-server" {
+		return runAgentSetServer(args[1:], out, version)
 	}
 	if action == "service" {
 		return runAgentService(args[1:], out)
@@ -250,17 +277,8 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			}
 			*server = value
 		}
-		u, err := url.Parse(*server)
-		if err != nil {
-			return errors.New("use the controller origin, e.g. https://reet.sh")
-		}
-		noCredentials := u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
-		plainPath := u.Path == "" || u.Path == "/"
-		if !noCredentials || !plainPath {
-			return errors.New("use the controller origin, e.g. https://reet.sh")
-		}
-		if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")) {
-			return errors.New("remote enrollment requires HTTPS")
+		if _, err := controllerOrigin(*server); err != nil {
+			return err
 		}
 		hostname, err := os.Hostname()
 		if err != nil {
@@ -628,7 +646,15 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				opts := syncOptions{onExisting: func(skill store.SyncSkill, target store.SyncTarget, path string) error {
 					return adoptLibraryInstall(ctx, config, c, skill, target, path, version)
 				}, filterDesired: func(skills []store.SyncSkill) []store.SyncSkill { return filterLibraryPending(config, c, skills) }, onInstalled: func(skill store.SyncSkill, path string, files []skillbundle.ContentFile) error {
-					return prepareLibraryInstall(ctx, config, c, skill, path, files, version)
+					return prepareLibraryInstall(ctx, config, c, skill, path, files, version, j.TargetID)
+				}, onInstallVerified: func(skill store.SyncSkill, path string) error {
+					return finishLibraryInstall(config, c, skill, path, j.TargetID)
+				}, managedRemovals: func(target store.SyncTarget, path string) ([]SyncAction, map[string]string, error) {
+					return planLibraryRemovals(ctx, config, c, target, path, version)
+				}, managedDeletions: func(target store.SyncTarget, path string) (map[string]bool, map[string]bool, error) {
+					return planLibraryRestores(config, c, target, path)
+				}, removeManaged: func(action SyncAction, path string, out io.Writer, onBackup func(string)) error {
+					return removeLibraryDeployment(ctx, config, c, action, path, version, out, onBackup)
 				}, cwd: dir, verifyEnrollment: true, preflight: requireDependencies, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
 					reportCtx, reportCancel := context.WithTimeout(ctx, 5*time.Second)
 					defer reportCancel()

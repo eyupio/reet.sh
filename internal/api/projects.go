@@ -276,6 +276,7 @@ var runMemberSentences = func() map[string]string {
 		"unknown_machine":      "That machine isn't enrolled on this account.",
 		// The codes only a run's orchestrator stores (internal/projectrun).
 		"unknown_outcome":    "We didn't hear back, so the agent may have started. Check your sessions before retrying.",
+		"paused_by_restore":  "This controller was restored from a copy, so this was held back. Retry it to start it here.",
 		"session_lost":       "That machine lost the session before it started. Start it again.",
 		"machine_refused":    "That machine refused to start the agent. Check the machine, then try again.",
 		"terminals_disabled": sentenceTerminalsOff,

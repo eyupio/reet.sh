@@ -248,12 +248,175 @@ exactly as it was.
    and the database is what the binary actually has to read. A copy from
    before versions were recorded reads as 0 and is accepted.
 2. **The copy must pass SQLite's integrity check.**
-3. **`--owner-email ADDR` must be an owner in the copy.** The address must
+3. **The copy's source must have been stopped.** A copy that says its source
+   was still running, or says nothing, is refused unless `--allow-live-source`
+   is given (see below).
+4. **`--owner-email ADDR` must be an owner in the copy.** The address must
    belong to an owner account that is not disabled, or the restore is refused
    and names the owners the copy does have. It exists so nobody swaps in a
    database they cannot sign in to.
-4. **The inventory is printed**: accounts by role, shelves, skills, lists, tags,
+5. **The inventory is printed**: accounts by role, shelves, skills, lists, tags,
    environments, connected machines and backup destinations.
+
+### What a copy records about where it came from
+
+A whole-controller copy now carries two fields in its clear header, readable
+before it is opened (`reet backup open` and the listing show them):
+
+- `source`: the controller's own identifier (`ctl_` and 32 hex digits), made the
+  first time a copy is taken and kept in the database's settings. It names the
+  controller, not its address, so it stays the same when the address changes. A
+  copy restored on another machine brings the identifier with it, because it says
+  which controller the data came from.
+- `fenced`: true when the controller had been told to stop acting for the whole
+  time the copy was being taken. The state is read before and after the snapshot
+  and the copy is marked fenced only if both reads agree, so a fence raised or
+  lifted mid-copy reads as not fenced, the safe side.
+
+A copy taken by an older reet has neither field and reads as **unknown**.
+
+### Why a copy of a running controller is refused
+
+`restore` and `import` refuse a copy whose `fenced` is false or unknown. Two live
+controllers working from one set of data split it between them, and a copy of a
+running controller may already be out of date by the time it lands. Stop the old
+controller, take a final copy once it is stopped, and use that. If you know the
+old controller is gone (a failed machine, say) and the copy is the best you have,
+say so with `--allow-live-source`; the API form field is `allowLiveSource`.
+
+The check runs with the others, before anything changes, so a refusal leaves
+`reet.db` as it was, and an import stages nothing. When the flag is used the
+choice is written to the activity log (`backup-restored`, with `allowLiveSource`,
+`sourceState` of `live` or `unknown`, and `source`); no secret is recorded. A
+fence recorded in a copy is never carried across: the controller a copy lands on
+is the one meant to be live, so a restore clears it.
+
+### Moving a controller, the order of it
+
+1. On the old controller, fence it (`reet backup fence --moved-to NEW`) so it stops acting.
+2. Take the final copy (`reet backup run`); it is marked fenced.
+3. On the new controller, restore or import it with `--public-url NEW`, and set what the report's checklist lists by hand.
+4. On each machine, `reet agent set-server NEW` (see [following a moved controller](controller-sync.md#follow-a-controller-that-has-moved)). The machine proves the new controller holds its record before it sends any credential.
+5. Resume the work the restore held back.
+6. When everything is working, the old controller can stay fenced or be retired.
+
+### Fencing a controller that is moving
+
+Moving a controller safely means the old one stops acting before the final copy
+is taken. The **fence** is how. It is an owner-set state, saved in the database,
+that says "this controller has moved". It deletes and changes no data, and
+lifting it returns the controller to exactly what it was.
+
+```sh
+reet backup fence --moved-to https://reet.new.example   # raise it (the address is optional)
+reet backup run                                         # the final copy; it is marked fenced
+reet backup fence --lift                                # undo it
+```
+
+The command works on the data in `REET_DATA_DIR`, so it can be used with the
+server stopped or running: the server reads the state from the database each
+time, never from memory. The same is available to the owner over the API:
+
+| Request | Answer |
+| --- | --- |
+| `GET /api/v2/admin/fence` | the state |
+| `POST /api/v2/admin/fence` with `{"movedTo": "https://..."}` | raises it; the address is optional and must be an http or https address |
+| `DELETE /api/v2/admin/fence` | lifts it |
+
+Every answer is `{"fenced": bool, "since": int64, "movedTo": string}`, with
+`since` in milliseconds since the Unix epoch (0 when not fenced). A `POST` when
+already fenced answers with the existing state and changes nothing, so a second
+call cannot move the date or the address. A `DELETE` when not fenced answers the
+same way and succeeds. Like every `POST`, it needs a JSON body; send `{}` for no
+address. All three are for the owner only.
+
+**While fenced:**
+
+- **Every write is refused with 423 (Locked)**, with a message that says the
+  controller has moved, when, and to where when the owner said. Writes include
+  `/quick`, which saves through a `GET`, and every MCP tool that changes
+  something; MCP reads still work, and so do all other reads.
+- **Exempt:** the owner's backup settings (`PATCH /api/v2/admin/backups`), run
+  (`POST .../backups/run`), download and verify, so a final copy can be taken and
+  checked; the fence's own `POST` and `DELETE`; and signing in and out. Sign-in is
+  not in the list of exemptions the contract names, and is a write, but without it
+  an owner whose session had lapsed could not get back in to take the final copy
+  or lift the fence.
+- **Background work stands still.** Each place that acts on its own checks the
+  fence on its next pass, and carries on after the lift:
+
+  | Work | Where it checks | While fenced |
+  | --- | --- | --- |
+  | Scheduled backups | `backup.Service.runDue` | none are taken; the owner's own run still works |
+  | Mail queue | `mail.Queue.RunOnce` | nothing is sent; queued mail stays queued |
+  | Notifier | `notify.Service.Loop` | old read notifications are not pruned |
+  | Project runs | `projectrun.Orchestrator` (`Paused`) | no member is started; members stay pending |
+  | Software batches | `softwarerun.Orchestrator` (`Paused`) | no machine is updated; members stay pending |
+  | Gaffer goals | `gaffer.Service.reviewDueGoals` | no goal is reviewed |
+  | Queued chat messages | `terminalbroker.Broker.stepChatQueue` | none is delivered to a worker |
+  | Worktree sweeps | `runScheduledMaintenance` | no sweep runs on any machine |
+  | Topic sync | `syncTopics` | not fetched |
+  | Catalogue refresh | `refreshBatch` | not run |
+
+- **A fenced start comes up fenced and quiet.** The state is in the database, so
+  a restart keeps it. Pending project runs and software batches are not resumed
+  at start.
+- **After the lift**, the API continues the paused project runs and software
+  batches at once, and a watcher continues them within five seconds when the lift
+  was made with the command line. The loops above need no nudge.
+
+What the fence does not stop: a member or an update already in flight when the
+fence goes up finishes, because it cannot be recalled; and mail already sent is
+sent. That is why the fence goes up before the final copy is taken, and why a
+copy taken while fenced is the one `restore` and `import` accept without
+`--allow-live-source`. A copy carries no fence: a restore clears it, because the
+controller a copy lands on is the one meant to be live.
+
+### When the controller answers at a new address: `--public-url`
+
+`reet backup restore` and `reet backup import` take `--public-url ADDRESS` (the
+API form field is `publicUrl`). It must be a plain http or https origin, such as
+`https://reet.example.com`; a path, query, fragment or credentials are refused,
+and the refusal comes before anything changes. With it:
+
+- the saved **mail base URL** and the **sync library origin** are rewritten to the
+  new address, and nothing else is changed;
+- **MCP grants** issued for the old address are removed, because each is bound to
+  the address it was issued for, so every client authorises again here. The MCP
+  connections themselves are kept (they are revoked only by `--drop-tokens`);
+- the report says what was changed, and the activity log records `publicUrl`.
+
+Without it, no address is touched. `REET_PUBLIC_URL`, which the server reads at
+start, is not in the database: set it on the new machine as well.
+
+### What is held back, and how to resume it
+
+A copy can hold work that would start again by itself the moment the restored
+controller starts, doing something the old one may already have done. A restore
+or import holds it back, using the states the product already has, so each item
+resumes with the retry that already exists, and nothing is deleted:
+
+| Work | Held as | Resume with |
+| --- | --- | --- |
+| Gaffer goals | paused (needs the user) | resume the goal |
+| Project runs | each pending member becomes failed with the code `paused_by_restore`; started members are untouched | retry the member |
+| Software batches | the first unfinished machine fails with `paused_by_restore` and the batch stops; machines that were running go back to waiting | retry that machine |
+| Queued mail (queued or sending) | held | send it from the outbox; a held reset link points at the old address |
+
+The report lists each run, batch and the mail count under "Held back". Held work
+is not resumed at start, because the orchestrators resume only pending members.
+
+### What is not in the copy
+
+The report ends with a checklist of what lives outside the database and has to
+be set by hand on the new machine: the `REET_*` variables the server reads, the
+single sign-on settings (register the new `REET_OIDC_REDIRECT_URL` with the
+identity provider), the backup key and any backup schedule or destination set in
+the environment, the mail outbox folder, the terminal state in
+`terminal-control/state.json`, and the service definition. It is derived from the
+code: a test reads what `serve`, the OIDC and backup readers, the mail outbox
+setting and `reet install` use, and fails when a setting is added that the
+checklist does not name.
 
 ### What a restore changes in the copy
 
@@ -313,7 +476,9 @@ reet backup import --server https://reet.example --token-file ./owner.token \
 The token is an owner's personal API token. A secret on the command line is a
 file or `-` for standard input, never an argument; the token and the password
 cannot both be `-`. `--drop-sessions`, `--drop-tokens` and `--owner-email` mean
-what they do for a restore. `--replace` is described below. The command streams
+what they do for a restore, and so does `--allow-live-source`: the example above
+needs it unless the copy was taken from a fenced controller. `--replace` is
+described below. The command streams
 the file, so it is not read into memory on this side.
 
 **From the page**, under **Admin → Backups → Import a copy from another

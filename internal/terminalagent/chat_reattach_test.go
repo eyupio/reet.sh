@@ -98,8 +98,8 @@ func TestReattachFollowsTheAgentsOwnClaim(t *testing.T) {
 	if changed.State != terminalproto.Running || loads.count() != 1 || loads.loads[0] != proc.SessionID() {
 		t.Fatalf("cline reattach %+v loads %v", changed, loads.loads)
 	}
-	body.Tool = "codex"
-	if _, err := h.reattach("request-codex-reattach0001", "session-codex-reattach00001", body); !errors.Is(err, acpagent.ErrUnsupported) {
+	body.Tool = "antigravity"
+	if _, err := h.reattach("request-agy-reattach0000001", "session-agy-reattach0000001", body); !errors.Is(err, acpagent.ErrUnsupported) {
 		t.Fatalf("an agent without the reattach claim was asked: %v", err)
 	}
 	if loads.count() != 1 {

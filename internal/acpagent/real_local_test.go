@@ -312,3 +312,169 @@ func TestRealClineStart(t *testing.T) {
 	}
 	t.Logf("cline %q in act mode, handle %q, model %q", Cline.MinVersion, id, model)
 }
+
+// codexHome is a throwaway home whose Codex folder holds a placeholder API key, which is all the adapter needs to answer
+// session/new: it makes no model call until a prompt is sent, so these tests need no account and no network. A home without
+// the folder is the signed-out machine.
+func codexHome(t *testing.T, signedIn bool) string {
+	t.Helper()
+	home := t.TempDir()
+	if signedIn {
+		if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".codex", "auth.json"), []byte(`{"OPENAI_API_KEY":"sk-placeholder-not-a-key","auth_mode":"apikey"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return home
+}
+
+// TestRealCodexStart is opt-in and sends no prompt. Against the real adapter, through the profile reet launches it with, it pins what
+// the Codex parity work depends on, as measured signed-out with a placeholder login (a signed-in run adds what needs a real session):
+// a machine without a Codex login is told to sign in; a chat starts in read-only; the reasoning effort is offered, reads back when
+// set and is refused for a value the model does not offer; and a model switch keeps the chosen effort when the new model still
+// offers it and never leaves one it does not offer (the fall-back to medium is measured by the probe's effortCarried sweep, which
+// switches every model, and only logged here). A conversation the adapter never stored is refused.
+func TestRealCodexStart(t *testing.T) {
+	binary := os.Getenv("REET_CODEX_ACP")
+	if binary == "" {
+		t.Skip("set REET_CODEX_ACP to a codex-acp executable from an npm install (its codex dependency sits beside it in node_modules/.bin)")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	opts := func(home string) Options {
+		return Options{Agent: CodexCandidate, Binary: binary, Dir: t.TempDir(), Home: t.TempDir(), BaseEnv: []string{"PATH=" + filepath.Dir(binary) + ":" + os.Getenv("PATH"), "HOME=" + home, "LANG=C.UTF-8"}, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second}
+	}
+
+	// A Codex folder with no login in it, and no Codex folder at all (someone who has never used Codex; codex itself refuses to start
+	// when CODEX_HOME names a folder that is not there): both tell the person to sign in.
+	emptyFolder := codexHome(t, false)
+	if err := os.MkdirAll(filepath.Join(emptyFolder, ".codex"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if session, err := Start(ctx, opts(emptyFolder)); err == nil || !errors.Is(err, ErrCodexLogin) {
+		if session != nil {
+			session.Close()
+		}
+		t.Fatalf("a Codex folder with no login: %v", err)
+	}
+	if session, err := Start(ctx, opts(codexHome(t, false))); !errors.Is(err, ErrCodexLogin) {
+		if session != nil {
+			session.Close()
+		}
+		t.Fatalf("no Codex folder at all: %v", err)
+	}
+
+	session, err := Start(ctx, opts(codexHome(t, true)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		session.Close()
+		if !session.GroupRetired() {
+			t.Error("Close did not confirm that every process the adapter started is gone")
+		}
+	}()
+	if session.SessionID() == "" || session.Model() == "" {
+		t.Fatalf("session %q model %q", session.SessionID(), session.Model())
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(session.SessionID()) {
+		t.Fatalf("session id %q is not the UUID form the controller accepts for Codex", session.SessionID())
+	}
+	effort := settingOf(t, session.Controls(), "thought_level")
+	if effort.ID != "reasoning_effort" || effort.Current != "low" {
+		t.Fatalf("reasoning effort at session/new: %+v", effort)
+	}
+	for _, want := range []string{"low", "medium", "high", "xhigh"} {
+		if !slices.Contains(effort.Values, want) {
+			t.Fatalf("efforts %v lack %q", effort.Values, want)
+		}
+	}
+	if err := session.SetOption(ctx, effort.ID, "high"); err != nil {
+		t.Fatal(err)
+	}
+	if got := settingOf(t, session.Controls(), "thought_level").Current; got != "high" {
+		t.Fatalf("effort after a confirmed set: %q", got)
+	}
+	if err := session.SetOption(ctx, effort.ID, "not-an-effort"); !errors.Is(err, ErrControl) {
+		t.Fatalf("an unlisted effort: %v", err)
+	}
+	if got := settingOf(t, session.Controls(), "thought_level").Current; got != "high" {
+		t.Fatalf("a refused effort changed the setting to %q", got)
+	}
+
+	// A model switch keeps the chosen effort where the new model offers it, and never leaves one the model does not.
+	model := settingOf(t, session.Controls(), "model")
+	if len(model.Values) < 2 {
+		t.Fatalf("no second model to switch to in %+v", model)
+	}
+	if err := session.SetOption(ctx, effort.ID, "ultra"); err != nil {
+		t.Fatalf("choosing ultra on %q: %v", session.Model(), err)
+	}
+	sawFallback := false
+	withUltra, withoutUltra := "", ""
+	for _, value := range model.Values {
+		before := settingOf(t, session.Controls(), "thought_level").Current
+		if err := session.SetOption(ctx, model.ID, value); err != nil {
+			t.Fatalf("switching to model %q: %v", value, err)
+		}
+		after := settingOf(t, session.Controls(), "thought_level")
+		if !slices.Contains(after.Values, after.Current) {
+			t.Fatalf("model %q left effort %q outside the values it offers %v", value, after.Current, after.Values)
+		}
+		if slices.Contains(after.Values, before) {
+			if after.Current != before {
+				t.Fatalf("model %q offers %q but the switch changed the effort from it to %q", value, before, after.Current)
+			}
+		} else {
+			sawFallback = true
+		}
+		if slices.Contains(after.Values, "ultra") {
+			withUltra = value
+		} else {
+			withoutUltra = value
+		}
+		if err := session.SetOption(ctx, "reasoning_effort", "ultra"); err != nil && slices.Contains(after.Values, "ultra") {
+			t.Fatalf("choosing ultra on %q: %v", value, err)
+		}
+	}
+	t.Logf("across %d models: an effort the new model lacked was replaced=%v", len(model.Values), sawFallback)
+
+	// A launch that names a model and an effort applies the model first and then the effort the model offers, and confirms both by read-back.
+	if withUltra == "" || withoutUltra == "" {
+		t.Fatalf("expected a model that offers ultra and one that does not, got %q and %q", withUltra, withoutUltra)
+	}
+	chosen := opts(codexHome(t, true))
+	chosen.Model, chosen.Effort = withoutUltra, "high"
+	started, err := Start(ctx, chosen)
+	if err != nil {
+		t.Fatalf("launch with model %q and effort high: %v", withoutUltra, err)
+	}
+	if got := settingOf(t, started.Controls(), "thought_level").Current; started.Model() != withoutUltra || got != "high" {
+		started.Close()
+		t.Fatalf("started on model %q with effort %q", started.Model(), got)
+	}
+	started.Close()
+	// An effort the chosen model does not offer is refused before the chat opens, not accepted and ignored.
+	refused := opts(codexHome(t, true))
+	refused.Model, refused.Effort = withoutUltra, "ultra"
+	if bad, err := Start(ctx, refused); err == nil {
+		bad.Close()
+		t.Fatalf("started model %q on an effort it does not offer", withoutUltra)
+	}
+
+	// A conversation the adapter never stored is the missing stored conversation, so it is reported as that and not as a crash.
+	stray, err := Start(ctx, func() Options {
+		o := opts(codexHome(t, true))
+		o.Resume = "6f1c2c3a-0b4d-4f6e-8a2b-9d3e5f7a1b2c"
+		return o
+	}())
+	if stray != nil {
+		stray.Close()
+		t.Fatal("opened a conversation that was never stored")
+	}
+	if !errors.Is(err, ErrNoStoredConversation) {
+		t.Fatalf("a conversation that was never stored: %v", err)
+	}
+}

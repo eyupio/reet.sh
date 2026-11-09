@@ -52,6 +52,8 @@ try {
     for (const edge of ['x', 'y', 'width', 'height']) {
       expect(Math.abs(finalLogo[edge] - bootLogo[edge]), `${path} ${width}: logo ${edge} moved`).toBeLessThanOrEqual(0.6)
     }
+    // Every desktop page draws the logo at the sidebar's size, including the session route's slim bar.
+    if (width >= 1100) expect(finalLogo.width, `${path} ${width}: desktop logo width`).toBeCloseTo(134, 0)
     if (path === '/') await expect(page.locator('.home.writer > .column')).toBeVisible()
     if (path === '/machines') await expect(page.locator('h1').first()).toContainText('Your machines')
     const loadedBox = await page.locator('#main-content').boundingBox()

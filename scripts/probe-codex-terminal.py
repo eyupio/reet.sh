@@ -103,8 +103,11 @@ def tui(cwd, env, argv, seconds=40):
     before = len(requests)
     pid, fd = pty.fork()
     if pid == 0:
-        os.chdir(cwd)
-        os.execve(codex, [codex] + argv, env)
+        try:
+            os.chdir(cwd)
+            os.execve(codex, [codex] + argv, env)
+        finally:
+            os._exit(127)  # exec failed: never let the child carry on as a second copy of this script
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
     end = time.time() + seconds
     while time.time() < end:
@@ -133,6 +136,7 @@ def tui(cwd, env, argv, seconds=40):
         if os.waitpid(pid, os.WNOHANG)[0] == pid:
             break
     time.sleep(1)
+    os.close(fd)
     return requests[before:]
 
 
@@ -148,6 +152,8 @@ def stop_daemons(folder):
             if str(folder) in cmd and "app-server" in cmd:
                 try:
                     os.kill(int(entry.name), signal.SIGTERM)
+                    time.sleep(1)
+                    os.kill(int(entry.name), signal.SIGKILL)  # a daemon that ignored TERM; ProcessLookupError below means it is gone
                 except ProcessLookupError:
                     pass
     time.sleep(1)

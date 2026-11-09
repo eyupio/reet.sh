@@ -278,6 +278,15 @@ func TestProfileThemeEditIgnoresALegacyModelWithoutTool(t *testing.T) {
 	}
 }
 
+// Codex takes a thinking level in its terminal launch (a config override), so a project may keep one as its default.
+func TestFolderProjectCodexTakesAnEffort(t *testing.T) {
+	f := projectFixture(t)
+	created := f.fpCreate(t, map[string]any{"defaultTool": "codex", "defaultModel": "model-one", "defaultEffort": "high"})
+	if created["defaultTool"] != "codex" || created["defaultEffort"] != "high" {
+		t.Fatal("codex project with an effort", created)
+	}
+}
+
 func TestFolderProjectClineAndEffort(t *testing.T) {
 	f := projectFixture(t)
 	created := f.fpCreate(t, map[string]any{"defaultTool": "cline", "defaultModel": "model-one", "defaultEffort": "high"})

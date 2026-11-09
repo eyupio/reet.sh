@@ -324,7 +324,7 @@ same three gates: the account setting, the machine switch and the confirmation.
 
 Terminal resume exists for OpenCode (`--continue`, and `--session <id>`), Claude Code (`--continue`, and
 `--resume <id>`) and Codex (`resume --last`, and `resume <id>`, a subcommand rather than a flag). `--continue` and
-`resume --last` continue the tool's most recent conversation in the launch folder (for Codex, the latest interactive one). The preset carries
+`resume --last` continue the tool's most recent conversation in the launch folder. For Codex that is the latest session there that is not a `codex exec` one, and a Gaffer chat's session counts: if a chat in the folder is newer than the terminal session, Continue opens the chat's conversation. When the folder has no such session, Codex starts a new conversation without an error, so a Continue that shows an empty welcome screen was not a resume. The preset assumes a `codex` new enough to have the `resume` subcommand; an older one reports a parse error from the CLI instead of `launch_option_unsupported`. The preset carries
 `--resume <id>` for a Claude Code session id, but nothing in the browser starts it yet: the only path that sends a session
 id is the switch from a running Gaffer chat to the agent's own terminal, which the web offers for OpenCode only. Whether a
 Claude Code chat's id is one the CLI's `--resume` opens is not measured, because only the CLI's help was captured. Offering

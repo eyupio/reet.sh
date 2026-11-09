@@ -29,6 +29,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/scan"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/store/storetest"
+	"github.com/eyupio/reet.sh/web"
 )
 
 // These helpers exercise the actual connector entry point in separate OS
@@ -40,13 +41,19 @@ const syncContractToken = "stage0-disposable-owner-token"
 
 type syncContractHarness struct {
 	legacyProtocol bool
-	t              *testing.T
-	st             *store.Store
-	uid            int64
-	root           string
-	controller     *httptest.Server
-	fetcher        meta.Fetcher
-	machines       []*syncContractMachine
+	// webUI serves the real embedded web app beside the API on the controller's
+	// own origin, as a deployment does, for browser acceptance runs.
+	webUI bool
+	// removals records the internal managed-removals rollout control so it
+	// survives a simulated controller restart.
+	removals   bool
+	t          *testing.T
+	st         *store.Store
+	uid        int64
+	root       string
+	controller *httptest.Server
+	fetcher    meta.Fetcher
+	machines   []*syncContractMachine
 }
 
 type syncContractMachine struct {
@@ -117,9 +124,30 @@ func newLegacySyncContractHarness(t *testing.T) *syncContractHarness {
 }
 
 func (h *syncContractHarness) handler() http.Handler {
-	return New(h.st, h.fetcher, "",
+	api := New(h.st, h.fetcher, "",
 		WithAuthMode(AuthAccounts), WithNotify(&notify.Service{Store: h.st}),
 		WithMaintenance(false), WithRefresh(false), WithTopics(false))
+	if !h.webUI {
+		return api
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/api/", api)
+	mux.Handle("/", web.Handler("", web.WithSignedIn(api.SignedIn)))
+	return mux
+}
+
+// serveWebUI moves this controller to serve the real web app too. It reuses the
+// restart path, so call it before any machine enrolls.
+func (h *syncContractHarness) serveWebUI() {
+	h.webUI = true
+	h.restartController()
+}
+
+// enableManagedRemovals turns the internal rollout control on for this test
+// controller only. Production controllers keep it off by default.
+func (h *syncContractHarness) enableManagedRemovals() {
+	h.removals = true
+	h.st.SetManagedRemovals(true)
 }
 
 func (h *syncContractHarness) restartController() {
@@ -134,6 +162,7 @@ func (h *syncContractHarness) restartController() {
 		h.t.Fatal(err)
 	}
 	h.st = reopened
+	h.st.SetManagedRemovals(h.removals)
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		h.t.Fatal(err)
@@ -333,7 +362,9 @@ func (m *syncContractMachine) connectorCommand(ctx context.Context, args ...stri
 		"XDG_CONFIG_HOME="+filepath.Join(m.home, ".config"),
 		"XDG_DATA_HOME="+filepath.Join(m.home, ".local", "share"),
 		"XDG_STATE_HOME="+filepath.Join(m.home, ".local", "state"),
-		"REET_SYNC_CONTRACT_CHILD=1")
+		"REET_SYNC_CONTRACT_CHILD=1",
+		// Observe local deletions quickly; the production window is ten seconds.
+		"REET_LIBRARY_RESTORE_DEBOUNCE=300ms")
 	return cmd
 }
 

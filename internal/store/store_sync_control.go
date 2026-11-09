@@ -797,6 +797,17 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				message = "Desired revision changed during apply; rescan and preview."
 				replan = true
 			}
+			if status == "succeeded" {
+				current, fenceErr := removalAcknowledgementCurrent(tx, uid, agentID, j.TargetID, j.Plan)
+				if fenceErr != nil {
+					return fenceErr
+				}
+				if !current {
+					status = "failed"
+					message = "Library intent changed during removal; planning again."
+					replan = true
+				}
+			}
 			if status == "succeeded" && planHasProblems(plan) {
 				message = "Healthy items synced; some selected items are waiting."
 			}
@@ -824,7 +835,14 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 		}
 		finalKind, finalStatus := j.Kind, status
 		if j.Kind == "auto" && status == "awaiting-approval" {
-			if additivePlan(plan) {
+			verdict, verdictErr := planRemovalVerdict(tx, uid, agentID, j.TargetID, plan, s.ManagedRemovalsEnabled())
+			if verdictErr != nil {
+				return verdictErr
+			}
+			if verdict == removalStale {
+				finalStatus, replan = "failed", true
+				message = "Library intent changed before removal; requesting a fresh plan."
+			} else if additivePlan(plan) || verdict == removalApproved {
 				finalKind = "apply"
 				if len(planActions(plan)) == 0 {
 					finalStatus = "succeeded"

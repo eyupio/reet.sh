@@ -1030,7 +1030,7 @@
 <ProgressBar />
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems}>
+    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems} home={isHome}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu

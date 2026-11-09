@@ -56,16 +56,21 @@ starter prompt as at least two words.").
 
 ## The rail
 
-Desktop: the left column, 301 px (272 px cards inside 14 px padding and a 1 px rule). From 1100 to
-1239 px wide it is a 56 px strip: **Add**, **Open the project rail** (marked with a dot, and named, when a
-migration note or folders are waiting), then one button per project showing its initial, its base
-branch in mono (cut short), the repository diamond, a running dot and the worktrees in use as a small count,
-each named in full (the chosen one is marked current). A card's menu (its button, or a right-click on the
-card) sets the project's colour; the colour is saved on the project and follows the person to every
-browser. Open the project rail shows the full rail over the page as a 301 px panel starting where the strip is on screen, with every card menu, note and prompt and a
-Close button; while it is open the toggle is named "Close the project rail", Tab stays inside the panel,
-and Escape, Close, the toggle or a press outside closes it and gives focus back to the toggle. On a tablet or phone
-it is on the Sessions screen, under the session groups (PR H).
+On a desktop the project list is part of the left workspace panel, under Home, Sessions, Machines, Skills and
+More; Home itself is one column, so the board gets the rest of the width. The panel starts at 300 px and its
+own separator can widen it to 460 px; that width is remembered for Home separately from the navigation-only
+panel. The **Projects** heading carries its own fold: folded, it keeps the heading, **Add** and the fold
+control and hides the cards. **Add** opens the folder browser. Folding the whole navigation leaves the list in
+Home's own column, where from 1100 to 1239 px it is a 56 px strip with **Add**,
+**Open the project rail** (marked with a dot, and named, when a migration note or folders are waiting), then one
+button per project showing its initial, its base branch in mono (cut short), the repository diamond, a running
+dot and the worktrees in use as a small count, each named in full. Open the project rail shows the full rail over
+the page as a 301 px panel starting where the strip is on screen, with every card menu, note and prompt and a
+Close button; while it is open the toggle is named "Close the project rail", Tab stays inside the panel, and
+Escape, Close, the toggle or a press outside closes it and gives focus back to the toggle. On a tablet or phone
+it is on the Sessions screen, under the session groups (PR H). A card's menu (its button, or a right-click on
+the card) sets the project's colour; the colour is saved on the project and follows the person to every
+browser.
 
 Each card shows, in words: a repository diamond (or a folder icon for a plain folder), the name, the
 machine, the base branch (mono) when one is set, the state and the worktrees in use. The state is

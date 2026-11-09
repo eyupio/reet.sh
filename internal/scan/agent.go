@@ -631,6 +631,10 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 					return prepareLibraryInstall(ctx, config, c, skill, path, files, version, j.TargetID)
 				}, onInstallVerified: func(skill store.SyncSkill, path string) error {
 					return finishLibraryInstall(config, c, skill, path, j.TargetID)
+				}, managedRemovals: func(target store.SyncTarget, path string) ([]SyncAction, map[string]string, error) {
+					return planLibraryRemovals(ctx, config, c, target, path, version)
+				}, removeManaged: func(action SyncAction, path string, out io.Writer, onBackup func(string)) error {
+					return removeLibraryDeployment(ctx, config, c, action, path, version, out, onBackup)
 				}, cwd: dir, verifyEnrollment: true, preflight: requireDependencies, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
 					reportCtx, reportCancel := context.WithTimeout(ctx, 5*time.Second)
 					defer reportCancel()

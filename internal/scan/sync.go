@@ -31,10 +31,11 @@ import (
 
 // SyncAction is one install, replace or remove in a sync plan.
 type SyncAction struct {
-	BeforeDigest string          `json:"beforeDigest,omitempty"`
-	Add          bool            `json:"add"`
-	Replace      bool            `json:"replace,omitempty"`
-	Skill        store.SyncSkill `json:"skill"`
+	BeforeDigest  string                        `json:"beforeDigest,omitempty"`
+	Add           bool                          `json:"add"`
+	Replace       bool                          `json:"replace,omitempty"`
+	Skill         store.SyncSkill               `json:"skill"`
+	RemovalIntent *store.LibraryDeploymentCheck `json:"removalIntent,omitempty"`
 }
 type SyncPlan struct {
 	Problems  map[string]string `json:"problems,omitempty"`
@@ -58,6 +59,8 @@ type syncOptions struct {
 	// onInstalled pins the base before writing; onInstallVerified records
 	// ownership only after the private installer actually completed its rename.
 	onInstallVerified func(store.SyncSkill, string) error
+	managedRemovals   func(store.SyncTarget, string) ([]SyncAction, map[string]string, error)
+	removeManaged     func(SyncAction, string, io.Writer, func(string)) error
 	verifyEnrollment  bool
 	approvedHash      string
 	cwd               string
@@ -920,6 +923,17 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			return nil, err
 		}
 
+		if target.Canonical && options.managedRemovals != nil {
+			removals, blocked, err := options.managedRemovals(target, targetPath)
+			if err != nil {
+				return nil, err
+			}
+			for slug, message := range blocked {
+				problems[slug] = message
+			}
+			actions = append(actions, removals...)
+		}
+
 		canonicalBase := home
 		if target.Target.Project != "" {
 			canonicalBase = cwd
@@ -1069,7 +1083,15 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				}
 			}
 		} else {
-			operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
+			if action.RemovalIntent != nil {
+				if options.removeManaged == nil {
+					operationErr = errors.New("managed removal is not supported by this executor")
+				} else {
+					operationErr = options.removeManaged(action, targetPath, out, options.onBackup)
+				}
+			} else {
+				operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
+			}
 		}
 		if operationErr != nil {
 			_ = rescan()
@@ -1122,7 +1144,7 @@ func linkSharedInstall(home, targetPath, slug string) error {
 	return os.Symlink(rel, link)
 }
 
-func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(string)) error {
+func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(string), beforeMove ...func(string) error) error {
 	// Move only the selected directory entry. Symlinks are moved as symlinks;
 	// their canonical skill content stays intact for other agents.
 	root := filepath.Join(filepath.Dir(targetPath), ".reet-sync-backups")
@@ -1134,6 +1156,12 @@ func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(stri
 		return err
 	}
 	path := filepath.Join(backup, slug)
+	for _, prepare := range beforeMove {
+		if err := prepare(path); err != nil {
+			_ = os.Remove(backup) // still empty; no content has moved
+			return err
+		}
+	}
 	if err = os.Rename(filepath.Join(targetPath, slug), path); err != nil {
 		return err
 	}

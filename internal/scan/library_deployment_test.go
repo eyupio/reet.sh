@@ -148,7 +148,7 @@ func TestLibraryDeploymentNeverPromotesSourcesOrLegacyBases(t *testing.T) {
 }
 
 func TestLibraryDeploymentVerificationFences(t *testing.T) {
-	for _, changed := range []string{"target", "item", "revision", "consent", "enrollment", "link", "source_import"} {
+	for _, changed := range []string{"target", "item", "revision", "consent", "enrollment", "local_reenrollment", "link", "source_import"} {
 		t.Run(changed, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
@@ -188,6 +188,12 @@ func TestLibraryDeploymentVerificationFences(t *testing.T) {
 				}
 			case "enrollment":
 				verifyConfig.ID = strings.Repeat("e", 32)
+			case "local_reenrollment":
+				local := c
+				local.ID = strings.Repeat("e", 32)
+				if err := writePrivate(config, local); err != nil {
+					t.Fatal(err)
+				}
 			case "link":
 				other := filepath.Join(home, "other")
 				if err := os.Rename(destination, other); err != nil {

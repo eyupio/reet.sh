@@ -32,19 +32,26 @@ type libraryBinding struct {
 }
 
 type libraryDeployment struct {
-	TargetID string `json:"targetId"`
-	Revision string `json:"revision"`
-	Digest   string `json:"digest"`
-	Verified bool   `json:"verified"`
+	TargetID string          `json:"targetId"`
+	Revision string          `json:"revision"`
+	Digest   string          `json:"digest"`
+	Verified bool            `json:"verified"`
+	Removal  *libraryRemoval `json:"removal,omitempty"`
+}
+type libraryRemoval struct {
+	Generation string `json:"generation"`
+	Backup     string `json:"backup"`
+	Phase      string `json:"phase"`
 }
 type libraryLocalState struct {
-	Server       string              `json:"server"`
-	Enrollment   string              `json:"enrollment"`
-	Offset       int64               `json:"offset"`
-	Uncertainty  int64               `json:"uncertainty"`
-	CalibratedAt int64               `json:"calibratedAt"`
-	Bindings     []libraryBinding    `json:"bindings"`
-	Pending      []store.LibraryEdit `json:"pending"`
+	Server          string              `json:"server"`
+	Enrollment      string              `json:"enrollment"`
+	Offset          int64               `json:"offset"`
+	Uncertainty     int64               `json:"uncertainty"`
+	CalibratedAt    int64               `json:"calibratedAt"`
+	Bindings        []libraryBinding    `json:"bindings"`
+	Pending         []store.LibraryEdit `json:"pending"`
+	ManagedRemovals int                 `json:"managedRemovals,omitempty"`
 }
 
 func loadLibraryState(config string, c agentConfig) (libraryLocalState, error) {
@@ -63,6 +70,17 @@ func loadLibraryState(config string, c agentConfig) (libraryLocalState, error) {
 		return state, errors.New("library receipts belong to another enrollment")
 	}
 	return state, nil
+}
+
+func libraryApplyConsent(config string, c agentConfig) error {
+	local, err := loadAgentConfig(config)
+	if err != nil {
+		return err
+	}
+	if !local.AllowApply || local.ID != c.ID || local.Server != c.Server || local.Secret != c.Secret {
+		return errors.New("local sync consent or enrollment changed")
+	}
+	return nil
 }
 
 // Only exact private revisions installed by this enrollment are watched. A
@@ -134,6 +152,9 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	if err != nil {
 		return err
 	}
+	if local.ID != c.ID || local.Server != c.Server || local.Secret != c.Secret {
+		return errors.New("local library enrollment changed")
+	}
 	c.AllowApply = local.AllowApply
 	lock, err := filelock.Acquire(config + ".library.lock")
 	if err != nil {
@@ -156,8 +177,9 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	}
 	start := time.Now()
 	var protocol struct {
-		SchemaVersion int   `json:"schemaVersion"`
-		ServerTime    int64 `json:"serverTime"`
+		SchemaVersion   int   `json:"schemaVersion"`
+		ServerTime      int64 `json:"serverTime"`
+		ManagedRemovals int   `json:"managedRemovals"`
 	}
 	if err = agentRequestContext(ctx, c, "/api/v2/library/protocol", struct{}{}, &protocol, version); err != nil {
 		return err
@@ -169,6 +191,9 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	state.Offset = protocol.ServerTime - (start.UnixMilli()+end.UnixMilli())/2
 	state.Uncertainty = (end.Sub(start).Milliseconds()+1)/2 + 1
 	state.CalibratedAt = end.UnixMilli()
+	// Older controllers omit the capability. Never infer it from protocol 1
+	// or retain an earlier controller's advertised version after a downgrade.
+	state.ManagedRemovals = protocol.ManagedRemovals
 	if err = writePrivate(config+".library", state); err != nil {
 		return err
 	}
@@ -293,12 +318,8 @@ func finishLibraryInstall(config string, c agentConfig, skill store.SyncSkill, p
 		if binding.ItemID != skill.ItemID || binding.Revision != parts[2] || binding.Digest != parts[3] || deployment.TargetID != targetID || deployment.Revision != parts[2] || deployment.Digest != parts[3] {
 			return errors.New("library deployment changed before verification")
 		}
-		local, err := loadAgentConfig(config)
-		if err != nil {
+		if err := libraryApplyConsent(config, c); err != nil {
 			return err
-		}
-		if !local.AllowApply {
-			return errors.New("local sync consent changed before verification")
 		}
 		if err := safeLibraryParent(candidate); err != nil {
 			return err
@@ -401,6 +422,9 @@ func prepareLibraryInstall(ctx context.Context, config string, c agentConfig, sk
 	if skill.ItemID == "" {
 		return nil
 	}
+	if err := libraryApplyConsent(config, c); err != nil {
+		return err
+	}
 	lock, err := filelock.Acquire(config + ".library.lock")
 	if err != nil {
 		return err
@@ -453,6 +477,9 @@ func adoptLibraryInstall(ctx context.Context, config string, c agentConfig, want
 	}
 	if !local.AllowApply {
 		return errors.New("Enable sync locally to track this existing copy.")
+	}
+	if local.ID != c.ID || local.Server != c.Server || local.Secret != c.Secret {
+		return errors.New("local library enrollment changed")
 	}
 	state, err := loadLibraryState(config, c)
 	if err != nil {

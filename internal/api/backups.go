@@ -731,6 +731,8 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 			opts.DropTokens = v == "1" || v == "true"
 		case "replace":
 			opts.Replace = v == "1" || v == "true"
+		case "publicUrl":
+			opts.PublicURL = strings.TrimSpace(v)
 		case "allowLiveSource":
 			opts.AllowLiveSource = v == "1" || v == "true"
 		}
@@ -751,8 +753,8 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{
 		"id": rep.ID, "dropSessions": opts.DropSessions, "dropTokens": opts.DropTokens,
 		"ownerChecked": strings.TrimSpace(opts.OwnerEmail) != "", "replace": opts.Replace,
-		"allowLiveSource": opts.AllowLiveSource,
-		"safetyCopy":      rep.SafetyCopy, "secretsCleared": len(rep.Unreadable),
+		"allowLiveSource": opts.AllowLiveSource, "publicUrl": opts.PublicURL,
+		"safetyCopy": rep.SafetyCopy, "secretsCleared": len(rep.Unreadable),
 	})
 	writeJSON(w, 200, map[string]any{"staged": true, "restartRequired": true, "report": rep})
 }

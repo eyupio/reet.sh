@@ -92,20 +92,21 @@ Google model call. See the [AGY ACP probe](research/antigravity-acp-probe.md).
 
 ### Claude Code in Gaffer
 
-Claude Code chats run through a separate adapter, `@agentclientprotocol/claude-agent-acp`, pinned at 0.99.1 (the `claude`
-command itself does not speak ACP). A machine needs `claude-agent-acp` on its `PATH` besides Claude Code, and an account sees the
+Claude Code chats run through a separate adapter, `@agentclientprotocol/claude-agent-acp`, version 0.99.1 or newer (reet was
+checked against 0.99.1; the `claude` command itself does not speak ACP). A machine needs `claude-agent-acp` on its `PATH` besides Claude Code, and an account sees the
 chat only after it turns it on in **Settings > Agents** (see [the gate](#gaffer-chats-still-being-verified-claude-code-and-codex)
 below); it is off for every account until then.
 
 - **Approvals.** A chat starts only in the adapter's `default` mode, which asks before it edits a file or runs a command; a
   session that starts in any other mode (`acceptEdits`, `plan`, `auto`) is refused rather than switched. Only the person's own
   Claude settings apply (`settingSources` is `user`): the folder's repository settings and hooks are ignored. Provider redirects
-  and a changed configuration directory are never inherited from the environment; only `ANTHROPIC_API_KEY` and
-  `CLAUDE_CODE_OAUTH_TOKEN` are passed on.
+  and a changed configuration directory are never inherited from the environment; the only credentials passed on are
+  `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`.
 - **Model.** A chosen model is applied by switching to it and reading the switch back. The adapter resets a model it does not
   know to `default` and says so, so a start on such a model is refused instead of claiming it.
-- **Thinking level.** The Start dialog and the live control read the levels from the session's own list; a start applies the
-  chosen one and reads it back before any prompt, and is refused if the adapter does not confirm it. Which options exist depends
+- **Thinking level.** The live control reads the levels from the session's own list. The Start dialog, which has no session yet,
+  offers the levels the machine's descriptor lists; a start applies the chosen one and reads it back before any prompt, and is
+  refused if the adapter does not confirm it. Which options exist depends
   on the model. `fast` and `ultracode` are listed but not controlled.
 - **History and reconnect.** The chat's transcript is kept by reet. A lost chat reconnects under the same session id by loading
   the adapter's stored conversation (the replay is dropped), and a closed one can continue with its history, in the same folder,
@@ -115,9 +116,11 @@ below); it is off for every account until then.
   confirmation.
 - **Sign-in.** reet never starts a login. Without one on the machine the first prompt comes back as "Sign in to Claude on that
   machine first.", with `code: "login"` on its status event.
-- **A machine with Claude Code but no adapter** says so: the Start dialog and the machine's Agents settings show the install
-  command, `npm install --global @agentclientprotocol/claude-agent-acp@0.99.1`, but only when the machine itself reports the
-  adapter missing. An older connector that reports nothing, and an account whose chat is off, get no hint.
+- **A machine with Claude Code but no adapter** says so: the Start dialog and the machine's Agents settings say reet on that
+  machine cannot find the adapter on its `PATH` and show the install command,
+  `npm install --global @agentclientprotocol/claude-agent-acp@0.99.1`, but only when the machine itself reports the adapter
+  missing. An adapter installed where reet's `PATH` does not reach it reads as missing too, in which case the command installs
+  nothing new. An older connector that reports nothing, and an account whose chat is off, get no hint.
 - **The terminal launch** is a separate path with its own options (resume, YOLO, thinking level); see
   [launch requests](terminal-launch.md).
 

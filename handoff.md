@@ -812,9 +812,13 @@ when a release changes the schema incompatibly. See [docs/backups.md](docs/backu
 [docs/research/structured-adapters/probe-report.md](docs/research/structured-adapters/probe-report.md) (what each adapter was
 measured to do). This section is the position and the order of what is left.
 
-**Where it stands.** OpenCode is the only structured chat anyone is offered. Claude Code and Codex are built end to end but
-dark: a machine reports one as available only when its connector runs with `REET_EXPERIMENTAL_CLAUDE_CHAT=1` or
-`REET_EXPERIMENTAL_CODEX_CHAT=1` (`internal/acpagent/spec.go`: `ClaudeEnabled`, `CodexEnabled`). Descriptors are per agent
+**Where it stands.** OpenCode, Cline and Google Antigravity chats are offered to every account. Claude Code and Codex are built end
+to end but off by default: each account turns them on in Settings > Agents, a stored per-account setting
+(`user_profiles.chat_agents`) that the controller applies when it reads a machine's capabilities (`internal/terminalproto/acp_agents.go`:
+`ChatDefaultOn`, `WithoutChats`), and a connector reports them as available only to a controller that advertises `chat-gate-v1`. The
+environment switches were removed. Claude Code is feature-complete for a chat (history, reconnect, model and thinking level,
+images, a terminal launch with resume, YOLO and effort, a missing-adapter hint) and waits on the owner's signed-in Run B before it
+is on by default. Descriptors are per agent
 (`internal/terminalproto/acp_agents.go`); the controller binds each to its reviewed adapter; the browser offers a chat only from
 a descriptor that says `available`.
 
@@ -876,8 +880,8 @@ says "Authentication required", stop and ask the owner which way to go. No hardw
 **Owner checks, still unverified:** the owner deferred section 3 signed-in Run B ("skip this, assume it works for now"). This is permission to
 continue independent SC5 work, not evidence of a real login. Do not re-ask while it remains deferred. When resumed, signed-in Run B runs first,
 then Run A's follow-up; if Run B still reports "Authentication required", stop and ask which direction to take. Next are the signed-in runs
-(section 2 Run B for Claude and section 3 Run B for Codex), then section 1's physical touch and screen-reader checks. Neither experimental switch nor
-`elicitation.form` is retired before its required evidence is recorded. Record each result in the ledger at the top of
+(section 2 Run B for Claude and section 3 Run B for Codex), then section 1's physical touch and screen-reader checks. Claude Code and Codex chats are not on by default, and
+`elicitation.form` is not turned on, before the required evidence is recorded. Record each result in the ledger at the top of
 [docs/device-checks.md](docs/device-checks.md#recorded-results) with its date and the PR that carries it. Reet never calls `authenticate`.
 
 **Recorded 4 November 2026 (logged-out runs, pinned adapters):** Claude `claude-agent-acp@0.99.1` advertises no login methods, creates a session

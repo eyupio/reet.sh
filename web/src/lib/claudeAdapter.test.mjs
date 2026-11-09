@@ -20,6 +20,9 @@ test('a machine with Claude Code but no adapter is told what to install', () => 
   const hint = claudeAdapterHint(machine(['claude'], [entry('missing')]))
   assert.ok(hint?.includes(CLAUDE_ADAPTER_INSTALL))
   assert.match(hint, /studio/)
+  // `missing` means reet on that machine cannot find the adapter on its PATH, which is not the same as it not being installed.
+  assert.match(hint, /PATH/)
+  assert.doesNotMatch(hint, /is not\.|adapter Gaffer needs for it is not/)
 })
 
 test('no hint when the adapter is there, Claude Code is not, or the machine cannot say', () => {

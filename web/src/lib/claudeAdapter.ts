@@ -14,5 +14,5 @@ export function claudeAdapterHint(machine: TerminalMachine | undefined): string 
   if (!machine || !caps?.tools?.includes('claude') || !Array.isArray(caps.acpAgents)) return null
   const entry = caps.acpAgents.find(agent => agent.tool === 'claude')
   if (entry?.state !== 'missing') return null
-  return `Claude Code is installed on ${machine.host}, but the adapter Gaffer needs for it is not. To chat with it here, run this on that machine: ${CLAUDE_ADAPTER_INSTALL}`
+  return `Claude Code is installed on ${machine.host}, but reet there cannot find the adapter its Gaffer chat needs (claude-agent-acp) on its PATH. If it is not installed, run this on that machine: ${CLAUDE_ADAPTER_INSTALL}`
 }

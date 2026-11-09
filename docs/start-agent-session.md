@@ -208,7 +208,8 @@ It is one screen:
 | **Opening prompt** (optional) | Up to 8,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |
 
 When Claude Code is chosen on a machine that has it installed but reports the adapter its Gaffer chat needs as missing, the dialog
-shows the install command (`npm install --global @agentclientprotocol/claude-agent-acp@0.99.1`) under the agent list, and the
+says reet on the machine cannot find the adapter on its `PATH` and shows the install command
+(`npm install --global @agentclientprotocol/claude-agent-acp@0.99.1`) under the agent list, and the
 machine's Agents settings show it under Claude Code. Nothing is shown when the adapter is there, when the machine reports nothing
 about it, or when your account has the Claude Code chat turned off. See [Claude Code in
 Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#claude-code-in-gaffer).

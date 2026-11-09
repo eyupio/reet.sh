@@ -48,7 +48,7 @@ await page.route('**/api/**',async route=>{
  }
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
- else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:terminalReady,serverEnabled:true,capabilities:{terminalControl:true,osUser:'developer',terminalEnabled:true,readiness:'ready'}}))}}
+ else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:terminalReady,serverEnabled:true,capabilities:{terminalControl:true,osUser:'developer',terminalEnabled:true,readiness:'ready',launch:true,agentsV2:true,tools:['claude'],acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'missing',minimumVersion:'0.99.1'}]}}))}}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}
  else if(path==='/api/v2/notifications/count')data={unread:0}
  else if(path==='/api/version')data={version:'test',commit:'fixture'}

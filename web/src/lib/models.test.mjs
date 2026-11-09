@@ -37,6 +37,10 @@ test('Gaffer launch effort follows the selected machine and agent, while termina
  assert.match(launchOptions.effortHelp('codex', caps, true), /chosen model/)
 })
 
+test('a terminal launch of Claude Code offers the three thinking levels a start carries', () => {
+ assert.deepEqual(effortChoices('claude'), ['', 'low', 'medium', 'high'])
+})
+
 test('providers, deduplication and recent models', () => {
   assert.equal(providerOf('anthropic/claude-sonnet-4-5'), 'anthropic')
   assert.equal(providerOf('local-model'), '')
@@ -174,7 +178,7 @@ test('launch defaults follow the precedence chain and never take a mismatched de
     project: { defaultTool: 'claude', defaultModel: 'project-model' },
     account: { defaultTool: 'claude', defaultModel: 'account-model', defaultEffort: 'high' },
     availableAgents: ['claude'],
-  }), { agent: 'claude', model: 'project-model', effort: '' })
+  }), { agent: 'claude', model: 'project-model', effort: 'high' })
 
   assert.deepEqual(resolveLaunchDefaults({
     project: { defaultTool: 'opencode', defaultModel: '' },
@@ -215,7 +219,7 @@ test('launch defaults follow the precedence chain and never take a mismatched de
   assert.deepEqual(resolveLaunchDefaults({
     project: { defaultTool: 'claude', defaultModel: 'project-model', defaultEffort: 'high' },
     availableAgents: ['claude'],
-  }), { agent: 'claude', model: 'project-model', effort: '' })
+  }), { agent: 'claude', model: 'project-model', effort: 'high' })
 })
 
 const now = Date.now()
@@ -272,7 +276,7 @@ test('formatAge uses seconds, minutes, hours and days and leaves gaps blank', ()
 
 test('effort choices, favourite moves, keys and star labels', () => {
   assert.deepEqual(effortChoices('cline'), ['', 'low', 'medium', 'high'])
-  assert.deepEqual(effortChoices('claude'), [''])
+  assert.deepEqual(effortChoices('claude'), ['', 'low', 'medium', 'high'])
   assert.deepEqual(effortChoices('unknown'), [''])
 
   const items = ['a', 'b', 'c']

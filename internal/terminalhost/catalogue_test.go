@@ -119,7 +119,9 @@ func TestLaunchArgvYoloOption(t *testing.T) {
 		t.Fatal(argv, err)
 	}
 	in.Tool = "claude"
-	if argv, err := LaunchArgv(in, fakeLookPath("claude")); argv != nil || !errors.Is(err, ErrLaunchOptionUnsupported) {
+	argv, err = LaunchArgv(in, fakeLookPath("claude"))
+	want = []string{"/opt/fake/bin/claude", "--dangerously-skip-permissions"}
+	if err != nil || !reflect.DeepEqual(argv, want) {
 		t.Fatal(argv, err)
 	}
 }
@@ -154,6 +156,8 @@ func TestPresetFlagsAppearInHelpText(t *testing.T) {
 		flags := []string{p.ModelFlag, p.PromptFlag}
 		flags = append(flags, p.SafeArgs...)
 		flags = append(flags, p.YoloArgs...)
+		flags = append(flags, p.ResumeArgs...)
+		flags = append(flags, p.SessionArgs...)
 		for _, args := range p.EffortArgs {
 			flags = append(flags, args...)
 		}
@@ -448,6 +452,7 @@ func TestYoloNeverWithoutFlag(t *testing.T) {
 		{"opencode", []string{"--auto"}},
 		{"cline", []string{"--yolo"}},
 		{"antigravity", []string{"--dangerously-skip-permissions"}},
+		{"claude", []string{"--dangerously-skip-permissions"}},
 	} {
 		in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: tc.tool}
 		got, err := LaunchArgv(in, fakeLookPath(tc.tool, "agy"))

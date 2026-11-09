@@ -132,3 +132,26 @@ func TestALostClaudeChatReconnectsInPlace(t *testing.T) {
 		t.Fatalf("after the reconnect: %+v %v", got, err)
 	}
 }
+
+// Claude Code's chat takes YOLO through the same three gates as every other agent: the account's Allow YOLO setting, the
+// machine's switch, and turning it off is always allowed.
+func TestClaudeChatYoloHitsTheSameGates(t *testing.T) {
+	b, uid, agent, setChats := claudeChatFixture(t)
+	setChats(true)
+	chat, err := b.Create(t.Context(), uid, agent, ID(), terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "claude", Structured: true, Trust: true, Dir: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SetChatYolo(t.Context(), uid, chat.ID, true); !errors.Is(err, ErrYoloNotAllowed) {
+		t.Fatalf("account setting off: %v, want ErrYoloNotAllowed", err)
+	}
+	if err := b.st.SetSetting("terminal_allow_yolo", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.SetChatYolo(t.Context(), uid, chat.ID, true); !errors.Is(err, ErrYoloRefused) {
+		t.Fatalf("machine switch off: %v, want ErrYoloRefused", err)
+	}
+	if err := b.SetChatYolo(t.Context(), uid, chat.ID, false); err != nil {
+		t.Fatalf("turning it off: %v", err)
+	}
+}

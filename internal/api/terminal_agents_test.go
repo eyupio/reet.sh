@@ -83,6 +83,28 @@ func TestLaunchAuditCarriesEffortBaseYolo(t *testing.T) {
 	}
 }
 
+// Claude Code's terminal launch takes a thinking level and, once the account and machine allow it, YOLO.
+func TestCreateClaudeTakesEffortAndYolo(t *testing.T) {
+	caps := launchCaps("claude")
+	caps.AgentsV2, caps.Yolo = true, true
+	f := launchAPIFixture(t, caps)
+	status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "effort": "high"}))
+	if status != 200 {
+		t.Fatalf("claude with an effort: %d %v", status, out)
+	}
+	status, out, _ = f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "yolo": true}))
+	if status != 403 || out["code"] != "yolo_not_allowed" {
+		t.Fatalf("claude yolo with the account setting off: %d %v", status, out)
+	}
+	if err := f.st.SetSetting(yoloSettingKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	status, out, _ = f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "yolo": true}))
+	if status != 200 {
+		t.Fatalf("claude yolo with both gates open: %d %v", status, out)
+	}
+}
+
 func TestCreateYoloGates(t *testing.T) {
 	// The account setting is off by default: 403 before the machine is asked.
 	caps := launchCaps("cline")
@@ -95,10 +117,12 @@ func TestCreateYoloGates(t *testing.T) {
 	if err := f.st.SetSetting(yoloSettingKey, "1"); err != nil {
 		t.Fatal(err)
 	}
-	// An agent with no reviewed option is refused before any reservation.
+	// Every started agent now has a reviewed option, so Claude Code meets the machine's gate next, not an option refusal.
+	// The "no reviewed option" refusal is unreachable through any enabled agent and is not covered here until one exists
+	// (terminalproto.TestEveryStartedAgentTakesYolo says when that changes).
 	status, out, _ = f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "yolo": true}))
-	if status != 409 || out["code"] != "launch_option_unsupported" || len(f.sent()) != 0 {
-		t.Fatalf("agent option gate: %d %v", status, out)
+	if status != 409 || out["code"] != "yolo_refused" || len(f.sent()) != 0 {
+		t.Fatalf("claude on a machine that does not advertise yolo: %d %v", status, out)
 	}
 	// A machine that does not advertise yolo is refused before any reservation.
 	status, out, _ = f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "cline", "yolo": true}))
@@ -131,7 +155,6 @@ func TestCreateUnsupportedAgentOptionsRefusedBeforeReserving(t *testing.T) {
 		code, errMsg string
 	}{
 		{"effort on codex", true, map[string]any{"tool": "codex", "effort": "high"}, 409, "launch_option_unsupported", optionSentence},
-		{"effort on claude", true, map[string]any{"tool": "claude", "effort": "low"}, 409, "launch_option_unsupported", optionSentence},
 		{"effort on claude old peer", false, map[string]any{"tool": "claude", "effort": "low"}, 409, "launch_option_unsupported", updateSentence},
 		{"tool pi", true, map[string]any{"tool": "pi"}, 422, "tool_unavailable", disabledSentence},
 		{"tool cursor", true, map[string]any{"tool": "cursor"}, 422, "tool_unavailable", disabledSentence},

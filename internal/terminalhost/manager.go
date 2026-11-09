@@ -69,7 +69,7 @@ type Manager struct {
 	// lookPath finds agent binaries for launch presets; tests replace it.
 	lookPath func(string) (string, error)
 	// toolVersion reads what an agent binary prints for --version; tests replace it.
-	toolVersion func(string) string
+	toolVersion func(context.Context, string) string
 	// git runs git for worktrees (ExecGit); tests replace it.
 	git      GitRunner
 	mu       sync.Mutex
@@ -216,7 +216,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 			return ManagedSession{}, err
 		}
 		if len(argv) > 0 {
-			if err = checkToolVersion(in, argv[0], m.toolVersion); err != nil {
+			if err = checkToolVersion(ctx, in, argv[0], m.toolVersion); err != nil {
 				return ManagedSession{}, err
 			}
 		}

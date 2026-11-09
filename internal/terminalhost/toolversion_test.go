@@ -48,10 +48,13 @@ func TestVersionBelow(t *testing.T) {
 
 // The floor protects the options that need a newer CLI (resume, a session id, effort). Plain launches, YOLO, a model and a prompt never run `--version`.
 func TestCheckToolVersion(t *testing.T) {
-	old := func(string) string { return "codex-cli 0.150.0" }
-	current := func(string) string { return "codex-cli 0.166.0" }
-	unreadable := func(string) string { return "" }
-	never := func(string) string { t.Fatal("version read for a launch with no gated option"); return "" }
+	old := func(context.Context, string) string { return "codex-cli 0.150.0" }
+	current := func(context.Context, string) string { return "codex-cli 0.166.0" }
+	unreadable := func(context.Context, string) string { return "" }
+	never := func(context.Context, string) string {
+		t.Fatal("version read for a launch with no gated option")
+		return ""
+	}
 	base := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex"}
 	with := func(f func(*terminalproto.Create)) terminalproto.Create { c := base; f(&c); return c }
 	gated := map[string]terminalproto.Create{
@@ -60,24 +63,24 @@ func TestCheckToolVersion(t *testing.T) {
 		"effort":  with(func(c *terminalproto.Create) { c.Effort = "high" }),
 	}
 	for name, in := range gated {
-		if err := checkToolVersion(in, "/x/codex", old); !errors.Is(err, ErrLaunchOptionUnsupported) || LaunchResultCode(err) != terminalproto.LaunchOptionUnsupported {
+		if err := checkToolVersion(context.Background(), in, "/x/codex", old); !errors.Is(err, ErrLaunchOptionUnsupported) || LaunchResultCode(err) != terminalproto.LaunchOptionUnsupported {
 			t.Errorf("%s on an old CLI: %v", name, err)
 		}
-		if err := checkToolVersion(in, "/x/codex", current); err != nil {
+		if err := checkToolVersion(context.Background(), in, "/x/codex", current); err != nil {
 			t.Errorf("%s on a current CLI: %v", name, err)
 		}
 		// A version that cannot be read does not block: the CLI's own error is the better answer than a guess.
-		if err := checkToolVersion(in, "/x/codex", unreadable); err != nil {
+		if err := checkToolVersion(context.Background(), in, "/x/codex", unreadable); err != nil {
 			t.Errorf("%s with no readable version: %v", name, err)
 		}
 	}
 	for _, in := range []terminalproto.Create{base, with(func(c *terminalproto.Create) { c.Yolo = true; c.Model = "gpt-6"; c.Prompt = "hi" })} {
-		if err := checkToolVersion(in, "/x/codex", never); err != nil {
+		if err := checkToolVersion(context.Background(), in, "/x/codex", never); err != nil {
 			t.Errorf("an ungated launch was refused: %v", err)
 		}
 	}
 	// A tool with no floor is never asked.
-	if err := checkToolVersion(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", Resume: true}, "/x/opencode", never); err != nil {
+	if err := checkToolVersion(context.Background(), terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "opencode", Resume: true}, "/x/opencode", never); err != nil {
 		t.Errorf("a tool without a floor was refused: %v", err)
 	}
 }
@@ -96,7 +99,7 @@ func TestManagerRefusesGatedCodexOptionOnOldCLI(t *testing.T) {
 	if err := os.MkdirAll(work, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	m.toolVersion = func(string) string { return "codex-cli 0.150.0" }
+	m.toolVersion = func(context.Context, string) string { return "codex-cli 0.150.0" }
 	in := terminalproto.Create{Title: "Codex", Cols: 100, Rows: 30, Tool: "codex", Dir: work, Resume: true}
 	if _, err := m.Create(context.Background(), testRequestID(1), testSessionID(1), in); !errors.Is(err, ErrLaunchOptionUnsupported) {
 		t.Fatalf("old CLI resume: %v", err)
@@ -104,7 +107,7 @@ func TestManagerRefusesGatedCodexOptionOnOldCLI(t *testing.T) {
 	if n := len(newSessionCalls(calls())); n != 0 {
 		t.Fatalf("a refused launch started %d sessions", n)
 	}
-	m.toolVersion = func(string) string { return "codex-cli 0.166.0" }
+	m.toolVersion = func(context.Context, string) string { return "codex-cli 0.166.0" }
 	if _, err := m.Create(context.Background(), testRequestID(2), testSessionID(2), in); err != nil {
 		t.Fatalf("current CLI resume: %v", err)
 	}
@@ -116,10 +119,27 @@ func TestReadToolVersionRunsTheBinary(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho \"codex-cli 0.12.3\"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got := readToolVersion(script); got != "codex-cli 0.12.3" {
+	if got := readToolVersion(context.Background(), script); got != "codex-cli 0.12.3" {
 		t.Fatalf("got %q", got)
 	}
-	if got := readToolVersion(filepath.Join(dir, "missing")); got != "" {
+	if got := readToolVersion(context.Background(), filepath.Join(dir, "missing")); got != "" {
 		t.Fatalf("a binary that cannot run read as %q", got)
+	}
+}
+
+// A pre-release of the floor itself is older than the floor, and a notice printed on stdout before the version line must not be read as the version.
+func TestCheckToolVersionPreReleaseOfTheFloor(t *testing.T) {
+	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", Resume: true}
+	say := func(out string) func(context.Context, string) string {
+		return func(context.Context, string) string { return out }
+	}
+	if err := checkToolVersion(context.Background(), in, "/x/codex", say("codex-cli 0.156.1-alpha.2")); !errors.Is(err, ErrLaunchOptionUnsupported) {
+		t.Errorf("a pre-release of the floor passed: %v", err)
+	}
+	if err := checkToolVersion(context.Background(), in, "/x/codex", say("codex-cli 0.156.2-alpha.2")); err != nil {
+		t.Errorf("a pre-release after the floor was refused: %v", err)
+	}
+	if err := checkToolVersion(context.Background(), in, "/x/codex", say("Node 18.0.0 is deprecated\ncodex-cli 0.166.0")); err != nil {
+		t.Errorf("a notice before the version line was read as the version: %v", err)
 	}
 }

@@ -614,6 +614,7 @@ try{
  await expect(p.project).toHaveValue('')
  await expect(p.folder).toHaveCount(0)
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
+ // This older machine offers no thinking choice at all (it lacks the launch-effort capability), whatever the agent.
  await expect(p.effort).toHaveCount(0)
  await p.project.selectOption(PROJECT_ID)
  await expect(p.machine).toHaveValue(A)
@@ -622,6 +623,8 @@ try{
  await expect(p.effort).toHaveValue('high')
  await p.pick('Claude Code')
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
+ await expect(p.effort).toHaveValue('')
+ await p.pick('Codex')
  await expect(p.effort).toHaveCount(0)
  await p.pick('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')

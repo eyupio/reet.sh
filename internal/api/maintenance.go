@@ -382,6 +382,10 @@ func (s *server) runScheduledMaintenance(now time.Time) {
 		return
 	}
 	defer maintMu.Unlock()
+	// A fenced controller runs no scheduled sweeps on machines.
+	if s.st.Fenced() {
+		return
+	}
 	cfg := s.worktreeMaintenanceSettings()
 	if !cfg.Enabled {
 		return

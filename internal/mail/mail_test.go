@@ -164,3 +164,32 @@ func TestSnapshotHoldsWhenThePasswordCannotBeOpened(t *testing.T) {
 		t.Fatalf("unreadable password did not hold mail: %+v", snap)
 	}
 }
+
+// A fenced controller sends nothing: the message stays queued, and goes out
+// when the fence is lifted.
+func TestAFencedQueueSendsNothingUntilTheLift(t *testing.T) {
+	st := openStore(t)
+	fake := &Fake{}
+	q := &Queue{Store: st, Sender: fake, Config: Config{
+		From: mail.Address{Name: "reet.sh", Address: "hello@example.com"}, BaseURL: "https://reet.example",
+	}}
+	if _, _, err := st.EnqueueMail(store.Mail{Key: "held", Template: TplWelcome, To: "sam@example.com", Subject: "Hello", Text: "hello", HTML: "<p>hello</p>"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetFence("https://new.example"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := q.RunOnce(context.Background())
+	if err != nil || p.Sent != 0 || len(fake.Messages()) != 0 {
+		t.Fatalf("a fenced queue sent: %+v %v %v", p, err, fake.Messages())
+	}
+	if ms, _ := st.MailListing("", 10); len(ms) != 1 || ms[0].State == store.MailDelivered {
+		t.Fatalf("the message did not stay queued: %+v", ms)
+	}
+	if _, err := st.LiftFence(); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := q.RunOnce(context.Background()); err != nil || p.Sent != 1 {
+		t.Fatalf("after the lift: %+v %v", p, err)
+	}
+}

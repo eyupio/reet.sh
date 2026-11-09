@@ -620,6 +620,13 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 	}
 	id := s.newID(ownerID)
 	var payload []byte
+	var source string
+	var fenced *bool
+	if ownerID == 0 {
+		if source, err = s.st.ControllerID(); err != nil {
+			return fail(err)
+		}
+	}
 	if ownerID == 0 {
 		temp, err := os.CreateTemp(s.cfg.Dir, ".reet-snapshot-*")
 		if err != nil {
@@ -629,6 +636,14 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 		temp.Close()
 		_ = os.Remove(tempName)
 		defer os.Remove(tempName)
+		// The fence is read either side of the snapshot. A copy is marked
+		// fenced only when it was fenced throughout, so a fence lifted (or
+		// raised) while it was being taken reads as "not fenced", which is
+		// the safe side.
+		before, err := s.st.FenceSince()
+		if err != nil {
+			return fail(err)
+		}
 		vctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		err = s.st.VacuumInto(vctx, tempName)
 		cancel()
@@ -638,6 +653,12 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 		if info, statErr := os.Stat(tempName); statErr == nil && info.Size() > maxObjectBytes {
 			return fail(fmt.Errorf("the database snapshot is %d MiB, larger than this build's %d MiB limit; prune the event history or back it up as a file on this machine", info.Size()>>20, maxObjectBytes>>20))
 		}
+		after, ferr := s.st.FenceSince()
+		if ferr != nil {
+			return fail(ferr)
+		}
+		wasFenced := before > 0 && before == after
+		fenced = &wasFenced
 		payload, err = os.ReadFile(tempName)
 		if err != nil {
 			return fail(err)
@@ -659,7 +680,7 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 	if err != nil {
 		return fail(err)
 	}
-	m := Manifest{ID: id, Kind: scope, OwnerID: ownerID, Target: targetOf(ownerID), TakenAt: started, Version: s.cfg.Version}
+	m := Manifest{ID: id, Kind: scope, OwnerID: ownerID, Target: targetOf(ownerID), TakenAt: started, Version: s.cfg.Version, Source: source, Fenced: fenced}
 	sealed, err := s.cfg.Sealer.SealArchive(m, payload, SealOptions{
 		Compress: settings.Compression != CompressionNone,
 		Password: password,
@@ -1649,6 +1670,12 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 func (s *Service) runDue(ctx context.Context) {
+	// A fenced controller takes no scheduled copies: they would ship to a
+	// destination and could push the final copy out of retention. The owner's
+	// own "run now" still works.
+	if s.st.Fenced() {
+		return
+	}
 	now := time.Now().UnixMilli()
 	settings, settingsErr := s.settingsFor(0)
 	due := settingsErr == nil && settings.EverySeconds > 0 &&

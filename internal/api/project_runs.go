@@ -38,6 +38,7 @@ func (s *server) newProjectRuns() *projectrun.Orchestrator {
 		Store:    s.st,
 		Broker:   s.terminals,
 		Enabled:  s.terminalEnabled,
+		Paused:   s.st.Fenced,
 		Launched: s.auditTerminalLaunch,
 		Logf: func(format string, args ...any) {
 			log.Printf("projects: "+format, args...)
@@ -51,7 +52,11 @@ func (s *server) newProjectRuns() *projectrun.Orchestrator {
 // controller stopped is sent again with its unchanged request id, which the
 // broker and the machine answer with the session they already made.
 func (s *Server) ResumeProjectRuns(ctx context.Context) {
-	if err := s.s.runs.Resume(); err != nil {
+	// A fenced controller comes up quiet: the pending members wait, and the
+	// lift continues them.
+	if s.s.st.Fenced() {
+		log.Printf("projects: this controller is fenced; pending runs wait until the fence is lifted")
+	} else if err := s.s.runs.Resume(); err != nil {
 		log.Printf("projects: resume runs: %v", err)
 	}
 	runs := s.s.runs

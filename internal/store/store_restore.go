@@ -268,6 +268,11 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 			}
 		}
 	}
+	// What a copy says about a fence is about the controller it was taken
+	// from. The controller it lands on is the one meant to be live.
+	if _, err = exec("settings", `DELETE FROM settings WHERE key IN(?,?)`, SettingFenceSince, SettingFenceMovedTo); err != nil {
+		return out, err
+	}
 	n, err := exec("private_transport_identity", `DELETE FROM private_transport_identity`)
 	if err != nil {
 		return out, err

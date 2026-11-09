@@ -53,7 +53,7 @@ func TestACopyFromAnOlderDataFormatStillStages(t *testing.T) {
 		t.Run(fmt.Sprintf("format %d", version), func(t *testing.T) {
 			svc, dir := destination(t)
 			raw := sealedAtVersion(t, svc, "instance-older", version)
-			rep, err := svc.StageImport(context.Background(), dir, raw, "", RestoreOptions{})
+			rep, err := svc.StageImport(context.Background(), dir, raw, "", RestoreOptions{AllowLiveSource: true})
 			if err != nil {
 				t.Fatalf("an older copy was refused: %v", err)
 			}
@@ -71,7 +71,7 @@ func stagedController(t *testing.T) (dir string) {
 	t.Helper()
 	svc, dir := destination(t)
 	raw := sealedAtVersion(t, svc, "instance-staged", store.SchemaVersion)
-	if _, err := svc.StageImport(context.Background(), dir, raw, "", RestoreOptions{}); err != nil {
+	if _, err := svc.StageImport(context.Background(), dir, raw, "", RestoreOptions{AllowLiveSource: true}); err != nil {
 		t.Fatal(err)
 	}
 	return dir

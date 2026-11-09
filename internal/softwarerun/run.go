@@ -80,6 +80,10 @@ type Config struct {
 	Logf func(format string, args ...any)
 	// Poll is how often a stalled driver checks again; zero means 1 second.
 	Poll time.Duration
+	// Paused, when it returns true, stops the orchestrator applying any
+	// member. Members stay pending, and Resume continues them once Paused is
+	// false again. Nil means never paused.
+	Paused func() bool
 }
 
 // Orchestrator drives batches, one goroutine per batch.
@@ -218,6 +222,9 @@ func (o *Orchestrator) drive(k batchKey, d *driving) {
 func (o *Orchestrator) pass(k batchKey) bool {
 	for {
 		if o.ctx.Err() != nil {
+			return true
+		}
+		if o.cfg.Paused != nil && o.cfg.Paused() {
 			return true
 		}
 		batch, err := o.cfg.Store.SoftwareBatchFor(k.uid, k.id)

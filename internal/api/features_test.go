@@ -41,13 +41,10 @@ func TestVersionListsExactlyTheBuiltFeatures(t *testing.T) {
 	}
 }
 
-// What this build really holds is what is advertised, and only names the
-// contract reserves.
-func TestTheCompiledFeatureListUsesOnlyReservedNames(t *testing.T) {
-	reserved := map[string]bool{"fence": true, "copy-origin": true, "restore-public-url": true}
-	for _, f := range builtFeatures {
-		if !reserved[f] {
-			t.Fatalf("%q is not a name the contract reserves", f)
-		}
+// What this build really holds is what is advertised: the copy's source and
+// fenced markers and the live-source guard are all here, and nothing else yet.
+func TestTheCompiledFeatureListIsExactlyWhatIsBuilt(t *testing.T) {
+	if !reflect.DeepEqual(builtFeatures, []string{"copy-origin", "fence"}) {
+		t.Fatalf("this build advertises %v", builtFeatures)
 	}
 }

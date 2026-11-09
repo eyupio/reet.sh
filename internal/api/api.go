@@ -312,7 +312,9 @@ func (s *Server) Close() error {
 // New returns the API handler. An empty token disables authentication.
 func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) *Server {
 	s := newServer(st, f, token, opts...)
-	return &Server{s: s, h: s.logRequests(s.auth(s.routes()))}
+	s.workers.Add(1)
+	go func() { defer s.workers.Done(); s.fenceWatcher() }()
+	return &Server{s: s, h: s.logRequests(s.fenceGate(s.auth(s.routes())))}
 }
 
 func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *server {
@@ -470,6 +472,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)
+	s.registerFenceRoutes(mux)
 	s.registerProfileRoutes(mux)
 	s.registerGafferRoutes(mux)
 	s.registerGafferChatRoutes(mux)
@@ -900,6 +903,9 @@ func (s *server) topicWorker() {
 }
 
 func (s *server) syncTopics() {
+	if s.st.Fenced() {
+		return
+	}
 	if v, _ := s.st.GetSetting("topics_enabled"); v == "0" {
 		return
 	}
@@ -951,6 +957,9 @@ func (s *server) refreshWorker() {
 }
 
 func (s *server) refreshBatch() {
+	if s.st.Fenced() {
+		return
+	}
 	if v, _ := s.st.GetSetting("refresh_enabled"); v == "0" {
 		return
 	}

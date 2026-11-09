@@ -462,11 +462,19 @@
  }
  // The optional agent, model and effort a prompt suggests. Preselected only where the person has
  // not chosen those fields here, and only for the agent the suggestion was written for.
- function applyPromptSuggestions(item: TerminalPrompt, unresolved: string[]) {
-  if (item.tool && !explicitTool && availableAgents.includes(item.tool)) { explicitTool = item.tool }
-  const agent = tool || chosenTool
+ async function applyPromptSuggestions(item: TerminalPrompt, unresolved: string[]) {
+  // A model or effort the person chose also belongs to their current agent.
+  // Switching it implicitly would let the rekey erase those explicit choices.
+  if (item.tool && !explicitTool && !explicitModel && !explicitEffort && availableAgents.includes(item.tool)) {
+   explicitTool = item.tool
+   // The agent rekey resets its dependent defaults. Apply template defaults
+   // after that reset, using the resolved agent rather than the previous one.
+   await tick()
+  }
+  if (locked) return
+  const agent = chosenTool
   if (item.model && !explicitModel && (!item.tool || item.tool === agent)) { explicitModel = true; modelChoice = item.model; modelOther = '' }
-  if (item.effort && !explicitEffort && (!item.tool || item.tool === agent)) { explicitEffort = true; effort = item.effort }
+  if (item.effort && !explicitEffort && (!item.tool || item.tool === agent) && effortOptions.includes(item.effort)) { explicitEffort = true; effort = item.effort }
   if (unresolved.length) {
    failed = false
    message = `Inserted “${item.title}”. ${unresolved.join(', ')} ${unresolved.length === 1 ? 'was' : 'were'} not known here, so ${unresolved.length === 1 ? 'it stays' : 'they stay'} as written.`
@@ -483,7 +491,7 @@
    return
   }
   prompt = inserted.text
-  edited(); applyPromptSuggestions(item, unresolved)
+  edited(); void applyPromptSuggestions(item, unresolved)
   void tick().then(() => { promptInput?.focus(); promptInput?.setSelectionRange(inserted.caret, inserted.caret) })
  }
  // Typing a backslash token in the opening prompt opens the same prompts inline.
@@ -522,7 +530,7 @@
   const out = replacePromptTrigger(prompt, promptMenu, result.text, MAX_PROMPT_BYTES)
   if ('error' in out) { failed = true; message = out.error; return }
   prompt = out.draft; promptSuppressed = true; promptMenu = null
-  edited(); applyPromptSuggestions(result.prompt, result.unresolved)
+  edited(); void applyPromptSuggestions(result.prompt, result.unresolved)
   void tick().then(() => { promptInput?.focus(); promptInput?.setSelectionRange(out.caret, out.caret) })
  }
  function promptKeys(event: KeyboardEvent) {

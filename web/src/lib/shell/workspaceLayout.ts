@@ -5,6 +5,10 @@
 export const SIDEBAR_MIN = 192
 export const SIDEBAR_MAX = 360
 export const SIDEBAR_DEFAULT = 228
+/** On Home the same panel also holds the project list, so it starts wider and may grow further. */
+export const HOME_SIDEBAR_MIN = 260
+export const HOME_SIDEBAR_MAX = 460
+export const HOME_SIDEBAR_DEFAULT = 300
 /** The sidebar's content margin on the far left, beside the 1 px rule. */
 export const SIDEBAR_GUTTER = 36
 
@@ -19,10 +23,10 @@ export const RAIL_SHARE = 0.4
 /** Keyboard step for either panel's separator. */
 export const KEY_STEP = 16
 
-/** A sidebar width: 192 to 360 px, rounded, with the default for a width that is missing or unreadable. */
-export function clampSidebarWidth(requested: number): number {
-  const wanted = Number.isFinite(requested) ? Math.round(requested) : SIDEBAR_DEFAULT
-  return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, wanted))
+/** A sidebar width, rounded: 192 to 360 px by default, or Home's 260 to 460 px, falling back to the default. */
+export function clampSidebarWidth(requested: number, min = SIDEBAR_MIN, max = SIDEBAR_MAX, fallback = SIDEBAR_DEFAULT): number {
+  const wanted = Number.isFinite(requested) ? Math.round(requested) : fallback
+  return Math.min(max, Math.max(min, wanted))
 }
 
 /** A rail width: 240 to 460 px and never more than 40 % of the window, so the board keeps at least 60 %. */

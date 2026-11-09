@@ -15,7 +15,7 @@
   // Select (the heading's menu, or a long press on a card on touch) turns the cards into checkboxes for Start in several
   // projects: 2 to 12 of them; the strip shows how many are chosen.
   let { projects, groups = undefined, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
-    selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, userId = 0, scope = null, onscope,
+    selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, embedded = false, userId = 0, scope = null, onscope,
     collapsed = false, oncollapsed,
     width = RAIL_DEFAULT, onwidth, onwidthcommit,
     onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour, onmanage,
@@ -52,6 +52,8 @@
     variant?: 'home' | 'sessions'
     /** What Select leads to where there is no launch bar to take the chosen projects (the Sessions screen). */
     selectAction?: Snippet
+    /** True when the rail is a section inside the workspace panel: the panel owns the width and the fold hides the list. */
+    embedded?: boolean
     onadd: (opener: HTMLElement) => void
     /** Sets the launch bar's project (a card, or New session here where it cannot start at once). */
     onchoose: (project: FolderProject, opener: HTMLElement) => void
@@ -437,8 +439,8 @@
   </li>
 {/snippet}
 
-<aside class="rail" class:open={panelOpen} class:sessions={variant === 'sessions'} class:collapsed bind:this={aside} aria-labelledby={`${id}-title`}>
-  {#if variant === 'home' && wide && !collapsed && onwidth && onwidthcommit}
+<aside class="rail" class:open={panelOpen} class:sessions={variant === 'sessions'} class:embedded class:collapsed bind:this={aside} aria-labelledby={`${id}-title`}>
+  {#if variant === 'home' && wide && !collapsed && !embedded && onwidth && onwidthcommit}
     <PanelResizer value={width} min={RAIL_MIN} max={RAIL_MAX} resetValue={RAIL_DEFAULT} label="Resize the project rail" mode="absolute"
       position="top: 0; bottom: 0; right: -4px" onchange={onwidth} oncommit={onwidthcommit} />
   {/if}
@@ -446,8 +448,16 @@
   <div class="full" id={`${id}-full`} bind:this={full} onkeydown={panelKeys} style:top={panelOpen ? `${panelTop}px` : undefined} style:height={panelOpen ? `calc(100dvh - ${panelTop}px)` : undefined}>
     <header>
       {#if variant === 'home'}
-        <button type="button" class="rail-fold" aria-label="Fold the project rail" title="Fold the rail" onclick={foldRail}>
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l-7 7 7 7" /></svg>
+        <button type="button" class="rail-fold"
+          aria-label={embedded ? (collapsed ? 'Show the project list' : 'Hide the project list') : 'Fold the project rail'}
+          title={embedded ? (collapsed ? 'Show the project list' : 'Hide the project list') : 'Fold the rail'}
+          aria-expanded={embedded ? !collapsed : undefined}
+          onclick={() => embedded ? oncollapsed?.(!collapsed) : foldRail()}>
+          {#if embedded && collapsed}
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7" /></svg>
+          {:else}
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l-7 7 7 7" /></svg>
+          {/if}
         </button>
       {/if}
       <h2 id={`${id}-title`}>{variant === 'sessions' && projects ? `Projects · ${projects.length}` : 'Projects'}</h2>
@@ -462,6 +472,7 @@
         {#if variant === 'sessions'}Add a project{:else}<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>Add{/if}
       </button>
     </header>
+    {#if !(embedded && collapsed)}
     {#if selecting}
       <div class="picking">
         <p role="status" aria-live="polite">{pickedLine}</p>
@@ -526,6 +537,7 @@
           {/each}
         </div>
       {/if}
+    {/if}
     {/if}
   </div>
   <div class="strip">
@@ -816,4 +828,12 @@
     .rail.sessions h2 { font: 600 14px/1.3 var(--sans); letter-spacing: 0.01em; color: var(--muted); }
     .rail.sessions .add { height: 44px; padding: 0 14px; border-color: var(--line-strong); border-radius: 8px; font-size: 15px; }
   }
+  /* Inside the workspace navigation panel the rail is a section, not a column: the panel owns the width and the scroll,
+     and folding it hides the list while the heading, Add and the fold button stay. */
+  .rail.embedded { border-right: 0; align-self: auto; }
+  .rail.embedded .full { position: static; display: flex; max-height: none; min-height: 0; overflow: visible; padding: 0; gap: 10px; }
+  .rail.embedded .strip { display: none; }
+  .rail.embedded .rail-fold { display: grid; }
+  .rail.embedded.collapsed .full { display: flex; }
+  .rail.embedded .group-block > .items { margin-left: 6px; padding-left: 6px; }
 </style>

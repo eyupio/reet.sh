@@ -568,3 +568,30 @@ instead of seeing "the agent exited". YOLO answers Codex permission cards only i
 
 **Still not measured:** a signed-in turn, a real model accepting an image, the lists a real account is offered, and whether a Codex chat's id opens in `codex resume`.
 These wait for Run B in [Device checks](../../device-checks.md).
+
+## Codex terminal probes (9 November 2026)
+
+What the argv reet builds for a Codex terminal session does, measured with the new `scripts/probe-codex-terminal.py` against a loopback Responses-API stand-in provider
+(no account, network or real model), on the two CLIs the adapters above install: codex-cli 0.156.1 and 0.166.0. The terminal UI was run under a pty with the exact argv, and the
+stand-in recorded the model, reasoning effort, approval policy and user messages it was sent. Not measured: a signed-in session, a real model, and anything a person sees beyond
+what reached the provider.
+
+```sh
+python3 -I scripts/probe-codex-terminal.py effort --workspace /path/to/probe
+python3 -I scripts/probe-codex-terminal.py chat-id --workspace /path/to/probe        # after probe-codex-lifecycle.py load
+python3 -I scripts/probe-codex-terminal.py argv --workspace /path/to/probe --pre tui -- resume --last -c model_reasoning_effort=low --model gpt-6-astra -- "go on"
+```
+
+| Fact | Measured (both CLIs unless stated) | Source |
+| --- | --- | --- |
+| `-c model_reasoning_effort=<v>` is honoured | The provider's request carries `low`, `medium`, `high` and `xhigh` as given | `effort` |
+| An effort the model does not have | `ultra` on the stand-in's fallback model reached the provider as `medium`; whether a real model that offers `ultra` honours it is not measured, so a launch carries only `low`, `medium` and `high` | `effort` |
+| An invalid effort | `bogus` was passed to the provider unchanged: the CLI does not validate it, so reet must | `effort` |
+| A chat's id opens under `codex resume` | `codex exec resume <id>` of a session the ACP adapter created sent the provider the earlier turns and the new prompt, from the same folder and from another. This is the non-interactive `exec` path | `chat-id` |
+| A new session's argv | `--ask-for-approval never -c model_reasoning_effort=high --model <m> -- "<prompt>"` in the real terminal UI: the provider received that model, `high`, approval `never` and the prompt | `argv` |
+| Open a stored session by id | `--ask-for-approval never resume <id> -c model_reasoning_effort=low --model <m> -- "<prompt>"`: approval `never`, `low`, the model, and the earlier turns plus the new prompt | `argv --pre tui` |
+| Continue the latest session | `resume --last -c model_reasoning_effort=medium --model <m> -- "<prompt>"`: the earlier turns plus the new prompt. `--last` picks the latest session in the folder that is not a `codex exec` one; a session made by the ACP adapter counts (its rollout is marked `vscode`). With no such session, codex starts a new conversation with no error (checked on both CLIs), so a resume cannot be told from a new session by what the provider receives unless the earlier turns are looked for | `argv --pre tui` |
+| A background daemon (0.166.0 only) | The CLI starts an `app-server` under `CODEX_HOME` that outlives the terminal and keeps the session it served. A `resume` of that session with a changed configuration then showed "open in another app" until the daemon was stopped; with it stopped, every form above worked | `argv` |
+
+**What this turned on in the product:** the Codex terminal preset maps effort (`low`, `medium`, `high`) and resume (`resume --last`, `resume <id>`), the controller and Start dialog offer both,
+and the pinned help capture moved to codex-cli 0.166.0 with its source recorded in `sources.json`.

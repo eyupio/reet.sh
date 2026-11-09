@@ -198,7 +198,7 @@ func TestSelectionRunLimits(t *testing.T) {
 		"no tool":       {ids[:2], RunLaunch{}, ErrProjectInvalid},
 		"model":         {ids[:2], RunLaunch{Tool: "claude", Model: "bad model"}, ErrProjectInvalid},
 		"effort":        {ids[:2], RunLaunch{Tool: "cline", Effort: "max"}, ErrProjectInvalid},
-		"no effort":     {ids[:2], RunLaunch{Tool: "codex", Effort: "low"}, ErrProjectInvalid},
+		"no effort":     {ids[:2], RunLaunch{Tool: "opencode", Effort: "low"}, ErrProjectInvalid},
 		"dash":          {ids[:2], RunLaunch{Tool: "claude", Prompt: "-rf everything"}, ErrProjectInvalid},
 		"one word":      {ids[:2], RunLaunch{Tool: "claude", Prompt: "update"}, ErrProjectInvalid},
 		"long":          {ids[:2], RunLaunch{Tool: "claude", Prompt: strings.Repeat("ab ", terminalproto.MaxPromptBytes/2)}, ErrProjectInvalid},

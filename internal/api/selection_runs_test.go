@@ -159,7 +159,7 @@ func TestSelectionRunRefusals(t *testing.T) {
 		"request":       {with(func(b map[string]any) { b["requestId"] = "zebra-sentinel" }), 422, "request_id_required"},
 		"tool":          {with(func(b map[string]any) { b["tool"] = "pi" }), 422, "tool_unavailable"},
 		"model":         {with(func(b map[string]any) { b["model"] = "bad model" }), 422, "invalid_model"},
-		"effort":        {with(func(b map[string]any) { b["tool"], b["effort"] = "codex", "high" }), 409, "launch_option_unsupported"},
+		"effort":        {with(func(b map[string]any) { b["tool"], b["effort"] = "opencode", "high" }), 409, "launch_option_unsupported"},
 		"effort?":       {with(func(b map[string]any) { b["effort"] = "max" }), 422, "invalid_effort"},
 		"dash":          {with(func(b map[string]any) { b["prompt"] = "-" + selectionAPIPrompt }), 422, "invalid_prompt"},
 		"long":          {with(func(b map[string]any) { b["prompt"] = strings.Repeat(selectionAPIPrompt, 200) }), 422, "invalid_prompt"},

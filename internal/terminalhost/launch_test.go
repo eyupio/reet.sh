@@ -94,12 +94,12 @@ func TestLaunchArgvResumeOnlyForAReviewedPreset(t *testing.T) {
 			t.Fatalf("resume %q: got %q, %v; want %q", tc.in.Model, got, err, tc.want)
 		}
 	}
-	for _, tool := range []string{"codex", "cline", "antigravity"} {
+	for _, tool := range []string{"cline", "antigravity"} {
 		if _, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, Resume: true}, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
 			t.Fatal(tool, "resume without a reviewed command", err)
 		}
 	}
-	if !SupportsResume("claude") || !SupportsResume("opencode") || SupportsResume("codex") {
+	if !SupportsResume("claude") || !SupportsResume("opencode") || !SupportsResume("codex") || SupportsResume("cline") {
 		t.Fatal("resume advertised for the wrong presets")
 	}
 }
@@ -411,6 +411,30 @@ func TestLaunchArgvClaudeSession(t *testing.T) {
 	}
 }
 
+// Codex resumes with a subcommand, not a flag: `resume --last` continues the latest interactive session in the folder and `resume <id>`
+// opens a stored one, a chat's id included. The approval flag stays before the subcommand and the effort and model follow it; this
+// exact shape was run through the real TUI against a stand-in provider (probe report, "Codex terminal probes").
+func TestLaunchArgvCodexResumeAndSession(t *testing.T) {
+	look := fakeLookPath("codex")
+	const id = "0b9f6a1c-3d2e-4f5a-8b7c-1234567890ab"
+	for _, tc := range []struct {
+		in   terminalproto.Create
+		want []string
+	}{
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", Resume: true}, []string{"/opt/fake/bin/codex", "resume", "--last"}},
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", Resume: true, Yolo: true, Effort: "low", Model: "m", Prompt: "go on"},
+			[]string{"/opt/fake/bin/codex", "--ask-for-approval", "never", "resume", "--last", "-c", "model_reasoning_effort=low", "--model", "m", "--", "go on"}},
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", LaunchSession: id}, []string{"/opt/fake/bin/codex", "resume", id}},
+		{terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", LaunchSession: id, Yolo: true, Effort: "high", Model: "m"},
+			[]string{"/opt/fake/bin/codex", "--ask-for-approval", "never", "resume", id, "-c", "model_reasoning_effort=high", "--model", "m"}},
+	} {
+		got, err := LaunchArgv(tc.in, look)
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("got %q, %v; want %q", got, err, tc.want)
+		}
+	}
+}
+
 // Claude Code's thinking level maps only the three levels a terminal launch carries.
 func TestLaunchArgvClaudeEffort(t *testing.T) {
 	look := fakeLookPath("claude")
@@ -442,10 +466,10 @@ func TestLaunchArgvSessionRefusesResumeAndStructured(t *testing.T) {
 
 // ErrLaunchOptionUnsupported for a session is reachable only for a tool whose
 // preset has no sessionArgs and which still passes Validate: today that is
-// claude with a UUID-shaped id.
+// Antigravity with a UUID-shaped id.
 func TestLaunchArgvSessionUnsupportedTool(t *testing.T) {
-	look := fakeLookPath("codex")
-	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", LaunchSession: "11111111-2222-3333-4444-555555555555"}
+	look := fakeLookPath("agy")
+	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity", LaunchSession: "11111111-2222-3333-4444-555555555555"}
 	if _, err := LaunchArgv(in, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
 		t.Fatal(err)
 	}

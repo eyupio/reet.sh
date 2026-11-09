@@ -148,3 +148,9 @@ reason. The cause of an empty turn on a real machine is read from the tail of `<
   guessed.
 - That a signed-in Cline on another machine has the same provider selection; the
   descriptor carries no version or login claim.
+
+### Interpreting the TUI resume probe
+
+A failed or missing history read means continuity is unknown. A TUI process that stays alive with `--id`, or a successful history comparison showing no new task id, does not by itself establish that the TUI displayed the same conversation. A successful `session/load` afterward establishes that the id can be loaded, not that transcript continuity through the TUI was verified. Keep the switch disabled until the signed-in content check establishes that behavior.
+
+Credential-free verdict regressions run through `go test ./scripts -run '^TestClineTUIProbeVerdicts$'` when Python 3 is installed, or directly with `python3 -B scripts/test_probe_cline_tui_resume.py`. They cover failed/missing history, TUI refusal, absent chat ids, no observed new ids and a possible fork. They start no Cline process and spend no model tokens.

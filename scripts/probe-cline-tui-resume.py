@@ -228,15 +228,20 @@ def verdict(report):
     if tui.get("exitCode") not in (None, 0) or tui.get("mentionsRefusal"):
         out.append("The TUI refused or failed on the chat id: do NOT add `--id` to Cline's catalogue row.")
     elif tui.get("stillRunningAfterSeconds"):
-        out.append("The TUI started on the chat id and stayed up: `--id` is accepted.")
-    if report.get("historyAfter", {}).get("newIds"):
-        out.append("Starting the TUI created new task ids: it may fork instead of resuming. Compare screenTail with the conversation.")
+        out.append("The TUI stayed up with the requested `--id`; this alone does not prove it resumed that conversation.")
+    before, after = report.get("historyBefore", {}), report.get("historyAfter", {})
+    if before.get("exit") != 0 or after.get("exit") != 0:
+        out.append("History observations are incomplete: whether the TUI kept or forked the conversation is unknown.")
+    elif after.get("newIds"):
+        out.append("New task ids appeared in history: the TUI may fork instead of resuming. Compare screenTail with the conversation.")
+    elif not before.get("listsChatId") or not after.get("listsChatId"):
+        out.append("History did not list the chat id both before and after the TUI; continuity is unverified.")
     else:
-        out.append("Starting the TUI created no new task id: it kept the chat's id.")
+        out.append("History still lists the chat id and no new task id was observed; verify the TUI actually shows the same conversation before enabling switching.")
     if report.get("loadAfterTui", {}).get("ok"):
-        out.append("session/load still opens the chat id after the TUI ran: the TUI -> Gaffer trip can work.")
+        out.append("session/load opens the chat id after the TUI ran; this does not establish transcript continuity through the TUI.")
     else:
-        out.append("session/load no longer opens the chat id after the TUI ran: the TUI -> Gaffer trip would fail.")
+        out.append("session/load did not open the chat id after the TUI ran; a successful TUI -> Gaffer trip is not established.")
     return out
 
 

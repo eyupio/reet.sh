@@ -23,11 +23,11 @@ import (
 func runBackup(args []string, out io.Writer) error {
 	help := len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")
 	if help {
-		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
+		fmt.Fprintln(out, "Usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
 		return nil
 	}
 	if len(args) == 0 {
-		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]")
+		return errors.New("usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]")
 	}
 	switch args[0] {
 	case "keygen":
@@ -40,7 +40,7 @@ func runBackup(args []string, out io.Writer) error {
 	case "list":
 		return backupList(out)
 	case "run":
-		return backupRun(out)
+		return backupRun(args[1:], out)
 	case "open":
 		return backupOpen(args[1:], out)
 	case "escrow":
@@ -93,17 +93,49 @@ func backupList(out io.Writer) error {
 	return nil
 }
 
-func backupRun(out io.Writer) error {
+// backupRun takes one copy now. With --password-file the copy is sealed with
+// that password alone, so a portable copy can be taken for someone else without
+// setting the stored copy password. The password is read from a file, or - for
+// standard input, and is never an argument.
+func backupRun(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet backup run", flag.ContinueOnError)
+	f.SetOutput(out)
+	passwordFile := f.String("password-file", "", "seal this copy with the password in this file, or - for standard input, instead of the stored copy password")
+	if err := f.Parse(args); err != nil {
+		return err
+	}
+	if f.NArg() != 0 {
+		return errors.New("run takes no arguments; give a copy password with --password-file")
+	}
+	// Checked before the store is opened, so a bad password takes nothing.
+	password, given := "", *passwordFile != ""
+	if given {
+		var err error
+		if password, err = readSecretFile(*passwordFile, "the copy password"); err != nil {
+			return err
+		}
+		if err := backup.ValidateCopyPassword(password); err != nil {
+			return err
+		}
+	}
 	st, svc, err := openBackup()
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	item, err := svc.RunInstance(context.Background(), "cli")
+	var item backup.Item
+	if given {
+		item, err = svc.RunInstanceWithPassword(context.Background(), "cli", password)
+	} else {
+		item, err = svc.RunInstance(context.Background(), "cli")
+	}
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "Took %s (%s).\n", item.ID, humanBytes(item.Bytes))
+	if given {
+		fmt.Fprintln(out, "It is sealed with the password you gave, which is not stored here; the stored copy password was not used or changed.")
+	}
 	if len(item.Remotes) == 0 {
 		fmt.Fprintln(out, "It is on this machine; no destination confirmed a copy.")
 	}

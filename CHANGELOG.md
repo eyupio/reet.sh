@@ -5,6 +5,17 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A portable copy can be taken with a password given for that copy alone.
+  `POST /api/v2/admin/backups/run` accepts an optional body `{"password": "..."}`
+  and `reet backup run` takes `--password-file F` (a file or `-`, never an
+  argument). The copy is sealed with that password in the same format as one
+  sealed with the stored copy password, and the stored setting is not read,
+  changed or cleared, so the schedule and every other copy are unaffected. The
+  password needs at least 12 characters; a blank or shorter one is refused with
+  a 400 before anything is taken. It is never stored, logged or returned, and the
+  activity log records that a copy was taken with a password given on the
+  request, by whom and when. `GET /api/version` lists `"copy-password-request"`
+  under `features`.
 - The checklist at the end of a restore report now names
   `REET_LIBRARY_MANAGED_REMOVALS`, a setting the server reads that the checklist
   had missed. The test that compares the checklist with what the server reads

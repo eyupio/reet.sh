@@ -47,6 +47,56 @@ Each owner chooses, with the schedule, how a copy is stored:
   characters. Removing it affects later copies only: existing
   password-protected copies still need that password.
 
+### A password for one copy
+
+The copy password above is a setting: it seals every copy, including every
+scheduled one. That is the wrong tool for someone who operates a controller for
+another team. They hold the only owner credential, the team's people are not
+owners, and a portable copy for the team has to be sealed with a password the
+team chose. Setting the team's password, taking the copy and clearing it again
+would seal every copy taken in between (the schedule's included) with a password
+the operator does not know, leave the password in the settings for the whole
+window, and leave later copies sealed with it if clearing it failed.
+
+So the password can be a parameter of one copy instead:
+
+```sh
+reet backup run --password-file ./team-copy.password    # or - for standard input
+```
+
+```sh
+curl -X POST https://reet.example/api/v2/admin/backups/run \
+  -H "Authorization: Bearer $OWNER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"password": "a password the team chose"}'
+```
+
+- **It seals that copy alone.** Same format and manifest as a copy sealed with
+  the stored copy password (`protection` is `password`), so it opens with
+  `reet backup open --password-file` on any machine. It does not open with the
+  controller's key.
+- **The stored setting is never read, changed or cleared.** Scheduled copies and
+  every other run carry on as they were, and a stored password that could not be
+  opened does not stop this run.
+- **The rule is the setting's:** at least 12 characters. A blank password, or a
+  shorter one, is refused before anything is taken: `400` with "a copy password
+  needs at least 12 characters", and the copy list and the run history do not
+  change. A body is optional; with none, an empty object or `"password": null`
+  the route behaves as it always did. An unknown key, or a password that is not a
+  string, is refused rather than quietly sealing the copy with the stored password.
+- **Owner only,** as the route has always been.
+- **The password is never stored, logged, returned or put in an error.** The
+  activity log records `backup-run` with `passwordOnRequest` true and
+  `protection` `password`, against the owner who made the request and the time,
+  and nothing else about the password.
+- **A copy sealed this way is the team's to open.** The controller does not know
+  the password, so `POST .../backups/items/{id}/verify` cannot open it without
+  the password in its body (`{"password": "..."}`), and a restore from the
+  controller's own list needs `--password-file`. The copy is opened with the
+  password and checked as it is taken, as every copy is.
+
+`GET /api/version` lists `"copy-password-request"` under `features` when the
+route accepts the body.
+
 A copy downloaded from the page is a `.zip` holding the sealed payload
 (`<id>.sealed`) and its clear manifest (`<id>.json`). The `.sealed` file opens
 exactly like a `.reetbackup` copy. Open it on any machine with:

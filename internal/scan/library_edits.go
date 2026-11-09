@@ -42,6 +42,9 @@ type libraryRemoval struct {
 	Generation string `json:"generation"`
 	Backup     string `json:"backup"`
 	Phase      string `json:"phase"`
+	// Digest is the content the entry had when the move was prepared, so recovery
+	// can prove the backup is that content before it relies on it.
+	Digest string `json:"digest,omitempty"`
 }
 type libraryLocalState struct {
 	Server          string              `json:"server"`

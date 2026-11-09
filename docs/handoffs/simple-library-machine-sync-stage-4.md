@@ -52,6 +52,24 @@ The controller now judges managed-removal plans itself instead of trusting the c
 
 Tests: store tests cover disabled (needs review), approved current removal, stale-at-approval, ABA generation, foreign target, missing proof, a superseded acknowledgement (reactivated mid-removal) and a current acknowledgement. An API test checks the capability is omitted by default, advertised when enabled and withdrawn again. These are controller-side checks with a store fixture; they do not run a connector against the real controller. No filesystem acceptance, interrupted-operation recovery, ownership migration, debounced restoration or notification is added by this checkpoint.
 
+## Interrupted-operation recovery (9 November 2026)
+
+A crash during a managed removal leaves a `prepared` journal that records the backup path and, now, the digest the entry had when the move was prepared (`libraryRemoval.Digest`, optional in the file format). `recoverLibraryRemovals` settles it at the start of the next plan for that target. It runs under the existing journal lock, before the capability check, so a controller downgrade cannot strand a journal. It never moves, copies or deletes content and needs no controller. It acts only on what the filesystem proves:
+
+| Entry | Backup | Result |
+| --- | --- | --- |
+| present | absent | The move never happened. The journal is cleared and the entry stays a managed copy; ownership is re-proven before any later removal. |
+| absent | present, digest matches the journal | The move completed. The journal becomes `removed` and installed ownership is released. Whether the item returns is decided by the next plan from current controller intent, never from this record. |
+| present | present | Ambiguous. Everything is retained, the journal is kept and the item reports a problem. |
+| absent | absent | Same: retained, journal kept, problem reported. |
+| absent | present, digest differs, a link, or an old record with no digest | Same: retained, journal kept, problem reported. |
+
+A held entry is skipped by planning (it plans no removal) and keeps its specific message; healthy entries continue. Re-running recovery changes nothing further.
+
+Tests cover each row, idempotent re-runs, and recovery after a simulated controller downgrade. The existing removal matrix still passes. The sandbox runs as root, so `journal_refused` (which relies on a read-only directory) fails here exactly as it does on the previous commit; compiled and run as the non-root user `nobody`, the whole removal matrix, the recovery tests and the full scanner package under the race detector pass. The controller-side receipt for a removal that finished locally but failed to acknowledge is still the replan path above; no separate operation-receipt table was added.
+
+Not done by this checkpoint: legacy ownership migration, per-item failure isolation at execution time, debounced restoration and notifications.
+
 ## Required continuation within Stage 4
 
 1. (Controller approval and acknowledgement fencing is done; see above. Capability stays off.) Complete the local provenance journal with controller operation receipts and interrupted-operation recovery. Migrate existing bindings only from verified installed/applied bases, preserving registered source folders and foreign installations. Finish authoritative automatic-plan validation and current-intent acknowledgement fencing before the controller advertises the managed-removal capability. Older connectors must retain their existing additive behavior. Keep the existing single target executor and backup path. The gated connector path above does not complete this migration or normal negotiation.

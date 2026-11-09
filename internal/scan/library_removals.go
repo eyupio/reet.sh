@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/eyupio/reet.sh/internal/filelock"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -65,6 +66,17 @@ func planLibraryRemovals(ctx context.Context, config string, c agentConfig, targ
 	if err != nil {
 		return nil, problems, err
 	}
+	// An interrupted operation is resolved whether or not the capability is
+	// still negotiated: a downgraded controller must not strand a journal.
+	recovered, held := recoverLibraryRemovals(&state, target.Target.ID, path)
+	for slug, message := range held {
+		problems[slug] = message
+	}
+	if recovered {
+		if err := writePrivate(config+".library", state); err != nil {
+			return nil, problems, err
+		}
+	}
 	if state.ManagedRemovals != managedRemovalVersion {
 		return nil, problems, nil
 	}
@@ -77,6 +89,9 @@ func planLibraryRemovals(ctx context.Context, config string, c agentConfig, targ
 			continue
 		}
 		slug := filepath.Base(binding.Path)
+		if _, held := problems[slug]; held {
+			continue // recovery already explained why this entry is retained
+		}
 		if err := safeLibraryParent(binding.Path); err != nil {
 			problems[slug] = "The managed directory cannot be verified; its local files are retained."
 			continue
@@ -179,7 +194,7 @@ func removeLibraryDeployment(ctx context.Context, config string, c agentConfig, 
 			if err := safeLibraryParent(filepath.Dir(backup)); err != nil {
 				return err
 			}
-			binding.Deployment.Removal = &libraryRemoval{Generation: intent.Generation, Backup: backup, Phase: "prepared"}
+			binding.Deployment.Removal = &libraryRemoval{Generation: intent.Generation, Backup: backup, Phase: "prepared", Digest: action.BeforeDigest}
 			// The destination and pending edit bytes survive a crash even if it
 			// happens between rename and the final receipt. A failed write refuses
 			// the move; an unreadable/changed source never becomes an empty copy.
@@ -227,4 +242,79 @@ func removeLibraryDeployment(ctx context.Context, config string, c agentConfig, 
 		return writePrivate(config+".library", state)
 	}
 	return errors.New("managed removal binding was not found")
+}
+
+// recoverLibraryRemovals settles journals left by an interrupted removal using
+// only what the filesystem proves. It never moves, copies or deletes content:
+//
+//   - entry present, no backup: the move never happened; the journal is cleared
+//     and the entry stays a managed copy whose ownership is proven again at the
+//     next removal.
+//   - entry absent, backup present with the journalled digest: the move
+//     completed; the journal is finalised as removed and installed ownership is
+//     released. Whether the item should come back is decided by the next plan
+//     from current controller intent, never from this record.
+//   - anything else (both present, neither present, a changed or unreadable
+//     backup, a link, an old journal with no digest): ambiguous. Every file is
+//     retained, the journal is kept and the item reports a problem; healthy
+//     items continue.
+//
+// It reports whether the state changed and the problems that remain.
+func recoverLibraryRemovals(state *libraryLocalState, targetID, path string) (bool, map[string]string) {
+	held := map[string]string{}
+	changed := false
+	for i := range state.Bindings {
+		binding := &state.Bindings[i]
+		if binding.Source || binding.Deployment == nil || binding.Deployment.Removal == nil || binding.Deployment.Removal.Phase != "prepared" ||
+			binding.Deployment.TargetID != targetID || filepath.Dir(binding.Path) != filepath.Clean(path) {
+			continue
+		}
+		removal := binding.Deployment.Removal
+		slug := filepath.Base(binding.Path)
+		hold := func(reason string) {
+			held[slug] = "An interrupted removal needs attention (" + reason + "); every file was retained."
+		}
+		if removal.Digest == "" {
+			hold("its record predates recovery")
+			continue
+		}
+		if safeLibraryParent(binding.Path) != nil || safeLibraryParent(filepath.Dir(removal.Backup)) != nil {
+			hold("a directory could not be verified")
+			continue
+		}
+		_, localErr := os.Lstat(binding.Path)
+		backupInfo, backupErr := os.Lstat(removal.Backup)
+		if (localErr != nil && !os.IsNotExist(localErr)) || (backupErr != nil && !os.IsNotExist(backupErr)) {
+			hold("a location could not be read")
+			continue
+		}
+		local, backup := localErr == nil, backupErr == nil
+		switch {
+		case local && !backup:
+			binding.Deployment.Removal = nil
+			changed = true
+			// The prepared temporary directory is empty when nothing moved.
+			if parent := filepath.Dir(removal.Backup); strings.HasPrefix(filepath.Base(parent), "removed-") {
+				_ = os.Remove(parent)
+			}
+		case !local && backup:
+			if backupInfo.Mode()&os.ModeSymlink != 0 {
+				hold("its backup is a link")
+				continue
+			}
+			digest, err := privateSkillDigest(removal.Backup)
+			if err != nil || digest != removal.Digest {
+				hold("its backup does not match what was moved")
+				continue
+			}
+			removal.Phase = "removed"
+			binding.Deployment.Verified = false
+			changed = true
+		case local && backup:
+			hold("the entry and its backup both exist")
+		default:
+			hold("neither the entry nor its backup was found")
+		}
+	}
+	return changed, held
 }

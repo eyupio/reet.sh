@@ -403,8 +403,8 @@
   {/if}
   {#if skillOpen}
     <SkillPromptPicker opener={skillButton ?? null} sheet={touch} oninsert={useSkill} onclose={() => skillOpen = false} />
-    {#if promptOpen}<PromptPicker opener={promptButton ?? null} sheet={touch} context={{ project: project?.name, branch: project?.baseBranch || base || '', folder: project?.dir || dir || '', sessionTitle: title }} oninsert={usePrompt} onclose={() => { promptOpen = false; void tick().then(() => promptInput?.focus()) }} />{/if}
   {/if}
+  {#if promptOpen}<PromptPicker opener={promptButton ?? null} sheet={touch} context={{ project: project?.name, branch: project?.baseBranch || base || '', folder: project?.dir || dir || '', sessionTitle: title }} oninsert={usePrompt} onclose={() => { promptOpen = false; void tick().then(() => promptInput?.focus()) }} />{/if}
 </dialog>
 
 <style>

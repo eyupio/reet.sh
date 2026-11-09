@@ -20,7 +20,7 @@ const MAX_TOOL = 64
 const MAX_MODEL = 200
 const MAX_EFFORT = 64
 export const MAX_PROMPT_BODY_BYTES = 8000
-const TOKEN = /\{\{\s*([a-zA-Z][a-zA-Z0-9:_-]*)\s*\}\}/g
+const TOKEN = /\{\{\s*(skill:[^{}\s]+|[a-zA-Z][a-zA-Z0-9:_-]*)\s*\}\}/g
 
 function localDate(now: number): string {
   const d = new Date(now)
@@ -47,8 +47,8 @@ export function resolvePrompt(body: string, context: PromptContext = {}, skills:
     const token = raw.trim()
     if (token.startsWith('skill:')) {
       const key = token.slice('skill:'.length).trim()
-      const skill = skills[key]
-      if (skill && skill.trim()) return skill
+      const skill = Object.hasOwn(skills, key) ? skills[key] : undefined
+      if (typeof skill === 'string' && skill.trim()) return skill
       unresolved.push({ token: whole })
       return whole
     }

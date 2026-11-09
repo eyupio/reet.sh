@@ -61,6 +61,22 @@ test('skill tokens expand in one pass and never rescan the inserted text', () =>
   assert.deepEqual(got.unresolved, ['{{skill:unknown}}'])
 })
 
+test('namespaced skill IDs expand and missing namespaced skills are reported', () => {
+  const got = p.resolvePrompt('{{skill:team/toolkit/review.v2}} then {{skill:team/toolkit/missing}}', {}, {
+    'team/toolkit/review.v2': 'Run the review.',
+  })
+  assert.equal(got.text, 'Run the review. then {{skill:team/toolkit/missing}}')
+  assert.deepEqual(got.unresolved, ['{{skill:team/toolkit/missing}}'])
+})
+
+test('unknown skill names never resolve through inherited object properties', () => {
+  const body = '{{skill:constructor}} {{skill:toString}} {{skill:__proto__}}'
+  const got = p.resolvePrompt(body)
+  assert.equal(got.text, body)
+  assert.deepEqual(got.unresolved, ['{{skill:constructor}}', '{{skill:toString}}', '{{skill:__proto__}}'])
+  assert.equal(p.resolvePrompt('{{skill:constructor}}', {}, { constructor: 'Use this named skill.' }).text, 'Use this named skill.')
+})
+
 test('search matches title, description, category and body', () => {
   const items = [prompt(), prompt({ title: 'Ship', body: 'Publish the release', category: 'Release' })]
   assert.deepEqual(p.searchPrompts(items, 'quality').map(item => item.title), ['Review'])

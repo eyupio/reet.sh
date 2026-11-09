@@ -60,15 +60,18 @@ type syncOptions struct {
 	// ownership only after the private installer actually completed its rename.
 	onInstallVerified func(store.SyncSkill, string) error
 	managedRemovals   func(store.SyncTarget, string) ([]SyncAction, map[string]string, error)
-	removeManaged     func(SyncAction, string, io.Writer, func(string)) error
-	verifyEnrollment  bool
-	approvedHash      string
-	cwd               string
-	onTarget          func(store.SyncTarget)
-	onPlan            func(SyncPlan)
-	onProgress        func(string, string)
-	onBackup          func(string)
-	preflight         func([]SyncAction) error
+	// managedDeletions names the managed items whose local deletion has not been
+	// observed long enough to act on; their reinstall waits.
+	managedDeletions func(store.SyncTarget, string) (map[string]bool, error)
+	removeManaged    func(SyncAction, string, io.Writer, func(string)) error
+	verifyEnrollment bool
+	approvedHash     string
+	cwd              string
+	onTarget         func(store.SyncTarget)
+	onPlan           func(SyncPlan)
+	onProgress       func(string, string)
+	onBackup         func(string)
+	preflight        func([]SyncAction) error
 }
 
 var errMissingNpx = errors.New("npx was not found, or Node.js is older than 18; install a current Node.js (which provides npx and npm) on this machine, then sync again")
@@ -932,6 +935,21 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				problems[slug] = message
 			}
 			actions = append(actions, removals...)
+		}
+		if target.Canonical && options.managedDeletions != nil {
+			pending, err := options.managedDeletions(target, targetPath)
+			if err != nil {
+				return nil, err
+			}
+			if len(pending) > 0 {
+				kept := actions[:0]
+				for _, action := range actions {
+					if !(action.Add && pending[action.Skill.Slug]) {
+						kept = append(kept, action)
+					}
+				}
+				actions = kept
+			}
 		}
 
 		canonicalBase := home

@@ -80,6 +80,18 @@ Tests: a new fixture with two managed items where the first-sorted one fails its
 
 Not done: the failed-item message is returned through the existing job result; there is no per-item durable record or notification yet. Legacy ownership migration, debounced restoration and notifications remain.
 
+## Debounced deletion observation and restore (connector half, 9 November 2026)
+
+Local deletion is distinguished from authorised removal by evidence, and is only believed after it persists. `observeLibraryDeletions` runs on every connector cycle and on every plan. For each install this machine is proven to own (verified, not an imported source, no removal in flight) it records which files are missing, as a durable episode in the local library state (`missing`), separate from the binding because an install replaces the binding's receipt. A missing set must be observed at least twice, across at least `libraryRestoreDebounce` (10 seconds), before it counts as stable. A different missing set, or the files coming back, restarts or clears the episode, so an editor's atomic save or a user moving a file back can never start a restore. Anything that is not plain absence (a link, a file where a folder belongs, an unreadable location, an unsafe recorded path) is not a deletion and is never restored.
+
+Planning holds back the reinstall of any item whose deletion is not yet stable (`managedDeletions` hook; canonical targets only; first installs and ordinary updates have no episode and are never held). A stable deletion is restored by the existing additive path: a missing folder is a normal install, and a folder missing files is replaced from canonical bytes, which first moves the surviving local files into the recoverable backup. No new executor or controller approval rule is involved.
+
+After the restore is installed and verified byte for byte, `finishLibraryInstall` converts the stable episode into a durable receipt (`restores`: episode id, item, target, revision, whole/partial, file count, time). The episode id is derived from what was deleted and when it was first seen, so a replay is the same event. A repeated sync adds no second receipt, and an install with no stable deletion behind it (an ordinary update) adds none.
+
+Tests: debounce (first sighting, atomic save, genuine deletion, changed set, whole folder, ownership boundaries) and an end-to-end run through the real executor: install, delete a support file, first sighting plans nothing, the stable deletion plans one replace, the apply restores the exact bytes and backs up survivors, and exactly one receipt exists afterwards. The full scanner package passes under the race detector as a non-root user.
+
+Not done by this checkpoint: the connector does not yet report receipts, the controller has no endpoint or notification for them, and nothing asks the controller to queue a sync when a partial deletion is observed (the controller only learns of a missing folder through inventory). Those are the controller half, below.
+
 ## Required continuation within Stage 4
 
 1. (Controller approval and acknowledgement fencing is done; see above. Capability stays off.) Complete the local provenance journal with controller operation receipts and interrupted-operation recovery. Migrate existing bindings only from verified installed/applied bases, preserving registered source folders and foreign installations. Finish authoritative automatic-plan validation and current-intent acknowledgement fencing before the controller advertises the managed-removal capability. Older connectors must retain their existing additive behavior. Keep the existing single target executor and backup path. The gated connector path above does not complete this migration or normal negotiation.

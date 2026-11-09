@@ -60,6 +60,10 @@ type libraryLocalState struct {
 	Bindings        []libraryBinding    `json:"bindings"`
 	Pending         []store.LibraryEdit `json:"pending"`
 	ManagedRemovals int                 `json:"managedRemovals,omitempty"`
+	// Missing and Restores are the debounced deletion episodes and the verified
+	// restores not yet reported; see library_restore.go.
+	Missing  []libraryMissing `json:"missing,omitempty"`
+	Restores []libraryRestore `json:"restores,omitempty"`
 }
 
 func loadLibraryState(config string, c agentConfig) (libraryLocalState, error) {
@@ -179,6 +183,12 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 		if err = captureLibraryEdits(&state); err != nil {
 			return err
 		}
+		if err = writePrivate(config+".library", state); err != nil {
+			return err
+		}
+	}
+	// Observing a deletion is read-only; it keeps the debounce moving between jobs.
+	if observeLibraryDeletions(&state, time.Now()) {
 		if err = writePrivate(config+".library", state); err != nil {
 			return err
 		}
@@ -340,6 +350,7 @@ func finishLibraryInstall(config string, c agentConfig, skill store.SyncSkill, p
 			return errors.New("installed library content changed before verification")
 		}
 		deployment.Verified = true
+		recordVerifiedRestore(&state, candidate, targetID, skill.ItemID, parts[2], time.Now())
 		return writePrivate(config+".library", state)
 	}
 	return errors.New("library deployment was not prepared")

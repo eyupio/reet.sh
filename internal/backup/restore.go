@@ -39,6 +39,10 @@ type RestoreOptions struct {
 	Source string
 	// Replace allows an import into a controller that already holds data.
 	Replace bool
+	// AllowLiveSource accepts a copy whose source was not fenced as it was
+	// taken, or that does not say. Without it such a copy is refused, because
+	// two live controllers would split one set of data.
+	AllowLiveSource bool
 }
 
 // RestoreReport says what a copy holds and what was done to it so it is safe
@@ -152,6 +156,35 @@ type RestoreResult struct {
 	Report   RestoreReport
 }
 
+// ErrLiveSource is returned for a copy whose source controller was not fenced
+// as the copy was taken, or whose copy does not say.
+var ErrLiveSource = errors.New("this copy was taken from a controller that was not stopped")
+
+// sourceState says in a word what a copy records about its source: "fenced",
+// "live" or "unknown" (taken by a reet that did not record it).
+func sourceState(m Manifest) string {
+	switch {
+	case m.Fenced == nil:
+		return "unknown"
+	case *m.Fenced:
+		return "fenced"
+	}
+	return "live"
+}
+
+// checkLiveSource refuses a copy of a controller that may still be running.
+func checkLiveSource(m Manifest, allow bool) error {
+	state := sourceState(m)
+	if state == "fenced" || allow {
+		return nil
+	}
+	what := "it says its source controller was still running"
+	if state == "unknown" {
+		what = "it does not say whether its source controller was stopped (an older reet took it)"
+	}
+	return fmt.Errorf("%w: %s. If that controller is still live, two controllers would work from one set of data, and this copy may already be out of date. Stop the old controller, take a final copy of it once it is stopped, and use that; or, if you know the old one is gone, say so with --allow-live-source", ErrLiveSource, what)
+}
+
 // ErrNewerSchema is returned for a copy taken by a newer reet.
 var ErrNewerSchema = errors.New("this copy was taken by a newer reet than this one")
 
@@ -182,6 +215,9 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 		}
 		return rep, fmt.Errorf("%w: it is data format %d (release %s) and this reet reads up to data format %d; upgrade reet, then restore it", ErrNewerSchema, sum.SchemaVersion, release, store.SchemaVersion)
 	}
+	if err := checkLiveSource(m, opts.AllowLiveSource); err != nil {
+		return rep, err
+	}
 	if email := strings.TrimSpace(opts.OwnerEmail); email != "" {
 		found := false
 		for _, o := range sum.Owners {
@@ -205,7 +241,8 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 		},
 		EventSource: opts.Source,
 		EventAction: "backup-restored",
-		EventDetail: map[string]any{"id": m.ID, "release": m.Version, "ownerChecked": strings.TrimSpace(opts.OwnerEmail) != ""},
+		EventDetail: map[string]any{"id": m.ID, "release": m.Version, "ownerChecked": strings.TrimSpace(opts.OwnerEmail) != "",
+			"source": m.Source, "sourceState": sourceState(m), "allowLiveSource": opts.AllowLiveSource},
 	})
 	if err != nil {
 		return rep, fmt.Errorf("adapting the copy: %w", err)

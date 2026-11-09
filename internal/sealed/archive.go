@@ -64,6 +64,14 @@ type Manifest struct {
 	Cipher      string `json:"cipher,omitempty"`
 	Protection  string `json:"protection,omitempty"`
 	Compression string `json:"compression,omitempty"`
+	// Source is the identifier of the controller the copy was taken from. It
+	// is stable across a change of address. Empty in a copy taken by a reet
+	// that did not record it.
+	Source string `json:"source,omitempty"`
+	// Fenced says whether that controller was fenced as the copy was taken. It
+	// is a pointer so a copy that says nothing (taken by an older reet) reads
+	// as unknown, which is not the same as "not fenced".
+	Fenced *bool `json:"fenced,omitempty"`
 }
 
 // SealOptions chooses how a copy is stored. A password replaces the

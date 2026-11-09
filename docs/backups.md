@@ -248,12 +248,48 @@ exactly as it was.
    and the database is what the binary actually has to read. A copy from
    before versions were recorded reads as 0 and is accepted.
 2. **The copy must pass SQLite's integrity check.**
-3. **`--owner-email ADDR` must be an owner in the copy.** The address must
+3. **The copy's source must have been stopped.** A copy that says its source
+   was still running, or says nothing, is refused unless `--allow-live-source`
+   is given (see below).
+4. **`--owner-email ADDR` must be an owner in the copy.** The address must
    belong to an owner account that is not disabled, or the restore is refused
    and names the owners the copy does have. It exists so nobody swaps in a
    database they cannot sign in to.
-4. **The inventory is printed**: accounts by role, shelves, skills, lists, tags,
+5. **The inventory is printed**: accounts by role, shelves, skills, lists, tags,
    environments, connected machines and backup destinations.
+
+### What a copy records about where it came from
+
+A whole-controller copy now carries two fields in its clear header, readable
+before it is opened (`reet backup open` and the listing show them):
+
+- `source`: the controller's own identifier (`ctl_` and 32 hex digits), made the
+  first time a copy is taken and kept in the database's settings. It names the
+  controller, not its address, so it stays the same when the address changes. A
+  copy restored on another machine brings the identifier with it, because it says
+  which controller the data came from.
+- `fenced`: true when the controller had been told to stop acting for the whole
+  time the copy was being taken. The state is read before and after the snapshot
+  and the copy is marked fenced only if both reads agree, so a fence raised or
+  lifted mid-copy reads as not fenced, the safe side.
+
+A copy taken by an older reet has neither field and reads as **unknown**.
+
+### Why a copy of a running controller is refused
+
+`restore` and `import` refuse a copy whose `fenced` is false or unknown. Two live
+controllers working from one set of data split it between them, and a copy of a
+running controller may already be out of date by the time it lands. Stop the old
+controller, take a final copy once it is stopped, and use that. If you know the
+old controller is gone (a failed machine, say) and the copy is the best you have,
+say so with `--allow-live-source`; the API form field is `allowLiveSource`.
+
+The check runs with the others, before anything changes, so a refusal leaves
+`reet.db` as it was, and an import stages nothing. When the flag is used the
+choice is written to the activity log (`backup-restored`, with `allowLiveSource`,
+`sourceState` of `live` or `unknown`, and `source`); no secret is recorded. A
+fence recorded in a copy is never carried across: the controller a copy lands on
+is the one meant to be live, so a restore clears it.
 
 ### What a restore changes in the copy
 
@@ -313,7 +349,9 @@ reet backup import --server https://reet.example --token-file ./owner.token \
 The token is an owner's personal API token. A secret on the command line is a
 file or `-` for standard input, never an argument; the token and the password
 cannot both be `-`. `--drop-sessions`, `--drop-tokens` and `--owner-email` mean
-what they do for a restore. `--replace` is described below. The command streams
+what they do for a restore, and so does `--allow-live-source`: the example above
+needs it unless the copy was taken from a fenced controller. `--replace` is
+described below. The command streams
 the file, so it is not read into memory on this side.
 
 **From the page**, under **Admin → Backups → Import a copy from another

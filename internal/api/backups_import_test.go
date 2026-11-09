@@ -122,8 +122,17 @@ type reply struct {
 	v    map[string]any
 }
 
+// post sends an import. These fixtures are copies of controllers that were
+// not fenced, so it says allowLiveSource unless the test sets it itself.
 func (tg target) post(t *testing.T, token string, fields [][2]string, file []byte) reply {
 	t.Helper()
+	set := false
+	for _, f := range fields {
+		set = set || f[0] == "allowLiveSource"
+	}
+	if !set {
+		fields = append(append([][2]string{}, fields...), [2]string{"allowLiveSource", "1"})
+	}
 	body, ctype := form(t, fields, file)
 	req, _ := http.NewRequest("POST", tg.url+"/api/v2/admin/backups/import", body)
 	req.Header.Set("Content-Type", ctype)
@@ -346,4 +355,19 @@ func TestACopyAfterTheOptionsIsRequired(t *testing.T) {
 		t.Fatalf("got %d %s", r.code, r.text)
 	}
 	tg.untouched(t)
+}
+
+// A copy of a controller that was not fenced is refused at the API with a 409
+// that says why, and is accepted when the owner says the source is gone.
+func TestAnImportOfAnUnfencedCopyIsRefusedUnlessTheOwnerAllowsALiveSource(t *testing.T) {
+	raw := source(t, "")
+	tg := newTarget(t, false)
+	r := tg.post(t, "owner-token", [][2]string{{"allowLiveSource", "0"}}, raw)
+	if r.code != http.StatusConflict || !strings.Contains(r.text, "not stopped") || !strings.Contains(r.text, "--allow-live-source") {
+		t.Fatalf("an unfenced copy: %d %s", r.code, r.text)
+	}
+	tg.untouched(t)
+	if r := tg.post(t, "owner-token", [][2]string{{"allowLiveSource", "1"}}, raw); r.code != 200 {
+		t.Fatalf("with allowLiveSource: %d %s", r.code, r.text)
+	}
 }

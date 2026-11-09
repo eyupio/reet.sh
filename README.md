@@ -509,11 +509,11 @@ reet backup list                      # instance copies on this machine
 reet backup run                       # take one now, and ship it
 reet backup open --password-file p f  # open a downloaded copy to stdout
 reet backup escrow --out f --passphrase-file p   # key and destinations, sealed
-reet backup restore --yes <id>        # with the server stopped; without --yes it only checks and reports. --drop-sessions, --drop-tokens, --owner-email ADDR
+reet backup restore --yes <id>        # with the server stopped; without --yes it only checks and reports. --drop-sessions, --drop-tokens, --owner-email ADDR, --allow-live-source
 reet backup import --server URL --token-file F COPY   # into a running controller; applied at its next start
 ```
 
-An instance restore replaces the live database, so the admin page tells you the command rather than doing it behind a running server; the database in place is moved aside, not deleted. A restore keeps browser sign-ins and personal tokens working unless you ask for `--drop-sessions` or `--drop-tokens`, always drops the private-connection identity, refuses a copy from a newer reet, and reports what came across and which stored secrets the new backup key cannot open. To move a controller without shell access to its machine, the owner can send a copy to the running controller (`POST /api/v2/admin/backups/import`), which stages it and applies it at the next start. A person's restore runs from their own page and only ever touches their own shelf. See [backups](docs/backups.md) for the full runbook, including a machine rebuilt from nothing.
+An instance restore replaces the live database, so the admin page tells you the command rather than doing it behind a running server; the database in place is moved aside, not deleted. A restore keeps browser sign-ins and personal tokens working unless you ask for `--drop-sessions` or `--drop-tokens`, always drops the private-connection identity, refuses a copy from a newer reet and a copy of a controller that was not stopped (unless `--allow-live-source`), and reports what came across and which stored secrets the new backup key cannot open. To move a controller without shell access to its machine, the owner can send a copy to the running controller (`POST /api/v2/admin/backups/import`), which stages it and applies it at the next start. A person's restore runs from their own page and only ever touches their own shelf. See [backups](docs/backups.md) for the full runbook, including a machine rebuilt from nothing.
 
 ## Shelf tools and admin
 

@@ -347,7 +347,9 @@
   async function create() {
     if(busy||accessDenied||!createMachine?.ready||createMachine.serverEnabled===false||!validTerminalTitle(title.trim()||autoName)||dirError||createAtQuota&&!requestId)return
     busy=true;error=''
-    // One immutable retry operation per machine, including its original title.
+    // One immutable retry operation per machine, including its original title. A project launch keeps its projectId only
+    // while the folder is the project's; editing the folder clears it, and a validation refusal (422) puts the form back so
+    // the person can correct the folder instead of retrying an invalid request forever.
     const agent=terminalAgent
     const originAgent=selectedAgent,originSession=selectedSession
     const operation=creations[agent] || {requestId:crypto.randomUUID(),title:title.trim()||autoName,dir:terminalDir,projectId:terminalProjectId||undefined,error:''}
@@ -366,7 +368,7 @@
       await refresh()
     } catch(e){
       if(disposed)return
-      if(e instanceof TerminalError&&e.status===400){const next={...creations};delete next[agent];creations=next;if(terminalAgent===agent)error=e.message}
+      if(e instanceof TerminalError&&[400,422].includes(e.status)){const next={...creations};delete next[agent];creations=next;if(terminalAgent===agent)error=e.message}
       else creations={...creations,[agent]:{...operation,error:e instanceof Error?e.message:'Creation could not be confirmed. Retry the same operation.'}}
     } finally{clearTimeout(timeout);busy=false}
   }
@@ -653,7 +655,7 @@
       <option value="" disabled>Choose a machine…</option>
       {#each machines as item (item.agentId)}<option value={item.agentId}>{item.host}{item.ready?'':' · Unavailable'}</option>{/each}
     </select></label>
-    <label>Folder<input bind:value={terminalDir} disabled={busy || !!requestId} placeholder="Home folder (default)" aria-invalid={!!dirError} aria-describedby="terminal-folder-help" /></label>
+    <label>Folder<input bind:value={terminalDir} disabled={busy || !!requestId} oninput={()=>{terminalProjectId=''}} placeholder="Home folder (default)" aria-invalid={!!dirError} aria-describedby="terminal-folder-help" /></label>
     <p id="terminal-folder-help">{dirError || 'Leave empty for the machine’s home folder, or enter a full path starting with /.'}</p>
     <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" placeholder={autoName} aria-describedby="terminal-name-help" /></label>
     <p id="terminal-name-help">Optional. Left empty, the session is called {autoName}.</p>

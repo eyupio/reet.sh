@@ -508,7 +508,7 @@ There are two kinds: a one-off export, and sealed copies taken on a schedule.
 ```sh
 reet backup keygen                     # print a key for REET_BACKUP_KEY
 reet backup list                      # instance copies on this machine
-reet backup run                       # take one now, and ship it
+reet backup run                       # take one now, and ship it; --password-file F seals that copy alone with the password in F
 reet backup open --password-file p f  # open a downloaded copy to stdout
 reet backup escrow --out f --passphrase-file p   # key and destinations, sealed
 reet backup fence --moved-to URL     # stop this controller acting before the final copy; --lift undoes it

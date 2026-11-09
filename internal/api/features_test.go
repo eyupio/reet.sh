@@ -44,7 +44,7 @@ func TestVersionListsExactlyTheBuiltFeatures(t *testing.T) {
 // What this build really holds is what is advertised: the copy's source and
 // fenced markers and the live-source guard are all here, and nothing else yet.
 func TestTheCompiledFeatureListIsExactlyWhatIsBuilt(t *testing.T) {
-	if !reflect.DeepEqual(builtFeatures, []string{"copy-origin", "fence", "restore-public-url"}) {
+	if !reflect.DeepEqual(builtFeatures, []string{"copy-origin", "fence", "restore-public-url", "copy-password-request"}) {
 		t.Fatalf("this build advertises %v", builtFeatures)
 	}
 }

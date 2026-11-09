@@ -362,8 +362,8 @@ func (s *Service) SaveSettings(ownerID int64, in SettingsInput) (store.BackupSet
 		if strings.TrimSpace(password) == "" {
 			current.PasswordSealed = ""
 		} else {
-			if len(password) < MinPassword {
-				return store.BackupSettings{}, fmt.Errorf("a copy password needs at least %d characters", MinPassword)
+			if err := ValidateCopyPassword(password); err != nil {
+				return store.BackupSettings{}, err
 			}
 			if s.cfg.Sealer == nil {
 				return store.BackupSettings{}, errors.New("backups are not enabled: no usable backup key")
@@ -387,6 +387,16 @@ func (s *Service) SaveSettings(ownerID int64, in SettingsInput) (store.BackupSet
 		return store.BackupSettings{}, err
 	}
 	return s.st.BackupSettingsFor(ownerID)
+}
+
+// ValidateCopyPassword is the one rule for a copy password, whether it is saved
+// as the setting or given for a single copy: at least MinPassword characters,
+// and not blank. The message never contains the password.
+func ValidateCopyPassword(password string) error {
+	if strings.TrimSpace(password) == "" || len(password) < MinPassword {
+		return fmt.Errorf("a copy password needs at least %d characters", MinPassword)
+	}
+	return nil
 }
 
 // copyPassword opens the stored copy password for one owner, or "" when
@@ -575,17 +585,33 @@ func targetOf(ownerID int64) string {
 func (s *Service) RunInstance(ctx context.Context, trigger string) (Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.runLocked(ctx, 0, trigger)
+	return s.runLocked(ctx, 0, trigger, nil)
+}
+
+// RunInstanceWithPassword takes a copy of the whole database sealed with a
+// password given for this one copy. The stored copy password is not read,
+// changed or cleared: it is a setting for every copy, and this is a parameter of
+// one. A password that fails ValidateCopyPassword is refused before anything is
+// taken. Copies are serialised, so no other copy can be sealed with it.
+func (s *Service) RunInstanceWithPassword(ctx context.Context, trigger, password string) (Item, error) {
+	if err := ValidateCopyPassword(password); err != nil {
+		return Item{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runLocked(ctx, 0, trigger, &password)
 }
 
 // RunUser takes a copy of one person's shelf and ships it.
 func (s *Service) RunUser(ctx context.Context, userID int64, trigger string) (Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.runLocked(ctx, userID, trigger)
+	return s.runLocked(ctx, userID, trigger, nil)
 }
 
-func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) (Item, error) {
+// runLocked takes one copy. requestPassword, when not nil, seals this copy
+// instead of the stored copy password, which is then not read at all.
+func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string, requestPassword *string) (Item, error) {
 	if !s.Usable() {
 		return Item{}, errors.New("backups are not enabled: no usable backup key")
 	}
@@ -676,8 +702,10 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 	if len(payload) > maxObjectBytes {
 		return fail(fmt.Errorf("this copy would be %d MiB, larger than this build's %d MiB limit; reduce the event history or keep the copy on this machine only", len(payload)>>20, maxObjectBytes>>20))
 	}
-	password, err := s.copyPassword(ownerID)
-	if err != nil {
+	var password string
+	if requestPassword != nil {
+		password = *requestPassword
+	} else if password, err = s.copyPassword(ownerID); err != nil {
 		return fail(err)
 	}
 	m := Manifest{ID: id, Kind: scope, OwnerID: ownerID, Target: targetOf(ownerID), TakenAt: started, Version: s.cfg.Version, Source: source, Fenced: fenced}

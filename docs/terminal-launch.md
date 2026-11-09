@@ -323,8 +323,11 @@ it with `yolo_refused`, and the account setting must allow it first. A Claude Co
 same three gates: the account setting, the machine switch and the confirmation.
 
 Terminal resume exists for OpenCode (`--continue`, and `--session <id>`) and Claude Code (`--continue`, and
-`--resume <id>`). `--continue` continues the tool's most recent conversation in the launch folder; `--resume <id>` opens the
-stored conversation with that native id, a Claude UUID, on a machine the account's closed session ran on and in its own folder.
+`--resume <id>`). `--continue` continues the tool's most recent conversation in the launch folder. The preset carries
+`--resume <id>` for a Claude Code session id, but nothing in the browser starts it yet: the only path that sends a session
+id is the switch from a running Gaffer chat to the agent's own terminal, which the web offers for OpenCode only. Whether a
+Claude Code chat's id is one the CLI's `--resume` opens is not measured, because only the CLI's help was captured. Offering
+that switch for Claude Code is a separate, later change.
 
 Cline 3.0.74 is enabled after a pinned, help-only installation confirmed its
 `--auto-approve false --tui` safety and interactive arguments, `--model` and

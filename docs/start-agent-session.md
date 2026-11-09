@@ -123,7 +123,7 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   owner or admin has allowed it for the account, the machine accepts it and the agent has a reviewed
   option. The controller refuses it with 403 `yolo_not_allowed` or 409 `yolo_refused` otherwise.
   Claude Code takes a thinking level, a resume (Continue) and YOLO in a terminal launch, and a Claude Code
-  chat takes YOLO through the same three gates.
+  chat takes YOLO through the same three gates. Opening a stored Claude Code conversation in its terminal is not offered yet.
 - **The rail.** Choosing a rail card narrows the board to that project. Its **+** and **New session
   here** open the Start an agent dialog with that project's machine, folder and defaults already
   chosen; `/?project=<id>` opens the launch modal on it once. **Select projects** in the heading's

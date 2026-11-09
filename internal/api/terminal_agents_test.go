@@ -118,6 +118,8 @@ func TestCreateYoloGates(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Every started agent now has a reviewed option, so Claude Code meets the machine's gate next, not an option refusal.
+	// The "no reviewed option" refusal is unreachable through any enabled agent and is not covered here until one exists
+	// (terminalproto.TestEveryStartedAgentTakesYolo says when that changes).
 	status, out, _ = f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "claude", "yolo": true}))
 	if status != 409 || out["code"] != "yolo_refused" || len(f.sent()) != 0 {
 		t.Fatalf("claude on a machine that does not advertise yolo: %d %v", status, out)

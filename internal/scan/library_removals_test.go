@@ -183,9 +183,16 @@ func TestLibraryManagedRemovalExecutor(t *testing.T) {
 			if mode == "partial" && len(got.Pending) != 0 {
 				t.Fatal("partial disappearance became a central edit", got.Pending)
 			}
-			if mode == "stale_after_move" || mode == "edit_during_check" {
+			if mode == "edit_during_check" {
+				// The backup no longer matches what was prepared, so recovery holds it.
 				if got.Bindings[0].Deployment.Removal.Phase != "prepared" || got.Bindings[0].Deployment.Removal.Backup != backups[0] {
 					t.Fatal("uncertain outcome lost recovery journal", got)
+				}
+			} else if mode == "stale_after_move" {
+				// The move completed and its backup is intact, so the same apply's final
+				// verification settles the journal as removed. Acknowledgement still failed.
+				if got.Bindings[0].Deployment.Removal.Phase != "removed" || got.Bindings[0].Deployment.Removal.Backup != backups[0] || got.Bindings[0].Deployment.Verified {
+					t.Fatal("completed move was not settled with its backup recorded", got)
 				}
 			} else if removed && (got.Bindings[0].Deployment.Verified || got.Bindings[0].Deployment.Removal.Phase != "removed") {
 				t.Fatal("removed directory still claims installed ownership", got)

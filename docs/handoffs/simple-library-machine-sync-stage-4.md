@@ -70,6 +70,16 @@ Tests cover each row, idempotent re-runs, and recovery after a simulated control
 
 Not done by this checkpoint: legacy ownership migration, per-item failure isolation at execution time, debounced restoration and notifications.
 
+## Execution-time failure isolation (9 November 2026)
+
+On a library (canonical) target the apply loop no longer stops at the first failed action. An item-scoped failure (a refused or stale intent check, changed ownership, a failed install, backup or verification) is recorded against its slug and the loop continues; the final rescan excludes those slugs, and the apply then ends with one error that names every failed item and says healthy items synced and the failed items' local files were left as they were. The job is therefore still reported as needing attention, never as a complete sync. Failures that affect the whole target still stop the apply immediately: withdrawn consent, a replaced or mismatched enrollment (now the shared `errLocalAuthorityChanged`), and context cancellation. Non-canonical targets keep the previous stop-at-first-error behaviour, and the pre-apply checks that detect a stale plan or changed local skills are unchanged and still refuse the whole apply.
+
+A consequence worth knowing: because the apply now reaches its final verification after an item failure, interrupted-operation recovery can settle that same item's journal in the same run. In `stale_after_move` the move had completed and its backup matched, so the journal is now `removed` with the backup path recorded (previously it stayed `prepared` until the next plan); acknowledgement still failed, and the controller's replan decides whether the item returns. `edit_during_check`, whose backup differs from what was prepared, is still held as `prepared`.
+
+Tests: a new fixture with two managed items where the first-sorted one fails its execution-time intent check proves the healthy one is still removed with an intact backup and the failure is named, and that withdrawing consent mid-apply stops the whole target with the healthy item untouched. The earlier removal matrix, recovery tests and the full scanner package pass under the race detector when run as a non-root user. As before, `journal_refused` fails when the suite runs as root because it relies on a read-only directory.
+
+Not done: the failed-item message is returned through the existing job result; there is no per-item durable record or notification yet. Legacy ownership migration, debounced restoration and notifications remain.
+
 ## Required continuation within Stage 4
 
 1. (Controller approval and acknowledgement fencing is done; see above. Capability stays off.) Complete the local provenance journal with controller operation receipts and interrupted-operation recovery. Migrate existing bindings only from verified installed/applied bases, preserving registered source folders and foreign installations. Finish authoritative automatic-plan validation and current-intent acknowledgement fencing before the controller advertises the managed-removal capability. Older connectors must retain their existing additive behavior. Keep the existing single target executor and backup path. The gated connector path above does not complete this migration or normal negotiation.

@@ -1045,6 +1045,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return errLocalSkillsChanged
 	}
 
+	// On a library (canonical) target one item's failure is that item's problem:
+	// the others still run, and every failure is reported at the end. Failures
+	// that affect the whole target (withdrawn consent, a replaced enrollment,
+	// cancellation) and every failure on other targets still stop the apply.
+	failed := map[string]error{}
 	for index, action := range actions {
 		verb := "Installing"
 		if !action.Add {
@@ -1093,6 +1098,10 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
 			}
 		}
+		if operationErr != nil && target.Canonical && itemScopedFailure(operationErr) {
+			failed[action.Skill.Slug] = operationErr
+			continue
+		}
 		if operationErr != nil {
 			_ = rescan()
 			hint := "rescan and preview again"
@@ -1111,11 +1120,46 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if err != nil {
 		return err
 	}
+	if len(failed) > 0 {
+		kept := remaining[:0]
+		for _, action := range remaining {
+			if _, isFailed := failed[action.Skill.Slug]; !isFailed {
+				kept = append(kept, action)
+			}
+		}
+		remaining = kept
+	}
 	if len(remaining) > 0 {
 		return errors.New("commands completed but the installed skills still differ from the plan; inspect the agent installation, then sync again")
 	}
+	if len(failed) > 0 {
+		return itemFailuresError(failed)
+	}
 	fmt.Fprintln(out, "Sync complete. Updated inventory persisted on the controller.")
 	return nil
+}
+
+// itemScopedFailure reports whether an apply failure belongs to one item.
+func itemScopedFailure(err error) bool {
+	return !errors.Is(err, errLocalAuthorityChanged) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
+}
+
+// itemFailuresError names every item that failed while the healthy ones synced.
+func itemFailuresError(failed map[string]error) error {
+	slugs := make([]string, 0, len(failed))
+	for slug := range failed {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	parts := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		parts = append(parts, slug+": "+failed[slug].Error())
+	}
+	noun := "items need"
+	if len(slugs) == 1 {
+		noun = "item needs"
+	}
+	return fmt.Errorf("healthy items synced; %d %s attention (%s); their local files were left as they were", len(slugs), noun, strings.Join(parts, "; "))
 }
 
 // linkSharedInstall exposes a skill in an agent's own folder. The skills CLI

@@ -31,6 +31,11 @@ type libraryBinding struct {
 	Deployment *libraryDeployment `json:"deployment,omitempty"`
 }
 
+// errLocalAuthorityChanged means the local consent or enrollment this run was
+// authorised by is no longer the one in force. It affects the whole target,
+// never a single item, so an apply stops instead of isolating it.
+var errLocalAuthorityChanged = errors.New("local sync consent or enrollment changed")
+
 type libraryDeployment struct {
 	TargetID string          `json:"targetId"`
 	Revision string          `json:"revision"`
@@ -70,7 +75,7 @@ func loadLibraryState(config string, c agentConfig) (libraryLocalState, error) {
 		return state, err
 	}
 	if state.Server != c.Server || state.Enrollment != c.ID {
-		return state, errors.New("library receipts belong to another enrollment")
+		return state, errLocalAuthorityChanged
 	}
 	return state, nil
 }
@@ -81,7 +86,7 @@ func libraryApplyConsent(config string, c agentConfig) error {
 		return err
 	}
 	if !local.AllowApply || local.ID != c.ID || local.Server != c.Server || local.Secret != c.Secret {
-		return errors.New("local sync consent or enrollment changed")
+		return errLocalAuthorityChanged
 	}
 	return nil
 }
@@ -156,7 +161,7 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 		return err
 	}
 	if local.ID != c.ID || local.Server != c.Server || local.Secret != c.Secret {
-		return errors.New("local library enrollment changed")
+		return errLocalAuthorityChanged
 	}
 	c.AllowApply = local.AllowApply
 	lock, err := filelock.Acquire(config + ".library.lock")
@@ -482,7 +487,7 @@ func adoptLibraryInstall(ctx context.Context, config string, c agentConfig, want
 		return errors.New("Enable sync locally to track this existing copy.")
 	}
 	if local.ID != c.ID || local.Server != c.Server || local.Secret != c.Secret {
-		return errors.New("local library enrollment changed")
+		return errLocalAuthorityChanged
 	}
 	state, err := loadLibraryState(config, c)
 	if err != nil {

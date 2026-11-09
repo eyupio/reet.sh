@@ -13,6 +13,7 @@
   import WorkerMessaging from './WorkerMessaging.svelte'
  import GafferGoal from './GafferGoal.svelte'
  import { goalPrefill } from './sessions/goalPrefill'
+ import { copyText } from './clipboard'
   import GafferSessionPicker from './GafferSessionPicker.svelte'
   import GafferFollowedSessions from './GafferFollowedSessions.svelte'
   import ContextSharing from './ContextSharing.svelte'
@@ -168,7 +169,7 @@
       if (mine === epoch && stream === source && open) { stream = undefined; streamError = 'The reply connection paused. Reconnect to read Gaffer’s saved answer.' }
     }
   }
-  async function close() { open = false;full=false; confirming = false; freshConfirm = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true}) }
+  async function close() { wantedDraft = null; open = false;full=false; confirming = false; freshConfirm = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true}) }
   function chooseProvider(value: string) { providerId = value; model = ''; manualModel = false; invalidateModels() }
   function invalidateModels() { modelEpoch++; modelRequest?.abort(); fetchingModels = false; models = []; modelsError = '' }
   async function fetchModels() {
@@ -229,13 +230,13 @@
     return()=>clearInterval(timer)
   })
   // `draft` is a goal the session overview wrote for the person; the editor opens with it and nothing is started.
- let goalDraft=$state(''),wantedDraft=$state<string|null>(null),goalSeen=0
+ let goalDraft=$state(''),wantedDraft=$state<{id:string;text:string}|null>(null),goalSeen=0
  async function goalChoices(draft=''){
  optionsOpen=false
  if(loading||sending||updating||dirty||unavailable||!scope)return
  goalDraft=draft
  const mine=epoch;updating=true;error=''
- try{if(!current){const c=await createGafferConversation(scope,providerId,model,request?.signal);if(mine!==epoch)return;view=c}if(mine===epoch)goalOpen=true}catch(e){if(mine===epoch){error=message(e);goalDraft=''}}finally{if(mine===epoch)updating=false}
+ try{if(!current){const c=await createGafferConversation(scope,providerId,model,request?.signal);if(mine!==epoch)return;view=c}if(mine===epoch)goalOpen=true}catch(e){if(mine===epoch){error=message(e);if(draft){goalDraft='';void copyText(draft).then(ok=>{if(ok&&mine===epoch)notice='The goal could not be opened here, so it was copied instead.'})}}}finally{if(mine===epoch)updating=false}
  }
  // The overview asks for the follow-up editor for the chat session Gaffer is showing. Answering at once says it is ours; the editor opens
  // as soon as the chat has loaded, which is why this only records the wish.
@@ -244,12 +245,14 @@
   if(!ask||ask.nonce<=goalSeen||!ctx||ask.sessionId!==ctx.id)return
   goalSeen=ask.nonce
   const taken=untrack(()=>!!ctx.structured&&settings?.available!==false&&!!ask.text.trim())
-  if(taken)untrack(()=>{mode='session';wantedDraft=ask.text;open=true})
+  if(taken)untrack(()=>{mode='session';wantedDraft={id:ctx.id,text:ask.text};open=true})
   ask.answer?.(taken)
  })
  $effect(()=>{
   if(wantedDraft===null||!open||goalOpen||!scope||unavailable||loadedScope!==scope||loading||sending||updating||dirty)return
-  const draft=wantedDraft;wantedDraft=null;void untrack(()=>goalChoices(draft))
+  // A wish made for another session (Gaffer was moved on before the chat loaded) is dropped, not carried to this one.
+  const wish=wantedDraft;wantedDraft=null
+  if(wish.id===scope)void untrack(()=>goalChoices(wish.text))
  })
  async function goalChanged(){
  window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))

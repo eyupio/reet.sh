@@ -64,7 +64,8 @@
     else if (event.key === 'ArrowUp') move(at - 1)
     else if (event.key === 'Home') move(0)
     else if (event.key === 'End') move(all.length - 1)
-    else if (event.key === 'Tab') closeMenu(false)
+    // The menu goes away on Tab; focus is put back on the stage by hand, so a parent's own Tab handling cannot move it to a control that is about to be removed.
+    else if (event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); closeMenu(true) }
   }
   // A press anywhere else closes it; one on the menu or on a stage's own button is that control's business.
   function outside(event: PointerEvent) {
@@ -108,11 +109,13 @@
     <!-- Takes no room: the menu hangs from here over the Next slot, so opening it moves nothing below. -->
     <div class="menu-anchor">
       {#if menuFor && items.length}
-        <div class="menu" id={`${id}-menu`} role="menu" aria-label={`${menuLabel}: follow-up options`} tabindex="-1" bind:this={menuEl} onkeydown={menuKey}>
-          <p class="menu-head">{terminal ? 'Copy a message for the agent' : 'Ask Gaffer to look after this'}</p>
-          {#each items as item (item.id)}
-            <button type="button" role="menuitem" class="menu-item" aria-label={terminal ? `Copy message for the agent: ${item.label}` : item.label} onclick={() => pick(item)}>{item.label}</button>
-          {/each}
+        <div class="menu" bind:this={menuEl} onkeydown={menuKey} role="presentation">
+          <p class="menu-head" id={`${id}-menu-head`}>{terminal ? 'Copy a message for the agent' : 'Ask Gaffer to look after this'}</p>
+          <div class="menu-list" id={`${id}-menu`} role="menu" aria-label={`${menuLabel}: follow-up options`} aria-describedby={`${id}-menu-head`}>
+            {#each items as item (item.id)}
+              <button type="button" role="menuitem" class="menu-item" aria-label={terminal ? `Copy message for the agent: ${item.label}` : item.label} onclick={() => pick(item)}>{item.label}</button>
+            {/each}
+          </div>
         </div>
       {/if}
     </div>
@@ -166,7 +169,8 @@
   .hit:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
   .hit[aria-expanded='true'] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .menu-anchor { position: relative; height: 0; z-index: 6; }
-  .menu { position: absolute; top: 0; left: 0; right: 0; box-sizing: border-box; padding: 6px; display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--card, var(--bg)); box-shadow: var(--shadow); }
+  .menu { position: absolute; top: 0; left: 0; right: 0; box-sizing: border-box; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card, var(--bg)); box-shadow: var(--shadow); }
+  .menu-list { display: grid; gap: 2px; }
   .menu-head { margin: 0; padding: 4px 8px 6px; font-size: 14px; color: var(--muted); }
   .menu-item { font: inherit; font-size: 14px; text-align: left; min-height: 36px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); cursor: pointer; overflow-wrap: anywhere; }
   .menu-item:hover, .menu-item:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); }

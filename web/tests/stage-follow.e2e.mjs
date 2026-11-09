@@ -62,6 +62,8 @@ try{
    if(theme==='dark')await tracker.screenshot({path:`${shots}/stage-menu-${theme}.png`})
    // Escape closes it and puts focus back on the stage.
    await w.page.keyboard.press('Escape');await expect(menu).toBeHidden();await expect(cell('PR')).toBeFocused();await expect(cell('PR')).toHaveAttribute('aria-expanded','false')
+   // Tab leaves the menu and keeps focus on the stage, not on the page.
+   await cell('PR').click();await expect(menu).toBeVisible();await w.page.keyboard.press('Tab');await expect(menu).toBeHidden();await expect(cell('PR')).toBeFocused()
    // Right-click opens the same menu; a press elsewhere closes it.
    await cell('Review').click({button:'right'})
    await expect(w.page.getByRole('menu',{name:'Review: follow-up options',exact:true}).getByRole('menuitem')).toHaveText(['Have Gaffer review it','Address the review comments'])
@@ -88,6 +90,26 @@ try{
   }finally{await w.context.close()}
  }
  {
+  // A request still waiting for the chat to load is dropped when the panel is closed: opening Gaffer later does not pop the editor up.
+  let release;const gate=new Promise(r=>{release=r})
+  const f=fixture(),w=await openWorkspace(browser,{width:1600,height:1000,theme:'dark',routes:f.routes,gates:{'/api/v2/gaffer/conversations':gate}})
+  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+  try{
+   await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
+   const tracker=await overview(w.page),chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true}),goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
+   await tracker.getByRole('button',{name:'PR: follow-up options',exact:true}).click()
+   await w.page.getByRole('menuitem',{name:'Babysit the pull request',exact:true}).click()
+   await expect(chat).toBeVisible()
+   await chat.getByRole('button',{name:'Close Gaffer',exact:true}).click();await expect(chat).toBeHidden()
+   release()
+   await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
+   await expect(chat.getByRole('button',{name:'Look after this session',exact:true})).toBeVisible()
+   await w.page.waitForTimeout(500)
+   await expect(goal,'a closed request came back later').toHaveCount(0)
+   expect(f.box.starts).toHaveLength(0);expect(w.errors).toEqual([])
+  }finally{release();await w.context.close()}
+ }
+ {
   // A terminal session has no follow-up: the same words are copied for the agent, and the menu says so.
   const f=fixture(false),w=await openWorkspace(browser,{width:1600,height:1000,theme:'dark',routes:f.routes})
   try{
@@ -96,7 +118,7 @@ try{
    const tracker=await overview(w.page)
    await tracker.getByRole('button',{name:'PR: follow-up options',exact:true}).click()
    const menu=w.page.getByRole('menu',{name:'PR: follow-up options',exact:true})
-   await expect(menu.getByText('Copy a message for the agent',{exact:true})).toBeVisible()
+   await expect(w.page.getByText('Copy a message for the agent',{exact:true})).toBeVisible();await expect(menu).toHaveAccessibleDescription('Copy a message for the agent')
    await menu.getByRole('menuitem',{name:'Copy message for the agent: Babysit the pull request',exact:true}).click()
    await expect(tracker.getByRole('status')).toHaveText('Copied')
    expect(await w.page.evaluate(()=>navigator.clipboard.readText())).toMatch(/^Look after the pull request: ensure failing checks are fixed.* Do not merge\.$/)

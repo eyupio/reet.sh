@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/terminalhost"
@@ -111,8 +112,14 @@ func TestCreateWithProviderNeedsTheNegotiatedFeature(t *testing.T) {
 		{base, true},
 		{base + "," + terminalproto.ACPProviderFeature, false},
 	} {
+		var mu sync.Mutex
 		var got terminalproto.Message
-		send := func(_ context.Context, m terminalproto.Message) error { got = m; return nil }
+		send := func(_ context.Context, m terminalproto.Message) error {
+			mu.Lock()
+			defer mu.Unlock()
+			got = m
+			return nil
+		}
 		headers := http.Header{}
 		headers.Set(terminalproto.FeatureHeader, tc.features)
 		handle, cleanup := Factory(terminalhost.ManagerOptions{})(t.Context(), http.DefaultClient, headers, 1, send)
@@ -121,9 +128,12 @@ func TestCreateWithProviderNeedsTheNegotiatedFeature(t *testing.T) {
 			t.Fatal(err)
 		}
 		cleanup()
-		r, ok := got.Body.(terminalproto.Result)
+		mu.Lock()
+		body := got.Body
+		mu.Unlock()
+		r, ok := body.(terminalproto.Result)
 		if refused := ok && r.Code == terminalproto.LaunchOptionUnsupported; refused != tc.refused {
-			t.Fatalf("features %q: refused=%v body=%+v", tc.features, refused, got.Body)
+			t.Fatalf("features %q: refused=%v body=%+v", tc.features, refused, body)
 		}
 	}
 }

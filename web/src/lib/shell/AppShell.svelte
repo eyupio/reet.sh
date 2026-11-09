@@ -21,7 +21,7 @@
   // `compact` is the terminal workspace's slim header: no bottom bar (the terminal keeps its own height rule), and on a
   // phone a More button in the top bar reaches every page instead.
   let {
-    tabs, attention, needsCards = [], onseen, onanswered, compact, bar, more, bell = false, jump, account, home = false,
+    tabs, attention, needsCards = [], onseen, onanswered, compact, bar, more, bell = false, jump, jumpLive = [], account, home = false,
   }: {
     tabs: Tab[]
     attention: number
@@ -37,6 +37,8 @@
     /** The bell and its Needs you count, for a writer in accounts mode only. */
     bell?: boolean
     jump: () => Promise<JumpItem[]>
+    /** Jump rows the page already holds (skills, shelf machines), passed through to the search as they change. */
+    jumpLive?: JumpItem[]
     account?: Snippet
     /** Home's panel also holds the project list, so it has its own wider range and remembered width. */
     home?: boolean
@@ -196,7 +198,7 @@
     <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
   {/if}
   <span class="grow"></span>
-  <JumpSearch load={jump} open={searchOpen} bind:input onclose={closeSearch}
+  <JumpSearch load={jump} live={jumpLive} open={searchOpen} bind:input onclose={closeSearch}
     onfocuschange={(focused) => { searchFocused = focused; measureKeyboard() }} />
   <button type="button" class="icon search-button" bind:this={searchButton} aria-label="Jump to a session, project, skill or machine" aria-expanded={searchOpen}
     onclick={() => (searchOpen ? closeSearch() : void openSearch())}>

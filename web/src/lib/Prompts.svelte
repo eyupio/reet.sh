@@ -205,7 +205,7 @@
   })
 </script>
 
-<PageHeader eyebrow="Ey up. Your words, ready." title="Prompts" lede="Write the prompts you reach for once. Use them in a session with a backslash, or pick one when you start an agent.">
+<PageHeader group="Skills & distribution" title="Prompts" lede="Write the prompts you reach for once. Use them in a session with a backslash, or pick one when you start an agent.">
   {#snippet actions()}
     {#if canWrite}<button class="btn primary" type="button" onclick={() => openEditor()}>New prompt</button>{/if}
     {#if prompts.length}<button class="btn" type="button" onclick={exportPrompts}>Export</button>{/if}

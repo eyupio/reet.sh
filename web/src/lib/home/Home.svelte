@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, getSyncState, listGafferGoals, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText, titleFor } from '../agentLaunch'
-  import { announceWaiting, attentionCount, fleetCards, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
+  import { hasPending } from '../attention'
+  import { announceWaiting, attentionCount, fleetCards, foldGafferGoals, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import type { LaunchDefaults } from '../launchBar'
   import StartAgentDialog from '../StartAgentDialog.svelte'
@@ -82,7 +84,6 @@
   let problem = $state('')
   let followups = $state<GafferGoalOverviewView | undefined>()
   let followupsFailed = $state(false)
-  const followupsNeedReview = $derived(followups?.goals.filter(row => row.attention).length ?? 0)
   const following = $derived(followups?.goals.filter(row => row.goal.state === 'active' && !row.attention).length ?? 0)
   let readOnce = false
   const life = new AbortController()
@@ -95,12 +96,19 @@
   const worktrees = $derived(projectWorktrees(sessions ?? []))
   const machineReporting = $derived(new Map(cards.map(c => [c.agentId, reporting(c)])))
   let attentionLimit = $state(5)
-  const needs = $derived(needsYou(sessions ?? [], now, owners, health ?? []))
+  // A Gaffer goal for a session that already has a card is that card's second reason; the rest are counted by the Gaffer button.
+  const folded = $derived(foldGafferGoals(needsYou(sessions ?? [], now, owners, health ?? []), followups?.goals))
+  const needs = $derived(folded.cards)
+  const followupsNeedReview = $derived(folded.unfolded)
+  // Goals that need review but sit on a Needs you card keep Home's entry to Followed sessions when nothing else would show it.
+  const attentionGoals = $derived(followups?.goals.filter(row => row.attention).length ?? 0)
+  const foldedGoals = $derived(Math.max(0, attentionGoals - followupsNeedReview))
 
   async function markSeen(sessionId: string) {
-    sessions = (sessions ?? []).map(s => s.id === sessionId ? { ...s, changedSinceSeen: false, attention: s.attention === 'waiting' ? 'working' : s.attention } : s)
+    sessions = (sessions ?? []).map(s => s.id === sessionId ? { ...s, changedSinceSeen: false, attention: s.attention === 'waiting' && !hasPending(s) ? 'working' : s.attention } : s)
     try {
       await markSessionSeen(sessionId, bounded())
+      signalAttentionChanged()
       void load(true)
     } catch (e) {
       if (refused(e, true)) { life.abort(); onsignedout(new UnauthorizedError()) }
@@ -405,8 +413,8 @@
       <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
       {#if writer}<div class="home-controls"><button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Expand the project names and groups' : 'Keep projects in a compact strip'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
       <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
-        {#if writer && accounts && (followupsNeedReview || following || followupsFailed)}<button type="button" class="followups" disabled={!$gafferChatEntry} aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget, 'followed')}>
-          {#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'follow-up needs' : 'follow-ups need'} review{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if followupsFailed}Gaffer follow-ups unavailable{/if}{#if followupsFailed && (followupsNeedReview || following)}{' · last read'}{/if}
+        {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed)}<button type="button" class="followups" disabled={!$gafferChatEntry} aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget, 'followed')}>
+          {#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'follow-up needs' : 'follow-ups need'} review{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if foldedGoals}Gaffer: {foldedGoals} {foldedGoals === 1 ? 'follow-up is' : 'follow-ups are'} in Needs you{:else if followupsFailed}Gaffer follow-ups unavailable{/if}{#if followupsFailed && (followupsNeedReview || following || foldedGoals)}{' · last read'}{/if}
         </button>{/if}
       </div>
     </header>

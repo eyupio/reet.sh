@@ -44,6 +44,7 @@ func Commands() []Command {
 		{Name: "agent", Title: "Agent", Summary: "Enroll a machine and manage its local agent", Group: "Machines & access", Args: []string{"agent"}, Expand: true, Children: []Command{
 			{Name: "agent enroll", Title: "Connect machine", Summary: "Enroll with a controller", Group: "Machines & access", Args: []string{"agent", "enroll"}},
 			{Name: "agent status", Title: "Agent status", Summary: "This machine's enrollment and daemon", Group: "Machines & access", Args: []string{"agent", "status"}},
+			{Name: "agent library-import", Title: "Import library content", Summary: "Capture complete skills from known or explicitly selected folders", Group: "Machines & access", Args: []string{"agent", "library-import"}},
 		}},
 		{Name: "terminal", Title: "Terminal", Summary: "Manage controller terminal access", Group: "Machines & access", Args: []string{"terminal"}, Children: []Command{
 			{Name: "terminal status", Title: "Terminal status", Summary: "Inspect controller terminal availability", Args: []string{"terminal", "status"}},

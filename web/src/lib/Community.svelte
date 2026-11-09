@@ -71,7 +71,7 @@
   onMount(() => { void load() })
 </script>
 
-<PageHeader eyebrow="Public community" title="Have a nosy." lede="Publicly published lists and their skills. Explore without an account; your personal shelf, teams and selected-people lists stay separate." />
+<PageHeader title="Community" lede="Publicly published lists and their skills. Explore without an account; your personal shelf, teams and selected-people lists stay separate." />
 
 {#if actionError}<p class="notice bad" role="alert">{actionError}</p>{/if}
 {#if notice}<p class="notice good" role="status">{notice}</p>{/if}

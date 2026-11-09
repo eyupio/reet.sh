@@ -44,6 +44,21 @@ jobs:
             echo "::error::tmux is missing and this runner is neither root nor has sudo to install it."; exit 1; fi
           $as_root apt-get update && $as_root apt-get install -y tmux
           tmux -V
+      - name: Install DejaVu Sans Mono when the runner lacks it
+        # The terminal's first font is "DejaVu Sans Mono". Without it the browser falls back to another monospace face with
+        # different cell metrics (a 64x17 grid instead of 53x19 at the same size), so the phone layout checks that count
+        # the rows and columns that fit fail on that runner only. ubuntu-latest has the font; the zoomies image did not.
+        run: |
+          # Consume the full list: grep -q can close early and make fc-list
+          # fail with SIGPIPE under the runner's pipefail shell.
+          have_font() { command -v fc-list >/dev/null && fc-list | grep -i 'DejaVu Sans Mono' >/dev/null; }
+          if have_font; then echo "DejaVu Sans Mono is installed"; exit 0; fi
+          if [ "$(id -u)" = 0 ]; then as_root=""; elif command -v sudo >/dev/null; then as_root="sudo"; else
+            echo "::error::DejaVu Sans Mono is missing and this runner is neither root nor has sudo to install it."; exit 1; fi
+          $as_root apt-get update && $as_root apt-get install -y fontconfig fonts-dejavu-core
+          $as_root fc-cache -f
+          if ! have_font; then echo "::error::fonts-dejavu-core installed but DejaVu Sans Mono is still not visible to fontconfig."; exit 1; fi
+          fc-list | grep -i 'DejaVu Sans Mono' | sed -n '1,2p'
       - run: npm ci && npm run check && npm run build
         working-directory: web
       - name: Prepare Chromium
@@ -78,6 +93,7 @@ jobs:
           node web/tests/first-run.e2e.mjs
           node web/tests/session-board.e2e.mjs
           node web/tests/compact-work-items.e2e.mjs
+          node web/tests/attention-contract.e2e.mjs
           node web/tests/phone-layout.e2e.mjs
           node web/tests/navigation.e2e.mjs
           node web/tests/loading.e2e.mjs
@@ -89,6 +105,7 @@ jobs:
           node web/tests/empty-states.e2e.mjs
           node web/tests/lists.e2e.mjs
           node web/tests/community.e2e.mjs
+          node web/tests/supporting-nav.e2e.mjs
           node web/tests/spaces.e2e.mjs
           node web/tests/machines-search.e2e.mjs
           node web/tests/machines-fleet.e2e.mjs
@@ -112,6 +129,7 @@ jobs:
           node web/tests/sync-activity.e2e.mjs
           node web/tests/sync-remove.e2e.mjs
           node web/tests/skills-sync-simple.e2e.mjs
+          node web/tests/selected-library.e2e.mjs
           node web/tests/sync-left-out.e2e.mjs
           node web/tests/sync-in-place.e2e.mjs
           node web/tests/fleet-software.e2e.mjs
@@ -123,6 +141,7 @@ jobs:
           node web/tests/skill-content.e2e.mjs
           node web/tests/add-machine.e2e.mjs
           node web/tests/start-agent.e2e.mjs
+          node web/tests/start-agent-source.e2e.mjs
           node web/tests/terminal-start.e2e.mjs
           node web/tests/terminal-workspace.e2e.mjs
           node web/tests/terminal-lifecycle.e2e.mjs
@@ -255,6 +274,7 @@ jobs:
           node web/tests/chat-claude.e2e.mjs
           node web/tests/chat-codex.e2e.mjs
           node web/tests/chat-cline.e2e.mjs
+          node web/tests/chat-cline-source.e2e.mjs
           node web/tests/chat-antigravity.e2e.mjs
           node web/tests/question-card.e2e.mjs
           node web/tests/gaffer-artwork.e2e.mjs

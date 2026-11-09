@@ -72,7 +72,7 @@
 
 <svelte:head><title>Support · reet.sh</title></svelte:head>
 
-<PageHeader eyebrow="Support" title="Tell us what's not working." lede="Open a ticket for yourself or a team you belong to. A team's owner and managers can read and answer its tickets; instance administrators can see every ticket." />
+<PageHeader title="Support" lede="Open a ticket for yourself or a team you belong to. A team's owner and managers can read and answer its tickets; instance administrators can see every ticket." />
 
 {#if error && !loadError}<p class="notice bad" role="alert">{error}</p>{/if}
 

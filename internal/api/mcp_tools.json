@@ -287,12 +287,13 @@
           ]
         },
         "stage": {
-          "description": "On shelf, to test, or in use.",
+          "description": "On shelf, to test, in use, or disabled. Reads the canonical library lifecycle.",
           "type": "string",
           "enum": [
             "shelf",
             "try",
-            "use"
+            "use",
+            "disabled"
           ]
         },
         "sort": {

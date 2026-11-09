@@ -1,7 +1,9 @@
 <script lang="ts">
   import EnvironmentSync from './EnvironmentSync.svelte'
+  import SelectedLibrary from './SelectedLibrary.svelte'
   import WorkspaceSkeleton from './terminal/WorkspaceSkeleton.svelte'
   import PageHeader from './PageHeader.svelte'
+  import type { SectionItem } from './SectionNav.svelte'
   import ProjectsBar from './ProjectsBar.svelte'
   import FleetSoftware from './FleetSoftware.svelte'
   import { createToken } from './api'
@@ -28,8 +30,16 @@
     finally { busy = false }
   }
 </script>
-{#if !terminals}<PageHeader eyebrow={compare || !focus ? 'Machines' : 'Machine'} title={compare ? "Sync" : focus || "Your machines, connected."} lede={compare ? "One shared skill library, kept up to date on every machine." : focus ? "Inspect this machine's install locations, health and sync plans, or continue in its terminal." : "Connect your machines. Reet keeps your skills in sync and your agents ready to work."} />{/if}
-{#if !terminals}<nav aria-label="Machines"><a class="btn quiet" href="/machines" aria-current={!compare&&!terminals ? 'page' : undefined}>Inventory &amp; connection</a><a class="btn quiet" href="/sync" aria-current={compare ? 'page' : undefined}>Sync</a>{#if accounts && canWrite}<button class="btn quiet" type="button" onclick={() => (softwareOpen = true)}>Software</button>{/if}</nav>{/if}
+{#if !terminals}
+  {@const sections: SectionItem[] = [
+    { label: 'Inventory & connection', href: '/machines', current: !compare },
+    { label: 'Sync', href: '/sync', current: compare }
+  ]}
+  <PageHeader group="Machines" groupHref={!compare && focus ? '/machines' : undefined} title={compare ? "Sync" : focus || "Machines"} lede={compare ? "One shared skill library, kept up to date on every machine." : focus ? "Inspect this machine's install locations, health and sync plans, or continue in its terminal." : "Connect your machines. Reet keeps your skills in sync and your agents ready to work."} {sections} sectionsLabel="Machines">
+    <!-- Software is an action, not a place: beside the title at every width, so a phone does not open the folded menu first. -->
+    {#snippet actions()}{#if accounts && canWrite}<button type="button" class="btn software" onclick={() => (softwareOpen = true)}>Software</button>{/if}{/snippet}
+  </PageHeader>
+{/if}
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} {ontitle} />{:else if error}<p class="notice bad" role="alert">{error}</p>{:else}
   <WorkspaceSkeleton label="Loading the terminal workspace" context={workspaceContext} />
   {/if}{:else}
@@ -43,6 +53,7 @@
     {:else}<p>Use the token configured for this instance when the CLI asks. Instances without authentication do not require one.</p>{/if}
   {/snippet}
 </EnvironmentSync>
+{#if compare && accounts && canWrite}<SelectedLibrary />{/if}
 {/if}
 {#if softwareOpen}<FleetSoftware onclose={() => (softwareOpen = false)} />{/if}
 {#if !terminals && !compare && accounts && canWrite}
@@ -52,8 +63,8 @@
   </details>
 {/if}
 <style>
- nav,form {display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:20px} a {text-decoration:none} a[aria-current=page] {background:var(--tint);border-color:var(--accent)} label {display:grid;gap:6px;font-size:0.875rem} p {font-size:0.875rem;color:var(--muted)}
+ form {display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:20px} label {display:grid;gap:6px;font-size:0.875rem} p {font-size:0.875rem;color:var(--muted)}
+ .software {min-height:44px}
  .projects-drawer {margin:26px 0 0;border-top:1px solid var(--line);padding-top:14px}
  .projects-drawer > summary {cursor:pointer;color:var(--muted);font-size:0.875rem;font-weight:600;min-height:32px}
- @media (max-width:560px) { nav {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch} nav a {justify-content:center} }
 </style>

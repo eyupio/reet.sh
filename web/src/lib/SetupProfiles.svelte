@@ -223,7 +223,6 @@
 </script>
 
 <PageHeader
-  eyebrow="Agent setups"
   title="Setups"
   lede="Keep a portable record of your agent settings, skills and supported memory. Review coverage before restoring on another machine."
 >

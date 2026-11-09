@@ -63,18 +63,31 @@ func (s *Store) SyncCandidatesFor(uid int64, role string, listID int64) ([]SyncS
 }
 
 type DesiredSelection struct {
-	FollowPending bool     `json:"-"` // Preserve whole-shelf intent while private source files are in flight.
-	FollowSource  bool     `json:"followSource"`
-	Origin        string   `json:"-"`
-	TargetID      string   `json:"targetId"`
-	SourceID      string   `json:"sourceId"`
-	ListID        int64    `json:"listId"`
-	SkillIDs      []string `json:"skillIds"`
-	Mode          string   `json:"mode"`
-	Revision      string   `json:"revision"`
+	selectedRefresh bool
+	SelectedOnly    bool     `json:"selectedOnly,omitempty"` // Experimental Stage 3 policy; existing clients retain legacy behaviour.
+	FollowPending   bool     `json:"-"`                      // Preserve whole-shelf intent while private source files are in flight.
+	FollowSource    bool     `json:"followSource"`
+	Origin          string   `json:"-"`
+	TargetID        string   `json:"targetId"`
+	SourceID        string   `json:"sourceId"`
+	ListID          int64    `json:"listId"`
+	SkillIDs        []string `json:"skillIds"`
+	Mode            string   `json:"mode"`
+	Revision        string   `json:"revision"`
 }
 
 func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) error {
+	var canonical int
+	if err := s.db.QueryRow(`SELECT count(*) FROM canonical_library_selections WHERE user_id=? AND target_id=?`, uid, in.TargetID).Scan(&canonical); err != nil {
+		return err
+	}
+	if canonical > 0 {
+		return errors.New("this folder uses library selections; update its selected items instead")
+	}
+
+	if in.SelectedOnly && (in.SourceID != "library" || in.Mode != "additive") {
+		return ErrSync
+	}
 	if role == "viewer" {
 		return errors.New("read-only account")
 	}
@@ -250,6 +263,13 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		desired = append(desired, linked[0])
 	}
 	return s.withTx(func(tx *sql.Tx) error {
+		var canonical int
+		if err := tx.QueryRow(`SELECT count(*) FROM canonical_library_selections WHERE user_id=? AND target_id=?`, uid, in.TargetID).Scan(&canonical); err != nil {
+			return err
+		}
+		if canonical > 0 {
+			return errors.New("this folder uses library selections; update its selected items instead")
+		}
 		// A pending install owns the set until it ends: a save now would carry
 		// its skill past the install's revert.
 		if err := refuseWhileInstallPendingTx(tx, uid, in.TargetID); err != nil {
@@ -295,6 +315,18 @@ func (s *Store) SaveDesiredFor(uid int64, role string, in DesiredSelection) erro
 		}
 		if _, err = tx.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,?) ON CONFLICT(target_id) DO UPDATE SET follow_source=excluded.follow_source,problem=''`, in.TargetID, in.FollowSource || in.FollowPending); err != nil {
 			return err
+		}
+		var selectedAccount int
+		if err := tx.QueryRow(`SELECT count(*) FROM library_selection_accounts WHERE user_id=?`, uid).Scan(&selectedAccount); err != nil {
+			return err
+		}
+		if source == "library" && (in.SelectedOnly || selectedAccount > 0) && !in.FollowPending && !in.selectedRefresh {
+			if err = recordLibrarySelection(tx, uid, in.TargetID, in.SkillIDs); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(`UPDATE sync_policies SET follow_source=0 WHERE target_id=?`, in.TargetID); err != nil {
+				return err
+			}
 		}
 		_, err = tx.Exec(`INSERT INTO sync_options(target_id,mode,baseline) VALUES(?,?,?) ON CONFLICT(target_id) DO UPDATE SET mode=excluded.mode,baseline=excluded.baseline`, in.TargetID, in.Mode, string(baseline))
 		return err
@@ -343,14 +375,15 @@ func ReconcileSkills(base, desired, actual []SyncSkill) ([]SyncSkill, []string) 
 }
 
 type SyncAgent struct {
-	KeepSynced bool   `json:"keepSynced"`
-	ID         string `json:"id"`
-	Host       string `json:"host"`
-	Version    string `json:"version"`
-	Commit     string `json:"commit"`
-	LastSeen   int64  `json:"lastSeen"`
-	Paused     bool   `json:"paused"`
-	AutoUpdate bool   `json:"autoUpdate"`
+	LibraryProtocol int    `json:"libraryProtocol,omitempty"`
+	KeepSynced      bool   `json:"keepSynced"`
+	ID              string `json:"id"`
+	Host            string `json:"host"`
+	Version         string `json:"version"`
+	Commit          string `json:"commit"`
+	LastSeen        int64  `json:"lastSeen"`
+	Paused          bool   `json:"paused"`
+	AutoUpdate      bool   `json:"autoUpdate"`
 }
 type SyncJob struct {
 	ID        string          `json:"id"`
@@ -658,7 +691,7 @@ func (s *Store) ClaimSyncJob(uid int64, a SyncAgent) (*SyncJob, error) {
 		if err = tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE agent_id=? AND status='running'`, a.ID).Scan(&running); err != nil || running > 0 {
 			return err
 		}
-		j, err := scanJob(tx.QueryRow(`SELECT `+jobCols+` FROM sync_jobs WHERE user_id=? AND agent_id=? AND status='queued' ORDER BY created_at LIMIT 1`, uid, a.ID))
+		j, err := scanJob(tx.QueryRow(`SELECT `+jobCols+` FROM sync_jobs WHERE user_id=? AND agent_id=? AND status='queued' AND (?=1 OR NOT EXISTS(SELECT 1 FROM canonical_library_selections c WHERE c.user_id=sync_jobs.user_id AND c.target_id=sync_jobs.target_id)) ORDER BY created_at LIMIT 1`, uid, a.ID, a.LibraryProtocol))
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
@@ -764,7 +797,10 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				message = "Desired revision changed during apply; rescan and preview."
 				replan = true
 			}
-			if status == "succeeded" {
+			if status == "succeeded" && planHasProblems(plan) {
+				message = "Healthy items synced; some selected items are waiting."
+			}
+			if status == "succeeded" && !planHasProblems(plan) {
 				_, err = tx.Exec(`UPDATE sync_options SET baseline=(SELECT desired FROM sync_targets WHERE target_id=? AND user_id=?),applied_revision=? WHERE target_id=?`, j.TargetID, uid, j.Revision, j.TargetID)
 				if err != nil {
 					return err
@@ -793,15 +829,19 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				if len(planActions(plan)) == 0 {
 					finalStatus = "succeeded"
 					message = "Already in sync."
-					result, e := tx.Exec(`UPDATE sync_options SET baseline=(SELECT desired FROM sync_targets WHERE target_id=? AND user_id=?),applied_revision=? WHERE target_id=? AND EXISTS(SELECT 1 FROM sync_targets WHERE target_id=? AND user_id=? AND revision=?)`, j.TargetID, uid, j.Revision, j.TargetID, j.TargetID, uid, j.Revision)
-					if e != nil {
-						return e
-					}
-					if count, e := result.RowsAffected(); e != nil {
-						return e
-					} else if count == 0 {
-						finalStatus, replan = "failed", true
-						message = "Desired revision changed during preview; requesting a fresh plan."
+					if planHasProblems(plan) {
+						message = "Some selected items are waiting; healthy items continue syncing."
+					} else {
+						result, e := tx.Exec(`UPDATE sync_options SET baseline=(SELECT desired FROM sync_targets WHERE target_id=? AND user_id=?),applied_revision=? WHERE target_id=? AND EXISTS(SELECT 1 FROM sync_targets WHERE target_id=? AND user_id=? AND revision=?)`, j.TargetID, uid, j.Revision, j.TargetID, j.TargetID, uid, j.Revision)
+						if e != nil {
+							return e
+						}
+						if count, e := result.RowsAffected(); e != nil {
+							return e
+						} else if count == 0 {
+							finalStatus, replan = "failed", true
+							message = "Desired revision changed during preview; requesting a fresh plan."
+						}
 					}
 				} else {
 					finalStatus = "queued"

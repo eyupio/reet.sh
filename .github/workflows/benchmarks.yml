@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   compare:
-    runs-on: ubuntu-latest
+    runs-on: zoomies-linux-x64
     timeout-minutes: 30
     env:
       BENCH_REGEX: '^Benchmark(Community|ListFor|ListForCompact|ListSkillsAPI(/.*)?|TerminalSessionsFor|AppendTerminalChatEventFor|AppendTerminalChatEventsFor32|PublishChatEvent)$'

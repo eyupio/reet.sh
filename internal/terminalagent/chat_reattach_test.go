@@ -85,7 +85,7 @@ func TestReattachStartsLoadUnderSameSessionID(t *testing.T) {
 // the idle status with the confirmed model (or the row keeps showing the
 // crashed turn's working state). Later events are forwarded as usual.
 // Reattach follows the agent's own profile: a reviewed profile that claims
-// reattach (Cline) loads its conversation, while an agent without the claim is
+// reattach (Cline, Claude Code) loads its conversation, while an agent without the claim is
 // refused instead of being asked to open a conversation it cannot reload.
 func TestReattachFollowsTheAgentsOwnClaim(t *testing.T) {
 	h, proc, _, loads := reattachHost(t)
@@ -98,13 +98,26 @@ func TestReattachFollowsTheAgentsOwnClaim(t *testing.T) {
 	if changed.State != terminalproto.Running || loads.count() != 1 || loads.loads[0] != proc.SessionID() {
 		t.Fatalf("cline reattach %+v loads %v", changed, loads.loads)
 	}
-	t.Setenv(acpagent.ClaudeSwitch, "1")
-	body.Tool = "claude"
-	if _, err := h.reattach("request-claude-reattach001", "session-claude-reattach0001", body); !errors.Is(err, acpagent.ErrUnsupported) {
+	body.Tool = "codex"
+	if _, err := h.reattach("request-codex-reattach0001", "session-codex-reattach00001", body); !errors.Is(err, acpagent.ErrUnsupported) {
 		t.Fatalf("an agent without the reattach claim was asked: %v", err)
 	}
 	if loads.count() != 1 {
 		t.Fatalf("a refused agent still started: %v", loads.loads)
+	}
+}
+
+// Claude Code's profile claims reattach, so a lost Claude chat is loaded again under its own session id.
+func TestChatReattachAcceptsClaudeWhenTheProfileAllowsIt(t *testing.T) {
+	h, proc, _, loads := reattachHost(t)
+	body := reattachBody(h, proc)
+	body.Tool = "claude"
+	changed, err := h.reattach("request-claude-reattach001", "session-claude-reattach0001", body)
+	if errors.Is(err, acpagent.ErrUnsupported) {
+		t.Fatalf("a Claude reattach was refused although its profile claims it: %v", err)
+	}
+	if err != nil || changed.State != terminalproto.Running || loads.count() != 1 {
+		t.Fatalf("claude reattach %+v %v loads %v", changed, err, loads.loads)
 	}
 }
 

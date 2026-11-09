@@ -145,6 +145,9 @@ func (s *Store) SaveSkillContentTargetFor(uid int64, in SkillContentTargetWrite)
 		if e != nil {
 			return e
 		}
+		if bundle.ItemType != LibrarySkill {
+			return ErrSkillContentTargetInvalid
+		}
 		revision, e := privateSkillRevision(tx, uid, in.BundleID, in.RevisionID, false)
 		if e != nil {
 			return e

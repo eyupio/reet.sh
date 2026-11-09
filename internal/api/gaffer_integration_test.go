@@ -55,6 +55,9 @@ type gm6Harness struct {
 	conn                      *websocket.Conn
 	write                     sync.Mutex
 	workerDone                chan struct{}
+	linkMu                    sync.Mutex // guards conn, workerDone, deliberate and linkErr
+	deliberate                bool       // the fixture closed the link on purpose (an "uncertain" prompt), so it stays closed
+	linkErr                   error      // why the worker reader last stopped
 	finished                  chan bool
 	errors                    chan error
 }
@@ -165,41 +168,59 @@ func (h *gm6Harness) restart() {
 	h.start()
 }
 func (h *gm6Harness) stopWorker() {
-	if h.conn != nil {
-		h.conn.CloseNow()
-		<-h.workerDone
+	h.linkMu.Lock()
+	c, done := h.conn, h.workerDone
+	h.linkMu.Unlock()
+	if c != nil {
+		c.CloseNow()
+		<-done
+		h.linkMu.Lock()
 		h.conn = nil
+		h.linkMu.Unlock()
 	}
 }
 func (h *gm6Harness) connect() {
+	h.linkMu.Lock()
+	defer h.linkMu.Unlock()
+	if err := h.dialLocked(); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// dialLocked opens the worker's control connection, as the connector does after every restart or lost link.
+// The caller holds linkMu.
+func (h *gm6Harness) dialLocked() error {
 	headers := http.Header{"X-Reet-Agent": {h.agent.ID}, "X-Reet-Agent-Key": {h.secret}, "X-Reet-Version": {"test"}}
 	ctx := h.t.Context()
 	c, _, err := websocket.Dial(ctx, h.private.URL+"/private/v1/control", &websocket.DialOptions{HTTPHeader: headers})
 	if err != nil {
-		h.t.Fatal(err)
+		return err
 	}
 	raw, err := terminalproto.EncodeHandshake(terminalproto.Handshake{ProtocolVersion: 1, RequestID: terminalbroker.ID(), AgentInstanceID: terminalbroker.ID(), Capabilities: gm6Caps()})
 	if err != nil {
-		h.t.Fatal(err)
+		return err
 	}
 	if err = c.Write(ctx, websocket.MessageText, raw); err != nil {
-		h.t.Fatal(err)
+		return err
 	}
 	_, raw, err = c.Read(ctx)
 	if err != nil {
-		h.t.Fatal(err)
+		return err
 	}
 	ack, err := terminalproto.DecodeHandshakeReply(raw)
 	if err != nil {
-		h.t.Fatal(err)
+		return err
 	}
-	h.conn = c
-	h.workerDone = make(chan struct{})
+	done := make(chan struct{})
+	h.conn, h.workerDone, h.deliberate, h.linkErr = c, done, false, nil
 	go func() {
-		defer close(h.workerDone)
+		defer close(done)
 		for {
 			_, raw, err := c.Read(ctx)
 			if err != nil {
+				h.linkMu.Lock()
+				h.linkErr = err
+				h.linkMu.Unlock()
 				return
 			}
 			m, err := terminalproto.Decode(raw)
@@ -209,6 +230,9 @@ func (h *gm6Harness) connect() {
 			}
 			body, drop := h.workerReply(m)
 			if drop {
+				h.linkMu.Lock()
+				h.deliberate = true
+				h.linkMu.Unlock()
 				c.CloseNow()
 				return
 			}
@@ -223,8 +247,49 @@ func (h *gm6Harness) connect() {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if !h.current.Load().s.terminals.Ready(h.uid, h.agent.ID) {
-		h.t.Fatal("synthetic private worker did not become ready", ack.Generation)
+		return fmt.Errorf("synthetic private worker did not become ready (generation %d)", ack.Generation)
 	}
+	return nil
+}
+
+// toController sends one worker message. If the controller ended the link (a superseded or timed-out peer
+// closes it without telling the connector), the worker dials again and resends, as a real connector does, and the
+// test log says why the link ended. A link the fixture dropped on purpose stays closed and the send fails.
+func (h *gm6Harness) toController(m terminalproto.Message) error {
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		h.linkMu.Lock()
+		c, done := h.conn, h.workerDone
+		h.linkMu.Unlock()
+		if err = h.send(c, m); err == nil {
+			return nil
+		}
+		// The write can fail before the reader has noticed the close; give it a moment.
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			return err
+		}
+		h.linkMu.Lock()
+		if h.deliberate || h.conn != c {
+			h.linkMu.Unlock()
+			return err
+		}
+		h.t.Logf("worker link ended without the fixture closing it (%v; write error: %v); dialling again", h.linkErr, err)
+		c.CloseNow()
+		derr := h.dialLocked()
+		h.linkMu.Unlock()
+		if derr != nil {
+			return derr
+		}
+		// A new connection has a new generation; the controller closes a link whose messages carry a stale one.
+		caps, cerr := h.st.RemoteCapabilitiesFor(h.uid, h.agent.ID)
+		if cerr != nil {
+			return cerr
+		}
+		m.Generation = caps.Generation
+	}
+	return err
 }
 func (h *gm6Harness) send(c *websocket.Conn, m terminalproto.Message) error {
 	raw, err := terminalproto.Encode(m)
@@ -281,7 +346,7 @@ func (h *gm6Harness) progress(marker string, waiting bool) error {
 		return err
 	}
 	for _, event := range []terminalproto.ACPEvent{{Kind: "agent", MessageID: terminalbroker.ID(), Text: marker + " new worker progress: simulated PR checks/conflicts need attention."}, {Kind: "status", State: map[bool]string{true: "working", false: "idle"}[waiting]}} {
-		if err := h.send(h.conn, terminalproto.Message{Version: 1, RequestID: terminalbroker.ID(), SessionID: sid, Generation: caps.Generation, Body: event}); err != nil {
+		if err := h.toController(terminalproto.Message{Version: 1, RequestID: terminalbroker.ID(), SessionID: sid, Generation: caps.Generation, Body: event}); err != nil {
 			return err
 		}
 	}
@@ -496,5 +561,26 @@ func TestGafferOfflineBrowserHarness(t *testing.T) {
 		t.Fatal(err)
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
+	}
+}
+
+// The controller can end the worker's control link without telling the connector (a superseded or timed-out peer,
+// a closed socket under load). A connector dials again, so the fixture must too: the next worker message arrives
+// and the test log says why the link ended.
+func TestGafferWorkerLinkRedialsAfterItIsLost(t *testing.T) {
+	h := newGM6Harness(t)
+	h.linkMu.Lock()
+	lost, done := h.conn, h.workerDone
+	h.linkMu.Unlock()
+	lost.CloseNow()
+	<-done
+	if err := h.progress("ALPHA", false); err != nil {
+		t.Fatalf("progress after the link was lost: %v", err)
+	}
+	h.linkMu.Lock()
+	redialled := h.conn != lost
+	h.linkMu.Unlock()
+	if !redialled || !h.current.Load().s.terminals.Ready(h.uid, h.agent.ID) {
+		t.Fatal("the worker did not dial again", redialled)
 	}
 }

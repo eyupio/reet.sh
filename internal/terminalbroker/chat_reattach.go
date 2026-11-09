@@ -112,8 +112,12 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 	if err != nil {
 		return err
 	}
-	if !s.Structured || s.Tool != "opencode" {
+	// Which agents can reconnect in place is the machine's descriptor, checked below, not a list here.
+	if !s.Structured || !terminalproto.ReviewedChatTool(s.Tool) {
 		return ErrACPUnsupported
+	}
+	if b.st.ChatOffFor(uid, s.Tool) {
+		return ErrChatOff
 	}
 	// An archived chat's transcript is gone: say so before the ended checks,
 	// whose answer offers a Continue with history there is nothing for.

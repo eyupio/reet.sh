@@ -216,3 +216,58 @@ func BenchmarkAppendTerminalChatEventsFor32(b *testing.B) {
 		}
 	}
 }
+
+// List rows must retain independent metadata when the SQL scan buffer is reused.
+func TestListForIndependentMetadata(t *testing.T) {
+	s := newStore(t)
+	u, err := s.CreateUser("independent@example.com", "independent", "owner", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		r := mustRef(t, fmt.Sprintf("rows/repo/skill-%d", i))
+		if _, err := s.UpsertFor(u.ID, r, Patch{Liked: bp(i == 0), Bookmarked: bp(i == 1), Used: bp(i == 2)}); err != nil {
+			t.Fatal(err)
+		}
+		var trend []int64
+		if i != 1 {
+			trend = []int64{int64(i), 10}
+		}
+		if err := s.SetMeta(r.ID, fmt.Sprintf("Row %d", i), "", int64(i), int64(i), trend); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.TagManyFor(u.ID, []string{r.ID}, []string{fmt.Sprintf("tag-%d", i)}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []Filter{{Sort: "name"}, {Sort: "name", Limit: 3}, {Sort: "name", Compact: true}} {
+		rows, _, err := s.ListFor(u.ID, f)
+		if err != nil || len(rows) != 3 {
+			t.Fatalf("rows: %v %v", rows, err)
+		}
+		ids := map[string]bool{}
+		for i, row := range rows {
+			if row.ID != fmt.Sprintf("rows/repo/skill-%d", i) || row.Name != fmt.Sprintf("Row %d", i) || row.Liked != (i == 0) || row.Bookmarked != (i == 1) || row.Used != (i == 2) {
+				t.Fatalf("row %d: %+v", i, row)
+			}
+			if row.LibraryItemID == "" || ids[row.LibraryItemID] {
+				t.Fatalf("non-independent canonical identity: %+v", rows)
+			}
+			ids[row.LibraryItemID] = true
+			if len(row.Tags) != 1 || row.Tags[0].Name != fmt.Sprintf("tag-%d", i) {
+				t.Fatalf("tags %d: %+v", i, row.Tags)
+			}
+			if i == 1 {
+				if len(row.Trend) != 0 {
+					t.Fatalf("previous trend leaked: %+v", row)
+				}
+			} else if len(row.Trend) != 2 || row.Trend[0] != int64(i) {
+				t.Fatalf("trend %d: %+v", i, row.Trend)
+			}
+		}
+		rows[0].Trend[0] = 99
+		if rows[2].Trend[0] != 2 {
+			t.Fatal("trend slices alias")
+		}
+	}
+}

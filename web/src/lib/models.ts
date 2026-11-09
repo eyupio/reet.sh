@@ -1,4 +1,4 @@
-import { CATALOGUE } from './catalogue'
+import { CATALOGUE, agentDisplayName } from './catalogue'
 
 export type ModelState = 'listed' | 'unsupported' | 'failed' | 'off' | 'offline' | 'update'
 export type ModelEntry = { id: string; provider: string }
@@ -40,6 +40,7 @@ export type LaunchDefaultSource = {
   defaultTool?: string
   defaultModel?: string
   defaultEffort?: string
+  defaultClineSource?: string
 }
 export type ResolveLaunchDefaultsInput = {
   explicitAgent?: string
@@ -47,12 +48,14 @@ export type ResolveLaunchDefaultsInput = {
   account?: LaunchDefaultSource | null
   favouriteDefault?: { tool: string; model: string } | string | null
   availableAgents?: readonly string[]
+  /** The Cline source the person has chosen, when one is shown: a default model follows the saved default source. */
+  chosenSource?: string
 }
 export type ResolvedLaunchDefaults = { agent: string; model: string; effort: string }
 export type ModelStatus = { label: string; sentence: string; canRefresh: boolean; age: string }
 export type RecentSession = { tool?: string | null; model?: string | null; createdAt?: number | null; updatedAt?: number | null }
 
-const agentNameOf = (tool: string): string => CATALOGUE.find(agent => agent.id === tool)?.name ?? tool
+const agentNameOf = (tool: string): string => agentDisplayName(tool)
 
 export function providerOf(id: string): string {
   const slash = id.indexOf('/')
@@ -152,7 +155,7 @@ export function modelOptions({
 }
 
 export function resolveLaunchDefaults({
-  explicitAgent = '', project = null, account = null, favouriteDefault = null, availableAgents = [],
+  explicitAgent = '', project = null, account = null, favouriteDefault = null, availableAgents = [], chosenSource,
 }: ResolveLaunchDefaultsInput): ResolvedLaunchDefaults {
   const agent = explicitAgent || project?.defaultTool || account?.defaultTool || availableAgents[0] || ''
   // A favourite marked as the default for this agent is the person's own choice for that agent, so it outranks the
@@ -164,6 +167,11 @@ export function resolveLaunchDefaults({
   if (favourite) model = favourite
   else if (agent && project?.defaultTool === agent && project.defaultModel) model = project.defaultModel
   else if (agent && account?.defaultTool === agent && account.defaultModel) model = account.defaultModel
+
+  // A Cline default model belongs to the source it was chosen under: it prefills only while the chosen source is the
+  // saved default source (or none is saved, or none is chosen yet), so a model is never sent to another source.
+  const savedSource = account?.defaultClineSource ?? ''
+  if (agent === 'cline' && savedSource && chosenSource !== undefined && chosenSource !== savedSource) model = ''
 
   let effort = ''
   if (agent && project?.defaultTool === agent && project.defaultEffort) effort = project.defaultEffort

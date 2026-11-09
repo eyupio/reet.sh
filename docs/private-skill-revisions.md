@@ -5,6 +5,26 @@ It does not introduce a machine transfer/apply operation or a new editing UI.
 Existing hosted-skill, inventory, setup-profile and shelf formats stay readable.
 An old inventory name/source is still not evidence that file bytes are known.
 
+The [canonical library extension](handoffs/simple-library-machine-sync-stage-2.md)
+adds logical item IDs and lifecycle above this storage. Bundle IDs remain content
+identities; a rename or visibility change need not create a new library item.
+
+Private writes now accept optional `itemType`, `format` and `application` fields.
+The default `skill` retains its real `SKILL.md` contract and legacy retry
+fingerprints. `agent_definition` and `portable_settings` use their own bounded
+file/format validators and do not need a synthetic skill wrapper. Bundle type,
+format and application are immutable. Portable settings reuse the setup export
+allowlist, excluding credentials, executable hooks and unlisted fields. These
+types cannot be pinned to the legacy skill-only deployment adapter.
+
+`GET /api/v2/library` reports owned logical items, organisation and current
+complete content references. Explicit user uploads and completed, proven library
+captures protect their current head; unclaimed old transfer copies retain the
+existing cleanup rules. Database format 2 marks typed content that an older
+private-content reader cannot fully interpret, and older restore readers must
+refuse such archives. The extension does not activate selected-item deployment
+or a new web interface; those are later stages in the linked handoff.
+
 ## Identity and ownership
 
 A bundle has a random 32-character hexadecimal `id`, immutable skill `name`,

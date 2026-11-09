@@ -20,7 +20,7 @@ layout: article
 
 Claude Code is happiest in a terminal. If the machine you want it on is a VPS, a lab box or a desktop you are not sitting at, reet.sh gives you that terminal in a browser and keeps the session with the rest of your fleet.
 
-This guide uses Claude Code as the example. The same flow starts Codex, OpenCode and Gemini CLI when the machine reports them as installed.
+This guide uses Claude Code as the example. The same flow starts Codex and OpenCode when the machine reports them as installed.
 
 ## What you need
 

@@ -15,7 +15,7 @@ import (
 //
 // Releases cannot make this comparison: development builds carry no ordered
 // version, and a copy's manifest records only the release string.
-const SchemaVersion = 1
+const SchemaVersion = 3
 
 func stampSchemaVersion(db *sql.DB) error {
 	var have int
@@ -39,11 +39,13 @@ type RestoreSummary struct {
 	UsersByRole   map[string]int
 	// Shelves is the accounts that hold at least one skill on their shelf;
 	// Skills is every skill the controller knows.
-	Shelves      int
-	Skills       int
-	Lists        int
-	Tags         int
-	Environments int
+	Shelves        int
+	Skills         int
+	LibraryItems   int
+	PrivateBundles int
+	Lists          int
+	Tags           int
+	Environments   int
 	// MadeTags and MadeEnvironments leave out what a controller creates for
 	// itself: the topic tags the daily sync adds, and the report the server
 	// makes of its own machine. A new controller holds those before anyone
@@ -152,6 +154,8 @@ func fillSummary(ctx context.Context, db queryer, sum *RestoreSummary) {
 	}
 	sum.Users = count("users", "")
 	sum.Skills = count("skills", "")
+	sum.LibraryItems = count("library_items", "deleted_at=0")
+	sum.PrivateBundles = count("private_skill_bundles", "")
 	sum.Lists = count("lists", "")
 	sum.Tags = count("tags", "")
 	sum.Environments = count("environments", "")

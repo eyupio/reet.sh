@@ -7,5 +7,5 @@
   let { accounts = true, writer = false, onsignedout }: { accounts?: boolean; writer?: boolean; onsignedout?: (e: unknown) => void } = $props()
 </script>
 
-<PageHeader eyebrow={accounts ? 'Your account' : 'This workspace'} title="Activity" lede="What you changed lately, newest first." />
+<PageHeader group={accounts ? 'Your account' : 'This workspace'} title="Activity" lede="What you changed lately, newest first." />
 <ActivitySection {writer} {onsignedout} flat />

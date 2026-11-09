@@ -443,6 +443,11 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 				WHERE user_id=? AND skill_id=?`, nullBool(change.Liked), nullBool(change.Bookmarked), nullBool(change.Used), now(), userID, id); err != nil {
 				return 0, nil, err
 			}
+			if change.Used != nil || change.Bookmarked != nil {
+				if err := syncLibraryShelfStatus(tx, userID, id); err != nil {
+					return 0, nil, err
+				}
+			}
 		}
 		for _, tagID := range addIDs {
 			if _, err := tx.Exec(`INSERT INTO skill_tags(user_id,skill_id,tag_id,source,hidden) VALUES(?,?,?,'user',0)

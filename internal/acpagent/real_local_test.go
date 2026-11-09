@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 )
@@ -101,6 +103,150 @@ func TestRealClaudeStart(t *testing.T) {
 		refused.Close()
 		t.Fatal("an adapter below the version floor was started")
 	}
+}
+
+// TestRealClaudeOptions is opt-in and sends no prompt, so it makes no model call.
+// Against the real adapter, in the environment the connector profile gives it, it
+// pins what the parity work depends on: the thinking level is offered at
+// session/new for the adapter's default model, reads back when set and is refused
+// for an unlisted value; a launch that names only an effort works; and a launch
+// that names a model other than the adapter's own works because the profile
+// confirms the model switch by read-back.
+func TestRealClaudeOptions(t *testing.T) {
+	binary := os.Getenv("REET_CLAUDE_ACP")
+	if binary == "" {
+		t.Skip("set REET_CLAUDE_ACP to a claude-agent-acp@0.99.1 executable")
+	}
+	home, dir := t.TempDir(), t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	base := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}
+	options := Options{Agent: ClaudeCandidate, Binary: binary, Dir: dir, Home: home, BaseEnv: base, PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second}
+	session, err := Start(ctx, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	effort := settingOf(t, session.Controls(), "thought_level")
+	for _, want := range []string{"default", "low", "medium", "high"} {
+		if !slices.Contains(effort.Values, want) {
+			t.Fatalf("thinking levels %v lack %q", effort.Values, want)
+		}
+	}
+	if effort.Current != "default" {
+		t.Fatalf("thinking level at session/new: %q", effort.Current)
+	}
+	if err := session.SetOption(ctx, effort.ID, "high"); err != nil {
+		t.Fatal(err)
+	}
+	if got := settingOf(t, session.Controls(), "thought_level").Current; got != "high" {
+		t.Fatalf("thinking level after a confirmed set: %q", got)
+	}
+	if err := session.SetOption(ctx, effort.ID, "not-an-effort"); !errors.Is(err, ErrControl) {
+		t.Fatalf("an unlisted thinking level: %v", err)
+	}
+	if got := settingOf(t, session.Controls(), "thought_level").Current; got != "high" {
+		t.Fatalf("a refused thinking level changed the setting to %q", got)
+	}
+
+	// A launch that names only an effort.
+	only := options
+	only.Effort = "low"
+	startedOnlyEffort, err := Start(ctx, only)
+	if err != nil {
+		t.Fatalf("launch with effort low and no model: %v", err)
+	}
+	defer startedOnlyEffort.Close()
+	if got := settingOf(t, startedOnlyEffort.Controls(), "thought_level").Current; got != "low" {
+		t.Fatalf("started with thinking level %q", got)
+	}
+
+	// A launch that names a model other than the adapter's own.
+	model := settingOf(t, session.Controls(), "model")
+	other := ""
+	for _, value := range model.Values {
+		if value != "default" && value != session.Model() {
+			other = value
+			break
+		}
+	}
+	if other == "" {
+		t.Fatalf("no second model to choose in %+v", model)
+	}
+	chosen := options
+	chosen.Model, chosen.Effort = other, "low"
+	// The profile confirms a chosen model by switching to it and reading the switch back.
+	started, err := Start(ctx, chosen)
+	if err != nil {
+		t.Fatalf("launch with model %q and effort low: %v", other, err)
+	}
+	defer started.Close()
+	if got := settingOf(t, started.Controls(), "thought_level").Current; got != "low" || started.Model() != other {
+		t.Fatalf("started on model %q with thinking level %q", started.Model(), got)
+	}
+	t.Logf("launch with model %q and effort low works", other)
+}
+
+// TestRealClaudeLoadUnstored is opt-in and sends no prompt. A conversation the
+// adapter never stored cannot be loaded, and the refusal is the stored-conversation
+// error, not a generic start failure.
+func TestRealClaudeLoadUnstored(t *testing.T) {
+	binary := os.Getenv("REET_CLAUDE_ACP")
+	if binary == "" {
+		t.Skip("set REET_CLAUDE_ACP to a claude-agent-acp@0.99.1 executable")
+	}
+	home, dir := t.TempDir(), t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	base := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}
+	session, err := Start(ctx, Options{Agent: ClaudeCandidate, Binary: binary, Dir: dir, Home: home, BaseEnv: base, Resume: "6f1c2c3a-0b4d-4f6e-8a2b-9d3e5f7a1b2c", PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second})
+	if session != nil {
+		session.Close()
+	}
+	if !errors.Is(err, ErrNoStoredConversation) {
+		t.Fatalf("load of a conversation that was never stored: %v", err)
+	}
+}
+
+// TestRealClaudeHistoryReplay is opt-in and sends no prompt. REET_CLAUDE_STORED_HOME and REET_CLAUDE_STORED_SESSION
+// name the throwaway home and the session id that a `scripts/probe-claude-lifecycle.py load` run left behind. Opening
+// that conversation with session/load must succeed under the same id, and what the adapter replays reaches OnEvent only
+// before the chat is ready, which is where the connector drops it because the controller keeps its own transcript.
+func TestRealClaudeHistoryReplay(t *testing.T) {
+	binary, home, stored := os.Getenv("REET_CLAUDE_ACP"), os.Getenv("REET_CLAUDE_STORED_HOME"), os.Getenv("REET_CLAUDE_STORED_SESSION")
+	if binary == "" || home == "" || stored == "" {
+		t.Skip("set REET_CLAUDE_ACP, REET_CLAUDE_STORED_HOME and REET_CLAUDE_STORED_SESSION from a probe-claude-lifecycle.py load run")
+	}
+	dir := os.Getenv("REET_CLAUDE_STORED_DIR")
+	if dir == "" {
+		dir = t.TempDir()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	var replayed []string
+	ready := false
+	base := []string{"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}
+	session, err := Start(ctx, Options{Agent: ClaudeCandidate, Binary: binary, Dir: dir, Home: home, BaseEnv: base, Resume: stored,
+		PermissionTimeout: time.Second, TurnTimeout: 5 * time.Second,
+		OnEvent: func(e Event) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !ready {
+				replayed = append(replayed, e.Kind)
+			}
+		},
+		OnReady: func() { mu.Lock(); ready = true; mu.Unlock() }})
+	if err != nil {
+		t.Fatalf("session/load of the stored conversation: %v", err)
+	}
+	defer session.Close()
+	if session.SessionID() != stored {
+		t.Fatalf("reopened under %q, want %q", session.SessionID(), stored)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	t.Logf("reopened %s; %d events arrived before the chat was ready (the connector drops them): %v", stored, len(replayed), replayed)
 }
 
 // TestRealClineStart is opt-in: it starts the installed Cline CLI through the

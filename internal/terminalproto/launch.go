@@ -1,6 +1,7 @@
 package terminalproto
 
 import (
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -11,7 +12,7 @@ const MaxModelBytes = 100
 const MaxDirBytes = 4096
 const MaxPromptBytes = 8000
 
-var launchTools = map[string]bool{"claude": true, "codex": true, "opencode": true, "gemini": true}
+var launchTools = map[string]bool{"claude": true, "codex": true, "opencode": true}
 
 // SupportsLaunch reports whether the peer advertised launch-v1 in
 // X-Reet-Terminal-Features. Launch fields are never sent without it.
@@ -26,6 +27,24 @@ func SupportsLaunch(features string) bool {
 
 func ValidTool(id string) bool { return launchTools[id] }
 
+// retiredTools are agents reet no longer offers, starts or manages. An older
+// connector may still report one in its capability Tools list; the list keeps
+// validating so the machine stays connected, and the tool is never offered.
+var retiredTools = map[string]bool{"gemini": true}
+
+// RetiredTool reports whether id is an agent reet has retired.
+func RetiredTool(id string) bool { return retiredTools[id] }
+
+// RetiredTools lists the retired agent ids in order.
+func RetiredTools() []string {
+	out := make([]string, 0, len(retiredTools))
+	for id := range retiredTools {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ValidModel, ValidDir and ValidPrompt expose the exact rules the connector
 // applies to Create fields, so the controller's stores and APIs never copy them.
 // Unlike the Create fields they refuse the empty value; callers skip optional
@@ -38,6 +57,10 @@ func ValidEffort(effort string) bool {
 	return effort == "" || effort == "low" || effort == "medium" || effort == "high"
 }
 
+// ValidProvider accepts the empty value (Cline's own choice) and a provider id
+// that passes the model-name rule.
+func ValidProvider(provider string) bool { return provider == "" || validModel(provider) }
+
 // ValidDir accepts an absolute folder with no control characters.
 func ValidDir(dir string) bool { return validDir(dir) }
 
@@ -46,7 +69,7 @@ func ValidPrompt(prompt string) bool { return validPrompt(prompt) }
 
 func validTools(tools []string, v2 bool) bool {
 	for i, tool := range tools {
-		validTool := ValidTool(tool) || (v2 && ValidToolV2(tool))
+		validTool := ValidTool(tool) || (v2 && ValidToolV2(tool)) || RetiredTool(tool)
 		ordered := i == 0 || tools[i-1] < tool
 		if !validTool || !ordered {
 			return false
@@ -98,7 +121,10 @@ func validPrompt(prompt string) bool {
 
 func (c Create) validLaunch() bool {
 	if c.Tool == "" {
-		return c.Model == "" && (c.Dir == "" || validDir(c.Dir)) && c.Prompt == "" && c.Effort == "" && !c.Yolo && !c.Resume
+		return c.Model == "" && (c.Dir == "" || validDir(c.Dir)) && c.Prompt == "" && c.Effort == "" && c.Provider == "" && !c.Yolo && !c.Resume
+	}
+	if c.Provider != "" && !(ToolTakesProvider(c.Tool) && c.Structured && validModel(c.Provider)) {
+		return false
 	}
 	validEffort := ValidEffort(c.Effort)
 	if c.Structured {

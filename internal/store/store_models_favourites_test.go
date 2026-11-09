@@ -257,7 +257,7 @@ func TestFolderProjectEffortAndCline(t *testing.T) {
 	for name, p := range map[string]FolderProject{
 		"model without a tool":  {Host: "laptop", Dir: "/a", DefaultModel: "model-one"},
 		"effort without a tool": {Host: "laptop", Dir: "/b", DefaultEffort: "high"},
-		"effort on claude":      {Host: "laptop", Dir: "/c", DefaultTool: "claude", DefaultEffort: "high"},
+		"effort on codex":       {Host: "laptop", Dir: "/c", DefaultTool: "codex", DefaultEffort: "high"},
 		"unknown effort":        {Host: "laptop", Dir: "/d", DefaultTool: "cline", DefaultEffort: "max"},
 		"unknown tool":          {Host: "laptop", Dir: "/e", DefaultTool: "bash"},
 	} {

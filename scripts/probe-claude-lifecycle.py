@@ -4,6 +4,9 @@
 Scenarios: trust (repository settings/hook overrides), cancel (cancellation and
 process retirement), load (session/load replay and ownership), model (session
 model/config descriptors) and subagent (permission handling for a subagent tool).
+Two parity scenarios record what Gaffer could turn on: images (does an ACP image
+block reach the provider request) and options (are effort/fast/ultracode offered at
+session/new, and does session/set_config_option read the value back).
 Like probe-claude-turn.py it uses a loopback Anthropic-compatible stub, synthetic
 credentials, a temporary home and project, and an explicit environment. It
 installs nothing and records observations; it asserts only invariants it states.
@@ -12,11 +15,12 @@ import argparse, http.server, json, os, selectors, shlex, shutil, signal, subpro
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-parser.add_argument("scenario", choices=["trust", "cancel", "load", "model", "subagent", "subagent-nested"])
+parser.add_argument("scenario", choices=["trust", "cancel", "load", "model", "subagent", "subagent-nested", "images", "options"])
 parser.add_argument("--workspace", type=Path, required=True)
 parser.add_argument("--setting-sources", default="", help="comma list sent as _meta.claudeCode.options.settingSources; empty sends none")
 parser.add_argument("--drop", action="append", default=[], help="environment variable to remove from the adapter environment")
 parser.add_argument("--add", action="append", default=[], help="KEY=VALUE to add to the adapter environment")
+parser.add_argument("--set-model", default="", help="options scenario: the model value to switch to (default: the first listed model other than the current one and 'default')")
 parser.add_argument("--node", default=shutil.which("node"))
 args = parser.parse_args()
 if args.node is None:
@@ -82,7 +86,14 @@ class Stub(http.server.BaseHTTPRequestHandler):
             return
         body = json.loads(self.rfile.read(size) or b"{}")
         names = [t.get("name") for t in body.get("tools", [])]
-        records.append({"http": self.path, "model": body.get("model"), "tools": names})
+        image_blocks = sum(
+            1
+            for m in body.get("messages", [])
+            if isinstance(m.get("content"), list)
+            for c in m["content"]
+            if isinstance(c, dict) and c.get("type") == "image"
+        )
+        records.append({"http": self.path, "model": body.get("model"), "tools": names, "imageBlocks": image_blocks})
         if "count_tokens" in self.path:
             return self.reply(b'{"input_tokens":100}')
         messages = body.get("messages", [])
@@ -94,7 +105,7 @@ class Stub(http.server.BaseHTTPRequestHandler):
         child = "Do nothing and report done" in first
         if state["slow"] and not completed:
             time.sleep(20)  # a turn the client has to cancel
-        use_tool = not completed and not child and (args.scenario != "load" or "history" not in first)
+        use_tool = not completed and not child and (args.scenario != "load" or "history" not in first) and args.scenario not in ("images", "options")
         content = {"type": "tool_use", "id": "toolu_probe", "name": tool_name, "input": tool_input} if use_tool else {"type": "text", "text": "Probe completed."}
         if child and not completed and args.scenario == "subagent-nested":
             # The subagent itself asks to run a command.
@@ -138,6 +149,11 @@ env_base = {
     "DISABLE_TELEMETRY": "1",
     "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION": "false",
 }
+if args.scenario == "options":
+    # The connector profile never passes ANTHROPIC_MODEL to the adapter, and an explicit
+    # model id changes which options session/new offers, so measure without it. Use
+    # --add ANTHROPIC_MODEL=<id> to see the other behaviour.
+    env_base.pop("ANTHROPIC_MODEL", None)
 for key in args.drop:
     env_base.pop(key, None)
 for pair in args.add:
@@ -242,6 +258,25 @@ class Agent:
         return self.group_members()
 
 
+def option_values(option):
+    """Flat list of selectable values of a configOptions entry (groups are flattened)."""
+    out = []
+    for item in (option or {}).get("options") or []:
+        if isinstance(item, dict) and "options" in item:
+            out.extend(sub.get("value") for sub in item["options"] if isinstance(sub, dict))
+        elif isinstance(item, dict):
+            out.append(item.get("value"))
+    return [v for v in out if v is not None]
+
+
+def read_option(response, ident):
+    """currentValue of option ident in a set_config_option reply, or None when absent."""
+    for option in ((response or {}).get("result") or {}).get("configOptions") or []:
+        if option.get("id") == ident:
+            return option.get("currentValue")
+    return None
+
+
 def prompt(agent, ident, native, text, timeout=60):
     return agent.call(ident, "session/prompt", {"sessionId": native, "prompt": [{"type": "text", "text": text}]}, timeout)
 
@@ -318,6 +353,63 @@ try:
         summary["setConfigMode"] = a.call(9, "session/set_config_option", {"sessionId": native, "configId": "mode", "value": "plan"})
         prompt(a, 6, native, "Reet ACP probe: write the marker, then finish.")
         summary["servedModels"] = sorted({r.get("model") for r in records if r.get("model")})
+    elif args.scenario == "images":
+        # A 1x1 PNG. The stub shows only that the bytes reach the provider request,
+        # not that a real model accepts or understands them.
+        png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        done = a.call(3, "session/prompt", {"sessionId": native, "prompt": [
+            {"type": "text", "text": "Reet ACP probe: describe the attached image, then finish."},
+            {"type": "image", "mimeType": "image/png", "data": png},
+        ]})
+        caps = ((summary["initialize"].get("agentCapabilities") or {}).get("promptCapabilities") or {})
+        summary["initializeImageCapability"] = bool(caps.get("image"))
+        summary["imageBlockSeenByStub"] = any(r.get("imageBlocks", 0) > 0 for r in records if "http" in r)
+        summary["promptStopReason"] = (done.get("result") or {}).get("stopReason") or done
+    elif args.scenario == "options":
+        listed = created["result"].get("configOptions") or []
+        summary["newOptionIds"] = [o.get("id") for o in listed]
+        summary["effortInNew"] = any(o.get("id") == "effort" for o in listed)
+        model_option = next((o for o in listed if o.get("id") == "model"), None)
+        current_model = (model_option or {}).get("currentValue")
+        summary["modelCurrentAtNew"] = current_model
+        summary["modelValues"] = option_values(model_option)
+        effort_new = next((o for o in listed if o.get("id") == "effort"), None)
+        summary["effortValues"] = option_values(effort_new)
+        # fast, set while the model is still the one session/new opened with.
+        fast_new = next((o for o in listed if o.get("id") == "fast"), None)
+        fast_new_pick = next((v for v in option_values(fast_new) if v != (fast_new or {}).get("currentValue")), None)
+        summary["fastSetAtNew"] = fast_new_pick
+        if fast_new_pick:
+            summary["fastReadBackAtNew"] = read_option(a.call(10, "session/set_config_option", {"sessionId": native, "configId": "fast", "value": fast_new_pick}), "fast")
+
+        def options_of(response):
+            return ((response or {}).get("result") or {}).get("configOptions") or []
+
+        # Does re-applying the current model make the model-dependent options appear?
+        same = a.call(3, "session/set_config_option", {"sessionId": native, "configId": "model", "value": current_model})
+        summary["optionIdsAfterSameModel"] = [o.get("id") for o in options_of(same)]
+        summary["sameModelError"] = (same.get("error") or {}).get("message")
+        # Does choosing another listed model do it, and what does it offer?
+        other_model = args.set_model or next((v for v in summary["modelValues"] if v not in (current_model, "default")), "sonnet")
+        summary["modelSet"] = other_model
+        after_model = a.call(4, "session/set_config_option", {"sessionId": native, "configId": "model", "value": other_model})
+        after = options_of(after_model)
+        summary["optionIdsAfterModel"] = [o.get("id") for o in after]
+        effort = next((o for o in after if o.get("id") == "effort"), None)
+        summary["effortValuesAfterModel"] = option_values(effort)
+        summary["effortCurrentAfterModel"] = (effort or {}).get("currentValue")
+        pick = next((v for v in summary["effortValuesAfterModel"] if v not in ("default", summary["effortCurrentAfterModel"])), None)
+        summary["effortSet"] = pick
+        if pick:
+            summary["effortReadBack"] = read_option(a.call(5, "session/set_config_option", {"sessionId": native, "configId": "effort", "value": pick}), "effort")
+        fast = next((o for o in after if o.get("id") == "fast"), None)
+        fast_pick = next((v for v in option_values(fast) if v != (fast or {}).get("currentValue")), None)
+        summary["fastSet"] = fast_pick
+        if fast_pick:
+            summary["fastReadBack"] = read_option(a.call(6, "session/set_config_option", {"sessionId": native, "configId": "fast", "value": fast_pick}), "fast")
+        unknown = a.call(7, "session/set_config_option", {"sessionId": native, "configId": "effort", "value": "not-an-effort"})
+        summary["unknownEffortCurrent"] = read_option(unknown, "effort")
+        summary["unknownEffortError"] = (unknown.get("error") or {}).get("message")
     elif args.scenario in ("subagent", "subagent-nested"):
         done = prompt(a, 3, native, "Reet ACP probe: delegate to a subagent, then finish.")
         summary["turn"] = done.get("result")

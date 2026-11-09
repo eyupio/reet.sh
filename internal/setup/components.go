@@ -117,7 +117,7 @@ func configPaths(agent string, loc Location) []string {
 		names = []string{"config.toml"}
 	case "opencode":
 		names = []string{"opencode.json", "opencode.jsonc"}
-	case "pi", "gemini":
+	case "pi":
 		names = []string{"settings.json"}
 	case "cursor":
 		names = []string{"mcp.json"}

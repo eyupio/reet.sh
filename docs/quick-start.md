@@ -56,7 +56,7 @@ The machine makes an outbound connection to the controller. Reet does not need a
 
 ## 4. Put an agent to work
 
-Install and authenticate your chosen coding agent on the connected machine. Reet can start **Claude Code**, **Codex**, **OpenCode** or **Gemini CLI** when the machine reports it as available. Its own OpenCode copy can also be managed on [supported Linux machines](agent-software.md).
+Install and authenticate your chosen coding agent on the connected machine. Reet can start **Claude Code**, **Codex** or **OpenCode** when the machine reports it as available. Its own OpenCode copy can also be managed on [supported Linux machines](agent-software.md).
 
 Choose **Start an agent**, pick a project and a machine, then an agent. Choose **No project — start in a folder** to pick a folder instead. Press **Start** and you arrive in the new session. Your coding tool’s provider access and approval rules still apply.
 

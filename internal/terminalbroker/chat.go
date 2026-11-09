@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	ErrChatOff             = errors.New("this chat is turned off for your account; turn it on in Settings > Agents")
 	ErrACPUnsupported      = errors.New("that machine does not support Gaffer chats")
 	ErrACPVersion          = errors.New("the machine needs a newer agent for chats")
 	ErrACPModelRejected    = errors.New("The agent did not confirm the chosen model. Its current model may have changed. Choose a model configured on this machine and try again.")
@@ -925,7 +926,21 @@ func (b *Broker) chatExists(uid int64, session string) bool {
 	return ok
 }
 
+// structuredSession is a running chat the account may still use. A chat whose switch the account has turned off is
+// closed to messages, answers and changes with one clear reason, rather than half-working until it ends.
 func (b *Broker) structuredSession(uid int64, session string) (store.TerminalSession, error) {
+	s, err := b.liveStructuredSession(uid, session)
+	if err != nil {
+		return s, err
+	}
+	if b.st.ChatOffFor(uid, s.Tool) {
+		return s, ErrChatOff
+	}
+	return s, nil
+}
+
+// liveStructuredSession is a running chat whatever its switch says. Stopping a chat never needs the switch on.
+func (b *Broker) liveStructuredSession(uid int64, session string) (store.TerminalSession, error) {
 	s, err := b.st.TerminalSessionFor(uid, session)
 	if err != nil {
 		return s, err
@@ -990,6 +1005,9 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 		b.chatLog(uid, session).publish(terminalproto.ACPEvent{Kind: "notice", Text: text, Bad: true})
 		return ack
 	}
+	// The agent took the message, so it is a real task. A naming failure must
+	// never fail a send that already went out, hence the ignored error.
+	_, _ = b.st.RetitleChatFromPrompt(uid, session, text)
 	return nil
 }
 
@@ -1011,7 +1029,7 @@ func chatAck(reply terminalproto.Message, err error) error {
 }
 
 func (b *Broker) CancelChat(ctx context.Context, uid int64, session string) error {
-	s, err := b.structuredSession(uid, session)
+	s, err := b.liveStructuredSession(uid, session)
 	if err != nil {
 		return err
 	}

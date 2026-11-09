@@ -9,6 +9,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
@@ -140,4 +141,72 @@ func (s *server) releaseSessionWorktree(ctx context.Context, uid int64, sess sto
 	s.recordRunWorktreeRemoved(uid, sess.AgentID, run)
 	s.autoPruneAfterWorktree(uid, sess.AgentID, run)
 	return nil
+}
+
+// onSessionClosed runs after a session row has been observed closed. When the
+// person ended it with remove from history and it worked in a worktree, the
+// worktree is checked and removed now that the machine is no longer using it,
+// and only then is the session hidden from history. Uncommitted changes are
+// never discarded automatically: a worktree that needs a person's decision
+// keeps the session in history, where the existing removal flow asks.
+func (s *server) onSessionClosed(uid int64, agentID, sessionID string) {
+	sess, err := s.st.TerminalSessionFor(uid, sessionID)
+	if err != nil || sess.WorktreePath == "" || !sess.RemoveHistory {
+		return
+	}
+	if archived, err := s.st.TerminalArchivedFor(uid, sessionID); err != nil || archived {
+		return
+	}
+	if !s.claimSessionCleanup(sessionID) {
+		return
+	}
+	defer s.releaseSessionCleanup(sessionID)
+	ctx, cancel := context.WithTimeout(s.baseContext(), 3*time.Minute)
+	defer cancel()
+	hold := s.releaseSessionWorktree(ctx, uid, sess, worktreeConfirm{})
+	if hold != nil {
+		// The worktree could not go safely, so the session stays visible with
+		// the reason; the person can confirm unsaved work from its menu.
+		_ = s.st.AddEventOnceFor(uid, "system", "worktree-kept", "", map[string]string{"machine": sess.AgentID, "host": s.machineHost(uid, sess.AgentID), "path": sess.WorktreePath, "code": hold.Code})
+		return
+	}
+	if err := s.st.ArchiveTerminalFor(uid, sessionID); err != nil {
+		return
+	}
+	s.terminals.CloseChat(uid, sessionID)
+	s.event(uid, "system", "session-remove", "", map[string]string{"machine": sess.AgentID, "host": s.machineHost(uid, sess.AgentID), "session": sessionID})
+}
+
+// onPeerReady resumes cleanups that could not reach the machine before, such
+// as one observed while the connection was still synchronizing, or one
+// interrupted by a controller restart. It only looks at this machine's closed
+// remove-history sessions that still hold a worktree.
+func (s *server) onPeerReady(uid int64, agentID string) {
+	const maxCleanups = 50
+	sessions, err := s.st.TerminalCleanupCandidatesFor(uid, agentID, maxCleanups)
+	if err != nil {
+		return
+	}
+	for _, sess := range sessions {
+		s.onSessionClosed(uid, agentID, sess.ID)
+	}
+}
+
+func (s *server) claimSessionCleanup(sessionID string) bool {
+	s.sessionCleanupMu.Lock()
+	defer s.sessionCleanupMu.Unlock()
+	if s.sessionCleanup[sessionID] {
+		return false
+	}
+	if s.sessionCleanup == nil {
+		s.sessionCleanup = map[string]bool{}
+	}
+	s.sessionCleanup[sessionID] = true
+	return true
+}
+
+func (s *server) releaseSessionCleanup(sessionID string) {
+	s.sessionCleanupMu.Lock()
+	delete(s.sessionCleanup, sessionID)
+	s.sessionCleanupMu.Unlock()
 }

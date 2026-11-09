@@ -62,7 +62,9 @@ func (s *server) newSoftwareRuns() *softwarerun.Orchestrator {
 // next launch see the change without waiting for a reconnect. expectGeneration
 // is the generation the plan was made from; zero accepts the latest.
 func (s *server) recordSoftwareEntry(uid int64, agentID string, expectGeneration int64, entry terminalproto.SoftwareEntry) {
-	latest, err := s.st.RemoteCapabilitiesFor(uid, agentID)
+	// The record is stored whole below, so it is read unmasked: the account's
+	// chat setting must never be written over what the machine reported.
+	latest, err := s.st.RemoteCapabilitiesRawFor(uid, agentID)
 	stale := expectGeneration != 0 && latest.Generation != expectGeneration
 	if err != nil || stale {
 		return

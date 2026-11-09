@@ -97,6 +97,11 @@ try {
   const bounds=await dialog.boundingBox()
   expect(bounds.x).toBeGreaterThanOrEqual(0)
   expect(bounds.x+bounds.width).toBeLessThanOrEqual(width+1)
+  // Reopening in the same task as a native close must keep the new dialog: the old dialog's close event arrives later.
+  await opener.evaluate(button=>{document.querySelector('dialog[open]').close();button.click()})
+  await expect(dialog).toBeVisible()
+  await page.waitForTimeout(100)
+  await expect(dialog).toBeVisible()
   expect(errors).toEqual([])
   // No scan, comparison, preview, approval or machine command is needed to save offline intent.
   expect(state.unexpected.filter(path=>/sync\/|terminal\/|skill-import/.test(path))).toEqual([])

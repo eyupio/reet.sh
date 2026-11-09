@@ -9,17 +9,21 @@
   const titleId = $props.id()
   let dialog = $state<HTMLDialogElement>()
   let closeButton = $state<HTMLButtonElement>()
+  // A native dialog reports `close` a task after it closes. If the button reopened the dialog in between, this instance is
+  // already destroyed and its late event must not clear the new one.
+  let alive = true
   onMount(() => {
     dialog?.showModal()
     closeButton?.focus()
     return () => {
+      alive = false
       if (dialog?.open) dialog.close()
       if (opener.isConnected) opener.focus({ preventScroll: true })
     }
   })
 </script>
 
-<dialog bind:this={dialog} use:shell aria-labelledby={titleId} onclose={onclose}>
+<dialog bind:this={dialog} use:shell aria-labelledby={titleId} onclose={() => { if (alive) onclose() }}>
   <header data-shell-head>
     <h2 id={titleId}>Skills on {host}</h2>
     <button bind:this={closeButton} class="btn quiet" type="button" aria-label="Close machine skills" data-shell-close onclick={() => dialog?.close()}><Icon name="x" size={18} /></button>

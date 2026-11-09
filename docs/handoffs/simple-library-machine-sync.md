@@ -468,4 +468,4 @@ The earlier pending/draft checkpoints above are historical. #665 first merged in
 
 ### Stage 4 started under a new owner instruction
 
-The owner explicitly requested Stage 4 after the Stage 2/3 merges. Its [handover](simple-library-machine-sync-stage-4.md) records the first controller intent/fencing checkpoint and the remaining connector/receipt/notification work. Stage 4 stays unchecked; earlier statements that it is unstarted describe the delivery checkpoints before this instruction. This authorises Stage 4 implementation, not Stage 5 or deployment.
+The owner explicitly requested Stage 4 after the Stage 2/3 merges. Its [handover](simple-library-machine-sync-stage-4.md) records the controller intent/fencing checkpoint and the connector's target-bound post-install ownership journal. Source/legacy bases remain unowned; managed removal, restoration, operation receipts and notifications are still pending. Stage 4 stays unchecked; earlier statements that it is unstarted describe the delivery checkpoints before this instruction. This authorises Stage 4 implementation, not Stage 5 or deployment.

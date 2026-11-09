@@ -25,15 +25,45 @@ type libraryBinding struct {
 	ItemID   string   `json:"itemId"`
 	Revision string   `json:"revision"`
 	Digest   string   `json:"digest"`
+	// Imported source roots and legacy edit bases never imply permission to
+	// remove a directory. Deployment is granted only by a verified new install.
+	Source     bool               `json:"source,omitempty"`
+	Deployment *libraryDeployment `json:"deployment,omitempty"`
+}
+
+// errLocalAuthorityChanged means the local consent or enrollment this run was
+// authorised by is no longer the one in force. It affects the whole target,
+// never a single item, so an apply stops instead of isolating it.
+var errLocalAuthorityChanged = errors.New("local sync consent or enrollment changed")
+
+type libraryDeployment struct {
+	TargetID string          `json:"targetId"`
+	Revision string          `json:"revision"`
+	Digest   string          `json:"digest"`
+	Verified bool            `json:"verified"`
+	Removal  *libraryRemoval `json:"removal,omitempty"`
+}
+type libraryRemoval struct {
+	Generation string `json:"generation"`
+	Backup     string `json:"backup"`
+	Phase      string `json:"phase"`
+	// Digest is the content the entry had when the move was prepared, so recovery
+	// can prove the backup is that content before it relies on it.
+	Digest string `json:"digest,omitempty"`
 }
 type libraryLocalState struct {
-	Server       string              `json:"server"`
-	Enrollment   string              `json:"enrollment"`
-	Offset       int64               `json:"offset"`
-	Uncertainty  int64               `json:"uncertainty"`
-	CalibratedAt int64               `json:"calibratedAt"`
-	Bindings     []libraryBinding    `json:"bindings"`
-	Pending      []store.LibraryEdit `json:"pending"`
+	Server          string              `json:"server"`
+	Enrollment      string              `json:"enrollment"`
+	Offset          int64               `json:"offset"`
+	Uncertainty     int64               `json:"uncertainty"`
+	CalibratedAt    int64               `json:"calibratedAt"`
+	Bindings        []libraryBinding    `json:"bindings"`
+	Pending         []store.LibraryEdit `json:"pending"`
+	ManagedRemovals int                 `json:"managedRemovals,omitempty"`
+	// Missing and Restores are the debounced deletion episodes and the verified
+	// restores not yet reported; see library_restore.go.
+	Missing  []libraryMissing `json:"missing,omitempty"`
+	Restores []libraryRestore `json:"restores,omitempty"`
 }
 
 func loadLibraryState(config string, c agentConfig) (libraryLocalState, error) {
@@ -49,9 +79,20 @@ func loadLibraryState(config string, c agentConfig) (libraryLocalState, error) {
 		return state, err
 	}
 	if state.Server != c.Server || state.Enrollment != c.ID {
-		return state, errors.New("library receipts belong to another enrollment")
+		return state, errLocalAuthorityChanged
 	}
 	return state, nil
+}
+
+func libraryApplyConsent(config string, c agentConfig) error {
+	local, err := loadAgentConfig(config)
+	if err != nil {
+		return err
+	}
+	if !local.AllowApply || local.ID != c.ID || local.Server != c.Server || local.Secret != c.Secret {
+		return errLocalAuthorityChanged
+	}
+	return nil
 }
 
 // Only exact private revisions installed by this enrollment are watched. A
@@ -123,6 +164,9 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	if err != nil {
 		return err
 	}
+	if local.ID != c.ID || local.Server != c.Server || local.Secret != c.Secret {
+		return errLocalAuthorityChanged
+	}
 	c.AllowApply = local.AllowApply
 	lock, err := filelock.Acquire(config + ".library.lock")
 	if err != nil {
@@ -143,10 +187,17 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 			return err
 		}
 	}
+	// Observing a deletion is read-only; it keeps the debounce moving between jobs.
+	if observeLibraryDeletions(&state, time.Now()) {
+		if err = writePrivate(config+".library", state); err != nil {
+			return err
+		}
+	}
 	start := time.Now()
 	var protocol struct {
-		SchemaVersion int   `json:"schemaVersion"`
-		ServerTime    int64 `json:"serverTime"`
+		SchemaVersion   int   `json:"schemaVersion"`
+		ServerTime      int64 `json:"serverTime"`
+		ManagedRemovals int   `json:"managedRemovals"`
 	}
 	if err = agentRequestContext(ctx, c, "/api/v2/library/protocol", struct{}{}, &protocol, version); err != nil {
 		return err
@@ -158,12 +209,19 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	state.Offset = protocol.ServerTime - (start.UnixMilli()+end.UnixMilli())/2
 	state.Uncertainty = (end.Sub(start).Milliseconds()+1)/2 + 1
 	state.CalibratedAt = end.UnixMilli()
+	// Older controllers omit the capability. Never infer it from protocol 1
+	// or retain an earlier controller's advertised version after a downgrade.
+	state.ManagedRemovals = protocol.ManagedRemovals
 	if err = writePrivate(config+".library", state); err != nil {
 		return err
 	}
+	// A restore receipt reports something already verified, so it does not
+	// need apply consent to be sent.
+	reportLibraryRestores(ctx, c, config, &state, version, out)
 	if !c.AllowApply {
 		return nil
 	}
+	requestLibraryRestoreSync(ctx, c, &state, version, out)
 	// A bad item's upload cannot prevent other items' edits from being sent.
 	failed := map[string]bool{}
 	for i := 0; i < len(state.Pending); {
@@ -202,12 +260,12 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	}
 	return nil
 }
-func recordLibraryInstall(config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile) error {
+func recordLibraryInstall(config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, targetID string) error {
 	if skill.ItemID == "" {
 		return nil
 	}
 	parts := privateSourcePattern.FindStringSubmatch(skill.Source)
-	if parts == nil {
+	if parts == nil || !safeSlug.MatchString(skill.Slug) || !filepath.IsAbs(path) {
 		return errors.New("invalid library source")
 	}
 	state, err := loadLibraryState(config, c)
@@ -221,15 +279,85 @@ func recordLibraryInstall(config string, c agentConfig, skill store.SyncSkill, p
 	found := false
 	for i := range state.Bindings {
 		if state.Bindings[i].Path == binding.Path {
+			previous := state.Bindings[i]
+			if previous.ItemID != binding.ItemID {
+				return errors.New("library directory belongs to a different item")
+			}
+			if targetID != "" && previous.Deployment != nil && previous.Deployment.TargetID != targetID {
+				return errors.New("library directory belongs to a different target")
+			}
+			binding.Source = previous.Source
+			// Unknown old receipts remain edit bases, even when their bytes
+			// match. A prior source import must never become removable by sync.
+			if !previous.Source && previous.Deployment != nil && previous.Deployment.TargetID == targetID && targetID != "" {
+				binding.Deployment = &libraryDeployment{TargetID: targetID, Revision: binding.Revision, Digest: binding.Digest}
+			}
 			state.Bindings[i] = binding
 			found = true
 			break
 		}
 	}
 	if !found {
+		if targetID != "" {
+			binding.Deployment = &libraryDeployment{TargetID: targetID, Revision: binding.Revision, Digest: binding.Digest}
+		}
 		state.Bindings = append(state.Bindings, binding)
 	}
 	return writePrivate(config+".library", state)
+}
+
+// finishLibraryInstall runs only after the existing executor has renamed the
+// staged bundle into place. The pre-write base pin alone never grants ownership:
+// failed/interrupted writes retain an unverified journal entry. Legacy/source
+// bindings deliberately stay unowned until a separate migration proves them.
+func finishLibraryInstall(config string, c agentConfig, skill store.SyncSkill, path, targetID string) error {
+	if skill.ItemID == "" {
+		return nil
+	}
+	lock, err := filelock.Acquire(config + ".library.lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	state, err := loadLibraryState(config, c)
+	if err != nil {
+		return err
+	}
+	parts := privateSourcePattern.FindStringSubmatch(skill.Source)
+	if parts == nil || targetID == "" || !safeSlug.MatchString(skill.Slug) || !filepath.IsAbs(path) {
+		return errors.New("invalid library deployment")
+	}
+	candidate := filepath.Join(path, skill.Slug)
+	for i := range state.Bindings {
+		binding := &state.Bindings[i]
+		if binding.Path != candidate {
+			continue
+		}
+		if binding.Source || binding.Deployment == nil {
+			return nil
+		}
+		deployment := binding.Deployment
+		if binding.ItemID != skill.ItemID || binding.Revision != parts[2] || binding.Digest != parts[3] || deployment.TargetID != targetID || deployment.Revision != parts[2] || deployment.Digest != parts[3] {
+			return errors.New("library deployment changed before verification")
+		}
+		if err := libraryApplyConsent(config, c); err != nil {
+			return err
+		}
+		if err := safeLibraryParent(candidate); err != nil {
+			return err
+		}
+		digest, err := privateSkillDigest(candidate)
+		if err != nil {
+			return err
+		}
+		if digest != deployment.Digest {
+			return errors.New("installed library content changed before verification")
+		}
+		deployment.Verified = true
+		recordVerifiedRestore(&state, candidate, targetID, skill.ItemID, parts[2], time.Now())
+		return writePrivate(config+".library", state)
+	}
+	return errors.New("library deployment was not prepared")
 }
 
 // A failed or unsent local capture must survive a remote apply. Exclude just
@@ -243,6 +371,10 @@ func filterLibraryPending(config string, c agentConfig, desired []store.SyncSkil
 	for _, event := range state.Pending {
 		pending[event.ItemID] = true
 	}
+	missing := map[string]libraryMissing{}
+	for _, record := range state.Missing {
+		missing[record.Path] = record
+	}
 	out := make([]store.SyncSkill, 0, len(desired))
 	for _, skill := range desired {
 		blocked := pending[skill.ItemID]
@@ -250,10 +382,27 @@ func filterLibraryPending(config string, c agentConfig, desired []store.SyncSkil
 			if skill.ItemID == "" || binding.ItemID != skill.ItemID {
 				continue
 			}
+			// A folder that is simply absent is judged by evidence, not by a
+			// digest error: privateSkillDigest reports a missing folder as an
+			// incomplete observation, never as "not found".
+			if _, statErr := os.Lstat(binding.Path); os.IsNotExist(statErr) {
+				removed := binding.Deployment != nil && binding.Deployment.Removal != nil && binding.Deployment.Removal.Phase == "removed"
+				record, recorded := missing[binding.Path]
+				if removed || (recorded && record.ItemID == binding.ItemID && record.stable(libraryRestoreDebounce)) {
+					continue // an intentional removal, or a deletion that has persisted: reinstall
+				}
+				blocked = true // not yet believed; held until observed long enough
+				continue
+			}
 			digest, err := privateSkillDigest(binding.Path)
-			// Unknown/unreadable and partial deletions stay local until restoration is
-			// implemented. A changed digest needs capture before any overwrite.
+			// Unknown/unreadable content stays local, and a changed digest needs
+			// capture before any overwrite. A deletion this connector has seen
+			// persist past the debounce window is the exception: the restore
+			// flow replaces the folder, backing up whatever survived first.
 			if (err != nil && !os.IsNotExist(err)) || (err == nil && digest != binding.Digest) {
+				if record, ok := missing[binding.Path]; ok && record.ItemID == binding.ItemID && record.stable(libraryRestoreDebounce) {
+					continue
+				}
 				blocked = true
 			}
 		}
@@ -295,7 +444,7 @@ func recordLibrarySource(config string, c agentConfig, path, item, revision stri
 			return errors.New("source has an unsent edit")
 		}
 	}
-	binding := libraryBinding{Path: path, ItemID: item, Revision: revision, Digest: manifest.Digest}
+	binding := libraryBinding{Path: path, ItemID: item, Revision: revision, Digest: manifest.Digest, Source: true}
 	for _, file := range manifest.Files {
 		binding.Paths = append(binding.Paths, file.Path)
 	}
@@ -313,19 +462,22 @@ func recordLibrarySource(config string, c agentConfig, path, item, revision stri
 	return writePrivate(config+".library", state)
 }
 
-func prepareLibraryInstall(ctx context.Context, config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, version string) error {
+func prepareLibraryInstall(ctx context.Context, config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, version, targetID string) error {
 	if skill.ItemID == "" {
 		return nil
+	}
+	if err := libraryApplyConsent(config, c); err != nil {
+		return err
 	}
 	lock, err := filelock.Acquire(config + ".library.lock")
 	if err != nil {
 		return err
 	}
 	defer lock.Close()
-	return prepareLibraryInstallLocked(ctx, config, c, skill, path, files, version)
+	return prepareLibraryInstallLocked(ctx, config, c, skill, path, files, version, targetID)
 }
 
-func prepareLibraryInstallLocked(ctx context.Context, config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, version string) error {
+func prepareLibraryInstallLocked(ctx context.Context, config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, version, targetID string) error {
 	state, err := loadLibraryState(config, c)
 	if err != nil {
 		return err
@@ -349,7 +501,7 @@ func prepareLibraryInstallLocked(ctx context.Context, config string, c agentConf
 	if receipt != in {
 		return errors.New("invalid library base receipt")
 	}
-	return recordLibraryInstall(config, c, skill, path, files)
+	return recordLibraryInstall(config, c, skill, path, files, targetID)
 }
 
 // Adopt an existing directory only from exact selected bytes or a verified
@@ -369,6 +521,9 @@ func adoptLibraryInstall(ctx context.Context, config string, c agentConfig, want
 	}
 	if !local.AllowApply {
 		return errors.New("Enable sync locally to track this existing copy.")
+	}
+	if local.ID != c.ID || local.Server != c.Server || local.Secret != c.Secret {
+		return errLocalAuthorityChanged
 	}
 	state, err := loadLibraryState(config, c)
 	if err != nil {
@@ -414,7 +569,7 @@ func adoptLibraryInstall(ctx context.Context, config string, c agentConfig, want
 	if err != nil {
 		return err
 	}
-	if err := prepareLibraryInstallLocked(ctx, config, c, base, path, files, version); err != nil {
+	if err := prepareLibraryInstallLocked(ctx, config, c, base, path, files, version, ""); err != nil {
 		return err
 	}
 	if dirty {

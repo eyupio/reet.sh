@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -181,6 +182,10 @@ type Store struct {
 	healthErr     error
 	healthCountAt time.Time
 	healthCount   int
+
+	// managedRemovals gates controller approval and advertisement of managed
+	// removals. See SetManagedRemovals.
+	managedRemovals atomic.Bool
 }
 
 const cols = `id,source,slug,source_type,url,name,description,notes,installs,installs_week,trend,liked,bookmarked,used,created_at,updated_at`

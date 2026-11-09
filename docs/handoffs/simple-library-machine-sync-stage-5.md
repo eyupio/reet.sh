@@ -116,6 +116,41 @@ Validation: `connect-flow.e2e.mjs` gains an import-step scenario at 390px dark a
 
 **This does not meet the acceptance line "without a separate source-capture or approval screen", and that is deliberate.** The import still goes through the existing review: request a preview, check which files to keep, approve, then upload. That review is the consent for sending a machine's files to the controller, and removing or merging it is a privacy decision for the owner, not a UI tidy-up. This slice only removes the hunting: the person no longer has to find the folder's details or the "Import a machine skill…" button, and the skill is pre-chosen. Not done: importing several skills in one review, bringing the person back to the picker when an import completes (they reopen Choose skills; the new item then appears in the library list), matching by anything but name, and any automatic capture at connect time (the connector's `library-import` capture is a command run on the machine and nothing in the web flow triggers it). The Add a machine dialog still ends with "Done — show {machine}".
 
+## Real-stack browser acceptance (9 November 2026)
+
+Until now Stage 5 was proved only with fixture responses. `web/tests/stage5-acceptance.e2e.mjs` drives the real built web app in real Chromium against the real controller and two separately enrolled connector processes (own homes, own configs), signed in with a real session: a session row in the controller's store and the `reet_session` cookie, which is exactly what a sign-in produces. It is started by `TestStage5BrowserAcceptance` (`internal/api`, build tag `sync_contract`, `REET_STAGE5_BROWSER=1`), which lives on the Stage 4 branch (#680) because it needs that backend: **it can only run on a checkout that has both #680 and #686**. The script refuses to run on its own and is not in CI. To reproduce, from a checkout with both branches merged: `npm --prefix web ci && npm --prefix web run build`, then `REET_STAGE5_BROWSER=1 REET_UI_SCREENSHOTS=/some/dir go test -tags sync_contract ./internal/api -run TestStage5BrowserAcceptance -count=1 -timeout 15m`. Managed removals are switched on for that test controller only; the production control stays off.
+
+**Evidence: the run passed on three consecutive executions** (the first with screenshots, then `-count=2`, 138 s for both), each covering ten phases against real data and real files:
+
+1. Signed in; the Library shows each item once, In use, selected on no machine.
+2. Choose skills on one machine: select all, save; each row says waiting or syncing, never done, and never "Up to date".
+3. The connector syncs on its own: the files appear on the selected machine only, and every row now reads Installed from the machine's real report.
+4. The Library shows which machine keeps each item.
+5. Disabled from the Library removes the managed copy from the machine, keeps the library entry and the selection, leaves exactly one recoverable copy, creates **no** notification, and the picker reads "Kept in the library only".
+6. Back to In use restores the copy with no reselection.
+7. **A real partial failure:** one item's local folder is replaced by a plain file. After the controller's retry back-off it reads "Needs attention · The managed directory cannot be verified; its local files are retained." beside that item only, while the other two stay Installed. Clearing the blocker lets it sync again with no reselection.
+8. The browser is closed entirely; an item is turned off through the legacy "used" flag; sync continues with no browser open (the copy is removed); a new browser sees the durable result (status To test, the selection kept, the picker's inactive state).
+9. A file deleted on the machine is restored from canonical bytes and announced exactly once in the notification centre ("Restored reet-review-helper on workstation after it was deleted locally."), and a later reload and more cycles add no second notice.
+
+Curated images: [phone, items installed](../images/ui/stage5-real-installed-phone.png), [phone, status removal](../images/ui/stage5-real-status-removal-phone.png), [phone, partial failure](../images/ui/stage5-real-partial-failure-phone.png), [desktop, restored notification](../images/ui/stage5-real-restored-notification-desktop.png).
+
+**What running for real taught us**
+
+- A blocked or broken item reads "Waiting to sync" for **up to a minute** before "Needs attention" appears with its reason. The controller deliberately retries a canonical target at most once a minute (`now()-60000` in `MaintainSync`) so a standing problem cannot become hundreds of failed jobs. This is intended throttling, not a bug, but during that window nothing explains the wait. The acceptance run waits the window out (62 s). Showing a reason sooner would need the connector to report a blocked item without waiting for the controller's next job; that is not built.
+- Turning an item off through the legacy "used" flag lands it on **To test**, not Disabled, which is the documented status mapping, and shows the Library, picker and machine all agreeing.
+- The heal step (removing the blocking file) is itself a deletion of a managed folder, so it is restored and announced as its own episode: two restore notices appear in the screenshot, one per real episode, and only the intended one is asserted.
+- Item states from the controller's real report matched what the fixture tests assumed: the per-item states needed no change.
+
+**What this does not prove**
+
+- Both connectors are subprocesses on one machine with a faked network link, not two real machines. Sleep, reboot, real network loss, native service recovery and a second operating system were not exercised.
+- The session was created directly in the store, so the password sign-in form, SSO and account creation were not run. Viewer and second-account behaviour were not run in the real stack.
+- An **offline** machine was not exercised for real: the page's offline window is minutes long, so "Offline — update waiting" remains covered only by fixture tests. The empty-library state is likewise fixture-only here.
+- The Library page ran at desktop width in the real stack; the phone images are the same page resized to 390 px, not a touch device. Reduced-motion and assistive-technology behaviour were not exercised.
+- It needs Stage 4's backend and the managed-removal control on. With that control off, status removal does not happen, by design.
+
+**Stage 5 acceptance is still not complete.** Remaining: the single connect/import/selection flow (the file review still stands between a found skill and the library, by design, pending an owner decision), retiring the remaining `/sync` navigation, a real offline-machine state, a real signed-in sign-in path, an acceptance run on real hardware, and the unfinished Stage 4 (#680) dependency.
+
 ## Workspace and ongoing PR supervision
 
 Use `/workspace/.reet-tools/activate.sh` for Node/Go; system `go` is not the compiler. Dependencies are an untracked symlink from `web/node_modules` to `/workspace/reet.sh/web/node_modules`; never commit it. Disks are constrained: use short `TMPDIR=/workspace/t`, preserve user files, and reclaim only inspected owned regenerable outputs if needed. The preview used for this branch is port 4174 because another session owns 4173; `REET_UI_URL` selects the test origin. Do not stop unrelated preview processes.

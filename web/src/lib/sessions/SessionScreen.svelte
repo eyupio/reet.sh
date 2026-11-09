@@ -12,6 +12,7 @@
   import { toolName } from '../agentLaunch'
   import { CATALOGUE } from '../catalogue'
   import YoloDialog from '../launch/YoloDialog.svelte'
+  import { yoloSwitchTitle } from '../launch/yoloWording'
   import { yoloCanStart, type YoloGate } from '../launchBar'
   import { signalAttentionChanged } from '../attentionSignal'
   import { attentionRuleOf } from '../attention'
@@ -427,7 +428,7 @@
         <div class="approvals" role="group" aria-label="Approvals">
           <button type="button" aria-pressed={approvalMode === 'ask'} disabled={busy || modeBusy} onclick={askMode}>Ask me</button>
           <button type="button" aria-pressed={approvalMode === 'yolo'} disabled={busy || modeBusy}
-            title={yoloCanStart(switchGates) ? 'Answer every approval for this session' : 'Read why YOLO is not ready here'} onclick={yoloMode}>YOLO</button>
+            title={yoloCanStart(switchGates) ? yoloSwitchTitle(session.tool ?? '') : 'Read why YOLO is not ready here'} onclick={yoloMode}>YOLO</button>
         </div>
       {:else if session.yolo}<span class="badge yolo">YOLO</span>{/if}
       <p class="legacy-label">Restart in another interface</p>

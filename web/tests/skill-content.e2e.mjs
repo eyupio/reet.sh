@@ -922,6 +922,8 @@ try{
  await page.setViewportSize({width:390,height:600})
  {
   const body=dialog.locator('.body')
+  // The viewport has just shrunk: let the long list finish reflowing first, or a later reflow clamps the scroll position and reads as the page moving it.
+  for(let last=-1,steady=0,tries=0;steady<3&&tries<50;tries++){const h=await body.evaluate(el=>el.scrollHeight);steady=h===last?steady+1:0;last=h;await page.waitForTimeout(100)}
   await body.evaluate(el=>{el.scrollTop=400})
   const scrolled=await body.evaluate(el=>el.scrollTop)
   expect(scrolled).toBeGreaterThan(100)

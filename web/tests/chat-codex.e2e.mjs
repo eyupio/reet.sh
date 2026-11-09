@@ -172,6 +172,10 @@ try {
   const yoloGroup = page.getByRole('radiogroup', { name: 'Approvals' })
   await expect(yoloGroup.getByText('YOLO is on for this chat, so when it asks to leave the sandbox you are not asked.', { exact: false })).toBeVisible()
   await expect(yoloGroup.getByText('and asks before one leaves it.', { exact: false })).toHaveCount(0)
+  // In "Let Codex decide" YOLO does not answer: its own reviewer decides and a request it still raises is left to the person.
+  await yoloGroup.getByRole('radio', { name: 'Let Codex decide' }).click()
+  await expect(yoloGroup.getByText('YOLO is on, but it does not answer there', { exact: false })).toBeVisible()
+  await expect(yoloGroup.getByText('left to you', { exact: false })).toBeVisible()
   if (process.env.REET_UI_SCREENSHOTS) await mkdir(process.env.REET_UI_SCREENSHOTS, { recursive: true })
   for (const theme of ['dark', 'light']) for (const width of [1360, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })

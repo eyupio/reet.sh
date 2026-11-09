@@ -2,6 +2,7 @@
   // The agent's own approval mode for a chat that offers one (Codex: read-only and agent). The wording says what each mode
   // means for the person, because "agent" never asks and a refused request is silent. The mode is shown only as the machine last
   // confirmed it; after a switch the machine did not confirm, no mode is shown as active and the person is told to choose one.
+  import { yoloModeMeaning } from '../launch/yoloWording'
   let { tool, modes, current, disabled = false, yolo = false, onchoose }: {
     tool: string
     modes: string[]
@@ -20,7 +21,7 @@
     plan: { label: 'Plan only', meaning: t => `${t} explores and plans without changing files.` }
   }
   const labelOf = (mode: string) => LABELS[mode]?.label ?? mode
-  const meaning = $derived(current === 'read-only' && yolo ? `${tool} runs commands inside its sandbox. YOLO is on for this chat, so when it asks to leave the sandbox you are not asked.` : current ? LABELS[current]?.meaning(tool) ?? `${tool} is in ${current} mode.` : `${tool}’s mode isn’t confirmed. Choose one before you send anything else.`)
+  const meaning = $derived((yolo && yoloModeMeaning(current, tool)) || (current ? LABELS[current]?.meaning(tool) ?? `${tool} is in ${current} mode.` : `${tool}’s mode isn’t confirmed. Choose one before you send anything else.`))
   let busy = $state(''), problem = $state('')
   const groupId = $props.id()
 

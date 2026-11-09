@@ -49,7 +49,7 @@ func TestFakeACP(t *testing.T) {
 		t.Skip("fake child")
 	}
 	scenario, version := os.Getenv("ACP_SCENARIO"), os.Getenv("ACP_VERSION")
-	codexLoginScenario := scenario == "codex-login" || scenario == "codex-auth-required" || scenario == "codex-other-error"
+	codexLoginScenario := scenario == "codex-login" || scenario == "codex-auth-required" || scenario == "codex-other-error" || scenario == "codex-no-store" || scenario == "codex-load-error" || scenario == "codex-load"
 	claudeScenario := scenario == "claude-prompt-auth-required"
 	clineScenario := scenario == "cline" || strings.HasPrefix(scenario, "cline-")
 	in := bufio.NewScanner(os.Stdin)
@@ -253,7 +253,7 @@ func TestFakeACP(t *testing.T) {
 					if modeCalls > 1 {
 						reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": params.Value}}})
 					}
-				case "mode-switch", "mode-live", "codex-login":
+				case "mode-switch", "mode-live", "codex-login", "codex-load":
 					reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": params.Value}}})
 				case "mode-ignored":
 					reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": "plan"}}})
@@ -306,6 +306,21 @@ func TestFakeACP(t *testing.T) {
 			}
 			_ = json.Unmarshal(message.Params, &params)
 			session = params.SessionID
+			if scenario == "codex-load" {
+				// A stored Codex conversation loads in the adapter's default mode, as the probe measured, whatever mode it was left in.
+				reply(message.ID, map[string]any{"configOptions": []map[string]any{{"id": "mode", "currentValue": "agent"}, {"id": "model", "currentValue": "gpt-6-astra"}}})
+				continue
+			}
+			if scenario == "codex-no-store" || scenario == "codex-load-error" {
+				// Codex answers a thread it has no rollout for with a generic internal error that names the thread (probe report,
+				// "Codex parity probes"); any other internal error is something else going wrong.
+				details := "no rollout found for thread id " + params.SessionID
+				if scenario == "codex-load-error" {
+					details = "database is locked"
+				}
+				send(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32603, "message": "Internal error", "data": map[string]any{"details": details}}})
+				continue
+			}
 			if clineScenario {
 				// Cline stores a chat at its first prompt: an id it does not
 				// have is answered -32002 Resource not found.

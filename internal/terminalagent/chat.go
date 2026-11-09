@@ -550,6 +550,17 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(in.Tool, acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}, nil
 }
 
+// yoloAnswers reports whether YOLO may answer a permission card for this chat, whether the card arrives now or was already waiting
+// when YOLO was switched on. Codex asks only in read-only; in agent mode its own reviewer decides, so a card that still arrives is
+// left to the person.
+func yoloAnswers(tool string, process chatProcess) bool {
+	if tool != "codex" {
+		return true
+	}
+	reader, ok := process.(interface{ Mode() string })
+	return ok && reader.Mode() == "read-only"
+}
+
 // reportedACP is the native session id sent to the controller. It is sent only
 // on a connection that negotiated history and only for a tool whose descriptor
 // offers it: Claude's UUID does not fit the wire's id format and its replay is
@@ -801,7 +812,7 @@ func (h *chatHost) mode(sessionID string, yolo bool) error {
 	process := cs.process
 	h.sup.mu.Unlock()
 	h.sup.touchRecord(sessionID, yolo)
-	if yolo {
+	if yolo && yoloAnswers(cs.tool, process) {
 		if allower, ok := process.(interface{ AllowAllPending() error }); ok {
 			_ = allower.AllowAllPending()
 		}
@@ -1002,7 +1013,7 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 	s.mu.Lock()
 	yolo, process := cs.yolo, cs.process
 	s.mu.Unlock()
-	permission := yolo && event.Kind == "permission"
+	permission := yolo && event.Kind == "permission" && yoloAnswers(cs.tool, process)
 	hasPermission := permission && event.PermissionID != ""
 	if hasPermission && process != nil {
 		// YOLO answers this once, for the person. The process emits the real

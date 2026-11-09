@@ -8,6 +8,10 @@ import "github.com/eyupio/reet.sh/internal/terminalproto"
 // to the provider request. Whether the real model accepts an image is not measured, and the docs say so.
 const claudeTakesImages = true
 
+// codexTakesImages is true because the probe measured that the adapter advertises image prompts and that a stub provider receives
+// the block as an image input. Whether a real model accepts an image is not measured, and the docs say so.
+const codexTakesImages = true
+
 // Describe uses installation evidence only. No program runs: available means a
 // reviewed adapter is installed; --version and initialize remain launch gates.
 func Describe(tool string, installed bool, version string) terminalproto.ACPAgent {
@@ -42,9 +46,13 @@ func Describe(tool string, installed bool, version string) terminalproto.ACPAgen
 		return entry
 	}
 	if tool == "codex" {
-		// Only approvals: Codex asks only when the model asks to leave its sandbox
-		// (see the probe report). Model switching, replay and images are unverified.
-		entry.Approval = true
+		// Only what the probes proved (probe report, "Codex parity probes"): approvals
+		// (Codex asks only when the model asks to leave its sandbox), a read-back model
+		// switch, stored conversations that session/load reopens, in-place reconnect, and
+		// image prompts. Questions stay off: request_user_input is not mapped.
+		entry.Model, entry.Approval, entry.History = true, true, true
+		entry.Images = codexTakesImages
+		entry.Reattach = spec.Reattach
 		return entry
 	}
 	// OpenCode, Cline and AGY were measured end to end: history replay through

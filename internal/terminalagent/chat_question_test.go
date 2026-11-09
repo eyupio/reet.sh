@@ -251,7 +251,8 @@ func TestNativeSessionIDIsReportedOnlyWhereHistoryIsOffered(t *testing.T) {
 		{"opencode", "ses_fake0001", false, ""},
 		{"claude", uuid, true, uuid},
 		{"claude", uuid, false, ""},
-		{"codex", uuid, true, ""},
+		{"codex", uuid, true, uuid},
+		{"codex", uuid, false, ""},
 	} {
 		if got := reportedACP(tc.tool, tc.id, tc.history); got != tc.want {
 			t.Fatalf("%+v: got %q", tc, got)

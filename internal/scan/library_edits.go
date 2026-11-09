@@ -215,9 +215,13 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	if err = writePrivate(config+".library", state); err != nil {
 		return err
 	}
+	// A restore receipt reports something already verified, so it does not
+	// need apply consent to be sent.
+	reportLibraryRestores(ctx, c, config, &state, version, out)
 	if !c.AllowApply {
 		return nil
 	}
+	requestLibraryRestoreSync(ctx, c, &state, version, out)
 	// A bad item's upload cannot prevent other items' edits from being sent.
 	failed := map[string]bool{}
 	for i := 0; i < len(state.Pending); {

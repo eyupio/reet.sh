@@ -117,3 +117,70 @@ func TestLibraryProtocolAdvertisesManagedRemovalsOnlyWhenEnabled(t *testing.T) {
 		t.Fatalf("capability retained after disabling: %v", out)
 	}
 }
+
+func TestLibraryRestoreEndpointsConnectorFence(t *testing.T) {
+	srv, st, agent, secret, token := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	if err := st.ClaimPublishingUsername(uid, "writer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SaveHostedSkill(uid, store.HostedSkill{Slug: "managed", Content: "---\nname: managed\ndescription: Managed example\n---\nPrivate instructions\n"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := st.LibraryFor(uid)
+	if err != nil || len(items) != 1 {
+		t.Fatal(items, err)
+	}
+	item := items[0]
+	st.TouchEnvironmentFor(uid, agent.Host, "agents", "", "")
+	target := store.EnvironmentIDFor(uid, agent.Host, "agents", "")
+	if _, err = st.SaveLibrarySelectionFor(uid, store.LibrarySelection{TargetID: target, ItemIDs: []string{item.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.SetLibraryStatusFor(uid, item.ID, store.LibraryInUse, item.Version); err != nil {
+		t.Fatal(err)
+	}
+	base := store.LibraryBase{BindingID: strings.Repeat("a", 64), ItemID: item.ID, RevisionID: item.RevisionID}
+	if err = st.RecordLibraryBaseFor(uid, agent.ID, base); err != nil {
+		t.Fatal(err)
+	}
+	call := func(path, payload, key string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "https://reet.example"+path, strings.NewReader(payload))
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Reet-Agent", agent.ID)
+		r.Header.Set("X-Reet-Agent-Key", key)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		return w
+	}
+	check, _ := json.Marshal(store.LibraryDeploymentCheck{TargetID: target, LibraryBase: base})
+	if w := call("/api/v2/library/deletion-observed", string(check), "wrong"); w.Code != 403 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := call("/api/v2/library/deletion-observed", strings.TrimSuffix(string(check), "}")+`,"unknown":true}`, secret); w.Code != 400 {
+		t.Fatal("unknown field accepted", w.Code, w.Body.String())
+	}
+	if w := call("/api/v2/library/deletion-observed", string(check), secret); w.Code != 200 || !strings.Contains(w.Body.String(), `"queued"`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+
+	episode := strings.Repeat("e", 32)
+	receipt, _ := json.Marshal(store.LibraryRestoreReceipt{LibraryDeploymentCheck: store.LibraryDeploymentCheck{TargetID: target, LibraryBase: base}, Episode: episode, Files: 1})
+	if w := call("/api/v2/library/restore-receipt", string(receipt), "wrong"); w.Code != 403 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := call("/api/v2/library/restore-receipt", `{"episode":"nope"}`, secret); w.Code != 400 {
+		t.Fatal("malformed receipt accepted", w.Code, w.Body.String())
+	}
+	if w := call("/api/v2/library/restore-receipt", string(receipt), secret); w.Code != 200 || !strings.Contains(w.Body.String(), `"notified":true`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := call("/api/v2/library/restore-receipt", string(receipt), secret); w.Code != 200 || !strings.Contains(w.Body.String(), `"notified":false`) {
+		t.Fatal("replayed receipt notified again", w.Code, w.Body.String())
+	}
+	list, err := st.NotificationsFor(uid, false, 10)
+	if err != nil || len(list) != 1 || list[0].Kind != "library_restore" || !strings.Contains(list[0].Title, "after it was deleted locally") {
+		t.Fatal("expected exactly one factual notification", list, err)
+	}
+}

@@ -46,7 +46,8 @@ await page.addInitScript(() => {
 async function openDialog() {
   state.create = undefined
   await page.goto(`${base}/sessions?agent=${A}`)
-  await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+  await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
   await dialog.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Cline' })
   await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')

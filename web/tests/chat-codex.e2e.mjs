@@ -47,7 +47,8 @@ try {
   // Where the machine has not opted in (Codex only unverified), the dialog offers no Gaffer for Codex.
   machine.capabilities.acpAgents = [{ ...codexChat, state: 'unverified', modes: undefined }]
   await page.goto(`${base}/sessions?agent=${A}`)
-  await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+  await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
   const dark = page.getByRole('dialog', { name: 'Start an agent', exact: true })
   await dark.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Codex' })
   await expect(dark.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
@@ -56,7 +57,8 @@ try {
   // Opted in: Gaffer is offered with Codex's own copy, which says it asks before leaving the sandbox, and no plugin warning.
   machine.capabilities.acpAgents = [codexChat]
   await page.goto(`${base}/sessions?agent=${A}`)
-  await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+  await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
   await dialog.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Codex' })
   await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')

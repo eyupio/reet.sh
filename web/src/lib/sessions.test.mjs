@@ -85,7 +85,8 @@ test('a closed session continues in the folder it ran in', () => {
   assert.equal(continueLaunch({ ...exited, dir: '' }, projects), null)
   assert.deepEqual(continueLaunch({ ...exited, projectId: null }, projects), { tool: 'opencode', dir: '/home/u/reet', resume: true })
   assert.equal(continueLaunch(sessions[0], projects), null)
-  assert.equal(canContinue({ ...exited, tool: 'claude' }, resumeMachine, projects), false)
+  assert.equal(canContinue({ ...exited, tool: 'codex' }, resumeMachine, projects), false)
+  assert.equal(canContinue({ ...exited, tool: 'claude' }, resumeMachine, projects), true)
   // A past session of a retired agent is never offered Continue.
   assert.equal(canContinue({ ...exited, tool: 'gemini' }, resumeMachine, projects), false)
   assert.equal(canContinue(exited, { capabilities: {} }, projects), false)

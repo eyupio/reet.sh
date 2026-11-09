@@ -122,6 +122,8 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   A project default is confirmed the same way when Start is pressed. YOLO is available only when an
   owner or admin has allowed it for the account, the machine accepts it and the agent has a reviewed
   option. The controller refuses it with 403 `yolo_not_allowed` or 409 `yolo_refused` otherwise.
+  Claude Code takes a thinking level, a resume (Continue) and YOLO in a terminal launch, and a Claude Code
+  chat takes YOLO through the same three gates. Opening a stored Claude Code conversation in its terminal is not offered yet.
 - **The rail.** Choosing a rail card narrows the board to that project. Its **+** and **New session
   here** open the Start an agent dialog with that project's machine, folder and defaults already
   chosen; `/?project=<id>` opens the launch modal on it once. **Select projects** in the heading's
@@ -200,7 +202,7 @@ It is one screen:
 | **Machine** (required) | Every terminal machine. A machine that isn't ready is listed but can't be chosen. Only a machine an action named is preselected; otherwise nothing is chosen. A machine change leaves a project that belongs to another machine. **Not listed? Add a machine** opens [Add a machine](add-machine-in-context.md). |
 | **Agent** | Claude Code, Codex, OpenCode and, on a machine with `agents-v2`, Cline and Google Antigravity (AGY). Only an agent the machine reports as installed can be chosen. Any other is listed but disabled, with the reason "Not installed on <machine>." |
 | **Model** (optional) | The shared picker: **Agent default**, the account's favourites for this agent, the machine's list by provider, reet's suggestions and **Other…** for any model name made of letters, digits and `. _ : / @ + -`, up to 100 characters. A star adds or removes a favourite. A list is only a hint; if a model name doesn't exist, the agent says so itself. Nothing is sent for Agent default. |
-| **Thinking** | Only for an agent that takes an effort level (Cline and Google Antigravity): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
+| **Thinking** | Only for an agent that takes an effort level (Claude Code, Cline and Google Antigravity): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
 | **Source** | Only for a Cline Gaffer chat on a machine that negotiated `acp-provider-v1`: **Cline's own choice**, **Usage-Billing** or **ClinePass**. It opens on your saved default source; a saved source reet has no label for is shown as given and sent, because the dialog cannot know what the machine's Cline offers; Cline's own refusal at launch is what says no. The star saves or clears the default. Nothing is sent for Cline's own choice. If Cline cannot use the chosen source the chat is not started and the dialog says so. The default model is offered only while the chosen source is your default source. |
 | **Folder** (only under **No project**) | **Home folder**, the project folders that machine has reported, and **Type a path…**. A typed path must be absolute. The machine decides whether it may start there: the folder must exist and be inside the home folder it was enrolled with. |
 | **Opening prompt** (optional) | Up to 8,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |

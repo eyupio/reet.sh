@@ -49,6 +49,13 @@ test('Google Antigravity requires installation and agents-v2', () => {
   assert.equal(agentChoices(machine([])).find(c => c.agent.id === 'antigravity').reason, 'Not installed on studio')
   assert.equal(agentChoices(machine(['antigravity'], false)).find(c => c.agent.id === 'antigravity').reason, 'Update reet on that machine')
 })
+test('Claude Code offers thinking effort, resume and YOLO because its captured help supports them', () => {
+  const choice = agentChoices(machine(['claude'])).find(c => c.agent.id === 'claude')
+  assert.equal(choice.available, true)
+  assert.equal(choice.agent.effort, true)
+  assert.equal(choice.agent.resume, true)
+  assert.equal(choice.agent.yolo, true)
+})
 test('a retired agent is never offered, even when a machine still reports it', () => {
   assert.ok(!CATALOGUE.some(a => a.id === 'gemini'))
   const choices = agentChoices(machine(['claude', 'gemini']))

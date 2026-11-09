@@ -104,7 +104,7 @@ this; Rename works as before.
 
 `terminalproto.Create` also has `structured`, `trust` and `resumeAcp` fields, sent only after `acp-v1` (see
 [structured sessions](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md)). `structured: true` is accepted only with a reviewed chat tool
-(`opencode`, `cline`, or Claude Code and Codex behind their machine switches) and without a
+(`opencode`, `cline`, or Claude Code and Codex for an account that has turned their chats on in Settings > Agents) and without a
 worktree, resume, YOLO, base or effort; the machine starts that agent's chat process (`opencode acp`, `cline --acp`, or
 the pinned Claude/Codex adapter) instead of tmux. `trust: true` confirms the
 repository-plugin warning, which OpenCode is the only reviewed tool to read. `resumeAcp` is a native session id owned by one of the account's closed structured sessions
@@ -128,7 +128,7 @@ test pins the ordinary flags to `--model`, `--prompt` and
 
 | Tool | Arguments (with a model and a prompt) | Confirmed from |
 | --- | --- | --- |
-| `claude` | `claude --model <model> -- <prompt>` | `claude --help` on Claude Code 2.1.310: "Usage: claude [options] [command] [prompt]", "starts an interactive session by default, use -p/--print for non-interactive output", "--model <model>  Model for the current session". The bundled argument parser was read to confirm that `--` ends options. |
+| `claude` | `claude [--dangerously-skip-permissions] [--continue \| --resume <id>] [--effort <level>] [--model <model>] [-- <prompt>]` | `claude --help` on Claude Code 2.1.319, captured in `internal/terminalhost/testdata/help/claude.txt` with the registry tarball and integrity in `sources.json`: "Usage: claude [options] [command] [prompt]", `-c, --continue` ("Continue the most recent conversation in the current directory"), `-r, --resume [value]`, `--dangerously-skip-permissions`, `--effort <level>` and `--model <model>`. The bundled argument parser of 2.1.310 was read to confirm that `--` ends options. Only version and help were run. |
 | `codex` | `codex --model <model> -- <prompt>` | https://learn.chatgpt.com/docs/developer-commands?surface=cli (reached from https://developers.openai.com/codex/cli/reference): "Running `codex` with no subcommand launches the interactive terminal UI", `--model, -m`, and an optional `PROMPT`. Source: `codex-rs/tui/src/cli.rs` in openai/codex has a positional `prompt: Option<String>`. |
 | `opencode` | `opencode --model <model> --prompt <prompt>` | https://opencode.ai/docs/cli/: "opencode [project]" starts the terminal UI, with `--prompt` and `--model`. The positional is a project path, so the prompt goes through the flag. |
 | `antigravity` | `agy --model <model> --prompt-interactive <prompt>` | Antigravity CLI 1.5.0 captured version/help in `internal/terminalhost/testdata/help/agy.txt`; official archive and verified SHA-256 in `sources.json`. `--prompt` is a print-mode alias and is not used. The `agy` alias distinguishes the CLI from the desktop app. |
@@ -163,9 +163,8 @@ versions has not been checked, so the interface says it is a path. See
 [terminal workspace](terminal-workspace.md) for the upload limits and privacy.
 
 With no model the `--model <model>` pair is left out; with no prompt the prompt
-part is left out. All rows were confirmed on 2026-10-25. Only `claude` was
-confirmed against a binary's own help text; the others were confirmed from the
-documentation and source cited. A tool whose syntax cannot be confirmed is not
+part is left out. Claude Code's row was re-confirmed against its 2.1.319 captured help; the other rows were
+confirmed on 2026-10-25 from the documentation and source cited, or from the captured help named in their row. A tool whose syntax cannot be confirmed is not
 offered. `pi` and `cursor` are not offered for that reason.
 
 ### The one-word prompt rule (claude and codex)
@@ -313,14 +312,22 @@ answers 422 `base_missing`, naming the machine in the sentence. An empty base
 keeps the existing HEAD behaviour.
 
 Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its
-confirmed `--thinking` option and Antigravity CLI 1.5.0 to `--effort`; other presets have no effort mapping until their
+confirmed `--thinking` option, and Claude Code 2.1.319 and Antigravity CLI 1.5.0 to `--effort` (Claude Code's own help also lists `xhigh` and `max`, which a launch does not carry); other presets have no effort mapping until their
 exact CLI arguments have captured help evidence. An
 unsupported mapping answers `launch_option_unsupported`; it never silently
-ignores the choice. YOLO maps to a reviewed option only for Codex
-(`--ask-for-approval never`), OpenCode (`--auto`), Cline
+ignores the choice. YOLO maps to a reviewed option only for Claude Code
+(`--dangerously-skip-permissions`), Codex (`--ask-for-approval never`), OpenCode (`--auto`), Cline
 (`--yolo --tui`) and Antigravity (`--dangerously-skip-permissions`); every other preset refuses it with
 `launch_option_unsupported`. A machine switch (`reet terminal yolo off`) refuses
-it with `yolo_refused`, and the account setting must allow it first.
+it with `yolo_refused`, and the account setting must allow it first. A Claude Code chat in Gaffer takes YOLO through the
+same three gates: the account setting, the machine switch and the confirmation.
+
+Terminal resume exists for OpenCode (`--continue`, and `--session <id>`) and Claude Code (`--continue`, and
+`--resume <id>`). `--continue` continues the tool's most recent conversation in the launch folder. The preset carries
+`--resume <id>` for a Claude Code session id, but nothing in the browser starts it yet: the only path that sends a session
+id is the switch from a running Gaffer chat to the agent's own terminal, which the web offers for OpenCode only. Whether a
+Claude Code chat's id is one the CLI's `--resume` opens is not measured, because only the CLI's help was captured. Offering
+that switch for Claude Code is a separate, later change.
 
 Cline 3.0.74 is enabled after a pinned, help-only installation confirmed its
 `--auto-approve false --tui` safety and interactive arguments, `--model` and

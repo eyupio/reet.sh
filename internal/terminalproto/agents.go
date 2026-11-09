@@ -33,7 +33,7 @@ func SupportsAgents(features string) bool {
 // refuse an option before it reserves a session. Disabled presets (pi, cursor)
 // are absent until the connector starts them.
 var agentOptions = map[string]struct{ effort, model, yolo bool }{
-	"claude":      {model: true},
+	"claude":      {effort: true, model: true, yolo: true},
 	"codex":       {model: true, yolo: true},
 	"opencode":    {model: true, yolo: true},
 	"cline":       {effort: true, model: true, yolo: true},

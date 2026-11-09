@@ -56,4 +56,67 @@ for(const [width,theme] of [[390,'dark'],[1280,'light']]){
  await context.close()
  console.log(`PASS live folders in the machine skills dialog at ${width}px ${theme}`)
 }
+
+// The import step: what the machine reports that the library lacks is offered right in the picker, each skill leading into the
+// existing reviewed import with its source already chosen. Skills the library has are not offered, and a skill whose files could
+// not be read completely is explained, not offered. Nothing is offered until the machine's content has actually been observed.
+const withContent=(state,skills)=>({...folder('shared'),content:{state,skills}})
+const seen=(name,changes={})=>({name,complete:true,files:1,bytes:10,...changes})
+for(const [width,theme] of [[390,'dark'],[1280,'light']]){
+ const world={folders:[withContent('observed',[seen('code-review'),seen('local-helper'),seen('half-copied',{complete:false})])]}
+ const {page,context,errors}=await openWorkspace(browser,{width,theme,touch:width<600,
+  sync:{
+   get environments(){return world.folders},
+   get machines(){return [{host:'new-box',groups:world.folders,skillCount:0}]},
+   agents:[{id:'agent-new',host:'new-box',paused:false,autoUpdate:false,keepSynced:true,lastSeen:Date.now()}],
+   targets:[],jobs:[],runs:[],updateJobs:[]
+  },
+  routes:{
+   '/api/v2/library':{schemaVersion:1,items:library},
+   '/api/v2/library/selections/new-box-agents':{status:404,json:{error:'private skill unavailable'}},
+  }})
+ await page.goto(`${base}/machines`)
+ const opener=page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Choose skills',exact:true})
+ await opener.click()
+ const dialog=page.getByRole('dialog',{name:'Skills on new-box',exact:true})
+ const found=dialog.getByRole('region',{name:'Found on this machine, not in your library'})
+ await expect(found).toBeVisible()
+ await expect(found.getByRole('button',{name:'Import local-helper privately'})).toBeVisible()
+ // In the library already, so not offered; incomplete, so explained and not offered.
+ await expect(found).not.toContainText('code-review')
+ await expect(found.getByRole('button',{name:/half-copied/})).toHaveCount(0)
+ await expect(found).toContainText('1 more skill here cannot be imported yet')
+ await expect(found).toContainText('You review the files before anything is uploaded')
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ if(process.env.REET_UI_SCREENSHOTS&&width===390){await mkdir(process.env.REET_UI_SCREENSHOTS,{recursive:true});await found.scrollIntoViewIfNeeded();await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/connect-flow-phone-import-step.png`})}
+
+ // By keyboard: the picker closes and the existing reviewed import opens with the folder and skill already chosen.
+ await found.getByRole('button',{name:'Import local-helper privately'}).focus()
+ await page.keyboard.press('Enter')
+ await expect(dialog).toHaveCount(0)
+ const imports=page.getByRole('dialog',{name:'Bring a machine skill into reet'})
+ await expect(imports).toBeVisible()
+ await expect(imports.getByLabel('Source install location')).toHaveValue('new-box-agents')
+ await expect(imports.getByLabel('Skill folder')).toHaveValue('local-helper')
+ // Reviewed, not bypassed: the only action is to request a preview, and nothing is uploaded by it.
+ await expect(imports.getByRole('button',{name:'Request file preview'})).toBeVisible()
+ await expect(imports).toContainText('No file contents are uploaded at this step')
+ expect(errors).toEqual([])
+ await context.close()
+ console.log(`PASS import step at ${width}px ${theme}`)
+}
+
+{ // Nothing is offered while the machine's content has not been observed: an unread scan is not evidence a skill is missing.
+ const {page,context,errors}=await openWorkspace(browser,{width:390,touch:true,
+  sync:{environments:[withContent('pending',[seen('local-helper')])],machines:[{host:'new-box',groups:[withContent('pending',[seen('local-helper')])],skillCount:0}],agents:[{id:'agent-new',host:'new-box',paused:false,autoUpdate:false,keepSynced:true,lastSeen:Date.now()}],targets:[],jobs:[],runs:[],updateJobs:[]},
+  routes:{'/api/v2/library':{schemaVersion:1,items:library},'/api/v2/library/selections/new-box-agents':{status:404,json:{error:'private skill unavailable'}}}})
+ await page.goto(`${base}/machines`)
+ await page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Choose skills',exact:true}).click()
+ const dialog=page.getByRole('dialog',{name:'Skills on new-box',exact:true})
+ await expect(dialog.getByRole('button',{name:'Save selection'})).toBeVisible()
+ await expect(dialog.getByRole('region',{name:'Found on this machine, not in your library'})).toHaveCount(0)
+ expect(errors).toEqual([])
+ await context.close()
+ console.log('PASS nothing offered before the content is observed')
+}
 await browser.close()

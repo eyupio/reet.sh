@@ -1,4 +1,4 @@
-import type { LibraryItem, SyncJob, SyncSkill, SyncTarget } from './api'
+import type { ContentInventory, LibraryItem, SyncJob, SyncSkill, SyncTarget } from './api'
 
 /**
  * What one library item is doing on one machine, in plain words, from what the
@@ -44,4 +44,24 @@ export function itemMachineState({ item, selected, target, jobs, online }: Input
   }
   if (target.missing.some(skill => same(skill, item))) return waiting
   return { key: 'verified', label: 'Installed', detail: 'Seen in this machine’s last report.', tone: 'ok' }
+}
+
+/**
+ * Skills a machine reports that the library does not have, for the import step of connecting a machine. A skill counts as
+ * already in the library when an item has the same name, ignoring case. Only complete skills can be imported, so incomplete
+ * ones are counted separately instead of offered. Nothing is offered until the machine's content has been observed: a scan
+ * that has not been read is not evidence that a skill is missing.
+ */
+export function foundNotInLibrary(content: ContentInventory | undefined, items: Pick<LibraryItem, 'name'>[]): { importable: string[]; incomplete: number } {
+  if (content?.state !== 'observed') return { importable: [], incomplete: 0 }
+  const known = new Set(items.map(item => item.name.trim().toLowerCase()))
+  const importable = new Set<string>()
+  const incomplete = new Set<string>()
+  for (const skill of content.skills) {
+    const key = skill.name.trim().toLowerCase()
+    if (known.has(key)) continue
+    if (skill.complete) importable.add(skill.name)
+    else incomplete.add(key)
+  }
+  return { importable: [...importable].sort((a, b) => a.localeCompare(b)), incomplete: incomplete.size }
 }

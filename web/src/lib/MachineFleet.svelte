@@ -654,7 +654,7 @@
 {/if}
 
 <!-- Each open is its own instance (keyed), so reopening from the button right after a close is not a reused, closed dialog. -->
-{#if libraryFor}{#key libraryFor}<MachineLibrary host={libraryFor.host} {snapshot} opener={libraryFor.opener} onclose={() => (libraryFor = null)} />{/key}{/if}
+{#if libraryFor}{#key libraryFor}<MachineLibrary host={libraryFor.host} {snapshot} opener={libraryFor.opener} onclose={() => (libraryFor = null)} onimport={canWrite && accounts ? (source) => { libraryFor = null; onimport(source) } : undefined} />{/key}{/if}
 
 {#if review && reviewAgent}
   <UpdateReview agent={reviewAgent} releases={snapshot.releases} initial={review.initial} onconfirm={confirmReview} oncancel={() => (review = null)} />

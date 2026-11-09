@@ -82,3 +82,35 @@ test('present in the machine report is installed, and the wording never claims b
 test('an item selected but absent from the controller’s desired set is waiting', () => {
   assert.equal(state({ item: item(), target: target({ desired: [] }) }).key, 'waiting')
 })
+
+const { foundNotInLibrary } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const seen = (name, changes = {}) => ({ name, complete: true, files: 1, bytes: 10, ...changes })
+const inventory = (skills, state = 'observed') => ({ state, skills })
+
+test('skills found on a machine and already in the library are not offered, whatever their case', () => {
+  const found = foundNotInLibrary(inventory([seen('Code-Review'), seen('local-helper'), seen('api-design')]), [{ name: 'code-review' }, { name: 'API-design' }])
+  assert.deepEqual(found.importable, ['local-helper'])
+  assert.equal(found.incomplete, 0)
+})
+
+test('only complete skills are offered; incomplete ones are counted so the page can say why', () => {
+  const found = foundNotInLibrary(inventory([seen('ok'), seen('broken', { complete: false }), seen('also-broken', { complete: false })]), [])
+  assert.deepEqual(found.importable, ['ok'])
+  assert.equal(found.incomplete, 2)
+})
+
+test('an incomplete skill that the library already has is not counted as a problem', () => {
+  const found = foundNotInLibrary(inventory([seen('have', { complete: false })]), [{ name: 'have' }])
+  assert.deepEqual(found, { importable: [], incomplete: 0 })
+})
+
+test('nothing is offered until the machine’s content has actually been observed', () => {
+  assert.deepEqual(foundNotInLibrary(undefined, []), { importable: [], incomplete: 0 })
+  assert.deepEqual(foundNotInLibrary(inventory([seen('x')], 'pending'), []), { importable: [], incomplete: 0 })
+  assert.deepEqual(foundNotInLibrary(inventory([seen('x')], 'unavailable'), []), { importable: [], incomplete: 0 })
+})
+
+test('the same skill reported twice is offered once and the list is sorted', () => {
+  const found = foundNotInLibrary(inventory([seen('zeta'), seen('alpha'), seen('zeta')]), [])
+  assert.deepEqual(found.importable, ['alpha', 'zeta'])
+})

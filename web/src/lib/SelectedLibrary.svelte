@@ -3,8 +3,8 @@
   import { getLibrary, getLibrarySelection, getSyncState, saveLibrarySelection, type LibraryItem, type SyncEnvironment, type SyncState } from './api'
   import { describeError } from './contentReview'
   import { agentOnline } from './machines'
-  import { itemMachineState } from './machineItems'
-  let { host = '', snapshot, onsaved }: { host?: string; snapshot?: SyncState; onsaved?: () => void } = $props()
+  import { foundNotInLibrary, itemMachineState } from './machineItems'
+  let { host = '', snapshot, onsaved, onimport }: { host?: string; snapshot?: SyncState; onsaved?: () => void; /** Opens the existing reviewed import for one skill found on this machine; absent when the person cannot import. */ onimport?: (source: { environmentId: string; name: string }) => void } = $props()
   const headingId = $props.id()
   let items = $state<LibraryItem[]>([])
   let target = $state('')
@@ -43,6 +43,9 @@
   const destination = $derived(targets.find(option => option.id === target))
   const online = $derived(agentOnline(current?.agents?.find(agent => agent.host.toLowerCase() === (destination?.host ?? host).toLowerCase())))
   const stateOf = (item: LibraryItem) => itemMachineState({ item, selected: savedSelection.includes(item.id), target: current?.targets.find(option => option.target.id === target), jobs: current?.jobs ?? [], online })
+  // The import step of connecting: what this folder reports that the library does not have. Importing stays the existing
+  // reviewed flow (preview, choose files, approve); this only takes the person to it with the skill already chosen.
+  const found = $derived(host && onimport && destination ? foundNotInLibrary(destination.content, items) : { importable: [], incomplete: 0 })
   const eligible = (item: LibraryItem) => item.itemType === 'skill' && item.status === 'in_use'
   const visible = $derived(items.filter(item => item.itemType === 'skill' && item.name.toLowerCase().includes(query.trim().toLowerCase())))
   const folderLabel = (destination: SyncEnvironment) => `${host ? '' : `${destination.host} · `}${({ agents: 'Shared skills', claude: 'Claude Code', opencode: 'OpenCode', cursor: 'Cursor' } as Record<string, string>)[destination.agent] ?? destination.agent}${destination.project ? ` · ${destination.project}` : ' · All projects'}`
@@ -102,10 +105,20 @@
       <fieldset disabled={busy}><legend>Selected skills · {selected.length}</legend>{#each visible as item (item.id)}{@const itemState = host && savedSelection.includes(item.id) ? stateOf(item) : undefined}<div class="row"><label class="skill"><input type="checkbox" checked={selected.includes(item.id)} disabled={!eligible(item) && !selected.includes(item.id)} aria-describedby={itemState ? `state-${item.id}` : undefined} onchange={event=>toggle(item.id,event.currentTarget.checked)} /><span>{item.name}{#if item.status!=='in_use'} <small>({item.status.replaceAll('_',' ')})</small>{/if}{#if item.problem || item.contentState!=='complete'}<small> · Waiting for complete content</small>{/if}</span></label>{#if itemState}<p class="state {itemState.tone}" id={`state-${item.id}`} data-item-state={itemState.key}><strong>{itemState.label}</strong>{#if itemState.detail} <span>{itemState.detail}</span>{/if}</p>{/if}</div>{:else}<p>{query.trim() ? 'No skills match your search.' : 'Your library has no skills yet.'}</p>{/each}</fieldset>
       <button class="btn" disabled={busy} aria-busy={busy}>{busy ? 'Saving…' : 'Save selection'}</button>
     </form>
+    {#if found.importable.length || found.incomplete}
+      <section class="found" aria-label="Found on this machine, not in your library">
+        <h3>On this machine, not in your library yet</h3>
+        {#if found.importable.length}
+          <p>Importing saves a private copy to your library so any machine can keep it. You review the files before anything is uploaded.</p>
+          <ul>{#each found.importable as name (name)}<li><span>{name}</span><button class="btn quiet" type="button" aria-label={`Import ${name} privately`} onclick={() => destination && onimport?.({ environmentId: destination.id, name })}>Import privately</button></li>{/each}</ul>
+        {/if}
+        {#if found.incomplete}<p>{found.incomplete === 1 ? '1 more skill here' : `${found.incomplete} more skills here`} cannot be imported yet because {found.incomplete === 1 ? 'its' : 'their'} files could not be read completely.</p>{/if}
+      </section>
+    {/if}
   {:else if loading}<p role="status">Loading selections…</p>{:else if !targets.length && !error}<p>{host ? 'No supported skill folders have been reported for this machine yet. They will appear after it connects and reports them.' : 'Connect a machine to choose its skills.'}</p>{/if}
   {#if notice}<p role="status">{notice}</p>{/if}
 </section>
 <style>
 .selection.embedded{border:0;padding:0;margin:0}.search{margin-top:16px}.search input{min-width:0;width:100%;box-sizing:border-box;padding:10px}.selection :is(button,select,input[type=search]){min-height:44px}
-.selection{min-width:0;border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:24px}h2{margin:0 0 8px;font-size:1.1rem}p,small{color:var(--muted)}label{display:grid;gap:8px}select{max-width:100%;padding:8px}fieldset{min-width:0;border:0;padding:0;margin:12px 0;max-height:320px;overflow:auto}legend{font-weight:600;padding:0 0 8px}.row{border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}.row:last-child{border-bottom:0}.skill{display:flex;align-items:center;gap:10px;padding:8px 0}.state{margin:0 0 8px 28px;font-size:.82rem;line-height:1.4;overflow-wrap:anywhere}.state strong{font-weight:600}.state.ok strong{color:var(--good)}.state.work strong{color:var(--info)}.state.wait strong{color:var(--warn)}.state.bad strong{color:var(--bad)}.state.muted strong{color:var(--muted)}.state span{color:var(--muted)}.state strong+span::before{content:' · ';white-space:pre}.skill input{flex:0 0 auto}.skill span{min-width:0;overflow-wrap:anywhere}.selection-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}small{font-size:.8rem}
+.selection{min-width:0;border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:24px}h2{margin:0 0 8px;font-size:1.1rem}p,small{color:var(--muted)}label{display:grid;gap:8px}select{max-width:100%;padding:8px}fieldset{min-width:0;border:0;padding:0;margin:12px 0;max-height:320px;overflow:auto}legend{font-weight:600;padding:0 0 8px}.found{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}.found h3{margin:0 0 6px;font-size:1rem}.found ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}.found li{display:flex;align-items:center;justify-content:space-between;gap:10px}.found li span{min-width:0;overflow-wrap:anywhere}.found li .btn{flex:none}.row{border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}.row:last-child{border-bottom:0}.skill{display:flex;align-items:center;gap:10px;padding:8px 0}.state{margin:0 0 8px 28px;font-size:.82rem;line-height:1.4;overflow-wrap:anywhere}.state strong{font-weight:600}.state.ok strong{color:var(--good)}.state.work strong{color:var(--info)}.state.wait strong{color:var(--warn)}.state.bad strong{color:var(--bad)}.state.muted strong{color:var(--muted)}.state span{color:var(--muted)}.state strong+span::before{content:' · ';white-space:pre}.skill input{flex:0 0 auto}.skill span{min-width:0;overflow-wrap:anywhere}.selection-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}small{font-size:.8rem}
 </style>

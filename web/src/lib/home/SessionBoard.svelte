@@ -12,6 +12,7 @@
   import { boardItems, dropIntent, emptyFilters, filterBoard, filterCount, sortBoard, STAGES, type BoardView, type DraftImage, type SessionDraft } from '../sessionBoard'
   import { launchUpload, readiness, sessionHref, TerminalError, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { imagePrompt } from '../terminal/upload'
+  import { rememberUpload } from '../terminal/thumbs'
   import type { LaunchDefaults } from '../launchBar'
   import SessionComposer from './SessionComposer.svelte'
   import BoardIcon from './BoardIcon.svelte'
@@ -252,7 +253,10 @@
           phase = `Sending image ${index + 1} of ${draft.images!.length}…`
           const comma = image.data.indexOf(','); const type = image.data.slice(5, image.data.indexOf(';'))
           const bytes = Uint8Array.from(atob(image.data.slice(comma + 1)), c => c.charCodeAt(0))
-          const uploaded = await launchUpload(draft.agentId, new Blob([bytes], { type }), signal()); refs.push(uploaded.reference)
+          const blob = new Blob([bytes], { type })
+          const uploaded = await launchUpload(draft.agentId, blob, signal())
+          rememberUpload(blob, image.name, uploaded.path, uploaded.reference)
+          refs.push(uploaded.reference)
         }
         prompt = imagePrompt(draft.prompt, refs)
         const invalid = validatePrompt(draft.tool, prompt); if (invalid) throw new Error(invalid)
@@ -370,7 +374,7 @@
                     <span class="age" title={new Date(item.createdAt).toLocaleString()}>Saved {shortAge(Math.max(0, now - item.createdAt))} ago</span>
                     <div class="card-actions">{#if !draft.starting}<button class="edit" disabled={!!working || !!loadingId} onclick={e => void edit(draft, e.currentTarget)} aria-label={`Edit ${draft.title}`}>Edit</button><button class="delete" disabled={!!working || !!loadingId} aria-label={`Delete ${draft.title}`} onclick={() => void askDelete(draft)}>Delete</button>{/if}<button class="start" disabled={!!reason || !!working} title={reason ?? (draft.idea ? 'Refine this idea, then start it' : 'Start this session on its machine')} onclick={e => draft.idea ? void edit(draft, e.currentTarget, true) : void activate(draft)}>{working === draft.id ? phase : draft.starting ? 'Retry start' : 'Start'}<BoardIcon name="arrow" size={13}/></button></div>
                   {:else if session && word}
-                    <span class="status" title={word.source}><i></i>{word.word}{offline.has(item.agentId) ? ' · last known' : ''}</span><span class="age session-age" title={new Date(item.updatedAt).toLocaleString()}>{shortAge(Math.max(0, now - item.updatedAt))} ago</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
+                    <span class="status" title={word.source}>{#if sessionStatus(session) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<i></i>{/if}{word.word}{offline.has(item.agentId) ? ' · last known' : ''}</span><span class="age session-age" title={new Date(item.updatedAt).toLocaleString()}>{shortAge(Math.max(0, now - item.updatedAt))} ago</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
                   {/if}
                 </footer>
                 {#if draft && reason}<p class="start-note">{reason}</p>{:else if draft?.starting}<p class="start-note">Start was requested. Retry checks the same request.</p>{/if}

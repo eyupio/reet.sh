@@ -162,3 +162,38 @@ func TestQueueCapacityAcrossStoreHandlesAndArchiveCleanup(t *testing.T) {
 		t.Fatal("archive retained content", payload, err)
 	}
 }
+
+func TestFailQueuedLeavesClaimedAndUncertainRows(t *testing.T) {
+	s, uid, session := queueFixture(t)
+	queued, claimed := syncID(), syncID()
+	for _, id := range []string{queued, claimed} {
+		if err := s.EnqueueTerminalFor(uid, session, id, "message", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q, _ := s.TerminalQueueFor(uid, session)
+	byID := map[string]TerminalQueuedMessage{}
+	for _, item := range q {
+		byID[item.ID] = item
+	}
+	if ok, err := s.TransitionTerminalQueueFor(uid, session, byID[claimed], "sending", "wait", "", "owner-one"); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if err := s.RecoverTerminalQueueFor(uid, session, "owner-two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FailQueuedTerminalFor(uid, session, "ended"); err != nil {
+		t.Fatal(err)
+	}
+	q, _ = s.TerminalQueueFor(uid, session)
+	state := map[string]string{}
+	for _, item := range q {
+		state[item.ID] = item.State
+	}
+	if state[queued] != "failed" {
+		t.Fatalf("queued row not failed: %+v", state)
+	}
+	if state[claimed] != "uncertain" {
+		t.Fatalf("claimed delivery was rewritten: %+v", state)
+	}
+}

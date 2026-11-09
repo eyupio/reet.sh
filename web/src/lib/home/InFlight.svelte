@@ -98,7 +98,7 @@
                 <a class="row" href={sessionHref(s)} onmouseenter={(event) => showCard(event.currentTarget, s)} onmouseleave={hideCard} onfocus={(event) => showCard(event.currentTarget, s)} onblur={hideCard}
                   oncontextmenu={(event) => { hideCard(); void actions?.openMenu(event, s) }}
                   onkeydown={(event) => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { hideCard(); void actions?.openMenu(event, s) } }}>
-                  <span class="dot" aria-hidden="true"></span>
+                  {#if status === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
                   <span class="main">
                     <span class="title">{s.title}{#if s.yolo}{' '}<span class="badge yolo">YOLO</span>{/if}</span>
                     <span class="where">{owner?.name || hostOf(s.agentId)}<span class="mobile-age"> · {shortAge(Math.max(0, now - s.updatedAt))} ago</span></span>

@@ -800,7 +800,7 @@ try {
  }
 
  if (run('toggle switches a live chat to the OpenCode TUI and back')) {
-  // The chat reports quiet; once in the OpenCode TUI the row's word comes from terminal activity.
+  // The chat reports a finished turn; once in the OpenCode TUI the row's word comes from terminal activity.
   const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions().map(x => x.id === 's9' ? {...x, attention:'quiet', attentionSource:'chat'} : x)], machines:switchMachines(), chat:true})
   // The switch is held until the test lets it finish, as the machine takes its time stopping one process and starting the other.
   let finish
@@ -813,11 +813,11 @@ try {
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
   const pill = screen(page).locator('.pill')
-  await expect(pill).toHaveText(/^Quiet\W*from the chat$/)
-  // The session panel says the same: a quiet turn is not still running, though its session is open.
+  await expect(pill).toHaveText(/^Finished\W*from the chat$/)
+  // The session panel says the same: a quiet chat is a finished turn, though its session is open.
   const quietRow = page.locator('aside#terminal-sessions').getByRole('button',{name:/^Chat about the store on studio/})
-  await expect(quietRow).toHaveAccessibleName(/, Quiet$/)
-  await expect(quietRow.locator('.session-dot')).toHaveClass(/finished/)
+  await expect(quietRow).toHaveAccessibleName(/, Finished$/)
+  await expect(quietRow.locator('.status-tick')).toBeVisible()
   await expect(tui).toBeEnabled()
   await tui.selectOption('terminal')
   const dialog = page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'})
@@ -863,7 +863,7 @@ try {
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the chat: Allow once or Deny.')
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
-  await expect(pill).toHaveText(/^Quiet\W*from the chat$/)
+  await expect(pill).toHaveText(/^Finished\W*from the chat$/)
   expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'terminal',trust:false},{mode:'chat',trust:false}])
   expect(errors).toEqual([])
   await context.close()
@@ -1341,8 +1341,12 @@ try {
     const r = el.getBoundingClientRect()
     // A control scrolled below or beside the panel's own box is not on screen to be covered; the panel scrolls it into
     // view. The separator spans the workspace, not that hidden part of the panel's scroll area.
-    if ((r.left + r.right) / 2 < side.left || (r.left + r.right) / 2 > side.right || (r.top + r.bottom) / 2 < side.top || (r.top + r.bottom) / 2 > side.bottom) continue
+    // A row clipped by a pixel or two at the panel's edge is scrolled into view to be used, not covered by the separator.
+    if ((r.left + r.right) / 2 < side.left + 2 || (r.left + r.right) / 2 > side.right - 2 || (r.top + r.bottom) / 2 < side.top + 2 || (r.top + r.bottom) / 2 > side.bottom - 2) continue
     if (!near(r) || r.width === 0 || r.bottom < 0 || r.top > innerHeight) continue
+    // Nor is one the panel's scroll area clips: what lies past the clip is not the panel's to cover, and scrolling brings it whole.
+    const clip = el.closest('.panel-scroll')?.getBoundingClientRect()
+    if (clip && (r.top < clip.top - 0.5 || r.bottom > clip.bottom + 0.5)) continue
     const pts = [[(r.left + r.right) / 2, (r.top + r.bottom) / 2], [r.left + 1, (r.top + r.bottom) / 2], [r.right - 1, (r.top + r.bottom) / 2], [(r.left + r.right) / 2, r.top + 1], [(r.left + r.right) / 2, r.bottom - 1]]
     for (const [x, y] of pts) { const hit = document.elementFromPoint(x, y); if (hit && hit !== el && !el.contains(hit)) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().slice(0, 30)} at ${Math.round(x)},${Math.round(y)} → ${hit.className || hit.tagName}`) }
    }

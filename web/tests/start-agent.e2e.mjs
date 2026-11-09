@@ -49,6 +49,7 @@ await page.route('**/api/**',async route=>{
   else data=modelFavourites(favourites)
  }
  else if(path==='/api/skills')data={skills:[],counts:{all:0,used:0}}
+ else if(path==='/api/v2/terminal/prompts')data={prompts:[{id:'prompt-codex',title:'Codex review',description:'',body:'Review the current change.',category:'',tool:'codex',model:'gpt-5-codex',effort:'medium',revision:1,createdAt:now,updatedAt:now}]}
  else if(path==='/api/environments')data={environments:scopes,machines:machinesOf()}
  else if(path==='/api/tags')data={tags:[]}
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
@@ -151,7 +152,7 @@ const escapeRe=text=>text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
 const openModel=async d=>{await parts(d).model.click();const list=page.getByRole('listbox',{name:'Model'});await expect(list).toBeVisible();return list}
 const pickModel=async(d,label)=>{const list=await openModel(d);await list.getByRole('option',{name:new RegExp('^'+escapeRe(label))}).click();await expect(list).toBeHidden()}
 const pickOtherModel=async(d,value)=>{const list=await openModel(d);await list.getByRole('option',{name:'Other…',exact:true}).click();await page.getByRole('textbox',{name:'Model name',exact:true}).fill(value);await page.getByRole('button',{name:'Use',exact:true}).click();await expect(list).toBeHidden()}
-const sidebarEntry=()=>page.locator('#terminal-sessions').getByRole('button',{name:'New agent session',exact:true})
+const sidebarEntry=()=>page.locator('#terminal-sessions').getByRole('button',{name:'Start a new session',exact:true})
 const card=host=>page.locator('article').filter({has:page.getByRole('heading',{name:host,exact:true})})
 const cardEntry=host=>card(host).getByRole('button',{name:'Start an agent',exact:true})
 // A round trip through the page, so every handler that a key or click started has finished before the next check.
@@ -172,10 +173,31 @@ const locked=async p=>{
 // The project is a required choice. A start that is not opened from a project must choose No project before the folder
 // fields appear; this helper does that, leaving the machine selection as the entry point supplied it.
 const useFolder=async d=>{const p=parts(d);if(await p.folder.count()===0){await p.project.selectOption({label:'No project — start in a folder'});await expect(p.folder).toBeVisible()}}
-const openFromSidebar=async(folder=true)=>{await sidebarEntry().click();const d=dialog();await expect(d).toBeVisible();if(folder)await useFolder(d);return d}
+const openFromSidebar=async(folder=true)=>{await sidebarEntry().click();await page.getByRole('dialog',{name:'New session',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click();const d=dialog();await expect(d).toBeVisible();if(folder)await useFolder(d);return d}
 const openFromCard=async(host,folder=true)=>{await cardEntry(host).click();const d=dialog();await expect(d).toBeVisible();if(folder)await useFolder(d);return d}
 
 try{
+ // A prompt may suggest another default agent, but its model/effort must survive the agent rekey.
+ // A model the person already picked also anchors that agent; template suggestions cannot reset it.
+ for(const chosenField of ['', 'model', 'effort']){
+  await page.goto(`${base}/sessions?agent=${A}`)
+  await expect(sidebarEntry()).toBeEnabled()
+  const suggested=await openFromSidebar(),fields=parts(suggested)
+  if(chosenField==='model')await pickOtherModel(suggested,'opus-4.1')
+  if(chosenField==='effort')await fields.effort.selectOption('high')
+  await suggested.getByRole('button',{name:'Use a prompt',exact:true}).click()
+  const picker=page.getByRole('dialog',{name:'Use a prompt',exact:true})
+  await expect(picker).toBeVisible()
+  await picker.getByRole('button',{name:'Insert prompt',exact:true}).click()
+  await expect(picker).toHaveCount(0)
+  await fields.chosen(chosenField?'Claude Code':'Codex')
+  await expect(fields.model).toHaveAccessibleName(`Model: ${chosenField==='model'?'opus-4.1':chosenField?'Agent default':'gpt-5-codex'}`)
+  // This fixture advertises Codex's terminal interface, which has no effort selector.
+  if(!chosenField)await expect(fields.effort).toHaveCount(0)
+  if(chosenField==='effort')await expect(fields.effort).toHaveValue('high')
+  expect(posts).toEqual([])
+  await fields.close.click()
+ }
  // ── From the Terminals workspace: the machine you came from is preselected, the project is still a deliberate choice. ──
  await page.goto(`${base}/sessions?agent=${A}`)
  await expect(sidebarEntry()).toBeEnabled()
@@ -657,6 +679,8 @@ try{
  const projectPlus=page.locator('#terminal-sessions').getByRole('button',{name:'New session in Site',exact:true})
  await expect(projectPlus).toBeEnabled()
  await projectPlus.click()
+ // The project's + asks agent or terminal first; the agent choice opens the dialog on that project's machine.
+ await page.getByRole('dialog',{name:'New session in Site',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
  d=dialog();p=parts(d)
  await expect(p.project).toHaveValue(PROJECT_ID)
  await expect(p.machine).toHaveValue(A)
@@ -1016,7 +1040,7 @@ try{
  await expect(page).toHaveTitle('Machines · reet.sh')
  await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
- await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Start a new session'})).toHaveCount(0)
  viewer=false;authMode='none'
  await page.goto(`${base}/machines`)
  await expect(page.getByRole('heading',{name:'dev-laptop',exact:true})).toBeVisible()
@@ -1026,7 +1050,7 @@ try{
  await expect(page).toHaveTitle('Machines · reet.sh')
  await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
- await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Start a new session'})).toHaveCount(0)
 
  // An image pasted before a start is uploaded to the machine, and its path joins the opening prompt.
  viewer=false;authMode='accounts'

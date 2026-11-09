@@ -12,6 +12,8 @@
   import GafferProse from './GafferProse.svelte'
   import WorkerMessaging from './WorkerMessaging.svelte'
  import GafferGoal from './GafferGoal.svelte'
+ import { goalPrefill } from './sessions/goalPrefill'
+ import { copyText } from './clipboard'
   import GafferSessionPicker from './GafferSessionPicker.svelte'
   import GafferFollowedSessions from './GafferFollowedSessions.svelte'
   import ContextSharing from './ContextSharing.svelte'
@@ -167,7 +169,7 @@
       if (mine === epoch && stream === source && open) { stream = undefined; streamError = 'The reply connection paused. Reconnect to read Gaffer’s saved answer.' }
     }
   }
-  async function close() { open = false;full=false; confirming = false; freshConfirm = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true}) }
+  async function close() { wantedDraft = null; open = false;full=false; confirming = false; freshConfirm = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true}) }
   function chooseProvider(value: string) { providerId = value; model = ''; manualModel = false; invalidateModels() }
   function invalidateModels() { modelEpoch++; modelRequest?.abort(); fetchingModels = false; models = []; modelsError = '' }
   async function fetchModels() {
@@ -227,12 +229,31 @@
     const timer=setInterval(()=>{if(loading||sending||updating)return;void getWorkerSettings(`/api/v2/gaffer/conversations/${encodeURIComponent(id)}/worker`,request?.signal).then(next=>{if(mine===epoch&&view?.conversation.id===id)view={...view,messages:next.messages}}).catch(e=>{if(mine===epoch)streamError=message(e)})},3000)
     return()=>clearInterval(timer)
   })
-  async function goalChoices(){
+  // `draft` is a goal the session overview wrote for the person; the editor opens with it and nothing is started.
+ let goalDraft=$state(''),wantedDraft=$state<{id:string;text:string}|null>(null),goalSeen=0
+ async function goalChoices(draft=''){
  optionsOpen=false
  if(loading||sending||updating||dirty||unavailable||!scope)return
+ goalDraft=draft
  const mine=epoch;updating=true;error=''
- try{if(!current){const c=await createGafferConversation(scope,providerId,model,request?.signal);if(mine!==epoch)return;view=c}if(mine===epoch)goalOpen=true}catch(e){if(mine===epoch)error=message(e)}finally{if(mine===epoch)updating=false}
+ try{if(!current){const c=await createGafferConversation(scope,providerId,model,request?.signal);if(mine!==epoch)return;view=c}if(mine===epoch)goalOpen=true}catch(e){if(mine===epoch){error=message(e);if(draft){goalDraft='';void copyText(draft).then(ok=>{if(ok&&mine===epoch)notice='The goal could not be opened here, so it was copied instead.'})}}}finally{if(mine===epoch)updating=false}
  }
+ // The overview asks for the follow-up editor for the chat session Gaffer is showing. Answering at once says it is ours; the editor opens
+ // as soon as the chat has loaded, which is why this only records the wish.
+ $effect(()=>{
+  const ask=$goalPrefill,ctx=$gafferSessionContext
+  if(!ask||ask.nonce<=goalSeen||!ctx||ask.sessionId!==ctx.id)return
+  goalSeen=ask.nonce
+  const taken=untrack(()=>!!ctx.structured&&settings?.available!==false&&!!ask.text.trim())
+  if(taken)untrack(()=>{mode='session';wantedDraft={id:ctx.id,text:ask.text};open=true})
+  ask.answer?.(taken)
+ })
+ $effect(()=>{
+  if(wantedDraft===null||!open||goalOpen||!scope||unavailable||loadedScope!==scope||loading||sending||updating||dirty)return
+  // A wish made for another session (Gaffer was moved on before the chat loaded) is dropped, not carried to this one.
+  const wish=wantedDraft;wantedDraft=null
+  if(wish.id===scope)void untrack(()=>goalChoices(wish.text))
+ })
  async function goalChanged(){
  window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))
  const mine=epoch,key=scope;updating=true
@@ -404,7 +425,7 @@
 </WorkspaceDialog>{/if}
 
 {#if sessionPickerOpen}<GafferSessionPicker onclose={()=>{sessionPickerOpen=false;void tick().then(()=>composer?.focus({preventScroll:true}))}} onselect={()=>{mode='session';sessionPickerOpen=false}} />{/if}
-{#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {userId} {timeZone} {dateFormat} onchanged={goalChanged}/></WorkspaceDialog>{/if}
+{#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;goalDraft='';void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {userId} {timeZone} {dateFormat} draft={goalDraft} onchanged={goalChanged}/></WorkspaceDialog>{/if}
 {#if followedOpen}<GafferFollowedSessions {userId} {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(open&&scope&&current)await goalChanged();else window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))}} onselect={()=>{mode='session';followedOpen=false;open=true}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>focusEntry(open ? optionsButton : undefined))}}/>{/if}
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 

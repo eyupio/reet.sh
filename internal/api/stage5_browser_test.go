@@ -3,8 +3,6 @@
 package api
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -49,13 +47,14 @@ func TestStage5BrowserAcceptance(t *testing.T) {
 	}
 	h.rounds(2, machines["workstation"], machines["laptop"])
 
-	// A real session, exactly what a sign-in produces: the cookie holds the token, the store holds its hash.
-	raw := make([]byte, 24)
-	if _, err = rand.Read(raw); err != nil {
+	// A real account with a real password: the browser signs in through the sign-in form, so the session it holds is the
+	// one the server issues, not one placed in the store for it. (The instance owner is the account the library belongs to.)
+	const email, password = "local@reet.invalid", "correct-horse-battery-staple"
+	hash, err := auth.HashPassword(password)
+	if err != nil {
 		t.Fatal(err)
 	}
-	session := hex.EncodeToString(raw)
-	if err = h.st.CreateSession(auth.HashToken(session), h.uid, time.Now().Add(2*time.Hour).UnixMilli(), "stage5-acceptance"); err != nil {
+	if err = h.st.SetUserPassword(h.uid, hash); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,6 +82,12 @@ func TestStage5BrowserAcceptance(t *testing.T) {
 				}
 			}
 		}
+		fmt.Fprint(w, "ok")
+	})
+	// Take a machine's connector off the network (it simply stops being reachable) or bring it back.
+	mux.HandleFunc("/offline", func(w http.ResponseWriter, r *http.Request) {
+		m, _ := pick(r)
+		m.link.offline.Store(r.URL.Query().Get("value") == "true")
 		fmt.Fprint(w, "ok")
 	})
 	mux.HandleFunc("/present", func(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +146,8 @@ func TestStage5BrowserAcceptance(t *testing.T) {
 	cmd.Dir = filepath.Dir(filepath.Dir(script))
 	cmd.Env = append(os.Environ(),
 		"REET_UI_URL="+h.controller.URL,
-		"REET_ACCEPT_SESSION="+session,
+		"REET_ACCEPT_EMAIL="+email,
+		"REET_ACCEPT_PASSWORD="+password,
 		"REET_ACCEPT_CONTROL=http://"+listener.Addr().String(),
 		"PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="+envOr("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "/opt/pw-browsers/chromium"),
 	)

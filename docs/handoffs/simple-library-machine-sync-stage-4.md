@@ -2,7 +2,7 @@
 
 Parent: [product contract and acceptance scenarios](simple-library-machine-sync.md). Dependency: [Stage 3](simple-library-machine-sync-stage-3.md), delivered to main through #664 (`d85699b4`). Starting main: `9a93f6c48b604e6c7c5eba60e89c5e8099e734ba`.
 
-**Status: in progress, draft controller-contract and connector-ownership checkpoint. Managed removal/restoration is not enabled; Stage 4 is not complete.** The owner explicitly requested this stage. Do not mark the parent ledger complete or start Stage 5 from this checkpoint. No deployment, production Tailcat fix, provisioning or real-machine acceptance is claimed.
+**Status: in progress, draft Stage 4 implementation. The managed-removal capability stays off; Stage 4 acceptance is not complete.** The owner explicitly requested this stage. A separate owner instruction also authorised a limited Stage 5 UI slice in [draft #686](https://github.com/eyupio/reet.sh/pull/686), against existing APIs; that does not waive Stage 4 acceptance. No deployment, production Tailcat fix, provisioning or real-machine acceptance is claimed.
 
 ## Implemented first checkpoint
 
@@ -116,7 +116,13 @@ Not proven here: there is no run in which a real controller and a real connector
 5. Add durable deduplicated factual restore receipts and informational notification-centre events only after filesystem verification and a current-intent check. Retry/restart replay must emit one notification per actual deletion episode. Intentional removals must emit no accidental-deletion notification.
 6. Prove A05–A09, A11, A13–A16, A19–A20 from the parent acceptance matrix, including offline removal/reactivation, deselect-B-only, partial missing bundles, unrelated files, paused/revoked/wrong-account enrollments, capture failures and restart/replay. Promote the remaining Stage 4 contract probes only when normal negotiated operation passes.
 
-Do not expose Stage 5's new UX or claim managed deletion/restoration is already implemented. Do not weaken legacy job/ownership, revision/base retention, backup, consent or content checks to make this stage pass.
+The separately authorised Stage 5 UI slice must not pretend this incomplete Stage 4 work is enabled or accepted. Do not weaken legacy job/ownership, revision/base retention, backup, consent or content checks to make this stage pass.
+
+## PR-watch correction: truthful post-move failures
+
+The item-isolation result previously claimed failed items' local files were unchanged. A real executor regression now fails a removal's final intent check after its directory has moved to backup, then verifies that another healthy item still completes and both backups retain their exact bytes. The old result falsely claimed unchanged files in this case. The result now names the failed items and asks the user to inspect recorded results and backups, without making a no-write claim. Original pre-move and withdrawn-authority cases remain covered. This changes reporting, not approval, mutation, backup or capability rules.
+
+The new post-move case reproduced the false message on the original implementation. The full focused isolation matrix passes under race detection (1.188s), and after integrating the contributor's restore-reporting commit `d8062352` without conflicts it passes again (1.180s); scanner vet passes. This is not a new full scanner or repository-wide race sweep. Initial local verification attempts failed for insufficient build/cache space before the filesystem fixture ran; inspected owned regenerable compilation artifacts, a generated docs site and an obsolete clean merged font-fix worktree were reclaimed. Source commits and branches were preserved. Fresh published-head CI remains required.
 
 ## Validation at this checkpoint
 

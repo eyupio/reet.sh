@@ -239,6 +239,11 @@ machine's Agents settings show it under Claude Code. Nothing is shown when the a
 about it, or when your account has the Claude Code chat turned off. See [Claude Code in
 Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#claude-code-in-gaffer).
 
+Codex gets the same hint on a machine that has Codex but reports the adapter (`codex-acp`) missing, with
+`npm install --global @agentclientprotocol/codex-acp@1.13.1`. The adapter uses the `codex` already on that machine's `PATH`, so the command
+installs only the adapter. See [Codex in
+Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#codex-in-gaffer).
+
 Opening the dialog applies a model marked as the default for the chosen agent first; otherwise the
 project's default model applies (when the dialog has a project), then the account's. A project also
 supplies the default agent and thinking. Changing the machine or the agent resets the model and

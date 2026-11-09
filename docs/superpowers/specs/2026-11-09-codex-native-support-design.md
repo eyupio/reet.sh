@@ -35,7 +35,7 @@ not assumed, and each one that does not work is hidden or explained.
 2. **Gaffer parity, behind the setting. Done, with the lifecycle measured against a stand-in provider** (see "Codex lifecycle probes" in the probe report) so history, images and effort did not have to wait for Run B. Descriptor flags exactly as the probe shows (history, model, images, reattach, read-back confirmation), fake-frame tests,
    a chat-YOLO test for Codex, and wording for what YOLO means in `read-only` versus `agent`.
 3. **Terminal and web.** Resume, effort and image argv for the terminal preset once the decisions below are made; the web catalogue and Start dialog follow; docs rows.
-4. **Hint, docs, flip.** A missing-adapter hint generalised per tool (naming both packages), a "Codex in Gaffer" docs section, then the default-on flip as its own small PR after Run B.
+4. **Hint, docs, flip. The hint and docs are done (the missing-adapter hint is a per-tool table covering Codex); the flip is held for Run B.** A missing-adapter hint generalised per tool (naming both packages), a "Codex in Gaffer" docs section, then the default-on flip as its own small PR after Run B.
 
 ## Decisions
 

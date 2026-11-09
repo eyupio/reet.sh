@@ -156,6 +156,10 @@ below). The adapter was measured signed out against a loopback stand-in for the 
   waiting when you turned it on.
 - **Sign-in.** reet never starts a login. A machine with no Codex folder at all (someone who has never used Codex), or a folder with no login
   in it, is told "Sign in to Codex on that machine first."
+- **A machine with Codex but no adapter** says so, the same way Claude Code's does: the Start dialog and the machine's Agents settings say reet there
+  cannot find `codex-acp` on its `PATH` and show `npm install --global @agentclientprotocol/codex-acp@1.13.1`, only when the machine itself reports the
+  adapter missing. The adapter uses the `codex` already on the machine, so the command installs the adapter alone. An older connector that reports nothing,
+  and an account whose chat is off, get no hint.
 - **The terminal launch** is a separate path; see [launch requests](terminal-launch.md).
 
 What was measured, and where: the descriptor claims, the effort and model sweeps, the stored-conversation replay and the image block, in the

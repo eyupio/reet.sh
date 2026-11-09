@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import type { ChatState } from '../chat'
   import { sessionPrompt, TerminalError, type TerminalSession } from '../terminal/api'
+  import { splitImageRefs } from '../terminal/upload'
   import { promptView } from './promptSource'
   import { createPromptLoader, type PromptOutcome } from './promptLoader'
   import PromptDialog from './PromptDialog.svelte'
@@ -13,6 +14,9 @@
   // promptView calls a chat that has not loaded yet 'old'; saying "not kept" while it is still connecting would be wrong.
   const waiting = $derived(view.kind === 'none' && view.why === 'old' && !!session.structured && (!chat || chat.connection === 'connecting'))
   const quote = $derived(view.kind === 'stored' ? view.excerpt : view.kind === 'chat' ? view.text : '')
+  // The excerpt can end in the upload paths the prompt carried: the card names the words, and the modal shows the pictures.
+  const said = $derived(splitImageRefs(quote))
+  const images = $derived(said.refs.length)
 
   let open = $state(false)
   let outcome = $state<PromptOutcome>({ kind: 'idle' })
@@ -51,12 +55,13 @@
 <div class="prompt" role="group" aria-labelledby={`${sessionId}-asked`}>
   <h4 id={`${sessionId}-asked`}>You asked</h4>
   <div class="slot">
-    {#if quote}<blockquote><p title={quote}>{quote}</p></blockquote>
+    {#if said.text}<blockquote><p title={said.text}>{said.text}</p></blockquote>
+    {:else if images}<blockquote><p>Image attached.</p></blockquote>
     {:else if waiting}<p class="line" role="status">Loading the opening prompt…</p>
     {:else}<p class="line">{view.kind === 'none' && view.why === 'unloaded' ? 'Earlier messages are not loaded.' : NOT_KEPT}</p>{/if}
   </div>
   <!-- The button row keeps its height when there is nothing to open, so the blocks below never move. -->
-  <div class="action">{#if quote}<button type="button" class="open" bind:this={trigger} onclick={show}>Read full prompt</button>{/if}</div>
+  <div class="action">{#if said.text || images}<button type="button" class="open" bind:this={trigger} onclick={show}>Read full prompt</button>{/if}</div>
 </div>
 {#if open}
   <PromptDialog {session} text={dialogText} {now} phase={dialogState} notKept={NOT_KEPT} onretry={load} onclose={() => void close()} />

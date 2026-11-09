@@ -16,6 +16,7 @@
   import CommandLibrary from './CommandLibrary.svelte'
   import TerminalIcon from './TerminalIcon.svelte'
   import SkillPicker from './SkillPicker.svelte'
+  import PromptPicker from '../prompts/PromptPicker.svelte'
   import type {SessionSkill,SessionSkills} from './skills'
   import {toolName} from '../agentLaunch'
   import TerminalSelectText from './TerminalSelectText.svelte'
@@ -47,13 +48,14 @@
   let pendingPaste = $state<{text:string;generation:number;execute?:boolean}|null>(null), generation=0, alive=true
   let fileInput=$state<HTMLInputElement>(), uploads=$state<{id:number;name:string;size:number;controller:AbortController}[]>([])
   let draggingFiles=$state(false), staleUploads=$state<string[]|null>(null), staleReason=$state<'connection'|'scrollback'>('connection'), uploadSeq=0
-  let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),palette=$state('system'),cursor=$state<CursorShape>('bar')
+  let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),promptsOpen=$state(false),promptButton=$state<HTMLButtonElement>(),palette=$state('system'),cursor=$state<CursorShape>('bar')
   let scrollbackOpen=$state(false)
   let selectOpen=$state(false), selectModel=$state('')
   let copyOnSelect=$state(false)
   let pendingCopy=$state<{text:string;bytes:number}|null>(null),lastGestureAt=-Infinity
   let selectionTimer: ReturnType<typeof setTimeout> | undefined
   let landscape=$state(false)
+  let touch=$state(false)
   function toggleSessions(){if(maximised){maximised=false;if(!sessionsVisible)onsessions?.()}else onsessions?.()}
   function openScrollback(){historyOpen=false;scrollbackOpen=true}
   async function closeScrollback(){scrollbackOpen=false;await tick();terminal?.focus()}
@@ -75,6 +77,12 @@
     const intended=generation;scrollbackOpen=false;commandsOpen=false;await tick()
     if(!alive||intended!==generation||!live){feedback='Connection changed. Open Commands again after reconnecting; nothing was inserted.';return}
     paste(item.command,/[\t\r\n]/.test(item.command));restoreFocus()
+  }
+  // A saved prompt is typed into the live shell as text, never followed by Enter. Multi-line text gets paste review.
+  async function insertPrompt(text:string){
+    const intended=generation;scrollbackOpen=false;promptsOpen=false;await tick()
+    if(!alive||intended!==generation||!live){feedback='Connection changed. Open Prompts again after reconnecting; nothing was inserted.';return}
+    paste(text,/[\t\r\n]/.test(text));restoreFocus()
   }
   // The Skills picker: the catalogue is read once per opening. A pick types the invocation (no Enter) only into a live terminal.
   let skillsOpen=$state(false),skillData=$state<SessionSkills|null>(null),skillsLoading=$state(false),skillsError=$state('')
@@ -331,6 +339,7 @@
   }
   $effect(()=>{if(!maximised)return;const previous=document.body.style.overflow,focus=document.activeElement;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=previous;if(focus instanceof HTMLElement&&focus.isConnected)focus.focus({preventScroll:true})}})
   onMount(()=>{
+    touch=matchMedia('(pointer: coarse)').matches
     const viewport=()=>{const usable=pageViewport.read(browserViewport());viewportHeight=usable.height;viewportTop=usable.top;fitTerminal?.()}
     const keyboard=(event:KeyboardEvent)=>{
       if(document.querySelector('dialog[open]'))return
@@ -455,6 +464,7 @@
       <span class="tool-divider" aria-hidden="true"></span>
       <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
       <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
+      <button bind:this={promptButton} onclick={()=>promptsOpen=true} aria-haspopup="dialog" aria-label="Prompts" title="Insert one of your saved prompts"><span>Prompts</span></button>
       {#if session.tool}<button onclick={openSkills} disabled={!!skillsOff} aria-haspopup="dialog" aria-label="Skills" title={skillsOff||'Insert a skill into the agent'}><span>Skills</span></button>{/if}
       <span class="tool-space"></span>
       <button onclick={()=>appearanceOpen=true} aria-label="Appearance" title="Theme, text size and cursor"><TerminalIcon name="appearance"/><span class="tool-label">Appearance</span></button>
@@ -484,6 +494,7 @@
 {#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false} oninsert={item=>void insertSaved(item)} canInsert={live} context={`${user?user+'@':''}${host} · ${session.title}`}/>{/if}
 {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName(session.tool)} sessionId={session.id} onrefresh={()=>void loadSkills()} onpick={skill=>void pickSkill(skill)} onclose={()=>void closeSkills()} onretry={()=>void loadSkills()}/>{/if}
 {#if historyOpen}<CommandHistory session={session.id} context={`${user?user+'@':''}${host} · ${session.title}`} supported={historySupported} canInsert={live} onclose={()=>historyOpen=false} oninsert={(text,run)=>void insertHistory(text,run)} onoutput={openScrollback}/>{/if}
+{#if promptsOpen}<PromptPicker opener={promptButton ?? null} sheet={landscape ? false : touch} context={{ branch: session.worktreeBranch || '', folder: session.worktreePath || session.dir || '', sessionTitle: session.title }} oninsert={result=>void insertPrompt(result.text)} onclose={()=>{promptsOpen=false;restoreFocus()}} />{/if}
 {#if pendingPaste}<ConfirmDialog title={pendingPaste.execute?'Run this command in the active terminal?':'Paste into the remote shell?'} body={pendingPaste.execute?`Send this command to ${host} · ${session.title} and press Enter. Be at a shell prompt; an open program receives terminal input instead.`:'This text contains multiple lines, control characters, or a large block. It may execute commands immediately.'} details={confirmDetails(pendingPaste.text,pendingPaste.execute)} confirmLabel={pendingPaste.execute?'Run command':'Paste text'} onconfirm={confirmPaste} oncancel={()=>{const running=pendingPaste?.execute;pendingPaste=null;if(!running)terminal?.focus()}} />{/if}
 {#if selectOpen}<TerminalSelectText text={selectModel} onclose={closeSelect}/>{/if}
 

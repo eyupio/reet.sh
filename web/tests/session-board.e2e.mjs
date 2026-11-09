@@ -19,6 +19,7 @@ async function workspace(width = 1440, theme = 'light', touch = false, entry = '
     starts: [], saves: [], updates: [], deletes: [], failList: false,
   }
   const routes = {
+    '/api/v2/terminal/prompts': { prompts: [{ id: 'prompt-review', title: 'Review carefully', description: '', body: 'Review this change carefully.', category: '', tool: '', model: '', effort: '', revision: 1, createdAt: now, updatedAt: now }] },
     '/api/v2/machines/health': { serverNow: now, machines: machines.map(m => ({ agentId: m.agentId, host: m.host, state: m.ready ? 'connected' : 'unreachable', capabilities: caps })) },
     '/api/v2/terminal/machines': { machines },
     '/api/v2/terminal/sessions': () => ({ sessions: box.sessions }),
@@ -71,6 +72,23 @@ async function openComposer(page) {
 
 try {
   await mkdir('../work/screenshots', { recursive: true })
+  // The prompt picker is independent of the skill picker and never starts or saves a session by inserting text.
+  for (const width of [390, 1440]) {
+    const { page, context, box, errors } = await workspace(width)
+    await openComposer(page)
+    const composer = page.getByRole('dialog')
+    await composer.getByRole('button', { name: 'Use a prompt', exact: true }).click()
+    const picker = page.getByRole('dialog', { name: 'Use a prompt', exact: true })
+    await expect(picker).toBeVisible()
+    await expect(page.getByRole('searchbox', { name: 'Search your skills' })).toHaveCount(0)
+    await picker.getByRole('button', { name: 'Insert prompt', exact: true }).click()
+    await expect(picker).toHaveCount(0)
+    await expect(composer.getByRole('textbox', { name: /^Prompt/ })).toHaveValue('Review this change carefully.')
+    expect(box.starts).toEqual([])
+    expect(box.saves).toEqual([])
+    expect(errors).toEqual([])
+    await context.close()
+  }
   // Existing Sessions links and project handoffs open the launch modal, while a normal Home visit keeps the board as the
   // primary view and a chosen project narrows it.
   for (const [entry, projectLabel, focused, width, launches] of [

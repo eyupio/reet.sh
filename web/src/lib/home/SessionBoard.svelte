@@ -12,6 +12,7 @@
   import { boardItems, dropIntent, emptyFilters, filterBoard, filterCount, sortBoard, STAGES, type BoardView, type DraftImage, type SessionDraft } from '../sessionBoard'
   import { launchUpload, readiness, sessionHref, TerminalError, type FolderProject, type MachineHealth, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { imagePrompt } from '../terminal/upload'
+  import { rememberUpload } from '../terminal/thumbs'
   import type { LaunchDefaults } from '../launchBar'
   import SessionComposer from './SessionComposer.svelte'
   import BoardIcon from './BoardIcon.svelte'
@@ -252,7 +253,10 @@
           phase = `Sending image ${index + 1} of ${draft.images!.length}…`
           const comma = image.data.indexOf(','); const type = image.data.slice(5, image.data.indexOf(';'))
           const bytes = Uint8Array.from(atob(image.data.slice(comma + 1)), c => c.charCodeAt(0))
-          const uploaded = await launchUpload(draft.agentId, new Blob([bytes], { type }), signal()); refs.push(uploaded.reference)
+          const blob = new Blob([bytes], { type })
+          const uploaded = await launchUpload(draft.agentId, blob, signal())
+          rememberUpload(blob, image.name, uploaded.path, uploaded.reference)
+          refs.push(uploaded.reference)
         }
         prompt = imagePrompt(draft.prompt, refs)
         const invalid = validatePrompt(draft.tool, prompt); if (invalid) throw new Error(invalid)

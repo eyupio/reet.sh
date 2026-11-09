@@ -49,6 +49,7 @@ await page.route('**/api/**',async route=>{
   else data=modelFavourites(favourites)
  }
  else if(path==='/api/skills')data={skills:[],counts:{all:0,used:0}}
+ else if(path==='/api/v2/terminal/prompts')data={prompts:[{id:'prompt-codex',title:'Codex review',description:'',body:'Review the current change.',category:'',tool:'codex',model:'gpt-5-codex',effort:'medium',revision:1,createdAt:now,updatedAt:now}]}
  else if(path==='/api/environments')data={environments:scopes,machines:machinesOf()}
  else if(path==='/api/tags')data={tags:[]}
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
@@ -176,6 +177,27 @@ const openFromSidebar=async(folder=true)=>{await sidebarEntry().click();const d=
 const openFromCard=async(host,folder=true)=>{await cardEntry(host).click();const d=dialog();await expect(d).toBeVisible();if(folder)await useFolder(d);return d}
 
 try{
+ // A prompt may suggest another default agent, but its model/effort must survive the agent rekey.
+ // A model the person already picked also anchors that agent; template suggestions cannot reset it.
+ for(const chosenField of ['', 'model', 'effort']){
+  await page.goto(`${base}/sessions?agent=${A}`)
+  await expect(sidebarEntry()).toBeEnabled()
+  const suggested=await openFromSidebar(),fields=parts(suggested)
+  if(chosenField==='model')await pickOtherModel(suggested,'opus-4.1')
+  if(chosenField==='effort')await fields.effort.selectOption('high')
+  await suggested.getByRole('button',{name:'Use a prompt',exact:true}).click()
+  const picker=page.getByRole('dialog',{name:'Use a prompt',exact:true})
+  await expect(picker).toBeVisible()
+  await picker.getByRole('button',{name:'Insert prompt',exact:true}).click()
+  await expect(picker).toHaveCount(0)
+  await fields.chosen(chosenField?'Claude Code':'Codex')
+  await expect(fields.model).toHaveAccessibleName(`Model: ${chosenField==='model'?'opus-4.1':chosenField?'Agent default':'gpt-5-codex'}`)
+  // This fixture advertises Codex's terminal interface, which has no effort selector.
+  if(!chosenField)await expect(fields.effort).toHaveCount(0)
+  if(chosenField==='effort')await expect(fields.effort).toHaveValue('high')
+  expect(posts).toEqual([])
+  await fields.close.click()
+ }
  // ── From the Terminals workspace: the machine you came from is preselected, the project is still a deliberate choice. ──
  await page.goto(`${base}/sessions?agent=${A}`)
  await expect(sidebarEntry()).toBeEnabled()

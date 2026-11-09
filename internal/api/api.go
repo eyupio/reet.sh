@@ -552,7 +552,11 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) buildInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]string{"version": s.version, "commit": s.commit})
+	doc := map[string]any{"version": s.version, "commit": s.commit}
+	if f := featureList(); f != nil {
+		doc["features"] = f
+	}
+	writeJSON(w, 200, doc)
 }
 
 func guardedPath(path string) bool {

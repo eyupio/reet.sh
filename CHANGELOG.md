@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The checklist at the end of a restore report now names
+  `REET_LIBRARY_MANAGED_REMOVALS`, a setting the server reads that the checklist
+  had missed. The test that compares the checklist with what the server reads
+  caught it, and was failing on `main` until it was added.
 - When a worktree is removed, reet now also brings the repository it was made
   from up to date with main, then prunes the merged local branches. It is on by
   default (owners and admins can turn it off in Settings › Admin › Repository

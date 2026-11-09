@@ -40,6 +40,8 @@ func Checklist() []ChecklistItem {
 			"Terminal state. Whether remote terminals are on, and the public address and sign-in mode they were saved with, live in terminal-control/state.json in the data folder, which a copy does not carry. Set it on the new machine."},
 		{[]string{"REET_SUPPORT_DESK", "REET_CONTACT_EMAIL", "REET_TOPICS", "REET_REFRESH", "REET_MAINTENANCE", "REET_LOG", "REET_PPROF_ADDR", "REET_RELAY_MAP_URL", "SKILLS_SH_TOKEN"},
 			"Feature switches, logging, the private-connection relay map and the skills.sh token."},
+		{[]string{"REET_LIBRARY_MANAGED_REMOVALS"},
+			"An internal rollout switch for library removals that a machine acknowledges. It is off unless it is set to 1. Leave it unset unless you set it on purpose on the old controller."},
 		{[]string{"REET_CONTROLLER_URL", "REET_CONTROLLER_TOKEN", "REET_ENV"},
 			"If this machine reports itself to another controller, and the name it reports under."},
 		{[]string{"the service definition"},

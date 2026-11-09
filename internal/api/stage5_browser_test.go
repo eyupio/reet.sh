@@ -57,6 +57,15 @@ func TestStage5BrowserAcceptance(t *testing.T) {
 	if err = h.st.SetUserPassword(h.uid, hash); err != nil {
 		t.Fatal(err)
 	}
+	// A second, read-only account: its library is its own and empty, and it must not reach the owner's items or machines.
+	const viewerEmail = "viewer@example.test"
+	viewerHash, err := auth.HashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.st.CreateUser(viewerEmail, "Viewer", "viewer", viewerHash); err != nil {
+		t.Fatal(err)
+	}
 
 	pick := func(r *http.Request) (*syncContractMachine, string) {
 		m := machines[r.URL.Query().Get("m")]
@@ -148,6 +157,7 @@ func TestStage5BrowserAcceptance(t *testing.T) {
 		"REET_UI_URL="+h.controller.URL,
 		"REET_ACCEPT_EMAIL="+email,
 		"REET_ACCEPT_PASSWORD="+password,
+		"REET_ACCEPT_VIEWER_EMAIL="+viewerEmail,
 		"REET_ACCEPT_CONTROL=http://"+listener.Addr().String(),
 		"PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="+envOr("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "/opt/pw-browsers/chromium"),
 	)

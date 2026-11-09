@@ -5,6 +5,7 @@
   import type { Machine, ReleaseInfo, SyncAgent, SyncEnvironment } from './api'
   import { agentBuild, agentGroups, channelBuild, groupLabel } from './machines'
   import { CATALOGUE } from './catalogue'
+ import { claudeAdapterHint } from './claudeAdapter'
   import { softwareLine, softwarePlanActions, type SoftwarePlanAction } from './software'
   import { formatAge, type MachineModels } from './models'
   import { allModels, applyMachineSoftware, machineModels, machineSoftwarePlan, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
@@ -269,6 +270,7 @@
             <div class="copy">
               <strong>{item.name}</strong>
               <small class="model-state" aria-live="polite">{modelLine(read)}</small>
+              {#if item.id === 'claude' && claudeAdapterHint(terminal)}<small class="claude-adapter">{claudeAdapterHint(terminal)}</small>{/if}
             </div>
             <button class="btn" type="button" disabled={!ready || refreshing === item.id} onclick={() => void refresh(item.id)} aria-label={`Refresh ${item.name} models`}>
               {refreshing === item.id ? 'Refreshing…' : 'Refresh'}

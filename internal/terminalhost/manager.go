@@ -68,6 +68,8 @@ type Manager struct {
 	clipboardOn  bool
 	// lookPath finds agent binaries for launch presets; tests replace it.
 	lookPath func(string) (string, error)
+	// toolVersion reads what an agent binary prints for --version; tests replace it.
+	toolVersion func(string) string
 	// git runs git for worktrees (ExecGit); tests replace it.
 	git      GitRunner
 	mu       sync.Mutex
@@ -102,7 +104,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, changed: make(chan struct{})}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -212,6 +214,11 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		}
 		if argv, err = launchArgv(in, m.lookPath, managed); err != nil {
 			return ManagedSession{}, err
+		}
+		if len(argv) > 0 {
+			if err = checkToolVersion(in, argv[0], m.toolVersion); err != nil {
+				return ManagedSession{}, err
+			}
 		}
 	} else if in.Dir != "" {
 		if dir, err = ResolveDir(m.home, in.Dir); err != nil {

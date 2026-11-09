@@ -192,8 +192,8 @@ try{
   await expect(picker).toHaveCount(0)
   await fields.chosen(chosenField?'Claude Code':'Codex')
   await expect(fields.model).toHaveAccessibleName(`Model: ${chosenField==='model'?'opus-4.1':chosenField?'Agent default':'gpt-5-codex'}`)
-  // This fixture advertises Codex's terminal interface, which has no effort selector.
-  if(!chosenField)await expect(fields.effort).toHaveCount(0)
+  // Codex's terminal interface takes a thinking level (a config override), so the selector is there, on the agent default.
+  if(!chosenField)await expect(fields.effort).toHaveCount(1)
   if(chosenField==='effort')await expect(fields.effort).toHaveValue('high')
   expect(posts).toEqual([])
   await fields.close.click()
@@ -661,7 +661,7 @@ try{
  await expect(p.model).toHaveAccessibleName('Model: Agent default')
  await expect(p.effort).toHaveValue('')
  await p.pick('Codex')
- await expect(p.effort).toHaveCount(0)
+ await expect(p.effort).toHaveValue('')
  await p.pick('Cline')
  await expect(p.model).toHaveAccessibleName('Model: anthropic/claude-sonnet-4-5')
  await expect(p.effort).toHaveValue('high')

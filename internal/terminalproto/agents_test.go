@@ -139,7 +139,7 @@ func TestAgentsV2ToolsAndOptions(t *testing.T) {
 	for _, tc := range []struct {
 		tool          string
 		effort, model bool
-	}{{"claude", true, true}, {"codex", false, true}, {"opencode", false, true}, {"cline", true, true}, {"antigravity", true, true}, {"pi", false, false}} {
+	}{{"claude", true, true}, {"codex", true, true}, {"opencode", false, true}, {"cline", true, true}, {"antigravity", true, true}, {"pi", false, false}} {
 		if ToolTakesEffort(tc.tool) != tc.effort || ToolTakesModel(tc.tool) != tc.model {
 			t.Fatalf("%s: effort=%v model=%v", tc.tool, ToolTakesEffort(tc.tool), ToolTakesModel(tc.tool))
 		}

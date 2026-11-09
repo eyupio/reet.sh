@@ -81,7 +81,7 @@ test('non-repository hides branch and worktree', () => {
 test('thinking shows only for an agent that takes effort', () => {
   assert.equal(words(sentence(choice({ agent: 'cline', model: '', effort: 'high' }), projects, machines)), 'Run Cline with default on reet at studio from main in a fresh worktree · thinking high')
   assert.equal(words(sentence(choice({ agent: 'cline', model: '' }), projects, machines)).endsWith('· thinking default'), true)
-  assert.ok(!slots(sentence(choice({ agent: 'codex', effort: 'high' }), projects, machines)).includes('effort'))
+  assert.ok(!slots(sentence(choice({ agent: 'opencode', effort: 'high' }), projects, machines)).includes('effort'))
 })
 
 test('a Gaffer chat drops a thinking default its own descriptor does not offer', () => {
@@ -137,8 +137,8 @@ test('approvals reset to ask', () => {
 
 test('first choice comes from the project, account, favourite and agent defaults', () => {
   assert.deepEqual(initialChoice(projects, profile), { agent: 'claude', model: '', projectIds: ['p-reet'], branch: '', worktree: true, effort: '', prompt: '', approvals: 'ask' })
-  const own = { ...reet, defaultTool: 'codex', defaultModel: 'gpt-5-codex', defaultEffort: 'high', baseBranch: 'release', worktreeDefault: 'no' }
-  assert.deepEqual(initialChoice([own], { defaultBaseBranch: 'develop', worktreesByDefault: true }), { agent: 'codex', model: 'gpt-5-codex', projectIds: ['p-reet'], branch: 'release', worktree: false, effort: '', prompt: '', approvals: 'ask' })
+  const own = { ...reet, defaultTool: 'opencode', defaultModel: 'gpt-5-codex', defaultEffort: 'high', baseBranch: 'release', worktreeDefault: 'no' }
+  assert.deepEqual(initialChoice([own], { defaultBaseBranch: 'develop', worktreesByDefault: true }), { agent: 'opencode', model: 'gpt-5-codex', projectIds: ['p-reet'], branch: 'release', worktree: false, effort: '', prompt: '', approvals: 'ask' })
   assert.equal(initialChoice([reet], { defaultBaseBranch: 'develop', worktreesByDefault: false }).worktree, false)
   assert.equal(initialChoice([reet], { defaultBaseBranch: 'develop', worktreesByDefault: false }).branch, 'develop')
   assert.equal(initialChoice([{ ...reet, worktreeDefault: 'yes' }], { worktreesByDefault: false }).worktree, true)
@@ -155,7 +155,8 @@ test('first choice comes from the project, account, favourite and agent defaults
   // Effort only for an agent that takes it; a project's effort needs its agent too.
   assert.equal(initialChoice([{ ...reet, defaultTool: 'cline', defaultEffort: 'high' }], profile).effort, 'high')
   assert.equal(initialChoice([{ ...reet, defaultTool: 'claude', defaultEffort: 'high' }], profile).effort, 'high')
-  assert.equal(initialChoice([{ ...reet, defaultTool: 'codex', defaultEffort: 'high' }], profile).effort, '')
+  assert.equal(initialChoice([{ ...reet, defaultTool: 'opencode', defaultEffort: 'high' }], profile).effort, '')
+  assert.equal(initialChoice([{ ...reet, defaultTool: 'codex', defaultEffort: 'high' }], profile).effort, 'high')
   assert.equal(initialChoice([{ ...reet, defaultModel: 'sonnet', defaultEffort: 'high' }], profile).effort, '')
 })
 
@@ -209,7 +210,8 @@ test('startable names the first reason', () => {
   assert.equal(startable(choice({ projectIds: [] }), projects, machines), 'Choose a project or a home folder.')
   assert.equal(startable(choice({ agent: 'pi' }), projects, machines), "reet doesn't start this agent yet.")
   assert.equal(startable(choice({ agent: 'codex', prompt: 'one' }), projects, machines), 'Write the opening prompt as at least two words.')
-  assert.equal(startable(choice({ agent: 'codex', effort: 'high' }), projects, machines), "That agent doesn't take that option.")
+  assert.equal(startable(choice({ agent: 'codex', effort: 'high' }), projects, machines), null)
+  assert.equal(startable(choice({ agent: 'opencode', effort: 'high' }), projects, [machine('m-studio', 'studio', { tools: ['opencode'] })]), "That agent doesn't take that option.")
   assert.equal(startable(choice({ effort: 'high' }), projects, machines), null)
   assert.equal(startable(choice({ agent: 'antigravity' }), projects, machines), 'Not installed on studio')
   const down = [machine('m-studio', 'studio', {}, false)]
@@ -345,7 +347,8 @@ test('the last launch comes from the newest session that names an agent, never f
   // Effort only for an agent that takes it.
   assert.equal(lastChoice([s('e', 1, { tool: 'cline', effort: 'high', projectId: 'p-reet' })], projects, profile).effort, 'high')
   assert.equal(lastChoice([s('e', 1, { tool: 'claude', effort: 'high', projectId: 'p-reet' })], projects, profile).effort, 'high')
-  assert.equal(lastChoice([s('e', 1, { tool: 'codex', effort: 'high', projectId: 'p-reet' })], projects, profile).effort, '')
+  assert.equal(lastChoice([s('e', 1, { tool: 'opencode', effort: 'high', projectId: 'p-reet' })], projects, profile).effort, '')
+  assert.equal(lastChoice([s('e', 1, { tool: 'codex', effort: 'high', projectId: 'p-reet' })], projects, profile).effort, 'high')
   assert.equal(lastChoice([s('e', 1, { tool: 'cline', effort: 'max', projectId: 'p-reet' })], projects, profile).effort, '')
   // Outside every project: the home folder on that machine. A project since removed: no project (the first one is used).
   assert.deepEqual(lastChoice([s('h', 1, { tool: 'claude' })], projects, profile).homeMachine, 'm-studio')
@@ -409,8 +412,8 @@ test('several projects send one run request, with YOLO when chosen', () => {
   const many = choice({ agent: 'cline', model: ' sonnet ', effort: 'high', projectIds: ['p-reet', 'p-site', 'p-notes'], prompt: 'Fix the failing tests', approvals: 'yolo', branch: 'release' })
   assert.deepEqual(toSelectionRun(many, r), { requestId: r, projectIds: ['p-reet', 'p-site', 'p-notes'], tool: 'cline', model: 'sonnet', effort: 'high', prompt: 'Fix the failing tests', worktree: true, yolo: true })
   // Effort only for an agent that takes it; no model is ''; the checkout is worktree false.
-  assert.deepEqual(toSelectionRun(choice({ agent: 'codex', model: '', effort: 'high', projectIds: ['p-reet', 'p-site'], worktree: false, prompt: '' }), r),
-    { requestId: r, projectIds: ['p-reet', 'p-site'], tool: 'codex', model: '', effort: '', prompt: '', worktree: false })
+  assert.deepEqual(toSelectionRun(choice({ agent: 'opencode', model: '', effort: 'high', projectIds: ['p-reet', 'p-site'], worktree: false, prompt: '' }), r),
+    { requestId: r, projectIds: ['p-reet', 'p-site'], tool: 'opencode', model: '', effort: '', prompt: '', worktree: false })
   assert.equal(toSelectionRun(choice({ agent: 'claude', model: '', effort: 'high', projectIds: ['p-reet', 'p-site'], worktree: false, prompt: '' }), r).effort, 'high')
 })
 
@@ -427,7 +430,7 @@ test('a selection puts its projects in the sentence and one project its own defa
   assert.deepEqual(many.projectIds, ['p-site', 'p-notes'])
   assert.equal(many.agent, 'codex')
   assert.equal(many.prompt, 'keep me')
-  assert.equal(words(sentence(many, projects, machines)), "Run Codex with gpt-5-codex on 2 projects at each project's machine from each project's default in a fresh worktree")
+  assert.equal(words(sentence(many, projects, machines)), "Run Codex with gpt-5-codex on 2 projects at each project's machine from each project's default in a fresh worktree · thinking default")
   const one = withSelection(many, ['p-site'], projects, profile)
   assert.deepEqual(one.projectIds, ['p-site'])
   assert.equal(one.model, '')

@@ -426,3 +426,74 @@ func TestStage4DeletionThenDeactivationIsNeitherRestoredNorAnnounced(t *testing.
 	}
 	h.requireRetained("doomed")
 }
+
+// A19, whole path: an account that was synced by an older connector (whole
+// library, additive) is upgraded to the library protocol and then rolled back.
+// Ownership is only ever claimed from a recorded install, and an older connector
+// records none, so after the upgrade nothing the old sync wrote is removed,
+// replaced or duplicated, whether or not it is still selected, and a skill the
+// person made themselves is untouched. Rolling back makes no removals either.
+func TestStage4LegacyAccountUpgradeKeepsEverythingTheOldSyncWroteAndRollbackRemovesNothing(t *testing.T) {
+	h := newLegacySyncContractHarness(t)
+	alpha := h.hosted("alpha", "legacy alpha", false, true)
+	h.hosted("beta", "legacy beta", false, true)
+	m := h.machine("legacy-upgrade")
+	m.localSkill("mine", "written by the person, never by reet")
+	h.rounds(6, m)
+	for _, name := range []string{"alpha", "beta"} {
+		m.requireFile(name, "SKILL.md", syncContractContent(name, "legacy "+name))
+	}
+
+	// Upgrade: the controller offers the capability and the connector speaks the library protocol.
+	h.enableManagedRemovals()
+	h.legacyProtocol = false
+	h.rounds(2, m)
+	h.selectFor(m, "alpha")
+	h.rounds(15, m)
+	m.requireFile("alpha", "SKILL.md", syncContractContent("alpha", "legacy alpha"))
+	if len(m.backupsOf("alpha")) != 0 {
+		t.Fatal("the selected legacy copy was replaced or moved aside by the upgrade")
+	}
+	// The old sync left no record that proves reet installed beta, so it is not reet's to remove.
+	m.requireFile("beta", "SKILL.md", syncContractContent("beta", "legacy beta"))
+	if len(m.backupsOf("beta")) != 0 {
+		t.Fatal("a copy with no recorded install was moved aside")
+	}
+	h.requireRetained("beta")
+	if !m.present("mine") {
+		t.Fatal("a skill the person made themselves was touched by the upgrade")
+	}
+
+	// Rollback: the older protocol again. Nothing is removed, whatever the library says.
+	h.legacyProtocol = true
+	h.used(alpha.ID, false)
+	h.rounds(8, m)
+	m.requireFile("alpha", "SKILL.md", syncContractContent("alpha", "legacy alpha"))
+	if !m.present("mine") || !m.present("beta") || len(m.backupsOf("alpha")) != 0 {
+		t.Fatal("rolling back to the older protocol removed something")
+	}
+}
+
+// A14 (destination collision): an unmanaged folder that already has the name of
+// a selected item is not overwritten, the collision is explained, and the
+// healthy item beside it still installs.
+func TestStage4UnmanagedFolderWithTheSameNameIsKeptAndExplained(t *testing.T) {
+	h := newSyncContractHarness(t)
+	h.enableManagedRemovals()
+	h.hosted("clash", "library version", false, true)
+	h.hosted("fine", "healthy", false, true)
+	m := h.machine("clash-a")
+	h.rounds(1, m)
+	m.localSkill("clash", "the person's own, unrelated skill with the same name")
+	h.selectFor(m, "clash", "fine")
+	h.rounds(10, m)
+	m.requireFile("fine", "SKILL.md", syncContractContent("fine", "healthy"))
+	m.requireFile("clash", "SKILL.md", syncContractContent("clash", "the person's own, unrelated skill with the same name"))
+	if len(m.backupsOf("clash")) != 0 {
+		t.Fatal("an unrelated folder was moved aside")
+	}
+	state := h.mustRequest(http.MethodGet, "/api/v2/sync", nil)
+	if !strings.Contains(state, `"`+syncContractName("clash")+`":"Local content differs; import this folder to preserve it before syncing this item."`) {
+		t.Fatal("the collision was not explained to the person")
+	}
+}

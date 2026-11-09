@@ -64,7 +64,7 @@ try{
  await page.goto(`${base}/sessions?agent=${a}&session=${sessions[0].id}`);await live()
  await expect(sidebar.getByLabel('Machine',{exact:true})).toHaveCount(0)
  await expect(sidebar.getByText('Choose multiple machines',{exact:true})).toHaveCount(0)
- await expect(sidebar.getByRole('heading',{name:'Projects',exact:true})).toBeVisible()
+ await expect(sidebar.getByRole('heading',{name:'Inactive projects',exact:true})).toBeVisible()
  await expect(sidebar.getByRole('button',{name:/^reet, no live sessions/})).toBeVisible()
  await expect(sidebar.locator('.session-row')).toHaveCount(4)
  const originalTicket=tickets.at(-1)
@@ -177,10 +177,10 @@ try{
  await expect(page.getByRole('dialog')).toContainText('Paste')
  await page.getByRole('button',{name:'Cancel',exact:true}).click()
  expect(inputs.length).toBe(beforeReview)
- // The panel's own toggle sits at the top of the panel, above Projects and the sessions list, so it keeps the same
+ // The panel's own toggle sits at the top of the panel, above the project strip and the sessions list, so it keeps the same
  // place and icon whether the panel is open or closed.
  const panelCollapse=sidebar.getByRole('button',{name:'Shrink sessions to a mini rail',exact:true})
- expect((await panelCollapse.boundingBox()).y).toBeLessThan((await sidebar.getByRole('heading',{name:'Projects'}).boundingBox()).y)
+ expect((await panelCollapse.boundingBox()).y).toBeLessThan((await sidebar.getByRole('heading',{name:'Inactive projects'}).boundingBox()).y)
  // On a wide screen the chevron shrinks the panel to the mini rail, and the rail's own chevron closes it.
  await panelCollapse.click()
  await page.getByRole('complementary',{name:'Session rail'}).getByRole('button',{name:'Close session navigation',exact:true}).click()
@@ -259,12 +259,12 @@ try{
  // The cleaner panel. A section folds and stays folded after a reload; a session waiting on the person is amber in its row, and
  // its count stays on the project and on a folded group or section header, so folding never hides it.
  const fold=name=>sidebar.getByRole('button',{name:new RegExp(`^${name}`)})
- await fold('Projects').click()
- await expect(fold('Projects')).toHaveAttribute('aria-expanded','false')
+ await fold('Inactive projects').click()
+ await expect(fold('Inactive projects')).toHaveAttribute('aria-expanded','false')
  await expect(sidebar.locator('#panel-projects-list')).toHaveCount(0)
  await page.reload();await live();await showSidebar()
- await expect(fold('Projects')).toHaveAttribute('aria-expanded','false')
- await fold('Projects').click();await expect(sidebar.locator('#panel-projects-list')).toBeVisible()
+ await expect(fold('Inactive projects')).toHaveAttribute('aria-expanded','false')
+ await fold('Inactive projects').click();await expect(sidebar.locator('#panel-projects-list')).toBeVisible()
  Object.assign(sessions[0],{projectId:projects[0].id,attention:'waiting',changedSinceSeen:true,pendingPermission:{permissionId:'organisation-permission1'}})
  while(projects.length<8)projects.push(project(`organisation-extra${projects.length}`,`extra${projects.length}`,`/home/developer/extra${projects.length}`))
  await page.reload();await live();await showSidebar()

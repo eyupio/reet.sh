@@ -28,7 +28,11 @@ try {
   try {
    // Machine/workspace Start an agent modal.
    await page.goto(`${base}/sessions?agent=${A}`)
-   await page.getByRole('button',{name:/New agent session|Start a new agent session/}).first().click()
+   if (width < 600) await page.getByRole('button',{name:/Start a new agent session/}).first().click()
+   else {
+    await page.getByRole('button',{name:'Start a new session',exact:true}).first().click()
+    await page.getByRole('dialog',{name:'New session',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
+   }
    const modal=page.getByRole('dialog',{name:'Start an agent',exact:true})
    await modal.getByRole('combobox',{name:'Project',exact:true}).selectOption({label:'No project — start in a folder'})
    await modal.getByRole('combobox',{name:'Agent',exact:true}).selectOption('codex')

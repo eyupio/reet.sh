@@ -69,7 +69,8 @@ try {
     for (const unavailable of [[], [{ ...availableChat, state: 'missing' }], [{ ...availableChat, state: 'unverified' }], [{ ...availableChat, state: 'incompatible' }]]) {
       machine.capabilities.acpAgents = unavailable
       await page.goto(`${base}/sessions?agent=${A}`)
-      await page.getByRole('button', { name: 'New agent session', exact: true }).click()
+      await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+      await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
       const unavailableDialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
       await unavailableDialog.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'OpenCode' })
       await expect(unavailableDialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
@@ -79,7 +80,8 @@ try {
     machine.capabilities.acpAgents = [availableChat]
   }
   await page.goto(`${base}/sessions?agent=${A}`)
-  await page.getByRole('button', { name: 'New agent session', exact: true }).click()
+  await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+  await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'OpenCode' })

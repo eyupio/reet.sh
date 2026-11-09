@@ -321,11 +321,11 @@
     selectTerminalMachine(agent);showCreate=true;closeDrawer()
   }
   function quickCreate(agent:string){openTerminalStart(agent)}
-  function newSession(){
+  function newSession(opener?:HTMLElement){
     if(!machines.length||busy||accessDenied)return
     // An unconfirmed creation keeps its own retry: New session opens that, never a second choice.
     if(pendingCreation){openTerminalStart();return}
-    newSessionProject=null;newSessionOpener=null
+    newSessionProject=null;newSessionOpener=opener??null
     newSessionOpen=true
   }
   function newSessionInProject(project:FolderProject,opener:HTMLElement){
@@ -683,7 +683,7 @@
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <!-- The session screen's tabs share this row, so the terminal keeps its height. -->
     {#if session && !loading && !accessDenied && !phone}<SessionTabs tabs={tabSessions} current={session.id} onselect={chooseSession} onclose={closeSessionTab} />{/if}
-    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
+    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={()=>newSession()} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
   </header>
   {#if preferenceError}<p class="workspace-notice bad" role="status">{preferenceError}</p>{/if}
   {#if statusError}<p class="workspace-notice bad" role="status">{statusError} <button onclick={()=>void refresh()}>Retry status</button></p>{/if}

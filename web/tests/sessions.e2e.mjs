@@ -800,7 +800,7 @@ try {
  }
 
  if (run('toggle switches a live chat to the OpenCode TUI and back')) {
-  // The chat reports quiet; once in the OpenCode TUI the row's word comes from terminal activity.
+  // The chat reports a finished turn; once in the OpenCode TUI the row's word comes from terminal activity.
   const {context,page,errors,box} = await open({sessions:[...sessions(), ...opencodeSessions().map(x => x.id === 's9' ? {...x, attention:'quiet', attentionSource:'chat'} : x)], machines:switchMachines(), chat:true})
   // The switch is held until the test lets it finish, as the machine takes its time stopping one process and starting the other.
   let finish
@@ -813,11 +813,11 @@ try {
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
   const pill = screen(page).locator('.pill')
-  await expect(pill).toHaveText(/^Quiet\W*from the chat$/)
-  // The session panel says the same: a quiet turn is not still running, though its session is open.
+  await expect(pill).toHaveText(/^Finished\W*from the chat$/)
+  // The session panel says the same: a quiet chat is a finished turn, though its session is open.
   const quietRow = page.locator('aside#terminal-sessions').getByRole('button',{name:/^Chat about the store on studio/})
-  await expect(quietRow).toHaveAccessibleName(/, Quiet$/)
-  await expect(quietRow.locator('.session-dot')).toHaveClass(/finished/)
+  await expect(quietRow).toHaveAccessibleName(/, Finished$/)
+  await expect(quietRow.locator('.status-tick')).toBeVisible()
   await expect(tui).toBeEnabled()
   await tui.selectOption('terminal')
   const dialog = page.getByRole('alertdialog',{name:'Switch to the OpenCode TUI?'})
@@ -863,7 +863,7 @@ try {
   await expect(page.locator('.pane')).toHaveCount(0)
   await expect(panel(page).locator('.decisions')).toHaveText('Asked in the chat: Allow once or Deny.')
   await expect(screen(page).getByRole('group',{name:'Approvals'})).toBeVisible()
-  await expect(pill).toHaveText(/^Quiet\W*from the chat$/)
+  await expect(pill).toHaveText(/^Finished\W*from the chat$/)
   expect(box.writes.filter(w => w.kind === 'mode').map(w => w.body)).toEqual([{mode:'terminal',trust:false},{mode:'chat',trust:false}])
   expect(errors).toEqual([])
   await context.close()

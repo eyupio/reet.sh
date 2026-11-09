@@ -57,7 +57,11 @@ try {
    })
    // An old/terminal-only connector never gains Gaffer through legacy flags.
    await page.goto(`${base}/sessions?agent=${A}`)
-   await page.getByRole('button', { name: width < 600 ? /Start a new agent session/ : 'New agent session', exact: width >= 600 }).first().click()
+   if (width < 600) await page.getByRole('button', { name: /Start a new agent session/ }).first().click()
+   else {
+    await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+    await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
+   }
    const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
    await dialog.getByRole('combobox', { name: 'Agent', exact: true }).selectOption('antigravity')
    await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
@@ -65,7 +69,11 @@ try {
 
    machine.capabilities.acpAgents = [descriptor]
    await page.goto(`${base}/sessions?agent=${A}`)
-   await page.getByRole('button', { name: width < 600 ? /Start a new agent session/ : 'New agent session', exact: width >= 600 }).first().click()
+   if (width < 600) await page.getByRole('button', { name: /Start a new agent session/ }).first().click()
+   else {
+    await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+    await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
+   }
    await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')
    await expect(dialog.getByText('AGY workspace hooks and customizations may run.', { exact: false })).toBeVisible()
    await expect(dialog.getByText('.opencode', { exact: false })).toHaveCount(0)

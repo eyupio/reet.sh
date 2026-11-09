@@ -151,7 +151,7 @@ const escapeRe=text=>text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')
 const openModel=async d=>{await parts(d).model.click();const list=page.getByRole('listbox',{name:'Model'});await expect(list).toBeVisible();return list}
 const pickModel=async(d,label)=>{const list=await openModel(d);await list.getByRole('option',{name:new RegExp('^'+escapeRe(label))}).click();await expect(list).toBeHidden()}
 const pickOtherModel=async(d,value)=>{const list=await openModel(d);await list.getByRole('option',{name:'Other…',exact:true}).click();await page.getByRole('textbox',{name:'Model name',exact:true}).fill(value);await page.getByRole('button',{name:'Use',exact:true}).click();await expect(list).toBeHidden()}
-const sidebarEntry=()=>page.locator('#terminal-sessions').getByRole('button',{name:'New agent session',exact:true})
+const sidebarEntry=()=>page.locator('#terminal-sessions').getByRole('button',{name:'Start a new session',exact:true})
 const card=host=>page.locator('article').filter({has:page.getByRole('heading',{name:host,exact:true})})
 const cardEntry=host=>card(host).getByRole('button',{name:'Start an agent',exact:true})
 // A round trip through the page, so every handler that a key or click started has finished before the next check.
@@ -172,7 +172,7 @@ const locked=async p=>{
 // The project is a required choice. A start that is not opened from a project must choose No project before the folder
 // fields appear; this helper does that, leaving the machine selection as the entry point supplied it.
 const useFolder=async d=>{const p=parts(d);if(await p.folder.count()===0){await p.project.selectOption({label:'No project — start in a folder'});await expect(p.folder).toBeVisible()}}
-const openFromSidebar=async(folder=true)=>{await sidebarEntry().click();const d=dialog();await expect(d).toBeVisible();if(folder)await useFolder(d);return d}
+const openFromSidebar=async(folder=true)=>{await sidebarEntry().click();await page.getByRole('dialog',{name:'New session',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click();const d=dialog();await expect(d).toBeVisible();if(folder)await useFolder(d);return d}
 const openFromCard=async(host,folder=true)=>{await cardEntry(host).click();const d=dialog();await expect(d).toBeVisible();if(folder)await useFolder(d);return d}
 
 try{
@@ -1016,7 +1016,7 @@ try{
  await expect(page).toHaveTitle('Machines · reet.sh')
  await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
- await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Start a new session'})).toHaveCount(0)
  viewer=false;authMode='none'
  await page.goto(`${base}/machines`)
  await expect(page.getByRole('heading',{name:'dev-laptop',exact:true})).toBeVisible()
@@ -1026,7 +1026,7 @@ try{
  await expect(page).toHaveTitle('Machines · reet.sh')
  await expect(page.getByRole('heading',{level:1,name:'Machines',exact:true})).toBeVisible()
  await expect(page.getByRole('heading',{name:'Sessions',exact:true,level:1})).toHaveCount(0)
- await expect(page.getByRole('button',{name:'New agent session'})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Start a new session'})).toHaveCount(0)
 
  // An image pasted before a start is uploaded to the machine, and its path joins the opening prompt.
  viewer=false;authMode='accounts'

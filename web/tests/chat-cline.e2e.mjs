@@ -43,7 +43,8 @@ try {
   // Where the machine reports Cline's ACP server only unverified, the dialog offers no Gaffer for Cline.
   machine.capabilities.acpAgents = [{ ...clineChat, state: 'unverified', modes: undefined, history: false, images: false, model: false, approval: false }]
   await page.goto(`${base}/sessions?agent=${A}`)
-  await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+  await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
   const dark = page.getByRole('dialog', { name: 'Start an agent', exact: true })
   await dark.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Cline' })
   await expect(dark.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
@@ -52,7 +53,8 @@ try {
   // Available: Gaffer is offered with Cline's own copy, and nothing claims OpenCode's plugin trust.
   machine.capabilities.acpAgents = [clineChat]
   await page.goto(`${base}/sessions?agent=${A}`)
-  await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+  await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
   await dialog.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Cline' })
   await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')

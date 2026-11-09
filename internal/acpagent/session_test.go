@@ -491,6 +491,13 @@ func TestFakeACP(t *testing.T) {
 					_ = os.WriteFile(filepath.Join(logDir, "cline.log"), []byte(line), 0o600)
 				}
 				reply(promptID, map[string]any{"stopReason": "end_turn"})
+			case "cline-reply":
+				update(session, "agent_message_chunk", map[string]any{"messageId": "msg_reply", "content": map[string]string{"type": "text", "text": "done"}})
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
+			case "cline-empty-turn":
+				// The turn ends with no ACP frame and nothing in Cline's log: the
+				// provider said nothing at all.
+				reply(promptID, map[string]any{"stopReason": "end_turn"})
 			case "cline-read", "cline-editor", "cline-command":
 				// Shapes captured from Cline 3.0.74 with --auto-approve false:
 				// a read of files, an editor write that carries path/new_text

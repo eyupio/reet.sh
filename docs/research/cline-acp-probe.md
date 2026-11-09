@@ -114,6 +114,31 @@ private temporary directory, sets each provider the session lists, and reports t
 list after each switch, whether a fresh session sees the switch, the files that changed and any provider or model id
 that looks like a free source. Run it on a machine where Cline is signed in, then record the result here.
 
+## Gaffer | Cline TUI switching (not yet checked)
+
+The Chat | Terminal switch is offered for OpenCode only (`switchModeState` in `web/src/lib/sessions.ts`), and Cline's
+catalogue row has no `SessionArgs`, so `launchArgv` refuses a launch on a chat's id with `launch_option_unsupported`.
+Cline's own `--help` lists `--id <session-id>` ("Resume an existing session by ID"), but nobody has checked what
+`cline --tui --id <chat id>` does with an id that `cline --acp` created. Three things decide whether the switch can be
+built, and the other two parts of it (the controller's `SwitchSessionMode` and the connector's `swap`) already work for
+any reviewed chat tool:
+
+1. Does the TUI accept the chat's `_cli` id, or refuse it?
+2. Does it keep that id, or start a new task id? reet accepts only `_cli` handles (`validClineSessionID`), so a forked
+   id could not be carried back to Gaffer, which is what the TUI's own un-suffixed ids look like.
+3. Does `session/load` still open the id after the TUI has run on it?
+
+`scripts/probe-cline-tui-resume.py` answers all three without a model call, against a private copy of `~/.cline`, and
+ends with plain-sentence verdicts. Run it on a machine where Cline is signed in, then record the result here before
+adding `SessionArgs: []string{"--id"}` to the Cline row and opening the web gate.
+
+## A turn that ends with no reply
+
+Cline ends a failed turn without an ACP frame (see "Failure without an ACP frame"). When it also logs nothing reet can
+read for that chat, for example a provider id that Cline does not accept, the chat used to show "Ready for your next
+instruction" under an unanswered prompt. It now adds a notice that the agent ended the turn without a reply and gave no
+reason. The cause of an empty turn on a real machine is read from the tail of `<CLINE_DIR>/data/logs/cline.log`.
+
 ## What this does not establish
 
 - A successful turn with images, MCP tools or a subagent.

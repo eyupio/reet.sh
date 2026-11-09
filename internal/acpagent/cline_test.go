@@ -441,6 +441,61 @@ func TestClineSilentTurnShowsItsLoggedProviderError(t *testing.T) {
 	}
 }
 
+// A turn that ends with no message, no tool call and no logged reason is not a
+// finished turn. The chat says so, rather than reading "Ready for your next
+// instruction" under a prompt that was never answered.
+func TestClineEmptyTurnWithNoLoggedReasonSaysSo(t *testing.T) {
+	opts, got := clineOptions(t, "cline-empty-turn")
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Prompt(context.Background(), "hello"); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	noticeAt, idleAt := -1, -1
+	for i, event := range got.all {
+		if event.Kind == "notice" && event.Bad && strings.Contains(event.Text, "ended the turn without a reply") {
+			noticeAt = i
+		}
+		if event.Kind == "status" && event.State == "idle" {
+			idleAt = i
+		}
+	}
+	if noticeAt < 0 {
+		t.Fatalf("an empty turn ended as a plain idle with no explanation: %+v", got.all)
+	}
+	if idleAt < noticeAt {
+		t.Fatalf("the explanation came after the chat was already shown as ready: %+v", got.all)
+	}
+	if !strings.Contains(got.all[noticeAt].Text, "Cline") {
+		t.Fatalf("the notice does not name the agent: %q", got.all[noticeAt].Text)
+	}
+}
+
+// A turn that did say something is never given the empty-turn notice.
+func TestClineTurnWithAReplyIsNotCalledEmpty(t *testing.T) {
+	opts, got := clineOptions(t, "cline-reply")
+	session, err := Start(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Prompt(context.Background(), "hello"); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	got.mu.Lock()
+	defer got.mu.Unlock()
+	for _, event := range got.all {
+		if event.Kind == "notice" && strings.Contains(event.Text, "without a reply") {
+			t.Fatalf("a turn with a reply was called empty: %+v", event)
+		}
+	}
+}
+
 // session/load reopens the stored conversation under the same reet session id,
 // which is what an in-place reconnect asks for.
 func TestClineReattachesInPlace(t *testing.T) {

@@ -633,7 +633,7 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 					return finishLibraryInstall(config, c, skill, path, j.TargetID)
 				}, managedRemovals: func(target store.SyncTarget, path string) ([]SyncAction, map[string]string, error) {
 					return planLibraryRemovals(ctx, config, c, target, path, version)
-				}, managedDeletions: func(target store.SyncTarget, path string) (map[string]bool, error) {
+				}, managedDeletions: func(target store.SyncTarget, path string) (map[string]bool, map[string]bool, error) {
 					return planLibraryRestores(config, c, target, path)
 				}, removeManaged: func(action SyncAction, path string, out io.Writer, onBackup func(string)) error {
 					return removeLibraryDeployment(ctx, config, c, action, path, version, out, onBackup)

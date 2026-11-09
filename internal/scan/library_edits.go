@@ -371,6 +371,10 @@ func filterLibraryPending(config string, c agentConfig, desired []store.SyncSkil
 	for _, event := range state.Pending {
 		pending[event.ItemID] = true
 	}
+	missing := map[string]libraryMissing{}
+	for _, record := range state.Missing {
+		missing[record.Path] = record
+	}
 	out := make([]store.SyncSkill, 0, len(desired))
 	for _, skill := range desired {
 		blocked := pending[skill.ItemID]
@@ -378,10 +382,27 @@ func filterLibraryPending(config string, c agentConfig, desired []store.SyncSkil
 			if skill.ItemID == "" || binding.ItemID != skill.ItemID {
 				continue
 			}
+			// A folder that is simply absent is judged by evidence, not by a
+			// digest error: privateSkillDigest reports a missing folder as an
+			// incomplete observation, never as "not found".
+			if _, statErr := os.Lstat(binding.Path); os.IsNotExist(statErr) {
+				removed := binding.Deployment != nil && binding.Deployment.Removal != nil && binding.Deployment.Removal.Phase == "removed"
+				record, recorded := missing[binding.Path]
+				if removed || (recorded && record.ItemID == binding.ItemID && record.stable(libraryRestoreDebounce)) {
+					continue // an intentional removal, or a deletion that has persisted: reinstall
+				}
+				blocked = true // not yet believed; held until observed long enough
+				continue
+			}
 			digest, err := privateSkillDigest(binding.Path)
-			// Unknown/unreadable and partial deletions stay local until restoration is
-			// implemented. A changed digest needs capture before any overwrite.
+			// Unknown/unreadable content stays local, and a changed digest needs
+			// capture before any overwrite. A deletion this connector has seen
+			// persist past the debounce window is the exception: the restore
+			// flow replaces the folder, backing up whatever survived first.
 			if (err != nil && !os.IsNotExist(err)) || (err == nil && digest != binding.Digest) {
+				if record, ok := missing[binding.Path]; ok && record.ItemID == binding.ItemID && record.stable(libraryRestoreDebounce) {
+					continue
+				}
 				blocked = true
 			}
 		}

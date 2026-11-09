@@ -121,6 +121,36 @@ Tests: store tests cover recognised installs (add and replace), a failed apply, 
 
 Limits: the evidence depends on the controller still holding the succeeded apply job and its plan. If that record is gone, the copy simply stays unowned. A copy whose revision came from a local edit upload rather than an install has no install evidence and stays unowned. Both are deliberate: unknown ownership is not permission to remove. A real legacy account was not migrated here, and no migration of the whole-library rollout policy is claimed by this checkpoint.
 
+## Cross-stage scenario proofs against a real controller and connectors (9 November 2026)
+
+The opt-in `sync_contract` suite runs an in-process controller over a temporary SQLite store and separately enrolled connector **subprocesses**, each with its own home and config, driving real files. This checkpoint extends it with `internal/api/sync_stage4_contract_test.go` and enables the two earlier Stage 4 contract tests. Managed removals are switched on for these test controllers only (`enableManagedRemovals`, which survives a simulated controller restart); production keeps the internal control off. The connector subprocess uses `REET_LIBRARY_RESTORE_DEBOUNCE=300ms` instead of the ten-second production window.
+
+Run: `go test -tags sync_contract ./internal/api -run 'TestStage4|TestSimpleSyncContract|TestSimpleSyncHarness'`. CI does not run this tag. Thirteen tests pass (eleven new, plus the two earlier Stage 4 contract tests now enabled), and the whole tagged set passed three consecutive repetitions (`-count=3`):
+
+| Scenario | Proven |
+| --- | --- |
+| A05, A06 | With one machine offline, leaving In use removes the online machine at once and the offline one when it returns; library entry, selections and history are retained and the removed copies are recoverable; returning to In use restores the retained selections. No deletion notification for authorised removals. |
+| A07 | Deselecting one machine removes only that machine's managed copy; the other stays current. |
+| A08 | A deleted support file and a deleted folder are each restored from canonical bytes after the debounce, with exactly one notification per episode and none on later cycles; the earlier entry-file deletion contract test also passes. |
+| A08 (negative) | A deletion followed at once by deactivation is neither restored nor announced. |
+| A09 | An atomic save of identical bytes creates no revision, notification or loop. |
+| A11 | A removal pending across a controller restart and a connector restart still converges with the same enrollment and one recoverable copy. |
+| A13 | An item with unreadable content (a link inside it) is retained and explained while the healthy item beside it is removed. |
+| A15 | If the item becomes wanted again after a removal was approved but before it ran, the copy stays, nothing is moved, and the stale job is never acknowledged as complete. |
+| A16 | An unseen local edit is preserved byte for byte in the recoverable copy before intentional removal, and an unmanaged skill beside it is untouched. |
+| A19 | An older connector (no library protocol) is never made to remove anything even when the controller has the capability on. |
+| A20 | A revoked connector cannot act and keeps its local state; the other machine converges and no enrollment is deleted. |
+
+**Real defects this found and fixed** (each had passed its unit tests):
+
+1. A folder that is absent is reported by `privateSkillDigest` as an incomplete observation, never as "not found", so every `os.IsNotExist` check on its result was dead. A removed-then-reactivated item was treated as unreadable and never reinstalled, and a missing folder was reported as a content problem. Absence is now detected with `Lstat` in the removal planner and the pending-edit filter.
+2. The pending-edit filter blocked every folder missing files (its own comment said "until restoration is implemented"), so a deleted entry file could never be restored. A deletion recorded and proven stable now passes through to a replace, which backs up the survivors first; an unproven one is held quietly with no "waiting" problem; a recorded deletion no longer surfaces as a misleading "cannot be read completely".
+3. The "unrecognised existing entry" guard refused to replace a folder that lost its `SKILL.md`; it is skipped only for a proven, recorded deletion being replaced.
+
+`libraryRestoreDebounce` can be tuned with `REET_LIBRARY_RESTORE_DEBOUNCE` (a Go duration of at most ten minutes). It is an internal control, not a user setting.
+
+**Not proven here, and not claimed:** A14 (same-name unrelated imports) and the Stage 3 collision cases are outside this checkpoint. A19 covers the older-connector half only; a real legacy account migration and rollback were not run. A20 covers a revoked connector, not a viewer or another account at the browser. These are subprocess connectors on one machine with a faked network link, not two real machines: sleep, reboot, real network loss, native service recovery and a browser session were not exercised. The capability remains off by default and nothing here enables it in production.
+
 ## Required continuation within Stage 4
 
 1. (Controller approval and acknowledgement fencing is done; see above. Capability stays off.) Complete the local provenance journal with controller operation receipts and interrupted-operation recovery. Migrate existing bindings only from verified installed/applied bases, preserving registered source folders and foreign installations. Finish authoritative automatic-plan validation and current-intent acknowledgement fencing before the controller advertises the managed-removal capability. Older connectors must retain their existing additive behavior. Keep the existing single target executor and backup path. The gated connector path above does not complete this migration or normal negotiation.

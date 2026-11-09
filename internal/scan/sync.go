@@ -60,9 +60,11 @@ type syncOptions struct {
 	// ownership only after the private installer actually completed its rename.
 	onInstallVerified func(store.SyncSkill, string) error
 	managedRemovals   func(store.SyncTarget, string) ([]SyncAction, map[string]string, error)
-	// managedDeletions names the managed items whose local deletion has not been
-	// observed long enough to act on; their reinstall waits.
-	managedDeletions func(store.SyncTarget, string) (map[string]bool, error)
+	// managedDeletions names, for managed items, the local deletions not yet
+	// observed long enough to act on (their reinstall waits) and those that are
+	// (they are restored by replacing the folder, even when what is left is no
+	// longer readable as a skill).
+	managedDeletions func(store.SyncTarget, string) (pending, restorable map[string]bool, err error)
 	removeManaged    func(SyncAction, string, io.Writer, func(string)) error
 	verifyEnrollment bool
 	approvedHash     string
@@ -744,6 +746,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	problems := map[string]string{}
 	collect := func() ([]SyncAction, error) {
 		problems = map[string]string{}
+		heldBack := map[string]string{}
 		desired := target.Desired
 		if options.filterDesired != nil {
 			desired = options.filterDesired(desired)
@@ -754,7 +757,8 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				}
 				for _, skill := range target.Desired {
 					if !included[skill.ItemID] {
-						problems[skill.Slug] = "Local edits are waiting to upload; this item is retained."
+						// Reported below, unless this is only a deletion not yet believed.
+						heldBack[skill.Slug] = "Local edits are waiting to upload; this item is retained."
 					}
 				}
 			}
@@ -820,12 +824,27 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		if _, err := os.ReadDir(path); err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("cannot read target skills directory: %w", err)
 		}
+		var pendingDeletion, restorable map[string]bool
+		forceReplace := map[string]bool{}
 		if target.Canonical {
 			// Only additive private items use this partial-plan rule. Parent
 			// links and unknown entries are never interpreted as empty.
 			if target.Mode != "additive" {
 				return nil, errors.New("canonical library requires additive sync")
 			}
+			if options.managedDeletions != nil {
+				var err error
+				if pendingDeletion, restorable, err = options.managedDeletions(target, targetPath); err != nil {
+					return nil, err
+				}
+			}
+		}
+		for slug, message := range heldBack {
+			if !pendingDeletion[slug] {
+				problems[slug] = message
+			}
+		}
+		if target.Canonical {
 			for _, want := range desired {
 				candidate := filepath.Join(targetPath, want.Slug)
 				if err := safeLibraryParent(targetPath); err != nil {
@@ -839,8 +858,18 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 						continue
 					}
 					if _, err := privateSkillDigest(candidate); err != nil {
-						blocked[want.Slug] = true
-						problems[want.Slug] = "The local content cannot be read completely."
+						switch {
+						case restorable[want.Slug]:
+							// A recorded deletion that has persisted: what is left is
+							// backed up and replaced from canonical bytes.
+							forceReplace[want.Slug] = true
+						case pendingDeletion[want.Slug]:
+							// Not yet believed; hold quietly instead of reporting a problem.
+							blocked[want.Slug] = true
+						default:
+							blocked[want.Slug] = true
+							problems[want.Slug] = "The local content cannot be read completely."
+						}
 					} else if options.onExisting != nil {
 						if err := options.onExisting(want, target, targetPath); err != nil {
 							blocked[want.Slug] = true
@@ -936,20 +965,18 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			}
 			actions = append(actions, removals...)
 		}
-		if target.Canonical && options.managedDeletions != nil {
-			pending, err := options.managedDeletions(target, targetPath)
-			if err != nil {
-				return nil, err
-			}
-			if len(pending) > 0 {
-				kept := actions[:0]
-				for _, action := range actions {
-					if !(action.Add && pending[action.Skill.Slug]) {
-						kept = append(kept, action)
-					}
+		if target.Canonical {
+			kept := actions[:0]
+			for _, action := range actions {
+				if action.Add && pendingDeletion[action.Skill.Slug] {
+					continue
 				}
-				actions = kept
+				if action.Add && forceReplace[action.Skill.Slug] {
+					action.Replace = true
+				}
+				kept = append(kept, action)
 			}
+			actions = kept
 		}
 
 		canonicalBase := home
@@ -960,7 +987,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			if action.Add {
 				for _, candidate := range []string{filepath.Join(targetPath, action.Skill.Slug), filepath.Join(canonicalBase, ".agents", "skills", action.Skill.Slug)} {
 					if _, err := os.Lstat(candidate); err == nil {
-						if skill, err := os.Stat(filepath.Join(candidate, "SKILL.md")); err != nil || skill.IsDir() {
+						if skill, err := os.Stat(filepath.Join(candidate, "SKILL.md")); (err != nil || skill.IsDir()) && !(action.Replace && forceReplace[action.Skill.Slug]) {
 							return nil, fmt.Errorf("unrecognised existing entry %s; inspect or move it aside before installing", candidate)
 						}
 					} else if !os.IsNotExist(err) {

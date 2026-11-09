@@ -40,13 +40,16 @@ const syncContractToken = "stage0-disposable-owner-token"
 
 type syncContractHarness struct {
 	legacyProtocol bool
-	t              *testing.T
-	st             *store.Store
-	uid            int64
-	root           string
-	controller     *httptest.Server
-	fetcher        meta.Fetcher
-	machines       []*syncContractMachine
+	// removals records the internal managed-removals rollout control so it
+	// survives a simulated controller restart.
+	removals   bool
+	t          *testing.T
+	st         *store.Store
+	uid        int64
+	root       string
+	controller *httptest.Server
+	fetcher    meta.Fetcher
+	machines   []*syncContractMachine
 }
 
 type syncContractMachine struct {
@@ -122,6 +125,13 @@ func (h *syncContractHarness) handler() http.Handler {
 		WithMaintenance(false), WithRefresh(false), WithTopics(false))
 }
 
+// enableManagedRemovals turns the internal rollout control on for this test
+// controller only. Production controllers keep it off by default.
+func (h *syncContractHarness) enableManagedRemovals() {
+	h.removals = true
+	h.st.SetManagedRemovals(true)
+}
+
 func (h *syncContractHarness) restartController() {
 	h.t.Helper()
 	address, dir := h.controller.Listener.Addr().String(), h.st.Dir()
@@ -134,6 +144,7 @@ func (h *syncContractHarness) restartController() {
 		h.t.Fatal(err)
 	}
 	h.st = reopened
+	h.st.SetManagedRemovals(h.removals)
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		h.t.Fatal(err)
@@ -333,7 +344,9 @@ func (m *syncContractMachine) connectorCommand(ctx context.Context, args ...stri
 		"XDG_CONFIG_HOME="+filepath.Join(m.home, ".config"),
 		"XDG_DATA_HOME="+filepath.Join(m.home, ".local", "share"),
 		"XDG_STATE_HOME="+filepath.Join(m.home, ".local", "state"),
-		"REET_SYNC_CONTRACT_CHILD=1")
+		"REET_SYNC_CONTRACT_CHILD=1",
+		// Observe local deletions quickly; the production window is ten seconds.
+		"REET_LIBRARY_RESTORE_DEBOUNCE=300ms")
 	return cmd
 }
 

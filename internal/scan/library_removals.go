@@ -97,11 +97,14 @@ func planLibraryRemovals(ctx context.Context, config string, c agentConfig, targ
 			problems[slug] = "The managed directory cannot be verified; its local files are retained."
 			continue
 		}
-		digest, err := privateSkillDigest(binding.Path)
-		if os.IsNotExist(err) {
+		if _, statErr := os.Lstat(binding.Path); os.IsNotExist(statErr) {
 			continue // absence is never central deletion intent
 		}
+		digest, err := privateSkillDigest(binding.Path)
 		if err != nil {
+			if recordedDeletionOfWantedItem(state, binding, target) {
+				continue // the restore flow owns it; it is retained until restored
+			}
 			problems[slug] = "The managed content cannot be read completely; its local files are retained."
 			continue
 		}
@@ -364,4 +367,26 @@ func migrateLegacyLibraryOwnership(ctx context.Context, config string, c agentCo
 		changed = true
 	}
 	return changed
+}
+
+// recordedDeletionOfWantedItem reports whether an unreadable managed folder is
+// explained by a deletion this connector observed and the controller still
+// wants the item. Such a folder is neither a removal candidate nor a content
+// problem: it is restored once the deletion has persisted.
+func recordedDeletionOfWantedItem(state libraryLocalState, binding libraryBinding, target store.SyncTarget) bool {
+	wanted := false
+	for _, desired := range target.Desired {
+		if desired.ItemID == binding.ItemID {
+			wanted = true
+		}
+	}
+	if !wanted {
+		return false
+	}
+	for _, record := range state.Missing {
+		if record.Path == binding.Path && record.ItemID == binding.ItemID && record.TargetID == target.Target.ID {
+			return true
+		}
+	}
+	return false
 }

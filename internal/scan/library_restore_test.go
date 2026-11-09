@@ -160,7 +160,7 @@ func TestDebouncedRestoreReinstallsAndRecordsVerifiedReceipt(t *testing.T) {
 		return prepareLibraryInstall(context.Background(), config, c, s, path, files, "test", target.Target.ID)
 	}, onInstallVerified: func(s store.SyncSkill, path string) error {
 		return finishLibraryInstall(config, c, s, path, target.Target.ID)
-	}, managedDeletions: func(target store.SyncTarget, path string) (map[string]bool, error) {
+	}, managedDeletions: func(target store.SyncTarget, path string) (map[string]bool, map[string]bool, error) {
 		return planLibraryRestores(config, c, target, path)
 	}, onPlan: func(p SyncPlan) { plan = p }, onBackup: func(path string) { backups = append(backups, path) }}
 	run := func(apply bool) {
@@ -287,5 +287,90 @@ func TestRestoreReceiptsAreSentUntilAcceptedAndOnlyStableDeletionsAskForASync(t 
 	want := stable.ItemID + "|" + libraryDeletionCheck(stable.Path, "target", stable.ItemID, strings.Repeat("d", 32)).BindingID
 	if len(calls) != 1 || calls[0] != want {
 		t.Fatal("only the stable deletion should ask for a sync", calls, want)
+	}
+}
+
+// Deleting the entry file leaves a folder the planner cannot read as a skill.
+// That must be held while the deletion is unproven, then restored by replacing
+// the folder (which backs up whatever survived), never left blocked forever.
+func TestDeletedEntryFileIsHeldThenRestored(t *testing.T) {
+	old := libraryRestoreDebounce
+	libraryRestoreDebounce = 40 * time.Millisecond
+	defer func() { libraryRestoreDebounce = old }()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	directory := filepath.Join(home, ".agents", "skills")
+	config := filepath.Join(home, "agent.json")
+	files := []skillbundle.ContentFile{
+		{Path: "SKILL.md", Data: []byte("---\nname: demo\ndescription: Restore fixture\n---\nInstructions.\n")},
+		{Path: "reference.txt", Data: []byte("support file")},
+	}
+	manifest, err := skillbundle.FromContents(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := store.PrivateSkillRevision{ID: strings.Repeat("b", 32), BundleID: strings.Repeat("c", 32), ManifestDigest: manifest.Digest, Files: files}
+	skill := store.SyncSkill{ID: "local/demo", ItemID: strings.Repeat("a", 32), Name: "demo", Slug: "demo", SourceType: "private", Source: "private:" + revision.BundleID + ":" + revision.ID + ":" + manifest.Digest}
+	target := store.SyncTarget{Canonical: true, Target: store.Environment{ID: "target", Name: "Desktop", Host: "desktop", Agent: "agents"}, Mode: "additive", Revision: "revision", Desired: []store.SyncSkill{skill}}
+	controller := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v2/library/bases":
+			var base store.LibraryBase
+			_ = json.NewDecoder(r.Body).Decode(&base)
+			_ = json.NewEncoder(w).Encode(base)
+		case strings.HasPrefix(r.URL.Path, "/api/v2/skill-bundles/"):
+			_ = json.NewEncoder(w).Encode(revision)
+		case r.Method == "GET":
+			_ = json.NewEncoder(w).Encode(map[string]any{"canWrite": true, "targets": []store.SyncTarget{target}})
+		default:
+			_, _ = w.Write([]byte(`{"errors":[]}`))
+		}
+	}))
+	defer controller.Close()
+	hostname, _ := os.Hostname()
+	c := agentConfig{Server: controller.URL, ID: strings.Repeat("d", 32), Token: "fixture", Secret: "fixture", AllowApply: true, Home: home, Hostname: hostname}
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	var plan SyncPlan
+	opts := syncOptions{onInstalled: func(s store.SyncSkill, path string, files []skillbundle.ContentFile) error {
+		return prepareLibraryInstall(context.Background(), config, c, s, path, files, "test", target.Target.ID)
+	}, onInstallVerified: func(s store.SyncSkill, path string) error {
+		return finishLibraryInstall(config, c, s, path, target.Target.ID)
+	}, managedDeletions: func(target store.SyncTarget, path string) (map[string]bool, map[string]bool, error) {
+		return planLibraryRestores(config, c, target, path)
+	}, onPlan: func(p SyncPlan) { plan = p }}
+	run := func(apply bool) {
+		t.Helper()
+		args := []string{"--server", c.Server, "--token", c.Token, "--env", "desktop", "--target", target.Target.ID}
+		if apply {
+			args = append(args, "--apply")
+		}
+		plan = SyncPlan{}
+		if err := runSyncWithOptions(args, strings.NewReader("yes\n"), io.Discard, func([]string, string) error { t.Fatal("private install invoked npx"); return nil }, "test", opts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(true)
+	if err := os.Remove(filepath.Join(directory, "demo", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	run(false)
+	if len(plan.Actions) != 0 || len(plan.Problems) != 0 {
+		t.Fatal("an unproven deletion of the entry file was planned or reported as a problem", plan.Actions, plan.Problems)
+	}
+	time.Sleep(80 * time.Millisecond)
+	run(false)
+	if len(plan.Actions) != 1 || !plan.Actions[0].Add || !plan.Actions[0].Replace {
+		t.Fatal("a stable deletion of the entry file was not planned as a replace", plan.Actions, plan.Problems)
+	}
+	run(true)
+	got, err := os.ReadFile(filepath.Join(directory, "demo", "SKILL.md"))
+	if err != nil || string(got) != string(files[0].Data) {
+		t.Fatal("the entry file was not restored from canonical bytes", string(got), err)
+	}
+	state, _ := loadLibraryState(config, c)
+	if len(state.Restores) != 1 || len(state.Missing) != 0 {
+		t.Fatal("restore receipt", state.Missing, state.Restores)
 	}
 }

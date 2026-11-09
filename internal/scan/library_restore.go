@@ -21,7 +21,19 @@ import (
 // observations spanning this window. An editor's atomic save, a package
 // manager rewriting a folder or a user moving a file back all finish well
 // inside it, so none of them can start a restore or a notification.
-var libraryRestoreDebounce = 10 * time.Second
+var libraryRestoreDebounce = libraryRestoreDebounceFromEnv(os.Getenv("REET_LIBRARY_RESTORE_DEBOUNCE"))
+
+// libraryRestoreDebounceFromEnv reads an internal tuning value (a Go duration
+// such as "300ms") so a test connector process can observe deletions quickly.
+// It is not a user setting: anything unset, malformed, negative or longer than
+// ten minutes keeps the ten-second default.
+func libraryRestoreDebounceFromEnv(value string) time.Duration {
+	window, err := time.ParseDuration(value)
+	if err != nil || window < 0 || window > 10*time.Minute {
+		return 10 * time.Second
+	}
+	return window
+}
 
 // libraryMissing is one observed deletion of files from a managed install.
 // It is kept apart from the binding: an install replaces the binding's
@@ -139,28 +151,33 @@ func observeLibraryDeletions(state *libraryLocalState, now time.Time) bool {
 // planLibraryRestores records this plan's observation and names the managed
 // items whose deletion is not yet stable. The planner holds back their
 // reinstall: a first sighting is never enough to rewrite a folder.
-func planLibraryRestores(config string, c agentConfig, target store.SyncTarget, path string) (map[string]bool, error) {
+func planLibraryRestores(config string, c agentConfig, target store.SyncTarget, path string) (pending, restorable map[string]bool, err error) {
 	lock, err := filelock.Acquire(config + ".library.lock")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer lock.Close()
 	state, err := loadLibraryState(config, c)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if observeLibraryDeletions(&state, time.Now()) {
 		if err := writePrivate(config+".library", state); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	pending := map[string]bool{}
+	pending, restorable = map[string]bool{}, map[string]bool{}
 	for _, record := range state.Missing {
-		if record.TargetID == target.Target.ID && filepath.Dir(record.Path) == filepath.Clean(path) && !record.stable(libraryRestoreDebounce) {
+		if record.TargetID != target.Target.ID || filepath.Dir(record.Path) != filepath.Clean(path) {
+			continue
+		}
+		if record.stable(libraryRestoreDebounce) {
+			restorable[filepath.Base(record.Path)] = true
+		} else {
 			pending[filepath.Base(record.Path)] = true
 		}
 	}
-	return pending, nil
+	return pending, restorable, nil
 }
 
 // recordVerifiedRestore turns a stable deletion into a receipt once the

@@ -5,7 +5,7 @@ const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] })
 const release = []
 try {
-  for (const width of [375, 1200, 1440, 1920]) for (const path of ['/', '/machines', '/sessions', '/sessions/', '/terminals/', '/sessions?view=list', '/machines?view=terminal']) for (const collapsed of path === '/' ? [null, false, true] : [false]) {
+  for (const width of [375, 1100, 1200, 1440, 1920]) for (const path of ['/', '/machines', '/sessions', '/sessions/', '/terminals/', '/sessions?view=list', '/machines?view=terminal']) for (const collapsed of path === '/' ? [null, false, true] : [false]) {
     let bundleReady, authReady, pageReady
     const bundleGate = new Promise(resolve => (bundleReady = resolve))
     const authGate = new Promise(resolve => (authReady = resolve))

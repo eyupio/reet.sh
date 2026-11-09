@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -217,5 +218,74 @@ func TestDebouncedRestoreReinstallsAndRecordsVerifiedReceipt(t *testing.T) {
 	again, _ := loadLibraryState(config, c)
 	if len(again.Restores) != 1 {
 		t.Fatal("a repeated sync duplicated the restore receipt", again.Restores)
+	}
+}
+
+func TestRestoreReceiptsAreSentUntilAcceptedAndOnlyStableDeletionsAskForASync(t *testing.T) {
+	home := t.TempDir()
+	config := filepath.Join(home, "agent.json")
+	var mu sync.Mutex
+	status := map[string]int{}
+	seen := map[string][]string{}
+	controller := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var payload struct {
+			Episode   string `json:"episode"`
+			BindingID string `json:"bindingId"`
+			ItemID    string `json:"itemId"`
+		}
+		_ = json.Unmarshal(body, &payload)
+		key := payload.Episode
+		if r.URL.Path == "/api/v2/library/deletion-observed" {
+			key = payload.ItemID
+		}
+		mu.Lock()
+		seen[r.URL.Path] = append(seen[r.URL.Path], key+"|"+payload.BindingID)
+		code := status[key]
+		mu.Unlock()
+		if code != 0 && code != 200 {
+			http.Error(w, "refused", code)
+			return
+		}
+		if r.URL.Path == "/api/v2/library/restore-receipt" {
+			_, _ = w.Write([]byte(`{"accepted":true,"notified":true}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"queued":true}`))
+	}))
+	defer controller.Close()
+	c := agentConfig{Server: controller.URL, ID: strings.Repeat("d", 32), Token: "fixture", Secret: "fixture", Home: home}
+	ep := func(ch string) string { return strings.Repeat(ch, 32) }
+	status[ep("2")] = http.StatusConflict  // transient: paused or changed
+	status[ep("3")] = http.StatusForbidden // permanent: the binding is gone
+	restore := func(ch string) libraryRestore {
+		return libraryRestore{Episode: ep(ch), Path: filepath.Join(home, "skills", ch), TargetID: "target", ItemID: strings.Repeat(ch, 32), Revision: strings.Repeat("d", 32), Files: 1}
+	}
+	state := libraryLocalState{Restores: []libraryRestore{restore("1"), restore("2"), restore("3")}}
+	reportLibraryRestores(context.Background(), c, config, &state, "test", io.Discard)
+	if len(state.Restores) != 1 || state.Restores[0].Episode != ep("2") {
+		t.Fatal("accepted and permanently refused receipts must be dropped, a transient refusal kept", state.Restores)
+	}
+	persisted, _ := loadLibraryState(config, c)
+	if len(persisted.Restores) != 1 {
+		t.Fatal("receipt bookkeeping was not persisted", persisted.Restores)
+	}
+	status[ep("2")] = 0
+	reportLibraryRestores(context.Background(), c, config, &state, "test", io.Discard)
+	if len(state.Restores) != 0 {
+		t.Fatal("a receipt was not dropped once accepted", state.Restores)
+	}
+
+	// Only a stable deletion with a known binding asks for a sync, with the binding id the controller knows.
+	now := time.Now()
+	window := libraryRestoreDebounce
+	stable := libraryMissing{Path: filepath.Join(home, "skills", "a"), TargetID: "target", ItemID: strings.Repeat("a", 32), Files: []string{"x"}, FirstSeen: now.Add(-3 * window).UnixMilli(), LastSeen: now.UnixMilli(), Count: 3}
+	young := libraryMissing{Path: filepath.Join(home, "skills", "b"), TargetID: "target", ItemID: strings.Repeat("b", 32), Files: []string{"x"}, FirstSeen: now.UnixMilli(), LastSeen: now.UnixMilli(), Count: 1}
+	state = libraryLocalState{Missing: []libraryMissing{stable, young}, Bindings: []libraryBinding{{Path: stable.Path, ItemID: stable.ItemID, Revision: strings.Repeat("d", 32)}, {Path: young.Path, ItemID: young.ItemID, Revision: strings.Repeat("d", 32)}}}
+	requestLibraryRestoreSync(context.Background(), c, &state, "test", io.Discard)
+	calls := seen["/api/v2/library/deletion-observed"]
+	want := stable.ItemID + "|" + libraryDeletionCheck(stable.Path, "target", stable.ItemID, strings.Repeat("d", 32)).BindingID
+	if len(calls) != 1 || calls[0] != want {
+		t.Fatal("only the stable deletion should ask for a sync", calls, want)
 	}
 }

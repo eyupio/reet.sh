@@ -1,10 +1,15 @@
 package scan
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"github.com/eyupio/reet.sh/internal/filelock"
 	"github.com/eyupio/reet.sh/internal/store"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -174,4 +179,70 @@ func recordVerifiedRestore(state *libraryLocalState, path, targetID, itemID, rev
 		}
 	}
 	state.Missing = kept
+}
+
+func libraryDeletionCheck(path, targetID, itemID, revision string) store.LibraryDeploymentCheck {
+	key := sha256.Sum256([]byte(path))
+	return store.LibraryDeploymentCheck{TargetID: targetID, LibraryBase: store.LibraryBase{BindingID: hex.EncodeToString(key[:]), ItemID: itemID, RevisionID: revision}}
+}
+
+// reportLibraryRestores sends each verified restore until the controller
+// accepts it. Acceptance, not a successful write, is what ends the retries; a
+// request that fails in transit is sent again with the same episode, which the
+// controller treats as the same event. A refusal that can never succeed (the
+// binding or enrollment is gone) drops the receipt instead of retrying forever.
+func reportLibraryRestores(ctx context.Context, c agentConfig, config string, state *libraryLocalState, version string, out io.Writer) {
+	kept := state.Restores[:0]
+	changed := false
+	for _, restore := range state.Restores {
+		receipt := store.LibraryRestoreReceipt{LibraryDeploymentCheck: libraryDeletionCheck(restore.Path, restore.TargetID, restore.ItemID, restore.Revision), Episode: restore.Episode, Whole: restore.Whole, Files: restore.Files}
+		var answer struct {
+			Accepted bool `json:"accepted"`
+		}
+		err := agentRequestContext(ctx, c, "/api/v2/library/restore-receipt", receipt, &answer, version)
+		if err == nil && answer.Accepted {
+			changed = true
+			continue
+		}
+		var refusal controllerError
+		if errors.As(err, &refusal) && (refusal.Status == http.StatusBadRequest || refusal.Status == http.StatusForbidden || refusal.Status == http.StatusNotFound) {
+			changed = true
+			continue
+		}
+		if err != nil {
+			fmt.Fprintln(out, "A restore report will retry:", err)
+		}
+		kept = append(kept, restore)
+	}
+	state.Restores = kept
+	if changed {
+		_ = writePrivate(config+".library", *state)
+	}
+}
+
+// requestLibraryRestoreSync asks the controller for a sync for each deletion
+// that has become stable. The controller cannot see a file missing inside an
+// installed folder on its own. It answers idempotently, so asking again while a
+// job is pending or running is harmless.
+func requestLibraryRestoreSync(ctx context.Context, c agentConfig, state *libraryLocalState, version string, out io.Writer) {
+	for _, record := range state.Missing {
+		if !record.stable(libraryRestoreDebounce) {
+			continue
+		}
+		revision := ""
+		for _, binding := range state.Bindings {
+			if binding.Path == record.Path && binding.ItemID == record.ItemID {
+				revision = binding.Revision
+			}
+		}
+		if revision == "" {
+			continue
+		}
+		var answer struct {
+			Queued bool `json:"queued"`
+		}
+		if err := agentRequestContext(ctx, c, "/api/v2/library/deletion-observed", libraryDeletionCheck(record.Path, record.TargetID, record.ItemID, revision), &answer, version); err != nil {
+			fmt.Fprintln(out, "A deleted library item will be restored on a later cycle:", err)
+		}
+	}
 }

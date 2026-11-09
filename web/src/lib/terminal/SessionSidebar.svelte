@@ -40,11 +40,13 @@
  // Sessions waiting on the person, by project and overall: the badges that stay visible when a section is folded.
  const waitingProjects=$derived(new Set(sessions.filter(item=>item.projectId&&needsInput(item)).map(item=>item.projectId as string)))
  const projectNeeds=(p:FolderProject)=>needCount(projectSessions(p))
- // The lower half of the panel is the projects with nothing to show above: no session of any state in the list. Projects
- // with sessions stay with them in the active half, so one project never appears twice.
+ // The lower half of the panel lists the projects not already shown above. Grouped by project, that is the ones with
+ // nothing in flight (an active project's + and menu live on its group header, so none appears twice); in every other
+ // grouping no project is shown above, so all of them are listed here and their actions stay within reach.
  const inactiveProjects=$derived((projects??[]).filter(p=>!sessions.some(item=>item.projectId===p.id)))
- const projectView=$derived(projects?visibleProjects(inactiveProjects,projectRunning,waitingProjects,currentProject,projectsExpanded):{shown:[],hidden:0})
- const projectsNeed=$derived(inactiveProjects.reduce((n,p)=>n+projectNeeds(p),0))
+ const listedProjects=$derived(group==='project'?inactiveProjects:(projects??[]))
+ const projectView=$derived(projects?visibleProjects(listedProjects,projectRunning,waitingProjects,currentProject,projectsExpanded):{shown:[],hidden:0})
+ const projectsNeed=$derived(listedProjects.reduce((n,p)=>n+projectNeeds(p),0))
  const sessionsNeed=$derived(needCount(matches))
  function ordered(list:TerminalSession[]){const ranked=new Map(order.map((id,i)=>[id,i]));return [...list].sort((a,b)=>{if(sort==='name')return a.title.localeCompare(b.title)||a.id.localeCompare(b.id);if(sort==='recent')return b.updatedAt-a.updatedAt||a.id.localeCompare(b.id);if(sort==='created')return b.createdAt-a.createdAt||a.id.localeCompare(b.id);if(sort==='status')return a.state.localeCompare(b.state)||a.title.localeCompare(b.title)||a.id.localeCompare(b.id);return (ranked.get(a.id)??Number.MAX_SAFE_INTEGER)-(ranked.get(b.id)??Number.MAX_SAFE_INTEGER)||a.createdAt-b.createdAt||a.id.localeCompare(b.id)})}
  const sorted=$derived(ordered(matches))
@@ -127,8 +129,8 @@
  </li>{/each}</ul>{#if !section.items.length}<p class="empty machine-empty">No sessions yet.</p>{/if}{/if}</section>{:else}<p class="empty">{query?'No matching sessions.':'No sessions yet.'}</p>{/each}</nav>
  </div>{/if}
  {#if onprojectstart && projects}
-  <section class="projects" aria-label="Inactive projects">
-   <div class="projects-head"><button type="button" class="fold" aria-expanded={!isFolded('projects')} aria-controls="panel-projects-list" onclick={()=>fold('projects')}><span class="chev" class:folded={isFolded('projects')} aria-hidden="true"></span><h2>Inactive projects</h2>{#if isFolded('projects')}<small>{inactiveProjects.length}</small>{#if projectsNeed}<span class="need-badge" title={needLabel(projectsNeed)} aria-label={needLabel(projectsNeed)}>{projectsNeed}</span>{/if}{/if}</button></div>
+  <section class="projects" aria-label={group==='project'?'Inactive projects':'Projects'}>
+   <div class="projects-head"><button type="button" class="fold" aria-expanded={!isFolded('projects')} aria-controls="panel-projects-list" onclick={()=>fold('projects')}><span class="chev" class:folded={isFolded('projects')} aria-hidden="true"></span><h2>{group==='project'?'Inactive projects':'Projects'}</h2>{#if isFolded('projects')}<small>{listedProjects.length}</small>{#if projectsNeed}<span class="need-badge" title={needLabel(projectsNeed)} aria-label={needLabel(projectsNeed)}>{projectsNeed}</span>{/if}{/if}</button></div>
    {#if isFolded('projects')}
     <!-- Folded: the header carries the count and any waiting badge. -->
    {:else if projects.length}
@@ -148,8 +150,8 @@
        </li>
       {/each}
     </ul>
-    {#if projectView.hidden>0}<button type="button" class="link show-more" onclick={()=>projectsExpanded=true}>Show {projectView.hidden} more</button>{:else if projectsExpanded&&inactiveProjects.length>PROJECT_CAP}<button type="button" class="link show-more" onclick={()=>projectsExpanded=false}>Show fewer</button>{/if}
-   {:else}<p class="empty project-empty">{projects.length ? 'Every project already has a session above.' : 'Add a project to start an agent in one of your folders.'}</p>{/if}
+    {#if projectView.hidden>0}<button type="button" class="link show-more" onclick={()=>projectsExpanded=true}>Show {projectView.hidden} more</button>{:else if projectsExpanded&&listedProjects.length>PROJECT_CAP}<button type="button" class="link show-more" onclick={()=>projectsExpanded=false}>Show fewer</button>{/if}
+   {:else}<p class="empty project-empty">{group==='project'&&projects.length ? 'Every project already has a session above.' : 'Add a project to start an agent in one of your folders.'}</p>{/if}
   </section>
  {/if}
  {#if notice}<p class="notice" role="status">{notice}</p>{/if}<footer><button class="link" onclick={onrefresh}>Refresh status</button><a href="/machines">Manage machines →</a><small class="vh">Layout, colours and order saved in this browser. Use Custom order to drag sessions.</small></footer>

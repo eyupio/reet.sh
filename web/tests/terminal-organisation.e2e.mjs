@@ -259,12 +259,12 @@ try{
  // The cleaner panel. A section folds and stays folded after a reload; a session waiting on the person is amber in its row, and
  // its count stays on the project and on a folded group or section header, so folding never hides it.
  const fold=name=>sidebar.getByRole('button',{name:new RegExp(`^${name}`)})
- await fold('Inactive projects').click()
- await expect(fold('Inactive projects')).toHaveAttribute('aria-expanded','false')
+ await fold('Projects').click()
+ await expect(fold('Projects')).toHaveAttribute('aria-expanded','false')
  await expect(sidebar.locator('#panel-projects-list')).toHaveCount(0)
  await page.reload();await live();await showSidebar()
- await expect(fold('Inactive projects')).toHaveAttribute('aria-expanded','false')
- await fold('Inactive projects').click();await expect(sidebar.locator('#panel-projects-list')).toBeVisible()
+ await expect(fold('Projects')).toHaveAttribute('aria-expanded','false')
+ await fold('Projects').click();await expect(sidebar.locator('#panel-projects-list')).toBeVisible()
  Object.assign(sessions[0],{projectId:projects[0].id,attention:'waiting',changedSinceSeen:true,pendingPermission:{permissionId:'organisation-permission1'}})
  while(projects.length<8)projects.push(project(`organisation-extra${projects.length}`,`extra${projects.length}`,`/home/developer/extra${projects.length}`))
  await page.reload();await live();await showSidebar()

@@ -3450,3 +3450,27 @@ Validation:
 
 **Not checked.** No physical phone or screen reader. The local-skill path was
 checked in unit tests; no live machine was scanned for one.
+
+## Home's project list in the left workspace panel — 9 November 2026
+
+Home used two left columns: the fixed workspace navigation (228 px) and the project rail (301 px, or its
+folded strip), so roughly 530 px went to the left before the board. The project list now lives inside the
+workspace panel, under the navigation, and Home is one content column.
+
+- The panel is 300 px on Home by default and has its own remembered width (`reet.sidebar.home.width`,
+  260–460 px) and separator, separate from the navigation-only panel. Other pages keep 228 px.
+- The **Projects** heading folds only its own section: folded, it keeps the heading, **Add** and the fold
+  control, and hides the cards. The fold is remembered in `reet.rail.collapsed`; the list starts open.
+- Folding the whole navigation leaves the rail in Home's own column, where at 1100–1239 px it keeps its
+  56 px strip and Open the project rail panel.
+- The boot shell (`web/index.html`), the lazy-route skeleton (`RouteSkeleton.svelte`) and the Home grid all
+  reserve the same 300 px, so the content does not move from HTML to auth-wait to the loaded page.
+- Tablet and phone are unchanged: the rail is on the Sessions screen.
+
+Validation, all against the production build in Chromium with synthetic answers:
+
+- `home.e2e.mjs`, `projects.e2e.mjs`, `shell-fidelity.e2e.mjs`, `loading-width.e2e.mjs`,
+  `compact-work-items.e2e.mjs`, `session-board.e2e.mjs`, `navigation.e2e.mjs` and `launch.e2e.mjs` pass.
+- `npm test`, `svelte-check` (0 errors, 0 warnings) and `npm run build` pass.
+
+**Not checked.** No physical phone or tablet, Safari or Firefox, and no screen reader.

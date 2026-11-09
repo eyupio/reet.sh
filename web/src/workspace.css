@@ -3,6 +3,8 @@
   --workspace-rail: var(--bg-sunk);
 }
 @media (min-width: 1100px) {
+  /* Home's panel is wider (it holds the project list). Set before the shell mounts, so the content never jumps. */
+  html[data-workspace-shell][data-boot-layout='home'] { --workspace-sidebar-width: 300px; }
   html[data-workspace-shell] #main-content { margin-left: var(--workspace-sidebar-width, 228px); margin-right: 0; width: calc(100% - var(--workspace-sidebar-width, 228px)); max-width: none; }
   html[data-workspace-shell] #main-content ~ footer { margin-left: var(--workspace-sidebar-width, 228px); width: calc(100% - var(--workspace-sidebar-width, 228px)); }
 }

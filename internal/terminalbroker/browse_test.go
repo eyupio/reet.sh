@@ -56,7 +56,7 @@ func browseFixture(t *testing.T, caps terminalproto.Capabilities) *browsePeer {
 		switch op := m.Body.(type) {
 		case terminalproto.Reconcile:
 			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: []terminalproto.SessionSnapshot{}}
-		case terminalproto.Browse, terminalproto.Branches, terminalproto.BranchPrunePlan, terminalproto.BranchPrune:
+		case terminalproto.Browse, terminalproto.Branches, terminalproto.BranchPrunePlan, terminalproto.BranchPrune, terminalproto.BranchSync:
 			f.mu.Lock()
 			f.asked = append(f.asked, op)
 			answer := f.answer

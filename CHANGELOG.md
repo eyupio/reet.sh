@@ -16,6 +16,17 @@ this file existed releases were described on their GitHub release pages.
   activity log records that a copy was taken with a password given on the
   request, by whom and when. `GET /api/version` lists `"copy-password-request"`
   under `features`.
+- The checklist at the end of a restore report now names
+  `REET_LIBRARY_MANAGED_REMOVALS`, a setting the server reads that the checklist
+  had missed. The test that compares the checklist with what the server reads
+  caught it, and was failing on `main` until it was added.
+- When a worktree is removed, reet now also brings the repository it was made
+  from up to date with main, then prunes the merged local branches. It is on by
+  default (owners and admins can turn it off in Settings › Admin › Repository
+  maintenance). The folder is only ever fast-forwarded: a folder with
+  uncommitted changes, on another branch, mid-merge or diverged from main is
+  left exactly as it was. Each run is recorded in Activity as `branch-sync`.
+  Needs the new `branch-sync-v1` on the machine; older machines are skipped.
 - `reet agent set-server URL` points a machine's enrollment at a controller that
   holds the same machine record, for following a controller that has moved. The
   machine first has the controller prove it holds its record (a fresh nonce

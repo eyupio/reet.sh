@@ -18,7 +18,7 @@ import (
 )
 
 func TestLibraryManagedRemovalExecutor(t *testing.T) {
-	for _, mode := range []string{"remove", "dirty", "partial", "old_controller", "future_capability", "source", "unverified", "wrong_target", "maintain", "blocked", "stale_before_move", "stale_after_move", "journal_refused", "backup_link", "edit_during_check"} {
+	for _, mode := range []string{"remove", "dirty", "partial", "old_controller", "future_capability", "source", "unverified", "wrong_target", "maintain", "blocked", "stale_before_move", "stale_after_move", "journal_refused", "backup_link", "edit_during_check", "mixed"} {
 		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
 			defer os.Chmod(home, 0755)
@@ -87,6 +87,9 @@ func TestLibraryManagedRemovalExecutor(t *testing.T) {
 					if mode == "maintain" || mode == "blocked" {
 						action = mode
 					}
+					if mode == "mixed" && check.ItemID == strings.Repeat("e", 32) {
+						action = "blocked"
+					}
 					_ = json.NewEncoder(w).Encode(store.LibraryDeploymentIntent{Generation: strings.Repeat("a", 64), Action: action, Reason: "inactive"})
 					return
 				}
@@ -105,6 +108,20 @@ func TestLibraryManagedRemovalExecutor(t *testing.T) {
 			}
 			binding := libraryBinding{Path: path, Paths: []string{"SKILL.md", "reference.txt"}, ItemID: strings.Repeat("c", 32), Revision: strings.Repeat("d", 32), Digest: manifest.Digest, Deployment: &libraryDeployment{TargetID: "target", Revision: strings.Repeat("d", 32), Digest: manifest.Digest, Verified: true}}
 			state := libraryLocalState{Server: c.Server, Enrollment: c.ID, ManagedRemovals: managedRemovalVersion, CalibratedAt: time.Now().UnixMilli(), Bindings: []libraryBinding{binding}}
+			if mode == "mixed" {
+				blockedPath := filepath.Join(root, "blocked")
+				if err := os.Mkdir(blockedPath, 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(blockedPath, "SKILL.md"), []byte("---\nname: blocked\ndescription: Retain me\n---\nCannot sync yet.\n"), 0644); err != nil {
+					t.Fatal(err)
+				}
+				digest, err := privateSkillDigest(blockedPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				state.Bindings = append(state.Bindings, libraryBinding{Path: blockedPath, Paths: []string{"SKILL.md"}, ItemID: strings.Repeat("e", 32), Revision: binding.Revision, Digest: digest, Deployment: &libraryDeployment{TargetID: "target", Revision: binding.Revision, Digest: digest, Verified: true}})
+			}
 			switch mode {
 			case "old_controller":
 				state.ManagedRemovals = 0
@@ -133,7 +150,7 @@ func TestLibraryManagedRemovalExecutor(t *testing.T) {
 			if (err != nil) != failed {
 				t.Fatalf("mode=%s result=%v", mode, err)
 			}
-			removed := mode == "remove" || mode == "dirty" || mode == "partial" || mode == "stale_after_move" || mode == "edit_during_check"
+			removed := mode == "remove" || mode == "dirty" || mode == "partial" || mode == "stale_after_move" || mode == "edit_during_check" || mode == "mixed"
 			_, pathErr := os.Lstat(path)
 			if os.IsNotExist(pathErr) != removed {
 				t.Fatalf("wrong filesystem outcome: removed=%v stat=%v", removed, pathErr)
@@ -173,8 +190,13 @@ func TestLibraryManagedRemovalExecutor(t *testing.T) {
 			} else if removed && (got.Bindings[0].Deployment.Verified || got.Bindings[0].Deployment.Removal.Phase != "removed") {
 				t.Fatal("removed directory still claims installed ownership", got)
 			}
-			if mode == "blocked" && len(plan.Problems) != 1 {
+			if (mode == "blocked" || mode == "mixed") && len(plan.Problems) != 1 {
 				t.Fatal("blocked intent was falsely acknowledged", plan)
+			}
+			if mode == "mixed" {
+				if _, err := os.Stat(filepath.Join(root, "blocked", "SKILL.md")); err != nil {
+					t.Fatal("blocked deployment was not retained", err)
+				}
 			}
 			if (mode == "old_controller" || mode == "future_capability" || mode == "source" || mode == "unverified" || mode == "wrong_target") && requests.Load() != 0 {
 				t.Fatal("unnegotiated or unowned entry requested removal", requests.Load())

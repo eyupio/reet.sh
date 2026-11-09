@@ -83,6 +83,25 @@ Matching is based on skill identity and source, not file contents or upstream co
 
 Machines with saved desired sets show **Sync saved skills (installs automatically)** (or **Sync now (installs automatically)** for one set). It starts a controller-driven run across that machine's saved scopes without a CLI command. The enrolled agent previews each scope, the controller automatically approves plans that only install or replace entries, and the agent applies them and rescans. Plans that would remove skills stay **awaiting approval** and remain visible in Sync activity; later scopes in the run still continue. **Sync now** beside an individual saved set starts the same automatic flow for that scope. The agent must be enrolled, online and running, and remote apply must already be enabled locally. Use **Pause sync jobs** to stop the run claiming further work.
 
+## Follow a controller that has moved
+
+When a controller moves (see [backups](backups.md#moving-a-controller-the-order-of-it)), each machine keeps working against the old address until it is told the new one. On the machine, run:
+
+```sh
+reet agent set-server https://reet.new.example
+```
+
+The machine keeps its identity, secret and settings, and only its saved address changes. It then restarts the agent as `reet agent restart` does. The address must be an origin (no path, query or credentials) over HTTPS; plain HTTP is accepted only for this machine itself. Use `--config PATH` for a non-default enrollment file and `--service-prefix` as the other agent commands do.
+
+**The machine does not hand its credentials to just any address.** Before it trusts the new controller it runs two checks, in order, and changes nothing unless both pass:
+
+1. **The controller proves it holds this machine's record.** The machine sends its id and a fresh random nonce, with no credential. A controller stores only a hash of a machine's secret, so it answers with an HMAC of the nonce keyed by that hash (`POST /api/v2/sync/agent-proof`). The machine hashes its own secret and checks the answer. A controller that does not hold the record cannot make it, an answer recorded earlier cannot be replayed because the nonce is new each time, and the answer reveals neither the hash nor the secret. A redirect is not followed.
+2. **The controller accepts the credentials.** Only now are the machine's credentials sent, once, to ask who they belong to; the answer must be this machine.
+
+If a check fails, the command says which one and why (for example that the controller has no record of this machine, has itself moved, or does not support the proof request yet), and the enrollment file is left exactly as it was. If the address is saved but the agent cannot be restarted, it says so and tells you to run `reet agent restart`.
+
+The fence records the address it was given (`--moved-to`) so a later release can let machines learn it on their own; machines do not read it yet, so run this command on each one.
+
 ## Controls and recovery
 
 Each machine card carries the actions for that machine (**Sync saved skills**, **Open terminal**, **Commands**) and a **Settings** dialog for how it is set: **Automatic updates**, the release channel with **Switch channel**, **Pause sync jobs**, **Scan now**, **Revoke live access** and **Forget machine**. Pause prevents further jobs and periodic scans; an already running operation may complete. Revocation prevents later claims/authentication. Revoke an old enrollment before re-enrolling a machine with a replacement configuration.

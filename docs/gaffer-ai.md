@@ -145,6 +145,24 @@ active session goals per account. Each review uses at most one worker instructio
 and two Gaffer model requests. This budget covers Gaffer's reviews; the working
 model keeps its existing usage and permission controls.
 
+### Start from the session overview
+
+In the session's **Overview**, each stage under **Progress** (Code, PR, Checks,
+Review and Merge) opens a short menu when you click it, right-click it or press
+Enter, Space or the Menu key on it. Each item is a ready-written goal, for
+example to babysit the pull request (fix failing checks, address review comments
+and keep conflicts resolved), to have Gaffer review it and send the working agent
+its feedback as instructions, or to merge it when green.
+
+Picking an item opens **Look after this session** with that goal already in the
+goal field. Nothing starts: review or change the wording, the limits and the
+permissions, then choose **Start follow-up**. Closing it makes no change. The
+working agent still does the work, since Gaffer makes no GitHub request of its
+own. The merge items say exactly when to merge (every check passing, no open
+review thread, no conflicts) and still bring decisions back to you; the others
+say not to merge. A terminal session has no follow-up, so there the menu copies
+the same words for you to give the agent.
+
 Closing chat or the browser leaves an explicitly active goal running on the
 controller, in both native and Docker deployments. Each selected session has its
 own goal, conversation and budget. Gaffer waits for new retained worker progress

@@ -3,11 +3,14 @@
   import type { FixKind } from './fixMessages'
   import type { Stages, StepState } from './overviewStages'
   import { fixButtonText } from './fixDelivery'
+  import { stageItems, type FollowItem } from './stageActions'
+  import { tick } from 'svelte'
   import InsightIcon from './InsightIcon.svelte'
 
   // `terminal` is a session with no composer to fill, so the button copies; `note` is what the last click did, said politely and in words.
   // `stale` is the "Last known" marker when the GitHub read behind the Next line can no longer be vouched for; empty when it is current.
-  let { id, stages, now, onsession, onfix, terminal = false, note = '', stale = '' }: { id: string; stages: Stages; now: number; onsession: () => void; onfix: (kind: FixKind) => void; terminal?: boolean; note?: string; stale?: string } = $props()
+  // `onfollow` is told which follow-up item a person picked from a stage's menu; what it does with it is the caller's business.
+  let { id, stages, now, onsession, onfix, onfollow, terminal = false, note = '', stale = '' }: { id: string; stages: Stages; now: number; onsession: () => void; onfix: (kind: FixKind) => void; onfollow?: (item: FollowItem) => void; terminal?: boolean; note?: string; stale?: string } = $props()
 
   // Every state has a word as well as an icon and a colour: colour is never the only signal.
   const WORDS: Record<StepState, string> = { done: 'Done', current: 'Now', attention: 'Needs you', upcoming: 'Not yet', unknown: 'Not read' }
@@ -30,7 +33,49 @@
   const fix = $derived(next.fix ? FIX[next.fix] : undefined)
   // The accessible name keeps the kind, and for a terminal still contains the visible words.
   const fixName = $derived(fix ? (terminal ? `Copy message for the agent to ${fix.what}` : `Ask the agent to ${fix.what}`) : '')
+
+  // A stage's menu: click, right-click, Enter, Space or the Menu key on its cell. One menu is open at a time, below the row.
+  let menuFor = $state(''), menuLabel = $state(''), opener: HTMLElement | null = null
+  let menuEl = $state<HTMLElement>()
+  const items = $derived(menuFor ? stageItems(menuFor) : [])
+  async function openMenu(event: Event, key: string, label: string) {
+    event.preventDefault()
+    if (menuFor === key) { closeMenu(true); return }
+    opener = event.currentTarget as HTMLElement
+    menuFor = key; menuLabel = label
+    await tick()
+    menuEl?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }
+  function closeMenu(refocus: boolean) {
+    const back = opener
+    menuFor = ''; opener = null
+    if (refocus) back?.focus()
+  }
+  function pick(item: FollowItem) {
+    closeMenu(true)
+    onfollow?.(item)
+  }
+  function menuKey(event: KeyboardEvent) {
+    const all = [...(menuEl?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+    const at = all.indexOf(document.activeElement as HTMLElement)
+    const move = (to: number) => { event.preventDefault(); all[(to + all.length) % all.length]?.focus() }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMenu(true) }
+    else if (event.key === 'ArrowDown') move(at + 1)
+    else if (event.key === 'ArrowUp') move(at - 1)
+    else if (event.key === 'Home') move(0)
+    else if (event.key === 'End') move(all.length - 1)
+    else if (event.key === 'Tab') closeMenu(false)
+  }
+  // A press anywhere else closes it; one on the menu or on a stage's own button is that control's business.
+  function outside(event: PointerEvent) {
+    if (!menuFor) return
+    const target = event.target as Node
+    if (menuEl?.contains(target) || (target as Element).closest?.('.hit')) return
+    closeMenu(false)
+  }
 </script>
+
+<svelte:window onpointerdown={outside} />
 
 <div class="tracker" class:terminal role="group" aria-labelledby={`${id}-progress`}>
   <h4 id={`${id}-progress`}>Progress</h4>
@@ -55,9 +100,22 @@
           <span class="label">{#if SHORT[step.label]}<span class="long">{step.label}</span><span class="short">{SHORT[step.label]}</span>{:else}{step.label}{/if}</span>
           <span class="word">{WORDS[step.state]}</span>
           <span class="sr">{step.detail}</span>
+          <button type="button" class="hit" aria-haspopup="menu" aria-expanded={menuFor === step.key} aria-controls={menuFor === step.key ? `${id}-menu` : undefined}
+            aria-label={`${step.label}: follow-up options`} onclick={(event) => openMenu(event, step.key, step.label)} oncontextmenu={(event) => openMenu(event, step.key, step.label)}></button>
         </li>
       {/each}
     </ol>
+    <!-- Takes no room: the menu hangs from here over the Next slot, so opening it moves nothing below. -->
+    <div class="menu-anchor">
+      {#if menuFor && items.length}
+        <div class="menu" id={`${id}-menu`} role="menu" aria-label={`${menuLabel}: follow-up options`} tabindex="-1" bind:this={menuEl} onkeydown={menuKey}>
+          <p class="menu-head">{terminal ? 'Copy a message for the agent' : 'Ask Gaffer to look after this'}</p>
+          {#each items as item (item.id)}
+            <button type="button" role="menuitem" class="menu-item" aria-label={terminal ? `Copy message for the agent: ${item.label}` : item.label} onclick={() => pick(item)}>{item.label}</button>
+          {/each}
+        </div>
+      {/if}
+    </div>
     <!-- The Next slot has one height whatever it says: the sentence, one row for its buttons, and the line for what the last fix click did,
          held empty when there is nothing to ask or say, so a pull request that changes does not move the blocks below. -->
     <div class="next" data-tone={next.tone}>
@@ -103,6 +161,15 @@
   li[data-state='attention'] .bar { background: var(--bad); }
   li[data-state='unknown'] .bar { background: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 7px); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* The whole cell is the target; the cell's own text stays as it was. */
+  .hit { position: absolute; inset: 0; width: 100%; padding: 0; border: 0; border-radius: 6px; background: none; cursor: pointer; }
+  .hit:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+  .hit[aria-expanded='true'] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .menu-anchor { position: relative; height: 0; z-index: 6; }
+  .menu { position: absolute; top: 0; left: 0; right: 0; box-sizing: border-box; padding: 6px; display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--card, var(--bg)); box-shadow: var(--shadow); }
+  .menu-head { margin: 0; padding: 4px 8px 6px; font-size: 14px; color: var(--muted); }
+  .menu-item { font: inherit; font-size: 14px; text-align: left; min-height: 36px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); cursor: pointer; overflow-wrap: anywhere; }
+  .menu-item:hover, .menu-item:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 
   /* One grid for the sentence, the buttons and the note. The tinted box is drawn behind the sentence and the buttons only and stops
      above the note's line, so an empty note leaves no empty band inside the box. Absent buttons leave their places empty. */
@@ -165,5 +232,5 @@
     .long { display: inline; } .short { display: none; }
   }
   :is(button, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  @media (pointer: coarse) { .tracker { --btn: 44px; } .primary, .merged a { min-height: 44px; min-width: 44px; } .fix { min-height: 44px; min-width: 44px; } }
+  @media (pointer: coarse) { .tracker { --btn: 44px; } .primary, .merged a { min-height: 44px; min-width: 44px; } .fix { min-height: 44px; min-width: 44px; } .menu-item { min-height: 44px; } }
 </style>

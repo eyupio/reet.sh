@@ -67,6 +67,16 @@ func TestStage5BrowserAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A second writer with nothing of its own: no machines and, if the library is per account, no items.
+	const memberEmail = "member@example.test"
+	memberHash, err := auth.HashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.st.CreateUser(memberEmail, "Member", "member", memberHash); err != nil {
+		t.Fatal(err)
+	}
+
 	pick := func(r *http.Request) (*syncContractMachine, string) {
 		m := machines[r.URL.Query().Get("m")]
 		return m, r.URL.Query().Get("name")
@@ -158,6 +168,7 @@ func TestStage5BrowserAcceptance(t *testing.T) {
 		"REET_ACCEPT_EMAIL="+email,
 		"REET_ACCEPT_PASSWORD="+password,
 		"REET_ACCEPT_VIEWER_EMAIL="+viewerEmail,
+		"REET_ACCEPT_MEMBER_EMAIL="+memberEmail,
 		"REET_ACCEPT_CONTROL=http://"+listener.Addr().String(),
 		"PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="+envOr("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "/opt/pw-browsers/chromium"),
 	)

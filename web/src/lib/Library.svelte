@@ -96,13 +96,20 @@
     return item.status === 'in_use' ? `Selected on ${names}` : `Selected on ${names}, not installed while ${statusLabel(item.status).toLowerCase()}`
   }
 
-  onMount(() => { void load(); return () => { disposed = true } })
+  onMount(() => { if (canWrite) void load(); else loading = false; return () => { disposed = true } })
 </script>
 
 <PageHeader title="Library" lede="Every skill you own, one entry each. Choose what is In use here, and pick the machines that keep it on the Machines page." />
 
 <section class="library" aria-label="Your library">
-  {#if loading}
+  {#if !canWrite}
+    <!-- The library is private skill content, which the server only gives to an account that can write; asking would only
+         produce a refusal. Say so plainly instead. -->
+    <div class="empty">
+      <h2>The library is for accounts that can write</h2>
+      <p>This account is read-only, so it has no library of its own to show. Ask the owner of this instance for write access if you need one.</p>
+    </div>
+  {:else if loading}
     <p role="status" class="quiet-note">Loading your library…</p>
   {:else if error}
     <p class="notice bad" role="alert">{error}</p>
@@ -111,7 +118,7 @@
     <div class="empty">
       <h2>Your library is empty</h2>
       <p>Connect a machine to bring its skills in, or write one here. Everything you add stays in your library, whichever machines keep it.</p>
-      <p class="actions"><a class="btn primary" href="/machines">Connect a machine</a>{#if canWrite}<a class="btn" href="/hosting">Write a skill</a>{/if}</p>
+      <p class="actions"><a class="btn primary" href="/machines">Connect a machine</a><a class="btn" href="/hosting">Write a skill</a></p>
     </div>
   {:else}
     <div class="controls">
@@ -123,8 +130,7 @@
       </div>
     </div>
     {#if machinesError}<p class="quiet-note" role="status">Machine selections could not be read just now, so which machines keep each item is not shown. <button class="btn quiet" type="button" onclick={() => void loadMachines()}>Try again</button></p>{/if}
-    {#if !canWrite}<p class="quiet-note">You can look at the library but not change it.</p>{/if}
-    <p class="quiet-note" role="status" aria-live="polite">{shown.length === items.length ? `${items.length} ${items.length === 1 ? 'item' : 'items'}` : `${shown.length} of ${items.length} items`}</p>
+        <p class="quiet-note" role="status" aria-live="polite">{shown.length === items.length ? `${items.length} ${items.length === 1 ? 'item' : 'items'}` : `${shown.length} of ${items.length} items`}</p>
     {#if shown.length === 0}
       <p class="quiet-note">No items match. Clear the search or choose All to see everything, including items that are not In use.</p>
     {:else}
@@ -141,7 +147,7 @@
               {#if rowError[item.id]}<p class="notice bad" role="alert">{rowError[item.id]}</p>{/if}
             </div>
             <div class="side">
-              <label class="status">Status<select aria-label={`Status of ${item.name}`} value={item.status} disabled={!canWrite || busy === item.id} onchange={event => void change(item, event.currentTarget.value, event.currentTarget)}>
+              <label class="status">Status<select aria-label={`Status of ${item.name}`} value={item.status} disabled={busy === item.id} onchange={event => void change(item, event.currentTarget.value, event.currentTarget)}>
                 {#each STATUSES as option (option.id)}<option value={option.id}>{option.label}</option>{/each}
                 {#if !STATUSES.some(option => option.id === item.status)}<option value={item.status}>{statusLabel(item.status)}</option>{/if}
               </select></label>

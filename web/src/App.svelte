@@ -240,7 +240,7 @@
   ])
   const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
-    { href: '/library', label: 'Library', group: 'Skills & distribution', current: isLibrary },
+    ...(canWrite ? [{ href: '/library', label: 'Library', group: 'Skills & distribution', current: isLibrary }] : []),
     { href: '/profiles', label: 'Setups', group: 'Skills & distribution', current: isProfiles },
     { href: '/shared', label: 'Lists', group: 'Skills & distribution', current: isShared || isList },
     ...(canWrite ? [{ href: '/hosting', label: 'Write a skill', group: 'Skills & distribution', current: isHosting }] : []),

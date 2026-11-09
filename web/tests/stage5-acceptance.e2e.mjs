@@ -5,8 +5,8 @@ import { mkdir } from 'node:fs/promises'
 // TestStage5BrowserAcceptance (internal/api, build tag sync_contract, REET_STAGE5_BROWSER=1), which provides the account
 // credentials, the controller's origin and a control channel to run connector cycles and change files on a machine.
 // Nothing here is mocked: every state asserted comes from the controller and the machines' own files.
-const base=process.env.REET_UI_URL, email=process.env.REET_ACCEPT_EMAIL, password=process.env.REET_ACCEPT_PASSWORD, control=process.env.REET_ACCEPT_CONTROL
-if(!base||!email||!password||!control)throw new Error('run this through TestStage5BrowserAcceptance')
+const base=process.env.REET_UI_URL, email=process.env.REET_ACCEPT_EMAIL, password=process.env.REET_ACCEPT_PASSWORD, control=process.env.REET_ACCEPT_CONTROL, viewerEmail=process.env.REET_ACCEPT_VIEWER_EMAIL
+if(!base||!email||!password||!control||!viewerEmail)throw new Error('run this through TestStage5BrowserAcceptance')
 const shots=process.env.REET_UI_SCREENSHOTS
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const names={review:'reet-review-helper',api:'reet-api-design',notes:'reet-release-notes'}
@@ -20,13 +20,13 @@ const present=async(machine,name)=>(await ctl('/present',{m:machine,name}))==='t
 const rounds=(machines,n=8,pause=0)=>ctl('/rounds',{m:machines,n,pause})
 const log=message=>console.log(`PASS ${message}`)
 // Every browser signs in through the real sign-in form, so the session is the one the server issues.
-const signedIn=async(width=1280)=>{
+const signedIn=async(width=1280,account=email)=>{
  const context=await browser.newContext({viewport:{width,height:900}})
  const page=await context.newPage()
  const errors=[]
  page.on('pageerror',e=>errors.push(e.message))
  await page.goto(`${base}/signin`)
- await page.getByLabel('Email').fill(email)
+ await page.getByLabel('Email').fill(account)
  await page.getByLabel('Password',{exact:true}).fill(password)
  await page.getByRole('button',{name:'Sign in',exact:true}).click()
  await expect(page.getByRole('navigation',{name:'Main navigation'}).or(page.getByRole('link',{name:'Machines'})).first()).toBeVisible()
@@ -60,6 +60,8 @@ try {
   await expect(item(page,name).getByLabel(`Status of ${name}`)).toHaveValue('in_use')
   await expect(item(page,name)).toContainText('Not selected on any machine')
  }
+ const ownerItems=await page.evaluate(async()=>(await (await fetch('/api/v2/library')).json()).items.map(item=>({id:item.id,name:item.name,version:item.version,status:item.status})))
+ expect(ownerItems.length).toBe(3)
  await shot(page,'accept-1-library-before')
  log('signed in through the real form; the Library shows each item once, In use, selected nowhere')
 
@@ -194,6 +196,43 @@ try {
  await expect(stateOf(panel,names.api)).toHaveAttribute('data-item-state','verified')
  await page.keyboard.press('Escape')
  log('an offline machine kept its saved selection as waiting and caught up by itself on return')
+
+ // 11. A real read-only account in the same instance. The server gives private skill content only to a writer, so this account has no
+ // library: the page says so plainly (no raw refusal, no retry, no offer to write), the menu does not list it, and the real API
+ // refuses it the owner's items, history and changes. The owner's data is exactly as it was.
+ {
+  const other=await signedIn(1280,viewerEmail)
+  const {page:v}=other
+  await v.goto(`${base}/library`)
+  await expect(v.getByRole('heading',{name:'The library is for accounts that can write'})).toBeVisible()
+  await expect(v.getByRole('button',{name:'Try again'})).toHaveCount(0)
+  await expect(v.getByRole('link',{name:'Write a skill'}),'a read-only account was offered authoring').toHaveCount(0)
+  for(const owned of ownerItems)await expect(v.getByText(owned.name)).toHaveCount(0)
+  await v.waitForTimeout(800) // let the page settle before it is photographed
+  await shot(v,'accept-11-read-only-library',{phone:true})
+  await v.goto(`${base}/machines`)
+  await expect(v.getByRole('article',{name:'workstation',exact:true})).toHaveCount(0)
+  await expect(v.getByRole('article',{name:'laptop',exact:true})).toHaveCount(0)
+  const probe=await v.evaluate(async(items)=>{
+   const call=async(path,init)=>(await fetch(path,init)).status
+   const own=items[0]
+   return {
+    library:await call('/api/v2/library'),
+    read:await call(`/api/v2/library/${own.id}`),
+    history:await call(`/api/v2/library-history/${own.id}`),
+    patch:await call(`/api/v2/library/${own.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'disabled',expectedVersion:own.version})}),
+    syncAgents:((await (await fetch('/api/v2/sync')).json()).agents||[]).length,
+   }
+  },ownerItems)
+  for(const key of ['library','read','history','patch'])expect([403,404],`the read-only account was not refused: ${JSON.stringify(probe)}`).toContain(probe[key])
+  expect(probe.syncAgents,'the read-only account saw the owner’s machines').toBe(0)
+  const after=await page.evaluate(async()=>(await (await fetch('/api/v2/library')).json()).items.map(item=>({name:item.name,status:item.status})))
+  expect(after.find(item=>item.name===names.review).status).toBe('in_use')
+  expect(after.length).toBe(3)
+  expect(other.errors).toEqual([])
+  await other.context.close()
+  log('a real read-only account has no library, is offered no authoring, and is refused the owner’s items, history and changes')
+ }
 
  expect(errors).toEqual([])
  await context.close()

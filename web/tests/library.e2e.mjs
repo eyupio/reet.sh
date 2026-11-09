@@ -180,14 +180,22 @@ try {
   console.log('PASS machine selection failure')
  }
 
- { // A viewer can look but not change anything.
+ { // A read-only account has no library: the server gives private skill content only to a writer, so the page says so plainly
+  // instead of asking and showing a refusal, never offers to write or retry, and the menu does not list it.
+  const asked=[]
   const {page,context,errors}=await open(390,{viewer:true})
+  page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/v2/library'))asked.push(request.url())})
   await page.goto(`${base}/library`)
-  await expect(page.getByText('You can look at the library but not change it.')).toBeVisible()
-  await expect(row(page,'code-review').getByLabel('Status of code-review')).toBeDisabled()
-  await expect(row(page,'code-review').getByRole('button',{name:'History'})).toBeEnabled()
+  await expect(page.getByRole('heading',{name:'The library is for accounts that can write'})).toBeVisible()
+  await expect(page.getByText('Ask the owner of this instance for write access')).toBeVisible()
+  await expect(page.getByRole('button',{name:'Try again'})).toHaveCount(0)
+  await expect(page.getByLabel('Find an item')).toHaveCount(0)
+  await expect(page.getByRole('link',{name:'Write a skill'})).toHaveCount(0)
+  expect(asked,'a read-only account asked for the library').toEqual([])
+  await page.getByRole('button',{name:'More'}).first().click()
+  await expect(page.getByRole('dialog',{name:'More'}).getByRole('link',{name:'Library'})).toHaveCount(0)
   await clean(page,errors,context,390)
-  console.log('PASS viewer')
+  console.log('PASS read-only account')
  }
 
  { // Keyboard: the filter chips and status selects work without a pointer.

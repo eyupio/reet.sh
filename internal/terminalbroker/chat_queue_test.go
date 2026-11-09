@@ -222,13 +222,17 @@ func TestEnqueueChatSendsAtOnceWhenIdleAndQueuesWhenWorking(t *testing.T) {
 	}
 }
 
-func TestQueueFailsWhenControlReadConflicts(t *testing.T) {
-	prompts := 0
+func TestQueueRetriesWhenControlReadConflicts(t *testing.T) {
+	prompts, controls := 0, 0
 	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
 		switch m.Body.(type) {
 		case *terminalproto.ACPControl:
-			// A read is refused when the chat is quiet or no longer running.
-			return terminalproto.Result{Code: terminalproto.Conflict}, true
+			controls++
+			if controls == 1 {
+				// The machine may be temporarily at its control-request limit.
+				return terminalproto.Result{Code: terminalproto.Conflict}, true
+			}
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{}}, true
 		case *terminalproto.ACPPrompt:
 			prompts++
 		}
@@ -243,8 +247,12 @@ func TestQueueFailsWhenControlReadConflicts(t *testing.T) {
 		t.Fatalf("conflicting read still sent the message: %d prompts", prompts)
 	}
 	q, _ := b.st.TerminalQueueFor(uid, s.ID)
-	if len(q) != 1 || q[0].State != "failed" || q[0].Note != "The session ended before this message was sent. Reconnect it, then retry." {
-		t.Fatalf("queued message kept waiting on a chat that could not answer: %+v", q)
+	if len(q) != 1 || q[0].State != "queued" || q[0].Note != "" {
+		t.Fatalf("transient overload lost the queued message: %+v", q)
+	}
+	b.stepChatQueue(uid, s.ID)
+	if prompts != 1 {
+		t.Fatalf("recovered control capacity did not send exactly once: %d", prompts)
 	}
 }
 

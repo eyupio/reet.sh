@@ -188,10 +188,9 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 	defer cancel()
 	state, err := b.ChatControl(ctx, uid, session, terminalproto.ACPControl{Action: "get"})
 	if err != nil {
-		if errors.Is(err, ErrACPClosed) || errors.Is(err, ErrACPBusy) {
-			// A control read has no reason to be answered as busy: the agent
-			// itself answers it. A conflict therefore means the chat is quiet
-			// or no longer running, and nothing queued for it can be sent.
+		if errors.Is(err, ErrACPClosed) {
+			// Conflict can also mean temporary machine-wide control overload.
+			// Only confirmed closure makes delivery permanently impossible.
 			_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "failed", q.Intent, "The session ended before this message was sent. Reconnect it, then retry.", b.queueOwner)
 		}
 		return

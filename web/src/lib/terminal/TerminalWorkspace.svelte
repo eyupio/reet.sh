@@ -108,7 +108,7 @@
   let health = $state<HealthResponse>({ serverNow:Date.now(),machines:[] })
   let receivedAt = performance.now(), elapsed = $state(0)
   let loading = $state(true), busy = $state(false), error = $state(''), title = $state('')
-  type Creation = { requestId: string; title: string; dir: string; error: string }
+  type Creation = { requestId: string; title: string; dir: string; projectId?: string; error: string }
   let creations = $state<Record<string, Creation>>({})
   // A continuation whose reply was lost keeps its request id and launch, so Continue again replays the same operation.
   type Continuation = { requestId: string; title: string; launch: LaunchRequest }
@@ -135,7 +135,7 @@
   const reconnecting = $derived(new Set(Object.entries(reattach).filter(([, item]) => item.phase === 'pending').map(([id]) => id)))
   const pendingCreation = $derived(creations[selectedAgent])
   // Draft settings do not switch the workspace behind the dialog.
-  let terminalAgent=$state(''),terminalDir=$state('')
+  let terminalAgent=$state(''),terminalDir=$state(''),terminalProjectId=$state('')
   // A shell started without a name is called what the controller would call it: Terminal, and its folder when it has one.
   const autoName=$derived(titleFor('',terminalDir.trim()))
   const createMachine=$derived(machines.find(item=>item.agentId===terminalAgent))
@@ -159,8 +159,9 @@
   $effect(()=>()=>{chromeFocus.session=false})
   let detailsOpen = $state(false)
   let healthIssue=$state(''),showCreate=$state(false)
-  // New session asks what to start before showing either form: an agent session, or a plain shell.
-  let newSessionOpen=$state(false)
+  // New session asks what to start before showing either form: an agent session, or a plain shell. A project's + opens the
+  // same choice with that project's machine and folder already in hand, so either answer belongs to the project.
+  let newSessionOpen=$state(false),newSessionProject=$state<FolderProject|null>(null),newSessionOpener=$state<HTMLElement|null>(null)
   // The Start an agent dialog, with the button that opened it, and the folders the machines have reported (read when it opens).
   let agentStart=$state<{agent:string;opener:HTMLElement|null;projectId?:string}|null>(null),agentFolders=$state<Machine[]|undefined>(),folderRead=0
   // Add a project from the session panel: the same dialog as Home, without leaving the terminal.
@@ -313,38 +314,50 @@
   function selectTerminalMachine(agent:string){
     terminalAgent=agent
     const pending=creations[agent]
-    title=pending?.title||'';terminalDir=pending?.dir||'';error=''
+    title=pending?.title||'';terminalDir=pending?.dir||'';terminalProjectId=pending?.projectId||'';error=''
   }
   function openTerminalStart(agent=selectedAgent){
     if(accessDenied||!machines.length||busy)return
     selectTerminalMachine(agent);showCreate=true;closeDrawer()
   }
   function quickCreate(agent:string){openTerminalStart(agent)}
-  function newSession(){
+  function newSession(opener?:HTMLElement){
     if(!machines.length||busy||accessDenied)return
     // An unconfirmed creation keeps its own retry: New session opens that, never a second choice.
     if(pendingCreation){openTerminalStart();return}
+    newSessionProject=null;newSessionOpener=opener??null
     newSessionOpen=true
   }
+  function newSessionInProject(project:FolderProject,opener:HTMLElement){
+    if(!machines.length||busy||accessDenied)return
+    newSessionProject=project;newSessionOpener=opener;newSessionOpen=true
+  }
   async function chooseNewSession(kind:'agent'|'terminal'){
-    newSessionOpen=false
+    const project=newSessionProject,opener=newSessionOpener
+    newSessionOpen=false;newSessionProject=null;newSessionOpener=null
     await tick()
-    if(kind==='agent'){openAgentStart(selectedAgent,null);return}
+    if(kind==='agent'){
+      if(project){openAgentStart(project.host,opener);agentStart={agent:project.host,opener,projectId:project.id};return}
+      openAgentStart(selectedAgent,opener);return
+    }
+    if(project){selectTerminalMachine(project.host);terminalDir=project.dir||'';terminalProjectId=project.id;showCreate=true;closeDrawer();return}
     openTerminalStart()
   }
   function submitCreate(){void create()}
   async function create() {
     if(busy||accessDenied||!createMachine?.ready||createMachine.serverEnabled===false||!validTerminalTitle(title.trim()||autoName)||dirError||createAtQuota&&!requestId)return
     busy=true;error=''
-    // One immutable retry operation per machine, including its original title.
+    // One immutable retry operation per machine, including its original title. A project launch keeps its projectId only
+    // while the folder is the project's; editing the folder clears it, and a validation refusal (422) puts the form back so
+    // the person can correct the folder instead of retrying an invalid request forever.
     const agent=terminalAgent
     const originAgent=selectedAgent,originSession=selectedSession
-    const operation=creations[agent] || {requestId:crypto.randomUUID(),title:title.trim()||autoName,dir:terminalDir,error:''}
+    const operation=creations[agent] || {requestId:crypto.randomUUID(),title:title.trim()||autoName,dir:terminalDir,projectId:terminalProjectId||undefined,error:''}
     creations={...creations,[agent]:{...operation,error:''}}
     const request=new AbortController();creationRequest=request
     const timeout=setTimeout(()=>request.abort(),15000)
     try {
-      const created=await createTerminal(agent,operation.requestId,operation.title,100,30,request.signal,operation.dir?{dir:operation.dir}:undefined)
+      const created=await createTerminal(agent,operation.requestId,operation.title,100,30,request.signal,(operation.dir||operation.projectId)?{...(operation.dir?{dir:operation.dir}:{}),...(operation.projectId?{projectId:operation.projectId}:{})}:undefined)
       if(disposed)return
       inventoryVersion++
       // A retry can resolve to an old closed record; let the filtered history list
@@ -355,7 +368,7 @@
       await refresh()
     } catch(e){
       if(disposed)return
-      if(e instanceof TerminalError&&e.status===400){const next={...creations};delete next[agent];creations=next;if(terminalAgent===agent)error=e.message}
+      if(e instanceof TerminalError&&[400,422].includes(e.status)){const next={...creations};delete next[agent];creations=next;if(e.status===422)terminalProjectId='';if(terminalAgent===agent)error=e.message}
       else creations={...creations,[agent]:{...operation,error:e instanceof Error?e.message:'Creation could not be confirmed. Retry the same operation.'}}
     } finally{clearTimeout(timeout);busy=false}
   }
@@ -642,7 +655,7 @@
       <option value="" disabled>Choose a machine…</option>
       {#each machines as item (item.agentId)}<option value={item.agentId}>{item.host}{item.ready?'':' · Unavailable'}</option>{/each}
     </select></label>
-    <label>Folder<input bind:value={terminalDir} disabled={busy || !!requestId} placeholder="Home folder (default)" aria-invalid={!!dirError} aria-describedby="terminal-folder-help" /></label>
+    <label>Folder<input bind:value={terminalDir} disabled={busy || !!requestId} oninput={()=>{terminalProjectId=''}} placeholder="Home folder (default)" aria-invalid={!!dirError} aria-describedby="terminal-folder-help" /></label>
     <p id="terminal-folder-help">{dirError || 'Leave empty for the machine’s home folder, or enter a full path starting with /.'}</p>
     <label>New session name<input bind:value={title} disabled={busy || !!requestId} maxlength="80" placeholder={autoName} aria-describedby="terminal-name-help" /></label>
     <p id="terminal-name-help">Optional. Left empty, the session is called {autoName}.</p>
@@ -670,14 +683,14 @@
     <button class="btn find-machine" onclick={()=>{machineSearch='';machineSearchOpen=true}} aria-label="Find machine">Find</button>
     <!-- The session screen's tabs share this row, so the terminal keeps its height. -->
     {#if session && !loading && !accessDenied && !phone}<SessionTabs tabs={tabSessions} current={session.id} onselect={chooseSession} onclose={closeSessionTab} />{/if}
-    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={newSession} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
+    <div class="workspace-actions"><button class="btn panel-toggle" aria-expanded={panelOpen} aria-controls="terminal-sessions" aria-label="Sessions panel" title={panelOpen?'Hide sessions panel':'Show sessions panel'} onclick={toggleSidebar}><TerminalIcon name="panel"/><span class="count" aria-hidden="true">{accountActive}</span></button><button class="btn primary new-button" disabled={!machines.length} onclick={()=>newSession()} aria-label="New session"><span class="wide-label">New session</span><span class="mobile-label">New</span></button><button class="btn" aria-label="Help & shortcuts" onclick={() => detailsOpen = true}><span class="wide-label">Help</span><span class="mobile-label">Help</span></button></div>
   </header>
   {#if preferenceError}<p class="workspace-notice bad" role="status">{preferenceError}</p>{/if}
   {#if statusError}<p class="workspace-notice bad" role="status">{statusError} <button onclick={()=>void refresh()}>Retry status</button></p>{/if}
   {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>openTerminalStart()}>Review creation</button></p>{/if}
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
-    {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
+    {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectnew={newSessionInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->
       <PanelResizer value={shown==='mini'?MINI_WIDTH:panelWidth} min={MINI_WIDTH} max={panelMax} resetValue={PANEL_DEFAULT}
@@ -748,8 +761,8 @@
   <label class="machine-search">Machine or shell user<input type="search" bind:this={machineSearchInput} bind:value={machineSearch} placeholder="Search connected machines…" /></label>
   <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
 </WorkspaceDialog>{/if}
-{#if newSessionOpen}<WorkspaceDialog title="New session" onclose={() => newSessionOpen = false}>
-  <p class="dialog-copy">Choose what to start on <strong>{machine?.host || 'your machine'}</strong>.</p>
+{#if newSessionOpen}<WorkspaceDialog title={newSessionProject ? `New session in ${newSessionProject.name}` : 'New session'} onclose={() => { newSessionOpen = false; newSessionProject = null; newSessionOpener = null }}>
+  <p class="dialog-copy">Choose what to start {#if newSessionProject}in <strong>{newSessionProject.name}</strong> on <strong>{newSessionProject.machine || machine?.host || 'this machine'}</strong>{:else}on <strong>{machine?.host || 'your machine'}</strong>{/if}.</p>
   <div class="new-session-choice">
     <button type="button" class="new-session-option" aria-label="Agent session" onclick={() => void chooseNewSession('agent')}><strong>Agent session</strong><span>Give an agent a brief and let it work in a folder.</span></button>
     <button type="button" class="new-session-option" aria-label="Terminal session" onclick={() => void chooseNewSession('terminal')}><strong>Terminal session</strong><span>A shell on the machine, with no agent.</span></button>

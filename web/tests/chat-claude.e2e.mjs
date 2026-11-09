@@ -37,7 +37,8 @@ try {
   // Where the machine has not opted in (Claude only unverified), the dialog offers no Gaffer for Claude.
   machine.capabilities.acpAgents = [{ ...claudeChat, state: 'unverified' }]
   await page.goto(`${base}/sessions?agent=${A}`)
-  await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+  await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
   const dark = page.getByRole('dialog', { name: 'Start an agent', exact: true })
   await dark.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Claude Code' })
   await expect(dark.getByRole('combobox', { name: 'Session', exact: true })).toHaveCount(0)
@@ -46,7 +47,8 @@ try {
   // Opted in: Gaffer is offered, with Claude's own copy and none of OpenCode's plugin warning.
   machine.capabilities.acpAgents = [claudeChat]
   await page.goto(`${base}/sessions?agent=${A}`)
-  await page.getByRole('button', { name: 'New agent session', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Start a new session', exact: true }).first().click()
+  await page.getByRole('dialog', { name: 'New session', exact: true }).getByRole('button', { name: 'Agent session', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
   await dialog.getByRole('combobox', { name: 'Agent', exact: true }).selectOption({ label: 'Claude Code' })
   await expect(dialog.getByRole('combobox', { name: 'Session', exact: true })).toHaveValue('reet')

@@ -24,14 +24,15 @@ export function needsInput(session: Pick<TerminalSession, 'attention' | 'changed
 /**
  * The row's status line: what the session is waiting for, then what the agent last did, else the lifecycle state. The
  * agent's turn finishing leaves the session running, so attention says "finished", or "quiet" once the person has seen
- * it, where the state alone still reads "running".
+ * it, where the state alone still reads "running". A quiet chat is a finished turn in a session that stays open for the
+ * next instruction, so it is named Finished to match the tab, the Overview and Home; only an idle terminal reads Quiet.
  */
-export function statusLine(session: Pick<TerminalSession, 'state' | 'attention' | 'changedSinceSeen' | 'pendingPermission' | 'pendingQuestion'>): string {
+export function statusLine(session: Pick<TerminalSession, 'state' | 'attention' | 'attentionSource' | 'changedSinceSeen' | 'pendingPermission' | 'pendingQuestion'>): string {
   const need = needsInput(session)
   if (need) return `Needs you · ${need}`
   if (session.attention === 'finished') return 'Finished'
   if (session.attention === 'failed') return session.state === 'lost' ? 'Connection lost' : 'Failed'
-  if (session.attention === 'quiet') return 'Quiet'
+  if (session.attention === 'quiet') return session.attentionSource === 'chat' ? 'Finished' : 'Quiet'
   return session.state.replaceAll('_', ' ')
 }
 

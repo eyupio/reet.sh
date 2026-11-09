@@ -51,6 +51,7 @@ jobs:
           node web/tests/gaffer-context.e2e.mjs
           node web/tests/gaffer-worker.e2e.mjs
           node web/tests/gaffer-goal.e2e.mjs
+          node web/tests/stage-follow.e2e.mjs
           node web/tests/gaffer-followed.e2e.mjs
           node web/tests/home-followups.e2e.mjs
           node web/tests/gaffer-widget-ux.e2e.mjs

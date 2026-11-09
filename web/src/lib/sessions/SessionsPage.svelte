@@ -281,7 +281,7 @@
                 {@const colour = colourOf(s)}
                 <li class="session-row" class:coloured={!!colour} data-status={sessionStatus(s)} style={colour ? `--session-colour:${projectColourHex(colour)}` : undefined}>
                   <a class="open" href={sessionHref(s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
-                    <span class="dot" aria-hidden="true"></span>
+                    {#if sessionStatus(s) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
                     <span class="main">
                       <span class="line"><span class="title" title={s.title}>{s.title}</span>{#if s.yolo}<span class="badge yolo">YOLO</span>{/if}{#if s.worktreePath}<span class="badge wt">worktree</span>{/if}{#if colour}<span class="badge colour-name"><span class="swatch" aria-hidden="true"></span>{colourName(colour)}</span>{/if}</span>
                       <span class="meta" title={rowMeta(s)}>{rowMeta(s)}</span>

@@ -358,6 +358,7 @@ test('bell count equals queue length', () => {
   assert.deepEqual(stateWord(sessions[0]), { word: 'Waiting for you', source: 'from terminal activity', tone: 'warn' })
   assert.deepEqual(stateWord(sessions[5]), { word: 'Working', source: 'from terminal activity', tone: 'good' })
   assert.deepEqual(stateWord(session('s6', 'a1', 'running', { attention: 'quiet', attentionSource: 'terminal' })), { word: 'Quiet', source: 'from terminal activity', tone: 'muted' })
+  assert.deepEqual(stateWord(session('s6b', 'a1', 'running', { attention: 'quiet', attentionSource: 'chat' })), { word: 'Finished', source: 'from the chat', tone: 'muted' })
   assert.deepEqual(stateWord(session('s7', 'a1', 'running', { attention: 'waiting', attentionSource: 'chat' })), { word: 'Waiting for you', source: 'from the chat', tone: 'warn' })
 })
 

@@ -1680,6 +1680,11 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 				s.emit(Event{Kind: "status", State: "error", Detail: safeRPCText(message)})
 				return nil
 			}
+			// These adapters end a failed turn without an ACP frame, so a turn
+			// that said and did nothing and logged no reason is not a finished
+			// turn. Saying so is better than a ready chat under an unanswered
+			// prompt; the notice comes first so the chat never reads as done.
+			s.emit(Event{Kind: "notice", Text: s.opts.Agent.displayName() + " ended the turn without a reply and gave no reason. Check the model and provider it is using, or try another.", Bad: true})
 		}
 		s.emit(Event{Kind: "status", State: "idle"})
 	default:

@@ -150,8 +150,11 @@ try{
  await expect(pp.locator('.pane')).toHaveAttribute('data-connection-state','live')
  await needs(pp,plain.box,0)
  await stop(pp)
- // The confirmed end dismisses the stopped view.
- await expect.poll(()=>pp.url()).not.toContain('regression-session-004')
+ // The confirmed end dismisses the stopped view with a full page load (location.assign), and the address changes before the
+ // old page is torn down: wait for the list to be loaded, or the next evaluate can land in the destroyed page ("Execution
+ // context was destroyed") when the machine is slow. Reproduced with Chromium's CPU throttled eight-fold.
+ await expect(pp).toHaveURL(base+'/sessions?view=list')
+ await pp.waitForLoadState('load')
  expect(plain.box.sessions[0]).toMatchObject({id:'regression-session-004',state:'ended',changedSinceSeen:true})
  await needs(pp,plain.box,0)
  await pp.goto(base+'/')

@@ -25,6 +25,10 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/terminal/commands", s.terminalAccess(s.terminalCommandSave, true))
 	mux.HandleFunc("PATCH /api/v2/terminal/commands/{id}", s.terminalAccess(s.terminalCommandSave, true))
 	mux.HandleFunc("DELETE /api/v2/terminal/commands/{id}", s.terminalAccess(s.terminalCommandDelete, true))
+	mux.HandleFunc("GET /api/v2/terminal/prompts", s.terminalAccess(s.terminalPrompts, true))
+	mux.HandleFunc("POST /api/v2/terminal/prompts", s.terminalAccess(s.terminalPromptSave, true))
+	mux.HandleFunc("PATCH /api/v2/terminal/prompts/{id}", s.terminalAccess(s.terminalPromptSave, true))
+	mux.HandleFunc("DELETE /api/v2/terminal/prompts/{id}", s.terminalAccess(s.terminalPromptDelete, true))
 	mux.HandleFunc("GET /api/v2/terminal/status", s.terminal(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, s.terminalStatus())
 	}))

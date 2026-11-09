@@ -6,6 +6,11 @@
  import { useSkillPrompt } from './install'
  import { insertSkillPrompt } from './skillPrompt'
  import SkillPromptPicker from './home/SkillPromptPicker.svelte'
+ import PromptPicker from './prompts/PromptPicker.svelte'
+ import InlinePromptMenu from './prompts/InlinePromptMenu.svelte'
+ import { readPromptLibrary, type PromptLibrary } from './prompts/library'
+ import { promptTrigger, replacePromptTrigger } from './terminal/prompts'
+ import type { TerminalPrompt } from './terminal/api'
  import { CATALOGUE } from './catalogue'
  import { launchEfforts, effortHelp } from './terminal/launchOptions'
  import { claudeAdapterHint, CLAUDE_ADAPTER_INSTALL } from './claudeAdapter'
@@ -446,6 +451,7 @@
   edited()
  }
  let skillOpen = $state(false), skillButton = $state<HTMLButtonElement>(), promptInput = $state<HTMLTextAreaElement>()
+ let promptOpen = $state(false), promptButton = $state<HTMLButtonElement>()
  function useSkill(skill: Skill) {
   const text = useSkillPrompt(skill)
   if (!text) { failed = true; message = 'That skill has no name to use it by.'; invalidMessage = true; return }
@@ -454,6 +460,87 @@
   prompt = inserted.text
   edited()
   void tick().then(() => { promptInput?.focus(); promptInput?.setSelectionRange(inserted.caret, inserted.caret) })
+ }
+ // The optional agent, model and effort a prompt suggests. Preselected only where the person has
+ // not chosen those fields here, and only for the agent the suggestion was written for.
+ async function applyPromptSuggestions(item: TerminalPrompt, unresolved: string[]) {
+  // A model or effort the person chose also belongs to their current agent.
+  // Switching it implicitly would let the rekey erase those explicit choices.
+  if (item.tool && !explicitTool && !explicitModel && !explicitEffort && availableAgents.includes(item.tool)) {
+   explicitTool = item.tool
+   // The agent rekey resets its dependent defaults. Apply template defaults
+   // after that reset, using the resolved agent rather than the previous one.
+   await tick()
+  }
+  if (locked) return
+  const agent = chosenTool
+  if (item.model && !explicitModel && (!item.tool || item.tool === agent)) { explicitModel = true; modelChoice = item.model; modelOther = '' }
+  if (item.effort && !explicitEffort && (!item.tool || item.tool === agent) && effortOptions.includes(item.effort)) { explicitEffort = true; effort = item.effort }
+  if (unresolved.length) {
+   failed = false
+   message = `Inserted “${item.title}”. ${unresolved.join(', ')} ${unresolved.length === 1 ? 'was' : 'were'} not known here, so ${unresolved.length === 1 ? 'it stays' : 'they stay'} as written.`
+  }
+ }
+ // A saved prompt fills the opening prompt as editable text. Nothing is sent.
+ function usePrompt(result: { prompt: TerminalPrompt; text: string; unresolved: string[] }) {
+  const { prompt: item, text, unresolved } = result
+  const at = promptInput?.selectionStart ?? prompt.length, end = promptInput?.selectionEnd ?? at
+  const inserted = insertSkillPrompt(prompt, text, at, end)
+  if (new TextEncoder().encode(inserted.text).length > MAX_PROMPT_BYTES) {
+   failed = true; invalidMessage = true
+   message = `That prompt is too long for this field. Keep it under ${MAX_PROMPT_BYTES.toLocaleString('en-GB')} bytes.`
+   return
+  }
+  prompt = inserted.text
+  edited(); void applyPromptSuggestions(item, unresolved)
+  void tick().then(() => { promptInput?.focus(); promptInput?.setSelectionRange(inserted.caret, inserted.caret) })
+ }
+ // Typing a backslash token in the opening prompt opens the same prompts inline.
+ let promptMenu = $state<{ start: number; query: string } | null>(null)
+ let promptLibrary = $state<PromptLibrary | null>(null), promptLoading = $state(false), promptReadError = $state('')
+ let promptSuppressed = false, promptLife: AbortController | undefined
+ let promptMenuEl = $state<InlinePromptMenu>()
+ const promptContext = $derived({ project: pickedProject?.name, branch: pickedProject?.baseBranch || '', folder: pickedProject?.dir || typedDir || '', sessionTitle: promptTitle(prompt) })
+ async function loadPromptLibrary() {
+  if (promptLibrary || promptLoading) return
+  promptLife?.abort()
+  const life = promptLife = new AbortController()
+  promptLoading = true; promptReadError = ''
+  try { promptLibrary = await readPromptLibrary(life.signal) }
+  catch (e) { if (!life.signal.aborted) promptReadError = e instanceof Error && e.message ? e.message : 'Prompts could not be read. Try again.' }
+  finally { if (!life.signal.aborted) promptLoading = false }
+ }
+ function openPromptMenu(trigger: { start: number; query: string }) {
+  if (locked || !chosenTool) return
+  promptMenu = trigger
+  void loadPromptLibrary()
+ }
+ function closePromptMenu(dismissed = true) {
+  promptMenu = null
+  if (dismissed) promptSuppressed = true
+ }
+ function typedPrompt(event: Event) {
+  const input = event.currentTarget as HTMLTextAreaElement
+  prompt = input.value
+  const trigger = promptTrigger(input.value, input.selectionStart ?? input.value.length)
+  if (!trigger) { promptSuppressed = false; promptMenu = null; return }
+  if (!promptSuppressed) openPromptMenu(trigger)
+ }
+ function pickPrompt(result: { prompt: TerminalPrompt; text: string; unresolved: string[] }) {
+  if (!promptMenu) return
+  const out = replacePromptTrigger(prompt, promptMenu, result.text, MAX_PROMPT_BYTES)
+  if ('error' in out) { failed = true; message = out.error; return }
+  prompt = out.draft; promptSuppressed = true; promptMenu = null
+  edited(); void applyPromptSuggestions(result.prompt, result.unresolved)
+  void tick().then(() => { promptInput?.focus(); promptInput?.setSelectionRange(out.caret, out.caret) })
+ }
+ function promptKeys(event: KeyboardEvent) {
+  if (!promptMenu) return
+  if (event.key === 'ArrowDown') { event.preventDefault(); promptMenuEl?.move(1); return }
+  if (event.key === 'ArrowUp') { event.preventDefault(); promptMenuEl?.move(-1); return }
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closePromptMenu(true); return }
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); promptMenuEl?.choose(); return }
+  if (event.key === 'Tab') closePromptMenu(false)
  }
  function selectTool(next: string) { if (locked) return; explicitTool = next; tool = next; edited() }
 
@@ -819,9 +906,15 @@
    <div class="field">
     <div class="label-row">
      <label for={`${id}-prompt`}>Opening prompt <span class="optional">optional</span></label>
-     <button type="button" class="linklike skill-add" bind:this={skillButton} disabled={!chosenTool} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>Use a skill</button>
+     <span class="prompt-links">
+      <button type="button" class="linklike skill-add" bind:this={promptButton} disabled={!chosenTool || locked} aria-haspopup="dialog" aria-expanded={promptOpen} onclick={() => { closePromptMenu(false); promptOpen = true }}>Use a prompt</button>
+      <button type="button" class="linklike skill-add" bind:this={skillButton} disabled={!chosenTool} aria-haspopup="listbox" aria-expanded={skillOpen} onclick={() => skillOpen = !skillOpen}>Use a skill</button>
+     </span>
     </div>
-    <textarea id={`${id}-prompt`} bind:this={promptInput} bind:value={prompt} rows="3" disabled={!chosenTool} onpaste={pasted} aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
+    <textarea id={`${id}-prompt`} bind:this={promptInput} bind:value={prompt} rows="3" disabled={!chosenTool} oninput={typedPrompt} onkeydown={promptKeys} onpaste={pasted} onblur={() => closePromptMenu(false)} aria-invalid={promptError ? 'true' : undefined} aria-describedby={`${id}-prompt-count${promptError ? ` ${id}-prompt-error` : ''}`}></textarea>
+    {#if promptMenu}
+     <InlinePromptMenu inline bind:this={promptMenuEl} prompts={promptLibrary?.prompts ?? []} skills={promptLibrary?.skills ?? {}} query={promptMenu.query} context={promptContext} loading={promptLoading} error={promptReadError} oninsert={pickPrompt} onclose={() => closePromptMenu(false)} />
+    {/if}
     <div class="prompt-tools">
      <label class="attach">Attach images<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={locked || !chosenTool} onchange={(event) => { addImages(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = '' }} /></label>
     </div>
@@ -864,6 +957,11 @@
  {#if skillOpen}
   <SkillPromptPicker opener={skillButton ?? null} sheet={touch} oninsert={useSkill} onclose={() => { skillOpen = false }} />
  {/if}
+ {#if promptOpen}
+  <PromptPicker opener={promptButton ?? null} sheet={touch}
+   context={{ project: pickedProject?.name, branch: pickedProject?.baseBranch || '', folder: pickedProject?.dir || typedDir || '', sessionTitle: promptTitle(prompt) }}
+   oninsert={usePrompt} onclose={() => { promptOpen = false; void tick().then(() => promptInput?.focus()) }} />
+ {/if}
  {#if pickerOpen}
   <SlotPicker label="Model" options={modelOptionsFor()} value={model} sheet={touch} opener={modelButton ?? null}
    filter="Filter models" status={modelStatusLine} statusAction={modelStatusAction}
@@ -896,6 +994,7 @@
  .star:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
  label { font-size: 0.875rem; font-weight: 600; }
  .label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+ .prompt-links { display: flex; align-items: center; gap: 12px; flex: none; }
  .label-row .skill-add { min-height: 28px; padding: 0; }
  label.sub { font-weight: 500; margin-top: 4px; }
  .optional { color: var(--muted); font-weight: 400; font-size: 0.875rem; }

@@ -218,6 +218,12 @@ try {
   await openSettings(page.getByRole('article',{name:'dev-laptop'}))
   await expect(page.getByRole('dialog',{name:'dev-laptop'})).toBeVisible()
   await noOverflow()
+  // The machine reports Claude Code's Gaffer adapter missing: the hint is there, with its command, and wholly inside the dialog.
+  const adapterHint=page.getByRole('dialog',{name:'dev-laptop'}).locator('.claude-adapter')
+  await expect(adapterHint).toBeVisible()
+  await expect(adapterHint).toContainText('npm install --global @agentclientprotocol/claude-agent-acp@0.99.1')
+  const inside=await adapterHint.locator('code').evaluate(el=>{const r=el.getBoundingClientRect(),d=el.closest('dialog').getBoundingClientRect();return r.left>=d.left-1&&r.right<=d.right+1})
+  expect(inside).toBe(true)
   if(width===390&&process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings-phone-dark.png`})
   await page.getByRole('button',{name:'Close settings'}).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)

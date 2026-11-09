@@ -22,6 +22,9 @@ const source = compile('./launchBar.ts')
   .replace("from './models'", `from '${models}'`)
 const { initialChoice, afterLaunch, baseBranchFor, baseFor, sentence, startable, toCreate, defaultTitle, sendKey, projectSlug, lastChoice, withProject, withAgent, withHome, summary, toSelectionRun, startedLine, withSelection, runRefusalText, yoloGates, yoloCanStart, chatEffort } = await import(asURL(source))
 const { refusalText } = await import(agentLaunch)
+const { CATALOGUE } = await import(catalogue)
+// Every enabled agent now takes YOLO, so the case of an agent with no YOLO option switches it off for one call.
+const without = (id, key, fn) => { const entry = CATALOGUE.find(agent => agent.id === id), was = entry[key]; entry[key] = false; try { return fn() } finally { entry[key] = was } }
 
 const caps = (extra = {}) => ({ protocolVersion: 1, os: 'linux', osUser: 'u', terminalEnabled: true, terminalControl: true, healthEnabled: true, readiness: 'ready',
   launch: true, worktree: true, agentsV2: true, branches: true, tools: ['claude', 'codex', 'cline'], ...extra })
@@ -50,27 +53,27 @@ test('base precedence project, profile, default, current', () => {
 
 test('the sentence reads as the mock-up draws it', () => {
   const parts = sentence(choice(), projects, machines)
-  assert.equal(words(parts), 'Run Claude Code with sonnet on reet at studio from main in a fresh worktree')
-  assert.deepEqual(slots(parts), ['agent', 'model', 'project', 'machine', 'branch', 'worktree'])
-  assert.equal(words(sentence(choice({ model: '' }), projects, machines)), 'Run Claude Code with default on reet at studio from main in a fresh worktree')
-  assert.equal(words(sentence(choice({ branch: '' }), projects, machines)), 'Run Claude Code with sonnet on reet at studio from the current branch in a fresh worktree')
+  assert.equal(words(parts), 'Run Claude Code with sonnet on reet at studio from main in a fresh worktree · thinking default')
+  assert.deepEqual(slots(parts), ['agent', 'model', 'project', 'machine', 'branch', 'worktree', 'effort'])
+  assert.equal(words(sentence(choice({ model: '' }), projects, machines)), 'Run Claude Code with default on reet at studio from main in a fresh worktree · thinking default')
+  assert.equal(words(sentence(choice({ branch: '' }), projects, machines)), 'Run Claude Code with sonnet on reet at studio from the current branch in a fresh worktree · thinking default')
 })
 
 test('checkout hides branch choice and reads Works in the checkout on main', () => {
   const parts = sentence(choice({ worktree: false }), projects, machines, 'main')
-  assert.equal(words(parts), 'Run Claude Code with sonnet on reet at studio in the checkout Works in the checkout on main.')
+  assert.equal(words(parts), 'Run Claude Code with sonnet on reet at studio in the checkout Works in the checkout on main. · thinking default')
   assert.ok(!slots(parts).includes('branch'))
-  assert.deepEqual(parts.at(-1), { slot: 'checkout', text: 'Works in the checkout on main.' })
-  assert.equal(sentence(choice({ worktree: false }), projects, machines).at(-1).text, 'Works in the checkout.')
+  assert.deepEqual(parts.find(p => p.slot === 'checkout'), { slot: 'checkout', text: 'Works in the checkout on main.' })
+  assert.equal(sentence(choice({ worktree: false }), projects, machines).find(p => p.slot === 'checkout').text, 'Works in the checkout.')
   // No base is sent for a checkout: reet never switches a checkout's branch.
   assert.equal(toCreate(choice({ worktree: false }), reet, 'r'.repeat(16), 'a'.repeat(16)).launch.base, undefined)
 })
 
 test('non-repository hides branch and worktree', () => {
   const parts = sentence(choice({ projectIds: ['p-notes'] }), projects, machines)
-  assert.equal(words(parts), 'Run Claude Code with sonnet on notes at desk')
+  assert.equal(words(parts), 'Run Claude Code with sonnet on notes at desk · thinking default')
   const home = sentence(choice({ projectIds: [], homeMachine: 'm-server' }), projects, machines)
-  assert.equal(words(home), 'Run Claude Code with sonnet on the home folder at server')
+  assert.equal(words(home), 'Run Claude Code with sonnet on the home folder at server · thinking default')
   const create = toCreate(choice({ projectIds: ['p-notes'] }), notes, 'r'.repeat(16), 'a'.repeat(16))
   assert.deepEqual(create.launch, { tool: 'claude', model: 'sonnet', dir: '/home/u/notes', projectId: 'p-notes', titleOrigin: 'fallback' })
 })
@@ -78,7 +81,7 @@ test('non-repository hides branch and worktree', () => {
 test('thinking shows only for an agent that takes effort', () => {
   assert.equal(words(sentence(choice({ agent: 'cline', model: '', effort: 'high' }), projects, machines)), 'Run Cline with default on reet at studio from main in a fresh worktree · thinking high')
   assert.equal(words(sentence(choice({ agent: 'cline', model: '' }), projects, machines)).endsWith('· thinking default'), true)
-  assert.ok(!slots(sentence(choice({ effort: 'high' }), projects, machines)).includes('effort'))
+  assert.ok(!slots(sentence(choice({ agent: 'codex', effort: 'high' }), projects, machines)).includes('effort'))
 })
 
 test('a Gaffer chat drops a thinking default its own descriptor does not offer', () => {
@@ -101,10 +104,10 @@ test('a Gaffer chat drops a thinking default its own descriptor does not offer',
 
 test('sentence for several projects', () => {
   const parts = sentence(choice({ projectIds: ['p-reet', 'p-site', 'p-notes'] }), projects, machines)
-  assert.equal(words(parts), "Run Claude Code with sonnet on 3 projects at each project's machine from each project's default in a fresh worktree")
+  assert.equal(words(parts), "Run Claude Code with sonnet on 3 projects at each project's machine from each project's default in a fresh worktree · thinking default")
   const other = project('p-x', 'site', 'm-studio')
   const two = sentence(choice({ projectIds: ['p-reet', 'p-x'] }), [...projects, other], machines)
-  assert.equal(words(two), "Run Claude Code with sonnet on 2 projects at studio from each project's default in a fresh worktree")
+  assert.equal(words(two), "Run Claude Code with sonnet on 2 projects at studio from each project's default in a fresh worktree · thinking default")
 })
 
 test('approvals open on the project default, else ask', () => {
@@ -151,7 +154,8 @@ test('first choice comes from the project, account, favourite and agent defaults
   assert.equal(initialChoice([reet], profile, { machines: [machine('m-studio', 'studio', { tools: ['codex'] })] }).agent, 'codex')
   // Effort only for an agent that takes it; a project's effort needs its agent too.
   assert.equal(initialChoice([{ ...reet, defaultTool: 'cline', defaultEffort: 'high' }], profile).effort, 'high')
-  assert.equal(initialChoice([{ ...reet, defaultTool: 'claude', defaultEffort: 'high' }], profile).effort, '')
+  assert.equal(initialChoice([{ ...reet, defaultTool: 'claude', defaultEffort: 'high' }], profile).effort, 'high')
+  assert.equal(initialChoice([{ ...reet, defaultTool: 'codex', defaultEffort: 'high' }], profile).effort, '')
   assert.equal(initialChoice([{ ...reet, defaultModel: 'sonnet', defaultEffort: 'high' }], profile).effort, '')
 })
 
@@ -205,7 +209,8 @@ test('startable names the first reason', () => {
   assert.equal(startable(choice({ projectIds: [] }), projects, machines), 'Choose a project or a home folder.')
   assert.equal(startable(choice({ agent: 'pi' }), projects, machines), "reet doesn't start this agent yet.")
   assert.equal(startable(choice({ agent: 'codex', prompt: 'one' }), projects, machines), 'Write the opening prompt as at least two words.')
-  assert.equal(startable(choice({ effort: 'high' }), projects, machines), "That agent doesn't take that option.")
+  assert.equal(startable(choice({ agent: 'codex', effort: 'high' }), projects, machines), "That agent doesn't take that option.")
+  assert.equal(startable(choice({ effort: 'high' }), projects, machines), null)
   assert.equal(startable(choice({ agent: 'antigravity' }), projects, machines), 'Not installed on studio')
   const down = [machine('m-studio', 'studio', {}, false)]
   assert.equal(startable(choice(), projects, down), 'The machine is reconnecting. Existing shells will be kept.')
@@ -216,7 +221,8 @@ test('startable names the first reason', () => {
   assert.equal(startable(choice({ worktree: false }), projects, old), null)
   const noWorktree = [machine('m-studio', 'studio', { worktree: false })]
   assert.equal(startable(choice(), projects, noWorktree), 'Update reet on that machine to start agents with worktrees.')
-  assert.equal(startable(choice({ agent: 'claude', approvals: 'yolo' }), projects, [machine('m-studio', 'studio', { yolo: true })]), "That agent doesn't take that option.")
+  assert.equal(without('claude', 'yolo', () => startable(choice({ agent: 'claude', approvals: 'yolo' }), projects, [machine('m-studio', 'studio', { yolo: true })])), "That agent doesn't take that option.")
+  assert.equal(startable(choice({ agent: 'claude', approvals: 'yolo' }), projects, [machine('m-studio', 'studio', { yolo: true })]), null)
   assert.equal(startable(choice({ agent: 'cline', approvals: 'yolo' }), projects, machines), "studio doesn't accept YOLO sessions.")
   assert.equal(startable(choice({ agent: 'cline', approvals: 'yolo' }), projects, [machine('m-studio', 'studio', { yolo: true })]), null)
   const chat = choice({ agent: 'opencode', chat: true, trust: true, approvals: 'yolo', model: '' })
@@ -239,7 +245,8 @@ test('yolo gates read the account, each machine, the agent and the worktree', ()
   ])
   assert.equal(yoloCanStart(yoloGates(choice({ agent: 'cline' }), { allowed: false }, projects, machines)), false)
   assert.equal(yoloCanStart(yoloGates(choice({ agent: 'cline' }), setting, projects, machines)), false)
-  assert.equal(yoloCanStart(yoloGates(choice({ agent: 'claude' }), setting, projects, [machine('m-studio', 'studio', { yolo: true })])), false)
+  assert.equal(without('claude', 'yolo', () => yoloCanStart(yoloGates(choice({ agent: 'claude' }), setting, projects, [machine('m-studio', 'studio', { yolo: true })]))), false)
+  assert.equal(yoloCanStart(yoloGates(choice({ agent: 'claude' }), setting, projects, [machine('m-studio', 'studio', { yolo: true })])), true)
   const several = yoloGates(choice({ agent: 'cline', projectIds: ['p-reet', 'p-site'] }), setting, projects, [machine('m-studio', 'studio', { yolo: true }), machine('m-server', 'server', { yolo: false })])
   assert.equal(yoloCanStart(several), false)
   assert.equal(several.filter(g => g.label.endsWith('accepts YOLO sessions')).length, 2)
@@ -318,7 +325,7 @@ test('a branch only goes out when chosen or set by the project or profile', () =
   const branches = { current: 'main', default: 'main', branches: ['main'], more: false }
   assert.equal(baseBranchFor(reet, profile, branches), 'main')
   assert.equal(initialChoice([reet], profile).branch, '')
-  assert.equal(words(sentence(unset, projects, machines, 'main')), 'Run Claude Code with sonnet on reet at studio from main in a fresh worktree')
+  assert.equal(words(sentence(unset, projects, machines, 'main')), 'Run Claude Code with sonnet on reet at studio from main in a fresh worktree · thinking default')
   // A base the project sets is sent, and an old machine is told to update.
   const set = initialChoice([{ ...reet, baseBranch: 'release' }], profile)
   assert.equal(set.branch, 'release')
@@ -337,7 +344,8 @@ test('the last launch comes from the newest session that names an agent, never f
   assert.equal(checkout.branch, 'release')
   // Effort only for an agent that takes it.
   assert.equal(lastChoice([s('e', 1, { tool: 'cline', effort: 'high', projectId: 'p-reet' })], projects, profile).effort, 'high')
-  assert.equal(lastChoice([s('e', 1, { tool: 'claude', effort: 'high', projectId: 'p-reet' })], projects, profile).effort, '')
+  assert.equal(lastChoice([s('e', 1, { tool: 'claude', effort: 'high', projectId: 'p-reet' })], projects, profile).effort, 'high')
+  assert.equal(lastChoice([s('e', 1, { tool: 'codex', effort: 'high', projectId: 'p-reet' })], projects, profile).effort, '')
   assert.equal(lastChoice([s('e', 1, { tool: 'cline', effort: 'max', projectId: 'p-reet' })], projects, profile).effort, '')
   // Outside every project: the home folder on that machine. A project since removed: no project (the first one is used).
   assert.deepEqual(lastChoice([s('h', 1, { tool: 'claude' })], projects, profile).homeMachine, 'm-studio')
@@ -390,9 +398,9 @@ test('a model-list failure never changes startable', () => {
 })
 
 test('the phone summary is the sentence in one line', () => {
-  assert.equal(summary(sentence(choice(), projects, machines)), 'Claude Code on reet at studio · main · fresh worktree')
-  assert.equal(summary(sentence(choice({ worktree: false }), projects, machines, 'main')), 'Claude Code on reet at studio · the checkout')
-  assert.equal(summary(sentence(choice({ projectIds: ['p-notes'] }), projects, machines)), 'Claude Code on notes at desk')
+  assert.equal(summary(sentence(choice(), projects, machines)), 'Claude Code on reet at studio · main · fresh worktree · thinking default')
+  assert.equal(summary(sentence(choice({ worktree: false }), projects, machines, 'main')), 'Claude Code on reet at studio · the checkout · thinking default')
+  assert.equal(summary(sentence(choice({ projectIds: ['p-notes'] }), projects, machines)), 'Claude Code on notes at desk · thinking default')
   assert.equal(summary(sentence(choice({ agent: 'cline', effort: 'low' }), projects, machines)), 'Cline on reet at studio · main · fresh worktree · thinking low')
 })
 
@@ -401,8 +409,9 @@ test('several projects send one run request, with YOLO when chosen', () => {
   const many = choice({ agent: 'cline', model: ' sonnet ', effort: 'high', projectIds: ['p-reet', 'p-site', 'p-notes'], prompt: 'Fix the failing tests', approvals: 'yolo', branch: 'release' })
   assert.deepEqual(toSelectionRun(many, r), { requestId: r, projectIds: ['p-reet', 'p-site', 'p-notes'], tool: 'cline', model: 'sonnet', effort: 'high', prompt: 'Fix the failing tests', worktree: true, yolo: true })
   // Effort only for an agent that takes it; no model is ''; the checkout is worktree false.
-  assert.deepEqual(toSelectionRun(choice({ agent: 'claude', model: '', effort: 'high', projectIds: ['p-reet', 'p-site'], worktree: false, prompt: '' }), r),
-    { requestId: r, projectIds: ['p-reet', 'p-site'], tool: 'claude', model: '', effort: '', prompt: '', worktree: false })
+  assert.deepEqual(toSelectionRun(choice({ agent: 'codex', model: '', effort: 'high', projectIds: ['p-reet', 'p-site'], worktree: false, prompt: '' }), r),
+    { requestId: r, projectIds: ['p-reet', 'p-site'], tool: 'codex', model: '', effort: '', prompt: '', worktree: false })
+  assert.equal(toSelectionRun(choice({ agent: 'claude', model: '', effort: 'high', projectIds: ['p-reet', 'p-site'], worktree: false, prompt: '' }), r).effort, 'high')
 })
 
 test('the started line counts only what the controller says started', () => {

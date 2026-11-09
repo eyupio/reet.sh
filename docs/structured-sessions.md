@@ -135,7 +135,7 @@ say what to record to close the signed-in gap.
 
 ### Codex in Gaffer
 
-Codex chats use the `codex-acp` adapter (version 1.13.1 or newer, with the `codex` it depends on). A machine needs both installed, and an
+Codex chats use the `codex-acp` adapter (version 1.13.1 or newer). Its package brings the `codex` it depends on, which is the copy a chat runs. An
 account sees the chat only after it turns it on in **Settings > Agents** (see [the gate](#gaffer-chats-still-being-verified-claude-code-and-codex)
 below). The adapter was measured signed out against a loopback stand-in for the provider, so no account, network or real model was involved.
 
@@ -158,7 +158,7 @@ below). The adapter was measured signed out against a loopback stand-in for the 
   in it, is told "Sign in to Codex on that machine first."
 - **A machine with Codex but no adapter** says so, the same way Claude Code's does: the Start dialog and the machine's Agents settings say reet there
   cannot find `codex-acp` on its `PATH` and show `npm install --global @agentclientprotocol/codex-acp@1.13.1`, only when the machine itself reports the
-  adapter missing. The adapter uses the `codex` already on the machine, so the command installs the adapter alone. An older connector that reports nothing,
+  adapter missing. The package brings the Codex CLI it depends on, and a Gaffer chat runs that copy; the machine's own `codex` shows that Codex is there and runs terminal sessions. An older connector that reports nothing,
   and an account whose chat is off, get no hint.
 - **The terminal launch** is a separate path; see [launch requests](terminal-launch.md).
 

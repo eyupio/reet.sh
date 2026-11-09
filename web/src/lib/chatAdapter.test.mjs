@@ -21,7 +21,7 @@ test('the install commands name the adapters reet was checked against', () => {
   assert.equal(chatAdapterInstall('opencode'), '')
 })
 
-// Codex's adapter uses the `codex` that is already on the machine's PATH, so the command installs the adapter alone and the hint says whose it is.
+// Codex's adapter brings the Codex CLI it depends on, so the one command is enough on a machine that has Codex.
 test('a machine with Codex but no adapter is told what to install', () => {
   const hint = chatAdapterHint('codex', machine(['codex'], [codexEntry('missing')]))
   assert.ok(hint?.includes(chatAdapterInstall('codex')))

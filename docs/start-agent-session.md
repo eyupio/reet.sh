@@ -240,8 +240,8 @@ about it, or when your account has the Claude Code chat turned off. See [Claude 
 Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#claude-code-in-gaffer).
 
 Codex gets the same hint on a machine that has Codex but reports the adapter (`codex-acp`) missing, with
-`npm install --global @agentclientprotocol/codex-acp@1.13.1`. The adapter uses the `codex` already on that machine's `PATH`, so the command
-installs only the adapter. See [Codex in
+`npm install --global @agentclientprotocol/codex-acp@1.13.1`. The package brings the Codex CLI it depends on, and a Gaffer chat runs that copy; the
+`codex` already on the machine only shows that Codex is there and runs terminal sessions. See [Codex in
 Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#codex-in-gaffer).
 
 Opening the dialog applies a model marked as the default for the chosen agent first; otherwise the

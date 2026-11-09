@@ -3,7 +3,8 @@ import type { TerminalMachine } from './terminal/api'
 type ChatAdapter = { name: string; adapter: string; install: string }
 
 // The adapters Gaffer talks to each agent through, at the versions reet was checked against. Claude Code's adapter brings its own native
-// binary. Codex's adapter uses the `codex` already on the machine's PATH, so installing it adds only the adapter.
+// binary. Codex's adapter depends on @openai/codex and runs that bundled copy (reet does not set CODEX_PATH), so installing it brings a Codex CLI of its
+// own; the person's own `codex` shows that Codex is on the machine and runs terminal sessions, but not the chat.
 const ADAPTERS: Record<string, ChatAdapter> = {
   claude: { name: 'Claude Code', adapter: 'claude-agent-acp', install: 'npm install --global @agentclientprotocol/claude-agent-acp@0.99.1' },
   codex: { name: 'Codex', adapter: 'codex-acp', install: 'npm install --global @agentclientprotocol/codex-acp@1.13.1' },

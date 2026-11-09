@@ -159,6 +159,14 @@ Curated images: [phone, items installed](../images/ui/stage5-real-installed-phon
 
 **Still not proven.** A real viewer or second account: a viewer's library is their own and empty, so a viewer run in the real stack would prove nothing here without shared data; the viewer behaviour is covered by fixtures only. Real hardware, two real machines, sleep, reboot and real network loss. The empty-library state in the real stack. SSO and account creation. The single connect/import/selection flow still has the file-review step between a found skill and the library, pending an owner decision. Stage 4 (#680) is unfinished, so Stage 5 acceptance is not complete.
 
+## Update: twelve real-stack phases, a real read-only account, and a Library page fix (9 November 2026)
+
+**Twelve phases passed on three consecutive executions** (`-count=3`, `ok 359.6 s`, exit 0) through the real UI in Chromium, a real controller, two connector subprocesses, the real password sign-in and a really offline machine. The new phase 11 signs in as a real **read-only account** (`viewer@example.test`) created by the orchestrator.
+
+**Finding, and a correction to earlier records.** The server refuses the library API to read-only accounts ("Private skill content requires an active account with a write role"). An earlier note here said a viewer would "look but not change" the library through fixtures; that premise was wrong, because a viewer gets no library data at all. The Library page now shows a plain explanation ("The library is for accounts that can write"), makes no request, offers no retry, and the menu entry is hidden for accounts that cannot write. Image: [phone, read-only account on /library](../images/ui/stage5-real-read-only-library-phone.png).
+
+**Now proven in the real stack:** a real second (read-only) account. **Still not proven:** real hardware or two real machines, sleep, reboot and real network loss; SSO and account creation; the empty-library state with a writer account; a real touch device. The single connect/import/selection flow still keeps the file review between a found skill and the library, pending an owner decision (recommendation: keep the review). Stage 4 (#680) is unfinished, so Stage 5 acceptance is not complete.
+
 ## Workspace and ongoing PR supervision
 
 Use `/workspace/.reet-tools/activate.sh` for Node/Go; system `go` is not the compiler. Dependencies are an untracked symlink from `web/node_modules` to `/workspace/reet.sh/web/node_modules`; never commit it. Disks are constrained: use short `TMPDIR=/workspace/t`, preserve user files, and reclaim only inspected owned regenerable outputs if needed. The preview used for this branch is port 4174 because another session owns 4173; `REET_UI_URL` selects the test origin. Do not stop unrelated preview processes.

@@ -1348,7 +1348,8 @@ try {
     const r = el.getBoundingClientRect()
     // A control scrolled below or beside the panel's own box is not on screen to be covered; the panel scrolls it into
     // view. The separator spans the workspace, not that hidden part of the panel's scroll area.
-    if ((r.left + r.right) / 2 < side.left || (r.left + r.right) / 2 > side.right || (r.top + r.bottom) / 2 < side.top || (r.top + r.bottom) / 2 > side.bottom) continue
+    // A row clipped by a pixel or two at the panel's edge is scrolled into view to be used, not covered by the separator.
+    if ((r.left + r.right) / 2 < side.left + 2 || (r.left + r.right) / 2 > side.right - 2 || (r.top + r.bottom) / 2 < side.top + 2 || (r.top + r.bottom) / 2 > side.bottom - 2) continue
     if (!near(r) || r.width === 0 || r.bottom < 0 || r.top > innerHeight) continue
     const pts = [[(r.left + r.right) / 2, (r.top + r.bottom) / 2], [r.left + 1, (r.top + r.bottom) / 2], [r.right - 1, (r.top + r.bottom) / 2], [(r.left + r.right) / 2, r.top + 1], [(r.left + r.right) / 2, r.bottom - 1]]
     for (const [x, y] of pts) { const hit = document.elementFromPoint(x, y); if (hit && hit !== el && !el.contains(hit)) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().slice(0, 30)} at ${Math.round(x)},${Math.round(y)} → ${hit.className || hit.tagName}`) }

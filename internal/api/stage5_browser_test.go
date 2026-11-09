@@ -109,6 +109,12 @@ func TestStage5BrowserAcceptance(t *testing.T) {
 		m.link.offline.Store(r.URL.Query().Get("value") == "true")
 		fmt.Fprint(w, "ok")
 	})
+	// A skill that exists only on the machine: not in the library, so the connect step can offer to import it.
+	mux.HandleFunc("/localskill", func(w http.ResponseWriter, r *http.Request) {
+		m, name := pick(r)
+		m.localSkill(name, "written on the machine "+name)
+		fmt.Fprint(w, "ok")
+	})
 	mux.HandleFunc("/present", func(w http.ResponseWriter, r *http.Request) {
 		m, name := pick(r)
 		fmt.Fprint(w, m.present(name))

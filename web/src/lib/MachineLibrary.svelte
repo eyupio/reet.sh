@@ -1,0 +1,35 @@
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import { shell } from './dialogShell'
+  import SelectedLibrary from './SelectedLibrary.svelte'
+  import Icon from './Icon.svelte'
+  import type { SyncState } from './api'
+
+  let { host, snapshot, opener, onclose }: { host: string; snapshot: SyncState; opener: HTMLElement; onclose: () => void } = $props()
+  const titleId = $props.id()
+  let dialog = $state<HTMLDialogElement>()
+  let closeButton = $state<HTMLButtonElement>()
+  onMount(() => {
+    dialog?.showModal()
+    closeButton?.focus()
+    return () => {
+      if (dialog?.open) dialog.close()
+      if (opener.isConnected) opener.focus({ preventScroll: true })
+    }
+  })
+</script>
+
+<dialog bind:this={dialog} use:shell aria-labelledby={titleId} onclose={onclose}>
+  <header data-shell-head>
+    <h2 id={titleId}>Skills on {host}</h2>
+    <button bind:this={closeButton} class="btn quiet" type="button" aria-label="Close machine skills" data-shell-close onclick={() => dialog?.close()}><Icon name="x" size={18} /></button>
+  </header>
+  <div class="body" data-shell-body><SelectedLibrary {host} {snapshot} /></div>
+</dialog>
+
+<style>
+  dialog{width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:0;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink)}
+  dialog::backdrop{background:var(--scrim)}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line)}
+  h2{margin:0;font-size:1.1rem;overflow-wrap:anywhere;min-width:0}header button{flex:none;min-height:44px;min-width:44px}.body{padding:20px;min-width:0}
+</style>

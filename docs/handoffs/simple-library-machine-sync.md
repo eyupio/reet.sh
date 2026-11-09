@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stages 0–3 are implemented and merged to main. Stage 1 landed in [#662](https://github.com/eyupio/reet.sh/pull/662); Stage 2 and Stage 3 landed together in [#664](https://github.com/eyupio/reet.sh/pull/664), merge `d85699b410951dce35d63a5de0dad5013da695f4`. All applicable checks on its reviewed final head `46bb9ae3` are now successful, including the unchanged paired benchmark and CodeQL. See the [Stage 2 handover](simple-library-machine-sync-stage-2.md) and [Stage 3 handover](simple-library-machine-sync-stage-3.md) for local evidence and limits. Historical broad race evidence is distinguished from later focused checks; no new repository-wide race sweep is claimed here. Stages 4–7 remain unstarted. No preview/production deployment or live provisioning is claimed, and the reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stages 0–3 are implemented and merged to main. Stage 1 landed in [#662](https://github.com/eyupio/reet.sh/pull/662); Stage 2 and Stage 3 landed together in [#664](https://github.com/eyupio/reet.sh/pull/664), merge `d85699b410951dce35d63a5de0dad5013da695f4`. All applicable checks on its reviewed final head `46bb9ae3` are now successful, including the unchanged paired benchmark and CodeQL. See the [Stage 2 handover](simple-library-machine-sync-stage-2.md) and [Stage 3 handover](simple-library-machine-sync-stage-3.md) for local evidence and limits. Historical broad race evidence is distinguished from later focused checks; no new repository-wide race sweep is claimed here. Stage 4 is in progress in [draft #680](https://github.com/eyupio/reet.sh/pull/680). Stage 5 has an authorised first UX slice: see its [handover](simple-library-machine-sync-stage-5.md). Full Stage 5 acceptance still depends on Stage 4; neither stage is complete. Stages 6–7 remain unstarted. No preview/production deployment or live provisioning is claimed, and the reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -431,8 +431,8 @@ Stage 3 is complete as a source implementation: see its [implementation handover
 - [x] Stage 1: identity, supervision and connection recovery
 - [x] Stage 2: complete library, authoring, status and metadata
 - [x] Stage 3: selected-item automatic sync and edits
-- [ ] Stage 4: removal, restoration and notifications
-- [ ] Stage 5: Library and Machines UX
+- [ ] Stage 4: removal, restoration and notifications (in progress, draft #680)
+- [ ] Stage 5: Library and Machines UX (first slice in progress; Stage 4 acceptance remains required)
 - [ ] Stage 6: Linux provisioning for all four applications
 - [ ] Stage 7: independent backup, migration and release proof
 

@@ -12,6 +12,7 @@
   import MachineAddSkill from './MachineAddSkill.svelte'
   import AgentUpdate from './AgentUpdate.svelte'
   import MachineSettings from './MachineSettings.svelte'
+  import MachineLibrary from './MachineLibrary.svelte'
   import UpdateReview from './UpdateReview.svelte'
   import ContentObservation from './ContentObservation.svelte'
   import MachineSkillContent from './MachineSkillContent.svelte'
@@ -86,6 +87,7 @@
   // The settings dialog and the review read the live snapshot by host and id,
   // so a change made inside them shows there at once instead of in a stale copy.
   let settingsHost = $state('')
+  let libraryFor = $state<{ host: string; opener: HTMLElement } | null>(null)
   let review = $state<{ agentId: string; initial: 'dev' | 'latest' } | null>(null)
   const settingsMachine = $derived(machines.find((machine) => machine.host === settingsHost))
   const toneRank: Record<string, number> = { action: 0, review: 1, working: 2, attention: 3, setup: 4, synced: 5 }
@@ -485,12 +487,12 @@
       {@const scanOnly = scanOnlyAgents(machine)}
       {@const state = machineStatus(machine)}
       {@const sync = machineSyncOverview(machine, snapshot)}
-      <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${machine.host}`} oncontextmenu={cardContextMenu}>
+      <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${encodeURIComponent(machine.host)}`} oncontextmenu={cardContextMenu}>
         <header class="machine-head">
           <div class="identity">
             <span class="dot {enrolled ? (agentTone(enrolled) === 'online' ? 'current' : agentTone(enrolled)) : 'empty'}" aria-hidden="true"></span>
             <div>
-              <h3 id={`machine-${machine.host}`} title={machine.host}>{machine.host}</h3>
+              <h3 id={`machine-${encodeURIComponent(machine.host)}`} title={machine.host}>{machine.host}</h3>
               {#if highlight === machine.host}<p class="added-note">Just added</p>{/if}
               {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and install locations</p>{/if}
             </div>
@@ -504,6 +506,7 @@
             <div><strong>{sync.label}</strong><small>{sync.detail}</small></div>
           </div>
           <div class="sync-cta">
+            {#if accounts && canWrite && enrolled}<button class="btn" type="button" onclick={(event) => (libraryFor = { host: machine.host, opener: event.currentTarget })}>Choose skills</button>{/if}
             {#if offersDedupe(sync.detail)}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); void dedupe(machine) }}>{busy === `dedupe-${machine.host}` ? 'Checking…' : 'Dedupe skills'}</button>
             {:else if offersSourceFix(sync.detail)}
@@ -512,7 +515,7 @@
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void syncNow(machine, enrolled) }}>{busy === `sync-${enrolled?.id}` ? 'Starting…' : 'Sync now'}</button>
             {:else if sync.tone === 'working'}
               <a class="btn sync-now" href="/sync#sync-jobs">View progress</a>
-            {:else}
+            {:else if !(accounts && canWrite && enrolled)}
               <a class="btn sync-now" href={sync.href}>{sync.tone === 'setup' ? 'Set up sync' : 'Open sync'}</a>
             {/if}
             <details class="sync-menu">
@@ -649,6 +652,8 @@
     onclose={() => (settingsHost = '')}
   />
 {/if}
+
+{#if libraryFor}<MachineLibrary host={libraryFor.host} {snapshot} opener={libraryFor.opener} onclose={() => (libraryFor = null)} />{/if}
 
 {#if review && reviewAgent}
   <UpdateReview agent={reviewAgent} releases={snapshot.releases} initial={review.initial} onconfirm={confirmReview} oncancel={() => (review = null)} />

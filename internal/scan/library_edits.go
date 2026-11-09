@@ -25,6 +25,17 @@ type libraryBinding struct {
 	ItemID   string   `json:"itemId"`
 	Revision string   `json:"revision"`
 	Digest   string   `json:"digest"`
+	// Imported source roots and legacy edit bases never imply permission to
+	// remove a directory. Deployment is granted only by a verified new install.
+	Source     bool               `json:"source,omitempty"`
+	Deployment *libraryDeployment `json:"deployment,omitempty"`
+}
+
+type libraryDeployment struct {
+	TargetID string `json:"targetId"`
+	Revision string `json:"revision"`
+	Digest   string `json:"digest"`
+	Verified bool   `json:"verified"`
 }
 type libraryLocalState struct {
 	Server       string              `json:"server"`
@@ -202,12 +213,12 @@ func syncLibraryEdits(ctx context.Context, c agentConfig, config, version string
 	}
 	return nil
 }
-func recordLibraryInstall(config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile) error {
+func recordLibraryInstall(config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, targetID string) error {
 	if skill.ItemID == "" {
 		return nil
 	}
 	parts := privateSourcePattern.FindStringSubmatch(skill.Source)
-	if parts == nil {
+	if parts == nil || !safeSlug.MatchString(skill.Slug) || !filepath.IsAbs(path) {
 		return errors.New("invalid library source")
 	}
 	state, err := loadLibraryState(config, c)
@@ -221,15 +232,88 @@ func recordLibraryInstall(config string, c agentConfig, skill store.SyncSkill, p
 	found := false
 	for i := range state.Bindings {
 		if state.Bindings[i].Path == binding.Path {
+			previous := state.Bindings[i]
+			if previous.ItemID != binding.ItemID {
+				return errors.New("library directory belongs to a different item")
+			}
+			if targetID != "" && previous.Deployment != nil && previous.Deployment.TargetID != targetID {
+				return errors.New("library directory belongs to a different target")
+			}
+			binding.Source = previous.Source
+			// Unknown old receipts remain edit bases, even when their bytes
+			// match. A prior source import must never become removable by sync.
+			if !previous.Source && previous.Deployment != nil && previous.Deployment.TargetID == targetID && targetID != "" {
+				binding.Deployment = &libraryDeployment{TargetID: targetID, Revision: binding.Revision, Digest: binding.Digest}
+			}
 			state.Bindings[i] = binding
 			found = true
 			break
 		}
 	}
 	if !found {
+		if targetID != "" {
+			binding.Deployment = &libraryDeployment{TargetID: targetID, Revision: binding.Revision, Digest: binding.Digest}
+		}
 		state.Bindings = append(state.Bindings, binding)
 	}
 	return writePrivate(config+".library", state)
+}
+
+// finishLibraryInstall runs only after the existing executor has renamed the
+// staged bundle into place. The pre-write base pin alone never grants ownership:
+// failed/interrupted writes retain an unverified journal entry. Legacy/source
+// bindings deliberately stay unowned until a separate migration proves them.
+func finishLibraryInstall(config string, c agentConfig, skill store.SyncSkill, path, targetID string) error {
+	if skill.ItemID == "" {
+		return nil
+	}
+	lock, err := filelock.Acquire(config + ".library.lock")
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	state, err := loadLibraryState(config, c)
+	if err != nil {
+		return err
+	}
+	parts := privateSourcePattern.FindStringSubmatch(skill.Source)
+	if parts == nil || targetID == "" || !safeSlug.MatchString(skill.Slug) || !filepath.IsAbs(path) {
+		return errors.New("invalid library deployment")
+	}
+	candidate := filepath.Join(path, skill.Slug)
+	for i := range state.Bindings {
+		binding := &state.Bindings[i]
+		if binding.Path != candidate {
+			continue
+		}
+		if binding.Source || binding.Deployment == nil {
+			return nil
+		}
+		deployment := binding.Deployment
+		if binding.ItemID != skill.ItemID || binding.Revision != parts[2] || binding.Digest != parts[3] || deployment.TargetID != targetID || deployment.Revision != parts[2] || deployment.Digest != parts[3] {
+			return errors.New("library deployment changed before verification")
+		}
+		local, err := loadAgentConfig(config)
+		if err != nil {
+			return err
+		}
+		if !local.AllowApply {
+			return errors.New("local sync consent changed before verification")
+		}
+		if err := safeLibraryParent(candidate); err != nil {
+			return err
+		}
+		digest, err := privateSkillDigest(candidate)
+		if err != nil {
+			return err
+		}
+		if digest != deployment.Digest {
+			return errors.New("installed library content changed before verification")
+		}
+		deployment.Verified = true
+		return writePrivate(config+".library", state)
+	}
+	return errors.New("library deployment was not prepared")
 }
 
 // A failed or unsent local capture must survive a remote apply. Exclude just
@@ -295,7 +379,7 @@ func recordLibrarySource(config string, c agentConfig, path, item, revision stri
 			return errors.New("source has an unsent edit")
 		}
 	}
-	binding := libraryBinding{Path: path, ItemID: item, Revision: revision, Digest: manifest.Digest}
+	binding := libraryBinding{Path: path, ItemID: item, Revision: revision, Digest: manifest.Digest, Source: true}
 	for _, file := range manifest.Files {
 		binding.Paths = append(binding.Paths, file.Path)
 	}
@@ -313,7 +397,7 @@ func recordLibrarySource(config string, c agentConfig, path, item, revision stri
 	return writePrivate(config+".library", state)
 }
 
-func prepareLibraryInstall(ctx context.Context, config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, version string) error {
+func prepareLibraryInstall(ctx context.Context, config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, version, targetID string) error {
 	if skill.ItemID == "" {
 		return nil
 	}
@@ -322,10 +406,10 @@ func prepareLibraryInstall(ctx context.Context, config string, c agentConfig, sk
 		return err
 	}
 	defer lock.Close()
-	return prepareLibraryInstallLocked(ctx, config, c, skill, path, files, version)
+	return prepareLibraryInstallLocked(ctx, config, c, skill, path, files, version, targetID)
 }
 
-func prepareLibraryInstallLocked(ctx context.Context, config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, version string) error {
+func prepareLibraryInstallLocked(ctx context.Context, config string, c agentConfig, skill store.SyncSkill, path string, files []skillbundle.ContentFile, version, targetID string) error {
 	state, err := loadLibraryState(config, c)
 	if err != nil {
 		return err
@@ -349,7 +433,7 @@ func prepareLibraryInstallLocked(ctx context.Context, config string, c agentConf
 	if receipt != in {
 		return errors.New("invalid library base receipt")
 	}
-	return recordLibraryInstall(config, c, skill, path, files)
+	return recordLibraryInstall(config, c, skill, path, files, targetID)
 }
 
 // Adopt an existing directory only from exact selected bytes or a verified
@@ -414,7 +498,7 @@ func adoptLibraryInstall(ctx context.Context, config string, c agentConfig, want
 	if err != nil {
 		return err
 	}
-	if err := prepareLibraryInstallLocked(ctx, config, c, base, path, files, version); err != nil {
+	if err := prepareLibraryInstallLocked(ctx, config, c, base, path, files, version, ""); err != nil {
 		return err
 	}
 	if dirty {

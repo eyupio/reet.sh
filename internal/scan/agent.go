@@ -628,7 +628,9 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				opts := syncOptions{onExisting: func(skill store.SyncSkill, target store.SyncTarget, path string) error {
 					return adoptLibraryInstall(ctx, config, c, skill, target, path, version)
 				}, filterDesired: func(skills []store.SyncSkill) []store.SyncSkill { return filterLibraryPending(config, c, skills) }, onInstalled: func(skill store.SyncSkill, path string, files []skillbundle.ContentFile) error {
-					return prepareLibraryInstall(ctx, config, c, skill, path, files, version)
+					return prepareLibraryInstall(ctx, config, c, skill, path, files, version, j.TargetID)
+				}, onInstallVerified: func(skill store.SyncSkill, path string) error {
+					return finishLibraryInstall(config, c, skill, path, j.TargetID)
 				}, cwd: dir, verifyEnrollment: true, preflight: requireDependencies, onBackup: func(path string) { result.Plan.Backups = append(result.Plan.Backups, path) }, onPlan: func(p SyncPlan) { result.Plan = p; result.Hash = p.Hash() }, onProgress: func(stage, detail string) {
 					reportCtx, reportCancel := context.WithTimeout(ctx, 5*time.Second)
 					defer reportCancel()

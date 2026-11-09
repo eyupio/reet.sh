@@ -52,17 +52,20 @@ func (p SyncPlan) Hash() string {
 }
 
 type syncOptions struct {
-	filterDesired    func([]store.SyncSkill) []store.SyncSkill
-	onExisting       func(store.SyncSkill, store.SyncTarget, string) error
-	onInstalled      func(store.SyncSkill, string, []skillbundle.ContentFile) error
-	verifyEnrollment bool
-	approvedHash     string
-	cwd              string
-	onTarget         func(store.SyncTarget)
-	onPlan           func(SyncPlan)
-	onProgress       func(string, string)
-	onBackup         func(string)
-	preflight        func([]SyncAction) error
+	filterDesired func([]store.SyncSkill) []store.SyncSkill
+	onExisting    func(store.SyncSkill, store.SyncTarget, string) error
+	onInstalled   func(store.SyncSkill, string, []skillbundle.ContentFile) error
+	// onInstalled pins the base before writing; onInstallVerified records
+	// ownership only after the private installer actually completed its rename.
+	onInstallVerified func(store.SyncSkill, string) error
+	verifyEnrollment  bool
+	approvedHash      string
+	cwd               string
+	onTarget          func(store.SyncTarget)
+	onPlan            func(SyncPlan)
+	onProgress        func(string, string)
+	onBackup          func(string)
+	preflight         func([]SyncAction) error
 }
 
 var errMissingNpx = errors.New("npx was not found, or Node.js is older than 18; install a current Node.js (which provides npx and npm) on this machine, then sync again")
@@ -1046,6 +1049,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 					}
 					return nil
 				})
+				if operationErr == nil && options.onInstallVerified != nil {
+					operationErr = options.onInstallVerified(action.Skill, targetPath)
+				}
 			} else if operationErr == nil {
 				source, err := syncSource(action.Skill)
 				if err != nil {

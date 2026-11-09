@@ -1177,7 +1177,7 @@ func itemFailuresError(failed map[string]error) error {
 	if len(slugs) == 1 {
 		noun = "item needs"
 	}
-	return fmt.Errorf("healthy items synced; %d %s attention (%s); their local files were left as they were", len(slugs), noun, strings.Join(parts, "; "))
+	return fmt.Errorf("sync finished; %d %s attention (%s); inspect the recorded results and backups before retrying", len(slugs), noun, strings.Join(parts, "; "))
 }
 
 // linkSharedInstall exposes a skill in an agent's own folder. The skills CLI

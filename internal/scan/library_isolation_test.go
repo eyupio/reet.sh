@@ -19,7 +19,7 @@ import (
 // A failure applying one managed item must not stop an unrelated healthy item
 // in the same apply, and must still be reported rather than hidden.
 func TestManagedRemovalFailureIsIsolatedPerItem(t *testing.T) {
-	for _, mode := range []string{"intent_changed", "authority_changed"} {
+	for _, mode := range []string{"intent_changed", "post_move_failure", "authority_changed"} {
 		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
@@ -64,6 +64,10 @@ func TestManagedRemovalFailureIsIsolatedPerItem(t *testing.T) {
 							http.Error(w, "intent changed", http.StatusConflict)
 							return
 						}
+						if mode == "post_move_failure" && n >= 5 {
+							http.Error(w, "intent changed after backup", http.StatusConflict)
+							return
+						}
 					}
 					_ = json.NewEncoder(w).Encode(store.LibraryDeploymentIntent{Generation: strings.Repeat("a", 64), Action: "remove", Reason: "inactive"})
 					return
@@ -106,19 +110,31 @@ func TestManagedRemovalFailureIsIsolatedPerItem(t *testing.T) {
 			}
 			_, failingErr := os.Lstat(filepath.Join(root, "a-failing"))
 			_, healthyErr := os.Lstat(filepath.Join(root, "z-healthy"))
-			if failingErr != nil {
+			if mode == "post_move_failure" && !os.IsNotExist(failingErr) {
+				t.Fatal("the post-move fixture never moved its managed copy", failingErr)
+			}
+			if mode != "post_move_failure" && failingErr != nil {
 				t.Fatal("the failing item's files were not retained", failingErr)
 			}
-			if mode == "intent_changed" {
-				if !os.IsNotExist(healthyErr) || len(backups) != 1 {
+			if mode != "authority_changed" {
+				wantBackups := 1
+				if mode == "post_move_failure" {
+					wantBackups = 2
+					if strings.Contains(err.Error(), "left as they were") {
+						t.Fatal("a post-write failure falsely claimed files were unchanged", err)
+					}
+				}
+				if !os.IsNotExist(healthyErr) || len(backups) != wantBackups {
 					t.Fatalf("a healthy item was stopped by an unrelated failure: stat=%v backups=%v run=%v", healthyErr, backups, err)
 				}
 				if !strings.Contains(err.Error(), "a-failing") || !strings.Contains(err.Error(), "attention") {
 					t.Fatal("the failing item is not named in the result", err)
 				}
-				got, _ := privateSkillDigest(backups[0])
-				if got != digests["z-healthy"] {
-					t.Fatal("healthy backup changed")
+				for _, backup := range backups {
+					got, _ := privateSkillDigest(backup)
+					if got != digests[filepath.Base(backup)] {
+						t.Fatal("recoverable backup changed", backup)
+					}
 				}
 			} else if healthyErr != nil || len(backups) != 0 {
 				t.Fatalf("withdrawn consent must stop the whole target: err=%v backups=%v", healthyErr, backups)

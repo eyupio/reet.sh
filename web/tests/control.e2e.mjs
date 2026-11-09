@@ -27,6 +27,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/environments')data={environments,machines:snapshot.machines}
  else if(path==='/api/tags')data={tags:[]}
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
+ else if(path==='/api/v2/library')data={schemaVersion:1,items:[]}
  else if(path==='/api/v2/sync'){
   if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}})
   data=snapshot

@@ -178,7 +178,7 @@
       {#if onterminal}<button type="button" role="menuitem" onclick={() => { const target = card; pick((opener) => onterminal?.(target, opener)) }}>New terminal</button>{/if}
       {#if menuKind === 'actions'}
         <button type="button" role="menuitem" onclick={() => open(`/machines?machine=${encodeURIComponent(card.name)}`)}>Open on Machines</button>
-        <button type="button" role="menuitem" onclick={() => open(`/sync?machine=${encodeURIComponent(card.name)}`)}>Skills &amp; sync</button>
+        <button type="button" role="menuitem" onclick={() => open(`/machines?machine=${encodeURIComponent(card.name)}&choose=skills`)}>Skills &amp; sync</button>
       {/if}
     </div>
   {/if}

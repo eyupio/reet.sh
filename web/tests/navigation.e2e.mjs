@@ -141,7 +141,7 @@ try {
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
    // Neither Control (folded into Home and Machines) nor Activity (in the account) is under More any more.
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Prompts','Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Library','Prompts','Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
    await page.keyboard.press('Escape')
    await expect(more).toBeHidden()
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
@@ -203,8 +203,8 @@ try {
   await tabs(page).getByRole('button',{name:'More',exact:true}).click()
   const more = page.getByRole('dialog',{name:'More'})
   const names = await more.getByRole('link').allInnerTexts()
-  expect(names.map(t=>t.trim())).toEqual(['Prompts','Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
-  await expect(more.getByRole('region',{name:'Skills & distribution'}).getByRole('link')).toHaveText(['Prompts','Setups','Lists','Write a skill'])
+  expect(names.map(t=>t.trim())).toEqual(['Library','Prompts','Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
+  await expect(more.getByRole('region',{name:'Skills & distribution'}).getByRole('link')).toHaveText(['Library','Prompts','Setups','Lists','Write a skill'])
   await expect(more.getByRole('region',{name:'Help & community'}).getByRole('link')).toHaveText(['Community','Support'])
   await expect(more.getByRole('region',{name:'Workspace'}).getByRole('link')).toHaveText(['Teams & organisations','Instance administration'])
   const hrefs = [...await tabs(page).getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href'))), ...await more.getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href')))]

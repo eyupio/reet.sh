@@ -1467,7 +1467,7 @@ try {
   const {context,page,errors} = await launch({width:834, height:1112, touch:true})
   await page.goto(base); await openQuick(page)
   const visible = () => bar(page).locator('.sentence').evaluate(el => [...el.querySelectorAll('.part')].filter(p => p.getClientRects().length).map(p => p.textContent.trim()).join(' '))
-  await expect.poll(visible).toBe('Run Claude Code on Store rewrite at studio from main')
+  await expect.poll(visible).toBe('Run Claude Code on Store rewrite at studio from main · thinking default')
   await expect(slot(page,'Model')).toBeHidden()
   await expect(slot(page,'Worktree')).toBeHidden()
   await bar(page).getByRole('button',{name:'Change',exact:true}).click()

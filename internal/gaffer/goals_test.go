@@ -627,3 +627,31 @@ func TestControllerShutdownDuringReceiptReadLeavesIdleGoalResumable(t *testing.T
 		t.Fatal("shutdown paused an idle goal", saved, err)
 	}
 }
+
+func TestAFencedControllerReviewsNoGoalUntilTheLift(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := advancingGoalProvider(&calls)
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 2)
+	workerProgress(t, st, g, 1)
+	g = dueGoal(t, st, g)
+	if _, err := st.SetFence(""); err != nil {
+		t.Fatal(err)
+	}
+	s.reviewDueGoals(context.Background())
+	if cur, _ := st.GafferGoalFor(g.OwnerID, g.ConversationID); calls.Load() != 0 || cur.ActiveTurnID != "" || cur.UsedReviews != g.UsedReviews {
+		t.Fatal("a goal was reviewed while fenced")
+	}
+	if _, err := st.LiftFence(); err != nil {
+		t.Fatal(err)
+	}
+	s.reviewDueGoals(context.Background())
+	finishReview(t, s, g)
+	// One admitted review makes two provider calls in this fixture.
+	if calls.Load() != 2 {
+		t.Fatalf("after the lift the goal was reviewed with %d provider calls, want 2", calls.Load())
+	}
+}

@@ -5,6 +5,16 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **A controller can be fenced as moved.** `reet backup fence [--moved-to URL]
+  [--lift]` and `GET`, `POST` and `DELETE /api/v2/admin/fence` (owner only) raise,
+  read and lift a persisted state that refuses every write with 423 (Locked), with
+  a message saying the controller has moved, when and to where. Reads work. The
+  owner's backup settings, run, download and verify, the fence's own routes, and
+  signing in and out still work. Scheduled backups, the mail queue, the notifier,
+  project runs, software batches, Gaffer goals, queued chat messages and the
+  scheduled sweeps stand still, and carry on after the lift. The state survives a
+  restart. A copy taken while fenced is marked fenced. `GET /api/version` lists
+  `"fence"` under `features`.
 - **A copy of a controller that was not stopped now needs `--allow-live-source`.**
   `reet backup restore` and `reet backup import` (and the `allowLiveSource` field
   of `POST /api/v2/admin/backups/import`) refuse a whole-controller copy that

@@ -213,6 +213,16 @@ func (s *server) mcpDo(ctx context.Context, api http.Handler, access mcpAccess, 
 	if !allowedPath || needsWrite {
 		return nil, errors.New("this MCP connection is read-only")
 	}
+	// An MCP call is a POST whatever it does, so the fence is checked here, on
+	// the request it makes: reads go through and writes are refused.
+	if method != "GET" {
+		if f, err := s.st.Fence(); err != nil || f.Fenced {
+			if err != nil {
+				return nil, errors.New("this controller cannot tell whether it has moved, so it is not accepting changes")
+			}
+			return nil, errors.New(fenceMessage(f))
+		}
+	}
 	raw, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(context.WithValue(ctx, userContextKey{}, access.User), method, origin+path+"?"+query.Encode(), bytes.NewReader(raw))
 	if err != nil {

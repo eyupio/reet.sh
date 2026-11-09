@@ -130,3 +130,30 @@ func TestMaintenanceScheduleRemovesOnlySafeWorktreesAndOnlyWhenOn(t *testing.T) 
 		t.Fatal("summary", last)
 	}
 }
+
+// A fenced controller runs no scheduled sweep on any machine, and sweeps again
+// once the fence is lifted.
+func TestAFencedControllerRunsNoScheduledSweepUntilTheLift(t *testing.T) {
+	f := launchAPIFixture(t, worktreeCaps("claude"))
+	endedWorktreeSession(t, f)
+	f.answer(func(body terminalproto.Body) terminalproto.Body {
+		return terminalproto.WorktreeState{Path: worktreeTestPath, Branch: worktreeTestBranch, Changed: 1}
+	})
+	if code, _, raw := f.do(t, f.cookie, "PUT", "/api/v2/maintenance/worktrees", map[string]any{"enabled": true, "minAgeDays": 0}); code != 200 {
+		t.Fatal(code, raw)
+	}
+	if _, err := f.srv.s.st.SetFence(""); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.s.runScheduledMaintenance(time.Now())
+	if len(f.worktreeSent()) != 0 || f.srv.s.worktreeSweepLast() != nil {
+		t.Fatal("a sweep ran while fenced")
+	}
+	if _, err := f.srv.s.st.LiftFence(); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.s.runScheduledMaintenance(time.Now())
+	if f.srv.s.worktreeSweepLast() == nil {
+		t.Fatal("no sweep ran after the lift")
+	}
+}

@@ -1670,6 +1670,12 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 func (s *Service) runDue(ctx context.Context) {
+	// A fenced controller takes no scheduled copies: they would ship to a
+	// destination and could push the final copy out of retention. The owner's
+	// own "run now" still works.
+	if s.st.Fenced() {
+		return
+	}
 	now := time.Now().UnixMilli()
 	settings, settingsErr := s.settingsFor(0)
 	due := settingsErr == nil && settings.EverySeconds > 0 &&

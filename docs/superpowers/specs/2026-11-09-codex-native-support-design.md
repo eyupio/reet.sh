@@ -2,7 +2,7 @@
 
 Status: agreed in outline with the owner; slice 1 is done (see the probe report).
 Modelled on `2026-11-08-claude-code-native-support-design.md`. Evidence comes from a read-only survey of the code, `docs/device-checks.md`
-and the captured help; no `codex` binary was available, so nothing here was freshly run.
+and the captured help, and, for slice 1, from running the real adapter signed out (see the probe report).
 
 ## Goal
 
@@ -23,7 +23,7 @@ not assumed, and each one that does not work is hidden or explained.
 ## Where Codex differs from Claude Code
 
 - Sign-in is checked at `session/new`, not at the first prompt, so Run B gates starting any chat, not only the default-on flip.
-- Effort is `reasoning_effort` (`low` to `ultra`, no `default`), and effort is also embedded in model ids (`gpt-6-astra[low]`). Switching model may change the effort list.
+- Effort is `reasoning_effort` (`low` to `ultra`, no `default`) and its values depend on the model; the adapters measured on 9 November carry no effort in model ids. A model switch keeps the chosen effort where the new model offers it.
 - Modes are three sandbox modes plus `collaboration_mode` (`default`/`plan`, not exposed). Approvals are model-driven escalations. `allow_always` is a persistent rule and is not offered.
 - Terminal: `resume` is a subcommand (`codex resume [--last] [id]`), effort is a `-c key=value` override with no flag, the existing YOLO flag keeps the sandbox, and the real bypass is a different flag.
 - Two packages are involved (the adapter and `@openai/codex`), and the captured help (0.163.0) and the chat probes (0.156.1) are different versions.

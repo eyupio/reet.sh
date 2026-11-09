@@ -61,7 +61,12 @@ def take(data, channel, answers):
             records.append({"stderr": line.decode(errors="replace")[:500]})
             continue
         m = json.loads(line)
-        records.append({"agent": m})
+        # The sign-in notice can carry the account email: the log keeps its kind and label only, like the summary.
+        if m.get("method") == "_auth/status_update":
+            status = (m.get("params") or {}).get("authStatus") or {}
+            records.append({"agent": {"method": m["method"], "params": {"authStatus": {"kind": status.get("kind"), "label": status.get("label")}}}})
+        else:
+            records.append({"agent": m})
         if "method" in m and "id" in m:
             send({"jsonrpc": "2.0", "id": m["id"], "error": {"code": -32601, "message": "probe does not implement this callback"}})
         elif m.get("method") == "_auth/status_update":
@@ -140,19 +145,43 @@ def fresh():
     return res["result"]["sessionId"] if "result" in res else None
 
 
+def fresh_or_note():
+    sid = fresh()
+    return sid or "missing-session"
+
+
 def sweeps(native):
     """Set each mode and each effort in turn, then each model on a session of its own (what that model offers and defaults to), then
     carry one chosen effort across every model switch (does the choice survive, and what happens when the new model lacks it)."""
-    base = option_table(ask("session/set_config_option", {"sessionId": native, "configId": "mode", "value": args.mode}).get("result") or {})
-    out = {cid: [set_option(native, cid, v) for v in (base.get(cid) or {}).get("values") or []] for cid in ("mode", "reasoning_effort")}
-    models = (base.get("model") or {}).get("values") or []
-    out["model"] = [set_option(fresh(), "model", v) for v in models]
+    first = ask("session/set_config_option", {"sessionId": native, "configId": "mode", "value": args.mode})
+    if "result" not in first:
+        return {"error": first.get("error", first)}  # nothing below means anything without this session
+    base = option_table(first["result"])
+    missing = [cid for cid in ("mode", "reasoning_effort", "model") if not (base.get(cid) or {}).get("values")]
+    if missing:
+        return {"error": "the adapter offers no values for " + ", ".join(missing), "options": sorted(base)}
+    out = {cid: [set_option(native, cid, v) for v in base[cid]["values"]] for cid in ("mode", "reasoning_effort")}
+    models = base["model"]["values"]
+    out["model"] = [set_option(fresh_or_note(), "model", v) for v in models]
+    # Every effort each model offers, set on a session already switched to that model, so "reads back" is measured per model.
+    perModel = []
+    for v in models:
+        sid = fresh()
+        switched = set_option(sid, "model", v) if sid else {"error": "session/new failed"}
+        offered = switched.get("effortValues") or []
+        perModel.append({"model": v, "switch": switched.get("readBack"), "efforts": [set_option(sid, "reasoning_effort", e) for e in offered] if sid else []})
+    out["effortPerModel"] = perModel
     for effort in ("high", "ultra"):
         carried = []
         for v in models:
             sid = fresh()
-            set_option(sid, "reasoning_effort", effort)
-            carried.append(set_option(sid, "model", v))
+            if not sid:
+                carried.append({"value": v, "error": "session/new failed"})
+                continue
+            chosen = set_option(sid, "reasoning_effort", effort)
+            record = set_option(sid, "model", v)
+            record["effortSetFirst"] = chosen.get("readBack")  # distinguishes a fallback to low from an effort that was never set
+            carried.append(record)
         out["effortCarried:" + effort] = carried
     return out
 
@@ -168,6 +197,8 @@ try:
                 "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False}})
     r = init.get("result", {})
     summary["initialize"] = {"agentInfo": r.get("agentInfo"), "authMethods": [m.get("id") for m in r.get("authMethods") or []]}
+    if "error" in init:
+        summary["initialize"]["error"] = init["error"]  # e.g. codex exiting because CODEX_HOME points at a folder that does not exist
     caps = r.get("agentCapabilities") or {}
     summary["capabilities"] = {"loadSession": caps.get("loadSession"), "promptCapabilities": caps.get("promptCapabilities"),
                                "sessionCapabilities": sorted((caps.get("sessionCapabilities") or {}).keys()), "mcpCapabilities": caps.get("mcpCapabilities")}

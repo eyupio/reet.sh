@@ -517,14 +517,14 @@ REET_CODEX_ACP=/path/to/node_modules/.bin/codex-acp go test ./internal/acpagent 
 | `session/load` and other session methods advertised | `loadSession` true; session methods `resume`, `list`, `close`, `delete`, `fork`, `additionalDirectories`, `subagents` (2.6.0 adds `title` and `systemPrompt`) | probe `capabilities` |
 | A conversation the adapter never stored | `-32603` "Internal error" with `data.details` "no rollout found for thread id …". Not the `-32002` "Resource not found" the connector maps, so reet reports it as a generic "the agent exited" | probe `unstoredLoad`, `TestRealCodexStart` |
 | Reasoning effort offered | `reasoning_effort`, current `low`. Values depend on the model: `low` to `ultra` on `gpt-6-astra`, `gpt-6-sol`, `gpt-5.6-sol`, `gpt-5.6-terra` (and `gpt-6.1-sol`, `gpt-6.1-terra` on 2.6.0); `low` to `max` on the two `luna` models; `low` to `xhigh` on `gpt-5.5` | probe `sweeps` |
-| Effort reads back | Every value the model offers reads back when set. Model ids in these adapters carry no effort suffix (the 2 November note that effort can be embedded in a model id is not what these two versions report) | probe `sweeps`, `TestRealCodexStart` |
-| An effort the model does not offer | Refused by reet before anything is sent (`ErrControl`) | `TestRealCodexStart` |
-| Model switch and the chosen effort | The effort is kept when the new model offers it; when it does not (`ultra` carried to a `luna` model or `gpt-5.5`) the adapter falls back to `medium`. The effort list follows the model | probe `sweeps` (`effortCarried`), `TestRealCodexStart` |
+| Effort reads back | On every model, every effort it offers reads back when set on a session already switched to that model (38 sets on 1.13.1, 50 on 2.6.0, no mismatch). Model ids in these adapters carry no effort suffix (the 2 November note that effort can be embedded in a model id is not what these two versions report) | probe `sweeps` (`effortPerModel`) |
+| An effort the model does not offer | Refused by reet before anything is sent (`ErrControl`), checked on the default model | `TestRealCodexStart` |
+| Model switch and the chosen effort | The effort is kept when the new model offers it; when it does not (`ultra` carried to a `luna` model or `gpt-5.5`) the adapter falls back to `medium`. The effort list follows the model | probe `sweeps` (`effortCarried`); the test checks the effort always stays inside the new model's list |
 | Model switch reads back | Every listed model reads back when set, signed-out | probe `sweeps` |
 | Modes | `read-only`, `agent`, `agent-full-access` on 1.13.1; 2.6.0 adds `workspace-write`. Each reads back when set. Starting mode is `agent`; reet starts the chat in `read-only` | probe `sweeps` |
 | Default model | `gpt-6-astra` on 1.13.1, `gpt-6.1-sol` on 2.6.0. The offered list changes between adapter versions | probe `options` |
 | A Codex folder that exists but holds no login | `session/new` fails `-32000` "Authentication required"; reet reports "Sign in to Codex on that machine first." | `TestRealCodexStart` |
-| No Codex folder at all | codex exits with code 1 (`CODEX_HOME points to …, but that path does not exist`), because the profile sets `CODEX_HOME` to `~/.codex` whether or not it exists. reet reports "the agent exited", not the sign-in message. A person who has never used Codex hits this | probe `--codex-home` a missing path, `TestRealCodexStart` (logged) |
+| No Codex folder at all | codex exits with code 1 (`CODEX_HOME points to …, but that path does not exist`), because the profile sets `CODEX_HOME` to `~/.codex` whether or not it exists. reet reports "the agent exited", not the sign-in message. A person who has never used Codex hits this | probe with `--codex-home` set to a missing path (the summary's `initialize.error` or `session/new`), `TestRealCodexStart` (logged) |
 | Terminal resume and effort (help only) | `codex resume [SESSION_ID] [PROMPT]` is a subcommand (`--last` picks the latest; a UUID or name is accepted); `-c, --config <key=value>` overrides any config value. No effort flag. Help only, nothing was run | `codex resume --help` on both CLIs |
 
 **Not measured:** anything that needs a signed-in session or a model turn: history replay (a stored turn), a real model accepting an image, the effort
@@ -532,7 +532,8 @@ values and model list a real account is offered (these lists come from the adapt
 id opens in `codex resume`, whether `-c model_reasoning_effort=<value>` is honoured by the terminal CLI, and `authStatus` on a logged-in machine.
 These wait for Run B in [Device checks](../../device-checks.md).
 
-**What this gives the parity slice:** the descriptor can claim images and history (the adapter advertises both and rejects unknown ids in a known
-form) once the unstored-load error is mapped; model and effort can be offered and confirmed by read-back, with the effort list refreshed after a model
+**What this gives the parity slice:** the descriptor can claim images (the adapter advertises them; a real model accepting one is not measured) and
+reconnect to a stored conversation (the adapter advertises `session/load` and rejects unknown ids in a known form, once that error is mapped; replaying history
+waits for Run B); model and effort can be offered and confirmed by read-back, with the effort list refreshed after a model
 switch; the Codex-folder-missing start failure should read as a sign-in request; and the pin is a floor, not a version, because the offered models
 and modes move between adapter versions.

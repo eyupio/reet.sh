@@ -334,7 +334,8 @@ func codexHome(t *testing.T, signedIn bool) string {
 // the Codex parity work depends on, as measured signed-out with a placeholder login (a signed-in run adds what needs a real session):
 // a machine without a Codex login is told to sign in; a chat starts in read-only; the reasoning effort is offered, reads back when
 // set and is refused for a value the model does not offer; and a model switch keeps the chosen effort when the new model still
-// offers it and otherwise falls back to a value it does offer. A conversation the adapter never stored is refused.
+// offers it and never leaves one it does not offer (the fall-back to medium is measured by the probe's effortCarried sweep, which
+// switches every model, and only logged here). A conversation the adapter never stored is refused.
 func TestRealCodexStart(t *testing.T) {
 	binary := os.Getenv("REET_CODEX_ACP")
 	if binary == "" {
@@ -353,7 +354,7 @@ func TestRealCodexStart(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(emptyFolder, ".codex"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if session, err := Start(ctx, opts(emptyFolder)); err == nil || err.Error() != "Sign in to Codex on that machine first." {
+	if session, err := Start(ctx, opts(emptyFolder)); err == nil || !errors.Is(err, ErrCodexLogin) {
 		if session != nil {
 			session.Close()
 		}
@@ -370,7 +371,12 @@ func TestRealCodexStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer session.Close()
+	defer func() {
+		session.Close()
+		if !session.GroupRetired() {
+			t.Error("Close did not confirm that every process the adapter started is gone")
+		}
+	}()
 	if session.SessionID() == "" || session.Model() == "" {
 		t.Fatalf("session %q model %q", session.SessionID(), session.Model())
 	}
@@ -404,7 +410,7 @@ func TestRealCodexStart(t *testing.T) {
 	if err := session.SetOption(ctx, effort.ID, "ultra"); err != nil {
 		t.Fatalf("choosing ultra on %q: %v", session.Model(), err)
 	}
-	sawKept, sawFallback := false, false
+	sawFallback := false
 	for _, value := range model.Values {
 		before := settingOf(t, session.Controls(), "thought_level").Current
 		if err := session.SetOption(ctx, model.ID, value); err != nil {
@@ -415,7 +421,6 @@ func TestRealCodexStart(t *testing.T) {
 			t.Fatalf("model %q left effort %q outside the values it offers %v", value, after.Current, after.Values)
 		}
 		if slices.Contains(after.Values, before) {
-			sawKept = sawKept || after.Current == before
 			if after.Current != before {
 				t.Fatalf("model %q offers %q but the switch changed the effort from it to %q", value, before, after.Current)
 			}
@@ -426,7 +431,7 @@ func TestRealCodexStart(t *testing.T) {
 			t.Fatalf("choosing ultra on %q: %v", value, err)
 		}
 	}
-	t.Logf("across %d models: effort kept where offered=%v, fell back where not offered=%v", len(model.Values), sawKept, sawFallback)
+	t.Logf("across %d models: an effort the new model lacked was replaced=%v", len(model.Values), sawFallback)
 
 	// A conversation the adapter never stored cannot be opened. Its refusal is a generic internal error that names the missing
 	// thread, not the stored-conversation code the other adapters use; mapping it is part of the history work.

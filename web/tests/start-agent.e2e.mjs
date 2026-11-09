@@ -657,6 +657,8 @@ try{
  const projectPlus=page.locator('#terminal-sessions').getByRole('button',{name:'New session in Site',exact:true})
  await expect(projectPlus).toBeEnabled()
  await projectPlus.click()
+ // The project's + asks agent or terminal first; the agent choice opens the dialog on that project's machine.
+ await page.getByRole('dialog',{name:'New session in Site',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
  d=dialog();p=parts(d)
  await expect(p.project).toHaveValue(PROJECT_ID)
  await expect(p.machine).toHaveValue(A)

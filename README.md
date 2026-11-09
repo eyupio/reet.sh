@@ -509,6 +509,7 @@ reet backup list                      # instance copies on this machine
 reet backup run                       # take one now, and ship it
 reet backup open --password-file p f  # open a downloaded copy to stdout
 reet backup escrow --out f --passphrase-file p   # key and destinations, sealed
+reet backup fence --moved-to URL     # stop this controller acting before the final copy; --lift undoes it
 reet backup restore --yes <id>        # with the server stopped; without --yes it only checks and reports. --drop-sessions, --drop-tokens, --owner-email ADDR, --allow-live-source
 reet backup import --server URL --token-file F COPY   # into a running controller; applied at its next start
 ```

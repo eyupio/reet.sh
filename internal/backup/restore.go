@@ -182,7 +182,7 @@ func checkLiveSource(m Manifest, allow bool) error {
 	if state == "unknown" {
 		what = "it does not say whether its source controller was stopped (an older reet took it)"
 	}
-	return fmt.Errorf("%w: %s. If that controller is still live, two controllers would work from one set of data, and this copy may already be out of date. Stop the old controller, take a final copy of it once it is stopped, and use that; or, if you know the old one is gone, say so with --allow-live-source", ErrLiveSource, what)
+	return fmt.Errorf("%w: %s. If that controller is still live, two controllers would work from one set of data, and this copy may already be out of date. Fence the old controller with `reet backup fence`, take a final copy of it, and use that; or, if you know the old one is gone, say so with --allow-live-source", ErrLiveSource, what)
 }
 
 // ErrNewerSchema is returned for a copy taken by a newer reet.

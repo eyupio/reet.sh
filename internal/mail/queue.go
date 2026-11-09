@@ -116,6 +116,12 @@ type Pass struct {
 // messages it had not yet tried back in the queue, rather than leaving them
 // marked sending, and unsendable and unresendable, until a restart.
 func (q *Queue) RunOnce(ctx context.Context) (Pass, error) {
+	// A fenced controller sends nothing: its queued mail stays queued, to go
+	// out if the fence is lifted. Mail that already left cannot be recalled,
+	// which is why the fence goes up before the final copy is taken.
+	if q.Store.Fenced() {
+		return Pass{}, nil
+	}
 	var claimed []store.Mail
 	tried := 0
 	p, err := q.runOnce(ctx, &claimed, &tried)

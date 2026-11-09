@@ -432,6 +432,20 @@ func (s *Service) SetDefaults(by string, defaults []Default) error {
 	return nil
 }
 
+// retention is how long a read notification is kept.
+var retention = 90 * 24 * time.Hour
+
+// prune drops old read notifications. A fenced controller changes nothing, so
+// it leaves them for the controller that took over.
+func (s *Service) prune() {
+	if s.Store.Fenced() {
+		return
+	}
+	if _, err := s.Store.PruneNotifications(retention); err != nil {
+		s.log().Error("notifications: pruning", "error", err)
+	}
+}
+
 // Loop prunes old read notifications until ctx ends.
 func (s *Service) Loop(ctx context.Context, every time.Duration) {
 	if s == nil {
@@ -439,17 +453,13 @@ func (s *Service) Loop(ctx context.Context, every time.Duration) {
 	}
 	t := time.NewTicker(every)
 	defer t.Stop()
-	if _, err := s.Store.PruneNotifications(90 * 24 * time.Hour); err != nil {
-		s.log().Error("notifications: pruning", "error", err)
-	}
+	s.prune()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if _, err := s.Store.PruneNotifications(90 * 24 * time.Hour); err != nil {
-				s.log().Error("notifications: pruning", "error", err)
-			}
+			s.prune()
 		}
 	}
 }

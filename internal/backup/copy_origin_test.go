@@ -184,3 +184,54 @@ func mustStore(t *testing.T) *store.Store {
 	t.Cleanup(func() { st.Close() })
 	return st
 }
+
+// A fenced controller takes no scheduled copy; the owner's own run still works
+// and is marked fenced, and the schedule goes on after the lift.
+func TestAFencedControllerTakesNoScheduledCopyButAManualOneWorks(t *testing.T) {
+	svc, st, _, _ := liveController(t)
+	if _, err := svc.SaveSettings(0, SettingsInput{EverySeconds: 60, Keep: 10, Destination: "local", Compression: CompressionNone}); err != nil {
+		t.Fatal(err)
+	}
+	// Make the next scheduled copy due now.
+	due, err := st.BackupSettingsFor(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	due.NextAt = 1
+	if err := st.SaveBackupSettingsFor(due); err != nil {
+		t.Fatal(err)
+	}
+	count := func() int {
+		items, err := svc.LocalItems(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(items)
+	}
+	before := count()
+	if _, err := st.SetFence(""); err != nil {
+		t.Fatal(err)
+	}
+	svc.runDue(context.Background())
+	if count() != before {
+		t.Fatal("a scheduled copy was taken while fenced")
+	}
+	if _, err := st.LiftFence(); err != nil {
+		t.Fatal(err)
+	}
+	after := count()
+	svc.runDue(context.Background())
+	if count() != after+1 {
+		t.Fatal("the schedule did not run after the lift")
+	}
+	if _, err := st.SetFence(""); err != nil {
+		t.Fatal(err)
+	}
+	item, err := svc.RunInstance(context.Background(), "cli")
+	if err != nil {
+		t.Fatalf("the owner's own run was refused while fenced: %v", err)
+	}
+	if m := manifestOfCopy(t, svc, item.ID); m.Fenced == nil || !*m.Fenced {
+		t.Fatal("a copy taken while fenced is not marked fenced")
+	}
+}

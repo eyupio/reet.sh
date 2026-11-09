@@ -291,6 +291,78 @@ choice is written to the activity log (`backup-restored`, with `allowLiveSource`
 fence recorded in a copy is never carried across: the controller a copy lands on
 is the one meant to be live, so a restore clears it.
 
+### Fencing a controller that is moving
+
+Moving a controller safely means the old one stops acting before the final copy
+is taken. The **fence** is how. It is an owner-set state, saved in the database,
+that says "this controller has moved". It deletes and changes no data, and
+lifting it returns the controller to exactly what it was.
+
+```sh
+reet backup fence --moved-to https://reet.new.example   # raise it (the address is optional)
+reet backup run                                         # the final copy; it is marked fenced
+reet backup fence --lift                                # undo it
+```
+
+The command works on the data in `REET_DATA_DIR`, so it can be used with the
+server stopped or running: the server reads the state from the database each
+time, never from memory. The same is available to the owner over the API:
+
+| Request | Answer |
+| --- | --- |
+| `GET /api/v2/admin/fence` | the state |
+| `POST /api/v2/admin/fence` with `{"movedTo": "https://..."}` | raises it; the address is optional and must be an http or https address |
+| `DELETE /api/v2/admin/fence` | lifts it |
+
+Every answer is `{"fenced": bool, "since": int64, "movedTo": string}`, with
+`since` in milliseconds since the Unix epoch (0 when not fenced). A `POST` when
+already fenced answers with the existing state and changes nothing, so a second
+call cannot move the date or the address. A `DELETE` when not fenced answers the
+same way and succeeds. Like every `POST`, it needs a JSON body; send `{}` for no
+address. All three are for the owner only.
+
+**While fenced:**
+
+- **Every write is refused with 423 (Locked)**, with a message that says the
+  controller has moved, when, and to where when the owner said. Writes include
+  `/quick`, which saves through a `GET`, and every MCP tool that changes
+  something; MCP reads still work, and so do all other reads.
+- **Exempt:** the owner's backup settings (`PATCH /api/v2/admin/backups`), run
+  (`POST .../backups/run`), download and verify, so a final copy can be taken and
+  checked; the fence's own `POST` and `DELETE`; and signing in and out. Sign-in is
+  not in the list of exemptions the contract names, and is a write, but without it
+  an owner whose session had lapsed could not get back in to take the final copy
+  or lift the fence.
+- **Background work stands still.** Each place that acts on its own checks the
+  fence on its next pass, and carries on after the lift:
+
+  | Work | Where it checks | While fenced |
+  | --- | --- | --- |
+  | Scheduled backups | `backup.Service.runDue` | none are taken; the owner's own run still works |
+  | Mail queue | `mail.Queue.RunOnce` | nothing is sent; queued mail stays queued |
+  | Notifier | `notify.Service.Loop` | old read notifications are not pruned |
+  | Project runs | `projectrun.Orchestrator` (`Paused`) | no member is started; members stay pending |
+  | Software batches | `softwarerun.Orchestrator` (`Paused`) | no machine is updated; members stay pending |
+  | Gaffer goals | `gaffer.Service.reviewDueGoals` | no goal is reviewed |
+  | Queued chat messages | `terminalbroker.Broker.stepChatQueue` | none is delivered to a worker |
+  | Worktree sweeps | `runScheduledMaintenance` | no sweep runs on any machine |
+  | Topic sync | `syncTopics` | not fetched |
+  | Catalogue refresh | `refreshBatch` | not run |
+
+- **A fenced start comes up fenced and quiet.** The state is in the database, so
+  a restart keeps it. Pending project runs and software batches are not resumed
+  at start.
+- **After the lift**, the API continues the paused project runs and software
+  batches at once, and a watcher continues them within five seconds when the lift
+  was made with the command line. The loops above need no nudge.
+
+What the fence does not stop: a member or an update already in flight when the
+fence goes up finishes, because it cannot be recalled; and mail already sent is
+sent. That is why the fence goes up before the final copy is taken, and why a
+copy taken while fenced is the one `restore` and `import` accept without
+`--allow-live-source`. A copy carries no fence: a restore clears it, because the
+controller a copy lands on is the one meant to be live.
+
 ### What a restore changes in the copy
 
 The copy is then adapted, and only the temporary file is changed:

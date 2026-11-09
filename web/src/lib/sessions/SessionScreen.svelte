@@ -393,7 +393,7 @@
         <p class="location">{[project, host].filter(Boolean).join(' · ')}</p>
         <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
       </div>
-      <span class="pill" data-status={statusKind} title={source}><span class="dot" aria-hidden="true"></span>{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
+      <span class="pill" data-status={statusKind} title={source}>{#if statusKind === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}{word.word}{#if away}{' '}<span class="lk">· last known</span>{/if}<span class="vh"> · {word.source}</span></span>
       <div class="header-actions">
         {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason} {onview} onunavailable={text => notice = { text }} />{/if}
         {@render contextControls?.()}

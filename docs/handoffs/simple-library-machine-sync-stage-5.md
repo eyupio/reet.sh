@@ -179,6 +179,16 @@ The real-stack acceptance now has a thirteenth step, phase 12: a real second **w
 
 **Still not proven:** real hardware or two real machines, sleep, reboot and real network loss; SSO and account creation; a real touch device; direct import against a real connector. Stage 4 (#680) is unfinished, so Stage 5 acceptance is not complete.
 
+## Update: direct import proven against a real connector, and a gap it found (9 November 2026)
+
+**Phase 13 of the real-stack acceptance passed** (one full execution, about 163 s, phases 1 to 13): a skill that exists only on a machine is offered in the skill picker; one click on "Import privately" makes the page request the preview, approve it and let the real connector upload it, with no review stop; the dialog shows "Private copy saved" and the machine keeps its own copy. Image: [phone, direct import saved](../images/ui/stage5-real-direct-import-phone.png).
+
+**What the real stack showed that the fixtures did not.** A skill found only on a machine already becomes a library entry with no content ("Waiting for complete content"), so the "not in your library" check never offered it; the fixtures assumed the library had no entry at all. The import step now treats an entry whose content is not complete as having no saved copy, so the machine's complete files are offered for it. `foundNotInLibrary` takes the entry's content state; unit tests cover an entry with no content (offered), one with complete content (not offered) and an incomplete machine copy (counted, not offered). The section heading now reads "On this machine, with no saved copy in your library yet". `connect-flow`, `selected-library`, `machine-item-states` and `svelte-check` pass.
+
+**Process note.** A local `vite build` deletes the tracked `web/dist/.gitkeep`; restore it (`git checkout -- web/dist/.gitkeep`) before committing or CI's `go vet` fails on the embed pattern. This happened once on this PR and was fixed in `67deb79c`.
+
+The control endpoint that places a machine-only skill (`/localskill`) is in the orchestrator on #680. **Still not proven:** real hardware or two real machines, sleep, reboot and real network loss; SSO and account creation; a real touch device. Stage 4 (#680) is unfinished, so Stage 5 acceptance is not complete.
+
 ## Workspace and ongoing PR supervision
 
 Use `/workspace/.reet-tools/activate.sh` for Node/Go; system `go` is not the compiler. Dependencies are an untracked symlink from `web/node_modules` to `/workspace/reet.sh/web/node_modules`; never commit it. Disks are constrained: use short `TMPDIR=/workspace/t`, preserve user files, and reclaim only inspected owned regenerable outputs if needed. The preview used for this branch is port 4174 because another session owns 4173; `REET_UI_URL` selects the test origin. Do not stop unrelated preview processes.

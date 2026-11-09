@@ -88,7 +88,7 @@ const seen = (name, changes = {}) => ({ name, complete: true, files: 1, bytes: 1
 const inventory = (skills, state = 'observed') => ({ state, skills })
 
 test('skills found on a machine and already in the library are not offered, whatever their case', () => {
-  const found = foundNotInLibrary(inventory([seen('Code-Review'), seen('local-helper'), seen('api-design')]), [{ name: 'code-review' }, { name: 'API-design' }])
+  const found = foundNotInLibrary(inventory([seen('Code-Review'), seen('local-helper'), seen('api-design')]), [{ name: 'code-review', contentState: 'complete' }, { name: 'API-design', contentState: 'complete' }])
   assert.deepEqual(found.importable, ['local-helper'])
   assert.equal(found.incomplete, 0)
 })
@@ -100,8 +100,18 @@ test('only complete skills are offered; incomplete ones are counted so the page 
 })
 
 test('an incomplete skill that the library already has is not counted as a problem', () => {
-  const found = foundNotInLibrary(inventory([seen('have', { complete: false })]), [{ name: 'have' }])
+  const found = foundNotInLibrary(inventory([seen('have', { complete: false })]), [{ name: 'have', contentState: 'complete' }])
   assert.deepEqual(found, { importable: [], incomplete: 0 })
+})
+
+test('a library entry that has no content yet does not count as a saved copy, so the machine’s files are offered', () => {
+  const found = foundNotInLibrary(inventory([seen('field-notes'), seen('kept'), seen('half', { complete: false })]), [
+    { name: 'field-notes', contentState: 'awaiting' },
+    { name: 'kept', contentState: 'complete' },
+    { name: 'half', contentState: 'awaiting' },
+  ])
+  assert.deepEqual(found.importable, ['field-notes'])
+  assert.equal(found.incomplete, 1)
 })
 
 test('nothing is offered until the machine’s content has actually been observed', () => {

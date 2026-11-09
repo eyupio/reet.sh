@@ -52,9 +52,10 @@ export function itemMachineState({ item, selected, target, jobs, online }: Input
  * ones are counted separately instead of offered. Nothing is offered until the machine's content has been observed: a scan
  * that has not been read is not evidence that a skill is missing.
  */
-export function foundNotInLibrary(content: ContentInventory | undefined, items: Pick<LibraryItem, 'name'>[]): { importable: string[]; incomplete: number } {
+export function foundNotInLibrary(content: ContentInventory | undefined, items: Pick<LibraryItem, 'name' | 'contentState'>[]): { importable: string[]; incomplete: number } {
   if (content?.state !== 'observed') return { importable: [], incomplete: 0 }
-  const known = new Set(items.map(item => item.name.trim().toLowerCase()))
+  // A library entry that has no content yet (a skill reet.sh only learned of from this machine) is not a saved copy: the machine's files are what it is waiting for.
+  const known = new Set(items.filter(item => item.contentState === 'complete').map(item => item.name.trim().toLowerCase()))
   const importable = new Set<string>()
   const incomplete = new Set<string>()
   for (const skill of content.skills) {

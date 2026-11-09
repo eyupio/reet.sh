@@ -254,6 +254,29 @@ try {
   log('a real second writer with nothing yet sees the empty library, with its next steps')
  }
 
+ // 13. Direct import against a real connector: a skill that exists only on a machine is offered in the skill picker, one click saves
+ // it to the library with no review stop (the connector previews, the page approves for the person, the connector uploads), and it
+ // then appears in the Library. The machine keeps its own copy untouched.
+ {
+  await ctl('/localskill',{m:'workstation',name:'field-notes'})
+  await rounds('workstation',3)
+  const {dialog:pick}=await openPicker(page,'workstation')
+  const found=pick.getByRole('region',{name:'Found on this machine, not in your library'})
+  await expect(found).toBeVisible({timeout:30000})
+  const importButton=found.getByRole('button',{name:/Import .*field-notes.* privately/})
+  await expect(importButton).toBeVisible()
+  await importButton.click()
+  const imports=page.getByRole('dialog',{name:'Bring a machine skill into reet'})
+  // The connector only acts when it ticks, so keep it ticking while the page does its part.
+  const ticking=(async()=>{for(let i=0;i<40;i++){await rounds('workstation',1).catch(()=>{});await new Promise(r=>setTimeout(r,1000))}})()
+  await expect(imports.getByText(/Private copy saved/)).toBeVisible({timeout:60000})
+  await shot(page,'accept-13-direct-import',{phone:true})
+  await ticking
+  await imports.getByRole('button',{name:'Close skill imports'}).click()
+  expect(await present('workstation','field-notes'),'the machine lost its own copy').toBe(true)
+  log('a skill found only on a machine was imported with one click and no review stop, against a real connector')
+ }
+
  expect(errors).toEqual([])
  await context.close()
 } finally { await browser.close() }

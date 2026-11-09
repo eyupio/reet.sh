@@ -107,7 +107,7 @@
     </form>
     {#if found.importable.length || found.incomplete}
       <section class="found" aria-label="Found on this machine, not in your library">
-        <h3>On this machine, not in your library yet</h3>
+        <h3>On this machine, with no saved copy in your library yet</h3>
         {#if found.importable.length}
           <p>Importing saves a private copy to your library so any machine can keep it. The files are saved without a separate review; a file that looks like a credential, or a skill whose SKILL.md is invalid, stops for your decision.</p>
           <ul>{#each found.importable as name (name)}<li><span>{name}</span><button class="btn quiet" type="button" aria-label={`Import ${name} privately`} onclick={() => destination && onimport?.({ environmentId: destination.id, name, direct: true })}>Import privately</button></li>{/each}</ul>

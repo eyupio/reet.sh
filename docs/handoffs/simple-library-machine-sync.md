@@ -4,7 +4,7 @@ Staged implementation handoff · 8 November 2026
 
 **Purpose:** make the basic cross-machine workflow dependable and simple while preserving reet's existing skill authoring, lists, likes and organisation features. This document can be handed to successive implementation models without the original conversation.
 
-**Status:** Stages 0–3 are implemented and merged to main. Stage 1 landed in [#662](https://github.com/eyupio/reet.sh/pull/662); Stage 2 and Stage 3 landed together in [#664](https://github.com/eyupio/reet.sh/pull/664), merge `d85699b410951dce35d63a5de0dad5013da695f4`. All applicable checks on its reviewed final head `46bb9ae3` are now successful, including the unchanged paired benchmark and CodeQL. See the [Stage 2 handover](simple-library-machine-sync-stage-2.md) and [Stage 3 handover](simple-library-machine-sync-stage-3.md) for local evidence and limits. Historical broad race evidence is distinguished from later focused checks; no new repository-wide race sweep is claimed here. Stages 4–7 remain unstarted. No preview/production deployment or live provisioning is claimed, and the reported production Tailcat disconnections remain undiagnosed.
+**Status:** Stages 0–3 are implemented and merged to main. Stage 1 landed in [#662](https://github.com/eyupio/reet.sh/pull/662); Stage 2 and Stage 3 landed together in [#664](https://github.com/eyupio/reet.sh/pull/664), merge `d85699b410951dce35d63a5de0dad5013da695f4`. All applicable checks on its reviewed final head `46bb9ae3` are now successful, including the unchanged paired benchmark and CodeQL. See the [Stage 2 handover](simple-library-machine-sync-stage-2.md) and [Stage 3 handover](simple-library-machine-sync-stage-3.md) for local evidence and limits. Historical broad race evidence is distinguished from later focused checks; no new repository-wide race sweep is claimed here. Stage 4 is in progress; see its [implementation handover](simple-library-machine-sync-stage-4.md). Stages 5–7 remain unstarted. No preview/production deployment or live provisioning is claimed, and the reported production Tailcat disconnections remain undiagnosed.
 
 **Source baseline inspected:** `eyupio/reet.sh`, commit `40b5f83389b812da7dcbfb8b450400b2c85acc57`. Recheck the current checkout and its instructions before implementing. Earlier repository reviews are context, not proof of current runtime behaviour.
 
@@ -431,7 +431,7 @@ Stage 3 is complete as a source implementation: see its [implementation handover
 - [x] Stage 1: identity, supervision and connection recovery
 - [x] Stage 2: complete library, authoring, status and metadata
 - [x] Stage 3: selected-item automatic sync and edits
-- [ ] Stage 4: removal, restoration and notifications
+- [ ] Stage 4: removal, restoration and notifications (in progress)
 - [ ] Stage 5: Library and Machines UX
 - [ ] Stage 6: Linux provisioning for all four applications
 - [ ] Stage 7: independent backup, migration and release proof
@@ -464,3 +464,8 @@ The current-head Gaffer settings retry failed its widget keyboard-restore assert
 The earlier pending/draft checkpoints above are historical. #665 first merged into the Stage 2 feature branch; #664 then delivered both stages to main as `d85699b4`, preserving reviewed head `46bb9ae3`. After the merges, this watch observed all twelve current-head workflows successful, including [benchmarks](https://github.com/eyupio/reet.sh/actions/runs/42524875020), CodeQL, image/tests, browser, native/private-connection and acceptance checks. Conditional publication/deploy jobs were skipped. The merges were performed by another actor; this records the verified merged state and checks observed afterward, not an assertion about check completion at the exact merge time.
 
 #672 also merged to main as `26e33929a051bfd5b6d62a937b907c676b9e9c70`; its reviewed head `373ff4a3` now has all applicable workflows successful. Claude chat remains per-account opt-in, default off. The owner signed-in acceptance gate for final default-on activation remains in force. No future library-sync stage or deployment is authorised by these merges.
+
+
+### Stage 4 started under a new owner instruction
+
+The owner explicitly requested Stage 4 after the Stage 2/3 merges. Its [handover](simple-library-machine-sync-stage-4.md) records the first controller intent/fencing checkpoint and the remaining connector/receipt/notification work. Stage 4 stays unchecked; earlier statements that it is unstarted describe the delivery checkpoints before this instruction. This authorises Stage 4 implementation, not Stage 5 or deployment.

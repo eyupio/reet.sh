@@ -9,6 +9,7 @@ import (
 )
 
 func (s *server) registerCanonicalLibrary(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v2/library/deployment-intent", s.privateSkillAccess(s.libraryDeploymentIntent))
 	mux.HandleFunc("POST /api/v2/library/bases", s.privateSkillAccess(s.libraryBase))
 	mux.HandleFunc("POST /api/v2/library/protocol", s.privateSkillAccess(s.libraryProtocol))
 	mux.HandleFunc("POST /api/v2/library/edits", s.privateSkillAccess(s.libraryEdit))
@@ -20,6 +21,27 @@ func (s *server) registerCanonicalLibrary(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/v2/library/{item}", s.privateSkillAccess(s.canonicalLibraryStatus))
 	mux.HandleFunc("POST /api/v2/library/locations", s.privateSkillAccess(s.canonicalLibraryLocation))
 	mux.HandleFunc("POST /api/v2/library/locations/content", s.privateSkillAccess(s.canonicalLibraryImport))
+}
+
+func (s *server) libraryDeploymentIntent(w http.ResponseWriter, r *http.Request) {
+	agent, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in store.LibraryDeploymentCheck
+	if !importDecode(w, r, 4096, &in) {
+		return
+	}
+	out, err := s.st.LibraryDeploymentIntentFor(s.uid(r), agent.ID, in)
+	if err != nil {
+		if errors.Is(err, store.ErrContentObservationStale) {
+			writeErr(w, http.StatusConflict, "The machine is paused or its deployment observation changed; retry from current intent.")
+			return
+		}
+		libraryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) getCanonicalSelection(w http.ResponseWriter, r *http.Request) {

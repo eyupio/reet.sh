@@ -2,11 +2,11 @@ import { chromium, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 
 // Stage 5 acceptance in a real browser against the real controller and two real connector processes. It is started by
-// TestStage5BrowserAcceptance (internal/api, build tag sync_contract, REET_STAGE5_BROWSER=1), which provides the signed-in
-// session, the controller's origin and a control channel to run connector cycles and change files on a machine.
+// TestStage5BrowserAcceptance (internal/api, build tag sync_contract, REET_STAGE5_BROWSER=1), which provides the account
+// credentials, the controller's origin and a control channel to run connector cycles and change files on a machine.
 // Nothing here is mocked: every state asserted comes from the controller and the machines' own files.
-const base=process.env.REET_UI_URL, session=process.env.REET_ACCEPT_SESSION, control=process.env.REET_ACCEPT_CONTROL
-if(!base||!session||!control)throw new Error('run this through TestStage5BrowserAcceptance')
+const base=process.env.REET_UI_URL, email=process.env.REET_ACCEPT_EMAIL, password=process.env.REET_ACCEPT_PASSWORD, control=process.env.REET_ACCEPT_CONTROL
+if(!base||!email||!password||!control)throw new Error('run this through TestStage5BrowserAcceptance')
 const shots=process.env.REET_UI_SCREENSHOTS
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const names={review:'reet-review-helper',api:'reet-api-design',notes:'reet-release-notes'}
@@ -19,12 +19,17 @@ const ctl=async(path,query={})=>{
 const present=async(machine,name)=>(await ctl('/present',{m:machine,name}))==='true'
 const rounds=(machines,n=8,pause=0)=>ctl('/rounds',{m:machines,n,pause})
 const log=message=>console.log(`PASS ${message}`)
+// Every browser signs in through the real sign-in form, so the session is the one the server issues.
 const signedIn=async(width=1280)=>{
  const context=await browser.newContext({viewport:{width,height:900}})
- await context.addCookies([{name:'reet_session',value:session,url:base}])
  const page=await context.newPage()
  const errors=[]
  page.on('pageerror',e=>errors.push(e.message))
+ await page.goto(`${base}/signin`)
+ await page.getByLabel('Email').fill(email)
+ await page.getByLabel('Password',{exact:true}).fill(password)
+ await page.getByRole('button',{name:'Sign in',exact:true}).click()
+ await expect(page.getByRole('navigation',{name:'Main navigation'}).or(page.getByRole('link',{name:'Machines'})).first()).toBeVisible()
  return {context,page,errors}
 }
 const shot=async(page,name,{phone=false}={})=>{
@@ -47,7 +52,7 @@ const stateOf=(panel,name)=>panel.locator('.row',{has:panel.page().getByRole('ch
 let {context,page,errors}=await signedIn()
 
 try {
- // 1. Signed in with a real session: the Library lists every item once, none selected anywhere yet.
+ // 1. Signed in through the real sign-in form: the Library lists every item once, none selected anywhere yet.
  await page.goto(`${base}/library`)
  await expect(page.getByRole('heading',{name:'Library',level:1})).toBeVisible()
  for(const name of Object.values(names)){
@@ -56,7 +61,7 @@ try {
   await expect(item(page,name)).toContainText('Not selected on any machine')
  }
  await shot(page,'accept-1-library-before')
- log('signed in; the Library shows each item once, In use, selected nowhere')
+ log('signed in through the real form; the Library shows each item once, In use, selected nowhere')
 
  // 2. Both machines are connected. Choose skills on one: select, save, and the rows say they are waiting, not done.
  await page.goto(`${base}/machines`)
@@ -164,6 +169,31 @@ try {
  await page.reload()
  await expect(restored).toHaveCount(1)
  log('a deleted file was restored and announced exactly once')
+
+ // 10. A machine that is really offline: the page calls it offline once it has been quiet past its window, a selection can still
+ // be saved for it, the rows say the update is waiting, and the machine catches up by itself when it comes back.
+ await ctl('/rounds',{m:'laptop',n:0,pause:45000})
+ await page.goto(`${base}/machines`)
+ await expect(page.getByRole('article',{name:'laptop',exact:true})).toContainText(/offline/i)
+ ;({dialog,panel}=await openPicker(page,'laptop'))
+ await panel.getByRole('button',{name:'Select all In use'}).click()
+ await panel.getByRole('button',{name:'Save selection'}).click()
+ await expect(panel.getByRole('status').filter({hasText:'Selection saved'})).toBeVisible()
+ await expect(stateOf(panel,names.review)).toHaveAttribute('data-item-state','waiting_offline')
+ await expect(stateOf(panel,names.review)).toContainText('Offline — update waiting')
+ await expect(stateOf(panel,names.api)).toHaveAttribute('data-item-state','waiting_offline')
+ await shot(page,'accept-10-offline-waiting',{phone:true})
+ await page.keyboard.press('Escape')
+ expect(await present('laptop',names.review),'an offline machine received nothing yet').toBe(false)
+ await rounds('laptop',8)
+ expect(await present('laptop',names.review)).toBe(true)
+ expect(await present('laptop',names.api)).toBe(true)
+ expect(await present('laptop',names.notes),'an item that is not In use never arrived').toBe(false)
+ ;({dialog,panel}=await openPicker(page,'laptop'))
+ await expect(stateOf(panel,names.review)).toHaveAttribute('data-item-state','verified')
+ await expect(stateOf(panel,names.api)).toHaveAttribute('data-item-state','verified')
+ await page.keyboard.press('Escape')
+ log('an offline machine kept its saved selection as waiting and caught up by itself on return')
 
  expect(errors).toEqual([])
  await context.close()

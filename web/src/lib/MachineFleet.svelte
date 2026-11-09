@@ -38,6 +38,8 @@
     onimport,
     landing = null,
     onlanded,
+    chooseHost = '',
+    onchose,
     highlight = '',
     onupdate,
     onerror,
@@ -60,6 +62,9 @@
     landing?: { environmentId: string; name?: string; note: string } | null
     /** Called as soon as `landing` has been turned into the dialog, so it cannot open again when this is drawn again. */
     onlanded?: () => void
+    /** A machine whose skill dialog should open once (from a link such as Home's Skills & sync); cleared through onchose. */
+    chooseHost?: string
+    onchose?: () => void
     /** The machine just brought in by that dialog: its card is marked for a few seconds. */
     highlight?: string
     onupdate: (state: SyncState) => void
@@ -88,6 +93,21 @@
   // so a change made inside them shows there at once instead of in a stale copy.
   let settingsHost = $state('')
   let libraryFor = $state<{ host: string; opener: HTMLElement } | null>(null)
+  // The machine's own skill dialog, from its card button or the menu. Focus goes back to that button when it closes.
+  function openChooser(machine: Machine, fallback?: HTMLElement | null) {
+    const opener = document.querySelector<HTMLElement>(`[data-choose-skills="${CSS.escape(machine.host)}"]`) ?? fallback ?? null
+    if (opener) libraryFor = { host: machine.host, opener }
+  }
+  $effect(() => {
+    const host = chooseHost
+    if (!host) return
+    untrack(() => {
+      const machine = machines.find((m) => m.host.toLowerCase() === host.toLowerCase())
+      // Only a writer in accounts mode with an enrolled connector has the dialog; anyone else just lands on the machine.
+      if (machine && accounts && canWrite && agentFor(machine)) openChooser(machine, document.querySelector<HTMLElement>('[data-add-machine]'))
+      onchose?.()
+    })
+  })
   let review = $state<{ agentId: string; initial: 'dev' | 'latest' } | null>(null)
   const settingsMachine = $derived(machines.find((machine) => machine.host === settingsHost))
   const toneRank: Record<string, number> = { action: 0, review: 1, working: 2, attention: 3, setup: 4, synced: 5 }
@@ -506,7 +526,7 @@
             <div><strong>{sync.label}</strong><small>{sync.detail}</small></div>
           </div>
           <div class="sync-cta">
-            {#if accounts && canWrite && enrolled}<button class="btn" class:primary={highlight === machine.host} type="button" onclick={(event) => (libraryFor = { host: machine.host, opener: event.currentTarget })}>Choose skills</button>{/if}
+            {#if accounts && canWrite && enrolled}<button class="btn" class:primary={highlight === machine.host} type="button" data-choose-skills={machine.host} onclick={(event) => (libraryFor = { host: machine.host, opener: event.currentTarget })}>Choose skills</button>{/if}
             {#if offersDedupe(sync.detail)}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); void dedupe(machine) }}>{busy === `dedupe-${machine.host}` ? 'Checking…' : 'Dedupe skills'}</button>
             {:else if offersSourceFix(sync.detail)}
@@ -522,7 +542,11 @@
               <summary aria-label={`More options for ${machine.host}`} title="More options"><Icon name="more" size={18} /></summary>
               <div class="sync-menu-panel" role="menu">
                 {#if canWrite}<button type="button" role="menuitem" disabled={!enrolled} title={!enrolled ? 'Connect an agent first' : undefined} onclick={(event) => { closeMenu(event); addSkillFor = machine }}>Add a skill…</button>{/if}
-                <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; locations</a>
+                {#if accounts && canWrite && enrolled}
+                  <button type="button" role="menuitem" onclick={(event) => { closeMenu(event); openChooser(machine) }}>Choose skills &amp; locations</button>
+                {:else}
+                  <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; locations</a>
+                {/if}
                 {#if enrolled && savedTargets(machine).length}<button type="button" role="menuitem" disabled={!!busy || enrolled.paused || sync.tone === 'working'} onclick={(event) => { closeMenu(event); void previewNow(machine, enrolled) }}>Preview changes only</button>{/if}
                 {#if enrolled}<button type="button" role="menuitem" disabled={!!busy} onclick={(event) => { closeMenu(event); void scan(enrolled) }}>Rescan machine</button>{/if}
                 <button type="button" role="menuitem" onclick={(event) => { closeMenu(event); commandsFor = machine }}>Commands…</button>

@@ -60,6 +60,13 @@
   // the Private skills dialog on it once and clears this.
   let landing = $state<{ environmentId: string; name?: string; note: string } | null>(null)
   let importSource = $state<{ environmentId: string; name: string } | null>(null)
+  // ?choose=skills on a machine's own address opens its skill dialog once, then the address is tidied.
+  let chooseHost = $state(new URLSearchParams(location.search).get('choose') === 'skills' ? (new URLSearchParams(location.search).get('machine') ?? '') : '')
+  function choseDone() {
+    chooseHost = ''
+    const url = new URL(location.href)
+    if (url.searchParams.has('choose')) { url.searchParams.delete('choose'); history.replaceState(history.state, '', url) }
+  }
   let justAdded = $state('')
   let justAddedTimer: ReturnType<typeof setTimeout> | undefined
   const initialSetupMode = new URLSearchParams(location.search).get('setup') === 'scratch' ? 'scratch' : 'connect'
@@ -264,7 +271,7 @@
     {#if loading && !loaded}
       <Skeleton label="Reading your machines…" shape="cards" count={2} height="150px" />
     {:else if visibleMachines.length}
-      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {timeZone} {dateFormat} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} highlight={justAdded} onupdate={updateState} onerror={actionFailed} {onsignedout} onnotice={notify} onimport={(source) => (importSource = source)} />
+      <MachineFleet machines={visibleMachines} snapshot={syncState} {site} {canWrite} {accounts} {timeZone} {dateFormat} {terminalAccess} {monitorAccess} onjoin={canAdd ? openJoin : undefined} {landing} onlanded={() => { landing = null }} {chooseHost} onchose={choseDone} highlight={justAdded} onupdate={updateState} onerror={actionFailed} {onsignedout} onnotice={notify} onimport={(source) => (importSource = source)} />
     {:else if loaded}
       <section class="sync-empty" aria-labelledby="machines-empty-title">
         <h3 id="machines-empty-title">No machines connected yet</h3>

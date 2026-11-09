@@ -328,6 +328,11 @@ try {
   await expect.poll(() => box.createdBody?.title ?? null).toBe('Terminal')
   expect(box.createdBody.tool).toBeUndefined()
   await expect(page).toHaveURL(/\/sessions\?/)
+  // Skills & sync no longer goes to the sync comparison page: it lands on the machine and opens its skill dialog once.
+  await page.goto(base)
+  await strip(page).getByRole('link',{name:/^studio, /}).click({button:'right'})
+  await page.getByRole('menu',{name:'studio'}).getByRole('menuitem',{name:'Skills & sync'}).click()
+  await expect(page).toHaveURL(/\/machines\?machine=studio&choose=skills/)
   expect(errors).toEqual([])
   await context.close()
  }

@@ -432,11 +432,15 @@ Stage 3 is complete as a source implementation: see its [implementation handover
 - [x] Stage 2: complete library, authoring, status and metadata
 - [x] Stage 3: selected-item automatic sync and edits
 - [ ] Stage 4: removal, restoration and notifications (in progress, draft #680)
-- [ ] Stage 5: Library and Machines UX (first slice in progress; Stage 4 acceptance remains required)
+- [ ] Stage 5: Library and Machines UX (first slice in draft #686; Stage 4 acceptance remains required)
 - [ ] Stage 6: Linux provisioning for all four applications
 - [ ] Stage 7: independent backup, migration and release proof
 
 **Evidence:** the original specification records the user's decisions. Stage 0 added the real-controller/subprocess harness and reproduced five contract gaps. Stage 1 fixes the import-restart gap and promotes its regression into ordinary tests. Stage 2 adds canonical identity/status, typed complete content, metadata-preserving migration, registered-root capture and backup compatibility, with store/API/connector checks and the full race suite passing. Four future-stage execution probes remain tagged. The linked handovers retain actual commands and field-testing limits. No live provisioning or production deployment has been performed.
+
+### Stage 5 owner instruction and session handoff (2026-11-09)
+
+The owner explicitly requested Stage 5 and approved starting a limited UI slice against existing APIs while Stage 4 remains unfinished, then asked for a PR-linked handoff before changing sessions. [Draft #686](https://github.com/eyupio/reet.sh/pull/686) adds machine-scoped selection from Machines; its [Stage 5 handoff](simple-library-machine-sync-stage-5.md) records source, screenshots, checks and remaining work. Earlier statements that Stage 5 is unauthorised/unstarted are historical. This does not waive Stage 4 acceptance, enable its gated removal/restoration, complete Stage 5, authorise Stage 6 or permit deployment.
 
 ### PR integration update (2026-11-08)
 

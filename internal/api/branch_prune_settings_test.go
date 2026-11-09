@@ -9,7 +9,7 @@ import (
 	"github.com/eyupio/reet.sh/internal/auth"
 )
 
-func TestBranchPruneSettingDefaultsOff(t *testing.T) {
+func TestBranchPruneSettingDefaultsOn(t *testing.T) {
 	srv, _ := newAccountsSrvStore(t, "bootstrap")
 	owner := &http.Client{Jar: mustJar(t)}
 	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
@@ -17,8 +17,8 @@ func TestBranchPruneSettingDefaultsOff(t *testing.T) {
 	}
 	code, body := doClient(t, owner, srv, "GET", "/api/v2/settings/branch-prune", "")
 	var got branchPruneSettingView
-	if code != 200 || json.Unmarshal([]byte(body), &got) != nil || got.AfterWorktree {
-		t.Fatalf("%d %s", code, body)
+	if code != 200 || json.Unmarshal([]byte(body), &got) != nil || !got.AfterWorktree {
+		t.Fatalf("%d %s: cleanup after a worktree must be on until an admin turns it off", code, body)
 	}
 }
 

@@ -7,9 +7,9 @@ import (
 )
 
 // The account-wide automation setting for branch pruning (docs/branch-pruning.md):
-// after a worktree is removed, prune the merged local branches in the
-// repository it came from. Off unless an owner or admin turns it on, and every
-// run is audited like a manual prune.
+// after a worktree is removed, bring the repository it came from up to date
+// with main and prune its merged local branches. On unless an owner or admin
+// turns it off, and every run is audited like a manual prune.
 const (
 	branchPruneSettingKey = "branch_prune_after_worktree"
 	branchPruneByKey      = "branch_prune_changed_by"
@@ -22,10 +22,12 @@ type branchPruneSettingView struct {
 	ChangedAt     int64  `json:"changedAt,omitempty"`
 }
 
-// branchPruneAfterWorktree reports the setting as it is now.
+// branchPruneAfterWorktree reports the setting as it is now. It is on unless
+// an owner or admin turned it off, so a removed worktree's source folder is
+// brought up to date with main and its merged branches pruned by default.
 func (s *server) branchPruneAfterWorktree() bool {
 	v, _ := s.st.GetSetting(branchPruneSettingKey)
-	return v == "1"
+	return v != "0"
 }
 
 func (s *server) branchPruneSetting() (branchPruneSettingView, error) {
@@ -34,7 +36,7 @@ func (s *server) branchPruneSetting() (branchPruneSettingView, error) {
 	if err != nil {
 		return out, err
 	}
-	out.AfterWorktree = v == "1"
+	out.AfterWorktree = v != "0"
 	out.ChangedBy, _ = s.st.GetSetting(branchPruneByKey)
 	if raw, _ := s.st.GetSetting(branchPruneAtKey); raw != "" {
 		out.ChangedAt, _ = strconv.ParseInt(raw, 10, 64)

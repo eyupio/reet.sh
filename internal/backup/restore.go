@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -73,6 +75,14 @@ type RestoreReport struct {
 	// Unreadable names each stored secret the key on this controller cannot
 	// open, with what to do about it. Each is cleared in the copy.
 	Unreadable []string `json:"unreadable"`
+
+	// StagedSHA256 is the digest of the adapted database a staged import
+	// holds, taken when it was staged, so the next start can tell the file
+	// was not changed in between.
+	StagedSHA256 string `json:"stagedSha256,omitempty"`
+	// Refusal says why a staged import was not applied at the next start. It
+	// is written beside the refused stage, never to a live database.
+	Refusal string `json:"refusal,omitempty"`
 }
 
 // Inventory is what the copy holds, as a person reads it.
@@ -415,6 +425,9 @@ func (s *Service) StageImport(ctx context.Context, dataDir string, raw []byte, p
 		return rep, err
 	}
 	rep.SafetyCopy = safety
+	if rep.StagedSHA256, err = fileDigest(filepath.Join(stage, pendingDB)); err != nil {
+		return rep, err
+	}
 	state, _ := json.Marshal(rep)
 	if err := os.WriteFile(filepath.Join(stage, pendingState), state, 0o600); err != nil {
 		return rep, err
@@ -450,15 +463,80 @@ func CancelImport(dataDir string) error {
 	return os.RemoveAll(filepath.Join(dataDir, pendingDir))
 }
 
+// fileDigest is the SHA-256 of a file, as hex.
+func fileDigest(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// recheckStaged asks of a staged import what was asked of the copy when it was
+// staged, now that time has passed: it is still the file that was checked, it
+// still opens and passes SQLite's own check, and it is no newer than this
+// binary reads. The copy's own password is not asked for again. It was spent
+// opening the copy, and what is staged is the opened database, so the digest
+// taken at staging stands in for "still opens with its password".
+func recheckStaged(ctx context.Context, path string, rep *RestoreReport) error {
+	if rep.StagedSHA256 != "" {
+		got, err := fileDigest(path)
+		if err != nil {
+			return fmt.Errorf("the staged database cannot be read: %w", err)
+		}
+		if got != rep.StagedSHA256 {
+			return errors.New("the staged database changed after it was checked, so it is no longer the copy that was staged")
+		}
+	}
+	if err := store.CheckDatabaseFile(ctx, path); err != nil {
+		return fmt.Errorf("the staged database no longer passes an integrity check: %w", err)
+	}
+	sum, err := store.InspectDatabaseFile(ctx, path)
+	if err != nil {
+		return fmt.Errorf("the staged database cannot be opened: %w", err)
+	}
+	if sum.SchemaVersion > store.SchemaVersion {
+		return fmt.Errorf("%w: it is data format %d and this reet reads up to data format %d; upgrade reet, then stage it again", ErrNewerSchema, sum.SchemaVersion, store.SchemaVersion)
+	}
+	return nil
+}
+
+// refuseStaged moves a stage that failed its re-check aside, with the reason
+// written into its report, and leaves the live database alone.
+func refuseStaged(dir string, rep *RestoreReport, why error) error {
+	rep.Refusal = why.Error()
+	aside := dir + ".refused-" + time.Now().UTC().Format("20060102T150405Z")
+	if err := os.Rename(dir, aside); err != nil {
+		return fmt.Errorf("the staged import was not applied (%v), and could not be moved aside: %w", why, err)
+	}
+	if state, err := json.Marshal(rep); err == nil {
+		_ = os.WriteFile(filepath.Join(aside, pendingState), state, 0o600)
+	}
+	return fmt.Errorf("the staged import %s was not applied and the live database was left as it is; it was moved to %s: %w", rep.ID, aside, why)
+}
+
 // ApplyPendingImport swaps a staged import in. It runs before the database is
-// opened, at the start of serve. It returns nil when nothing is staged. A
-// stage that cannot be applied is moved aside so the controller still starts.
+// opened, at the start of serve. It returns nil when nothing is staged. The
+// stage is checked again first, because it may have waited a long time; one
+// that fails is moved aside with the reason and the live database is not
+// touched. A stage that cannot be applied is moved aside so the controller
+// still starts.
 func ApplyPendingImport(dataDir string) (*RestoreResult, error) {
 	rep, err := PendingImport(dataDir)
 	if err != nil || rep == nil {
 		return nil, err
 	}
 	dir := filepath.Join(dataDir, pendingDir)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := recheckStaged(ctx, filepath.Join(dir, pendingDB), rep); err != nil {
+		return nil, refuseStaged(dir, rep, err)
+	}
 	previous, err := swapIn(dataDir, filepath.Join(dir, pendingDB))
 	if err != nil {
 		aside := dir + ".failed-" + time.Now().UTC().Format("20060102T150405Z")

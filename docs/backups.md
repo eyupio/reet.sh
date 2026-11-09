@@ -366,6 +366,32 @@ and how many secrets were cleared). On the next start the staged database
 replaces the live one, which is kept as `reet.db.before-restore-<timestamp>`, and
 the report is written to the log.
 
+### A staged import is checked again when it is applied
+
+A staged import can wait a long time for the restart. When `reet serve` goes to
+apply it, it asks again what was asked at staging: the staged database is still
+the file that was checked (its SHA-256 is recorded in `pending-import/report.json`
+when it is staged), it still opens and passes SQLite's integrity check, and its
+data format is no newer than this binary reads. The copy's password is not asked
+for a second time: it was spent opening the copy, and what waits in
+`pending-import/` is the opened database, so the recorded digest stands in for
+it.
+
+If any of that fails, the live database is not touched. The stage is moved to
+`pending-import.refused-<timestamp>/`, its `report.json` gains a `refusal` field
+saying why, the same reason is written to the log, and the controller starts on
+the database it already had. Stage the copy again once the cause is dealt with.
+
+### Asking a controller what it can do
+
+`GET /api/version` answers `{"version", "commit"}` and, when this build holds
+any part of controller moving in full, `"features": [...]`, drawn from `"fence"`,
+`"copy-origin"` and `"restore-public-url"`. A name is listed only when every piece
+of that part is built. A controller built before the list existed has no
+`features` field, and so does one that holds none of the parts; treat a missing
+field as "none". A script that moves a controller should read it first rather
+than assume.
+
 ### A machine rebuilt from nothing
 
 1. Install reet and point `REET_DATA_DIR` at a fresh folder (or start the

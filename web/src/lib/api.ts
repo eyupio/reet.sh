@@ -610,7 +610,7 @@ export async function getRollup(): Promise<Rollup> {
 
 export type ContentInventory = { state: string; schemaVersion?: number; observedAt?: number; receivedAt?: number; skills: { name: string; complete: boolean; digest?: string; files: number; bytes: number; issues?: string[] }[] }
 export type SyncEnvironment = Environment & { content?: ContentInventory; error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
-export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source'> & { sourceType: Skill['sourceType'] | 'private'; /** Why an owned draft cannot be synced right now; such a candidate is listed but not installable. */ problem?: string }
+export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source'> & { /** The canonical library item this installs, for library targets. */ itemId?: string; sourceType: Skill['sourceType'] | 'private'; /** Why an owned draft cannot be synced right now; such a candidate is listed but not installable. */ problem?: string }
 export type SyncTarget = { problem?: string; followSource?: boolean; mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
 export type SetupProfileComponent = {
@@ -1156,7 +1156,7 @@ export async function deleteHostedSkill(slug: string): Promise<void> {
 }
 
 export type SyncAgent = { keepSynced?: boolean; id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
-export type SyncPlan = { backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
+export type SyncPlan = { problems?: Record<string, string>; backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
 export type UpdateStage = { key: string; label: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
 export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
 export async function syncCandidates(listId = 0, collection = 'shelf'): Promise<{ skills: SyncSkill[]; /** Names with more than one copy, library only: one was kept, the rest were left out. */ duplicates?: SyncDuplicate[] }> { return (await req(`/api/v2/sync/candidates?list=${listId}&collection=${encodeURIComponent(collection)}`)).json() }

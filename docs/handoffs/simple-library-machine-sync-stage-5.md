@@ -52,6 +52,28 @@ Local evidence: `/workspace/work/stage5-web-check.log`, `stage5-web-build.log`, 
 
 Current-head CI on `7d4af79c` failed `terminal-browser` in `selected-library.e2e.mjs`: after Escape, an immediate reopen from the **Choose skills** button left no dialog. It reproduced locally in roughly one run in three, and in 5 of 40 scripted close/reopen cycles. The cause was a product race, not only a test timing issue. A native `<dialog>` reports `close` a task after it closes, so an Enter press in that window set the new dialog state and the old dialog's late `close` event then cleared it. `MachineLibrary.svelte` now ignores a late `close` from an already-destroyed instance, and `MachineFleet.svelte` keys the dialog so every open is a fresh instance. The existing test keeps all assertions and timeouts and gains a deterministic same-task close-then-reopen case. Locally the full selected-library suite passed five consecutive runs (9 of 9 cases each), `npm --prefix web run check` and the control browser suite pass. Fresh current-head CI is still required; this records no new acceptance of Stage 5.
 
+## Per-item machine state beside each item (9 November 2026)
+
+The machine skills dialog now says what is really happening to each saved selection, beside the item, instead of only a checkbox. `web/src/lib/machineItems.ts` maps one library item, its saved selection, the folder's target, its jobs and whether the machine is online to one state, using only evidence the controller already holds:
+
+| State | When |
+| --- | --- |
+| Kept in the library only | Selected but not In use. Says it is not installed and any copy reet.sh installed is removed; the selection is kept. |
+| Waiting for complete content | The item's content has not been captured completely. |
+| Offline — update waiting | Selected, not yet seen on the machine, and the machine is offline. |
+| Waiting to sync | The same while online, or before the controller has planned the selection. |
+| Syncing | A queued, running or awaiting-approval job exists for that folder. |
+| Needs attention | The newest finished plan has a problem for that item's slug (shown verbatim), or the newest finished apply failed and names the item. One item's problem never appears on another. |
+| Installed | The item is in the controller's desired set and present in the machine's last report. |
+
+Unselected items show nothing. The state is tied to its checkbox with `aria-describedby`, so the checkbox's own accessible name is unchanged. Rows keep the saved selection's state while the person edits checkboxes; the newest `snapshot` from the machine card wins, so a refresh updates the rows.
+
+**Honest limit:** the label is "Installed", with "Seen in this machine's last report", never "Up to date". The controller knows an item appeared in the machine's last inventory, not that its bytes were compared with the current revision, and no API exposes that comparison yet. A byte-verified deployment state needs that evidence to be reported by the connector and read by the controller; it is not claimed here. Item states do not yet include "removal pending" for an item the controller has told the machine to drop, nor the restored-after-local-deletion event (that appears in the notification centre, from Stage 4).
+
+Validation: 11 node tests cover every state and its ordering, the per-item problem isolation, newest-job-wins, and that the wording never claims byte verification (`npm --prefix web run check` passes with zero svelte-check errors or warnings). The new `web/tests/machine-item-states.e2e.mjs` runs in real Chromium with fixture responses at 320, 390 and 1280px in light and dark for the offline case, plus an online syncing case, checking each state, the failure reason beside its own item, no "Up to date" text, no horizontal overflow, the `aria-describedby` link and keyboard toggling with Space; it is registered in `terminal-browser.yml` next to the selected-library script. `selected-library.e2e.mjs` (9 cases) and `control.e2e.mjs` still pass. Inspecting the screenshots caught a missing separator between label and detail, which is fixed. These are fixture-driven UI checks, not a signed-in machine applying files. Curated images: [phone, offline states](../images/ui/machine-item-states-phone-offline.png), [desktop, offline states](../images/ui/machine-item-states-desktop-offline.png), [phone, syncing](../images/ui/machine-item-states-phone-syncing.png).
+
+Still open for Stage 5 acceptance: the minimal Library view, the single connect/import/selection flow, retiring the remaining `/sync` navigation, the empty-state and status-removal screenshots, browser close/reopen against durable state, and an acceptance run against a real signed-in machine. Stage 5 is not complete, and its dependency on the unfinished Stage 4 (#680) stands.
+
 ## Workspace and ongoing PR supervision
 
 Use `/workspace/.reet-tools/activate.sh` for Node/Go; system `go` is not the compiler. Dependencies are an untracked symlink from `web/node_modules` to `/workspace/reet.sh/web/node_modules`; never commit it. Disks are constrained: use short `TMPDIR=/workspace/t`, preserve user files, and reclaim only inspected owned regenerable outputs if needed. The preview used for this branch is port 4174 because another session owns 4173; `REET_UI_URL` selects the test origin. Do not stop unrelated preview processes.

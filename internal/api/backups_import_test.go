@@ -371,3 +371,17 @@ func TestAnImportOfAnUnfencedCopyIsRefusedUnlessTheOwnerAllowsALiveSource(t *tes
 		t.Fatalf("with allowLiveSource: %d %s", r.code, r.text)
 	}
 }
+
+// publicUrl is validated before anything is staged and, when good, is reported.
+func TestAnImportTakesAPublicURLAndRefusesABadOne(t *testing.T) {
+	raw := source(t, "")
+	tg := newTarget(t, false)
+	if r := tg.post(t, "owner-token", [][2]string{{"publicUrl", "https://new.example.com/path"}}, raw); r.code != 400 || !strings.Contains(r.text, "plain http or https origin") {
+		t.Fatalf("a bad address: %d %s", r.code, r.text)
+	}
+	tg.untouched(t)
+	r := tg.post(t, "owner-token", [][2]string{{"publicUrl", "https://new.example.com"}}, raw)
+	if r.code != 200 || !strings.Contains(r.text, `"publicUrl":"https://new.example.com"`) {
+		t.Fatalf("a good address: %d %s", r.code, r.text)
+	}
+}

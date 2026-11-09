@@ -5,6 +5,17 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- `reet backup restore` and `reet backup import` take `--public-url ADDRESS` (form
+  field `publicUrl`) to rewrite the saved mail base URL and sync library origin to
+  the controller's new address and to remove MCP grants issued for the old one. An
+  address that is not a plain http or https origin is refused before anything
+  changes. `GET /api/version` lists `"restore-public-url"` under `features`.
+- A restore or import now holds back project run members, software batches and
+  queued mail, as it already did Gaffer goals, so the restored controller does not
+  repeat them. Each is resumed with the existing retry, and is listed in the
+  report.
+- The restore report ends with a checklist of what lives outside the database and
+  must be set by hand on the new machine.
 - **A controller can be fenced as moved.** `reet backup fence [--moved-to URL]
   [--lift]` and `GET`, `POST` and `DELETE /api/v2/admin/fence` (owner only) raise,
   read and lift a persisted state that refuses every write with 423 (Locked), with

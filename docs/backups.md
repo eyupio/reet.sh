@@ -363,6 +363,52 @@ copy taken while fenced is the one `restore` and `import` accept without
 `--allow-live-source`. A copy carries no fence: a restore clears it, because the
 controller a copy lands on is the one meant to be live.
 
+### When the controller answers at a new address: `--public-url`
+
+`reet backup restore` and `reet backup import` take `--public-url ADDRESS` (the
+API form field is `publicUrl`). It must be a plain http or https origin, such as
+`https://reet.example.com`; a path, query, fragment or credentials are refused,
+and the refusal comes before anything changes. With it:
+
+- the saved **mail base URL** and the **sync library origin** are rewritten to the
+  new address, and nothing else is changed;
+- **MCP grants** issued for the old address are removed, because each is bound to
+  the address it was issued for, so every client authorises again here. The MCP
+  connections themselves are kept (they are revoked only by `--drop-tokens`);
+- the report says what was changed, and the activity log records `publicUrl`.
+
+Without it, no address is touched. `REET_PUBLIC_URL`, which the server reads at
+start, is not in the database: set it on the new machine as well.
+
+### What is held back, and how to resume it
+
+A copy can hold work that would start again by itself the moment the restored
+controller starts, doing something the old one may already have done. A restore
+or import holds it back, using the states the product already has, so each item
+resumes with the retry that already exists, and nothing is deleted:
+
+| Work | Held as | Resume with |
+| --- | --- | --- |
+| Gaffer goals | paused (needs the user) | resume the goal |
+| Project runs | each pending member becomes failed with the code `paused_by_restore`; started members are untouched | retry the member |
+| Software batches | the first unfinished machine fails with `paused_by_restore` and the batch stops; machines that were running go back to waiting | retry that machine |
+| Queued mail (queued or sending) | held | send it from the outbox; a held reset link points at the old address |
+
+The report lists each run, batch and the mail count under "Held back". Held work
+is not resumed at start, because the orchestrators resume only pending members.
+
+### What is not in the copy
+
+The report ends with a checklist of what lives outside the database and has to
+be set by hand on the new machine: the `REET_*` variables the server reads, the
+single sign-on settings (register the new `REET_OIDC_REDIRECT_URL` with the
+identity provider), the backup key and any backup schedule or destination set in
+the environment, the mail outbox folder, the terminal state in
+`terminal-control/state.json`, and the service definition. It is derived from the
+code: a test reads what `serve`, the OIDC and backup readers, the mail outbox
+setting and `reet install` use, and fails when a setting is added that the
+checklist does not name.
+
 ### What a restore changes in the copy
 
 The copy is then adapted, and only the temporary file is changed:

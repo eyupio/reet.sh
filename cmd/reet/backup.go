@@ -23,11 +23,11 @@ import (
 func runBackup(args []string, out io.Writer) error {
 	help := len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")
 	if help {
-		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] ID | import --server URL --token-file F FILE | fence [--moved-to URL] [--lift]\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
+		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
 		return nil
 	}
 	if len(args) == 0 {
-		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] ID | import --server URL --token-file F FILE | fence [--moved-to URL] [--lift]")
+		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]")
 	}
 	switch args[0] {
 	case "keygen":
@@ -315,12 +315,20 @@ func backupRestore(args []string, out io.Writer) error {
 	dropTokens := f.Bool("drop-tokens", false, "revoke every personal API token and MCP connection in the copy")
 	owner := f.String("owner-email", "", "refuse unless this address is an owner account in the copy, so you can sign in afterwards")
 	allowLive := f.Bool("allow-live-source", false, "accept a copy of a controller that was not fenced as it was taken, or whose copy does not say")
+	publicURL := f.String("public-url", "", "the address this controller will answer at; rewrites the saved mail base URL and sync library origin and removes MCP grants for the old one")
 	file, literal := passwordFlags(f)
 	if err := f.Parse(args); err != nil {
 		return err
 	}
 	if f.NArg() > 1 {
 		return errors.New("expected one backup ID")
+	}
+	if *publicURL != "" {
+		u, err := store.ValidatePublicURL(*publicURL)
+		if err != nil {
+			return err
+		}
+		*publicURL = u
 	}
 	id, inputErr := clientconfig.Require(f.Arg(0), "backup ID", false, os.Stdin, os.Stderr)
 	if inputErr != nil {
@@ -341,6 +349,7 @@ func backupRestore(args []string, out io.Writer) error {
 		DropTokens:      *dropTokens,
 		OwnerEmail:      *owner,
 		AllowLiveSource: *allowLive,
+		PublicURL:       *publicURL,
 		CheckOnly:       !*yes,
 		Source:          "cli",
 		Before: func(r backup.RestoreReport) {
@@ -400,8 +409,16 @@ func backupImport(args []string, out io.Writer) error {
 	owner := f.String("owner-email", "", "refuse unless this address is an owner account in the copy")
 	replace := f.Bool("replace", false, "import even though this controller already holds data")
 	allowLive := f.Bool("allow-live-source", false, "accept a copy of a controller that was not fenced as it was taken, or whose copy does not say")
+	publicURL := f.String("public-url", "", "the address this controller will answer at; rewrites the saved mail base URL and sync library origin and removes MCP grants for the old one")
 	if err := f.Parse(args); err != nil {
 		return err
+	}
+	if *publicURL != "" {
+		u, err := store.ValidatePublicURL(*publicURL)
+		if err != nil {
+			return err
+		}
+		*publicURL = u
 	}
 	if f.NArg() != 1 {
 		return errors.New("expected one sealed copy FILE")
@@ -447,7 +464,7 @@ func backupImport(args []string, out io.Writer) error {
 	mw := multipart.NewWriter(pw)
 	go func() {
 		fields := [][2]string{{"password", password}, {"ownerEmail", *owner},
-			{"dropSessions", fmt.Sprint(*dropSessions)}, {"dropTokens", fmt.Sprint(*dropTokens)}, {"replace", fmt.Sprint(*replace)}, {"allowLiveSource", fmt.Sprint(*allowLive)}}
+			{"dropSessions", fmt.Sprint(*dropSessions)}, {"dropTokens", fmt.Sprint(*dropTokens)}, {"replace", fmt.Sprint(*replace)}, {"allowLiveSource", fmt.Sprint(*allowLive)}, {"publicUrl", *publicURL}}
 		for _, fl := range fields {
 			if err := mw.WriteField(fl[0], fl[1]); err != nil {
 				pw.CloseWithError(err)

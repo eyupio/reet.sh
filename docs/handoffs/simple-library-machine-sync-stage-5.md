@@ -173,6 +173,12 @@ Curated images: [phone, items installed](../images/ui/stage5-real-installed-phon
 
 `web/tests/connect-flow.e2e.mjs` gains a direct-import block: a clean skill is previewed once and approved once with no exclusions and shows the receipt; a blocked file and an invalid SKILL.md stop at the review table with no approval sent. `svelte-check` is clean; `connect-flow`, `selected-library`, `machine-item-states`, `choose-entry`, `machine-import` and `skill-content` pass. Not exercised in the real stack: the real-stack acceptance script does not use this step, so direct import against a real connector is unproven.
 
+## Update: the empty library in the real stack (9 November 2026)
+
+The real-stack acceptance now has a thirteenth step, phase 12: a real second **writer** account (role member) with nothing of its own signs in through the real form. Its library is its own (per account), so `/library` shows "Your library is empty" with "Connect a machine" and "Write a skill", none of the owner's items appear, and Machines shows none of the owner's machines. It passed in a full run of the acceptance (120 s, one execution, phases 1 to 12 passing); the three-run repeat above was before this phase was added. Image: [phone, empty library](../images/ui/stage5-real-empty-library-phone.png). The orchestrator change that creates the account is on #680 (`internal/api/stage5_browser_test.go`); the script change is here, so run it from a tree that has both.
+
+**Still not proven:** real hardware or two real machines, sleep, reboot and real network loss; SSO and account creation; a real touch device; direct import against a real connector. Stage 4 (#680) is unfinished, so Stage 5 acceptance is not complete.
+
 ## Workspace and ongoing PR supervision
 
 Use `/workspace/.reet-tools/activate.sh` for Node/Go; system `go` is not the compiler. Dependencies are an untracked symlink from `web/node_modules` to `/workspace/reet.sh/web/node_modules`; never commit it. Disks are constrained: use short `TMPDIR=/workspace/t`, preserve user files, and reclaim only inspected owned regenerable outputs if needed. The preview used for this branch is port 4174 because another session owns 4173; `REET_UI_URL` selects the test origin. Do not stop unrelated preview processes.

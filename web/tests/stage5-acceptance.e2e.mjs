@@ -5,8 +5,8 @@ import { mkdir } from 'node:fs/promises'
 // TestStage5BrowserAcceptance (internal/api, build tag sync_contract, REET_STAGE5_BROWSER=1), which provides the account
 // credentials, the controller's origin and a control channel to run connector cycles and change files on a machine.
 // Nothing here is mocked: every state asserted comes from the controller and the machines' own files.
-const base=process.env.REET_UI_URL, email=process.env.REET_ACCEPT_EMAIL, password=process.env.REET_ACCEPT_PASSWORD, control=process.env.REET_ACCEPT_CONTROL, viewerEmail=process.env.REET_ACCEPT_VIEWER_EMAIL
-if(!base||!email||!password||!control||!viewerEmail)throw new Error('run this through TestStage5BrowserAcceptance')
+const base=process.env.REET_UI_URL, email=process.env.REET_ACCEPT_EMAIL, password=process.env.REET_ACCEPT_PASSWORD, control=process.env.REET_ACCEPT_CONTROL, viewerEmail=process.env.REET_ACCEPT_VIEWER_EMAIL, memberEmail=process.env.REET_ACCEPT_MEMBER_EMAIL
+if(!base||!email||!password||!control||!viewerEmail||!memberEmail)throw new Error('run this through TestStage5BrowserAcceptance')
 const shots=process.env.REET_UI_SCREENSHOTS
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const names={review:'reet-review-helper',api:'reet-api-design',notes:'reet-release-notes'}
@@ -232,6 +232,26 @@ try {
   expect(other.errors).toEqual([])
   await other.context.close()
   log('a real read-only account has no library, is offered no authoring, and is refused the owner’s items, history and changes')
+ }
+
+ // 12. A real second writer with nothing yet: the library page shows the empty state with its two next steps, and Machines shows
+ // none of the owner's machines.
+ {
+  const other=await signedIn(1280,memberEmail)
+  const {page:m}=other
+  await m.goto(`${base}/library`)
+  await expect(m.getByRole('heading',{name:'Your library is empty'})).toBeVisible()
+  const region=m.getByRole('region',{name:'Your library'})
+  await expect(region.getByRole('link',{name:'Connect a machine'})).toBeVisible()
+  await expect(region.getByRole('link',{name:'Write a skill'})).toBeVisible()
+  for(const owned of ownerItems)await expect(m.getByText(owned.name)).toHaveCount(0)
+  await m.waitForTimeout(800)
+  await shot(m,'accept-12-empty-library',{phone:true})
+  await m.goto(`${base}/machines`)
+  await expect(m.getByRole('article',{name:'workstation',exact:true})).toHaveCount(0)
+  expect(other.errors).toEqual([])
+  await other.context.close()
+  log('a real second writer with nothing yet sees the empty library, with its next steps')
  }
 
  expect(errors).toEqual([])

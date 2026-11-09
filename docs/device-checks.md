@@ -25,7 +25,7 @@ slice it unblocks. A pass recorded anywhere else does not remove a gate.
   profile's environment, `session/load` replay, image prompts, a thinking level at `session/new`, and a launch naming a model were
   measured and recorded in
   [the structured adapters probe report](https://github.com/eyupio/reet.sh/blob/main/docs/research/structured-adapters/probe-report.md).
-  No signed-in run was made, so the Claude row above is unchanged and Claude chats stay behind `REET_EXPERIMENTAL_CLAUDE_CHAT`.
+  No signed-in run was made, so the Claude row above is unchanged and Claude chats stay off by default (an account turns them on in Settings > Agents).
 
 ### Recorded on 5 November 2026
 

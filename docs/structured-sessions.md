@@ -90,6 +90,46 @@ that only supports AGY terminals continues to offer the terminal UI.
 The real executable was checked against a local provider stub, without a real
 Google model call. See the [AGY ACP probe](research/antigravity-acp-probe.md).
 
+### Claude Code in Gaffer
+
+Claude Code chats run through a separate adapter, `@agentclientprotocol/claude-agent-acp`, pinned at 0.99.1 (the `claude`
+command itself does not speak ACP). A machine needs `claude-agent-acp` on its `PATH` besides Claude Code, and an account sees the
+chat only after it turns it on in **Settings > Agents** (see [the gate](#gaffer-chats-still-being-verified-claude-code-and-codex)
+below); it is off for every account until then.
+
+- **Approvals.** A chat starts only in the adapter's `default` mode, which asks before it edits a file or runs a command; a
+  session that starts in any other mode (`acceptEdits`, `plan`, `auto`) is refused rather than switched. Only the person's own
+  Claude settings apply (`settingSources` is `user`): the folder's repository settings and hooks are ignored. Provider redirects
+  and a changed configuration directory are never inherited from the environment; only `ANTHROPIC_API_KEY` and
+  `CLAUDE_CODE_OAUTH_TOKEN` are passed on.
+- **Model.** A chosen model is applied by switching to it and reading the switch back. The adapter resets a model it does not
+  know to `default` and says so, so a start on such a model is refused instead of claiming it.
+- **Thinking level.** The Start dialog and the live control read the levels from the session's own list; a start applies the
+  chosen one and reads it back before any prompt, and is refused if the adapter does not confirm it. Which options exist depends
+  on the model. `fast` and `ultracode` are listed but not controlled.
+- **History and reconnect.** The chat's transcript is kept by reet. A lost chat reconnects under the same session id by loading
+  the adapter's stored conversation (the replay is dropped), and a closed one can continue with its history, in the same folder,
+  machine and account only. A conversation the adapter never stored is refused with its own sentence.
+- **Images.** The adapter advertises image prompts and an attachment reaches it as an image block.
+- **YOLO.** A chat takes YOLO through the same three gates as every other agent: the account setting, the machine switch and the
+  confirmation.
+- **Sign-in.** reet never starts a login. Without one on the machine the first prompt comes back as "Sign in to Claude on that
+  machine first.", with `code: "login"` on its status event.
+- **A machine with Claude Code but no adapter** says so: the Start dialog and the machine's Agents settings show the install
+  command, `npm install --global @agentclientprotocol/claude-agent-acp@0.99.1`, but only when the machine itself reports the
+  adapter missing. An older connector that reports nothing, and an account whose chat is off, get no hint.
+- **The terminal launch** is a separate path with its own options (resume, YOLO, thinking level); see
+  [launch requests](terminal-launch.md).
+
+What was measured, and where: the adapter's identity, version floor and required mode, `session/load` replay and its refusal of an
+unstored conversation, image prompts, a thinking level at `session/new`, and a launch naming a model, in the
+[probe report](research/structured-adapters/probe-report.md).
+
+**Not measured:** a signed-in Claude turn (none has been run, so the chat is not on by default); whether a real model accepts or
+understands an image; the thinking levels a real account is offered for each model; whether a Claude Code chat's id opens in
+the CLI's own `--resume`; typed questions and modes (the descriptor reports none). The first-run [device checks](device-checks.md)
+say what to record to close the signed-in gap.
+
 ### Gaffer chats still being verified: Claude Code and Codex
 
 Claude Code and Codex chats are built end to end but not yet checked with a signed-in account, so each account turns them on
@@ -105,16 +145,8 @@ not turned them on.
 
 With a chat on, the descriptor reports that agent as available and the browser offers its chat beside OpenCode. A Codex chat
 starts in `read-only` and carries the approvals control; `agent` is chosen per chat and `agent-full-access` is never
-offered. Claude reports approvals, a confirmed model switch, stored history, in-place reconnect and image prompts, and no
-questions or modes. Each was measured against the pinned adapter (`claude-agent-acp` 0.99.1) in the
-[probe report](research/structured-adapters/probe-report.md): history and reconnect rest on `session/load` being advertised
-and replaying a stored conversation, and on the adapter refusing one it never stored with "Resource not found"; images rest
-on the adapter advertising image prompts and the block reaching the provider request. Whether a real model accepts an image
-is not measured. A chat can start on a chosen model and on a thinking level from the list the session itself reports; the connector
-applies each, reads it back before any prompt, and refuses the start if the adapter does not confirm it. Which options exist
-depends on the model (the probe saw `fast` disappear after choosing `sonnet`); the thinking levels a real account is offered
-for each model are not measured. `fast` and `ultracode` are listed but not controlled. None of this is proof of a signed-in turn:
-the descriptor is an observation, and no signed-in Claude turn has been run. Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
+offered. What Claude Code reports, and what was and was not measured, is in [Claude Code in Gaffer](#claude-code-in-gaffer).
+Without a login on that machine, the first prompt comes back naming the sign-in step — "Sign in to Claude on
 that machine first." or "Sign in to Codex on that machine first." — and the turn ends without an edit or command. That refusal
 carries `code: "login"` on its status event, so the chat heads it *"{agent} needs a sign-in"* instead of *"could not
 continue"*: it is a step a person takes, not a fault to diagnose.

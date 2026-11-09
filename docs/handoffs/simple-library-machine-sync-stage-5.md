@@ -8,6 +8,7 @@ Parent: [product contract and acceptance matrix](simple-library-machine-sync.md)
 
 - Branch: `feat/library-machines-stage-5`, owned worktree `/workspace/work/stage5`.
 - Starting main: `37376deb0ed31604e47eae281dfb376fdb01a185`.
+- Integrated main: `16e8fdcb0e55d3381a8b18376682671c0e3d885f` through merge `b5815a85`, including the #685 logo correction. Local runtime and browser checks below ran on this combined source without conflicts.
 - This branch is independent of the unfinished [Stage 4 draft #680](https://github.com/eyupio/reet.sh/pull/680); it does not import or enable that branch's gated removals.
 - PR link and final validation are recorded in the publication section below before handoff.
 - Keep this PR draft until its intended review scope and dependency boundary are agreed. Passing UI checks does not establish completed automatic removal, restoration, factual notifications or live-machine sync.
@@ -26,9 +27,17 @@ No skill authoring, status, likes, lists or existing library routes are removed.
 
 ## Validation and screenshots
 
-Validation is recorded after the final source checks complete. The browser harness uses real Chromium and the production build with mocked HTTP responses. It proves UI behavior and exact selection requests, not a signed-in machine applying files.
+On the integrated source, `npm --prefix web run check` passes all unit tests and svelte-check with zero errors/warnings; the production build passes. The extended selected-library browser suite passes all three legacy `/sync` widths and all six Machines width/theme cases. The full existing `control.e2e.mjs` suite also passes, including partial queue/save failures, no automatic apply, responsive light/dark layouts and viewer controls. `git diff --check` passes. Strict documentation results are recorded at publication. No new repository-wide Go race sweep or live-machine acceptance is claimed.
 
-The extended `web/tests/selected-library.e2e.mjs` remains in the existing terminal-browser workflow. It retains global `/sync` selection coverage and adds Machines-only offline selection at 320/390/1280px in light/dark themes, a second-machine isolation check, failed save/retry, reopen persistence, search, Escape/focus return, keyboard operation and horizontal bounds. Screenshots are captured through `REET_UI_SCREENSHOTS`; curated evidence is linked below after verification.
+The browser harness uses real Chromium and the production build with mocked HTTP responses. It proves UI behavior and exact selection requests, not a signed-in machine applying files. The new tests initially failed on machine names containing spaces, reproducing the accessible-ID issue fixed above. The broader control fixture initially returned an unmocked library 404, previously hidden by the selection component; it now supplies the real endpoint's empty-library shape. No existing control assertions or timeouts were relaxed.
+
+The extended `web/tests/selected-library.e2e.mjs` remains in the existing terminal-browser workflow. It retains global `/sync` selection coverage and adds Machines-only offline selection at 320/390/1280px in light/dark themes, second-machine isolation, initial library-load retry, failed save/retry, reopen persistence, explicit choice for multiple folders, search, Escape/focus return, keyboard checkbox operation and horizontal bounds. Screenshot output uses `REET_UI_SCREENSHOTS`; these curated images were visually inspected and committed:
+
+- [Phone, offline selection saved](../images/ui/machine-library-phone-dark.png).
+- [Desktop, offline selection saved](../images/ui/machine-library-desktop-light.png).
+- [Phone, failed save retaining choices](../images/ui/machine-library-save-error.png).
+
+Local evidence: `/workspace/work/stage5-web-check.log`, `stage5-web-build.log`, `stage5-selection-browser.log`, `stage5-control-browser.log`, plus the complete screenshot set under `/workspace/work/stage5-shots`. These local files may not survive a replacement environment; the source, test scripts and three images above travel with the PR.
 
 ## Resume in a new session
 

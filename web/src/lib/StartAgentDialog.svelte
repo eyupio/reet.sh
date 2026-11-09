@@ -8,6 +8,7 @@
  import SkillPromptPicker from './home/SkillPromptPicker.svelte'
  import { CATALOGUE } from './catalogue'
  import { launchEfforts, effortHelp } from './terminal/launchOptions'
+ import { claudeAdapterHint, CLAUDE_ADAPTER_INSTALL } from './claudeAdapter'
  import { KNOWN_SOURCES, resolveStartSource, sourceLabel } from './clineSource'
  import { defaultLabel, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
  import { createTerminal, getFolderProject, launchUpload, machineModels, readiness, refreshMachineModels, refusalSentence, TerminalError, type FolderProject, type LaunchRequest, type TerminalMachine, type TerminalSession } from './terminal/api'
@@ -740,6 +741,11 @@
 
    {#if chosenTool === 'opencode' && machine && !chatCapable}
     <p class="hint">This machine does not currently offer Gaffer for OpenCode. This starts the OpenCode TUI instead.</p>
+   {/if}
+
+   {#if chosenTool === 'claude'}
+    {@const adapterHint = claudeAdapterHint(machine)}
+    {#if adapterHint}<p class="hint claude-adapter">{adapterHint.split(CLAUDE_ADAPTER_INSTALL)[0]}<code>{CLAUDE_ADAPTER_INSTALL}</code></p>{/if}
    {/if}
 
    {#if chatCapable}

@@ -1,9 +1,12 @@
 # Structured chats across agents
 
-Status: implementation plan, last updated 2 November 2026. OpenCode is the only structured chat
-integration anyone is offered. Claude Code and Codex are built and wired but dark behind
-per-machine switches (`REET_EXPERIMENTAL_CLAUDE_CHAT`, `REET_EXPERIMENTAL_CODEX_CHAT`) until the
-device and login checks in [device-checks.md](device-checks.md) are recorded. The progress notes
+Status: implementation plan, last updated 9 November 2026. OpenCode, Cline and Google Antigravity
+chats are offered to every account. Claude Code and Codex are built and wired but off by default:
+each account turns them on for itself in Settings > Agents (a stored account setting, not an
+environment variable) until the device and login checks in [device-checks.md](device-checks.md) are
+recorded. Claude Code is feature-complete for a chat; see
+[Claude Code in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#claude-code-in-gaffer).
+The progress notes
 below are in the order they were written; the current position and the order of what is left are
 in the resume-here section of [handoff.md](../handoff.md).
 

@@ -219,6 +219,7 @@ func (s *Service) StartGoalSupervisor() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.goalCancel = cancel
 	s.goalWake = make(chan struct{}, 1)
+	s.startOutcomeSupervisor(ctx)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()

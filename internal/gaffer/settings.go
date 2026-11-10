@@ -169,6 +169,8 @@ type Service struct {
 	goalWake        chan struct{}
 	goalRecoveryErr error
 	worker          WorkerMessenger
+	starter         SessionStarter
+	outcomeWake     chan struct{}
 	workerEnabled   func() bool
 	workerLimiter   *auth.Limiter
 	store           *store.Store

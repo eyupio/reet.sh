@@ -165,6 +165,12 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 		if err := privateSkillOwner(tx, uid); err != nil {
 			return err
 		}
+		// An import of a skill the library already lists without content fills
+		// that entry. Without this the copy became a second entry of the same
+		// name while the first went on waiting.
+		if in.SyncSkillID == "" && in.BundleID == "" && in.DestinationID == "" {
+			in.SyncSkillID = pendingLibrarySkill(tx, uid, in.EnvironmentID, in.Name)
+		}
 		var existing string
 		err := tx.QueryRow(`SELECT id FROM machine_import_requests WHERE user_id=? AND request_key=?`, uid, in.RequestKey).Scan(&existing)
 		if err == nil {
@@ -404,7 +410,9 @@ func (s *Store) RecordRemotePreviewFor(uid int64, agent, id, instance string, p 
 		r.Preview = &p
 		r.PreviewHash = hash
 		r.State = "reviewing"
-		if r.DestinationID != "" && p.Allowed(nil) {
+		// A capture reet asked for itself (to install somewhere, or to give a
+		// library entry its content) needs no review when every file is allowed.
+		if (r.DestinationID != "" || r.SyncSkillID != "") && p.Allowed(nil) {
 			m, e := p.Manifest(nil)
 			if e != nil {
 				return e

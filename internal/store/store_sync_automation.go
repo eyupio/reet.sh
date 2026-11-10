@@ -13,6 +13,10 @@ import (
 // MaintainSync runs on authenticated agent polls, so saved policies continue
 // working after the browser closes. It never replays failed or approved work.
 func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
+	// Saving what a machine shares does not depend on automatic installs being on.
+	if err := s.captureMachineLibraryContent(uid, role, agent); err != nil {
+		return err
+	}
 	enabled := agent.KeepSynced && !agent.Paused
 	if !enabled || role == "viewer" {
 		return nil

@@ -5,6 +5,16 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- reet now saves a copy of every skill a connected machine shares, by itself.
+  When a machine checks in, the controller asks it for the files of each skill
+  the library lists without content, and the copy fills that same library entry:
+  one entry per name, with its status kept. Before, such skills waited on
+  "Waiting for complete content" until someone imported them by hand, and that
+  import added a second entry of the same name. Nothing is installed anywhere
+  as a result; choosing machines stays your decision. A copy with files that
+  need a look still stops for review, and reet tries a skill three times before
+  leaving it to a manual import. Needs a controller update.
+
 - A skill you selected for a machine in the library is no longer described as
   "Not set to sync" on the Skills page, and a machine is no longer described as
   "Everything in sync" while a selected skill cannot be installed. The Skills

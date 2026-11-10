@@ -770,8 +770,20 @@ func TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes(t *testing.T) {
 	mu.Lock()
 	calls := len(sent)
 	mu.Unlock()
+	// The pipeline just approved is being started in the background, which
+	// moves the outcome on. A revision read a moment ago can be stale by the
+	// time it is used, so reload and ask again, as the page does, until the
+	// answer is about the provider and not about the revision.
 	var bad *Invalid
-	if _, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, mustOutcome(t, r, created.ID).Revision); !errors.As(err, &bad) {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, err = r.s.ReviewOutcome(context.Background(), r.p, created.ID, mustOutcome(t, r, created.ID).Revision)
+		if !errors.Is(err, store.ErrGafferOutcomeBusy) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !errors.As(err, &bad) {
 		t.Fatalf("review with session text revoked: %v", err)
 	}
 	mu.Lock()

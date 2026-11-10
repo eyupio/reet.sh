@@ -27,10 +27,14 @@ type OutcomeLaunch struct {
 	// Trust is the person's own confirmation, made when they approved the
 	// plan, that this folder's plugins may run in the agent.
 	Trust bool
+	// Yolo is the person's own choice, confirmed when they approved the plan,
+	// that the agent need not wait for approvals. The launch path checks the
+	// account setting, the agent and the machine again at every start.
+	Yolo bool
 }
 
 // SessionStarter starts an approved session as its owner through the same
-// checks as a launch from the browser, without YOLO. A repeated request ID
+// checks as a launch from the browser. A repeated request ID
 // answers the session that request already started. The error text is shown
 // to the person.
 type SessionStarter interface {
@@ -44,11 +48,14 @@ func (s *Service) SetSessionStarter(starter SessionStarter) {
 }
 
 type OutcomeInput struct {
-	Objective  string           `json:"objective"`
-	ProjectID  string           `json:"projectId"`
-	Tool       string           `json:"tool"`
-	Model      string           `json:"model"`
-	Trust      bool             `json:"trust"`
+	Objective string `json:"objective"`
+	ProjectID string `json:"projectId"`
+	Tool      string `json:"tool"`
+	Model     string `json:"model"`
+	Trust     bool   `json:"trust"`
+	// Yolo starts every session of the outcome without approvals. It is the
+	// person's choice only: no plan and no model can ask for it.
+	Yolo       bool             `json:"yolo"`
 	Sessions   []OutcomeSession `json:"sessions"`
 	MaxReviews int              `json:"maxReviews"`
 	Hours      int              `json:"hours"`
@@ -196,6 +203,9 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if in.Trust && in.Tool != "opencode" && in.Tool != "antigravity" && !outcomeWantsTrust(in) {
 		return o, invalid("trust", "Only OpenCode and Google Antigravity ask you to trust a folder's plugins.")
 	}
+	if in.Yolo && !outcomeTakesYolo(in) {
+		return o, invalid("yolo", "One of the chosen agents has no YOLO option reet can use.")
+	}
 	if in.MaxReviews < 1 || in.MaxReviews > 48 || in.Hours < 1 || in.Hours > 168 {
 		return o, invalid("goal", "Choose 1 to 48 reviews over 1 to 168 hours for each session.")
 	}
@@ -227,7 +237,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Trust: in.Trust, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Trust: in.Trust, Yolo: in.Yolo, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err
@@ -284,6 +294,22 @@ func outcomePieces(items []OutcomeSession, tool, model string, autoMerge bool, t
 		out = append(out, piece)
 	}
 	return out, nil
+}
+
+// outcomeTakesYolo reports whether every agent the outcome names can be
+// started without approvals.
+func outcomeTakesYolo(in OutcomeInput) bool {
+	if !terminalproto.ToolTakesYolo(in.Tool) {
+		return false
+	}
+	for _, item := range in.Sessions {
+		for _, stage := range item.Stages {
+			if stage.Tool != "" && !terminalproto.ToolTakesYolo(stage.Tool) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func outcomeWantsTrust(in OutcomeInput) bool {
@@ -651,7 +677,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		_, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, nil))
 		return err == nil
 	}
-	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Trust: o.Trust, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
+	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Trust: o.Trust, Yolo: o.Yolo, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
 	goal := OutcomeGoal(o.Objective, item.Title)
 	staged := len(item.Stages) > 0 && item.Stage < len(item.Stages)
 	if staged {

@@ -803,3 +803,33 @@ func TestALaterStageSessionIsListedUnderItsProject(t *testing.T) {
 		t.Fatalf("a session outside the project was linked: %v", err)
 	}
 }
+
+func TestYoloIsThePersonsChoiceAndReachesEveryStageLaunch(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	// Left unchosen, no launch asks for it.
+	plain, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil || plain.Yolo {
+		t.Fatalf("plain outcome: %+v %v", plain, err)
+	}
+	r.piece(t, plain.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	for _, launch := range r.starter.asked() {
+		if launch.Yolo {
+			t.Fatalf("a launch asked for YOLO unasked: %+v", launch)
+		}
+	}
+	before := len(r.starter.asked())
+	in := pipelineInput(r, false)
+	in.Yolo = true
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil || !created.Yolo {
+		t.Fatalf("yolo outcome: %+v %v", created, err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Committed.")
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	asked := r.starter.asked()[before:]
+	if len(asked) != 2 || !asked[0].Yolo || !asked[1].Yolo {
+		t.Fatalf("yolo launches: %+v", asked)
+	}
+}

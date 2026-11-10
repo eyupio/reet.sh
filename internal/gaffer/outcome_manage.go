@@ -106,6 +106,16 @@ func (s *Service) AddPipelines(uid int64, id string, in AddPipelinesInput) (stor
 	if err != nil {
 		return current, err
 	}
+	if current.Yolo {
+		// The outcome runs without approvals, so a pipeline joins it only with agents that can.
+		for _, piece := range pieces {
+			for _, stage := range piece.Stages {
+				if !terminalproto.ToolTakesYolo(stage.Tool) {
+					return current, invalid("yolo", "This outcome runs on YOLO, and one of the chosen agents has no YOLO option reet can use.")
+				}
+			}
+		}
+	}
 	o, err := s.store.UpdateGafferOutcomeFor(uid, id, in.Revision, func(o *store.GafferOutcome) bool {
 		now := time.Now().UnixMilli()
 		for i := range pieces {

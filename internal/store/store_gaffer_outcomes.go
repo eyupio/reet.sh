@@ -107,6 +107,7 @@ type GafferOutcome struct {
 	Tool        string                 `json:"tool"`
 	Model       string                 `json:"model,omitempty"`
 	Trust       bool                   `json:"trust,omitempty"`
+	Yolo        bool                   `json:"yolo,omitempty"`
 	ProviderID  string                 `json:"providerId"`
 	MaxReviews  int                    `json:"maxReviews"`
 	Hours       int                    `json:"hours"`

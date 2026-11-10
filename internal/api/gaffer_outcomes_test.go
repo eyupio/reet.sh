@@ -48,12 +48,15 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 	// A fractional limit or an unknown field never reaches the plan: the body is strict.
 	for name, bad := range map[string]string{
 		"fractional reviews": strings.Replace(plan, `"maxReviews":8`, `"maxReviews":1.5`, 1),
-		"yolo":               strings.Replace(plan, `"confirmed":true`, `"confirmed":true,"yolo":true`, 1),
 		"session yolo":       strings.Replace(plan, `"title":"Export"`, `"title":"Export","yolo":true`, 1),
 	} {
 		if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes", bad); code != 400 {
 			t.Fatalf("%s: %d", name, code)
 		}
+	}
+	// YOLO is the person's to choose for an outcome, never a session's or a plan's, and only where the account allows it.
+	if code, body := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes", strings.Replace(plan, `"confirmed":true`, `"confirmed":true,"yolo":true`, 1)); code != 403 || !strings.Contains(body, "Remote sessions are disabled") && !strings.Contains(body, "allow YOLO") {
+		t.Fatalf("yolo without the account setting: %d %s", code, body)
 	}
 	// Remote sessions are off on this controller, so nothing can be approved.
 	if code, body := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes", plan); code != 403 || !strings.Contains(body, "Remote sessions are disabled") {

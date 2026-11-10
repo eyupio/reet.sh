@@ -72,12 +72,20 @@ func (s *server) gafferOutcomeCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
 		return
 	}
+	if in.Yolo {
+		// Refused here, before anything is saved, with the words a launch would
+		// give. The broker checks again, with the machine, at every start.
+		if setting, err := s.yoloSetting(); err != nil || !setting.Allowed {
+			writeErrCode(w, http.StatusForbidden, "yolo_not_allowed", "", sentenceYoloNotAllowed, "")
+			return
+		}
+	}
 	o, err := s.gafferProviders.CreateOutcome(s.uid(r), in)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-outcome-approved", "", map[string]any{"outcome": o.ID, "sessions": len(o.Sessions), "machine": o.AgentID, "projectId": o.ProjectID, "tool": o.Tool})
+	s.eventRequest(r, "gaffer-outcome-approved", "", map[string]any{"outcome": o.ID, "sessions": len(o.Sessions), "machine": o.AgentID, "projectId": o.ProjectID, "tool": o.Tool, "yolo": o.Yolo})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 201, o)
 }
@@ -205,8 +213,9 @@ func (s *server) gafferOutcomeReview(w http.ResponseWriter, r *http.Request) {
 // outcomeStarter starts a session of an approved outcome through the launch
 // path a browser uses: the project is checked, a git project gets a worktree
 // of its own, the broker applies its capability and trust rules, and the
-// launch is audited. It never asks for YOLO, and takes its machine, folder
-// and agent from the outcome the person approved.
+// launch is audited. YOLO is asked for only when the person chose it for the
+// outcome, and the broker checks the account setting, agent and machine each
+// time. Machine, folder and agent come from the outcome the person approved.
 type outcomeStarter struct{ s *server }
 
 // replyCapture keeps the launch handler's own refusal so an outcome reports
@@ -225,7 +234,7 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 	if !s.terminalEnabled() || s.terminals == nil {
 		return "", "", errors.New("Remote sessions are disabled on this controller.")
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: 100, Rows: 30, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, ProjectID: in.ProjectID, Structured: true, Trust: in.Trust}
+	create := terminalproto.Create{Title: in.Title, Cols: 100, Rows: 30, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, ProjectID: in.ProjectID, Structured: true, Trust: in.Trust, Yolo: in.Yolo}
 	create.Title, create.TitleOrigin = terminalproto.ResolveTitle(in.Title, "", in.Tool, in.Prompt, in.Dir)
 	refusal := func(err error) (string, string, error) {
 		capture := &replyCapture{header: http.Header{}}

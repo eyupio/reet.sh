@@ -19,7 +19,6 @@
   const visible = $derived(drafts.filter(skill => `${skill.slug} ${skill.description}`.toLowerCase().includes(query.toLowerCase())))
   function hostedId(skill: HostedSkill) { return `hosted/${location.host.toLowerCase()}/${username}/${skill.slug}` }
   // The id a draft has as a sync candidate (`hosted/<host>/<user>/<slug>`), so Sync can pre-select it.
-  function syncHref(skill: HostedSkill) { return `/sync?skill=${encodeURIComponent(hostedId(skill))}` }
   function whereLine(skill: HostedSkill): string { return writtenSkillWhere(hostedId(skill), snapshot, reports) }
   async function publish(skill: HostedSkill) {
     if (saving) return
@@ -54,7 +53,7 @@
         </div>
         <div class="actions">
           <a class="btn quiet" href={`/hosting?edit=${encodeURIComponent(skill.slug)}`}>Edit</a>
-          <a class="btn quiet" href={syncHref(skill)} title="Drafts sync privately from this reet.sh; nothing is published.">Sync to machines…</a>
+          <a class="btn quiet" href="/sync" title="Drafts sync privately from this reet.sh; nothing is published.">Sync to machines…</a>
           <button class="btn" disabled={!canWrite || !!saving} onclick={() => void publish(skill)}>{saving === skill.slug ? 'Publishing…' : 'Publish & share'}</button>
         </div>
       </article>

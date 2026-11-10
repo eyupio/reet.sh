@@ -108,7 +108,8 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
   const lastSync = Math.max(0,
     ...jobs.filter(job => job.status === 'succeeded').map(job => job.updatedAt),
     ...targets.filter(target => target.appliedRevision === target.revision).map(target => target.updatedAt))
-  const href = `/sync?machine=${encodeURIComponent(machine.host)}`
+  // The plan controls read `machine`, so this goes to Advanced sync (see syncRoutes.ts).
+  const href = `/sync/advanced?machine=${encodeURIComponent(machine.host)}`
   const base = { href, targets: targets.length, missing, extra, lastSync, run, job: active }
   const targetEnvs: Array<SyncEnvironment | undefined> = targets.map(target => (snapshot.environments ?? []).find(env => env.id === target.target.id))
   const fresh = targets.length > 0 && targetEnvs.every(env => isFresh(env, now))

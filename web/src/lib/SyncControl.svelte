@@ -17,7 +17,9 @@
   import { jobPlanCounts, syncJobStages } from './syncOverview'
   import { offersDedupe, offersSourceFix } from './syncProblems'
   import { startSyncRun } from './api'
-  let { snapshot, canWrite, onupdate, view = 'compare' }: { snapshot: SyncState; canWrite: boolean; onupdate: (s: SyncState) => void; view?: 'machines' | 'compare' } = $props()
+  // `advanced` is the Advanced sync page (/sync/advanced): the sync-plan controls and their activity. Without it this is
+  // the Sync page (/sync): the summary, a row per machine and recent activity, with no plan controls and no second headline.
+  let { snapshot, canWrite, onupdate, view = 'compare', advanced = false }: { snapshot: SyncState; canWrite: boolean; onupdate: (s: SyncState) => void; view?: 'machines' | 'compare'; advanced?: boolean } = $props()
   let source = $state('shelf'), selectedMachine = $state(''), selectedAgents = $state<string[]>([]), listId = $state(0), mode = $state('additive')
   let candidates = $state<SyncSkill[]>([]), selected = $state<string[]>([]), adopt = $state<string[]>([]), lists = $state<SharedList[]>([])
   let revision = $state(''), busy = $state(false), loading = $state(false), error = $state(''), notice = $state(''), query = $state('')
@@ -478,7 +480,8 @@
   }
   function cancelJob(job: SyncJob) { void run(async () => onupdate(await controlSyncJob(job.id, 'cancel'))) }
   onMount(() => {
-    if (view !== 'compare') return
+    // The lists, the source and the address's machine belong to the plan controls, which only the advanced page shows.
+    if (view !== 'compare' || !advanced) return
     void (async () => {
       try {
         lists = (await listLists()).lists
@@ -493,8 +496,6 @@
           selected = selected.filter(id => id !== requestedRemove)
           mode = 'mirror'
           notice = 'Removal prepared. Review the exact set below, then save; no files change until you preview and approve.'
-          const advanced = document.querySelector<HTMLDetailsElement>('details.advanced-selection')
-          if (advanced) advanced.open = true
           document.getElementById('sync-selection')?.scrollIntoView({ behavior: 'instant', block: 'start' })
         }
         const match = fleet.find(m => m.host === requestedMachine)
@@ -526,6 +527,8 @@
       document.getElementById('sync-jobs')?.scrollIntoView({ block: 'start' })
     }
   })
+  // The plan controls used to sit in a fold lower down the Sync page; a link to them now opens this page at them.
+  onMount(() => { if (advanced && location.hash === '#sync-selection') document.getElementById('sync-selection')?.scrollIntoView({ block: 'start' }) })
 </script>
 
 {#if error}<p class="feedback bad" role="alert">{error}</p>{/if}
@@ -613,17 +616,25 @@
 
 
 {#if view === 'compare'}
-<SyncSetup {snapshot} {canWrite} {onupdate} />
+{#if !advanced}<SyncSetup {snapshot} {canWrite} {onupdate} />{/if}
 {#if activity.total || location.hash === '#sync-jobs'}
 <section id="sync-jobs" class="activity" aria-labelledby="sync-jobs-title">
   <header class="activity-head">
     <div>
+      {#if advanced}
       <div class="activity-top">
         <p class="eyebrow">Sync activity</p>
         {#if activity.total}<span class="badge">{activity.total} {activity.total === 1 ? 'job' : 'jobs'}</span>{/if}
       </div>
       <h3 id="sync-jobs-title" aria-live="polite">{activityHeadline}</h3>
       <p>{activityDetail}</p>
+      {:else}
+      <!-- The Sync page has one status sentence, at its top. This is a log: what ran, on which machine, and how it ended. -->
+      <div class="activity-top">
+        <h3 id="sync-jobs-title">Recent activity</h3>
+        {#if activity.total}<span class="badge">{activity.total} {activity.total === 1 ? 'job' : 'jobs'}</span>{/if}
+      </div>
+      {/if}
     </div>
   </header>
   {#if activeHosts.length}
@@ -639,7 +650,7 @@
     </div>
   {:else if latestFinished}
     <section class="activity-host calm" aria-label={`Latest sync activity on ${latestFinished.host}`}>
-      <header class="host-head"><h4>{latestFinished.host}</h4><p>Nothing needs you.</p></header>
+      <header class="host-head"><h4>{latestFinished.host}</h4>{#if advanced}<p>Nothing needs you.</p>{/if}</header>
       {@render jobRow(latestFinished, false)}
     </section>
   {/if}
@@ -655,8 +666,11 @@
   {/if}
 </section>
 {/if}
-{#if snapshot.agents?.length}
-<details class="advanced-selection"><summary>Advanced sync · lists, reference machines &amp; removal rules</summary>
+{#if advanced && !snapshot.agents?.length}
+<p class="hint no-machines">Sync plans are made for a connected machine, and none is connected yet. <a href="/machines">Connect a machine</a> first.</p>
+{/if}
+{#if advanced && snapshot.agents?.length}
+<div class="advanced-selection">
 <section id="sync-selection" class="control" aria-labelledby="selection-title">
   <h2 id="selection-title">Choose what to sync</h2>
   <p>Use a custom plan for project folders, or turn Automatic sync off above to manage a machine manually. Home folders with automatic sync follow your shared library.</p>
@@ -806,14 +820,14 @@
 </section>
 <!-- Fleet-wide actions belong beside the activity they create, not between the person and the task. -->
 <FleetActions {snapshot} {canWrite} {onupdate} />
-</details>
+</div>
 {/if}
 
 
 
 {/if}{#if confirm}<ConfirmDialog title={confirm.title} body={confirm.body} details={confirm.details} confirmLabel={confirm.confirmLabel ?? 'Confirm'} oncancel={() => confirm = null} onconfirm={() => { const action = confirm?.action; confirm = null; void action?.() }} />{/if}
 <style>
- .advanced-selection {margin:20px 0;border-top:1px solid var(--line);padding-top:16px}.advanced-selection>summary{cursor:pointer;font-size:0.875rem;color:var(--muted);padding:8px 0}
+ .advanced-selection {margin:20px 0}
  .control { border:1px solid var(--line); border-radius:10px; padding:18px; margin:16px 0; min-width:0; }
  h2,h3,h4 { margin:0 0 10px; } .control h2 { font:500 1.35rem/1.2 var(--serif); letter-spacing:-.02em; } p,.hint { color:var(--muted); line-height:1.6; font-size:0.875rem; } .hint {font-size:0.875rem}
  .pickers {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px} label{display:grid;gap:6px;font-size:0.875rem;font-weight:600} select,input[type=search]{width:100%;min-width:0}

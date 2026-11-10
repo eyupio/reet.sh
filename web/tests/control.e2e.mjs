@@ -129,9 +129,15 @@ try {
  await expect(page.getByRole('dialog')).toHaveCount(0)
  writes.length=0
  await noOverflow()
+ // The Sync page carries no plan controls: they are one link away, on Advanced sync.
  await page.goto(`${base}/sync`)
- await page.locator('details.advanced-selection > summary').click()
- // The compare panel opens on the machine's saved set, not a blank form that contradicts it.
+ await expect(page.getByRole('heading',{level:1,name:'Sync',exact:true})).toBeVisible()
+ await expect(page.getByLabel('Sync mode',{exact:true})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Sync all · preview'})).toHaveCount(0)
+ await page.getByRole('link',{name:'Advanced sync',exact:true}).click()
+ await expect(page).toHaveURL(`${base}/sync/advanced`)
+ await expect(page.getByRole('heading',{level:1,name:'Advanced sync',exact:true})).toBeVisible()
+ // The plan controls open on the machine's saved set, not a blank form that contradicts it.
  await expect(page.getByText('Editing sync plan · revision rev-laptop-shared')).toBeVisible()
  await expect(page.getByText('3 of 3 skills selected')).toBeVisible()
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toBeEnabled()
@@ -147,8 +153,9 @@ try {
  expect(writes.filter(w=>w.body.kind==='preview')).toHaveLength(3)
  expect(writes.some(w=>w.body.action==='approve')).toBe(false)
  failQueue=false
+ // An older link that names a machine is sent on to Advanced sync, which honours it.
  await page.goto(`${base}/sync?machine=*`)
- await page.locator('details.advanced-selection > summary').click()
+ await expect(page).toHaveURL(`${base}/sync/advanced?machine=*`)
  await expect(page.getByLabel('Machine',{exact:true})).toHaveValue('*')
  // Nothing selected never offers a plain Save: an empty set is only cleared deliberately.
  await expect(page.getByText('0 of 3 skills selected')).toBeVisible()
@@ -190,9 +197,13 @@ try {
  await expect(page.getByRole('link',{name:'Create a skill',exact:true})).toBeVisible()
  await page.goto(`${base}/terminals`)
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
+ // The older address for Sync shows the Sync page; with a machine it is a link into the plan controls.
  await page.goto(`${base}/machines?view=compare`)
- await page.locator('details.advanced-selection > summary').click()
- await expect(page.getByLabel('Machine',{exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1,name:'Sync',exact:true})).toBeVisible()
+ await expect(page.getByLabel('Machine',{exact:true})).toHaveCount(0)
+ await page.goto(`${base}/machines?view=compare&machine=dev-laptop`)
+ await expect(page).toHaveURL(`${base}/sync/advanced?machine=dev-laptop`)
+ await expect(page.getByLabel('Machine',{exact:true})).toHaveValue('dev-laptop')
  // A scan is not proof of a live terminal connection. The wizard verifies both separately.
  terminalReady=false
  await page.goto(`${base}/machines#connect-machine`)
@@ -233,7 +244,6 @@ try {
   await page.getByRole('button',{name:'Close settings'}).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.goto(`${base}/sync?machine=*`)
- await page.locator('details.advanced-selection > summary').click()
   await expect(page.locator('.scope-option')).toHaveCount(3)
   await noOverflow()
  }
@@ -244,7 +254,6 @@ try {
  snapshot={...snapshot,agents:snapshot.agents.map(agent=>({...agent,lastSeen:Date.now()})),jobs:[failedJob('r1','a','laptop-shared'),failedJob('r2','b','build-shared')]}
  await page.setViewportSize({width:390,height:844})
  await page.goto(`${base}/sync`)
- await page.locator('details.advanced-selection > summary').click()
  const devJob=page.locator('.activity-host').filter({hasText:'dev-laptop'}).locator('.activity-job').filter({hasText:'Apply failed'})
  const devRetry=devJob.getByRole('button',{name:/run it/})
  await devRetry.scrollIntoViewIfNeeded()
@@ -272,7 +281,6 @@ try {
  await page.setViewportSize({width:1440,height:900})
  failSource=true
  await page.goto(`${base}/sync?machine=*`)
- await page.locator('details.advanced-selection > summary').click()
  await expect(page.getByRole('alert').first()).toContainText('Source unavailable')
  await expect(page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true})).toBeDisabled()
  failSource=false

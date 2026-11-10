@@ -1,8 +1,8 @@
 # Reet.sh skills and enrolled machines
 
-New connectors keep **selected In use skills** up to date through your private library. In **Sync → Skills to sync**, choose a machine folder, select its skills and save. The selection survives an offline machine; a new machine receives nothing until you choose items for it. Select all adds the current In use items without subscribing to future additions.
+New connectors keep **selected In use skills** up to date through your private library. On **Machines**, open a machine's **Skills on this machine** dialog, choose a folder, select its skills and save. The **Sync** page links each machine to the same dialog. The selection survives an offline machine; a new machine receives nothing until you choose items for it. Select all adds the current In use items without subscribing to future additions.
 
-Advanced custom plans and older connector compatibility remain available below. Managed removal/restoration and the replacement minimal pages are separate rollout stages.
+The **Sync** page (`/sync`) shows one status sentence, a row for each machine and recent activity. Anything that needs you, such as a plan waiting for review or a problem on one machine, is said on that machine's row. Custom plans (list-based or exact-set plans, plan revisions and manual scans) and older connector compatibility are on their own page, **Advanced sync** (`/sync/advanced`), linked once from Sync and described below. Managed removal/restoration and the replacement minimal pages are separate rollout stages.
 
 ## Connect an installation
 
@@ -36,7 +36,7 @@ reet doctor
 
 ## Keep selected skills up to date
 
-1. Open **Sync → Skills to sync** and choose an enrolled machine folder.
+1. Open **Machines**, choose **Skills on this machine** for an enrolled machine, and choose a folder.
 2. Select individual skills or **Select all In use**, then **Save selection**. An offline machine or stale inventory does not prevent saving intent.
 3. Leave the connector running. It verifies and installs ready items automatically, with no browser preview/apply chain. Edits from either selected machine or the controller propagate through immutable private revisions. A failed item leaves healthy items running.
 
@@ -56,6 +56,8 @@ Clearing a selection stops updates in this stage. Removing managed copies on des
 
 ## Advanced custom plans and older connectors
 
+These controls are on the **Advanced sync** page: open **Sync** and follow the **Advanced sync** link, or go to `/sync/advanced`. Older links that name a machine, a list or a skill to remove (`/sync?machine=…`, `/sync?list=…`, `/sync?machine=…&remove=…`) are sent on to that page with what they carried.
+
 ### Compare, select and apply
 
 1. Choose the source collection and target machine/agent/project. Select individual skills or Select visible after searching.
@@ -63,7 +65,7 @@ Clearing a selection stops updates in this stage. Removing managed copies on des
 3. Choose a mode and **Save desired skills**. Exact and bidirectional modes warn when extras may be removed.
 4. Choose **Preview on machine**. The agent reads current files, validates sources/shared folders, and returns a concrete plan.
 5. **Apply changes** to approve that plan. The agent checks enrollment, target, desired revision, local plan hash and filesystem state again before applying. Changed plans fail and require a fresh preview.
-6. Read Sync activity for queued/running/awaiting approval/succeeded/failed/cancelled status. The page opens with a **Needs you** strip when anything failed or is waiting for review; full activity sits below the saved sets. A successful apply rescans and acknowledges the desired revision.
+6. Read Sync activity for queued/running/awaiting approval/succeeded/failed/cancelled status. It is at the top of Advanced sync, above the plan controls, and on the Sync page as **Recent activity**; a plan waiting for review is also said on its machine's row on Sync, with a **Review changes** link. A successful apply rescans and acknowledges the desired revision.
 
 The UI refreshes while visible, preserves existing data on refresh failures, and shows when data was last refreshed. Onboarding only confirms a complete scan received after the connection attempt began, rather than accepting an old matching hostname report.
 

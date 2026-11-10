@@ -4,6 +4,7 @@
   import { groupLabel, installationStatus, installationSummary, type InstallationReport } from './machines'
   import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type SyncState, type Tag } from './api'
   import { skillSyncIntent, skillSyncSummary } from './skillSync'
+  import { advancedSyncHref } from './syncRoutes'
   import CopyButton from './CopyButton.svelte'
   import { copyText } from './clipboard'
   import { eventLabel, eventTitle } from './events'
@@ -296,7 +297,7 @@
             {:else}
               <strong>{installationLabels[report.status]}</strong>
               {#if report.status === 'installed' && canWrite && hasSavedSetFor(report.host)}
-                <a class="remove-from" href={`/sync?machine=${encodeURIComponent(report.host)}&remove=${encodeURIComponent(skill.id)}`} onclick={(event) => event.stopPropagation()} aria-label={`Remove ${skill.name} from ${report.host} in Sync`} title="Open Sync to review the exact set. No files change until you preview and approve.">Remove…</a>
+                <a class="remove-from" href={advancedSyncHref(report.host, skill.id)} onclick={(event) => event.stopPropagation()} aria-label={`Remove ${skill.name} from ${report.host} in Advanced sync`} title="Open Advanced sync to review the exact set. No files change until you preview and approve.">Remove…</a>
               {/if}
             {/if}
           </li>
@@ -503,7 +504,7 @@
         </button>
       {/each}
       {#if installableReports.length}
-        <a role="menuitem" href={`/sync?machine=${encodeURIComponent(installableReports[0].host)}`}>Review sync for {installableReports[0].host}</a>
+        <a role="menuitem" href={advancedSyncHref(installableReports[0].host)}>Review sync for {installableReports[0].host}</a>
       {/if}
       {#if command}<button type="button" role="menuitem" onclick={copyInstall}>Copy install command</button>{/if}
       {#if prompt}<button type="button" role="menuitem" onclick={() => { closeMenu(); void copyText(prompt) }}>Copy prompt</button>{/if}

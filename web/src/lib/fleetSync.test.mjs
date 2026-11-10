@@ -9,7 +9,7 @@ const transpile = (file) => ts.transpileModule(readFileSync(new URL(file, import
 const dataURL = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
 const machinesURL = dataURL(transpile('./machines.ts'))
 const overviewURL = dataURL(transpile('./syncOverview.ts'))
-const { fleetSyncStatus, fleetSyncSentence } = await import(dataURL(transpile('./fleetSync.ts')
+const { fleetSyncStatus, fleetSyncSentence, machineSyncRow } = await import(dataURL(transpile('./fleetSync.ts')
   .replace("from './machines'", `from '${machinesURL}'`)
   .replace("from './syncOverview'", `from '${overviewURL}'`)))
 
@@ -188,4 +188,51 @@ test('the sentence for a message is what is true now followed by what will follo
   assert.equal(fleetSyncSentence(fleetSyncStatus(fleet(host('a'), host('b', { online: false })), now)), "Everything is in sync. b will catch up when it's back online.")
   assert.equal(fleetSyncSentence(fleetSyncStatus(fleet(host('a', { running: true })), now)), 'Syncing your machines…')
   assert.equal(fleetSyncSentence(fleetSyncStatus(fleet(host('a', { online: false })), now)), "Your machines will sync when they're back online. Offline right now: a.")
+})
+
+test('what the library adds is part of the one sentence, after the machines', () => {
+  const notes = { copying: 'Copying seo privately from your machines.', leftOut: '2 skills are left out for now.' }
+  const status = fleetSyncStatus(fleet(host('a'), host('b', { online: false })), now, notes)
+  assert.equal(status.headline, 'Everything is in sync.')
+  assert.equal(status.detail, "b will catch up when it's back online. Copying seo privately from your machines. 2 skills are left out for now.")
+  // Nothing to add leaves the sentence as it was.
+  assert.equal(fleetSyncStatus(fleet(host('a')), now, { copying: '', leftOut: '' }).detail, '')
+})
+
+test('a machine row says what the sentence says about that machine', () => {
+  const row = (h) => machineSyncRow(h.agent, fleet(h), now)
+  assert.deepEqual(row(host('a')), { host: 'a', online: true, label: 'Everything in sync', detail: 'Last checked 10 min ago', tone: 'synced' })
+  assert.equal(row(host('a', { paused: true })).label, 'Paused')
+  assert.equal(row(host('a', { keepSynced: false })).label, 'Sync off')
+  assert.equal(row(host('a', { keepSynced: false })).tone, 'attention')
+  const offline = row(host('a', { online: false }))
+  assert.equal(offline.label, 'Waiting for machine')
+  assert.equal(offline.online, false)
+  assert.equal(row(host('a', { scanned: false })).detail, 'Connected · waiting for the first scan')
+  assert.equal(row(host('a', { missing: 2 })).label, '2 skills to install')
+  assert.equal(row(host('a', { problem: 'Two skills share a name.' })).tone, 'attention')
+  assert.equal(row(host('a', { problem: 'Two skills share a name.' })).detail, 'Two skills share a name.')
+})
+
+test('a connected machine with nothing planned yet is being set up, as the sentence says, not asked for a choice', () => {
+  const unplanned = host('a', { planned: false })
+  assert.equal(fleetSyncStatus(fleet(unplanned), now).headline, 'Syncing your machines…')
+  const row = machineSyncRow(unplanned.agent, fleet(unplanned), now)
+  assert.equal(row.label, 'Setting up')
+  assert.equal(row.tone, 'working')
+  assert.doesNotMatch(`${row.label} ${row.detail}`, /No skills set to sync|Choose/)
+})
+
+test('a review waiting or a finished update is said on the machine row', () => {
+  const a = host('a')
+  const job = (kind, status, ago) => ({ id: `${kind}-${status}-${ago}`, agentId: a.agent.id, targetId: kind === 'update' ? '' : 'a-scope', kind, status, revision: 'r1', hash: '', plan: {}, message: '', createdAt: now - ago, updatedAt: now - ago })
+  const withJobs = (...jobs) => machineSyncRow(a.agent, { ...fleet(a), jobs }, now)
+  assert.equal(withJobs().note, undefined)
+  assert.deepEqual(withJobs(job('preview', 'awaiting-approval', 60_000)).note, { text: '1 plan is waiting for your review.', action: 'Review changes', href: '#sync-jobs' })
+  assert.equal(withJobs(job('preview', 'awaiting-approval', 60_000)).label, 'Review needed')
+  assert.deepEqual(withJobs(job('update', 'succeeded', 3 * 60_000)).note, { text: 'Update complete · 3 min ago' })
+  // Once something newer happened on the machine, the update is history and is not repeated on the row.
+  assert.equal(withJobs(job('update', 'succeeded', 3 * 60_000), job('auto', 'succeeded', 60_000)).note, undefined)
+  // Another machine's update is not this machine's news.
+  assert.equal(machineSyncRow(a.agent, { ...fleet(a), jobs: [{ ...job('update', 'succeeded', 1000), agentId: 'someone-else' }] }, now).note, undefined)
 })

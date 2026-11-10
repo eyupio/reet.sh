@@ -1,6 +1,6 @@
 import type { SyncAgent, SyncState } from './api'
 import { agentOnline } from './machines'
-import { foldHost, machineSyncOverview } from './syncOverview'
+import { agoLabel, foldHost, machineSyncOverview } from './syncOverview'
 
 /**
  * The whole fleet in one sentence. A person who presses Sync wants to know one
@@ -70,7 +70,18 @@ function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`
 }
 
-export function fleetSyncStatus(snapshot: Pick<SyncState, 'agents' | 'machines' | 'environments' | 'targets' | 'jobs' | 'runs'>, now = Date.now()): FleetSyncStatus {
+/**
+ * What the library adds to the sentence: skills being copied in and skills that cannot sync yet. They are part of
+ * the one answer, so the page does not print a second notice beside it.
+ */
+export type FleetLibraryNotes = {
+  /** "Copying seo privately from your machines. …", or empty. */
+  copying?: string
+  /** "3 skills are left out for now.", or empty. */
+  leftOut?: string
+}
+
+export function fleetSyncStatus(snapshot: Pick<SyncState, 'agents' | 'machines' | 'environments' | 'targets' | 'jobs' | 'runs'>, now = Date.now(), library: FleetLibraryNotes = {}): FleetSyncStatus {
   const agents = snapshot.agents ?? []
   const all = agents.map(agent => classify(agent, snapshot as SyncState, now))
   const of = (kind: Kind) => all.filter(item => item.kind === kind)
@@ -118,7 +129,57 @@ export function fleetSyncStatus(snapshot: Pick<SyncState, 'agents' | 'machines' 
     if (paused.length) parts.push(paused.length === 1 ? `${paused[0].host} is paused.` : `${paused.length} machines are paused.`)
   }
 
+  if (library.copying) parts.push(library.copying)
+  if (library.leftOut) parts.push(library.leftOut)
+
   return { ...counts, state, headline, detail: parts.join(' '), canSync: state !== 'syncing' && state !== 'paused' }
+}
+
+/**
+ * One machine's line on the Sync page. It is sorted the same way as the sentence above it (`classify`), so a row
+ * never says something the sentence contradicts, and whatever needs a person on this machine is said here and
+ * nowhere else on the page.
+ */
+export type MachineSyncRow = {
+  host: string
+  online: boolean
+  /** The short word in the row's chip. */
+  label: string
+  detail: string
+  tone: 'synced' | 'attention' | 'review' | 'working' | 'waiting'
+  /** Something that happened or is waiting on this machine: a review to give, or an update that finished. */
+  note?: { text: string; action?: string; href?: string }
+}
+
+export function machineSyncRow(agent: SyncAgent, snapshot: Pick<SyncState, 'agents' | 'machines' | 'environments' | 'targets' | 'jobs' | 'runs'>, now = Date.now()): MachineSyncRow {
+  const online = agentOnline(agent, now)
+  const row = (label: string, detail: string, tone: MachineSyncRow['tone']): MachineSyncRow => {
+    const note = machineNote(agent, snapshot, now)
+    return { host: agent.host, online, label, detail, tone, ...(note ? { note } : {}) }
+  }
+  if (agent.paused) return row('Paused', 'Paused · resume in machine settings', 'attention')
+  if (!agent.keepSynced) return row('Sync off', 'Automatic sync is off · Sync all machines to enable', 'attention')
+  if (!online) return row('Waiting for machine', 'Offline · library sync resumes when this machine reconnects', 'waiting')
+  const machine = (snapshot.machines ?? []).find(item => foldHost(item.host) === foldHost(agent.host))
+  if (!machine) return row('Setting up', 'Connected · waiting for the first scan', 'working')
+  const overview = machineSyncOverview(machine, snapshot as SyncState, now)
+  // Nothing planned yet on a connected machine is prepared without anyone doing anything, which is what the
+  // sentence calls syncing. The row says the same and does not ask for a choice.
+  if (overview.tone === 'setup') return row('Setting up', 'Reet is getting this machine’s skills ready.', 'working')
+  const tone = overview.tone === 'action' ? 'working' : overview.tone
+  return row(overview.label, overview.detail, tone)
+}
+
+function machineNote(agent: SyncAgent, snapshot: Pick<SyncState, 'jobs'>, now: number): MachineSyncRow['note'] {
+  const jobs = (snapshot.jobs ?? []).filter(job => job.agentId === agent.id).sort((a, b) => b.updatedAt - a.updatedAt)
+  const waiting = jobs.filter(job => job.status === 'awaiting-approval').length
+  if (waiting) {
+    return { text: `${plural(waiting, 'plan is', 'plans are')} waiting for your review.`, action: 'Review changes', href: '#sync-jobs' }
+  }
+  // An update that finished is news about this machine, said once here while it is the latest thing that happened.
+  const latest = jobs[0]
+  if (latest?.kind === 'update' && latest.status === 'succeeded') return { text: `Update complete · ${agoLabel(latest.updatedAt, now)}` }
+  return undefined
 }
 
 /** The status as one line for a toast or a note: what is true now, then what will follow. */

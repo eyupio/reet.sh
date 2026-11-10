@@ -15,8 +15,12 @@ try {
    '/api/v2/library/selections/offline-shared':{status:404,json:{error:'private skill unavailable'}},
    '/api/v2/library/selections':request=>{const body=request.postDataJSON();saved.push(body);return {...body,version:'saved-version'}}
   }})
+  // The Sync page has no copy of the picker: a machine's skills are chosen in its dialog, the one way in.
   await page.goto(`${base}/sync`)
-  const panel=page.getByRole('region',{name:'Skills to sync'})
+  await expect(page.getByRole('heading',{name:'Your skills, everywhere.'})).toBeVisible()
+  await expect(page.getByRole('region',{name:'Skills to sync'})).toHaveCount(0)
+  await page.getByRole('link',{name:`Skills on this machine: ${scope.host}`,exact:true}).click()
+  const panel=page.getByRole('dialog',{name:`Skills on ${scope.host}`,exact:true}).getByRole('region',{name:'Skills to sync'})
   await expect(panel).toBeVisible()
   await panel.getByLabel('Machine folder').selectOption(scope.id)
   await expect(panel.getByRole('button',{name:'Save selection'})).toBeVisible()

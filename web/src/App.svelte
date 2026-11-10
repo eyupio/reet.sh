@@ -5,6 +5,7 @@
   import AppShell from './lib/shell/AppShell.svelte'
   import ProgressBar from './lib/shell/ProgressBar.svelte'
   import { pageGroup, type JumpItem, type Tab } from './lib/shell/tabs'
+  import { ADVANCED_SYNC, syncRedirect } from './lib/syncRoutes'
   import { PAGE_GROUP } from './lib/shell/pageNav'
   import { onAttentionChanged, signalAttentionChanged } from './lib/attentionSignal'
   import { listFolderProjects, markSessionSeen, sessionHref, terminalMachines, terminalSessions, type FolderProject } from './lib/terminal/api'
@@ -161,6 +162,10 @@
   // /sessions/ (a trailing slash) is /sessions.
   if (location.pathname === '/sessions/') window.history.replaceState(window.history.state, '', `/sessions${location.search}${location.hash}`)
   if (/^\/terminals\/?$/.test(location.pathname)) window.history.replaceState(window.history.state, '', `/sessions${location.search}${location.hash}`)
+  // Sync is two pages. A Sync address that carries something only the plan controls read (a machine, a skill to remove, a
+  // list, or their anchor) goes to Advanced sync with all of it, so an older link never lands on a page that ignores it.
+  const syncMoved = syncRedirect(location.pathname, location.search, location.hash)
+  if (syncMoved) window.history.replaceState(window.history.state, '', syncMoved)
   // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
   const isHome = location.pathname === '/'
   const bootApp = document.documentElement.dataset.boot === 'app'
@@ -178,7 +183,9 @@
   // A bare /sessions is the workspace too (its empty state offers a new session); the older list stays at /sessions?view=list.
   const isSessions = isSessionsPage && machineView === 'list'
   const isTerminals = isSessionsPage && !isSessions || legacyMachinePage && machineView === 'terminal'
-  const isSync = location.pathname === '/sync' || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
+  // The sync-plan controls on their own page. It is a Sync page for the tabs and the header's row.
+  const isSyncAdvanced = location.pathname === ADVANCED_SYNC
+  const isSync = location.pathname === '/sync' || isSyncAdvanced || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
   const isHosting = location.pathname === '/hosting'
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
@@ -1004,7 +1011,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isFactory ? 'Factory' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isFactory ? 'Factory' : isActivity ? 'Activity' : isSyncAdvanced ? 'Advanced sync' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -1192,7 +1199,7 @@
     {#await pages.Machines()}
       <RouteSkeleton variant={terminalLayout ? 'workspace' : 'rows'} />
     {:then { default: Page }}
-      <Page userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
+      <Page userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} advanced={isSyncAdvanced} ontitle={title => (workspaceTitle = title)} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -1570,7 +1577,7 @@
 
 {#if selecting && !needsAuth}
   <BulkBar
-    syncHref={`/sync?${selected.map(id => `skill=${encodeURIComponent(id)}`).join('&')}`}
+    syncHref="/sync"
     count={selected.length} {tagOptions} busy={bulkBusy}
     onclear={toggleSelecting} ontag={bulkTag} onstage={bulkStage}
     onlike={() => bulkPatch({ liked: true })} onremove={bulkRemove}

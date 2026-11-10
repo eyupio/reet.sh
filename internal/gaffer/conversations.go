@@ -53,8 +53,10 @@ type chatJob struct {
 	goalID string
 	// stage marks a review of a pipeline stage's goal; handover is the
 	// summary such a review gave when it called hand_over.
-	stage          bool
-	handover       string
+	stage    bool
+	handover string
+	// pipelineChat marks the person's own chat turn in a pipeline's session.
+	pipelineChat   bool
 	goalRevision   int64
 	goalText       string
 	uid            int64
@@ -367,6 +369,17 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 		}
 		workerRevision = messaging.Grant.Revision
 	}
+	// The person's own chat in a pipeline's session can act for them: it may
+	// pass their instruction to the working agent and move the pipeline on
+	// when they say so. The messaging grant was given when they approved the
+	// outcome, so it is used here without the per-request switch; without it
+	// the chat can still move the pipeline on.
+	pipelineChat := goal == nil && c.SessionID != "" && s.pipelineStage(uid, id)
+	if pipelineChat && workerRevision == 0 {
+		if messaging, err := s.WorkerSettings(uid, "gaffer", c.ID, c.SessionID); err == nil && messaging.Grant.Enabled && messaging.Allowed && !messaging.NeedsReview {
+			workerRevision = messaging.Grant.Revision
+		}
+	}
 	var snapshot *ContextSnapshot
 	if sharing.Grant.Any() {
 		x, err := s.contextSnapshot(uid, c.SessionID, sharing.Grant.ContextFlags)
@@ -397,7 +410,7 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 		return turn, err
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
-	job := &chatJob{uid: uid, provider: row.ID, conversation: id, turn: turn.ID, cancel: cancel, workerRevision: workerRevision, context: snapshot, grantRevision: sharing.Grant.Revision}
+	job := &chatJob{uid: uid, provider: row.ID, conversation: id, turn: turn.ID, cancel: cancel, workerRevision: workerRevision, context: snapshot, grantRevision: sharing.Grant.Revision, pipelineChat: pipelineChat}
 	if goal != nil {
 		job.goalID = goal.ID
 		job.goalRevision = goal.Revision

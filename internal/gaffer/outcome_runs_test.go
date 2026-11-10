@@ -434,7 +434,7 @@ func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
 		t.Fatalf("code stage: %+v", code)
 	}
 	goal, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID)
-	if err != nil || !strings.Contains(goal.Text, "\nStage: code\n") || !strings.HasSuffix(goal.Text, "Do not merge.") || len(goal.Text) > 2000 {
+	if err != nil || !strings.Contains(goal.Text, "\nStage: code\n") || !strings.HasSuffix(goal.Text, "Nothing is merged in this stage.") || len(goal.Text) > 2000 {
 		t.Fatalf("code goal: %q %v", goal.Text, err)
 	}
 	if !r.s.pipelineStage(r.p.UserID, code.ConversationID) {
@@ -448,7 +448,7 @@ func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
 		t.Fatalf("review stage: %+v launches=%d", review, len(asked))
 	}
 	second := asked[1]
-	if second.Dir != code.WorkDir || second.ProjectID != "" || second.Model != "strong/reviewer" || second.RequestID != review.Stages[1].RequestID || !strings.Contains(second.Prompt, "Handover from the code stage: Endpoint and tests are committed") || !strings.Contains(second.Prompt, "Your stage: review.") || !strings.HasSuffix(second.Prompt, "Do not merge.") {
+	if second.Dir != code.WorkDir || second.ProjectID != "" || second.Model != "strong/reviewer" || second.RequestID != review.Stages[1].RequestID || !strings.Contains(second.Prompt, "Handover from the code stage: Endpoint and tests are committed") || !strings.HasPrefix(second.Prompt, "You are doing ONE stage of a staged piece of work: the review stage.") || !strings.Contains(second.Prompt, "The later stages (test, merge) are done separately") || !strings.HasSuffix(second.Prompt, "Do not merge.") {
 		t.Fatalf("review launch: %+v", second)
 	}
 	if old, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID); err != nil || old.State != "stopped" {
@@ -993,5 +993,122 @@ func TestGafferReportsByItselfOncePerPipelineEventWhenAsked(t *testing.T) {
 	}
 	if len(r.starter.asked()) != 4 {
 		t.Fatalf("a report started something: %d launches", len(r.starter.asked()))
+	}
+}
+
+func TestTheFirstStageIsToldItsBoundaryBeforeTheWholeBrief(t *testing.T) {
+	item := store.GafferOutcomeSession{Title: "UI pass", Prompt: "Work in two phases: review the UI, then change it and raise a pull request.", Stages: []store.GafferOutcomeStage{{Kind: "plan"}, {Kind: "code"}, {Kind: "pr"}}}
+	got := stagePrompt(store.GafferOutcome{}, item, 0)
+	at := strings.Index(got, item.Prompt)
+	if !strings.HasPrefix(got, "You are doing ONE stage of a staged piece of work: the plan stage.") || at < 0 || strings.Index(got, "Change no code yet.") > at || !strings.Contains(got, "for context only") || !strings.Contains(got, "the written plan, as text in this session") || !strings.Contains(got, "The later stages (code, pr) are done separately") || !strings.HasSuffix(got, "Do not merge.") {
+		t.Fatalf("plan prompt: %q", got)
+	}
+	last := stagePrompt(store.GafferOutcome{}, store.GafferOutcomeSession{Prompt: "p", Stages: []store.GafferOutcomeStage{{Kind: "merge"}}}, 0)
+	if strings.Contains(last, "later stages") || strings.HasSuffix(last, "Do not merge.") {
+		t.Fatalf("merge prompt: %q", last)
+	}
+}
+
+func TestThePersonMovesAPipelineOnWhateverTheStageGoalSays(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	// The stage's goal is stuck needing the person, as a drifted stage leaves it.
+	g, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.st.ObserveGafferGoal(g, "needs_user", "Gaffer brought a question back to you.", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, "zz"); err == nil {
+		t.Fatal("an unknown pipeline was moved on")
+	}
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, code.Key); err != nil {
+		t.Fatal(err)
+	}
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	if review.Stages[0].State != "done" || !strings.Contains(review.Stages[0].Summary, "The person moved this pipeline on") {
+		t.Fatalf("moved on: %+v", review.Stages[0])
+	}
+	if next, err := r.st.GafferGoalFor(r.p.UserID, review.ConversationID); err != nil || next.State != "active" || !strings.Contains(next.Text, "\nStage: review\n") {
+		t.Fatalf("next stage goal: %+v %v", next, err)
+	}
+	// The merge setting is theirs to change, per pipeline, at any time before it is done.
+	on, err := r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, code.Key, true)
+	if err != nil || !on.Sessions[0].AutoMerge {
+		t.Fatalf("auto-merge on: %+v %v", on, err)
+	}
+	off, err := r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, code.Key, false)
+	if err != nil || off.Sessions[0].AutoMerge {
+		t.Fatalf("auto-merge off: %+v %v", off, err)
+	}
+	if _, err = r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, "zz", true); err == nil {
+		t.Fatal("an unknown pipeline's merge setting was changed")
+	}
+}
+
+func TestGafferChatMovesThePipelineOnWhenThePersonSaysContinue(t *testing.T) {
+	r := outcomeFixture(t)
+	var mu sync.Mutex
+	var tools [][]string
+	round := 0
+	r.reply = func(w http.ResponseWriter, req *http.Request) {
+		raw, _ := io.ReadAll(req.Body)
+		var body struct {
+			Tools []struct {
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tools"`
+		}
+		_ = json.Unmarshal(raw, &body)
+		var names []string
+		for _, tool := range body.Tools {
+			names = append(names, tool.Function.Name)
+		}
+		mu.Lock()
+		tools = append(tools, names)
+		round++
+		n := round
+		mu.Unlock()
+		if n == 1 {
+			call, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "m1", "type": "function", "function": map[string]any{"name": "move_on", "arguments": `{"note":"The plan text is missing; the person accepted that."}`}}}}, "finish_reason": "tool_calls"}}})
+			fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", call)
+			return
+		}
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Moved on to review.\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	c, err := r.st.GafferConversationFor(r.p.UserID, code.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.Repeat("9", 32)
+	if _, err = r.s.StartTurn(r.p.UserID, c.ID, TurnInput{ID: id, Revision: c.Revision, Text: "Continue to next stage"}); err != nil {
+		t.Fatal(err)
+	}
+	turn := waitTurn(t, r.s, r.p.UserID, c.ID, id)
+	if turn.State != "completed" || !strings.Contains(turn.Answer, "Moved on to review.") {
+		t.Fatalf("turn: %+v", turn)
+	}
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	if review.Stages[0].State != "done" || !strings.Contains(review.Stages[0].Summary, "The plan text is missing; the person accepted that.") {
+		t.Fatalf("stage after the chat: %+v", review.Stages[0])
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// The person's chat in a pipeline session is given both ways to act; the reporting round has none.
+	if len(tools) < 2 || strings.Join(tools[0], ",") != "move_on,message_worker" || len(tools[1]) != 0 {
+		t.Fatalf("tools offered: %v", tools)
 	}
 }

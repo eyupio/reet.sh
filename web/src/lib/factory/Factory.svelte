@@ -3,7 +3,7 @@
   // which agent and model does the stage in hand, and the numbers that say how it is going. Reading the page starts
   // nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
-  import { addGafferPipelines, approveGafferMerge, getGafferSettings, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
+  import { addGafferPipelines, approveGafferMerge, moveGafferPipelineOn, setGafferPipelineAutoMerge, getGafferSettings, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, listFolderProjects, terminalMachines } from '../terminal/api'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { DEFAULT_STAGES, factoryTally, outcomeUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
@@ -89,6 +89,25 @@
     await load()
   }
   const latest = (record: Outcome) => records.find(item => item.id === record.id) ?? record
+  // The person's own controls over a pipeline: move it on from the stage in hand, and how its merge is decided.
+  let moving = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null)
+  async function moveOn() {
+    if (!moving || busy) return
+    const { record, piece } = moving
+    busy = true; notice = ''; moving = null
+    try { await moveGafferPipelineOn(record, piece.key); notice = `Moved “${piece.title}” on. The controller is starting its next stage.` }
+    catch (e) { notice = e instanceof Error ? e.message : 'That pipeline was not moved on.' }
+    busy = false
+    await load()
+  }
+  async function mergeMode(record: Outcome, piece: GafferOutcomeSession, on: boolean) {
+    if (busy) return
+    busy = true; notice = ''
+    try { await setGafferPipelineAutoMerge(record, piece.key, on); notice = on ? `“${piece.title}” will merge by itself once every check passes.` : `“${piece.title}” will stop at Ready to merge and wait for you.` }
+    catch (e) { notice = e instanceof Error ? e.message : 'The merge setting was not changed.' }
+    busy = false
+    await load()
+  }
   async function retry(record: Outcome, piece: GafferOutcomeSession) {
     if (busy) return
     busy = true; notice = ''
@@ -210,12 +229,13 @@
                 <div><dt>Time left</dt><dd>{timeLeft(goal.goal.expiresAt, clock)}</dd></div>{/if}
               {#if goal?.goal.lastReviewedAt}<div><dt>Last review</dt><dd>{when(goal.goal.lastReviewedAt)}</dd></div>{/if}
               <div><dt>Gaffer tokens</dt><dd>{tokensText(pipelineUsage(piece, goal?.goal))}</dd></div>
-              {#if nodes.some(node => node.kind === 'merge')}<div><dt>Merge</dt><dd>{piece.autoMerge ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : 'Waits for you'}</dd></div>{/if}
+              {#if nodes.some(node => node.kind === 'merge')}<div><dt>Merge</dt><dd>{piece.autoMerge ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : 'Waits for you'}{#if piece.state !== 'done' && !piece.mergeApproved}{' '}<button class="inline" type="button" disabled={busy} aria-label={`${piece.autoMerge ? 'Make' : 'Let'} ${piece.title} ${piece.autoMerge ? 'wait for you before merging' : 'merge by itself'}`} onclick={() => void mergeMode(record, piece, !piece.autoMerge)}>{piece.autoMerge ? 'Make it wait for me' : 'Let it merge by itself'}</button>{/if}</dd></div>{/if}
             </dl>
             <div class="actions">
               {#if piece.state === 'ready_to_merge'}<button class="btn primary" type="button" disabled={busy} onclick={() => merging = { record, piece }}>Approve merge</button>{/if}
               {#if piece.sessionId}<a class="btn" href={sessionHref(record, piece.sessionId)}>Open session</a>{/if}
               {#if goal}<button class="btn" class:quiet={status.label !== 'Needs you'} class:primary={status.label === 'Needs you' && !goal.goal.waitingOnWorker} type="button" onclick={() => managing = goal}>Review goal</button>{/if}
+              {#if piece.state === 'following' && nodes.length && piece.conversationId}{@const last = (piece.stage ?? 0) >= nodes.length - 1}<button class="btn" type="button" disabled={busy} onclick={() => moving = { record, piece }}>{last ? 'Finish this stage' : 'Move to next stage'}</button>{/if}
               {#if ['failed', 'unfollowed', 'cancelled'].includes(piece.state)}<button class="btn" type="button" disabled={busy} onclick={() => void retry(record, piece)}>Try again</button>{/if}
             </div>
           </li>{/each}
@@ -234,6 +254,7 @@
 
 {#if outcomeOpen}<GafferOutcome room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
+{#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !moving.piece.autoMerge ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}
 {#if merging}<ConfirmDialog title={`Merge “${merging.piece.title}”?`} body="This tells the pipeline’s agent to merge its pull request once every check passes, no review thread is open and there are no conflicts. If any of those is not true it fixes that first or brings it back to you. A merge cannot be undone from here." confirmLabel="Approve merge" oncancel={() => merging = null} onconfirm={() => void approve()}/>{/if}
 {#if managing}<WorkspaceDialog title="Look after this session" onclose={() => { managing = null; void load() }}><GafferGoal id={managing.goal.conversationId} {userId} {timeZone} {dateFormat} onchanged={load}/></WorkspaceDialog>{/if}
 
@@ -264,6 +285,7 @@
   .track li.failed{color:var(--bad)}.track li.failed .dot{border-color:var(--bad);color:var(--bad)}
   @media(prefers-reduced-motion:no-preference){.track li.running .dot{animation:pulse 2s ease-in-out infinite}}@keyframes pulse{50%{box-shadow:0 0 0 7px transparent}}
   .now{color:var(--ink)}.pipe.bad .now{color:var(--bad)}.callout{padding:8px 12px;border-radius:8px;background:var(--card);border:1px solid var(--accent)}.report{border-left:2px solid var(--line-strong);padding-left:12px}.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
+  .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
   .facts dd.yolo{color:var(--warn);font-weight:600}
   .facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}.facts div{display:grid;gap:0;min-width:0}.facts dt{font-size:0.75rem;color:var(--muted)}.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center;box-sizing:border-box}

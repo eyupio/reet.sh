@@ -594,6 +594,54 @@ Tests: `TestGafferReportsByItselfOncePerPipelineEventWhenAsked`, the added
 pipeline test (now with a stale revision), the effort tests, and the two Factory
 browser suites. Synthetic only.
 
+## The person runs the line (10 November 2026, after #727)
+
+The owner pasted a real session where a pipeline could not be moved past its
+plan stage. What that transcript showed, and what changed:
+
+1. **The plan stage did the whole job.** `stagePrompt` gave the first stage the
+   whole brief ("Work in two phases… raise a pull request") and named its stage
+   in a last line, so the agent coded, raised a PR and ran checks during *plan*.
+   Every stage now opens with its stage and that stage's work, gives the whole
+   brief as context only, says what the stage must leave behind
+   (`stageDeliverable`), names the later stages as done separately, and ends
+   with the stop.
+2. **Gaffer treated the merge setting as a conflict in every review.** The
+   stage goal said "Do not merge." beside a pipeline set to merge by itself. A
+   stage goal now says "Nothing is merged in this stage.", and the stage review
+   is told the setting applies only at the merge stage.
+3. **Reviews looped.** Three reviews asked for the plan or asked the person a
+   scope question. The stage review is now told: work done early is not by
+   itself a reason to stop; ask the agent once for the deliverable; hand over
+   when it is there and say what was done early; do not ask twice in a row,
+   ask the person once instead.
+4. **"Continue to next stage" could not be done.** The person's own chat had no
+   tools, so Gaffer explained the plumbing and contradicted its own reviews
+   ("sent" / "I can't send"). Now:
+   - **Move to next stage** on the Factory pipeline card:
+     `POST …/outcomes/{id}/sessions/{key}/advance {confirmed}` →
+     `MovePipelineOn`. The person's decision, with no model judgement: the
+     stage's goal is closed whatever state it is in (not while a review is
+     running), the stage is marked done with "The person moved this pipeline
+     on…" plus Gaffer's last review as the handover, and the controller starts
+     the next stage as after any hand-over.
+   - **Gaffer's chat in a pipeline session can act** (`chatJob.pipelineChat`):
+     it is given `move_on` (the same move, on the person's current message) and,
+     where the session's messaging grant is on, `message_worker` without the
+     per-request switch. The result of the tool is what the reply reports.
+     Model text still cannot trigger either: only the person's turn has them.
+   - **Merge setting per pipeline**:
+     `POST …/sessions/{key}/automerge {on}` → `SetPipelineAutoMerge`, a switch
+     on the card.
+
+Boundaries unchanged: Gaffer has no shell, GitHub or merge path and never
+answers approvals; `move_on` and the button only move a stage on.
+
+Tests: the first-stage instruction, move-on from a stuck goal, the merge
+setting, a chat turn that moves the pipeline on and is offered both tools, and
+the Factory browser suite for the button and the switch. **None of the prompt
+changes can be proven without a real model and agent.**
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

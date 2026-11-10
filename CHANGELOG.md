@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: you can move a pipeline on yourself with **Move to next stage**, or
+  by telling Gaffer "continue" in that session's chat, where Gaffer can now also
+  pass your instruction to the working agent. Each pipeline has a switch for
+  whether its merge waits for you. A stage's agent is told its stage and where
+  to stop before the whole brief, so a plan stage no longer does the coding.
+  Needs a controller update.
 - The **Sync** page is simpler. It now shows one status sentence, a row for
   each machine and recent activity, and nothing else competes with that
   sentence. A plan waiting for your review, a problem on one machine or an

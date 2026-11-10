@@ -50,7 +50,11 @@ type ConversationView struct {
 	Context      *ContextState            `json:"context,omitempty"`
 }
 type chatJob struct {
-	goalID         string
+	goalID string
+	// stage marks a review of a pipeline stage's goal; handover is the
+	// summary such a review gave when it called hand_over.
+	stage          bool
+	handover       string
 	goalRevision   int64
 	goalText       string
 	uid            int64
@@ -398,6 +402,7 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 		job.goalID = goal.ID
 		job.goalRevision = goal.Revision
 		job.goalText = goal.Text
+		job.stage = s.pipelineStage(uid, id)
 	}
 	s.chatJobs[id] = job
 	s.wg.Add(1)
@@ -470,8 +475,15 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 	if job.goalID != "" {
 		_ = s.store.FinishGafferGoal(job.uid, c.ID, job.goalID, job.goalRevision, turn.ID)
 	}
+	handover := ""
+	if job.stage && turn.State == "completed" {
+		handover = job.handover
+	}
 	delete(s.chatJobs, c.ID)
 	s.mu.Unlock()
+	if handover != "" {
+		s.stageHandedOver(job.uid, c.ID, handover)
+	}
 	stop()
 	job.cancel(nil)
 	<-watched

@@ -69,6 +69,20 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes/"+strings.Repeat("a", 32)+"/stop", `{"revision":1}`); code != 404 {
 		t.Fatalf("stop unknown outcome: %d", code)
 	}
+	// A merge is approved by the owning browser, explicitly, for a pipeline that exists.
+	merge := "/api/v2/gaffer/outcomes/" + strings.Repeat("a", 32) + "/sessions/a/merge"
+	if code, _ := doClient(t, owner, srv, "POST", merge, `{"revision":1,"confirmed":true}`, "Origin", "https://different.example"); code != 403 {
+		t.Fatalf("foreign-origin merge: %d", code)
+	}
+	if code, _ := gafferClient(t, &http.Client{}, srv, "POST", merge, `{"revision":1,"confirmed":true}`, "Authorization", "Bearer synthetic-api-token"); code != 403 {
+		t.Fatalf("API token merge: %d", code)
+	}
+	if code, _ := gafferClient(t, owner, srv, "POST", merge, `{"revision":1}`); code != 400 {
+		t.Fatalf("unconfirmed merge: %d", code)
+	}
+	if code, _ := gafferClient(t, owner, srv, "POST", merge, `{"revision":1,"confirmed":true}`); code != 404 {
+		t.Fatalf("merge of an unknown pipeline: %d", code)
+	}
 	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes/"+strings.Repeat("a", 32)+"/stop", `{}`); code != 400 {
 		t.Fatalf("stop without a revision: %d", code)
 	}

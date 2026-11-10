@@ -35,6 +35,10 @@ type OutcomePlanInput struct {
 type OutcomeSession struct {
 	Title  string `json:"title"`
 	Prompt string `json:"prompt"`
+	// Stages makes the session a pipeline. AutoMerge overrides the outcome's
+	// own setting for this pipeline.
+	Stages    []OutcomeStageInput `json:"stages,omitempty"`
+	AutoMerge *bool               `json:"autoMerge,omitempty"`
 }
 
 type OutcomePlan struct {
@@ -46,12 +50,12 @@ type OutcomePlan struct {
 	OutputTokens  int              `json:"outputTokens"`
 }
 
-var planSessionsTool = elicore.Tool{Name: "propose_sessions", Description: "Propose the coding-agent sessions to start for the user's objective. This starts nothing: the user reviews and edits the proposal before any session exists.", Parameters: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":1000},"sessions":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":80},"prompt":{"type":"string","minLength":1,"maxLength":6000}},"required":["title","prompt"],"additionalProperties":false}}},"required":["summary","sessions"],"additionalProperties":false}`)}
+var planSessionsTool = elicore.Tool{Name: "propose_sessions", Description: "Propose the coding-agent sessions to start for the user's objective. This starts nothing: the user reviews and edits the proposal before any session exists.", Parameters: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":1000},"sessions":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":80},"prompt":{"type":"string","minLength":1,"maxLength":6000},"stages":{"type":"array","maxItems":8,"items":{"type":"string","enum":["plan","design","code","review","test","pr","babysit","merge"]}}},"required":["title","prompt"],"additionalProperties":false}}},"required":["summary","sessions"],"additionalProperties":false}`)}
 
 func outcomeSystem(max int) string {
 	return "You are Gaffer, the user's warm, practical critical buddy in reet.sh, with occasional dry Yorkshire humour. The user has given you an objective to own. Plan the coding-agent sessions that would meet it, then call propose_sessions exactly once. You start nothing: the user reviews, edits and approves the plan before any session exists.\n" +
 		"Each session is a separate coding agent working in its own isolated copy of the same project. Sessions cannot see or message each other, so every prompt must stand alone: say what to build or change, what is out of scope, how to check it, and that it should raise a pull request describing the work. Split only where the work is genuinely independent, so two sessions never edit the same code. Prefer one session for a small objective. Propose at most " + itoa(max) + " sessions.\n" +
-		"Stay inside the objective: add no scope the user did not ask for, and when something is ambiguous say so in the summary instead of guessing. Every prompt must end with the sentence \"Do not merge.\" Titles are short plain names of at most 80 characters. The summary says in two or three sentences how the sessions divide the work and what the user should check."
+		"Stay inside the objective: add no scope the user did not ask for, and when something is ambiguous say so in the summary instead of guessing. Each session is a pipeline that runs through stages in this order: plan, design, code, review, test, pr, babysit, merge. For each session list in \"stages\" the ones it needs: leave out plan and design for small, obvious work, and include review and test for anything that changes behaviour. The user decides which agent and model does each stage and whether merge happens without them; you do not. Every prompt must end with the sentence \"Do not merge.\" Titles are short plain names of at most 80 characters. The summary says in two or three sentences how the sessions divide the work and what the user should check."
 }
 
 func itoa(n int) string { return string(rune('0' + n)) }
@@ -166,9 +170,15 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 	if len(raw) > 64<<10 {
 		return "", nil, malformed
 	}
+	// The provider's plan is a title, a prompt and stage kinds. It has no
+	// field for an agent, a model or auto-merge, so it cannot choose them.
 	var in struct {
-		Summary  string           `json:"summary"`
-		Sessions []OutcomeSession `json:"sessions"`
+		Summary  string `json:"summary"`
+		Sessions []struct {
+			Title  string   `json:"title"`
+			Prompt string   `json:"prompt"`
+			Stages []string `json:"stages"`
+		} `json:"sessions"`
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
@@ -202,7 +212,17 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 			return "", nil, malformed
 		}
 		seen[title] = true
-		out = append(out, OutcomeSession{Title: title, Prompt: prompt})
+		var stages []OutcomeStageInput
+		last := -1
+		for _, kind := range item.Stages {
+			at := stageIndex(kind)
+			if at <= last {
+				return "", nil, malformed
+			}
+			last = at
+			stages = append(stages, OutcomeStageInput{Kind: kind})
+		}
+		out = append(out, OutcomeSession{Title: title, Prompt: prompt, Stages: stages})
 	}
 	return summary, out, nil
 }

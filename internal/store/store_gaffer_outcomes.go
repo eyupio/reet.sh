@@ -24,7 +24,26 @@ var (
 // start, "settled" once every session has an answer, "stopped" when the
 // person or a restore ended it early.
 // Session states: "waiting", "starting", "following", "unfollowed" (started,
-// no goal), "failed" (not started) and "cancelled" (never attempted).
+// no goal), "failed" (not started) and "cancelled" (never attempted). A
+// session with stages is a pipeline and adds "advancing" (the controller is
+// to start its next stage), "ready_to_merge" (waiting for the person) and
+// "done" (its last stage was handed over).
+//
+// A stage is one step of a pipeline, done by the agent and model the person
+// approved for it. Stage states: "pending", "running", "done".
+type GafferOutcomeStage struct {
+	Kind           string `json:"kind"`
+	Tool           string `json:"tool"`
+	Model          string `json:"model,omitempty"`
+	State          string `json:"state"`
+	RequestID      string `json:"requestId"`
+	SessionID      string `json:"sessionId,omitempty"`
+	ConversationID string `json:"conversationId,omitempty"`
+	Summary        string `json:"summary,omitempty"`
+	StartedAt      int64  `json:"startedAt,omitempty"`
+	EndedAt        int64  `json:"endedAt,omitempty"`
+}
+
 type GafferOutcomeSession struct {
 	Key            string `json:"key"`
 	Title          string `json:"title"`
@@ -35,6 +54,15 @@ type GafferOutcomeSession struct {
 	SessionID      string `json:"sessionId,omitempty"`
 	ConversationID string `json:"conversationId,omitempty"`
 	UpdatedAt      int64  `json:"updatedAt"`
+	// Stages is empty for a plain followed session. Stage is the index of the
+	// stage in hand. WorkDir is where the first stage's session works, which
+	// later stages share. AutoMerge and MergeApproved are the person's own
+	// choices: without one of them the merge stage never starts.
+	Stages        []GafferOutcomeStage `json:"stages,omitempty"`
+	Stage         int                  `json:"stage"`
+	WorkDir       string               `json:"workDir,omitempty"`
+	AutoMerge     bool                 `json:"autoMerge,omitempty"`
+	MergeApproved bool                 `json:"mergeApproved,omitempty"`
 }
 
 type GafferOutcome struct {
@@ -98,6 +126,9 @@ func (s *Store) CreateGafferOutcomeFor(uid int64, o GafferOutcome) (GafferOutcom
 	o.OwnerID, o.Revision, o.State, o.CreatedAt, o.UpdatedAt = uid, 1, "starting", now(), now()
 	for i := range o.Sessions {
 		o.Sessions[i].State, o.Sessions[i].UpdatedAt = "waiting", o.CreatedAt
+		for j := range o.Sessions[i].Stages {
+			o.Sessions[i].Stages[j].State = "pending"
+		}
 	}
 	raw, err := json.Marshal(o)
 	if err != nil {

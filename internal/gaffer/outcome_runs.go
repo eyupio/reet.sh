@@ -31,7 +31,7 @@ type OutcomeLaunch struct {
 // answers the session that request already started. The error text is shown
 // to the person.
 type SessionStarter interface {
-	StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (sessionID string, err error)
+	StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (sessionID, workDir string, err error)
 }
 
 func (s *Service) SetSessionStarter(starter SessionStarter) {
@@ -50,6 +50,82 @@ type OutcomeInput struct {
 	MaxReviews int              `json:"maxReviews"`
 	Hours      int              `json:"hours"`
 	Confirmed  bool             `json:"confirmed"`
+	// AutoMerge lets every pipeline of this outcome merge by itself once it is
+	// green, unless a pipeline says otherwise. It is the person's own choice.
+	AutoMerge bool `json:"autoMerge"`
+}
+
+// OutcomeStageInput is one stage of a planned pipeline: what it is and which
+// agent and model do it. A plan from Gaffer's provider carries the kind only.
+type OutcomeStageInput struct {
+	Kind  string `json:"kind"`
+	Tool  string `json:"tool,omitempty"`
+	Model string `json:"model,omitempty"`
+}
+
+// StageKinds is the order a pipeline runs in. A pipeline may leave stages
+// out, never reorder them.
+var StageKinds = []string{"plan", "design", "code", "review", "test", "pr", "babysit", "merge"}
+
+var stageWork = map[string]string{
+	"plan":    "Plan this piece of work: read the relevant code, then write a short implementation plan in the session with the files to change, the approach and the risks. Change no code yet.",
+	"design":  "Settle the design for this piece: interfaces, data shapes, error cases and how it will be tested. Record the decisions in the session. Do not implement yet.",
+	"code":    "Implement this piece of work with tests, following the plan and design already agreed in this branch or handover. Commit as you go.",
+	"review":  "Review the changes on this branch as a critical second pair of eyes: correctness, security, missing tests and needless complexity. Fix what is clearly wrong and commit it; list anything that needs a decision.",
+	"test":    "Run the project's full checks and tests for this branch. Fix failures this work caused, and report any that look unrelated.",
+	"pr":      "Raise a pull request for this branch with an accurate title and description of what changed and how it was checked.",
+	"babysit": "Look after the pull request until it is ready: fix failing checks, answer and address review comments, and resolve conflicts with the base branch.",
+	"merge":   "Merge the pull request, but only once every check passes, no review thread is open and there are no conflicts. If any of those is not true, fix it first or bring it back to me.",
+}
+
+func stageIndex(kind string) int {
+	for i, k := range StageKinds {
+		if k == kind {
+			return i
+		}
+	}
+	return -1
+}
+
+// StageGoal is the saved goal for one stage of a pipeline. Every stage but
+// merge ends "Do not merge."
+func StageGoal(objective, title, kind string) string {
+	text := "Outcome: " + clipBytes(objective, outcomeLineBytes) + "\nThis session’s part: " + clipBytes(title, 240) + "\nStage: " + kind + "\n" + stageWork[kind] + " Stay inside this stage and this part of the outcome. Bring scope changes and decisions back to me."
+	if kind != "merge" {
+		text += " Do not merge."
+	}
+	return text
+}
+
+// stagePrompt opens a session that takes over at a later stage.
+func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) string {
+	stage := item.Stages[n]
+	text := item.Prompt
+	if n > 0 {
+		text = "You are taking over one stage of work already under way in this folder and branch.\n\nThe work: " + item.Prompt
+		for i := n - 1; i >= 0; i-- {
+			if item.Stages[i].Summary != "" {
+				text += "\n\nHandover from the " + item.Stages[i].Kind + " stage: " + item.Stages[i].Summary
+				break
+			}
+		}
+	}
+	text += "\n\nYour stage: " + stage.Kind + ". " + stageWork[stage.Kind]
+	if stage.Kind != "merge" {
+		text += " Do not merge."
+	}
+	return clipPrompt(text)
+}
+
+func clipPrompt(text string) string {
+	if len(text) <= MaxOutcomePromptBytes {
+		return text
+	}
+	cut := MaxOutcomePromptBytes - len("…")
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "…"
 }
 
 const (
@@ -114,7 +190,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if model != "" && !terminalproto.ValidModel(model) {
 		return o, invalid("model", "Choose a model name this agent accepts, or leave it to the agent's default.")
 	}
-	if in.Trust && in.Tool != "opencode" && in.Tool != "antigravity" {
+	if in.Trust && in.Tool != "opencode" && in.Tool != "antigravity" && !outcomeWantsTrust(in) {
 		return o, invalid("trust", "Only OpenCode and Google Antigravity ask you to trust a folder's plugins.")
 	}
 	if in.MaxReviews < 1 || in.MaxReviews > 48 || in.Hours < 1 || in.Hours > 168 {
@@ -145,6 +221,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 		return o, err
 	}
 	seen := map[string]bool{}
+	staged, trustless := 0, 0
 	sessions := make([]store.GafferOutcomeSession, 0, len(in.Sessions))
 	for i, item := range in.Sessions {
 		title, prompt := strings.TrimSpace(item.Title), strings.TrimSpace(item.Prompt)
@@ -159,7 +236,38 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 		if err != nil {
 			return o, err
 		}
-		sessions = append(sessions, store.GafferOutcomeSession{Key: string(rune('a' + i)), Title: title, Prompt: prompt, RequestID: request, Note: "Waiting its turn."})
+		piece := store.GafferOutcomeSession{Key: string(rune('a' + i)), Title: title, Prompt: prompt, RequestID: request, Note: "Waiting its turn.", AutoMerge: in.AutoMerge}
+		if item.AutoMerge != nil {
+			piece.AutoMerge = *item.AutoMerge
+		}
+		last := -1
+		for _, stage := range item.Stages {
+			at := stageIndex(stage.Kind)
+			if at <= last {
+				return o, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once.")
+			}
+			last = at
+			tool, stageModel := stage.Tool, strings.TrimSpace(stage.Model)
+			if tool == "" {
+				tool, stageModel = in.Tool, model
+			}
+			if !terminalproto.ReviewedChatTool(tool) || stageModel != "" && !terminalproto.ValidModel(stageModel) {
+				return o, invalid("sessions", "Choose an agent that can run a Gaffer chat, and a model name it accepts, for every stage of “"+title+"”.")
+			}
+			if in.Trust && tool != "opencode" && tool != "antigravity" {
+				trustless++
+			}
+			id, err := newChatID()
+			if err != nil {
+				return o, err
+			}
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: tool, Model: stageModel, RequestID: id})
+		}
+		if len(piece.Stages) > 0 {
+			piece.Stages[0].RequestID = request
+		}
+		staged += len(piece.Stages)
+		sessions = append(sessions, piece)
 	}
 	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Trust: in.Trust, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
@@ -168,6 +276,17 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	}
 	s.wakeOutcomes()
 	return o, nil
+}
+
+func outcomeWantsTrust(in OutcomeInput) bool {
+	for _, piece := range in.Sessions {
+		for _, stage := range piece.Stages {
+			if stage.Tool == "opencode" || stage.Tool == "antigravity" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // outcomeView reports what the person can rely on: a session the controller
@@ -179,6 +298,8 @@ func outcomeView(o store.GafferOutcome) store.GafferOutcome {
 	for i := range o.Sessions {
 		item := &o.Sessions[i]
 		switch {
+		case item.State == "advancing":
+			item.State, item.Note = "unfollowed", "Stopped before its next stage. Its session keeps running; look after it from the floor."
 		case (item.State == "waiting" || item.State == "starting") && item.SessionID == "":
 			item.State, item.Note = "cancelled", "Not started: this outcome was stopped first."
 		case item.State == "starting":
@@ -308,9 +429,10 @@ func setOutcomeSession(key, state, note string, more func(*store.GafferOutcomeSe
 	}
 }
 
-// runOutcome starts and follows the outcome's remaining sessions one at a
-// time. It returns early, leaving the record resumable, when the controller
-// is shutting down or the person stopped the outcome.
+// runOutcome does the controller's part for an outcome, one step at a
+// time: start a session, put it in Gaffer's care, or move a pipeline to its
+// next stage. It returns early, leaving the record resumable, when the
+// controller is shutting down or the person stopped the outcome.
 func (s *Service) runOutcome(ctx context.Context, uid int64, id string) {
 	for {
 		o, err := s.store.GafferOutcomeFor(uid, id)
@@ -319,7 +441,7 @@ func (s *Service) runOutcome(ctx context.Context, uid int64, id string) {
 		}
 		var item *store.GafferOutcomeSession
 		for i := range o.Sessions {
-			if o.Sessions[i].State == "waiting" || o.Sessions[i].State == "starting" {
+			if st := o.Sessions[i].State; st == "waiting" || st == "starting" || st == "advancing" {
 				item = &o.Sessions[i]
 				break
 			}
@@ -329,24 +451,209 @@ func (s *Service) runOutcome(ctx context.Context, uid int64, id string) {
 				if o.State != "starting" {
 					return false
 				}
-				o.State, o.Note = "settled", "Every session has its answer."
+				for _, piece := range o.Sessions {
+					if piece.State == "waiting" || piece.State == "starting" || piece.State == "advancing" {
+						return false
+					}
+				}
+				o.State, o.Note = "settled", "The controller has nothing to start. Gaffer follows the sessions in hand."
 				return true
 			})
 			return
 		}
-		if !s.runOutcomeSession(ctx, o, *item) {
+		proceed := true
+		if item.State == "advancing" {
+			proceed = s.advancePipeline(ctx, o, *item)
+		} else {
+			proceed = s.runOutcomeSession(ctx, o, *item)
+		}
+		if !proceed {
 			return
 		}
 	}
 }
 
-// runOutcomeSession reports false when the controller is stopping and the
-// session must be picked up again later.
+// pipelineStage reports whether this conversation's goal is the stage in hand
+// of a pipeline. It reads the store only.
+func (s *Service) pipelineStage(uid int64, conversation string) bool {
+	rows, err := s.store.GafferOutcomesFor(uid)
+	if err != nil {
+		return false
+	}
+	for _, o := range rows {
+		for _, piece := range o.Sessions {
+			if piece.State == "following" && len(piece.Stages) > 0 && piece.ConversationID == conversation {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// stageHandedOver records that Gaffer's review found the stage in hand
+// finished, closes that stage's goal and asks the controller for the next
+// stage. Gaffer's model chose none of what follows.
+func (s *Service) stageHandedOver(uid int64, conversation, summary string) {
+	rows, err := s.store.GafferOutcomesFor(uid)
+	if err != nil {
+		return
+	}
+	for _, o := range rows {
+		for _, piece := range o.Sessions {
+			if piece.State != "following" || len(piece.Stages) == 0 || piece.ConversationID != conversation {
+				continue
+			}
+			key := piece.Key
+			_, err = s.outcomeStep(uid, o.ID, func(o *store.GafferOutcome) bool {
+				for i := range o.Sessions {
+					row := &o.Sessions[i]
+					if row.Key != key || row.State != "following" || row.ConversationID != conversation || row.Stage >= len(row.Stages) {
+						continue
+					}
+					row.Stages[row.Stage].State, row.Stages[row.Stage].Summary, row.Stages[row.Stage].EndedAt = "done", clipBytes(summary, 1800), time.Now().UnixMilli()
+					row.State, row.Note, row.UpdatedAt = "advancing", "The "+row.Stages[row.Stage].Kind+" stage is done. Starting the next.", time.Now().UnixMilli()
+					if o.State != "stopped" {
+						o.State = "starting"
+					}
+					return true
+				}
+				return false
+			})
+			if err != nil {
+				return
+			}
+			// The finished stage's goal is closed without calling it the
+			// person's completion: only they mark a goal complete.
+			if g, err := s.store.GafferGoalFor(uid, conversation); err == nil && g.State == "active" && g.ActiveTurnID == "" {
+				_ = s.store.ObserveGafferGoal(g, "stopped", "This pipeline stage is done and was handed over.", 0)
+			}
+			s.wakeOutcomes()
+			return
+		}
+	}
+}
+
+// ApproveMerge is the person saying a pipeline that is ready may merge.
+func (s *Service) ApproveMerge(uid int64, id, key string, revision int64) (store.GafferOutcome, error) {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return store.GafferOutcome{}, err
+	}
+	found := false
+	o, err := s.store.UpdateGafferOutcomeFor(uid, id, revision, func(o *store.GafferOutcome) bool {
+		for i := range o.Sessions {
+			row := &o.Sessions[i]
+			if row.Key == key && row.State == "ready_to_merge" {
+				row.MergeApproved, row.State, row.Note, row.UpdatedAt = true, "advancing", "You approved the merge. Starting the merge stage.", time.Now().UnixMilli()
+				o.State = "starting"
+				found = true
+				return true
+			}
+		}
+		return false
+	})
+	if err != nil {
+		return outcomeView(o), err
+	}
+	if !found {
+		return outcomeView(o), invalid("merge", "That pipeline is not waiting for a merge decision.")
+	}
+	s.wakeOutcomes()
+	return outcomeView(o), nil
+}
+
+// advancePipeline moves a pipeline to the stage after the one just handed
+// over. The next stage keeps the session when the same agent and model do it,
+// and otherwise gets a session of its own in the same working folder.
+func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, item store.GafferOutcomeSession) bool {
+	uid := o.OwnerID
+	set := func(state, note string, more func(*store.GafferOutcomeSession)) bool {
+		_, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, more))
+		return err == nil
+	}
+	next := item.Stage + 1
+	if item.Stage < len(item.Stages) && item.Stages[item.Stage].State != "done" {
+		// The merge stage was approved while its predecessor's handover was already recorded.
+		next = item.Stage
+	}
+	if next >= len(item.Stages) {
+		return set("done", "Every stage is done. Check the result; only you mark the work complete.", nil)
+	}
+	stage := item.Stages[next]
+	if stage.Kind == "merge" && !item.AutoMerge && !item.MergeApproved {
+		return set("ready_to_merge", "Ready to merge. Nothing merges until you approve it.", func(row *store.GafferOutcomeSession) { row.Stage = next })
+	}
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return set("unfollowed", "Stopped before the "+stage.Kind+" stage: this account can no longer start sessions.", nil)
+	}
+	goal := StageGoal(o.Objective, item.Title, stage.Kind)
+	prev := stage
+	if next > 0 {
+		prev = item.Stages[next-1]
+	}
+	if next > 0 && prev.State == "done" && prev.Tool == stage.Tool && prev.Model == stage.Model && item.ConversationID != "" {
+		// Same agent and model: the session carries on, under a fresh goal and budget for the new stage.
+		v, err := s.Goal(uid, item.ConversationID)
+		if err == nil && v.SetupAllowed {
+			in := GoalSetupInput{GoalInput: GoalInput{GoalPins: v.Pins, Text: goal, MaxReviews: o.MaxReviews, Hours: o.Hours}, ConversationRevision: v.ConversationRevision, Confirmed: true, Action: "start"}
+			if v.Goal != nil {
+				in.Revision = v.Goal.Revision
+			}
+			if _, err = s.SetupGoal(uid, item.ConversationID, in); err == nil {
+				return set("following", "The "+stage.Kind+" stage is under way in the same session.", func(row *store.GafferOutcomeSession) {
+					row.Stage = next
+					row.Stages[next].State, row.Stages[next].SessionID, row.Stages[next].ConversationID, row.Stages[next].StartedAt = "running", row.SessionID, row.ConversationID, time.Now().UnixMilli()
+				})
+			}
+			if errors.Is(err, ErrUnavailable) && ctx.Err() != nil {
+				return false
+			}
+		}
+		if ctx.Err() != nil {
+			return false
+		}
+		// The session could not take the next stage (it ended, say): give the stage its own.
+	}
+	if !set("starting", "Starting the "+stage.Kind+" stage…", func(row *store.GafferOutcomeSession) {
+		row.Stage = next
+		row.SessionID, row.ConversationID = row.Stages[next].SessionID, ""
+	}) {
+		return false
+	}
+	fresh, err := s.store.GafferOutcomeFor(uid, o.ID)
+	if err != nil {
+		return false
+	}
+	for _, row := range fresh.Sessions {
+		if row.Key == item.Key {
+			return s.runOutcomeSession(ctx, fresh, row)
+		}
+	}
+	return false
+}
+
+// runOutcomeSession starts the session for the stage in hand (or the whole
+// piece, without stages) and puts it in Gaffer's care. It reports false when
+// the controller is stopping and the session must be picked up again later.
 func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, item store.GafferOutcomeSession) bool {
 	uid := o.OwnerID
 	fail := func(state, note string) bool {
 		_, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, nil))
 		return err == nil
+	}
+	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Trust: o.Trust, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
+	goal := OutcomeGoal(o.Objective, item.Title)
+	staged := len(item.Stages) > 0 && item.Stage < len(item.Stages)
+	if staged {
+		stage := item.Stages[item.Stage]
+		launch.RequestID, launch.Tool, launch.Model, launch.Prompt = stage.RequestID, stage.Tool, stage.Model, stagePrompt(o, item, item.Stage)
+		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
+		launch.Title = clipBytes(item.Title, 60) + " · " + stage.Kind
+		goal = StageGoal(o.Objective, item.Title, stage.Kind)
+		if item.Stage > 0 && item.WorkDir != "" {
+			// A later stage works where the first one did. It is not a new
+			// project launch, so it gets no worktree of its own.
+			launch.Dir, launch.ProjectID = item.WorkDir, ""
+		}
 	}
 	// The account is read again before every session: a person who lost
 	// write access after approving starts nothing more.
@@ -365,7 +672,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			return false
 		}
 		startCtx, cancel := context.WithTimeout(ctx, outcomeStartWait)
-		started, err := starter.StartOutcomeSession(startCtx, uid, OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Trust: o.Trust, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt})
+		started, workDir, err := starter.StartOutcomeSession(startCtx, uid, launch)
 		cancel()
 		if ctx.Err() != nil {
 			// The same request ID is sent again after a restart, so a launch
@@ -373,10 +680,21 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			return false
 		}
 		if err != nil {
+			if staged && item.Stage > 0 {
+				return fail("unfollowed", "The "+item.Stages[item.Stage].Kind+" stage was not started: "+clipBytes(err.Error(), 400))
+			}
 			return fail("failed", "Not started: "+clipBytes(err.Error(), 400))
 		}
 		sessionID = started
-		if _, err = s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "starting", "Started. Putting it in Gaffer’s care…", func(row *store.GafferOutcomeSession) { row.SessionID = sessionID })); err != nil {
+		if _, err = s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "starting", "Started. Putting it in Gaffer’s care…", func(row *store.GafferOutcomeSession) {
+			row.SessionID = sessionID
+			if row.WorkDir == "" {
+				row.WorkDir = workDir
+			}
+			if row.Stage < len(row.Stages) {
+				row.Stages[row.Stage].SessionID, row.Stages[row.Stage].State, row.Stages[row.Stage].StartedAt = sessionID, "running", time.Now().UnixMilli()
+			}
+		})); err != nil {
 			return false
 		}
 	}
@@ -401,9 +719,18 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			return unfollowed("This session already has a goal.")
 		}
 		if v.SetupAllowed {
-			_, err = s.SetupGoal(uid, cid, GoalSetupInput{GoalInput: GoalInput{GoalPins: v.Pins, Text: OutcomeGoal(o.Objective, item.Title), MaxReviews: o.MaxReviews, Hours: o.Hours}, ConversationRevision: v.ConversationRevision, Confirmed: true, Action: "start"})
+			_, err = s.SetupGoal(uid, cid, GoalSetupInput{GoalInput: GoalInput{GoalPins: v.Pins, Text: goal, MaxReviews: o.MaxReviews, Hours: o.Hours}, ConversationRevision: v.ConversationRevision, Confirmed: true, Action: "start"})
 			if err == nil {
-				_, err = s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "following", "Started and followed. Gaffer waits for its first progress.", func(row *store.GafferOutcomeSession) { row.ConversationID = cid }))
+				note := "Started and followed. Gaffer waits for its first progress."
+				if staged {
+					note = "The " + item.Stages[item.Stage].Kind + " stage is under way."
+				}
+				_, err = s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "following", note, func(row *store.GafferOutcomeSession) {
+					row.ConversationID = cid
+					if row.Stage < len(row.Stages) {
+						row.Stages[row.Stage].ConversationID = cid
+					}
+				}))
 				return err == nil
 			}
 			if errors.Is(err, ErrUnavailable) && ctx.Err() != nil {

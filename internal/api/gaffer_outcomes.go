@@ -26,6 +26,7 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes", access(s.gafferOutcomeCreate))
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcome))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop", access(s.gafferOutcomeStop))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge", access(s.gafferOutcomeMerge))
 }
 
 func gafferOutcomeError(w http.ResponseWriter, err error) {
@@ -99,6 +100,31 @@ func (s *server) gafferOutcomeStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, o)
 }
 
+// gafferOutcomeMerge is the person approving the merge of a pipeline that is
+// ready. Without it, or the auto-merge they chose for that pipeline, the merge
+// stage never starts.
+func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision  int64 `json:"revision"`
+		Confirmed bool  `json:"confirmed"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That merge approval is invalid.") {
+		return
+	}
+	if in.Revision < 1 || !in.Confirmed {
+		writeErr(w, 400, "Reload this pipeline and confirm the merge.")
+		return
+	}
+	o, err := s.gafferProviders.ApproveMerge(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Revision)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-pipeline-merge-approved", "", map[string]any{"outcome": o.ID, "session": r.PathValue("key")})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
 // outcomeStarter starts a session of an approved outcome through the launch
 // path a browser uses: the project is checked, a git project gets a worktree
 // of its own, the broker applies its capability and trust rules, and the
@@ -117,25 +143,27 @@ func (c *replyCapture) Header() http.Header         { return c.header }
 func (c *replyCapture) Write(b []byte) (int, error) { return c.body.Write(b) }
 func (c *replyCapture) WriteHeader(int)             {}
 
-func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in gaffer.OutcomeLaunch) (string, error) {
+func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in gaffer.OutcomeLaunch) (string, string, error) {
 	s := o.s
 	if !s.terminalEnabled() || s.terminals == nil {
-		return "", errors.New("Remote sessions are disabled on this controller.")
+		return "", "", errors.New("Remote sessions are disabled on this controller.")
 	}
 	create := terminalproto.Create{Title: in.Title, Cols: 100, Rows: 30, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, ProjectID: in.ProjectID, Structured: true, Trust: in.Trust}
 	create.Title, create.TitleOrigin = terminalproto.ResolveTitle(in.Title, "", in.Tool, in.Prompt, in.Dir)
-	refusal := func(err error) (string, error) {
+	refusal := func(err error) (string, string, error) {
 		capture := &replyCapture{header: http.Header{}}
 		s.terminalCreateError(capture, err, uid, in.AgentID, in.Tool)
 		var reply struct {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(capture.body.Bytes(), &reply) != nil || reply.Error == "" {
-			return "", errors.New("That machine could not start the session.")
+			return "", "", errors.New("That machine could not start the session.")
 		}
-		return "", errors.New(reply.Error)
+		return "", "", errors.New(reply.Error)
 	}
-	if !s.terminalCreateRecorded(uid, in.AgentID, in.RequestID) {
+	// A later pipeline stage works in the folder its first stage was given and
+	// names no project: it is not a new project launch.
+	if in.ProjectID != "" && !s.terminalCreateRecorded(uid, in.AgentID, in.RequestID) {
 		if err := s.st.TerminalProjectCheckFor(uid, in.AgentID, in.ProjectID, in.Dir); err != nil {
 			return refusal(err)
 		}
@@ -151,7 +179,12 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 	// A create can be recorded and still not have started anything: the
 	// machine refused the launch. Nothing is running, so it was not started.
 	if session.State == terminalproto.Lost || session.State == terminalproto.Ended {
-		return "", errors.New("That machine didn't start the agent. Check its terminal settings on that machine.")
+		return "", "", errors.New("That machine didn't start the agent. Check its terminal settings on that machine.")
 	}
-	return session.ID, nil
+	// Where the session works: its own worktree in a git project, else the folder asked for.
+	workDir := session.WorktreePath
+	if workDir == "" {
+		workDir = in.Dir
+	}
+	return session.ID, workDir, nil
 }

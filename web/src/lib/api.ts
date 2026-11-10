@@ -248,15 +248,18 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
   return (await req(path, { method: action === 'delete' ? 'DELETE' : 'POST', body: json({ revision: p.revision, ...(enabled === undefined ? {} : { enabled }) }), signal })).json()
 }
 
-export type GafferOutcomePlan = { summary: string; sessions: { title: string; prompt: string }[]; model: string; usageReported: boolean; inputTokens: number; outputTokens: number }
+export type GafferOutcomePlan = { summary: string; sessions: { title: string; prompt: string; stages?: { kind: string }[] }[]; model: string; usageReported: boolean; inputTokens: number; outputTokens: number }
 /** Asks the provider to propose the sessions for an objective. It reads no reet data and starts nothing. */
 export async function planGafferOutcome(p: GafferProvider, input: { objective: string; project: string; sessions: number }, signal?: AbortSignal): Promise<GafferOutcomePlan> {
   return (await req(`/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
 }
-export type GafferOutcomeSession = { key: string; title: string; prompt: string; state: 'waiting' | 'starting' | 'following' | 'unfollowed' | 'failed' | 'cancelled'; note: string; sessionId?: string; conversationId?: string; updatedAt: number }
+export type GafferOutcomeStage = { kind: string; tool: string; model?: string; state: 'pending' | 'running' | 'done'; sessionId?: string; conversationId?: string; summary?: string; startedAt?: number; endedAt?: number }
+export type GafferOutcomeSession = { key: string; title: string; prompt: string; state: 'waiting' | 'starting' | 'following' | 'advancing' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'; note: string; sessionId?: string; conversationId?: string; updatedAt: number; stages?: GafferOutcomeStage[]; stage?: number; workDir?: string; autoMerge?: boolean; mergeApproved?: boolean }
 /** An approved plan the controller starts and follows. `state` is "starting" while it still has sessions to start. */
 export type GafferOutcome = { id: string; revision: number; objective: string; state: 'starting' | 'settled' | 'stopped'; note: string; agentId: string; projectId: string; projectName: string; dir: string; tool: string; model?: string; trust?: boolean; providerId: string; maxReviews: number; hours: number; sessions: GafferOutcomeSession[]; createdAt: number; updatedAt: number }
-export type GafferOutcomeInput = { objective: string; projectId: string; tool: string; model: string; trust: boolean; sessions: { title: string; prompt: string }[]; maxReviews: number; hours: number; confirmed: true }
+export type GafferOutcomeInput = { objective: string; projectId: string; tool: string; model: string; trust: boolean; autoMerge: boolean; sessions: { title: string; prompt: string; stages?: { kind: string; tool: string; model: string }[] }[]; maxReviews: number; hours: number; confirmed: true }
+/** The person approving the merge of a pipeline that is ready. Nothing merges without this or the pipeline's own auto-merge. */
+export async function approveGafferMerge(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/sessions/${encodeURIComponent(key)}/merge`, { method: 'POST', body: json({ revision: o.revision, confirmed: true }), signal })).json() }
 export async function listGafferOutcomes(signal?: AbortSignal): Promise<GafferOutcome[]> { return (await (await req('/api/v2/gaffer/outcomes', { signal, cache: 'no-store' })).json()).outcomes }
 export async function getGafferOutcome(id: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(id)}`, { signal, cache: 'no-store' })).json() }
 /** Saves the approved plan; the controller then starts and follows each session, with or without this browser. */
@@ -1059,7 +1062,7 @@ export function backupDownloadUrl(admin: boolean, id: string): string {
 
 // --- profile ---------------------------------------------------------------
 
-export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; hostedPrefix: string; updatedAt: number
+export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix: string; updatedAt: number
   /** Launch defaults: the base branch for fresh worktrees ('' for none) and whether sessions get a worktree by default. */
   defaultBaseBranch?: string; worktreesByDefault?: boolean
   /** New sessions without a project: the agent, its model and its thinking level; '' is the agent's own default. */
@@ -1119,7 +1122,7 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean> }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean> }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 

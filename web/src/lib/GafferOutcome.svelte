@@ -8,7 +8,8 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { MAX_OUTCOME_SESSIONS, cleanPrompt, objectiveBlocker, outcomeSummary, planBlocker, startingProgress, wholeBetween, type PlanSession } from './gafferOutcome'
+  import { CREW_ROLES, DEFAULT_STAGES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, sessionCount, stagePlan, startingProgress, wholeBetween, type Crew, type PlanSession } from './gafferOutcome'
+  import { gafferAutoMerge } from './gafferMotion'
 
   let { room, userId = 0, onclose, onstarted }: { room: number; userId?: number; onclose: () => void; onstarted: () => void | Promise<void> } = $props()
   const formId = $props.id()
@@ -20,7 +21,10 @@
   let objective = $state(''), projectId = $state(''), tool = $state(''), wanted = $state(3)
   let planning = $state(false), planError = $state(''), summary = $state(''), sessions = $state<PlanSession[]>([])
   let maxReviews = $state(12), hours = $state(24)
-  let model = $state(''), trust = $state(false)
+  let trust = $state(false)
+  // The crew: which agent and model does the thinking, the building and the shipping stages of every pipeline.
+  let crew = $state<Crew>({ think: { tool: '', model: '' }, build: { tool: '', model: '' }, ship: { tool: '', model: '' } })
+  let autoMerge = $state(false)
   let busy = $state(false), startError = $state(''), record = $state<GafferOutcome | null>(null), watchError = $state('')
   let counter = 0
   const key = () => `plan-${++counter}`
@@ -31,17 +35,22 @@
   const cap = $derived(Math.max(1, Math.min(MAX_OUTCOME_SESSIONS, room)))
   const blocker = $derived(loading ? '' : !provider ? 'Choose a default Gaffer provider in Gaffer settings first.' : objectiveBlocker({ objective, project: !!project, machineReady: !!machine?.ready, agent: !!tool && tools.includes(tool), room }))
   const approveBlocker = $derived(planBlocker(sessions, room))
-  const needsTrust = $derived(tool === 'opencode' || tool === 'antigravity')
+  const crewTools = $derived(CREW_ROLES.map(item => crew[item.role].tool))
+  const needsTrust = $derived(crewTools.some(id => id === 'opencode' || id === 'antigravity'))
+  const trustNames = $derived([...new Set(crewTools.filter(id => id === 'opencode' || id === 'antigravity'))].map(chatToolName).join(' and '))
   const limitsOk = $derived(wholeBetween(maxReviews, 1, 48) && wholeBetween(hours, 1, 168))
   const done = $derived(!!record && record.state !== 'starting')
 
   $effect(() => { if (tools.length && !tools.includes(tool)) tool = tools[0]; if (!tools.length) tool = '' })
   $effect(() => { if (wanted > cap) wanted = cap })
+  // A crew role follows the main agent until the person gives it one of its own that this machine can run.
+  $effect(() => { for (const item of CREW_ROLES) if (!tools.includes(crew[item.role].tool)) crew[item.role].tool = tool })
   $effect(() => { if (!needsTrust) trust = false })
 
   onMount(() => {
     const saved = readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text)
     maxReviews = saved.maxReviews; hours = saved.hours
+    autoMerge = $gafferAutoMerge
     void Promise.all([getGafferSettings(life.signal), listFolderProjects(life.signal), terminalMachines(life.signal)]).then(([settings, folders, found]) => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
       projects = folders; machines = found
@@ -57,7 +66,7 @@
     try {
       const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted }, life.signal)
       summary = plan.summary
-      sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt }))
+      sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages(item.stages.map(stage => stage.kind)) : [...DEFAULT_STAGES] }))
       step = 'plan'
     } catch (e) { if (!life.signal.aborted) planError = e instanceof Error ? e.message : 'Gaffer could not plan this outcome.' }
     finally { planning = false }
@@ -65,9 +74,11 @@
   // Without a tool-capable model, or by choice, the person writes the plan; the rest of the flow is the same.
   function writeOwn() {
     if (blocker) return
-    summary = ''; sessions = [{ key: key(), title: '', prompt: '' }]; planError = ''; step = 'plan'
+    summary = ''; sessions = [{ key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }]; planError = ''; step = 'plan'
   }
-  const addSession = () => { sessions = [...sessions, { key: key(), title: '', prompt: '' }] }
+  const addSession = () => { sessions = [...sessions, { key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }] }
+  const toggleStage = (item: PlanSession, kind: string) => { const now = item.stages ?? []; item.stages = now.includes(kind) ? now.filter(k => k !== kind) : orderStages([...now, kind]) }
+  const hasMerge = $derived(sessions.some(item => item.stages?.includes('merge')))
   const removeSession = (id: string) => { sessions = sessions.filter(item => item.key !== id) }
   // The controller owns the start from here. This only reads its record until every session has an answer.
   let watching: ReturnType<typeof setInterval> | undefined
@@ -87,8 +98,8 @@
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
-        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), trust, maxReviews, hours, confirmed: true,
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt) })),
+        objective: objective.trim(), projectId: project.id, tool, model: '', trust, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew) })),
       }, life.signal)
       step = 'results'
       watch(record.id)
@@ -124,7 +135,7 @@
               <option value="">Choose a project…</option>
               {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
             </select></label>
-            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length}>
+            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { for (const item of CREW_ROLES) crew[item.role].tool = tool }}>
               {#if !tools.length}<option value="">{project ? 'None available' : 'Choose a project first'}</option>{/if}
               {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
             </select></label>
@@ -132,9 +143,15 @@
               {#each Array.from({ length: cap }, (_, n) => n + 1) as n (n)}<option value={n}>Up to {n}</option>{/each}
             </select></label>
           </div>
-          <details class="limit-editor"><summary>Agent’s default model <span>Choose a model</span></summary>
-            <label class="model">Model<input aria-label="Model" bind:value={model} maxlength="200" placeholder="Leave empty for the agent’s default" disabled={planning}/></label>
-            <p class="hint">Use the name this agent accepts, as in its model picker. Every session of the outcome uses it.</p>
+          <details class="limit-editor crew"><summary>{crewTools.every(id => id === tool) && CREW_ROLES.every(item => !crew[item.role].model.trim()) ? 'One agent does every stage' : 'A crew does the stages'} <span>Choose who does what</span></summary>
+            <p class="hint">Right tool for the job: give the thinking stages a stronger model and the building or shipping stages a cheaper one. A new session starts whenever the agent or model changes; otherwise a pipeline keeps one session.</p>
+            <div class="crew-rows">
+              {#each CREW_ROLES as item (item.role)}<div class="crew-row" role="group" aria-label={`${item.label} crew`}>
+                <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span></div>
+                <select aria-label={`${item.label} agent`} bind:value={crew[item.role].tool} disabled={planning || !tools.length}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+                <input aria-label={`${item.label} model`} bind:value={crew[item.role].model} maxlength="200" placeholder="Agent’s default model" disabled={planning}/>
+              </div>{/each}
+            </div>
           </details>
           {#if !projects.length}<p class="hint">No projects yet. <a href="/">Add a project on Home</a> so sessions have a folder to work in.</p>{/if}
           {#if project && !project.isRepo}<p class="hint">This folder is not a git repository, so several sessions would share the same files. One session is safest.</p>{/if}
@@ -147,12 +164,16 @@
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
       {#if summary}<div class="summary"><p class="eyebrow">Gaffer’s plan</p><p>{summary}</p></div>{/if}
-      <p class="hint">{project?.name} · {chatToolName(tool)}. Edit anything; each session starts with exactly the prompt shown{project?.isRepo ? ', in its own worktree' : ''}.</p>
+      <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief, and tick the stages it runs through. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Session {index + 1}</label><button class="link" type="button" aria-label={`Remove session ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
           <input id={`${formId}-${item.key}-title`} aria-label={`Session ${index + 1} title`} bind:value={item.title} maxlength="80" placeholder="Short title"/>
           <textarea aria-label={`Session ${index + 1} prompt`} bind:value={item.prompt} rows="5" placeholder="What this session should build, how to check it, and to raise a pull request. Do not merge."></textarea>
+          <div class="stage-pick" role="group" aria-label={`Session ${index + 1} stages`}>
+            {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
+          </div>
+          <p class="hint">{sessionCount(stagePlan(item.stages ?? [], crew))} agent {sessionCount(stagePlan(item.stages ?? [], crew)) === 1 ? 'session' : 'sessions'} for {item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}.</p>
         </li>{/each}
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a session</button>{/if}
@@ -160,7 +181,8 @@
       <details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours per session <span>Change limits</span></summary>
         <div class="pair two"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours}/></label></div>
       </details>
-      {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {chatToolName(tool)} may run the plugins and customisations it finds in {project?.dir || 'it'}. Leave this off and a folder that has any is refused.</span></label>{/if}
+      {#if hasMerge}<label class="trust"><input type="checkbox" bind:checked={autoMerge} disabled={busy}/><span>Merge by itself once every check passes, no review thread is open and there are no conflicts. Left off, each pipeline stops at <strong>Ready to merge</strong> and waits for you.</span></label>{/if}
+      {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {trustNames} may run the plugins and customisations it finds in {project?.dir || 'it'}. Leave this off and a folder that has any is refused.</span></label>{/if}
       {#if approveBlocker}<p class="warning" role="status">{approveBlocker}</p>
       {:else if !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
       {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
@@ -177,7 +199,7 @@
         </li>{/each}
       </ul>
       {#if done}<p class="hint">Each session has its own goal naming this outcome, and its own budget. The floor groups them under the outcome; only you mark a goal complete.</p>
-        <div class="actions"><button class="btn primary" type="button" onclick={onclose}>Back to the floor</button></div>
+        <div class="actions"><button class="btn primary" type="button" onclick={onclose}>Back to the Factory</button></div>
       {:else}<div class="actions"><button class="btn" type="button" onclick={onclose}>Close and let it run</button><button class="btn quiet" type="button" disabled={busy} onclick={() => void stop()}>Stop starting sessions</button></div>{/if}
     {/if}
   </div>
@@ -195,7 +217,10 @@
   .add{justify-self:start}
   .limit-editor summary{min-height:44px;display:list-item;align-content:center;cursor:pointer;font-variant-numeric:tabular-nums}.limit-editor summary span{color:var(--accent-text);margin-left:8px}
   .steps{list-style:none;display:flex;gap:6px 18px;flex-wrap:wrap;margin:0;padding:0 0 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:0.875rem}.steps li{display:flex;align-items:center;gap:8px}.steps .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line-strong);font-variant-numeric:tabular-nums;font-size:0.8125rem}.steps li[aria-current]{color:var(--ink);font-weight:600}.steps li[aria-current] .n,.steps li.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-  .result-line{font-weight:600}.model{padding-top:8px}.trust{display:flex;align-items:flex-start;gap:10px;font-weight:400;min-height:44px}.trust input{width:20px;height:20px;min-height:0;margin:2px 0 0;flex:none;padding:0;accent-color:var(--accent)}
+  .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;align-items:center}.crew-role{display:grid;gap:2px;min-width:0}.crew-role span{font-size:0.8125rem;color:var(--muted);font-weight:400}
+  .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}
+  @media(max-width:559px){.crew-row{grid-template-columns:1fr}}@media(pointer:coarse){.stage-chip{min-height:44px}}
+  .result-line{font-weight:600}.trust{display:flex;align-items:flex-start;gap:10px;font-weight:400;min-height:44px}.trust input{width:20px;height:20px;min-height:0;margin:2px 0 0;flex:none;padding:0;accent-color:var(--accent)}
   .results{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.results li{display:grid;gap:2px;padding:10px 14px;min-width:0;overflow-wrap:anywhere}.results li+li{border-top:1px solid var(--line)}.results span{font-size:0.875rem;color:var(--muted)}.results li.failed span{color:var(--bad)}.results a{color:var(--accent-text);font-weight:600;min-height:44px;display:inline-flex;align-items:center;justify-self:start}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}
   button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

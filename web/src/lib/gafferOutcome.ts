@@ -9,10 +9,10 @@ const MAX_GOAL_BYTES = 2000
 const OUTCOME_PREFIX = 'Outcome: '
 const OUTCOME_LINE_BYTES = 600
 
-export type PlanSession = { key: string; title: string; prompt: string }
+export type PlanSession = { key: string; title: string; prompt: string; stages?: string[] }
 export type OutcomeRow = { goal: { text: string; state: string }; attention: boolean }
 export type OutcomeGroup<T> = { objective: string; rows: T[]; needsReview: number; following: number; finished: number }
-export type OutcomeStep = 'waiting' | 'starting' | 'following' | 'unfollowed' | 'failed' | 'cancelled'
+export type OutcomeStep = 'waiting' | 'starting' | 'following' | 'advancing' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'
 export type OutcomeResult = { key: string; title: string; state: OutcomeStep; note: string; sessionId?: string }
 export type OutcomeRecord = { id: string; objective: string; state: string; sessions: OutcomeResult[] }
 
@@ -124,13 +124,14 @@ export function planBlocker(sessions: PlanSession[], room: number): string {
     if (prompt.startsWith('-')) return `Start the prompt for “${title}” with a word, not a dash.`
     if (CONTROL.test(prompt)) return `The prompt for “${title}” has a character that cannot be sent. Retype that part.`
     if (CONTROL.test(title) || /\p{Cf}/u.test(title)) return `The title of session ${n} has a character that cannot be used. Retype it.`
+    if (session.stages && !session.stages.length) return `Choose at least one stage for “${title}”.`
   }
   return ''
 }
 
 export function outcomeSummary(results: Pick<OutcomeResult, 'state'>[]): string {
   const count = (state: OutcomeStep) => results.filter(r => r.state === state).length
-  const following = count('following'), unfollowed = count('unfollowed'), failed = count('failed') + count('cancelled')
+  const following = count('following') + count('advancing') + count('ready_to_merge') + count('done'), unfollowed = count('unfollowed'), failed = count('failed') + count('cancelled')
   const parts: string[] = []
   if (following) parts.push(`${following} started and followed`)
   if (unfollowed) parts.push(`${unfollowed} started but not followed yet`)
@@ -182,10 +183,98 @@ export function floorOutcomeLine(group: OutcomeGroup<unknown> & { record?: Outco
   if (record.state === 'starting') parts.push('starting')
   if (group.needsReview) parts.push(`${group.needsReview} ${group.needsReview === 1 ? 'needs' : 'need'} review`)
   if (group.following) parts.push(`${group.following} following`)
-  if (group.finished) parts.push(`${group.finished} finished`)
+  const ready = record.sessions.filter(s => s.state === 'ready_to_merge').length
+  const done = record.sessions.filter(s => s.state === 'done').length
+  if (ready) parts.push(`${ready} ready to merge`)
+  if (done) parts.push(`${done} done`)
+  else if (group.finished) parts.push(`${group.finished} finished`)
   const unfollowed = record.sessions.filter(s => s.state === 'unfollowed').length
   const failed = record.sessions.filter(s => s.state === 'failed' || s.state === 'cancelled').length
   if (unfollowed) parts.push(`${unfollowed} not followed`)
   if (failed) parts.push(`${failed} not started`)
   return parts.join(' · ')
+}
+
+// Pipelines. A planned session with stages is a pipeline: it runs through the stages below in order, each done by the
+// agent and model the person chose for it. The controller moves it on when Gaffer's review hands a stage over.
+export const STAGES = [
+  { kind: 'plan', label: 'Plan', role: 'think' },
+  { kind: 'design', label: 'Design', role: 'think' },
+  { kind: 'code', label: 'Code', role: 'build' },
+  { kind: 'review', label: 'Review', role: 'think' },
+  { kind: 'test', label: 'Test', role: 'build' },
+  { kind: 'pr', label: 'PR', role: 'ship' },
+  { kind: 'babysit', label: 'Babysit', role: 'ship' },
+  { kind: 'merge', label: 'Merge', role: 'ship' },
+] as const
+export type StageKind = typeof STAGES[number]['kind']
+export type CrewRole = 'think' | 'build' | 'ship'
+export type Crew = Record<CrewRole, { tool: string; model: string }>
+export const CREW_ROLES: { role: CrewRole; label: string; does: string }[] = [
+  { role: 'think', label: 'Thinking', does: 'Plan, design and review. Worth a stronger model.' },
+  { role: 'build', label: 'Building', does: 'Code and test. Most of the tokens go here.' },
+  { role: 'ship', label: 'Shipping', does: 'Pull request, babysitting and merge. A cheaper model does fine.' },
+]
+/** The stages a hand-written session gets, and the fallback when Gaffer's plan names none. */
+export const DEFAULT_STAGES: StageKind[] = ['code', 'review', 'test', 'pr', 'babysit', 'merge']
+export const stageLabel = (kind: string): string => STAGES.find(stage => stage.kind === kind)?.label ?? kind
+
+/** The chosen stages in pipeline order, whatever order they were ticked in. Unknown kinds are dropped. */
+export function orderStages(kinds: Iterable<string>): StageKind[] {
+  const chosen = new Set(kinds)
+  return STAGES.filter(stage => chosen.has(stage.kind)).map(stage => stage.kind)
+}
+
+/** What is sent for one pipeline: each chosen stage with the agent and model of the crew role that does it. */
+export function stagePlan(kinds: Iterable<string>, crew: Crew): { kind: string; tool: string; model: string }[] {
+  return orderStages(kinds).map(kind => {
+    const role = STAGES.find(stage => stage.kind === kind)!.role
+    return { kind, tool: crew[role].tool, model: crew[role].model.trim() }
+  })
+}
+
+/** How many separate agent sessions a pipeline will use: a new one each time the agent or model changes. */
+export function sessionCount(plan: { tool: string; model: string }[]): number {
+  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model ? 1 : 0), 0)
+}
+
+export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; summary: string }
+type PipelinePiece = { state: string; stage?: number; stages?: { kind: string; tool: string; model?: string; state: string; summary?: string }[] }
+/** A pipeline's stages as the page draws them. The stage in hand shows the pipeline's own state: running, waiting on the person, or failed. */
+export function track(piece: PipelinePiece): TrackNode[] {
+  const at = piece.stage ?? 0
+  return (piece.stages ?? []).map((stage, index) => {
+    let state: TrackNode['state'] = stage.state === 'done' ? 'done' : 'pending'
+    if (index === at && stage.state !== 'done') {
+      if (piece.state === 'ready_to_merge') state = 'waiting'
+      else if (['failed', 'unfollowed', 'cancelled'].includes(piece.state)) state = 'failed'
+      else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
+    }
+    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', summary: stage.summary ?? '' }
+  })
+}
+
+/** One word for where a pipeline stands, for its badge. */
+export function pipelineStatus(piece: { state: string }, attention: boolean): { label: string; tone: 'good' | 'busy' | 'you' | 'bad' | 'idle' } {
+  if (piece.state === 'ready_to_merge') return { label: 'Ready to merge', tone: 'you' }
+  if (piece.state === 'done') return { label: 'Done', tone: 'good' }
+  if (piece.state === 'failed' || piece.state === 'cancelled') return { label: 'Not started', tone: 'bad' }
+  if (piece.state === 'unfollowed') return { label: 'Stopped', tone: 'bad' }
+  if (attention) return { label: 'Needs you', tone: 'you' }
+  if (piece.state === 'waiting') return { label: 'Queued', tone: 'idle' }
+  return { label: 'Running', tone: 'busy' }
+}
+
+/** The page's headline numbers across every outcome. */
+export function factoryTally(records: { sessions: { state: string; conversationId?: string }[] }[], attention: ReadonlySet<string>): { running: number; needYou: number; ready: number; done: number } {
+  const out = { running: 0, needYou: 0, ready: 0, done: 0 }
+  for (const record of records) for (const piece of record.sessions) {
+    if (piece.state === 'ready_to_merge') out.ready++
+    else if (piece.state === 'done') out.done++
+    else if (['following', 'starting', 'advancing', 'waiting'].includes(piece.state)) {
+      if (piece.conversationId && attention.has(piece.conversationId)) out.needYou++
+      else out.running++
+    }
+  }
+  return out
 }

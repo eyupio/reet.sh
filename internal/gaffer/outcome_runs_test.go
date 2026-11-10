@@ -2,7 +2,10 @@ package gaffer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +33,7 @@ type outcomeStarterFake struct {
 	once     sync.Once
 }
 
-func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (string, error) {
+func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (string, string, error) {
 	f.mu.Lock()
 	f.launches = append(f.launches, in)
 	hold, refusal := f.hold, f.refuse[in.Title]
@@ -42,22 +45,27 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 		select {
 		case <-hold:
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", "", ctx.Err()
 		}
 	}
 	if refusal != "" {
-		return "", errors.New(refusal)
+		return "", "", errors.New(refusal)
 	}
 	row, _, err := f.st.ReserveTerminalCreateFor(uid, in.AgentID, in.RequestID, f.gen, terminalproto.Create{Title: in.Title, Tool: in.Tool, Structured: true, Dir: in.Dir, Prompt: in.Prompt, Cols: 100, Rows: 30})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if row.State != terminalproto.Running {
 		if err = f.st.ObserveTerminalStateFor(uid, in.AgentID, row.ID, 1, terminalproto.Running, nil); err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
-	return row.ID, nil
+	// The first launch of a project gets a worktree; later stages are sent there.
+	work := in.Dir
+	if in.ProjectID != "" {
+		work = in.Dir + "/.reet/worktrees/" + in.RequestID[:8]
+	}
+	return row.ID, work, nil
 }
 
 func (f *outcomeStarterFake) asked() []OutcomeLaunch {
@@ -73,14 +81,20 @@ type outcomeRig struct {
 	starter *outcomeStarterFake
 	project store.FolderProject
 	in      OutcomeInput
+	reply   func(http.ResponseWriter, *http.Request)
 }
 
 func outcomeFixture(t *testing.T) *outcomeRig {
 	t.Helper()
 	outcomeFollowEvery = 10 * time.Millisecond
 	s, st, p := settingsFixture(t)
+	rig := &outcomeRig{}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("an outcome must not call the provider to start sessions")
+		if rig.reply == nil {
+			t.Error("an outcome must not call the provider to start sessions")
+			return
+		}
+		rig.reply(w, r)
 	}))
 	t.Cleanup(provider.Close)
 	if _, err := s.Save(p, Input{Name: "Outcome brains", Kind: "openai_compatible", BaseURL: provider.URL, LocalOnly: true, Enabled: true, MakeDefault: true, Model: "fake-model"}); err != nil {
@@ -105,7 +119,8 @@ func outcomeFixture(t *testing.T) *outcomeRig {
 		{Title: "Export API", Prompt: "Add the CSV export endpoint with tests. Raise a pull request. Do not merge."},
 		{Title: "Export button", Prompt: "Add the export button to the billing page. Raise a pull request. Do not merge."},
 	}}
-	return &outcomeRig{s: s, st: st, p: p, starter: starter, project: project, in: in}
+	rig.s, rig.st, rig.p, rig.starter, rig.project, rig.in = s, st, p, starter, project, in
+	return rig
 }
 
 func (r *outcomeRig) settle(t *testing.T, id string) store.GafferOutcome {
@@ -370,5 +385,225 @@ func TestOutcomeGoalFitsTheGoalLimitAndKeepsItsLastSentence(t *testing.T) {
 	}
 	if got := OutcomeGoal("Ship  it\n now", "API"); !strings.HasPrefix(got, "Outcome: Ship it now\nThis session’s part: API\n") {
 		t.Fatalf("goal: %q", got)
+	}
+}
+
+func (r *outcomeRig) piece(t *testing.T, id string, want func(store.GafferOutcomeSession) bool) store.GafferOutcomeSession {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		o, err := r.st.GafferOutcomeFor(r.p.UserID, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want(o.Sessions[0]) {
+			return o.Sessions[0]
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pipeline never got there: %+v", o.Sessions[0])
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func pipelineInput(r *outcomeRig, auto bool) OutcomeInput {
+	in := r.in
+	in.AutoMerge = auto
+	in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint with tests.", Stages: []OutcomeStageInput{
+		{Kind: "code", Tool: "opencode", Model: "cheap/coder"},
+		{Kind: "review", Tool: "opencode", Model: "strong/reviewer"},
+		{Kind: "test", Tool: "opencode", Model: "strong/reviewer"},
+		{Kind: "merge", Tool: "opencode", Model: "strong/reviewer"},
+	}}}
+	return in
+}
+
+// A pipeline moves through its stages on hand-overs: a stage done by another
+// agent or model gets its own session in the same folder, one done by the same
+// keeps the session, and the merge stage waits for the person.
+func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if code.Stage != 0 || code.Stages[0].State != "running" || code.WorkDir == "" || !strings.Contains(code.WorkDir, "/.reet/worktrees/") {
+		t.Fatalf("code stage: %+v", code)
+	}
+	goal, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID)
+	if err != nil || !strings.Contains(goal.Text, "\nStage: code\n") || !strings.HasSuffix(goal.Text, "Do not merge.") || len(goal.Text) > 2000 {
+		t.Fatalf("code goal: %q %v", goal.Text, err)
+	}
+	if !r.s.pipelineStage(r.p.UserID, code.ConversationID) {
+		t.Fatal("the stage goal was not recognised as a pipeline stage")
+	}
+	// Code is handed over to a different model: a new session in the first one's folder, with the handover.
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed on the branch.")
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	asked := r.starter.asked()
+	if len(asked) != 2 || review.SessionID == code.SessionID || review.Stages[0].State != "done" || review.Stages[0].Summary == "" {
+		t.Fatalf("review stage: %+v launches=%d", review, len(asked))
+	}
+	second := asked[1]
+	if second.Dir != code.WorkDir || second.ProjectID != "" || second.Model != "strong/reviewer" || second.RequestID != review.Stages[1].RequestID || !strings.Contains(second.Prompt, "Handover from the code stage: Endpoint and tests are committed") || !strings.Contains(second.Prompt, "Your stage: review.") || !strings.HasSuffix(second.Prompt, "Do not merge.") {
+		t.Fatalf("review launch: %+v", second)
+	}
+	if old, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID); err != nil || old.State != "stopped" {
+		t.Fatalf("the finished stage's goal: %+v %v", old, err)
+	}
+	// Review to test is the same agent and model: the session carries on under a fresh goal.
+	r.s.stageHandedOver(r.p.UserID, review.ConversationID, "Two fixes committed; nothing needs a decision.")
+	test := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
+	if test.SessionID != review.SessionID || test.ConversationID != review.ConversationID || len(r.starter.asked()) != 2 {
+		t.Fatalf("test stage should keep the session: %+v", test)
+	}
+	if g, err := r.st.GafferGoalFor(r.p.UserID, test.ConversationID); err != nil || g.State != "active" || !strings.Contains(g.Text, "\nStage: test\n") || g.UsedReviews != 0 {
+		t.Fatalf("test goal: %+v %v", g, err)
+	}
+	// Test is done. Merge was not allowed, so nothing more starts until the person says so.
+	r.s.stageHandedOver(r.p.UserID, test.ConversationID, "All checks pass locally.")
+	ready := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
+	time.Sleep(60 * time.Millisecond)
+	if ready.Stage != 3 || ready.Stages[3].State != "pending" || len(r.starter.asked()) != 2 {
+		t.Fatalf("ready to merge: %+v", ready)
+	}
+	o, _ := r.s.Outcome(r.p.UserID, created.ID)
+	if o.State != "settled" {
+		t.Fatalf("outcome while waiting for the merge decision: %s", o.State)
+	}
+	other, err := r.st.CreateUser("merge-other@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.s.ApproveMerge(other.ID, created.ID, ready.Key, o.Revision); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("another account's approval: %v", err)
+	}
+	if _, err := r.s.ApproveMerge(r.p.UserID, created.ID, ready.Key, o.Revision-1); !errors.Is(err, store.ErrGafferOutcomeBusy) {
+		t.Fatalf("stale approval: %v", err)
+	}
+	if _, err := r.s.ApproveMerge(r.p.UserID, created.ID, ready.Key, o.Revision); err != nil {
+		t.Fatal(err)
+	}
+	merge := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 3 })
+	g, err := r.st.GafferGoalFor(r.p.UserID, merge.ConversationID)
+	if err != nil || !strings.Contains(g.Text, "\nStage: merge\n") || strings.Contains(g.Text, "Do not merge") || !strings.Contains(g.Text, "only once every check passes") {
+		t.Fatalf("merge goal: %q %v", g.Text, err)
+	}
+	if merge.SessionID != test.SessionID {
+		t.Fatalf("merge should keep the session: %+v", merge)
+	}
+	r.s.stageHandedOver(r.p.UserID, merge.ConversationID, "Merged.")
+	done := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "done" })
+	if done.Stages[3].State != "done" {
+		t.Fatalf("done: %+v", done)
+	}
+	if _, err := r.s.ApproveMerge(r.p.UserID, created.ID, done.Key, mustOutcome(t, r, created.ID).Revision); err == nil {
+		t.Fatal("a finished pipeline accepted a merge approval")
+	}
+}
+
+func mustOutcome(t *testing.T, r *outcomeRig, id string) store.GafferOutcome {
+	t.Helper()
+	o, err := r.st.GafferOutcomeFor(r.p.UserID, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
+func TestAPipelineAllowedToMergeGoesStraightToItsMergeStage(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	in := pipelineInput(r, true)
+	in.Sessions[0].Stages = []OutcomeStageInput{{Kind: "code", Tool: "opencode"}, {Kind: "merge", Tool: "opencode"}}
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Done.")
+	merge := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	if !merge.AutoMerge || merge.MergeApproved {
+		t.Fatalf("merge: %+v", merge)
+	}
+	// One pipeline can still refuse what the outcome allows.
+	no := false
+	in.Sessions[0].AutoMerge = &no
+	in.Sessions[0].Title = "Second"
+	second, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2 := r.piece(t, second.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, c2.ConversationID, "Done.")
+	r.piece(t, second.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
+}
+
+func TestPipelineStagesMustBeInOrderWithAnAgentThatCanChat(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	bad := map[string][]OutcomeStageInput{
+		"out of order":  {{Kind: "review", Tool: "opencode"}, {Kind: "code", Tool: "opencode"}},
+		"twice":         {{Kind: "code", Tool: "opencode"}, {Kind: "code", Tool: "opencode"}},
+		"unknown stage": {{Kind: "deploy", Tool: "opencode"}},
+		"terminal tool": {{Kind: "code", Tool: "bash"}},
+		"model flag":    {{Kind: "code", Tool: "opencode", Model: "--yolo"}},
+	}
+	for name, stages := range bad {
+		in := pipelineInput(r, false)
+		in.Sessions[0].Stages = stages
+		var invalid *Invalid
+		if _, err := r.s.CreateOutcome(r.p.UserID, in); !errors.As(err, &invalid) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if len(r.starter.asked()) != 0 {
+		t.Fatal("a refused pipeline started a session")
+	}
+}
+
+// Gaffer's own review hands a stage over: its model says the stage is done,
+// and the controller, not the model, starts what the person approved next.
+func TestAGoalReviewHandsAPipelineStageOver(t *testing.T) {
+	r := outcomeFixture(t)
+	var mu sync.Mutex
+	var sent []string
+	seen := func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), sent...) }
+	r.reply = func(w http.ResponseWriter, req *http.Request) {
+		raw, _ := io.ReadAll(req.Body)
+		mu.Lock()
+		sent = append(sent, string(raw))
+		mu.Unlock()
+		call, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "h1", "type": "function", "function": map[string]any{"name": "hand_over", "arguments": `{"summary":"Endpoint and tests are in."}`}}}}, "finish_reason": "tool_calls"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", call)
+	}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if err := r.st.AppendTerminalChatEventFor(r.p.UserID, code.SessionID, 1, time.Now().UnixMilli(), []byte(`{"kind":"agent","text":"Implemented the endpoint; tests pass."}`)); err != nil {
+		t.Fatal(err)
+	}
+	// The supervisor may already have looked and found nothing new; make the goal due again.
+	deadline := time.Now().Add(10 * time.Second)
+	for len(seen()) == 0 && time.Now().Before(deadline) {
+		if g, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID); err == nil && g.State == "active" && g.ActiveTurnID == "" {
+			_ = r.st.ObserveGafferGoal(g, "active", "", 0)
+		}
+		r.s.wakeGoals()
+		time.Sleep(50 * time.Millisecond)
+	}
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	tools := seen()
+	if review.Stages[0].Summary != "Endpoint and tests are in." || len(tools) == 0 || !strings.Contains(tools[0], `"hand_over"`) {
+		t.Fatalf("handed over: %+v", review.Stages[0])
+	}
+	// An ordinary goal is never offered the tool.
+	if strings.Contains(tools[0], `"propose_sessions"`) {
+		t.Fatal("a review was offered the planning tool")
 	}
 }

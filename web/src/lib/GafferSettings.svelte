@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { actOnGafferProvider, getGafferModels, getGafferSettings, saveGafferProvider, UnauthorizedError, type GafferInput, type GafferProvider, type GafferSettings } from './api'
+  import { actOnGafferProvider, getGafferModels, getGafferSettings, getProfile, saveGafferProvider, saveProfile, UnauthorizedError, type GafferInput, type GafferProvider, type GafferSettings } from './api'
+  import { gafferAutoMerge, gafferStanding } from './gafferMotion'
   import CollectionPanel from './CollectionPanel.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import GafferAvatar from './terminal/GafferAvatar.svelte'
@@ -22,6 +23,23 @@
   const savedKey = $derived(!!editing?.hasKey && editing.kind === kind && editing.baseUrl === baseUrl && !clearKey)
   const active = $derived(data?.providers.filter(p => p.enabled).length ?? 0)
 
+  // How Gaffer works for this account: whether looking after a session is pre-approved, and whether a new pipeline may
+  // merge by itself. Each is a default a single session or pipeline can still be set differently.
+  let ways = $state<{ standing: boolean; autoMerge: boolean } | null>(null), waysBusy = $state(false), waysError = $state('')
+  async function loadWays() {
+    try { const { profile } = await getProfile(); ways = { standing: profile.gafferStanding ?? true, autoMerge: profile.gafferAutoMerge ?? false } } catch { ways = null }
+  }
+  async function setWay(key: 'standing' | 'autoMerge', value: boolean) {
+    if (!ways || waysBusy) return
+    const before = { ...ways }
+    ways = { ...ways, [key]: value }; waysBusy = true; waysError = ''
+    try {
+      await saveProfile(key === 'standing' ? { gafferStanding: value } : { gafferAutoMerge: value })
+      gafferStanding.set(ways.standing); gafferAutoMerge.set(ways.autoMerge)
+    } catch (e) { ways = before; waysError = e instanceof Error ? e.message : 'That setting was not saved.' }
+    finally { waysBusy = false }
+  }
+  onMount(() => { void loadWays() })
   onMount(() => {
     void load()
     return () => { life.abort(); modelRequest?.abort(); actionRequest?.abort(); key = '' }
@@ -105,6 +123,12 @@
       <p class="intro-copy">Choose who Gaffer talks to. His model is separate from the agent doing your work, and these providers belong to your account.</p></div>
   </header>
   <p class="note">Choose a provider, then use Ask Gaffer for a natter. In a working session, “Look after this session” reviews access and saves your goal in one step.</p>
+  {#if ways}<section class="ways" aria-label="How Gaffer works">
+    <h3>How Gaffer works</h3>
+    <label class="way"><input type="checkbox" checked={ways.standing} disabled={waysBusy} onchange={event => void setWay('standing', event.currentTarget.checked)}/><span><strong>Look after sessions without asking each time</strong><span class="way-note">When you tell Gaffer to look after a session it may read that session’s recent conversation, including code and logs in it, and send it follow-on instructions, straight away with your usual goal and limits. Nothing is read or sent until you ask, and you can still review or stop any one session. Turn this off to be asked for each session.</span></span></label>
+    <label class="way"><input type="checkbox" checked={ways.autoMerge} disabled={waysBusy} onchange={event => void setWay('autoMerge', event.currentTarget.checked)}/><span><strong>Let new pipelines merge by themselves</strong><span class="way-note">The starting choice for each new outcome: its agent merges once every check passes, no review thread is open and there are no conflicts. Left off, a pipeline stops at Ready to merge and waits for you. You can change it for any one outcome when you approve its plan.</span></span></label>
+    {#if waysError}<p class="feedback bad" role="alert">{waysError}</p>{/if}
+  </section>{/if}
   {#if notice}<p class="feedback good" role="status">{notice}</p>{/if}
   {#if error}<div class="feedback bad" role="alert"><p>{error}</p><button class="btn quiet" onclick={() => void load()} disabled={!!busy}>Reload providers</button></div>{/if}
   {#if data && !data.available}<p class="feedback bad" role="alert">The controller’s provider-key storage is unavailable. Ask an administrator to check the instance key configuration.</p>{/if}
@@ -260,4 +284,5 @@
     .grid2 { grid-template-columns: 1fr; }
     .form-actions .btn { flex: 1; }
   }
+  .ways{display:grid;gap:12px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--card)}.ways h3{margin:0;font:600 1.05rem var(--sans)}.way{display:flex;align-items:flex-start;gap:12px;min-height:44px;cursor:pointer}.way input{width:20px;height:20px;margin:2px 0 0;flex:none;accent-color:var(--accent)}.way>span{display:grid;gap:4px;min-width:0}.way-note{color:var(--muted);font-size:0.875rem;line-height:1.5;font-weight:400}
 </style>

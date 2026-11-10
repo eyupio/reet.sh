@@ -64,8 +64,10 @@ try{
   await p.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
   const chat=p.getByRole('dialog',{name:'Gaffer',exact:true})
   await expect(chat).toContainText('General Gaffer chat')
-  await chat.getByRole('button',{name:'Factory floor',exact:true}).click()
-  const picker=p.getByRole('dialog',{name:'Factory floor',exact:true})
+  // General chat leads to the Factory page, whose list of running chats opens one with its own Gaffer conversation.
+  await chat.getByRole('link',{name:'Factory',exact:true}).click()
+  await expect(p).toHaveURL(/\/factory$/)
+  const picker=p.locator('[data-floor]')
   await expect(picker).toContainText('Ticking shares nothing and starts nothing')
   await picker.getByRole('link',{name:'Open First worker',exact:true}).click()
   await expect(p.locator('.session-screen .title')).toHaveText('First worker')

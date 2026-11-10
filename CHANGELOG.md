@@ -5,6 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- `reet agent status` and the terminal connection wizard now say why a machine
+  is not syncing or connected: the controller's refusal or the network error,
+  what to do next, and where the log is. Before, the wizard only said the
+  private connection had not become ready. In the `reet` terminal home, commands
+  that prompt (Upgrade, Install, Connect machine, Sync and others) now run on
+  reet's own screen and return home, without dropping into shell scrollback, and
+  **Connect machine** on a machine that is already connected says so. Machines
+  need the new build to report reasons; no controller update is needed.
 - **Factory** is now a page of its own, in the main navigation. Each outcome you
   give Gaffer is drawn as pipelines that move through plan, design, code, review,
   test, pull request, babysit and merge, with the agent and model doing each stage,

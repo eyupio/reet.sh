@@ -83,17 +83,19 @@ type AgentConfig struct {
 	attention          bool
 	progress           bool
 	OnConnection       func(bool)
-	TerminalSession    TerminalFactory
-	control            func(context.Context, terminalproto.Message) error
-	ServerURL          string
-	Token              string
-	AgentID            string
-	Secret             string
-	Version            string
-	InstanceID         string
-	Home               string
-	TerminalEnabled    bool
-	TerminalReadiness  terminalproto.Readiness
+	// OnError receives why the private connection is down, and "" once it is up.
+	OnError           func(string)
+	TerminalSession   TerminalFactory
+	control           func(context.Context, terminalproto.Message) error
+	ServerURL         string
+	Token             string
+	AgentID           string
+	Secret            string
+	Version           string
+	InstanceID        string
+	Home              string
+	TerminalEnabled   bool
+	TerminalReadiness terminalproto.Readiness
 	// Consent is polled for local terminal opt-in and readiness changes.
 	Consent func() (enabled bool, readiness terminalproto.Readiness, err error)
 	// LaunchTools lists the agent CLIs this connector can start, from its
@@ -169,6 +171,9 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 		if connected {
 			backoff = cfg.BackoffMin
 			lastError = ""
+		}
+		if cfg.OnError != nil && err != nil {
+			cfg.OnError(err.Error())
 		}
 		if err != nil {
 			message := err.Error()
@@ -355,6 +360,9 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	if cfg.OnConnection != nil {
 		cfg.OnConnection(true)
 		defer cfg.OnConnection(false)
+	}
+	if cfg.OnError != nil {
+		cfg.OnError("")
 	}
 	if cfg.TerminalSession != nil {
 		var closeTerminal func()

@@ -1406,7 +1406,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   .skills-btn { height: 36px; }
   .composer-bar { flex-wrap: wrap; }
  }
- @media (max-width: 767px) { .gaffer-entry { display: inline-flex; } }
+ @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) { .gaffer-entry { display: inline-flex; } }
  @media (pointer: coarse) {
   .gaffer-entry { width: 44px; height: 44px; }
   .tool-head { min-height: 44px; }

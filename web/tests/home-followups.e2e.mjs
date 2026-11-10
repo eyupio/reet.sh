@@ -92,12 +92,15 @@ try {
   // once, the Gaffer entry no longer counts it, and the card count (header, bell, title) stays the number of cards.
   const folded=fixture()
   folded.routes['/api/v2/terminal/sessions']={sessions:[{id:'worker-1',agentId:'a1',title:'Release review',state:'running',createdAt:now-7200000,updatedAt:now-720000,exitCode:null,structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-60000,changedSinceSeen:true,pendingPermission:{permissionId:'perm-aaaa00000001',title:'go test',command:'go test ./...',queued:0}}]}
+  // The session is one stage of a Factory pipeline, and Home says so wherever it lists the session.
+  folded.routes['/api/v2/gaffer/outcomes']={outcomes:[{id:'o'.repeat(32),revision:1,objective:'Ship the release.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'reet',dir:'/work/reet',tool:'claude',providerId:'p'.repeat(32),maxReviews:12,hours:24,createdAt:now,updatedAt:now,sessions:[{key:'a',title:'Release review',prompt:'p',state:'following',note:'The plan stage is under way.',sessionId:'worker-1',conversationId:'c'.repeat(32),updatedAt:now,stage:0,stages:[{kind:'plan',tool:'claude',state:'running',sessionId:'worker-1'},{kind:'code',tool:'claude',state:'pending'}]}]}]}
   const foldedWorkspace=await openWorkspace(browser,{width:390,terminalStatus:{configured:true,available:true,reason:''},routes:folded.routes})
   try {
     const page=foldedWorkspace.page
     await page.goto(base+'/')
     const needs=page.locator('#needs-you')
     await expect(needs.locator('.card')).toHaveCount(1)
+    await expect(page.getByText('Factory · Plan 1 of 2',{exact:true}).first()).toBeVisible()
     const card=needs.locator('.card',{hasText:'Release review'})
     await expect(card.getByText('Gaffer’s goal also needs you',{exact:true})).toHaveCount(1)
     await expect(needs.locator('.count')).toHaveText('1')

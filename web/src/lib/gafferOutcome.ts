@@ -330,3 +330,25 @@ export function timeLeft(expiresAt: number, now: number): string {
   const hours = Math.floor(minutes / 60)
   return hours < 48 ? `${hours} h ${minutes % 60} min` : `${Math.floor(hours / 24)} days`
 }
+
+// Which sessions belong to a Factory pipeline, so Home and the session lists can say so. Every stage's session is
+// included: a finished stage's session is still part of the pipeline it worked on.
+export type FactoryMember = { outcomeId: string; objective: string; pipeline: string; stage: string; step: number; steps: number; current: boolean }
+type MemberStage = { kind: string; sessionId?: string }
+type MemberPiece = { title: string; sessionId?: string; stage?: number; stages?: MemberStage[] }
+export function factoryMembers(records: { id: string; objective: string; sessions: MemberPiece[] }[]): Map<string, FactoryMember> {
+  const out = new Map<string, FactoryMember>()
+  const label = (kind: string) => STAGES.find(item => item.kind === kind)?.label ?? kind
+  for (const record of records) for (const piece of record.sessions) {
+    const stages = piece.stages ?? []
+    const base = { outcomeId: record.id, objective: record.objective, pipeline: piece.title, steps: stages.length }
+    // Later stages that keep one session overwrite earlier ones, so a session shows the latest stage it is doing.
+    stages.forEach((stage, index) => { if (stage.sessionId && index <= (piece.stage ?? 0)) out.set(stage.sessionId, { ...base, stage: label(stage.kind), step: index + 1, current: index === (piece.stage ?? 0) }) })
+    if (piece.sessionId && !out.has(piece.sessionId)) out.set(piece.sessionId, { ...base, stage: '', step: 0, current: true })
+  }
+  return out
+}
+/** "Factory · Plan 1 of 8", or "Factory" for a session with no stages. */
+export function factoryBadge(member: FactoryMember): string {
+  return member.step ? `Factory · ${member.stage} ${member.step} of ${member.steps}` : 'Factory'
+}

@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: a pipeline no longer stops for good when its agent asks for an
+  approval. It shows **Needs you** with the reason and carries on by itself once
+  you answer. An outcome can be approved to run on **YOLO** (off by default,
+  confirmed each time, only where the account, machine and agents allow it). The
+  agent lists now offer the machine's real **models**. Home marks a session that
+  is part of a pipeline (**Factory · stage n of m**). Needs a controller update.
 - Factory: each outcome and pipeline now shows what Gaffer's own model has used
   (reviews and tokens) and what is left of the stage's budget. Tokens only; reet
   attaches no prices and does not see the working agents' usage. **Ask Gaffer for

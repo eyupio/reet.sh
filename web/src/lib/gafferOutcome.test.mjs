@@ -159,3 +159,20 @@ test('time left reads in words', () => {
   assert.equal(o.timeLeft(now + (5 * 60 + 12) * 60000, now), '5 h 12 min')
   assert.equal(o.timeLeft(now + 72 * 3600000, now), '3 days')
 })
+
+test('sessions of a pipeline are marked with the stage they are doing', () => {
+  const records = [{ id: 'o1', objective: 'Ship export', sessions: [
+    { title: 'API', sessionId: 's2', stage: 1, stages: [{ kind: 'plan', sessionId: 's1' }, { kind: 'code', sessionId: 's2' }, { kind: 'review' }] },
+    { title: 'Docs', sessionId: 's9' },
+    { title: 'One agent', sessionId: 's5', stage: 1, stages: [{ kind: 'code', sessionId: 's5' }, { kind: 'test', sessionId: 's5' }] },
+  ] }]
+  const members = o.factoryMembers(records)
+  assert.equal(o.factoryBadge(members.get('s1')), 'Factory · Plan 1 of 3')
+  assert.equal(members.get('s1').current, false)
+  assert.equal(o.factoryBadge(members.get('s2')), 'Factory · Code 2 of 3')
+  assert.equal(members.get('s2').current, true)
+  assert.equal(o.factoryBadge(members.get('s9')), 'Factory')
+  assert.equal(o.factoryBadge(members.get('s5')), 'Factory · Test 2 of 2')
+  assert.equal(members.get('unknown'), undefined)
+  assert.equal(members.get('s2').pipeline, 'API')
+})

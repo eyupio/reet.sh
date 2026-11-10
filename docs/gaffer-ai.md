@@ -232,6 +232,33 @@ A pipeline is one piece of the work, drawn as a production line:
 Each outcome also shows its own figures: pipelines, Gaffer's reviews and tokens
 across all of them, and the budget each stage gets.
 
+### Approvals, YOLO and models
+
+When you approve a plan you choose how its agents run:
+
+- **Ask me** (the default). Agents ask before running commands or changing
+  files. While one is asking, its pipeline shows **Needs you** with the reason.
+  Answer it in the session and the pipeline carries on by itself: Gaffer reviews
+  the work already there. Gaffer never answers an approval for you.
+- **YOLO**. Every session of the outcome starts without approvals. It is offered
+  only when your account allows YOLO, the machine accepts it and every agent in
+  the crew has a YOLO option, and only after a confirmation that lists those
+  checks. It is never remembered, no plan and no model can ask for it, and the
+  controller checks again at every start and records each one. On YOLO the agents
+  also act on what Gaffer asks them without waiting for you, so keep the goal and
+  the stages you chose in mind. The outcome shows **Approvals: YOLO**.
+
+The **Model** list beside each agent holds what that agent really offers on the
+project's machine, your favourites and reet's suggestions; **Other…** takes a
+name none of them has. The model beside the main agent applies to every stage
+until you give a crew role its own.
+
+A session that is part of a pipeline is marked **Factory · stage n of m** on
+Home, in Continue working and on the planning board, with a link to the Factory.
+
+If you resume a pipeline stage's goal by hand (**Review goal → Resume goal**),
+Gaffer reviews the work already there instead of waiting for new progress.
+
 ### Tokens and budgets
 
 The Factory counts what **Gaffer's own model** used: every finished stage keeps
@@ -285,7 +312,8 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
 6. For OpenCode and Google Antigravity, tick **I trust this folder** if the folder's
    plugins may run.
 7. Choose **Approve and start**. The controller starts each pipeline's first stage as
-   an ordinary chat in the project, never in YOLO, in its own worktree in a git
+   an ordinary chat in the project, with ordinary approvals unless you chose YOLO
+   for the outcome, in its own worktree in a git
    project.
 
 How a pipeline moves on: Gaffer follows the stage in hand like any session it looks

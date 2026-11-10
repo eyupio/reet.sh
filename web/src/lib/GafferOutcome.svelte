@@ -3,8 +3,13 @@
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount } from 'svelte'
-  import { createGafferOutcome, getGafferOutcome, getGafferSettings, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider } from './api'
-  import { chatToolName, listFolderProjects, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
+  import { createGafferOutcome, getGafferOutcome, getGafferSettings, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { chatToolName, listFolderProjects, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
+  import GafferModelSelect from './GafferModelSelect.svelte'
+  import YoloDialog from './launch/YoloDialog.svelte'
+  import { yoloCanStart, type YoloGate } from './launchBar'
+  import { CATALOGUE } from './catalogue'
+  import type { MachineModels, ModelFavourite } from './models'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
@@ -22,6 +27,12 @@
   let planning = $state(false), planError = $state(''), summary = $state(''), sessions = $state<PlanSession[]>([])
   let maxReviews = $state(12), hours = $state(24)
   let trust = $state(false)
+  // The model every stage uses unless a crew role is given its own. Empty is the agent's default.
+  let model = $state('')
+  // What each agent offers on the project's machine, read once per agent. A failed read leaves favourites, suggestions and Other.
+  let offered = $state<Record<string, MachineModels | null>>({}), favourites = $state<ModelFavourite[]>([])
+  // YOLO: the account setting, and whether the person confirmed it for this outcome. It is never remembered.
+  let yoloSetting = $state<YoloSetting | null>(null), yolo = $state(false), yoloOpen = $state(false)
   // The crew: which agent and model does the thinking, the building and the shipping stages of every pipeline.
   let crew = $state<Crew>({ think: { tool: '', model: '' }, build: { tool: '', model: '' }, ship: { tool: '', model: '' } })
   let autoMerge = $state(false)
@@ -46,11 +57,36 @@
   // A crew role follows the main agent until the person gives it one of its own that this machine can run.
   $effect(() => { for (const item of CREW_ROLES) if (!tools.includes(crew[item.role].tool)) crew[item.role].tool = tool })
   $effect(() => { if (!needsTrust) trust = false })
+  $effect(() => {
+    const agentId = machine?.agentId
+    if (!agentId) return
+    for (const id of new Set([tool, ...crewTools])) {
+      const slot = `${agentId}:${id}`
+      if (!id || slot in offered) continue
+      offered[slot] = null
+      void machineModels(agentId, id, life.signal).then(found => { offered[slot] = found }).catch(() => { /* suggestions and Other still work */ })
+    }
+  })
+  const offeredFor = (id: string) => machine ? offered[`${machine.agentId}:${id}`] ?? null : null
+  const yoloGates = $derived.by((): YoloGate[] => {
+    const account = yoloSetting?.allowed === true
+    const host = machine?.host || 'This machine'
+    const without = [...new Set(crewTools.filter(id => id && !CATALOGUE.find(agent => agent.id === id)?.yolo))].map(chatToolName)
+    return [
+      { label: 'Your account allows YOLO', ok: account, detail: account ? (yoloSetting?.changedBy ? `set by ${yoloSetting.changedBy}` : 'set by an owner') : yoloSetting ? 'An owner or admin can allow YOLO for this account in Settings.' : 'Reading the account setting…' },
+      { label: `${host} accepts YOLO sessions`, ok: !!machine?.capabilities?.yolo, detail: machine?.capabilities?.yolo ? 'reported by the machine' : `${host} doesn’t accept YOLO sessions.` },
+      { label: 'Every agent in the crew has a YOLO option', ok: !without.length, detail: without.length ? `${without.join(' and ')} has no option reet can use for that.` : crewTools.filter(Boolean).length ? [...new Set(crewTools.filter(Boolean))].map(chatToolName).join(', ') : 'No agent chosen' },
+    ]
+  })
+  const yoloWhy = $derived(yoloGates.find(gate => !gate.ok)?.detail ?? '')
+  $effect(() => { if (yoloWhy) yolo = false })
 
   onMount(() => {
     const saved = readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text)
     maxReviews = saved.maxReviews; hours = saved.hours
     autoMerge = $gafferAutoMerge
+    void getYoloSetting().then(found => { yoloSetting = found }).catch(() => { yoloSetting = { allowed: false } })
+    void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
     void Promise.all([getGafferSettings(life.signal), listFolderProjects(life.signal), terminalMachines(life.signal)]).then(([settings, folders, found]) => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
       projects = folders; machines = found
@@ -98,7 +134,7 @@
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
-        objective: objective.trim(), projectId: project.id, tool, model: '', trust, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
+        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), trust, yolo: yolo && !yoloWhy, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
         sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew) })),
       }, life.signal)
       step = 'results'
@@ -135,10 +171,11 @@
               <option value="">Choose a project…</option>
               {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
             </select></label>
-            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { for (const item of CREW_ROLES) crew[item.role].tool = tool }}>
+            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; for (const item of CREW_ROLES) crew[item.role] = { tool, model: '' } }}>
               {#if !tools.length}<option value="">{project ? 'None available' : 'Choose a project first'}</option>{/if}
               {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
             </select></label>
+            <label>Model<GafferModelSelect label="Model" {tool} bind:value={model} machine={offeredFor(tool)} {favourites} host={machine?.host ?? ''} disabled={planning || !tool} onchange={next => { for (const item of CREW_ROLES) if (crew[item.role].tool === tool) crew[item.role].model = next }}/></label>
             <label>Sessions<select aria-label="Sessions" bind:value={wanted} disabled={planning}>
               {#each Array.from({ length: cap }, (_, n) => n + 1) as n (n)}<option value={n}>Up to {n}</option>{/each}
             </select></label>
@@ -148,8 +185,8 @@
             <div class="crew-rows">
               {#each CREW_ROLES as item (item.role)}<div class="crew-row" role="group" aria-label={`${item.label} crew`}>
                 <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span></div>
-                <select aria-label={`${item.label} agent`} bind:value={crew[item.role].tool} disabled={planning || !tools.length}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
-                <input aria-label={`${item.label} model`} bind:value={crew[item.role].model} maxlength="200" placeholder="Agent’s default model" disabled={planning}/>
+                <select aria-label={`${item.label} agent`} bind:value={crew[item.role].tool} disabled={planning || !tools.length} onchange={() => { crew[item.role].model = crew[item.role].tool === tool ? model : '' }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+                <GafferModelSelect label={`${item.label} model`} tool={crew[item.role].tool} bind:value={crew[item.role].model} machine={offeredFor(crew[item.role].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
               </div>{/each}
             </div>
           </details>
@@ -177,10 +214,17 @@
         </li>{/each}
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a session</button>{/if}
-      <div class="access" aria-label="Outcome access review"><p>Approving has the controller start {sessions.length === 1 ? 'this session' : `these ${sessions.length} sessions`} on {project?.machine || 'the project’s machine'} with ordinary approvals (no YOLO), one after another, whether or not this page stays open. Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. Gaffer cannot merge, run commands or answer approvals.</p></div>
+      <div class="access" aria-label="Outcome access review"><p>Approving has the controller start {sessions.length === 1 ? 'this session' : `these ${sessions.length} sessions`} on {project?.machine || 'the project’s machine'} {yolo ? 'on YOLO' : 'with ordinary approvals (no YOLO)'}, one after another, whether or not this page stays open.{#if yolo}{' '}<strong>On YOLO the agents do not wait for you before running commands or changing files, and that includes what Gaffer asks them to do.</strong>{/if}{' '} Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. Gaffer cannot merge, run commands or answer approvals.</p></div>
       <details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours per session <span>Change limits</span></summary>
         <div class="pair two"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours}/></label></div>
       </details>
+      <fieldset class="approvals"><legend>Approvals</legend>
+        <div class="choice" role="radiogroup" aria-label="Approvals">
+          <label class:on={!yolo}><input type="radio" name={`${formId}-approvals`} checked={!yolo} disabled={busy} onchange={() => yolo = false}/>Ask me</label>
+          <label class:on={yolo} class:off={!!yoloWhy}><input type="radio" name={`${formId}-approvals`} checked={yolo} disabled={busy || !!yoloWhy} onclick={event => { if (!yolo) { event.preventDefault(); yoloOpen = true } }}/>YOLO</label>
+        </div>
+        <p class="hint" class:warn={yolo}>{yoloWhy || (yolo ? 'Every session of this outcome starts on YOLO: no agent waits for you to approve commands or file changes. Each start is checked and audited.' : 'Agents ask before running commands. A pipeline waits whenever one is asking, and carries on once you answer. YOLO needs a confirmation.')}</p>
+      </fieldset>
       {#if hasMerge}<label class="trust"><input type="checkbox" bind:checked={autoMerge} disabled={busy}/><span>Merge by itself once every check passes, no review thread is open and there are no conflicts. Left off, each pipeline stops at <strong>Ready to merge</strong> and waits for you.</span></label>{/if}
       {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {trustNames} may run the plugins and customisations it finds in {project?.dir || 'it'}. Leave this off and a folder that has any is refused.</span></label>{/if}
       {#if approveBlocker}<p class="warning" role="status">{approveBlocker}</p>
@@ -204,12 +248,13 @@
     {/if}
   </div>
 </WorkspaceDialog>
+{#if yoloOpen && machine}<YoloDialog gates={yoloGates} tool={tool} structured machine={machine.host} enabling oncancel={() => { yoloOpen = false }} onstart={() => { if (yoloCanStart(yoloGates)) yolo = true; yoloOpen = false }}/>{/if}
 
 <style>
   .outcome{display:grid;gap:14px;min-width:0;font-size:14px;line-height:1.5}p{margin:0;overflow-wrap:anywhere}.hint{color:var(--muted)}.warning{color:var(--bad)}
   form{display:grid;gap:12px;min-width:0}label{font-weight:600;display:grid;gap:6px;min-width:0}
   textarea,input,select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;max-width:100%;min-height:44px;box-sizing:border-box}textarea{resize:vertical}
-  .pair{display:grid;grid-template-columns:2fr 1.4fr 1fr;gap:12px}.pair.two{grid-template-columns:1fr 1fr;padding-top:8px}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pair.two{grid-template-columns:1fr 1fr;padding-top:8px}
   .eyebrow{display:block;font-size:0.875rem;color:var(--muted);margin-bottom:2px}.objective{white-space:pre-wrap}
   .summary,.access{border-left:2px solid var(--line-strong);padding-left:12px}
   .plan{list-style:none;margin:0;padding:0;display:grid;gap:12px}.plan li{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:12px;min-width:0}
@@ -220,6 +265,9 @@
   .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;align-items:center}.crew-role{display:grid;gap:2px;min-width:0}.crew-role span{font-size:0.8125rem;color:var(--muted);font-weight:400}
   .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}
   @media(max-width:559px){.crew-row{grid-template-columns:1fr}}@media(pointer:coarse){.stage-chip{min-height:44px}}
+  .approvals{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}.approvals legend{font-weight:600;padding:0;margin-bottom:6px}
+  .choice{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;justify-self:start}.choice label{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;font-weight:600;cursor:pointer;color:var(--muted)}.choice label+label{border-left:1px solid var(--line)}.choice label.on{background:var(--tint);color:var(--ink)}.choice label.off{cursor:not-allowed;opacity:.6}.choice input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:var(--accent)}
+  .hint.warn{color:var(--warn)}
   .result-line{font-weight:600}.trust{display:flex;align-items:flex-start;gap:10px;font-weight:400;min-height:44px}.trust input{width:20px;height:20px;min-height:0;margin:2px 0 0;flex:none;padding:0;accent-color:var(--accent)}
   .results{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.results li{display:grid;gap:2px;padding:10px 14px;min-width:0;overflow-wrap:anywhere}.results li+li{border-top:1px solid var(--line)}.results span{font-size:0.875rem;color:var(--muted)}.results li.failed span{color:var(--bad)}.results a{color:var(--accent-text);font-weight:600;min-height:44px;display:inline-flex;align-items:center;justify-self:start}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}

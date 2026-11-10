@@ -178,6 +178,7 @@
           <div><dt>Gaffer reviews</dt><dd>{usage.reviews}</dd></div>
           <div><dt>Gaffer tokens</dt><dd>{tokensText(usage)}</dd></div>
           <div><dt>Budget per stage</dt><dd>{record.maxReviews} reviews · {record.hours} h</dd></div>
+          <div><dt>Approvals</dt><dd class:yolo={record.yolo}>{record.yolo ? 'YOLO' : 'Ask me'}</dd></div>
         </dl>
         {#if record.report}<section class="outcome-report" aria-label="Gaffer’s report on this outcome">
           <p class="eyebrow">Gaffer’s report · {when(record.report.at)}</p>
@@ -198,8 +199,8 @@
                 <span class="dot" aria-hidden="true">{node.state === 'done' ? '✓' : node.state === 'waiting' ? '!' : node.state === 'failed' ? '×' : index + 1}</span><span class="name">{node.label}</span><span class="sr-only">{node.state === 'done' ? 'done' : node.state === 'running' ? 'in hand' : node.state === 'waiting' ? 'waiting for you' : node.state === 'failed' ? 'stopped' : 'to come'}</span>
               </li>{/each}
             </ol>{/if}
-            <p class="now">{piece.note}</p>
-            {#if goal?.reason}<p class="callout">{goal.reason}{#if goal.goal.note}{' '}{goal.goal.note}{/if}</p>{/if}
+            {#if status.label === 'Needs you' && goal && (goal.reason || goal.goal.note)}<p class="callout">{goal.reason || goal.goal.note}</p>
+            {:else}<p class="now">{piece.note}</p>{/if}
             {#if goal?.goal.summary}<div class="report"><p class="eyebrow">Gaffer reports</p><p class="clamp">{goal.goal.summary}</p></div>{/if}
             <dl class="facts">
               <div><dt>Doing this stage</dt><dd>{crew(piece, record)}</dd></div>
@@ -212,7 +213,7 @@
             <div class="actions">
               {#if piece.state === 'ready_to_merge'}<button class="btn primary" type="button" disabled={busy} onclick={() => merging = { record, piece }}>Approve merge</button>{/if}
               {#if piece.sessionId}<a class="btn" href={sessionHref(record, piece.sessionId)}>Open session</a>{/if}
-              {#if goal}<button class="btn quiet" type="button" onclick={() => managing = goal}>Review goal</button>{/if}
+              {#if goal}<button class="btn" class:quiet={status.label !== 'Needs you'} class:primary={status.label === 'Needs you' && !goal.goal.waitingOnWorker} type="button" onclick={() => managing = goal}>Review goal</button>{/if}
               {#if ['failed', 'unfollowed', 'cancelled'].includes(piece.state)}<button class="btn" type="button" disabled={busy} onclick={() => void retry(record, piece)}>Try again</button>{/if}
             </div>
           </li>{/each}
@@ -261,6 +262,7 @@
   .track li.failed{color:var(--bad)}.track li.failed .dot{border-color:var(--bad);color:var(--bad)}
   @media(prefers-reduced-motion:no-preference){.track li.running .dot{animation:pulse 2s ease-in-out infinite}}@keyframes pulse{50%{box-shadow:0 0 0 7px transparent}}
   .now{color:var(--ink)}.pipe.bad .now{color:var(--bad)}.callout{padding:8px 12px;border-radius:8px;background:var(--card);border:1px solid var(--accent)}.report{border-left:2px solid var(--line-strong);padding-left:12px}.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
+  .facts dd.yolo{color:var(--warn);font-weight:600}
   .facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}.facts div{display:grid;gap:0;min-width:0}.facts dt{font-size:0.75rem;color:var(--muted)}.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center;box-sizing:border-box}
   .floor{display:grid;gap:10px;min-width:0;border-top:1px solid var(--line);padding-top:20px}.foot{font-size:0.875rem}

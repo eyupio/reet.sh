@@ -12,7 +12,7 @@ const now=Date.now(),pid='a'.repeat(32),generalId='f'.repeat(32)
 const pins={providerId:pid,providerRevision:4,model:'gaffer-model',contextRevision:0,workerRevision:0}
 const provider={id:pid,revision:4,name:'Workshop Gaffer',kind:'openai_compatible',baseUrl:'https://example.test/v1',model:'gaffer-model',enabled:true,isDefault:true,localOnly:false,allowSessions:false,allowCode:false,hasKey:true,createdAt:now,updatedAt:now}
 const machines=[
-  {agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,acp:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available'},{tool:'codex',adapter:'codex-acp',state:'missing'},{tool:'opencode',adapter:'opencode',state:'available'}]}},
+  {agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,yolo:true,acp:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available'},{tool:'codex',adapter:'codex-acp',state:'missing'},{tool:'opencode',adapter:'opencode',state:'available'}]}},
   {agentId:'a2',host:'attic',ready:false,capabilities:{launch:true,acp:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available'}]}},
 ]
 const folder=(id,name,host,machine,isRepo=true)=>({id,host,machine,dir:`/work/${name}`,name,isRepo,baseBranch:'',worktreeDefault:'',colour:'',createdAt:now,updatedAt:now})
@@ -52,6 +52,9 @@ function fixture({planFails=false,settles=true}={}){
   const routes={
     '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
     '/api/v2/folder-projects':{projects,savedWaiting:0},
+    '/api/v2/settings/yolo':{allowed:true,changedBy:'owner@example.test'},
+    '/api/v2/profile/model-favourites':{version:1,favourites:[{tool:'claude',model:'starred-model',agentDefault:false}]},
+    '/api/v2/machines/a1/models':request=>{const tool=new URL(request.url()).searchParams.get('tool');return {tool,state:'listed',models:[{id:`${tool}/on-the-machine`,provider:'workshop'}],more:false,source:'cli',version:'1',fetchedAt:now,checkedAt:now,reason:'',sentence:''}},
     '/api/v2/gaffer/goals':()=>({goals:box.goals,readAt:now}),
     '/api/v2/gaffer/conversations':request=>new URL(request.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
     '/api/v2/terminal/sessions':request=>{expect(request.method()).toBe('GET');return {sessions:(box.record?.sessions??[]).filter(s=>s.sessionId).map(s=>({id:s.sessionId,agentId:'a1',title:s.title,state:'running',structured:true,tool:'claude',dir:'/work/billing',createdAt:now,updatedAt:now,exitCode:null}))}},
@@ -117,7 +120,13 @@ try {
       // Right tool for the job: the thinking stages get a stronger model than the rest.
       await outcome.getByText('Choose who does what',{exact:true}).click()
       await expect(outcome.getByRole('combobox',{name:'Building agent',exact:true})).toHaveValue('claude')
-      await outcome.getByRole('textbox',{name:'Thinking model',exact:true}).fill(' opus ')
+      // Models are chosen from what the machine really offers, the person's favourites and reet's suggestions.
+      const thinking=outcome.getByRole('combobox',{name:'Thinking model',exact:true})
+      await expect(thinking.getByRole('option')).toHaveText(['Agent’s default model','starred-model (not in workshop’s list)','claude/on-the-machine','sonnet (not in workshop’s list)','opus (not in workshop’s list)','haiku (not in workshop’s list)','Other…'])
+      await expect(outcome.getByRole('combobox',{name:'Model',exact:true}).getByRole('option',{name:'claude/on-the-machine',exact:true})).toBeAttached()
+      // A name none of them has can still be typed.
+      await thinking.selectOption({label:'Other…'});await outcome.getByRole('textbox',{name:'Thinking model name',exact:true}).fill('private-model')
+      await thinking.selectOption('opus');await expect(outcome.getByRole('textbox',{name:'Thinking model name',exact:true})).toHaveCount(0)
       await expect(outcome.getByText('sent only what you type here and the project’s name',{exact:false})).toBeVisible()
       expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await outcome.screenshot({path:`${shots}/gaffer-outcome-objective-${width}-${theme}.png`})
@@ -180,7 +189,7 @@ try {
       await expect(results.nth(2)).toContainText('Started, but not followed: Its chat was not ready')
       const cheap=kind=>({kind,tool:'claude',model:''}),strong=kind=>({kind,tool:'claude',model:'opus'})
       const usual=[cheap('code'),strong('review'),cheap('test'),cheap('pr'),cheap('babysit'),cheap('merge')]
-      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',trust:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
+      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',trust:false,yolo:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
         {title:'Export API',prompt:proposed.sessions[0].prompt,stages:usual},
         {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge')]},
         {title:'Export docs',prompt:'Document the export in the README.    Raise a pull request. Do not merge.',stages:usual},
@@ -228,8 +237,18 @@ try {
       // Merging by itself is this outcome's own choice, off until ticked.
       const auto=outcome.getByRole('checkbox',{name:/^Merge by itself once every check passes/})
       await expect(auto).not.toBeChecked();await auto.check()
+      // YOLO is off until confirmed, and is this outcome's choice only.
+      const approvals=outcome.getByRole('radiogroup',{name:'Approvals',exact:true})
+      await expect(approvals.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
+      await approvals.getByRole('radio',{name:'YOLO',exact:true}).click()
+      const confirm=w.page.getByRole('alertdialog',{name:'Turn on YOLO for this launch?',exact:true})
+      await expect(confirm).toContainText('Your account allows YOLO');await expect(confirm).toContainText('workshop accepts YOLO sessions');await expect(confirm).toContainText('Every agent in the crew has a YOLO option')
+      await confirm.getByRole('button',{name:'Turn on YOLO',exact:true}).click()
+      await expect(approvals.getByRole('radio',{name:'YOLO',exact:true})).toBeChecked()
+      await expect(outcome.getByText('On YOLO the agents do not wait for you',{exact:false})).toBeVisible()
+      await outcome.screenshot({path:`${shots}/gaffer-outcome-yolo-1280-light.png`})
       await outcome.getByRole('button',{name:'Approve and start 2 sessions',exact:true}).click()
-      expect(f.box.approved[0]).toMatchObject({tool:'opencode',trust:true,model:'',autoMerge:true})
+      expect(f.box.approved[0]).toMatchObject({tool:'opencode',trust:true,yolo:true,model:'',autoMerge:true})
       expect(f.box.approved[0].sessions[0].stages.every(stage=>stage.tool==='opencode')).toBe(true)
       await expect(outcome.getByRole('status')).toHaveText('Starting session 1 of 2. The controller carries on if you close this.')
       await outcome.getByRole('button',{name:'Close and let it run',exact:true}).click();await expect(outcome).toHaveCount(0)

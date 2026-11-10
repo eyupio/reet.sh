@@ -89,6 +89,9 @@ func (s *server) hostedMCP(api http.Handler) http.Handler {
 			if mcpContextTool(tool.Name) && access.User.Role == "viewer" {
 				continue
 			}
+			if mcpFactoryTool(tool.Name) && access.User.Role == "viewer" {
+				continue
+			}
 			if !access.canWrite() && !tool.Annotations.ReadOnlyHint {
 				continue
 			}
@@ -349,6 +352,9 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	}
 	if mcpContextTool(name) {
 		return s.executeMCPContext(access, name, args)
+	}
+	if mcpFactoryTool(name) {
+		return s.executeMCPFactory(ctx, access, name, args)
 	}
 	if name == "reet_forget_machine" || name == "reet_merge_machines" {
 		return s.executeMCPMachines(ctx, api, access, origin, name, args)

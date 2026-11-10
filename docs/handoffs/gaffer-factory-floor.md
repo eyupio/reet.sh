@@ -642,6 +642,32 @@ setting, a chat turn that moves the pipeline on and is offered both tools, and
 the Factory browser suite for the button and the switch. **None of the prompt
 changes can be proven without a real model and agent.**
 
+## The Factory over MCP (10 November 2026, with #731)
+
+Asked for by the owner: the reet MCP must be able to read Factory data and
+control it. Eight tools, defined in `mcp/src/server.ts` (the stdio package,
+which forwards to the hosted server) and exported to
+`internal/api/mcp_tools.json`; handled in `internal/api/gaffer_factory_mcp.go`.
+
+- Reads (`reet_list_factory`, `reet_get_factory_outcome`): any connection on a
+  writer account; hidden from and refused for a viewer. Handover notes and the
+  report's text are session-derived, so they are returned only to a management
+  (write-scope) connection.
+- Controls (move on, retry, merge setting, approve merge, stop, report):
+  management scope on a writer account. Move on, approve merge, stop and
+  switching a merge to by-itself need `confirm: true`. Revision-checked calls
+  are applied to the record as it stands and retried if a pipeline stepped in
+  between. Each is audited as `mcp-factory-control`.
+- **Not offered:** creating an outcome or approving a plan, adding pipelines,
+  answering approvals. Starting agents on a machine stays a browser action.
+- **Judgement call to revisit:** approving a merge and switching a pipeline to
+  merge by itself are now possible for a management MCP client with
+  `confirm: true`. The agent still merges only on green checks, but this is the
+  first path where something other than the person in the browser can give that
+  approval.
+
+Counts: 43 definitions; a read-only writer connection sees 15, a viewer 11.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

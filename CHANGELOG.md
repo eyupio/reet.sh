@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- MCP: eight Factory tools. Any writer's connection can read outcomes and
+  pipelines (`reet_list_factory`, `reet_get_factory_outcome`); a management
+  connection can also move a pipeline on, retry it, set or approve its merge,
+  stop an outcome and ask Gaffer for a report. Needs a controller update.
 - Factory: you can move a pipeline on yourself with **Move to next stage**, or
   by telling Gaffer "continue" in that session's chat, where Gaffer can now also
   pass your instruction to the working agent. Each pipeline has a switch for

@@ -262,6 +262,10 @@ A session that is part of a pipeline is marked **Factory · stage n of m** on
 Home, in Continue working and on the planning board, and on the Sessions page,
 in its list and the session's header, with a link to the Factory.
 
+Ask Gaffer in a pipeline session's chat where things stand and it can tell you:
+the chat is given the pipeline's stages, which is in hand, which are done and why
+it is waiting. It still cannot move the pipeline on; it tells you what you can do.
+
 If you resume a pipeline stage's goal by hand (**Review goal → Resume goal**),
 Gaffer reviews the work already there instead of waiting for new progress.
 

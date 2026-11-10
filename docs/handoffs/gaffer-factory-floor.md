@@ -515,8 +515,15 @@ instance.
 
 - The Sessions page carries the marker too (added in the same PR): its list rows and the
   session header, from the same `factoryMembers` read in `TerminalWorkspace`.
-- A manual Gaffer chat in a pipeline's session is not told about the pipeline's
-  stages, so it cannot answer "where are we" (the owner saw this).
+- A Gaffer chat in a pipeline's session is now told about the pipeline (added in
+  the same PR): `ContextSnapshot.Pipeline` (`contextPipeline`) carries the stage
+  in hand, every stage's state and agent, the merge decision, the stage goal's
+  state and a fixed sentence on how a pipeline moves on. Stage names and states
+  go with status sharing; the outcome's words, the pipeline title and the
+  handover notes only with text sharing, clipped and credential-scrubbed like the
+  rest of the snapshot. It is evidence only: the chat still has no tools and
+  cannot move a pipeline. The system prompt tells it not to suggest a new goal
+  for a session whose pipeline already has one.
 - Effort per crew role was added in the same PR at the owner's request:
   `OutcomeStageInput.Effort` → `GafferOutcomeStage.Effort` → `OutcomeLaunch.Effort`
   → `terminalproto.Create.Effort`, validated with `ValidEffort` and

@@ -875,3 +875,34 @@ func TestAStageRunsAtItsOwnEffort(t *testing.T) {
 		}
 	}
 }
+
+func TestGafferChatIsToldWhereItsSessionSitsInThePipeline(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed. token=abcdefgh12345678")
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	full := r.s.contextPipeline(r.p.UserID, review.SessionID, store.ContextFlags{Status: true, Text: true})
+	if full == nil || full.StageInHand != "review" || full.State != "following" || len(full.Stages) != 4 || full.Outcome == "" || full.Title != "Export API" || full.Merge != "waits for the person's approval" || full.GoalState != "active" || full.HowItMovesOn == "" {
+		t.Fatalf("pipeline context: %+v", full)
+	}
+	if full.Stages[0].State != "done" || full.Stages[0].ThisSession || !full.Stages[1].ThisSession || !strings.Contains(full.Stages[0].Handover, "committed") || strings.Contains(full.Stages[0].Handover, "abcdefgh12345678") {
+		t.Fatalf("stages: %+v", full.Stages)
+	}
+	// The first stage's own session is still part of the pipeline.
+	if earlier := r.s.contextPipeline(r.p.UserID, code.SessionID, store.ContextFlags{Status: true}); earlier == nil || !earlier.Stages[0].ThisSession || earlier.StageInHand != "review" {
+		t.Fatalf("earlier stage session: %+v", earlier)
+	}
+	// Status sharing alone carries the stages and states, and none of the words.
+	bare := r.s.contextPipeline(r.p.UserID, review.SessionID, store.ContextFlags{Status: true})
+	if bare == nil || bare.Outcome != "" || bare.Title != "" || bare.Note != "" || bare.GoalNote != "" || bare.Stages[0].Handover != "" || bare.StageInHand != "review" {
+		t.Fatalf("status-only pipeline context: %+v", bare)
+	}
+	if r.s.contextPipeline(r.p.UserID, "not-a-pipeline-session", store.ContextFlags{Status: true, Text: true}) != nil {
+		t.Fatal("a session outside any pipeline was given one")
+	}
+}

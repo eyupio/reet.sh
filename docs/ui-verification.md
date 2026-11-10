@@ -137,6 +137,19 @@ session read and the ten-goal limit. `gaffer-followed`, `home-followups`,
 `gaffer-goal`, `gaffer-widget-ux`, `session-end-gaffer` and `stage-follow` pass
 unchanged apart from the dialog name. Captures use synthetic sessions only.
 
+The 10 November usability pass puts the floor one click from general chat (header
+link and welcome button) and from Home, replaces the separate session picker with
+**Open** on each Not-followed row, and moves the counts into the filter chips.
+
+**Give Gaffer an outcome** (10 November) is a three-step dialog from the floor:
+the objective with project, agent and size; Gaffer's editable plan with the access
+statement and limits; and per-session results. `web/tests/gaffer-outcome.e2e.mjs`
+passes at 1440 px light and 390 px dark with no sideways scroll at each step.
+
+![Outcome objective](images/ui/gaffer-outcome-objective-1440-light.png)
+![Outcome plan review](images/ui/gaffer-outcome-plan-1440-light.png)
+![Outcome grouped on the floor, phone dark](images/ui/gaffer-outcome-floor-390-dark.png)
+![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)
 ![Factory floor desktop light](images/ui/gaffer-floor-1440-light.png)
 ![Factory floor review phone light](images/ui/gaffer-floor-review-390-light.png)
 

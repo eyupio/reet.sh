@@ -64,6 +64,8 @@ type GafferOutcomeReport struct {
 	OutputTokens  int                     `json:"outputTokens"`
 	UsageReported bool                    `json:"usageReported"`
 	Proposals     []GafferOutcomeProposal `json:"proposals,omitempty"`
+	// Auto marks a report Gaffer made by itself, when a pipeline finished or stopped.
+	Auto bool `json:"auto,omitempty"`
 }
 
 type GafferOutcomeProposal struct {
@@ -114,8 +116,15 @@ type GafferOutcome struct {
 	Hours       int                    `json:"hours"`
 	Sessions    []GafferOutcomeSession `json:"sessions"`
 	Report      *GafferOutcomeReport   `json:"report,omitempty"`
-	CreatedAt   int64                  `json:"createdAt"`
-	UpdatedAt   int64                  `json:"updatedAt"`
+	// AutoReport is the person's choice, made when they approved the plan,
+	// that Gaffer reports across the outcome by itself when a pipeline
+	// finishes or stops. AutoReportedFor is what it last reported on, and
+	// AutoReports how many it has made, so one event is one report.
+	AutoReport      bool   `json:"autoReport,omitempty"`
+	AutoReportedFor string `json:"autoReportedFor,omitempty"`
+	AutoReports     int    `json:"autoReports,omitempty"`
+	CreatedAt       int64  `json:"createdAt"`
+	UpdatedAt       int64  `json:"updatedAt"`
 }
 
 func (s *Store) migrateGafferOutcomes() error {
@@ -211,6 +220,30 @@ func (s *Store) GafferOutcomesFor(uid int64) ([]GafferOutcome, error) {
 // has work for, oldest first.
 func (s *Store) StartingGafferOutcomes() ([]GafferOutcome, error) {
 	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE json_extract(data,'$.state')='starting' ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GafferOutcome
+	for rows.Next() {
+		var uid int64
+		var raw string
+		if err = rows.Scan(&uid, &raw); err != nil {
+			return nil, err
+		}
+		o, err := scanOutcome(uid, raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// AutoReportGafferOutcomes lists the outcomes whose owner asked for reports
+// without being asked, and that were not stopped.
+func (s *Store) AutoReportGafferOutcomes() ([]GafferOutcome, error) {
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE json_extract(data,'$.autoReport') AND json_extract(data,'$.state')!='stopped' ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}

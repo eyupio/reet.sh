@@ -180,9 +180,10 @@
           <div><dt>Gaffer tokens</dt><dd>{tokensText(usage)}</dd></div>
           <div><dt>Budget per stage</dt><dd>{record.maxReviews} reviews · {record.hours} h</dd></div>
           <div><dt>Approvals</dt><dd class:yolo={record.yolo}>{record.yolo ? 'YOLO' : 'Ask me'}</dd></div>
+          <div><dt>Reports</dt><dd>{record.autoReport ? 'By itself and on request' : 'On request'}</dd></div>
         </dl>
         {#if record.report}<section class="outcome-report" aria-label="Gaffer’s report on this outcome">
-          <p class="eyebrow">Gaffer’s report · {when(record.report.at)}</p>
+          <p class="eyebrow">Gaffer’s report · {when(record.report.at)}{record.report.auto ? ' · made by itself when a pipeline finished or stopped' : ''}</p>
           <GafferProse text={record.report.text}/>
           {#if record.report.proposals?.length}
             <p class="hint">Gaffer suggests adding {record.report.proposals.length === 1 ? 'this pipeline' : 'these pipelines'}. Nothing is added or started unless you approve it, and you choose each one’s agent, model and effort then.</p>

@@ -18,6 +18,12 @@ this file existed releases were described on their GitHub release pages.
   chosen skills for now says "No skills chosen for … yet" and where to choose
   them; it used to say "Syncing your machines…" for as long as that lasted.
   Needs a controller update for a reload of `/sync/advanced` to work.
+- Factory: Gaffer can report across an outcome by itself when a pipeline
+  finishes or stops (your choice when approving, bounded, proposals only).
+  Effort choices are now the agent's own levels as its machine reports them, so
+  OpenCode can be given one. An added pipeline can have a crew, and adding
+  pipelines is no longer refused because another pipeline moved. Needs a
+  controller update.
 - Factory: when you approve pipelines Gaffer proposed, each one can be given its
   own agent, model and effort. Left alone it uses the outcome's.
 - The Library now tells you when a connected machine holds a different version

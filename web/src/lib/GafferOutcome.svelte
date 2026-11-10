@@ -9,7 +9,8 @@
   import YoloDialog from './launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from './launchBar'
   import { CATALOGUE } from './catalogue'
-  import { effortChoices, type MachineModels, type ModelFavourite } from './models'
+  import type { MachineModels, ModelFavourite } from './models'
+  import { launchEfforts } from './terminal/launchOptions'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
@@ -36,6 +37,8 @@
   // The crew: which agent and model does the thinking, the building and the shipping stages of every pipeline.
   let crew = $state<Crew>({ think: { tool: '', model: '' }, build: { tool: '', model: '' }, ship: { tool: '', model: '' } })
   let autoMerge = $state(false)
+  // Gaffer reports across the outcome by itself when a pipeline finishes or stops. Each report is one model request.
+  let autoReport = $state(true)
   let busy = $state(false), startError = $state(''), record = $state<GafferOutcome | null>(null), watchError = $state('')
   let counter = 0
   const key = () => `plan-${++counter}`
@@ -67,6 +70,8 @@
       void machineModels(agentId, id, life.signal).then(found => { offered[slot] = found }).catch(() => { /* suggestions and Other still work */ })
     }
   })
+  // Every session here is a chat, so the efforts are the agent's own thinking levels as this machine reports them.
+  const efforts = (id: string) => launchEfforts(id, machine?.capabilities, true)
   const offeredFor = (id: string) => machine ? offered[`${machine.agentId}:${id}`] ?? null : null
   const yoloGates = $derived.by((): YoloGate[] => {
     const account = yoloSetting?.allowed === true
@@ -134,7 +139,7 @@
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
-        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), trust, yolo: yolo && !yoloWhy, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
+        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), trust, yolo: yolo && !yoloWhy, autoReport, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
         sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew) })),
       }, life.signal)
       step = 'results'
@@ -176,8 +181,8 @@
               {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
             </select></label>
             <label>Model<GafferModelSelect label="Model" {tool} bind:value={model} machine={offeredFor(tool)} {favourites} host={machine?.host ?? ''} disabled={planning || !tool} onchange={next => { for (const item of CREW_ROLES) if (crew[item.role].tool === tool) crew[item.role].model = next }}/></label>
-            <label>Effort<select aria-label="Effort" bind:value={effort} disabled={planning || effortChoices(tool).length < 2} onchange={() => { for (const item of CREW_ROLES) if (crew[item.role].tool === tool) crew[item.role].effort = effort }}>
-              {#each effortChoices(tool) as level (level)}<option value={level}>{level ? level[0].toUpperCase() + level.slice(1) : effortChoices(tool).length < 2 ? 'Not offered by this agent' : 'Agent’s default effort'}</option>{/each}
+            <label>Effort<select aria-label="Effort" bind:value={effort} disabled={planning || efforts(tool).length < 2} onchange={() => { for (const item of CREW_ROLES) if (crew[item.role].tool === tool) crew[item.role].effort = effort }}>
+              {#each efforts(tool) as level (level)}<option value={level}>{level ? level[0].toUpperCase() + level.slice(1) : efforts(tool).length < 2 ? 'Not offered by this agent' : 'Agent’s default effort'}</option>{/each}
             </select></label>
             <label>Sessions<select aria-label="Sessions" bind:value={wanted} disabled={planning}>
               {#each Array.from({ length: cap }, (_, n) => n + 1) as n (n)}<option value={n}>Up to {n}</option>{/each}
@@ -190,7 +195,7 @@
                 <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span></div>
                 <select aria-label={`${item.label} agent`} bind:value={crew[item.role].tool} disabled={planning || !tools.length} onchange={() => { const same = crew[item.role].tool === tool; crew[item.role].model = same ? model : ''; crew[item.role].effort = same ? effort : '' }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                 <GafferModelSelect label={`${item.label} model`} tool={crew[item.role].tool} bind:value={crew[item.role].model} machine={offeredFor(crew[item.role].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
-                <select aria-label={`${item.label} effort`} bind:value={crew[item.role].effort} disabled={planning || effortChoices(crew[item.role].tool).length < 2}>{#each effortChoices(crew[item.role].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : effortChoices(crew[item.role].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
+                <select aria-label={`${item.label} effort`} bind:value={crew[item.role].effort} disabled={planning || efforts(crew[item.role].tool).length < 2}>{#each efforts(crew[item.role].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(crew[item.role].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
               </div>{/each}
             </div>
           </details>
@@ -229,6 +234,7 @@
         </div>
         <p class="hint" class:warn={yolo}>{yoloWhy || (yolo ? 'Every session of this outcome starts on YOLO: no agent waits for you to approve commands or file changes. Each start is checked and audited.' : 'Agents ask before running commands. A pipeline waits whenever one is asking, and carries on once you answer. YOLO needs a confirmation.')}</p>
       </fieldset>
+      <label class="trust"><input type="checkbox" bind:checked={autoReport} disabled={busy}/><span>Have Gaffer report across this outcome by itself when a pipeline finishes or stops, and propose what is missing. Each report is one request to Gaffer’s model, at most six for the outcome; nothing it proposes starts without you.</span></label>
       {#if hasMerge}<label class="trust"><input type="checkbox" bind:checked={autoMerge} disabled={busy}/><span>Merge by itself once every check passes, no review thread is open and there are no conflicts. Left off, each pipeline stops at <strong>Ready to merge</strong> and waits for you.</span></label>{/if}
       {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {trustNames} may run the plugins and customisations it finds in {project?.dir || 'it'}. Leave this off and a folder that has any is refused.</span></label>{/if}
       {#if approveBlocker}<p class="warning" role="status">{approveBlocker}</p>

@@ -261,11 +261,13 @@ func (s *Service) startOutcomeSupervisor(ctx context.Context) {
 
 func (s *Service) advanceOutcomes(ctx context.Context) {
 	// A fenced controller starts nothing; the outcomes wait for the lift.
-	if s.store.Fenced() || s.outcomesReady() != nil {
+	if s.store.Fenced() {
 		return
 	}
 	rows, err := s.store.StartingGafferOutcomes()
-	if err != nil {
+	// The controller's settings are read only when there is an outcome to
+	// start, as the goal supervisor reads them only for a due goal.
+	if err != nil || len(rows) == 0 || s.outcomesReady() != nil {
 		return
 	}
 	for _, o := range rows {

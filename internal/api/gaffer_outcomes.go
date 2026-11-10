@@ -27,6 +27,9 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcome))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop", access(s.gafferOutcomeStop))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge", access(s.gafferOutcomeMerge))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/retry", access(s.gafferOutcomeRetry))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions", access(s.gafferOutcomeAdd))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/review", access(s.gafferOutcomeReview))
 }
 
 func gafferOutcomeError(w http.ResponseWriter, err error) {
@@ -125,6 +128,80 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, o)
 }
 
+// gafferOutcomeRetry tries a stopped pipeline again, at the person's request.
+func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision int64 `json:"revision"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That retry is invalid.") {
+		return
+	}
+	if in.Revision < 1 {
+		writeErr(w, 400, "Reload this pipeline before trying it again.")
+		return
+	}
+	if !s.terminalEnabled() {
+		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
+		return
+	}
+	o, err := s.gafferProviders.RetryPipeline(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Revision)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-pipeline-retried", "", map[string]any{"outcome": o.ID, "session": r.PathValue("key")})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeAdd adds pipelines the person approved to an outcome.
+func (s *server) gafferOutcomeAdd(w http.ResponseWriter, r *http.Request) {
+	var in gaffer.AddPipelinesInput
+	if !decodeStrictJSON(w, r, 96<<10, &in, "Those pipelines are invalid or too large.") {
+		return
+	}
+	if in.Revision < 1 {
+		writeErr(w, 400, "Reload this outcome before adding to it.")
+		return
+	}
+	if !s.terminalEnabled() {
+		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
+		return
+	}
+	o, err := s.gafferProviders.AddPipelines(s.uid(r), r.PathValue("id"), in)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-pipelines-added", "", map[string]any{"outcome": o.ID, "sessions": len(in.Sessions)})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeReview asks Gaffer's provider for one report across an
+// outcome's pipelines. It starts nothing; any pipelines it proposes wait for
+// the person.
+func (s *server) gafferOutcomeReview(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision int64 `json:"revision"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That report request is invalid.") {
+		return
+	}
+	if in.Revision < 1 {
+		writeErr(w, 400, "Reload this outcome before asking for a report.")
+		return
+	}
+	o, err := s.gafferProviders.ReviewOutcome(r.Context(), s.gafferPrincipal(r), r.PathValue("id"), in.Revision)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-outcome-reviewed", "", map[string]any{"outcome": o.ID})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
 // outcomeStarter starts a session of an approved outcome through the launch
 // path a browser uses: the project is checked, a git project gets a worktree
 // of its own, the broker applies its capability and trust rules, and the
@@ -175,6 +252,10 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 	}
 	if started {
 		s.auditTerminalLaunch(uid, in.AgentID, create, session)
+	}
+	if in.LinkProjectID != "" {
+		// Best effort: the session runs either way, it is only listed under its project when this holds.
+		_ = s.st.LinkTerminalSessionProjectFor(uid, session.ID, in.LinkProjectID)
 	}
 	// A create can be recorded and still not have started anything: the
 	// machine refused the launch. Nothing is running, so it was not started.

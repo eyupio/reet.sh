@@ -3,10 +3,11 @@
   // which agent and model does the stage in hand, and the numbers that say how it is going. Reading the page starts
   // nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
-  import { approveGafferMerge, getGafferSettings, listGafferGoals, listGafferOutcomes, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
+  import { addGafferPipelines, approveGafferMerge, getGafferSettings, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, listFolderProjects, terminalMachines } from '../terminal/api'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
-  import { factoryTally, pipelineStatus, track } from '../gafferOutcome'
+  import { DEFAULT_STAGES, factoryTally, outcomeUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
+  import GafferProse from '../GafferProse.svelte'
   import { formatWhen } from '../time'
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import GafferOutcome from '../GafferOutcome.svelte'
@@ -22,6 +23,8 @@
   let outcomeOpen = $state(false), outcomeButton = $state<HTMLButtonElement>()
   let merging = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null), managing = $state<GafferGoalOverview | null>(null)
   let busy = $state(false), notice = $state(''), floorKey = $state(0)
+  // Asking Gaffer for a report on an outcome, and approving pipelines it proposed. `picked` holds the ticked proposals per outcome.
+  let reporting = $state(''), picked = $state<Record<string, string[]>>({}), adding = $state<Outcome | null>(null), clock = $state(Date.now())
   let controller: AbortController | undefined, epoch = 0
 
   const byConversation = $derived(new Map(goals.map(row => [row.goal.conversationId, row])))
@@ -54,7 +57,7 @@
     void load(); void loadSetup()
     // A page opened to give Gaffer an outcome (from Home or the chat) starts with that dialog up.
     if (new URLSearchParams(location.search).get('outcome') === '1') outcomeOpen = true
-    const timer = setInterval(() => { if (!document.hidden && !outcomeOpen && !managing && !merging) void load() }, 5000)
+    const timer = setInterval(() => { clock = Date.now(); if (!document.hidden && !outcomeOpen && !managing && !merging && !adding && !reporting) void load() }, 5000)
     const changed = () => void load()
     window.addEventListener(GAFFER_GOALS_CHANGED, changed)
     return () => { epoch++; controller?.abort(); clearInterval(timer); window.removeEventListener(GAFFER_GOALS_CHANGED, changed) }
@@ -81,6 +84,42 @@
     busy = true; notice = ''
     try { await stopGafferOutcome(record); notice = 'Stopped. Sessions not yet started stay unstarted; the ones already started keep running.' }
     catch (e) { notice = e instanceof Error ? e.message : 'The outcome was not stopped.' }
+    busy = false
+    await load()
+  }
+  const latest = (record: Outcome) => records.find(item => item.id === record.id) ?? record
+  async function retry(record: Outcome, piece: GafferOutcomeSession) {
+    if (busy) return
+    busy = true; notice = ''
+    try { await retryGafferPipeline(latest(record), piece.key); notice = `Trying “${piece.title}” again.` }
+    catch (e) { notice = e instanceof Error ? e.message : 'That pipeline was not tried again.' }
+    busy = false
+    await load()
+  }
+  async function report(record: Outcome) {
+    if (busy || reporting) return
+    reporting = record.id; notice = ''
+    try {
+      const next = await reviewGafferOutcome(latest(record))
+      records = records.map(item => item.id === next.id ? next : item)
+      // Every proposal starts ticked; nothing is added until the person says so.
+      picked = { ...picked, [next.id]: (next.report?.proposals ?? []).map(item => item.title) }
+    } catch (e) { notice = e instanceof Error ? e.message : 'Gaffer could not report on this outcome.' }
+    reporting = ''
+  }
+  const chosenProposals = (record: Outcome) => (record.report?.proposals ?? []).filter(item => (picked[record.id] ?? []).includes(item.title))
+  function pick(record: Outcome, title: string, on: boolean) {
+    const now = picked[record.id] ?? []
+    picked = { ...picked, [record.id]: on ? [...now, title] : now.filter(item => item !== title) }
+  }
+  async function add() {
+    if (!adding || busy) return
+    const record = adding, chosen = chosenProposals(record)
+    busy = true; notice = ''; adding = null
+    try {
+      await addGafferPipelines(latest(record), chosen.map(item => ({ title: item.title, prompt: item.prompt, stages: (item.stages?.length ? item.stages : DEFAULT_STAGES).map(kind => ({ kind })) })))
+      notice = chosen.length === 1 ? `Added “${chosen[0].title}”. The controller is starting it.` : `Added ${chosen.length} pipelines. The controller is starting them.`
+    } catch (e) { notice = e instanceof Error ? e.message : 'The pipelines were not added. Nothing was started.' }
     busy = false
     await load()
   }
@@ -126,11 +165,31 @@
     {#if loading}<p role="status">Reading the factory…</p>
     {:else if !records.length}<div class="empty"><h2>No pipelines yet.</h2><p>Give Gaffer an outcome and its pipelines appear here, each moving through plan, design, code, review, test, pull request, babysitting and merge.</p></div>
     {:else}
-      {#each records as record (record.id)}<article class="outcome" aria-label={`Outcome: ${record.objective}`}>
+      {#each records as record (record.id)}{@const usage = outcomeUsage(record.sessions.map(piece => pipelineUsage(piece, piece.conversationId ? byConversation.get(piece.conversationId)?.goal : undefined)), record.report)}<article class="outcome" aria-label={`Outcome: ${record.objective}`}>
         <header class="outcome-head">
           <div class="outcome-title"><p class="eyebrow">Outcome</p><h2>{record.objective}</h2><p class="meta">{record.projectName || 'Project'} · started {when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}</p></div>
-          {#if record.state === 'starting'}<button class="btn quiet" type="button" disabled={busy} onclick={() => void stop(record)}>Stop starting sessions</button>{/if}
+          <div class="outcome-actions">
+            <button class="btn quiet" type="button" disabled={busy || !!reporting} onclick={() => void report(record)}>{reporting === record.id ? 'Gaffer is reporting…' : record.report ? 'Ask Gaffer again' : 'Ask Gaffer for a report'}</button>
+            {#if record.state === 'starting'}<button class="btn quiet" type="button" disabled={busy} onclick={() => void stop(record)}>Stop starting sessions</button>{/if}
+          </div>
         </header>
+        <dl class="facts totals" aria-label="This outcome so far">
+          <div><dt>Pipelines</dt><dd>{record.sessions.length}</dd></div>
+          <div><dt>Gaffer reviews</dt><dd>{usage.reviews}</dd></div>
+          <div><dt>Gaffer tokens</dt><dd>{tokensText(usage)}</dd></div>
+          <div><dt>Budget per stage</dt><dd>{record.maxReviews} reviews · {record.hours} h</dd></div>
+        </dl>
+        {#if record.report}<section class="outcome-report" aria-label="Gaffer’s report on this outcome">
+          <p class="eyebrow">Gaffer’s report · {when(record.report.at)}</p>
+          <GafferProse text={record.report.text}/>
+          {#if record.report.proposals?.length}
+            <p class="hint">Gaffer suggests adding {record.report.proposals.length === 1 ? 'this pipeline' : 'these pipelines'}. Nothing is added or started unless you approve it; each uses this outcome’s agent.</p>
+            <ul class="proposals" aria-label="Proposed pipelines">
+              {#each record.report.proposals as item (item.title)}<li><label><input type="checkbox" checked={(picked[record.id] ?? []).includes(item.title)} onchange={event => pick(record, item.title, event.currentTarget.checked)}/><span><strong>{item.title}</strong>{#if item.why}<span class="why">{item.why}</span>{/if}<span class="why">{(item.stages?.length ? item.stages : DEFAULT_STAGES).map(stageLabel).join(' → ')}</span></span></label></li>{/each}
+            </ul>
+            <div class="actions"><button class="btn primary" type="button" disabled={busy || !chosenProposals(record).length} onclick={() => adding = record}>{chosenProposals(record).length === 1 ? 'Add 1 pipeline' : `Add ${chosenProposals(record).length} pipelines`}</button></div>
+          {/if}
+        </section>{/if}
         <ul class="pipes" aria-label="Pipelines of this outcome">
           {#each record.sessions as piece (piece.key)}{@const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined}{@const status = pipelineStatus(piece, !!goal?.attention)}{@const nodes = track(piece)}<li class="pipe" class:you={status.tone === 'you'} class:bad={status.tone === 'bad'}>
             <div class="pipe-head"><h3>{piece.title}</h3><span class="badge {status.tone}">{status.label}</span></div>
@@ -144,16 +203,17 @@
             {#if goal?.goal.summary}<div class="report"><p class="eyebrow">Gaffer reports</p><p class="clamp">{goal.goal.summary}</p></div>{/if}
             <dl class="facts">
               <div><dt>Doing this stage</dt><dd>{crew(piece, record)}</dd></div>
-              {#if goal}<div><dt>Reviews</dt><dd>{goal.goal.usedReviews} of {goal.goal.maxReviews}</dd></div>
-                <div><dt>Follows until</dt><dd>{when(goal.goal.expiresAt)}</dd></div>
-                {#if goal.goal.lastReviewedAt}<div><dt>Last review</dt><dd>{when(goal.goal.lastReviewedAt)}</dd></div>{/if}
-                {#if goal.goal.usageReported}<div><dt>Gaffer tokens</dt><dd>{(goal.goal.inputTokens + goal.goal.outputTokens).toLocaleString('en-GB')}</dd></div>{/if}{/if}
+              {#if goal && goal.goal.state === 'active'}<div><dt>Reviews left</dt><dd>{Math.max(0, goal.goal.maxReviews - goal.goal.usedReviews)} of {goal.goal.maxReviews}</dd></div>
+                <div><dt>Time left</dt><dd>{timeLeft(goal.goal.expiresAt, clock)}</dd></div>{/if}
+              {#if goal?.goal.lastReviewedAt}<div><dt>Last review</dt><dd>{when(goal.goal.lastReviewedAt)}</dd></div>{/if}
+              <div><dt>Gaffer tokens</dt><dd>{tokensText(pipelineUsage(piece, goal?.goal))}</dd></div>
               {#if nodes.some(node => node.kind === 'merge')}<div><dt>Merge</dt><dd>{piece.autoMerge ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : 'Waits for you'}</dd></div>{/if}
             </dl>
             <div class="actions">
               {#if piece.state === 'ready_to_merge'}<button class="btn primary" type="button" disabled={busy} onclick={() => merging = { record, piece }}>Approve merge</button>{/if}
               {#if piece.sessionId}<a class="btn" href={sessionHref(record, piece.sessionId)}>Open session</a>{/if}
               {#if goal}<button class="btn quiet" type="button" onclick={() => managing = goal}>Review goal</button>{/if}
+              {#if ['failed', 'unfollowed', 'cancelled'].includes(piece.state)}<button class="btn" type="button" disabled={busy} onclick={() => void retry(record, piece)}>Try again</button>{/if}
             </div>
           </li>{/each}
         </ul>
@@ -170,6 +230,7 @@
 </div>
 
 {#if outcomeOpen}<GafferOutcome room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
+{#if adding}{@const chosen = chosenProposals(adding)}<ConfirmDialog title={chosen.length === 1 ? `Add “${chosen[0].title}”?` : `Add ${chosen.length} pipelines?`} body="The controller starts each added pipeline as an ordinary chat in this outcome’s project, never in YOLO, and Gaffer follows it stage by stage. None of them merges by itself: each stops at Ready to merge and waits for you." confirmLabel={chosen.length === 1 ? 'Add pipeline' : 'Add pipelines'} oncancel={() => adding = null} onconfirm={() => void add()}/>{/if}
 {#if merging}<ConfirmDialog title={`Merge “${merging.piece.title}”?`} body="This tells the pipeline’s agent to merge its pull request once every check passes, no review thread is open and there are no conflicts. If any of those is not true it fixes that first or brings it back to you. A merge cannot be undone from here." confirmLabel="Approve merge" oncancel={() => merging = null} onconfirm={() => void approve()}/>{/if}
 {#if managing}<WorkspaceDialog title="Look after this session" onclose={() => { managing = null; void load() }}><GafferGoal id={managing.goal.conversationId} {userId} {timeZone} {dateFormat} onchanged={load}/></WorkspaceDialog>{/if}
 
@@ -183,6 +244,8 @@
   .setup{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--tint)}.setup-body{display:grid;gap:12px;min-width:0}.setup ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.setup li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}.setup li p{color:var(--muted)}.tick{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);font-size:0.8125rem;font-variant-numeric:tabular-nums}.setup li.done .tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.setup a{color:var(--accent-text);font-weight:600}
   .lines{display:grid;gap:16px;min-width:0}.empty{padding:28px 20px;border:1px dashed var(--line-strong);border-radius:14px;display:grid;gap:8px;text-align:center;justify-items:center}.empty p{color:var(--muted);max-width:56ch}
   .outcome{border:1px solid var(--line);border-radius:14px;background:var(--card);min-width:0;overflow:hidden}.outcome-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line)}.outcome-title{display:grid;gap:2px;min-width:0;flex:1 1 280px}.live{color:var(--accent-text);font-weight:600}
+  .outcome-actions{display:flex;gap:8px;flex-wrap:wrap}.outcome-actions .btn{min-height:44px}.totals{padding:12px 18px;border-bottom:1px solid var(--line);background:var(--bg)}
+  .outcome-report{display:grid;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}.proposals{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.proposals li+li{border-top:1px solid var(--line)}.proposals label{display:flex;align-items:flex-start;gap:12px;padding:10px 14px;min-height:44px;cursor:pointer}.proposals input{width:20px;height:20px;margin:2px 0 0;flex:none;accent-color:var(--accent)}.proposals label>span{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}.why{font-size:0.875rem;color:var(--muted)}
   .pipes{list-style:none;margin:0;padding:0}.pipe{display:grid;gap:10px;padding:16px 18px;min-width:0}.pipe+.pipe{border-top:1px solid var(--line)}.pipe.you{background:var(--tint)}
   .pipe-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
   .badge{font-size:0.8125rem;font-weight:600;border-radius:999px;padding:2px 10px;border:1px solid var(--line);white-space:nowrap}.badge.you{border-color:var(--accent);color:var(--accent-text);background:var(--card)}.badge.busy{color:var(--ink)}.badge.good{border-color:var(--good,var(--line-strong));color:var(--good,var(--ink))}.badge.bad{border-color:var(--bad);color:var(--bad)}.badge.idle{color:var(--muted)}

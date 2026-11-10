@@ -20,6 +20,7 @@
   import CopyButton from './CopyButton.svelte'
   import { shell } from './dialogShell'
   import { canAutoFocus } from './focus'
+  import { gafferStanding } from './gafferMotion'
   import { formatWhen } from './time'
   import { toolName } from './agentLaunch'
 
@@ -240,7 +241,11 @@
   })
   // `draft` is a goal the session overview wrote for the person; the editor opens with it and nothing is started.
  let goalDraft=$state(''),wantedDraft=$state<{id:string;text:string}|null>(null),goalSeen=0
- async function goalChoices(draft=''){
+ // `quick` is the composer's own control with looking-after pre-approved: a session with no goal yet starts at once
+ // with the usual goal and limits. Chat options still opens the review first.
+ let goalQuick=$state(false)
+ async function goalChoices(draft='',quick=false){
+ goalQuick=quick&&!draft&&!current?.goal
  optionsOpen=false
  if(loading||sending||updating||dirty||unavailable||!scope)return
  goalDraft=draft
@@ -389,7 +394,7 @@
         <textarea id="gaffer-message" bind:this={composer} value={drafts[scope] ?? ''} oninput={event => drafts[scope] = event.currentTarget.value} disabled={sending || loading} rows="2" placeholder="Talk it through with Gaffer…" aria-describedby={composeHelpId} title="Enter to send · Shift + Enter for a new line" onkeydown={composeKey}></textarea>
         <div class="compose-actions">
           <div class="compose-tools"><button class="model-control" bind:this={modelButton} type="button" aria-label="Model" aria-haspopup="dialog" title={`Gaffer: ${provider?.name || 'Choose a provider'} · ${model || provider?.model || 'Choose a model'}`} disabled={loading||sending||updating} onclick={openChoices}><span>{model || provider?.model || 'Choose model'}</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button>
-          {#if scope&&!unavailable}<button class="context-control" class:shared={current?.goal?.state==='active'} type="button" aria-label={current?.goal?`${current.goal.state==='active'?'Gaffer following':current.goal.state==='needs_user'?'Goal needs you':current.goal.state==='limit'?'Goal limit reached':`Goal ${current.goal.state}`} · ${current.goal.usedReviews}/${current.goal.maxReviews} reviews`:'Look after this session'} title="Look after this session" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices()}><span class="context-dot" aria-hidden="true"></span><span>{current?.goal?(current.goal.state==='active'?'Following':current.goal.state==='needs_user'?'Needs you':current.goal.state==='limit'?'Limit reached':current.goal.state):'Look after'}</span></button>{:else}          <button class="context-control" bind:this={contextButton} class:attention={current?.context?.needsReview} class:shared={contextLabel==='Selected context shared'} type="button" aria-label="Context" aria-describedby={contextDescriptionId} aria-haspopup="dialog" title={contextLabel} disabled={loading||sending||updating||dirty} onclick={()=>void contextChoices()}><span class="context-dot" aria-hidden="true"></span><span>{current?.context?.needsReview?'Review context':contextLabel==='Selected context shared'?'Context on':'Context off'}</span></button>{/if}<span id={contextDescriptionId} class="sr-only">{contextLabel}</span></div>
+          {#if scope&&!unavailable}<button class="context-control" class:shared={current?.goal?.state==='active'} type="button" aria-label={current?.goal?`${current.goal.state==='active'?'Gaffer following':current.goal.state==='needs_user'?'Goal needs you':current.goal.state==='limit'?'Goal limit reached':`Goal ${current.goal.state}`} · ${current.goal.usedReviews}/${current.goal.maxReviews} reviews`:'Look after this session'} title="Look after this session" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices('',$gafferStanding)}><span class="context-dot" aria-hidden="true"></span><span>{current?.goal?(current.goal.state==='active'?'Following':current.goal.state==='needs_user'?'Needs you':current.goal.state==='limit'?'Limit reached':current.goal.state):'Look after'}</span></button>{:else}          <button class="context-control" bind:this={contextButton} class:attention={current?.context?.needsReview} class:shared={contextLabel==='Selected context shared'} type="button" aria-label="Context" aria-describedby={contextDescriptionId} aria-haspopup="dialog" title={contextLabel} disabled={loading||sending||updating||dirty} onclick={()=>void contextChoices()}><span class="context-dot" aria-hidden="true"></span><span>{current?.context?.needsReview?'Review context':contextLabel==='Selected context shared'?'Context on':'Context off'}</span></button>{/if}<span id={contextDescriptionId} class="sr-only">{contextLabel}</span></div>
           {#if running}<button class="send-control stop" type="button" aria-label="Cancel answer" title="Cancel Gaffer’s answer" disabled={cancelling || sending} onclick={() => void cancelAnswer()}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>{:else}<button class="send-control" aria-label="Send message" title="Send message · Enter" disabled={blocked || !drafts[scope]?.trim() || bytes > 8000}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>{/if}
         </div>
         {#if bytes>7200||dirty}<p class="compose-hint" class:bad={bytes>8000}>{bytes>7200?`${bytes.toLocaleString()} / 8,000 bytes`:'Apply your model choice first'}</p>{/if}
@@ -433,7 +438,7 @@
   </div>
 </WorkspaceDialog>{/if}
 
-{#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;goalDraft='';void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {userId} {timeZone} {dateFormat} draft={goalDraft} onchanged={goalChanged}/></WorkspaceDialog>{/if}
+{#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;goalDraft='';void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} quick={goalQuick} {userId} {timeZone} {dateFormat} draft={goalDraft} onchanged={goalChanged}/></WorkspaceDialog>{/if}
 {#if followedOpen}<GafferFollowedSessions {userId} {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(open&&scope&&current)await goalChanged();else window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))}} onselect={()=>{mode='session';followedOpen=false;open=true}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>focusEntry(open ? optionsButton : undefined))}}/>{/if}
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 

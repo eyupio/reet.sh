@@ -102,7 +102,7 @@
           <span class="word">{WORDS[step.state]}</span>
           <span class="sr">{step.detail}</span>
           <button type="button" class="hit" aria-haspopup="menu" aria-expanded={menuFor === step.key} aria-controls={menuFor === step.key ? `${id}-menu` : undefined}
-            aria-label={`${step.label}: follow-up options`} onclick={(event) => openMenu(event, step.key, step.label)} oncontextmenu={(event) => openMenu(event, step.key, step.label)}></button>
+            aria-label={`${step.label}: goal options`} onclick={(event) => openMenu(event, step.key, step.label)} oncontextmenu={(event) => openMenu(event, step.key, step.label)}></button>
         </li>
       {/each}
     </ol>
@@ -111,7 +111,7 @@
       {#if menuFor && items.length}
         <div class="menu" bind:this={menuEl} onkeydown={menuKey} role="presentation">
           <p class="menu-head" id={`${id}-menu-head`}>{terminal ? 'Copy a message for the agent' : 'Ask Gaffer to look after this'}</p>
-          <div class="menu-list" id={`${id}-menu`} role="menu" aria-label={`${menuLabel}: follow-up options`} aria-describedby={`${id}-menu-head`}>
+          <div class="menu-list" id={`${id}-menu`} role="menu" aria-label={`${menuLabel}: goal options`} aria-describedby={`${id}-menu-head`}>
             {#each items as item (item.id)}
               <button type="button" role="menuitem" class="menu-item" aria-label={terminal ? `Copy message for the agent: ${item.label}` : item.label} onclick={() => pick(item)}>{item.label}</button>
             {/each}

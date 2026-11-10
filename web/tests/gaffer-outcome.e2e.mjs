@@ -206,7 +206,7 @@ try {
       const picks=floor.getByRole('group',{name:'Running chats not followed',exact:true})
       await expect(picks.getByRole('checkbox')).toHaveCount(1);await expect(picks).toContainText('Export docs')
       // The followed pipeline's goal is drawn in its pipeline, not listed again among the other sessions.
-      await expect(floor.getByRole('list',{name:'Followed session goals',exact:true})).toHaveCount(0)
+      await expect(floor.getByRole('list',{name:'Sessions Gaffer looks after',exact:true})).toHaveCount(0)
       expect(await w.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
       await w.page.screenshot({path:`${shots}/gaffer-outcome-floor-${width}-${theme}.png`,fullPage:true})
       expect(w.errors).toEqual([])

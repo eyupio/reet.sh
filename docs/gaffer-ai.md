@@ -132,7 +132,7 @@ Choose **Look after this session** beside the composer, or in **Chat options**,
 in an eligible structured session. One review shows Gaffer's selected provider
 and model, the recent session conversation it may read (including code or logs
 in that conversation), worker messaging, the agreed goal and its limits.
-**Start follow-up** saves those choices together. If needed, it enables the
+**Start looking after** saves those choices together. If needed, it enables the
 provider's session/text permissions; other sessions still need their own
 delegation. Closing this review makes no change. Detailed sharing, worker and
 provider permissions remain optional advanced controls.
@@ -140,7 +140,7 @@ provider permissions remain optional advanced controls.
 Write the agreed goal, or choose **Use a prompt** for a reet-written starting
 point. **Save as prompt** keeps the current goal in this browser, alongside the
 built-in prompts, for reuse in another session. Review the visible default of **12 Gaffer reviews over 24 hours**, or expand
-**Change limits**, then choose **Start follow-up**. You may choose 1–48 reviews over 1–168 hours, with at most ten
+**Change limits**, then choose **Start looking after**. You may choose 1–48 reviews over 1–168 hours, with at most ten
 active session goals per account. Each review uses at most one worker instruction
 and two Gaffer model requests. This budget covers Gaffer's reviews; the working
 model keeps its existing usage and permission controls.
@@ -156,7 +156,7 @@ its feedback as instructions, or to merge it when green.
 
 Picking an item opens **Look after this session** with that goal already in the
 goal field. Nothing starts: review or change the wording, the limits and the
-permissions, then choose **Start follow-up**. Closing it makes no change. The
+permissions, then choose **Start looking after**. Closing it makes no change. The
 working agent still does the work, since Gaffer makes no GitHub request of its
 own. The merge items say exactly when to merge (every check passing, no open
 review thread, no conflicts) and still bring decisions back to you; the others
@@ -185,7 +185,7 @@ is shown as unknown. Observation time is separate from a newer controller status
 update. **Edit goal or start a new budget** opens the editor without crowding the
 normal conversation. Automatic turns are labelled **Goal review**.
 
-**Pause follow-up** or **Stop goal** removes that goal's instructions still queued,
+**Pause goal** or **Stop goal** removes that goal's instructions still queued,
 cancels its current Gaffer review and leaves manual messages and the working model
 alone. Already claimed or accepted work cannot be recalled. Cancelling one Gaffer
 answer leaves its saved outcome and requires review before automatic follow-up
@@ -223,10 +223,40 @@ A pipeline is one piece of the work, drawn as a production line:
   rest are to come.
 - **What is happening.** One line from the controller, Gaffer's latest report, and a
   highlighted line when Gaffer has brought something back to you.
-- **The numbers.** Which agent and model is doing this stage, reviews used of the
-  budget, when following ends, the last review, Gaffer's own tokens when the
-  provider reports them, and how the merge is decided.
-- **Actions.** Open session, Review goal, and **Approve merge** when it is ready.
+- **The numbers.** Which agent and model is doing this stage, reviews left of the
+  stage's budget, time left, the last review, what Gaffer's own model has used on
+  the pipeline so far, and how the merge is decided.
+- **Actions.** Open session, Review goal, **Approve merge** when it is ready, and
+  **Try again** for a pipeline that did not start or stopped part-way.
+
+Each outcome also shows its own figures: pipelines, Gaffer's reviews and tokens
+across all of them, and the budget each stage gets.
+
+### Tokens and budgets
+
+The Factory counts what **Gaffer's own model** used: every finished stage keeps
+its reviews and tokens, the stage in hand reads its live goal, and a report you
+ask for is added to the outcome's total. Where a provider reports no token count
+the page says so instead of showing a number. reet does not see what the working
+agents use, and it attaches no price to any of it.
+
+Budgets are per stage: each stage gets the outcome's review budget and hours
+afresh, and the page shows what is left of the stage in hand. A stage that uses
+its budget stops and waits for you.
+
+### Ask Gaffer about the whole outcome
+
+**Ask Gaffer for a report** on an outcome is one model request to that outcome's
+own provider. It is sent the outcome, each pipeline's state, the handovers and
+Gaffer's latest saved reviews, nothing newer, and only while that provider is
+still allowed session text. The report says what is done, in hand, stuck or
+waiting on you, and whether the pipelines together will meet the outcome.
+
+Gaffer may also **propose pipelines** to add: work nothing covers, or a
+replacement for one that stopped. Each shows why and the stages it would run.
+Tick the ones you want and choose **Add pipelines**; they use the outcome's agent
+and never merge by themselves. Nothing is added or started unless you approve it,
+and an outcome holds at most ten pipelines.
 
 A new installation sees **Set up your factory** instead: connect a machine, add a
 project, choose Gaffer's model. Each step links to where it is done and ticks off.
@@ -276,8 +306,9 @@ not start says why, and its session is left for you to look after.
 **Account → Gaffer AI → How Gaffer works** has two choices:
 
 - **Look after sessions without asking each time** (on by default). When you tell
-  Gaffer to look after sessions from the Factory, it starts at once with your usual
-  goal and limits. Nothing is read or sent until you ask. **Review first** still
+  Gaffer to look after sessions, from the Factory or with **Look after** beside a
+  session's own Gaffer chat box, it starts at once with your usual goal and limits.
+  **Chat options → Look after this session** still opens the review first. Nothing is read or sent until you ask. **Review first** still
   shows the goal and limits beforehand, and any one session can be reviewed, paused
   or stopped. Turned off, you are shown the review every time.
 - **Let new pipelines merge by themselves** (off by default). The starting value of
@@ -306,7 +337,7 @@ lists the chosen sessions, Gaffer's default provider and model, what starting
 shares, one goal and one set of limits. Write the goal or pick one with **Use a
 prompt**; expand **Change limits** for the review budget and hours.
 
-**Start follow-up** then sets each session up in turn through the same reviewed
+**Start looking after** then sets each session up in turn through the same reviewed
 setup a single session uses. Each session gets its own Gaffer conversation,
 access, goal and budget, so pausing or changing one leaves the others alone. A
 session that already has a Gaffer chat keeps the provider and model chosen there.
@@ -326,7 +357,7 @@ no shell, GitHub or merge path here.
 
 The floor reads top to bottom: **Give Gaffer an outcome**, then **Outcomes**,
 then **Sessions** with its filters and the actions for the sessions shown, then
-**Not followed**. Each card is short on purpose. It shows the session, its state,
+**Not looked after**. Each card is short on purpose. It shows the session, its state,
 the outcome it serves (or the start of its own goal), anything waiting on you in
 a highlighted line, the latest Gaffer report, and its review budget and deadline.
 Expand **Review & evidence** for the full agreed goal, the full saved report, when

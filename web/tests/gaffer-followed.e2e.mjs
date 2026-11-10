@@ -56,7 +56,7 @@ try {
       if(width===1440||width===390)await overview.screenshot({path:`${shots}/gaffer-followed-${width}-${theme}.png`})
       f.box.rows[0].goal.summary+=' <img src=x onerror="window.__overviewXss=true">'
       await overview.getByRole('button',{name:'Refresh',exact:true}).click()
-      await overview.getByRole('button',{name:/^Needs review/}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
+      await overview.getByRole('button',{name:/^Needs you/}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
       await overview.getByText('Review & evidence',{exact:true}).click()
       await expect(overview.getByText('<img src=x onerror="window.__overviewXss=true">',{exact:false}).first()).toBeVisible()
       expect(await w.page.evaluate(()=>window.__overviewXss)).toBeUndefined()
@@ -69,12 +69,12 @@ try {
       await expect(overview.getByText('Queued for next turn',{exact:true}).first()).toBeVisible()
       await overview.getByRole('button',{name:'Review goal',exact:true}).click()
       const goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
-      await goal.getByRole('button',{name:'Pause follow-up',exact:true}).click()
+      await goal.getByRole('button',{name:'Pause goal',exact:true}).click()
       await expect(goal.getByRole('heading',{name:'Paused',exact:true})).toBeVisible()
       expect(f.box.controls).toHaveLength(1)
       await w.page.keyboard.press('Escape');await expect(goal).toHaveCount(0)
       // A paused row leaves the active filter; remaining entries and draft survive.
-      await expect(overview.getByText('No followed sessions in this view.',{exact:true})).toBeVisible()
+      await expect(overview.getByText('No sessions here that Gaffer looks after.',{exact:true})).toBeVisible()
       await expect(overview.getByRole('button',{name:'Refresh',exact:true})).toBeFocused()
       await overview.getByRole('button',{name:'All',exact:true}).click()
       f.box.fail=true;await overview.getByRole('button',{name:'Refresh',exact:true}).click()

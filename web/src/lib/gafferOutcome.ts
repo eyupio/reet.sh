@@ -278,3 +278,55 @@ export function factoryTally(records: { sessions: { state: string; conversationI
   }
   return out
 }
+
+// Usage. reet knows what Gaffer's own model used: each finished stage keeps its count, and the stage in hand reads its
+// live goal. It does not know what the working agents used, and it attaches no price to any of it.
+export type Usage = { tokens: number; reviews: number; reported: boolean }
+type UsageStage = { reviews?: number; inputTokens?: number; outputTokens?: number; usageReported?: boolean; state?: string }
+type UsageGoal = { usedReviews: number; inputTokens: number; outputTokens: number; usageReported: boolean }
+/** What Gaffer has used on one pipeline: its finished stages plus the goal in hand. `reported` is false when any part gave no token count. */
+export function pipelineUsage(piece: { stages?: UsageStage[] }, goal?: UsageGoal): Usage {
+  const out: Usage = { tokens: 0, reviews: 0, reported: true }
+  let counted = false
+  for (const stage of piece.stages ?? []) {
+    if (stage.state !== 'done' || !stage.reviews) continue
+    counted = true
+    out.reviews += stage.reviews
+    out.tokens += (stage.inputTokens ?? 0) + (stage.outputTokens ?? 0)
+    if (!stage.usageReported) out.reported = false
+  }
+  if (goal && goal.usedReviews > 0) {
+    counted = true
+    out.reviews += goal.usedReviews
+    out.tokens += goal.inputTokens + goal.outputTokens
+    if (!goal.usageReported) out.reported = false
+  }
+  if (!counted) out.reported = false
+  return out
+}
+
+/** The same across an outcome, with the report Gaffer was asked for, if any. */
+export function outcomeUsage(pieces: Usage[], report?: { inputTokens: number; outputTokens: number; usageReported: boolean }): Usage {
+  const out: Usage = { tokens: 0, reviews: 0, reported: pieces.some(piece => piece.reviews > 0) || !!report }
+  for (const piece of pieces) {
+    out.tokens += piece.tokens; out.reviews += piece.reviews
+    if (piece.reviews > 0 && !piece.reported) out.reported = false
+  }
+  if (report) { out.tokens += report.inputTokens + report.outputTokens; if (!report.usageReported) out.reported = false }
+  return out
+}
+
+/** Tokens as the page shows them: a count when the provider reported one for everything counted, otherwise said plainly. */
+export function tokensText(usage: Usage): string {
+  if (!usage.reviews && !usage.tokens) return 'None yet'
+  return usage.reported ? usage.tokens.toLocaleString('en-GB') : usage.tokens ? `${usage.tokens.toLocaleString('en-GB')}+ (not all reported)` : 'Not reported'
+}
+
+/** How long a goal still follows for, in words. */
+export function timeLeft(expiresAt: number, now: number): string {
+  const minutes = Math.floor((expiresAt - now) / 60000)
+  if (minutes <= 0) return 'Ended'
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  return hours < 48 ? `${hours} h ${minutes % 60} min` : `${Math.floor(hours / 24)} days`
+}

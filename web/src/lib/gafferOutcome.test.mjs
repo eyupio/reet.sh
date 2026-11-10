@@ -134,3 +134,28 @@ test('a pipeline badge and the page tally say who has to act', () => {
   const records = [{ sessions: [{ state: 'following', conversationId: 'a' }, { state: 'following', conversationId: 'b' }, { state: 'ready_to_merge' }, { state: 'done' }, { state: 'failed' }, { state: 'waiting' }] }]
   assert.deepEqual(o.factoryTally(records, new Set(['b'])), { running: 2, needYou: 1, ready: 1, done: 1 })
 })
+
+test('usage counts what Gaffer used, stage by stage, and says when a count is missing', () => {
+  const done = (reviews, i, o, reported = true) => ({ state: 'done', reviews, inputTokens: i, outputTokens: o, usageReported: reported })
+  const goal = { usedReviews: 2, inputTokens: 500, outputTokens: 100, usageReported: true }
+  assert.deepEqual(o.pipelineUsage({ stages: [done(3, 1000, 200), { state: 'running' }] }, goal), { tokens: 1800, reviews: 5, reported: true })
+  assert.deepEqual(o.pipelineUsage({ stages: [done(1, 0, 0, false)] }, goal), { tokens: 600, reviews: 3, reported: false })
+  assert.deepEqual(o.pipelineUsage({ stages: [] }), { tokens: 0, reviews: 0, reported: false })
+  assert.deepEqual(o.pipelineUsage({}, { ...goal, usedReviews: 0 }), { tokens: 0, reviews: 0, reported: false })
+  const a = o.pipelineUsage({ stages: [done(3, 1000, 200)] }), b = o.pipelineUsage({})
+  assert.deepEqual(o.outcomeUsage([a, b]), { tokens: 1200, reviews: 3, reported: true })
+  assert.deepEqual(o.outcomeUsage([a], { inputTokens: 300, outputTokens: 80, usageReported: true }), { tokens: 1580, reviews: 3, reported: true })
+  assert.deepEqual(o.outcomeUsage([b]), { tokens: 0, reviews: 0, reported: false })
+  assert.equal(o.tokensText(a), '1,200')
+  assert.equal(o.tokensText(b), 'None yet')
+  assert.equal(o.tokensText({ tokens: 600, reviews: 3, reported: false }), '600+ (not all reported)')
+  assert.equal(o.tokensText({ tokens: 0, reviews: 2, reported: false }), 'Not reported')
+})
+
+test('time left reads in words', () => {
+  const now = 1_000_000_000
+  assert.equal(o.timeLeft(now - 1, now), 'Ended')
+  assert.equal(o.timeLeft(now + 45 * 60000, now), '45 min')
+  assert.equal(o.timeLeft(now + (5 * 60 + 12) * 60000, now), '5 h 12 min')
+  assert.equal(o.timeLeft(now + 72 * 3600000, now), '3 days')
+})

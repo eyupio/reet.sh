@@ -388,6 +388,67 @@ body), `gaffer-floor.e2e.mjs` and `home-followups.e2e.mjs` moved to the page,
 - The floor dialog and the page list duplicate some wording; the vocabulary
   ("look after", "follow", "goal") is still mixed.
 
+## Owed items, smarter outcomes, usage and wording (10 November 2026)
+
+After #719 merged the user chose, one question at a time: finish what was owed,
+make pipelines smarter, and show cost; **tokens only, no money**, including
+remaining budgets; and unify the wording to **look after / goal / following /
+needs you**. Auto-merge stays off by default.
+
+### What changed
+
+- **One-click in a session's chat.** With looking-after pre-approved, the
+  composer's **Look after** control starts a session that has no goal at once
+  with the usual goal and limits (`GafferGoal quick`). **Chat options → Look
+  after this session** still opens the review.
+- **Later stages listed under the project.** `LinkTerminalSessionProjectFor`
+  sets a later stage's session's project when its folder is the project's folder
+  or one of its `.reet/worktrees`, on the project's machine. Best effort, after
+  the launch; it is not a project launch and makes no worktree.
+- **Try again.** `POST …/outcomes/{id}/sessions/{key}/retry {revision}` for a
+  pipeline that is failed, unfollowed or cancelled. A step that never started is
+  asked for under a new request ID; a session that did start is kept and followed.
+- **Usage.** At hand-over a stage keeps Gaffer's reviews and tokens for it
+  (`Reviews`, `InputTokens`, `OutputTokens`, `UsageReported`). The page sums
+  finished stages, the goal in hand and any report (`pipelineUsage`,
+  `outcomeUsage`), shows "not reported" where a count is missing, and shows
+  reviews and time left for the stage in hand. No prices and no spend budget.
+  **Agent tokens are not known to reet at all**; only Gaffer's.
+- **Report across an outcome.** `POST …/outcomes/{id}/review {revision}`
+  (`ReviewOutcome`): one request to the outcome's own provider, refused unless
+  that provider is enabled and still allowed session text. The evidence is the
+  objective, each pipeline's state, handovers and Gaffer's saved reviews, capped
+  at 16 KiB; no session is read. Tool `report_outcome{summary, proposals}`;
+  proposals have a title, brief, reason and stage kinds only, at most three, and
+  one that repeats an existing pipeline is dropped. The report is saved on the
+  outcome.
+- **Adding pipelines.** `POST …/outcomes/{id}/sessions {revision, confirmed,
+  sessions}` (`AddPipelines`): 1 to 5 at a time, ten per outcome, same validation
+  as a new outcome. Added pipelines take the outcome's agent where a stage names
+  none and never auto-merge. Approving clears the report's proposals.
+- **Wording.** State and filter "Needs review" → "Needs you"; "Not followed" →
+  "Not looked after"; "Start follow-up" → "Start looking after"; "Pause/Resume
+  follow-up" → "Pause/Resume goal"; Home's line reads "Gaffer: N goal(s) need(s)
+  you". Internal names (`followups`, file names) are unchanged.
+
+### Validation
+
+Go: retry (new request, stale and non-stopped refused), added pipelines
+(unapproved, repeated title and over-limit refused; outcome's agent inherited),
+the review (evidence content, saved report, dropped duplicate proposal, nothing
+started, refused with session text revoked and no request sent), stage usage at
+hand-over, the project link, and the three routes' refusals. Browser:
+`gaffer-factory.e2e.mjs` covers usage figures, Try again, the report, proposals
+and approval; `gaffer-goal.e2e.mjs` the one-click start; every suite carrying the
+old wording was updated. All evidence is synthetic.
+
+### Still not done
+
+- No real run; the hand-over and the report both depend on model judgement.
+- Gaffer does not review an outcome on its own schedule: the report is on request.
+- Added pipelines cannot choose a different crew in the approval dialog.
+- No agent-token figures and no prices, by the user's choice of tokens only.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

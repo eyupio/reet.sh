@@ -37,14 +37,14 @@
     ...(canWrite ? [{ key: 'gaffer' as const, label: 'Gaffer AI' }] : []),
     { key: 'security', label: 'Password' },
     ...(sso?.enabled ? [{ key: 'sso' as const, label: 'Single sign-on' }] : []),
-    { key: 'sessions', label: 'Sessions' },
+    { key: 'sessions', label: 'Sign-ins' },
     ...(canWrite ? [{ key: 'tokens' as const, label: 'API tokens' }] : []),
     { key: 'mcp', label: 'MCP access' },
     { key: 'backups', label: 'Backups' },
     ...(canWrite ? [{ key: 'maintenance' as const, label: 'Maintenance' }] : []),
     { key: 'activity', label: 'Activity' },
     { key: 'machines', label: 'Machines' },
-    { key: 'sync', label: 'Compare & sync' },
+    { key: 'sync', label: 'Sync' },
   ])
 
   const startConnect = location.hash === '#connect-machine'
@@ -314,9 +314,9 @@
   const sessionCountLabel = $derived(sessionCount(visibleSessions.length, sessions.length))
 
   function sessionCount(shown: number, total: number): string {
-    if (total === 0) return 'No sessions'
-    if (shown === total) return `${total} ${total === 1 ? 'session' : 'sessions'}`
-    return `${shown} of ${total} sessions`
+    if (total === 0) return 'No sign-ins'
+    if (shown === total) return `${total} ${total === 1 ? 'sign-in' : 'sign-ins'}`
+    return `${shown} of ${total} sign-ins`
   }
 
   function clearSessionFilters() {
@@ -519,7 +519,7 @@
       {/if}
     </section>
   {:else if section === 'sessions'}
-    <CollectionPanel label="Your sessions" count={sessionCountLabel}>
+    <CollectionPanel label="Your sign-ins" count={sessionCountLabel}>
       {#snippet actions()}
         <button type="button" class="btn quiet" onclick={loadSessions} disabled={sessionsLoading}>Refresh</button>
         <button type="button" class="btn" onclick={endOthers} disabled={busy === 'others' || !sessions.some((session) => !session.current)}>
@@ -528,10 +528,10 @@
       {/snippet}
       {#snippet toolbar()}
         <div class="session-toolbar">
-          <label class="session-search">Search sessions
+          <label class="session-search">Search sign-ins
             <input type="search" bind:value={sessionSearch} placeholder="Browser or device" />
           </label>
-          <div class="session-scopes" role="group" aria-label="Show sessions">
+          <div class="session-scopes" role="group" aria-label="Show sign-ins">
             <button type="button" class="scope" aria-pressed={sessionScope === 'all'} onclick={() => (sessionScope = 'all')}>All<small>{sessionCounts.all}</small></button>
             <button type="button" class="scope" aria-pressed={sessionScope === 'current'} onclick={() => (sessionScope = 'current')}>This browser<small>{sessionCounts.current}</small></button>
             <button type="button" class="scope" aria-pressed={sessionScope === 'other'} onclick={() => (sessionScope = 'other')}>Other browsers<small>{sessionCounts.other}</small></button>
@@ -540,15 +540,15 @@
       {/snippet}
 
       {#if sessionsLoading}
-        <Skeleton label="Reading sessions…" shape="lines" count={3} />
+        <Skeleton label="Reading sign-ins…" shape="lines" count={3} />
       {:else if sessions.length === 0}
         <div class="state-block">
-          <h2>No sessions listed.</h2>
+          <h2>No sign-ins listed.</h2>
           <p>Browsers signed in to your account appear here.</p>
         </div>
       {:else if visibleSessions.length === 0}
         <div class="state-block">
-          <h2>No session matches that search or filter.</h2>
+          <h2>No sign-in matches that search or filter.</h2>
           <p>Try another search, or show every browser.</p>
           <button type="button" class="btn" onclick={clearSessionFilters}>Clear filters</button>
         </div>

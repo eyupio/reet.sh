@@ -72,17 +72,6 @@ export function installationSummary(reports: InstallationReport[], skillId: stri
   if (unknown) parts.push(`${unknown} not confirmed`)
   return parts.join(' · ')
 }
-export function compareInventories(left: SyncEnvironment[], right: SyncEnvironment[], now: number) {
-  const a = inventory(left), b = inventory(right)
-  const aIDs = new Set(a.map(s => s.id)), bIDs = new Set(b.map(s => s.id))
-  return {
-    common: a.filter(s => bIDs.has(s.id)),
-    leftOnly: a.filter(s => !bIDs.has(s.id)),
-    rightOnly: b.filter(s => !aIDs.has(s.id)),
-    confirmed: recentComplete(left, now) && recentComplete(right, now),
-    unknownSources: [...a, ...b].some(s => s.sourceType === 'local' || !s.source),
-  }
-}
 
 
 export function shortCommit(commit?: string): string {

@@ -9,7 +9,7 @@ const GROUPS: { label: string; keys: string[] }[] = [
   { label: 'Data & activity', keys: ['backups', 'maintenance', 'activity'] },
 ]
 
-/** Machines and Compare & sync live on the Machines page; every other section is an /account/<key> page. */
+/** Machines and Sync live on the Machines page; every other section is an /account/<key> page. */
 export function accountHref(key: string): string {
   return key === 'machines' ? '/machines' : key === 'sync' ? '/machines?view=compare' : `/account/${key}`
 }

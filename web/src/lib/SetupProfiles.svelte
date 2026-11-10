@@ -10,11 +10,14 @@
   import PageHeader from './PageHeader.svelte'
   import CopyButton from './CopyButton.svelte'
   import { setupContents, compareSetups, shellQuote } from './setupProfiles'
+  import { formatWhen } from './time'
 
   let {
     canWrite = true,
+    timeZone = '',
+    dateFormat = 'locale',
     onerror,
-  }: { canWrite?: boolean; onerror?: (e: unknown) => void } = $props()
+  }: { canWrite?: boolean; timeZone?: string; dateFormat?: string; onerror?: (e: unknown) => void } = $props()
 
   let profiles = $state<SetupProfileSummary[]>([])
   let selected = $state<SetupProfileRecord | null>(null)
@@ -189,7 +192,7 @@
   }
   function stamp(value: number): string {
     if (!value) return ''
-    return new Date(value).toLocaleString()
+    return formatWhen(value, timeZone, dateFormat)
   }
 
   function updated(value: number): string {
@@ -202,13 +205,13 @@
     if (hours < 24) return `Updated ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
     const days = Math.floor(hours / 24)
     if (days < 30) return `Updated ${days} ${days === 1 ? 'day' : 'days'} ago`
-    return `Updated ${new Date(value).toLocaleDateString()}`
+    return `Updated ${formatWhen(value, timeZone, dateFormat)}`
   }
 
   function when(value: string): string {
     if (!value) return ''
     const parsed = new Date(value)
-    return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleString()
+    return Number.isNaN(parsed.getTime()) ? '' : formatWhen(parsed.getTime(), timeZone, dateFormat)
   }
 
   function kindLabel(kind: string): string {
@@ -248,7 +251,7 @@ reet setup profile push work</code></pre>
   </section>
 {:else}
   <div class="profiles">
-    <CollectionPanel label="Setup profiles" count={profileCount}>
+    <CollectionPanel label="Setups" count={profileCount}>
       {#snippet toolbar()}
         {#if profiles.length > 3 || query !== ''}
           <div class="profile-toolbar">

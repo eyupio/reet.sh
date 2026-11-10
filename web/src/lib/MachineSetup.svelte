@@ -15,6 +15,7 @@
   } from './machineSetup'
   import CopyButton from './CopyButton.svelte'
   import Icon from './Icon.svelte'
+  import { formatWhen } from './time'
 
   let {
     site,
@@ -28,6 +29,8 @@
     host = $bindable(''),
     initialMode = 'connect',
     terminalAccess = false,
+    timeZone = '',
+    dateFormat = 'locale',
     onrefresh,
   }: {
     site: string
@@ -42,6 +45,8 @@
     host?: string
     initialMode?: 'connect' | 'scratch'
     terminalAccess?: boolean
+    timeZone?: string
+    dateFormat?: string
     onrefresh: () => Promise<void> | void
   } = $props()
 
@@ -303,7 +308,7 @@
   }
 
   function updateJobLabel(job: SyncJob): string {
-    const when = new Date(job.createdAt).toLocaleString()
+    const when = formatWhen(job.createdAt, timeZone, dateFormat)
     switch (job.status) {
       case 'queued': return `Update queued ${when}`
       case 'running': return 'Update in progress on the machine'
@@ -390,7 +395,7 @@
         </header>
         {#if profiles.length === 0}
           <div class="empty-choice">
-            <strong>No setup profiles yet.</strong>
+            <strong>No setups yet.</strong>
             <p>Create one on a machine that is already set up, then come back here.</p>
             <a class="btn" href="/profiles">Open Setups<Icon name="arrow-right" /></a>
           </div>

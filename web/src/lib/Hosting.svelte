@@ -10,9 +10,10 @@
   import type { InstallationReport } from './machines'
   import type { Skill, SyncState } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
+  import { formatWhen } from './time'
 
   // `onsync` is Sync all machines done in place; without it (no machine yet, or a read-only account) the notice links to Sync.
-  let { canWrite = true, reports = [], snapshot, onsync, syncing = false }: { canWrite?: boolean; reports?: InstallationReport[]; snapshot?: SyncState; onsync?: () => void | Promise<void>; syncing?: boolean } = $props()
+  let { canWrite = true, reports = [], snapshot, onsync, syncing = false, timeZone = '', dateFormat = 'locale' }: { canWrite?: boolean; reports?: InstallationReport[]; snapshot?: SyncState; onsync?: () => void | Promise<void>; syncing?: boolean; timeZone?: string; dateFormat?: string } = $props()
   let username = $state('')
   let prefix = $state('')
   let wantedName = $state('')
@@ -414,7 +415,7 @@
           <button class="skill-choice" aria-current={originalSlug === skill.slug ? 'true' : undefined} onclick={() => requestEdit(skill)} disabled={busy || importBusy}>
             <span class="choice-top"><strong>{skill.slug}</strong><span class="pill" class:published={skill.published}>{skill.published ? 'Published' : 'Draft'}</span></span>
             <small>{skill.description || 'No description yet'}</small>
-            <span class="choice-meta"><span>Updated {new Date(skill.updatedAt).toLocaleDateString()}</span><span class="where">Machines: {whereLine(skill)}</span></span>
+            <span class="choice-meta"><span>Updated {formatWhen(skill.updatedAt, timeZone, dateFormat)}</span><span class="where">Machines: {whereLine(skill)}</span></span>
           </button>
         {/each}
       </div>

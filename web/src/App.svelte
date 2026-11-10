@@ -1131,7 +1131,7 @@
     {#await pages.Hosting()}
       <RouteSkeleton variant="form" />
     {:then { default: Page }}
-      <Page {canWrite} reports={machineReports} snapshot={syncSnapshot} onsync={syncInPlace ? syncAll : undefined} syncing={syncingAll} />
+      <Page {canWrite} reports={machineReports} snapshot={syncSnapshot} onsync={syncInPlace ? syncAll : undefined} syncing={syncingAll} {timeZone} {dateFormat} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -1179,7 +1179,7 @@
     {#await pages.SetupProfiles()}
       <RouteSkeleton variant="cards" />
     {:then { default: Page }}
-      <Page {canWrite} onerror={fail} />
+      <Page {canWrite} {timeZone} {dateFormat} onerror={fail} />
     {:catch}
       <PageLoadError />
     {/await}

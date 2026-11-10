@@ -5,6 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A skill you selected for a machine in the library is no longer described as
+  "Not set to sync" on the Skills page, and a machine is no longer described as
+  "Everything in sync" while a selected skill cannot be installed. The Skills
+  card, the machine card and Sync now read the library selection: they say the
+  skill is selected, which machine it is for, and why it is waiting (reet has no
+  saved copy yet, it is not In use, or two selected skills share a name). Sync
+  state gains `held` on each target. Needs a controller update.
+
 - `reet agent status` and the terminal connection wizard now say why a machine
   is not syncing or connected: the controller's refusal or the network error,
   what to do next, and where the log is. Before, the wizard only said the

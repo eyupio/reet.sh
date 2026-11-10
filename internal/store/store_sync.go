@@ -63,8 +63,12 @@ type SyncTarget struct {
 	Desired         []SyncSkill `json:"desired"`
 	Missing         []SyncSkill `json:"missing"`
 	Extra           []SyncSkill `json:"extra"`
-	Revision        string      `json:"revision"`
-	UpdatedAt       int64       `json:"updatedAt"`
+	// Held lists library items a person selected for this folder that sync
+	// leaves out, with why. Without it a selected skill that cannot sync yet
+	// looks the same as one nobody selected, and the folder looks in sync.
+	Held      []SyncHeld `json:"held,omitempty"`
+	Revision  string     `json:"revision"`
+	UpdatedAt int64      `json:"updatedAt"`
 }
 
 // Each inventory receives a fresh opaque generation, including after a scope
@@ -257,12 +261,17 @@ func (s *Store) SyncTargetsFor(userID int64) ([]SyncTarget, error) {
 	if err != nil {
 		return nil, err
 	}
+	held, err := s.heldLibrarySelections(userID)
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
 		var canonical int
 		if err := s.db.QueryRow(`SELECT count(*) FROM canonical_library_selections WHERE user_id=? AND target_id=?`, userID, out[i].Target.ID).Scan(&canonical); err != nil {
 			return nil, err
 		}
 		out[i].Canonical = canonical > 0
+		out[i].Held = held[out[i].Target.ID]
 		err := s.db.QueryRow(`SELECT follow_source,problem FROM sync_policies WHERE target_id=?`, out[i].Target.ID).Scan(&out[i].FollowSource, &out[i].Problem)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err

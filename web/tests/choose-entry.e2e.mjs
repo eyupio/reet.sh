@@ -64,7 +64,7 @@ for(const width of [390,1280]){
  await card(page).locator('summary[aria-label="More options for new-box"]').click()
  const item=page.getByRole('menuitem',{name:'Choose skills & locations'})
  expect(await item.evaluate(node=>node.tagName)).toBe('A')
- await expect(item).toHaveAttribute('href','/sync?machine=new-box')
+ await expect(item).toHaveAttribute('href','/sync/advanced?machine=new-box')
  expect(errors).toEqual([])
  await context.close()
  console.log('PASS viewer keeps the plain link and no dialog')

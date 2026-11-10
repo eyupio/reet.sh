@@ -3547,3 +3547,38 @@ Validation, all against the production build in Chromium with synthetic answers:
 - `npm test`, `svelte-check` (0 errors, 0 warnings) and `npm run build` pass.
 
 **Not checked.** No physical phone or tablet, Safari or Firefox, and no screen reader.
+
+## Sync is one sentence, and Advanced sync is its own page — 10 November 2026
+
+The Sync page printed several status lines at once from separate components ("Syncing your machines…", "No
+skills set to sync", "Sync has unresolved changes", "Nothing needs you", "Update complete · Done") and held the
+whole sync-plan model in a fold, with a second copy of the skills picker under it.
+
+- `/sync` now shows one status sentence (`fleetSyncStatus`, which also carries the library's "copying" and
+  "left out" notes), a row per machine (`machineSyncRow`, sorted the same way as the sentence) and **Recent
+  activity** with a plain heading. A plan waiting for review, a copy waiting for a file review and a finished
+  update are said on the machine's row.
+- The sync-plan controls are unchanged on `/sync/advanced` (**Advanced sync**), linked once from Sync, with
+  **Back to Sync** and the **Sync** label above the title linking back.
+- A Sync address carrying `machine`, `remove`, `list` or `#sync-selection` is sent on to `/sync/advanced` with
+  what it carried (`syncRoutes.ts`); links that need the plan controls point there directly.
+- The controller serves `/sync/advanced` to the interface on a reload (`web/embed.go`, and
+  `WithHostedPages`, since the address has the shape of a public skill address).
+
+Validation, against the production build in Chromium with synthetic answers:
+
+- `skills-sync-simple.e2e.mjs` (extended: one status sentence, no plan controls, the row notes, the link, the
+  advanced page, older links, a viewer and an open instance at both addresses, 390 and 1280 px),
+  `sync-activity`, `sync-in-place`, `sync-left-out`, `sync-remove`, `sync-vocabulary`, `machine-skill-sync`,
+  `first-skills`, `control`, `choose-entry`, `navigation`, `phone-layout`, `machines-fleet`, `skill-card`,
+  `home`, `empty-states`, `supporting-nav`, `phone-zoom`, `selected-library`, `machine-add-skill`,
+  `machine-import`, `machine-item-states`, `machines-search`, `skill-content`, `connect-flow`, `add-machine`
+  and `chat` pass. `stage5-acceptance.e2e.mjs` passes through `TestStage5BrowserAcceptance`, its own harness.
+- `npm run check` (unit tests and `svelte-check`, 0 errors), `go build ./...`, `go vet` and `go test` for
+  `web` and `internal/api` pass.
+- A locally run controller in accounts mode with one enrolled machine: `/sync`, `/sync/advanced` and
+  `/sync?machine=demo` were loaded and reloaded at 1280 px and 390 px, light and dark, with no sideways scroll.
+
+**Not checked.** No physical phone, Safari or Firefox, and no screen reader. On the local controller the
+machine had no plan and the sentence stayed at "Syncing your machines…" for several minutes; how long that
+state should last is decided in `fleetSync.ts` and was not changed here.

@@ -88,9 +88,9 @@ function names(list: string[], limit = 4): string {
   return `${list.slice(0, limit).join(', ')} and ${list.length - limit} more`
 }
 
-/** "3 skills are left out for now. Everything else is syncing." */
+/** "3 skills are left out for now." It joins the page's one status sentence, so it claims nothing about the rest. */
 export function leftOutHeadline(count: number): string {
-  return `${count} ${count === 1 ? 'skill is' : 'skills are'} left out for now. Everything else is syncing.`
+  return `${count} ${count === 1 ? 'skill is' : 'skills are'} left out for now.`
 }
 
 /** "Copying seo and 2 more privately from your machines." */

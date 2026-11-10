@@ -58,7 +58,7 @@
   const nameMismatch = $derived(!!editor && !!editor.slug && contentName !== '' && contentName !== editor.slug)
   let saveError = $state('')
   // Where a saved skill goes next: the Sync page with this skill pre-selected (drafts sync privately from this reet.sh).
-  const syncHref = $derived(originalSlug ? `/sync?skill=${encodeURIComponent(hostedId(originalSlug))}` : '')
+  const syncHref = $derived(originalSlug ? '/sync' : '')
   function hostedId(slug: string) { return `hosted/${location.host.toLowerCase()}/${username}/${slug}` }
   function whereLine(skill: HostedSkill) { return writtenSkillWhere(hostedId(skill.slug), snapshot, reports) }
   function matchContentName() { if (!editor) return; editor.content = renameSkillContent(editor.content, editor.slug); saveError = '' }

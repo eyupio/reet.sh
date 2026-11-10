@@ -5,6 +5,19 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The **Sync** page is simpler. It now shows one status sentence, a row for
+  each machine and recent activity, and nothing else competes with that
+  sentence. A plan waiting for your review, a problem on one machine or an
+  update that just finished is said on that machine's row. The sync-plan
+  controls (plans that follow a list or keep an exact set, plan revisions,
+  **Scan all**) have moved, unchanged, to their own page, **Advanced sync**
+  (`/sync/advanced`), linked once from Sync. Existing plans keep working and
+  older links such as `/sync?machine=…` are sent on to the new page. The second
+  copy of the skills picker has gone from Sync: a machine's skills are chosen
+  in its **Skills on this machine** dialog. A connected machine nobody has
+  chosen skills for now says "No skills chosen for … yet" and where to choose
+  them; it used to say "Syncing your machines…" for as long as that lasted.
+  Needs a controller update for a reload of `/sync/advanced` to work.
 - Factory: Gaffer can report across an outcome by itself when a pipeline
   finishes or stops (your choice when approving, bounded, proposals only).
   Effort choices are now the agent's own levels as its machine reports them, so

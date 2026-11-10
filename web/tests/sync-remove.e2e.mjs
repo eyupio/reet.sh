@@ -29,9 +29,13 @@ try {
         '/api/v2/sync/run': request => { writes.push({ path: '/api/v2/sync/run', body: request.postDataJSON() }); return sync },
       },
     })
+    // The older address: it carries what only the plan controls read, so it is sent on to Advanced sync with all of it.
     await page.goto(`${base}/sync?machine=dev-laptop&remove=${encodeURIComponent(a.id)}`)
+    await expect(page).toHaveURL(`${base}/sync/advanced?machine=dev-laptop&remove=${encodeURIComponent(a.id)}`)
+    await expect(page.getByRole('heading', { level: 1, name: 'Advanced sync', exact: true })).toBeVisible()
     await expect(page.getByText('Removal prepared. Review the exact set below, then save; no files change until you preview and approve.', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Choose what to sync' })).toBeVisible()
+    await expect(page.getByLabel('Machine', { exact: true })).toHaveValue('dev-laptop')
     await expect(page.getByLabel('Sync mode')).toHaveValue('mirror')
     const row = page.locator('.skill-options .skill').filter({ hasText: 'code-review' })
     await expect(row.getByRole('checkbox')).not.toBeChecked()
@@ -50,7 +54,8 @@ try {
           '/api/v2/sync/candidates': { skills: [candidate(a), candidate(b)] },
         },
       })
-      await page.goto(`${base}/sync?machine=dev-laptop&remove=${encodeURIComponent(a.id)}`)
+      // The address a skill card's Remove… link uses now.
+      await page.goto(`${base}/sync/advanced?machine=dev-laptop&remove=${encodeURIComponent(a.id)}`)
       await expect(page.getByText('Removal prepared. Review the exact set below, then save; no files change until you preview and approve.', { exact: true })).toBeVisible()
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
       await expect(page.getByLabel('Sync mode')).toHaveValue('mirror')

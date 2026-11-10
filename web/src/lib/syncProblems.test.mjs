@@ -42,7 +42,7 @@ test('stale plans retry without a command, but local changes need a review', () 
   assert.equal(stale.commands.length, 0)
   const review = explainSyncFailure('local changes need review in Compare & sync; save the reconciled selection before applying', context)
   assert.equal(review.retry, false)
-  assert.equal(review.href, '/sync#sync-selection')
+  assert.equal(review.href, '/sync/advanced#sync-selection')
 })
 
 test('a paused machine points at its settings, and a missing agent names the site it belongs to', () => {

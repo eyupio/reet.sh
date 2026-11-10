@@ -47,7 +47,7 @@ try {
   await page.goto(`${base}/skills`)
   const card = id => page.locator(`[data-skill="${id}"]`)
   await expect(card(a.id).locator('.sync-intent')).toHaveText(/Set to sync to dev-laptop/)
-  await expect(card(a.id).getByRole('link',{name:`Remove code-review from dev-laptop in Sync`})).toHaveAttribute('href',`/sync?machine=dev-laptop&remove=${encodeURIComponent(a.id)}`)
+  await expect(card(a.id).getByRole('link',{name:`Remove code-review from dev-laptop in Advanced sync`})).toHaveAttribute('href',`/sync/advanced?machine=dev-laptop&remove=${encodeURIComponent(a.id)}`)
   await expect(card(b.id).locator('.sync-intent')).toHaveText(/Pending on dev-laptop/)
   // The filters narrow the shelf by intent and by observation.
   await page.locator('.shelf-filters summary').click()

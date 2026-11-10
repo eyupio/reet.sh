@@ -22,6 +22,7 @@
   import Icon from './Icon.svelte'
   import { agoLabel, machineSyncOverview } from './syncOverview'
   import { offersDedupe, offersSourceFix } from './syncProblems'
+  import { advancedSyncHref } from './syncRoutes'
   import { formatWhen } from './time'
 
   let {
@@ -542,7 +543,7 @@
               <summary aria-label={`More options for ${machine.host}`} title="More options"><Icon name="more" size={18} /></summary>
               <div class="sync-menu-panel" role="menu">
                 {#if canWrite}<button type="button" role="menuitem" disabled={!enrolled} title={!enrolled ? 'Connect an agent first' : undefined} onclick={(event) => { closeMenu(event); addSkillFor = machine }}>Add a skill…</button>{/if}
-                {#if !(accounts && canWrite && enrolled)}<a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; locations</a>{/if}
+                {#if !(accounts && canWrite && enrolled)}<a role="menuitem" href={advancedSyncHref(machine.host)}>Choose skills &amp; locations</a>{/if}
                 {#if enrolled && savedTargets(machine).length}<button type="button" role="menuitem" disabled={!!busy || enrolled.paused || sync.tone === 'working'} onclick={(event) => { closeMenu(event); void previewNow(machine, enrolled) }}>Preview changes only</button>{/if}
                 {#if enrolled}<button type="button" role="menuitem" disabled={!!busy} onclick={(event) => { closeMenu(event); void scan(enrolled) }}>Rescan machine</button>{/if}
                 <button type="button" role="menuitem" onclick={(event) => { closeMenu(event); commandsFor = machine }}>Commands…</button>

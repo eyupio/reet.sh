@@ -31,6 +31,12 @@ func (s *server) registerHostedRoutes(mux *http.ServeMux) {
 func WithHostedPages(api, fallback http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		// /sync/advanced is one of the interface's own pages. It has the shape of a public skill address (a name, then
+		// a skill), and "sync" is not a reserved name, so it is named here: a reload of the page must reach the interface.
+		if len(parts) == 2 && parts[0] == "sync" && parts[1] == "advanced" {
+			fallback.ServeHTTP(w, r)
+			return
+		}
 		if len(parts) >= 2 {
 			validUser := store.ValidHostedName(parts[0]) && !store.ReservedUsername(parts[0])
 			validName := store.ValidHostedName(parts[1])

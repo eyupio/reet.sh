@@ -28,14 +28,18 @@ try {
       },
     })
 
+    // The plan controls are their own page; the Sync page links to it once.
     await page.goto(`${base}/sync`)
-    await page.locator('details.advanced-selection > summary').click()
+    await expect(page.getByLabel('Machine', { exact: true })).toHaveCount(0)
+    await page.getByRole('link', { name: 'Advanced sync', exact: true }).click()
+    await expect(page).toHaveURL(`${base}/sync/advanced`)
+    await expect(page.getByRole('heading', { level: 1, name: 'Advanced sync', exact: true })).toBeVisible()
     await expect(page.getByLabel('Machine', { exact: true })).toHaveValue('dev-laptop')
     await expect(page.getByText('Install locations · dev-laptop', { exact: true })).toBeVisible()
     await expect(page.getByText('Differences by machine', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Sync plans', exact: true })).toBeVisible()
 
-    const advanced = await page.locator('details.advanced-selection').innerText()
+    const advanced = await page.locator('.advanced-selection').innerText()
     expect(advanced).not.toMatch(/\b(desired|saved set|scopes?|environments?|targets?|destinations?)\b/i)
     expect(advanced).not.toMatch(/agent groups?/i)
 

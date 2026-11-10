@@ -19,7 +19,7 @@
   import { agoLabel } from './syncOverview'
   import { formatWhen } from './time'
 
-  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', timeZone = '', dateFormat = 'locale', tokenSetup, view = 'machines', startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; timeZone?: string; dateFormat?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
+  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', timeZone = '', dateFormat = 'locale', tokenSetup, view = 'machines', advanced = false, startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; timeZone?: string; dateFormat?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; advanced?: boolean; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
 
   let syncState = $state<SyncState>({ environments: [], targets: [] })
   let machines = $derived(inventoryMachines(syncState.machines ?? []))
@@ -256,7 +256,7 @@
     <p class="hint tools-status">{#if loading && !loaded}Reading your machines…{:else if lastRefresh}Status refreshed {agoLabel(lastRefresh)} · updates automatically while this page is open{/if}</p>
   </div>
   {/if}
-  {#if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
+  {#if view === 'compare'}<!-- On the Sync pages `machine` chooses the machine a plan is for, not a machine to show. -->{:else if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
   <div class="banners">
     {#if error}<p class="error" role="alert">{error}</p>{/if}
   </div>
@@ -265,7 +265,7 @@
     {#if loading && !loaded}
       <Skeleton label="Reading your machines…" shape="cards" count={2} height="150px" />
     {:else}
-      <SyncControl snapshot={syncState} {canWrite} {view} onupdate={updateState} />
+      <SyncControl snapshot={syncState} {canWrite} {view} {advanced} onupdate={updateState} />
     {/if}
   {:else}
     {#if loading && !loaded}

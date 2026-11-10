@@ -113,8 +113,8 @@ test('the count is skills, however they are grouped', () => {
 })
 
 test('the headline says everything else is syncing, and counts correctly', () => {
-  assert.equal(leftOutHeadline(1), '1 skill is left out for now. Everything else is syncing.')
-  assert.equal(leftOutHeadline(9), '9 skills are left out for now. Everything else is syncing.')
+  assert.equal(leftOutHeadline(1), '1 skill is left out for now.')
+  assert.equal(leftOutHeadline(9), '9 skills are left out for now.')
 })
 
 test('what is being copied names a few skills, then counts the rest', () => {

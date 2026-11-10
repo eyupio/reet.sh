@@ -175,6 +175,21 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
   if (extra > 0 && targets.some(target => (target.mode ?? 'mirror') !== 'additive')) {
     return { ...base, tone: 'review', label: `${extra} extra skill${extra === 1 ? '' : 's'} found`, detail: 'An exact-set sync will ask before removing anything.', canSync: true }
   }
+  // Selected in the library but not installable yet. "In sync" would be untrue while a person is still waiting for these.
+  const waiting = [...new Set(targets.flatMap(target => (target.held ?? []).filter(item => item.reason !== 'status').map(item => item.name)))].sort((a, b) => a.localeCompare(b))
+  if (waiting.length) {
+    const shown = waiting.length <= 3 ? waiting.join(', ') : `${waiting.slice(0, 2).join(', ')} and ${waiting.length - 2} more`
+    const duplicate = targets.some(target => (target.held ?? []).some(item => item.reason === 'duplicate'))
+    return {
+      ...base,
+      tone: 'attention',
+      label: `${waiting.length} selected skill${waiting.length === 1 ? '' : 's'} not installed yet`,
+      detail: duplicate
+        ? `${shown}: more than one selected skill has the same name, so neither is installed. Untick one in this machine's skills.`
+        : `${shown}: reet has no saved copy yet. Open this machine's skills and save a copy from the machine.`,
+      canSync: false,
+    }
+  }
   const offline = agent.lastSeen <= now - 90_000
   return {
     ...base,

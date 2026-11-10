@@ -1,7 +1,7 @@
 // What a person asked sync to do with one skill, read from the saved selections, as opposed to what a scan observed.
 // A skill badge says Installed or Missing from inventory; this says "set to sync to laptop" from `sync_targets.desired`.
 // The two are kept apart on purpose: being set to sync is never evidence that the files are there.
-import type { SyncState } from './api'
+import type { SyncHeld, SyncState } from './api'
 import type { InstallationReport } from './machines'
 
 // Same folding as syncOverview.foldHost and the same verdict as machines.installationStatus, repeated here so this
@@ -14,12 +14,19 @@ export type SkillSyncIntent = {
   set: string[]
   /** Hosts whose saved selection includes the skill but whose last report did not: the next run installs it. */
   pending: string[]
+  /** Hosts where the skill is selected in the library but sync leaves it out, with the first reason found. */
+  held: string[]
+  heldReason?: SyncHeld['reason']
 }
 
 export function skillSyncIntent(skillId: string, snapshot: SyncState | undefined): SkillSyncIntent {
   const pending = new Map<string, string>()
   const set = new Map<string, string>()
+  const held = new Map<string, string>()
+  let heldReason: SyncHeld['reason'] | undefined
   for (const target of snapshot?.targets ?? []) {
+    const entry = (target.held ?? []).find(item => item.id === skillId)
+    if (entry) { held.set(foldHost(target.target.host), target.target.host); heldReason ??= entry.reason }
     if (!(target.desired ?? []).some(skill => skill.id === skillId)) continue
     const host = target.target.host
     const key = foldHost(host)
@@ -27,7 +34,9 @@ export function skillSyncIntent(skillId: string, snapshot: SyncState | undefined
     else if (!pending.has(key)) set.set(key, host)
   }
   const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' })
-  return { set: [...set.values()].sort(byName), pending: [...pending.values()].sort(byName) }
+  // A host that installs the skill in one folder is not "held" because another folder leaves it out.
+  for (const key of [...set.keys(), ...pending.keys()]) held.delete(key)
+  return { set: [...set.values()].sort(byName), pending: [...pending.values()].sort(byName), held: [...held.values()].sort(byName), ...(held.size && heldReason ? { heldReason } : {}) }
 }
 
 function fold(hosts: string[]): string {
@@ -36,8 +45,16 @@ function fold(hosts: string[]): string {
 }
 
 /** One short line for a card: "Not set to sync", "Set to sync to a, b" or "Pending on b · synced to a". */
+const HELD_WHY: Record<SyncHeld['reason'], string> = {
+  content: 'waiting for a saved copy in reet',
+  status: 'not installed until it is In use',
+  duplicate: 'another selected skill has the same name',
+}
+
 export function skillSyncSummary(intent: SkillSyncIntent): string {
-  if (!intent.set.length && !intent.pending.length) return 'Not set to sync'
+  const held = intent.held?.length ? `Selected for ${fold(intent.held)} · ${HELD_WHY[intent.heldReason ?? 'content']}` : ''
+  if (!intent.set.length && !intent.pending.length) return held || 'Not set to sync'
+  if (held) return `${held} · ${intent.pending.length ? `pending on ${fold(intent.pending)}` : `synced to ${fold(intent.set)}`}`
   if (!intent.pending.length) return `Set to sync to ${fold(intent.set)}`
   return `Pending on ${fold(intent.pending)}${intent.set.length ? ` · synced to ${fold(intent.set)}` : ''}`
 }
@@ -64,7 +81,7 @@ export function matchesSyncFilter(filter: SyncFilter, skillId: string, snapshot:
   if (filter === 'nowhere') return !statuses.includes('installed')
   if (filter === 'missing') return statuses.includes('missing')
   const intent = skillSyncIntent(skillId, snapshot)
-  if (filter === 'not-set') return !intent.set.length && !intent.pending.length
+  if (filter === 'not-set') return !intent.set.length && !intent.pending.length && !intent.held.length
   return intent.pending.length > 0
 }
 

@@ -142,7 +142,7 @@
             <div class="main">
               <h2>{item.name}{#if item.itemType !== 'skill'} <small class="type">{item.itemType}</small>{/if}</h2>
               {#if notes.length}<p class="notes">{notes.join(' · ')}</p>{/if}
-              {#if item.problem || item.contentState !== 'complete'}<p class="wait">Waiting for complete content. It will sync once its content has been captured.</p>{/if}
+              {#if item.problem || item.contentState !== 'complete'}<p class="wait">Waiting for complete content. reet saves a copy from the machine that has it when that machine next checks in.</p>{/if}
               {#if line}<p class="machines">{line} · <a href="/machines">Choose machines</a></p>{/if}
               {#if rowError[item.id]}<p class="notice bad" role="alert">{rowError[item.id]}</p>{/if}
             </div>

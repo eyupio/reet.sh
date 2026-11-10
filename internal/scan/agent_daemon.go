@@ -31,7 +31,18 @@ type agentRuntime struct {
 	started                int64
 	version, servicePrefix string
 	supervised             bool
+	// Why each channel last failed, cleared when it next works. Local status
+	// reads them so a silent agent can say what is wrong.
+	cycleError, privateError atomic.Value
 }
+
+func (r *agentRuntime) note(slot *atomic.Value, message string) {
+	if len(message) > 300 {
+		message = message[:300]
+	}
+	slot.Store(message)
+}
+
 type agentLocalStatus struct {
 	PID           int    `json:"pid"`
 	StartedAt     int64  `json:"startedAt"`
@@ -40,10 +51,14 @@ type agentLocalStatus struct {
 	LastCycle     int64  `json:"lastCycleAt"`
 	Supervised    bool   `json:"supervised"`
 	ServicePrefix string `json:"servicePrefix"`
+	CycleError    string `json:"cycleError,omitempty"`
+	PrivateError  string `json:"privateError,omitempty"`
 }
 
 func (r *agentRuntime) snapshot() agentLocalStatus {
-	return agentLocalStatus{os.Getpid(), r.started, r.version, r.connected.Load(), r.lastCycle.Load(), r.supervised, r.servicePrefix}
+	cycle, _ := r.cycleError.Load().(string)
+	private, _ := r.privateError.Load().(string)
+	return agentLocalStatus{os.Getpid(), r.started, r.version, r.connected.Load(), r.lastCycle.Load(), r.supervised, r.servicePrefix, cycle, private}
 }
 
 func daemonPaths(config string) (string, string, error) {
@@ -98,7 +113,7 @@ func localAgentCall(config, method, path string, out any) error {
 		return errors.New("agent local control rejected request")
 	}
 	if out != nil {
-		return json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(out)
+		return json.NewDecoder(io.LimitReader(resp.Body, 8192)).Decode(out)
 	}
 	return nil
 }
@@ -499,5 +514,6 @@ func ReadAgentStatus(config string) (AgentStatus, error) {
 	if status.LastCycle > 0 {
 		s.LastCycle = time.UnixMilli(status.LastCycle)
 	}
+	s.CycleError, s.PrivateError = status.CycleError, status.PrivateError
 	return s, nil
 }

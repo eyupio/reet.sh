@@ -12,6 +12,32 @@ this file existed releases were described on their GitHub release pages.
   agent lists now offer the machine's real **models**, and an **effort** for the
   outcome or per crew role. Home marks a session that
   is part of a pipeline (**Factory · stage n of m**). Needs a controller update.
+- reet now saves a copy of every skill a connected machine shares, by itself.
+  When a machine checks in, the controller asks it for the files of each skill
+  the library lists without content, and the copy fills that same library entry:
+  one entry per name, with its status kept. Before, such skills waited on
+  "Waiting for complete content" until someone imported them by hand, and that
+  import added a second entry of the same name. Nothing is installed anywhere
+  as a result; choosing machines stays your decision. A copy with files that
+  need a look still stops for review, and reet tries a skill three times before
+  leaving it to a manual import. Needs a controller update.
+
+- A skill you selected for a machine in the library is no longer described as
+  "Not set to sync" on the Skills page, and a machine is no longer described as
+  "Everything in sync" while a selected skill cannot be installed. The Skills
+  card, the machine card and Sync now read the library selection: they say the
+  skill is selected, which machine it is for, and why it is waiting (reet has no
+  saved copy yet, it is not In use, or two selected skills share a name). Sync
+  state gains `held` on each target. Needs a controller update.
+
+- `reet agent status` and the terminal connection wizard now say why a machine
+  is not syncing or connected: the controller's refusal or the network error,
+  what to do next, and where the log is. Before, the wizard only said the
+  private connection had not become ready. In the `reet` terminal home, commands
+  that prompt (Upgrade, Install, Connect machine, Sync and others) now run on
+  reet's own screen and return home, without dropping into shell scrollback, and
+  **Connect machine** on a machine that is already connected says so. Machines
+  need the new build to report reasons; no controller update is needed.
 - Factory: each outcome and pipeline now shows what Gaffer's own model has used
   (reviews and tokens) and what is left of the stage's budget. Tokens only; reet
   attaches no prices and does not see the working agents' usage. **Ask Gaffer for

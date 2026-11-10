@@ -153,8 +153,8 @@ try{
   expect((await receipt('CHARLIE')).state).toBe('uncertain')
   const after=(await state()).workers.CHARLIE
   expect(after.prompts).toHaveLength(1);expect(after.calls).toBe(before.calls)
-  await openBrowser();await session('CHARLIE');await option('Followed sessions')
-  const overview=page.getByRole('dialog',{name:'Followed sessions',exact:true})
+  await openBrowser();await session('CHARLIE');await option('Factory floor')
+  const overview=page.getByRole('dialog',{name:'Factory floor',exact:true})
   await expect(overview.getByRole('heading',{name:'CHARLIE release',exact:true})).toBeVisible()
   await expect(overview.getByText('Delivery uncertain',{exact:true}).first()).toBeVisible()
   await overview.screenshot({path:`${shots}/gaffer-offline-${mode}.png`})

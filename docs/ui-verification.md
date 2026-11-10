@@ -119,6 +119,27 @@ remain the delivery gates. No physical-phone or real-provider claim is made.
 ![Floating Gaffer phone light](images/ui/gaffer-widget-390-light.png)
 ![Floating Gaffer phone dark](images/ui/gaffer-widget-390-dark.png)
 
+## Gaffer factory floor (9 November 2026)
+
+**Chat options → Factory floor** replaces the Followed sessions name. The same
+job sheet now also lists running structured chats nobody asked Gaffer to look
+after, under **Not followed**, with checkboxes, **Select all** and **Look after
+selected**. One review (**Look after these sessions**) names the sessions, the
+default provider/model, what starting shares, one goal with **Use a prompt** and
+one set of limits, then reports each session as Following or Not started.
+
+`web/tests/gaffer-floor.e2e.mjs` passes at 1440 and 390 px in light/dark. It
+checks that plain terminals, ended chats and already-followed sessions are not
+offered, the filters, that ticking, opening and cancelling the review write
+nothing, the per-session conversation and reviewed-setup requests, a partial
+failure that leaves its session ticked, the saved starting point, a failed
+session read and the ten-goal limit. `gaffer-followed`, `home-followups`,
+`gaffer-goal`, `gaffer-widget-ux`, `session-end-gaffer` and `stage-follow` pass
+unchanged apart from the dialog name. Captures use synthetic sessions only.
+
+![Factory floor desktop light](images/ui/gaffer-floor-1440-light.png)
+![Factory floor review phone light](images/ui/gaffer-floor-review-390-light.png)
+
 ## Gaffer followed-session overview (6 November 2026)
 
 **Chat options → Followed sessions** opens a secondary job sheet from general or

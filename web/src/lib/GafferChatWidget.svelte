@@ -419,7 +419,7 @@
     <p>Your critical buddy, with a brew standing by. Closing the panel keeps the current answer running.</p>
     <a class="btn" href="/account/gaffer">Gaffer settings</a>
     {#if scope&&!unavailable}<button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices()}>Look after this session</button><details><summary>Advanced session controls</summary><div class="chat-options"><button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void workerChoices()}>Worker messages</button><button class="btn" type="button" title={contextLabel} aria-describedby={contextDescriptionId} disabled={loading||sending||updating||dirty} onclick={()=>{optionsOpen=false;void contextChoices()}}>Context sharing</button></div></details>{/if}
-    <button class="btn" type="button" onclick={()=>{optionsOpen=false;followedOpen=true}}>Followed sessions</button>
+    <button class="btn" type="button" onclick={()=>{optionsOpen=false;followedOpen=true}}>Factory floor</button>
     {#if current}<button class="btn remove" aria-label="Remove conversation" disabled={sending||updating||loading} onclick={()=>{optionsOpen=false;confirming=true}}>Remove chat</button>{/if}
   </div>
 </WorkspaceDialog>{/if}

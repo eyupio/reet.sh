@@ -576,8 +576,8 @@
     .sub, .location, .identity-row > .pill { display: none; }
     .where-phone { display: block; font-size: 14px; }
     .back { display: flex; }
-    .head { padding: 0 6px 6px; }
-    .identity-row { min-height: 52px; gap: 4px; flex-wrap: wrap; padding-bottom: 6px; }
+    .head { padding: 0 6px 4px; }
+    .identity-row { min-height: 44px; gap: 4px; flex-wrap: wrap; padding-bottom: 2px; }
     .header-actions { width: 100%; justify-content: flex-end; }
     .header-actions :global(.view-switch) { margin-right: auto; }
     .header-actions { gap: 2px; }
@@ -604,7 +604,7 @@
      The site chrome and workspace toolbar are hidden through data-session-focus and the workspace's own rule. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .session-screen.focus .head { padding: 0 6px; padding-top: env(safe-area-inset-top, 0px); }
-    .session-screen.focus .identity-row { min-height: 50px; gap: 6px; }
+    .session-screen.focus .identity-row { min-height: 44px; gap: 6px; }
     .session-screen.focus .heading { min-width: 0; max-width: none; flex: 1 1 100px; }
     .session-screen.focus .title { font: 600 16px/1.25 var(--sans); }
     .session-screen.focus .sub, .session-screen.focus .where-phone { display: none; }

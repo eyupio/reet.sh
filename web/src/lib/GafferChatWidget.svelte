@@ -32,6 +32,9 @@
   let modelBefore: {providerId:string;model:string;manual:boolean} | undefined
   let contextOpen = $state(false)
   let open = $state(false), phone = $state(false), full = $state(false), mode = $state('session'), keyboardEditing=$state(false)
+  // A phone chat carries Gaffer in its status row: the floating circle would hover over the conversation. Remove it
+  // from the page rather than merely hiding it, so keyboard and assistive order never reach an invisible duplicate.
+  let phoneChat = $state(false)
   // The saved corner is read while the widget is created, so the workspace reserves Gaffer's space in the same frame the
   // launcher can first be seen. Waiting for onMount left a frame where the panel overlapped the workspace.
   const savedGafferLayout=(()=>{try{return readGafferLayout(localStorage.getItem(`reet.gaffer.layout.${userId}`))}catch{return readGafferLayout(null)}})()
@@ -88,6 +91,14 @@
     const scheduleKeyboard=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(measureKeyboard)}
     measureKeyboard();window.addEventListener('resize',scheduleKeyboard);vv?.addEventListener('resize',scheduleKeyboard);document.addEventListener('focusin',scheduleKeyboard);document.addEventListener('focusout',scheduleKeyboard)
     return () => { cancelAnimationFrame(frame);window.removeEventListener('resize',scheduleKeyboard);vv?.removeEventListener('resize',scheduleKeyboard);document.removeEventListener('focusin',scheduleKeyboard);document.removeEventListener('focusout',scheduleKeyboard);document.documentElement.removeAttribute('data-gaffer-editing');document.documentElement.removeAttribute('data-gaffer-anchor');gafferChatEntry.update(current => current === entry ? null : current); mq.removeEventListener('change', resize); dispose(); drafts = {}; pendingMemory.clear() }
+  })
+  $effect(() => {
+    if (!phone) { phoneChat = false; return }
+    const update = () => { phoneChat = !!document.querySelector('.chat-pane') }
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
   })
   $effect(() => { const key = scope, shown = open; untrack(() => { contextOpen=false; choicesOpen=false; optionsOpen=false; workerOpen=false;goalOpen=false;followedOpen=false;relay=false; if (shown) void load(key); else dispose() }) })
   $effect(() => {
@@ -317,7 +328,7 @@
 </script>
 
 <div class="gaffer-anchor-space" data-gaffer-space aria-hidden="true"></div>
-{#if !open&&!keyboardEditing}
+{#if !open&&!keyboardEditing&&!phoneChat}
   <button class="gaffer-launcher" data-side={panelSide} bind:this={launcher} use:keepLauncherClear aria-label="Ask Gaffer" aria-expanded="false" aria-haspopup="dialog" title="Ask Gaffer" onclick={() => open = true}>
     <GafferCompanionAvatar size={56}/>
   </button>

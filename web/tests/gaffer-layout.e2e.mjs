@@ -65,7 +65,9 @@ try {
     await expect(strip.locator('.spinning svg')).toBeVisible()
     expect(await strip.locator('.spinning svg').evaluate(el => getComputedStyle(el).animationName)).toBe('none')
     await expect(narrative.locator('.gaffer-avatar')).toHaveCount(0)
-    await expect(page.locator('.gaffer-launcher')).toHaveCount(1)
+    // On a phone the entry lives in the chat's status row instead of a floating circle over the conversation.
+    if (width <= 767) await expect(page.locator('.gaffer-launcher')).toBeHidden()
+    else await expect(page.locator('.gaffer-launcher')).toBeVisible()
     expect(providerReads).toBe(0)
     await entry.focus(); await page.keyboard.press('Enter')
     const companion = page.getByRole('dialog', { name: 'Gaffer', exact: true })

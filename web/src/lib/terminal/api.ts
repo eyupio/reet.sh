@@ -162,13 +162,13 @@ export async function softwareBatch(batchId: string, signal?: AbortSignal): Prom
   return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}`, { signal })).json()
 }
 export async function retrySoftwareBatchMember(batchId: string, position: number, signal?: AbortSignal): Promise<SoftwareBatch> {
-  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/members/${position}/retry`, { method: 'POST', signal })).json()
+  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/members/${position}/retry`, { method: 'POST', body: JSON.stringify({}), signal })).json()
 }
 export async function skipSoftwareBatchMember(batchId: string, position: number, signal?: AbortSignal): Promise<SoftwareBatch> {
-  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/members/${position}/skip`, { method: 'POST', signal })).json()
+  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/members/${position}/skip`, { method: 'POST', body: JSON.stringify({}), signal })).json()
 }
 export async function abandonSoftwareBatch(batchId: string, signal?: AbortSignal): Promise<SoftwareBatch> {
-  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/abandon`, { method: 'POST', signal })).json()
+  return (await terminalRequest(`/api/v2/software/batches/${encodeURIComponent(batchId)}/abandon`, { method: 'POST', body: JSON.stringify({}), signal })).json()
 }
 export type TerminalControllerStatus={configured:boolean;available:boolean;reason:string}
 export async function terminalControllerStatus(signal?:AbortSignal):Promise<TerminalControllerStatus>{return (await terminalRequest('/api/v2/terminal/status',{signal})).json()}

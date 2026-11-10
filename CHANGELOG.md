@@ -5,6 +5,16 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The Library now tells you when a connected machine holds a different version
+  of a skill than the copy reet has saved, and lets you choose. **Use that
+  machine's version** saves its files as the skill's next version, in the same
+  entry, so every machine the skill is selected for receives it. **Keep reet's
+  copy** leaves reet's copy as it is and stops flagging that machine until its
+  files change again. Nothing changes until you choose. A machine that still
+  has an older version reet saved is not flagged: it is only behind. Adds
+  `differences` to `GET /api/v2/library` and
+  `POST /api/v2/library/{item}/difference`. Needs a controller update.
+
 - Factory: a pipeline no longer stops for good when its agent asks for an
   approval. It shows **Needs you** with the reason and carries on by itself once
   you answer. An outcome can be approved to run on **YOLO** (off by default,

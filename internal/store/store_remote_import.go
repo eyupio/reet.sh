@@ -16,11 +16,15 @@ var ErrRemoteImport = errors.New("import changed, expired, unavailable or not ap
 var ErrRemoteImportCapacity = errors.New("import request history full")
 
 type RemoteImport struct {
-	SyncError     string               `json:"syncError,omitempty"`
-	FollowShelf   bool                 `json:"followShelf,omitempty"`
-	SyncSkillID   string               `json:"syncSkillId,omitempty"`
-	DestinationID string               `json:"destinationId,omitempty"`
-	SyncRunID     string               `json:"syncRunId,omitempty"`
+	SyncError     string `json:"syncError,omitempty"`
+	FollowShelf   bool   `json:"followShelf,omitempty"`
+	SyncSkillID   string `json:"syncSkillId,omitempty"`
+	DestinationID string `json:"destinationId,omitempty"`
+	SyncRunID     string `json:"syncRunId,omitempty"`
+	// Chosen marks a copy a person asked for by name from one machine (taking
+	// its version of a library item). It needs no second approval when every
+	// file is allowed.
+	Chosen        bool                 `json:"chosen,omitempty"`
 	ID            string               `json:"id"`
 	RequestKey    string               `json:"requestKey"`
 	AgentID       string               `json:"agentId"`
@@ -58,6 +62,8 @@ type RemoteImportCreate struct {
 	Name          string `json:"name"`
 	BundleID      string `json:"bundleId"`
 	ExpectedBase  string `json:"expectedBase"`
+	// Chosen is set only by the controller, never decoded from a request.
+	Chosen bool `json:"-"`
 }
 
 func (s *Store) migrateRemoteImports() error {
@@ -215,10 +221,10 @@ func (s *Store) CreateRemoteImportFor(uid int64, in RemoteImportCreate) (out Rem
 		if err = tx.QueryRow(`SELECT count(*) FROM machine_import_requests WHERE agent_id=? AND state IN ('queued','previewing','reviewing','approved','uploading')`, in.AgentID).Scan(&busy); err != nil {
 			return err
 		}
-		if busy > 0 && in.SyncSkillID == "" {
+		if busy > 0 && in.SyncSkillID == "" && !in.Chosen {
 			return ErrRemoteImport
 		}
-		out = RemoteImport{FollowShelf: in.FollowShelf, SyncSkillID: in.SyncSkillID, DestinationID: in.DestinationID, ID: syncID(), RequestKey: in.RequestKey, AgentID: in.AgentID, EnvironmentID: in.EnvironmentID, Name: in.Name, Instance: instance, State: "queued", BundleID: in.BundleID, ExpectedBase: in.ExpectedBase, CreatedAt: now(), UpdatedAt: now(), ExpiresAt: now() + 10*60*1000, Excluded: []string{}}
+		out = RemoteImport{Chosen: in.Chosen, FollowShelf: in.FollowShelf, SyncSkillID: in.SyncSkillID, DestinationID: in.DestinationID, ID: syncID(), RequestKey: in.RequestKey, AgentID: in.AgentID, EnvironmentID: in.EnvironmentID, Name: in.Name, Instance: instance, State: "queued", BundleID: in.BundleID, ExpectedBase: in.ExpectedBase, CreatedAt: now(), UpdatedAt: now(), ExpiresAt: now() + 10*60*1000, Excluded: []string{}}
 		// A batch may wait behind other skills or an offline destination. No
 		// file preview exists yet; start its short transfer lease on dispatch.
 		if in.SyncSkillID != "" {
@@ -412,7 +418,7 @@ func (s *Store) RecordRemotePreviewFor(uid int64, agent, id, instance string, p 
 		r.State = "reviewing"
 		// A capture reet asked for itself (to install somewhere, or to give a
 		// library entry its content) needs no review when every file is allowed.
-		if (r.DestinationID != "" || r.SyncSkillID != "") && p.Allowed(nil) {
+		if (r.DestinationID != "" || r.SyncSkillID != "" || r.Chosen) && p.Allowed(nil) {
 			m, e := p.Manifest(nil)
 			if e != nil {
 				return e

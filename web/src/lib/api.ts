@@ -1329,7 +1329,11 @@ export type LibraryReceipt = { eventId: string; revisionId: string; won: boolean
 export type LibrarySelection = { targetId: string; itemIds: string[]; version: string }
 export async function setLibraryStatus(id: string, status: string, expectedVersion: number): Promise<LibraryItem> { return (await req(`/api/v2/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: json({ status, expectedVersion }) })).json() }
 export async function getLibraryHistory(id: string): Promise<LibraryReceipt[]> { return (await req(`/api/v2/library-history/${encodeURIComponent(id)}`)).json() }
-export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[] }> { return (await req('/api/v2/library')).json() }
+/** A connected machine holding a version of a library item that reet has never saved. `taking` is set while that version is being saved as the item's copy. */
+export type LibraryDifference = { environmentId: string; host: string; agent: string; digest: string; taking?: boolean }
+export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[]; differences?: Record<string, LibraryDifference[]> | null }> { return (await req('/api/v2/library')).json() }
+/** `take` saves the machine's version as the item's copy; `keep` leaves reet's copy and stops flagging that machine's current files. */
+export async function resolveLibraryDifference(itemId: string, environmentId: string, action: 'take' | 'keep'): Promise<void> { await req(`/api/v2/library/${encodeURIComponent(itemId)}/difference`, { method: 'POST', body: json({ environmentId, action }) }) }
 export async function getLibrarySelection(target: string): Promise<LibrarySelection> {
   const response = await req(`/api/v2/library/selections/${encodeURIComponent(target)}`)
   return response.json()

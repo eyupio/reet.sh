@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import PageHeader from './PageHeader.svelte'
-  import { getLibrary, getLibraryHistory, getLibrarySelection, getSyncState, setLibraryStatus, type LibraryItem, type LibraryReceipt } from './api'
+  import { getLibrary, getLibraryHistory, getLibrarySelection, getSyncState, resolveLibraryDifference, setLibraryStatus, type LibraryDifference, type LibraryItem, type LibraryReceipt } from './api'
   import { describeError } from './contentReview'
   import { STATUSES, filterLibrary, itemNotes, machinesByItem, receiptLine, statusCounts, statusLabel, type StatusFilter } from './libraryView'
 
@@ -17,6 +17,8 @@
   let machinesKnown = $state(false)
   let machinesError = $state(false)
   let busy = $state('')
+  // Machines holding a version of an item that reet has never saved, by item id.
+  let differences = $state<Record<string, LibraryDifference[]>>({})
   let rowError = $state<Record<string, string>>({})
   let open = $state<Record<string, { state: 'loading' | 'ready' | 'error'; receipts: LibraryReceipt[]; error: string }>>({})
   let disposed = false
@@ -52,6 +54,7 @@
       const library = await getLibrary()
       if (disposed) return
       items = library.items
+      differences = library.differences ?? {}
       loading = false
       void loadMachines()
     } catch (e) {
@@ -76,6 +79,32 @@
       if (conflict) { try { items = (await getLibrary()).items } catch { /* the row message already says what happened */ } }
     } finally { busy = '' }
   }
+
+  // The person decides which version reet holds. Taking a machine's version is saved in the background by that machine,
+  // so the row says so and the list is read again a little later; keeping reet's copy is immediate.
+  async function resolve(item: LibraryItem, difference: LibraryDifference, action: 'take' | 'keep') {
+    if (busy) return
+    busy = item.id; rowError = { ...rowError, [item.id]: '' }
+    try {
+      await resolveLibraryDifference(item.id, difference.environmentId, action)
+      if (disposed) return
+      const library = await getLibrary()
+      if (disposed) return
+      items = library.items; differences = library.differences ?? {}
+      if (action === 'take') {
+        setTimeout(() => { if (!disposed) void refresh() }, 15_000)
+      }
+    } catch (e) {
+      if (!disposed) rowError = { ...rowError, [item.id]: describeError(e) }
+    } finally { busy = '' }
+  }
+  async function refresh() {
+    try {
+      const library = await getLibrary()
+      if (!disposed) { items = library.items; differences = library.differences ?? {} }
+    } catch { /* the list on screen stays as it was */ }
+  }
+  const folderName: Record<string, string> = { agents: 'shared skills', claude: 'Claude Code', opencode: 'OpenCode', cursor: 'Cursor' }
 
   async function toggleHistory(item: LibraryItem) {
     if (open[item.id]) { const { [item.id]: _closed, ...rest } = open; open = rest; return }
@@ -144,6 +173,21 @@
               {#if notes.length}<p class="notes">{notes.join(' · ')}</p>{/if}
               {#if item.problem || item.contentState !== 'complete'}<p class="wait">Waiting for complete content. reet saves a copy from the machine that has it when that machine next checks in.</p>{/if}
               {#if line}<p class="machines">{line} · <a href="/machines">Choose machines</a></p>{/if}
+              {#each differences[item.id] ?? [] as difference (difference.environmentId)}
+                <div class="differs" data-difference={difference.host}>
+                  {#if difference.taking}
+                    <p role="status">Saving {difference.host}’s version as reet’s copy. This finishes by itself while that machine is online.</p>
+                  {:else}
+                    <p><strong>{difference.host} has a different version</strong> in its {folderName[difference.agent] ?? difference.agent} folder. reet is keeping its own copy until you choose.</p>
+                    {#if canWrite}
+                      <div class="choose">
+                        <button type="button" class="btn" disabled={busy === item.id} onclick={() => void resolve(item, difference, 'take')}>Use {difference.host}’s version</button>
+                        <button type="button" class="btn quiet" disabled={busy === item.id} onclick={() => void resolve(item, difference, 'keep')}>Keep reet’s copy</button>
+                      </div>
+                    {/if}
+                  {/if}
+                </div>
+              {/each}
               {#if rowError[item.id]}<p class="notice bad" role="alert">{rowError[item.id]}</p>{/if}
             </div>
             <div class="side">
@@ -185,6 +229,10 @@
   .main h2 { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
   .main p { margin: 0; font-size: .88rem; color: var(--muted); overflow-wrap: anywhere; }
   .main .wait { color: var(--warn); }
+  .differs { display: grid; gap: 8px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--warn); border-radius: 8px; }
+  .differs p { margin: 0; }
+  .differs .choose { display: flex; flex-wrap: wrap; gap: 8px; }
+  .differs .btn { min-height: 44px; }
   .type { font-weight: 400; color: var(--muted); text-transform: capitalize; }
   .side { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; justify-content: flex-end; }
   .status { display: grid; gap: 4px; font-size: .8rem; color: var(--muted); }

@@ -448,6 +448,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateLibraryDifferences(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := st.migrateRemoteImports(); err != nil {
 		db.Close()
 		return nil, err

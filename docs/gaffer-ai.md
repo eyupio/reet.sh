@@ -253,6 +253,11 @@ project's machine, your favourites and reet's suggestions; **Other…** takes a
 name none of them has. The model beside the main agent applies to every stage
 until you give a crew role its own.
 
+**Effort** works the same way, for agents that take one: set it for the whole
+outcome beside the main agent, or per crew role, so the thinking stages can run
+at high effort while babysitting and merging run at low. A change of agent,
+model or effort between two stages starts a new session for the later one.
+
 A session that is part of a pipeline is marked **Factory · stage n of m** on
 Home, in Continue working and on the planning board, with a link to the Factory.
 

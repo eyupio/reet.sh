@@ -9,7 +9,7 @@
   import YoloDialog from './launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from './launchBar'
   import { CATALOGUE } from './catalogue'
-  import type { MachineModels, ModelFavourite } from './models'
+  import { effortChoices, type MachineModels, type ModelFavourite } from './models'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
@@ -28,7 +28,7 @@
   let maxReviews = $state(12), hours = $state(24)
   let trust = $state(false)
   // The model every stage uses unless a crew role is given its own. Empty is the agent's default.
-  let model = $state('')
+  let model = $state(''), effort = $state('')
   // What each agent offers on the project's machine, read once per agent. A failed read leaves favourites, suggestions and Other.
   let offered = $state<Record<string, MachineModels | null>>({}), favourites = $state<ModelFavourite[]>([])
   // YOLO: the account setting, and whether the person confirmed it for this outcome. It is never remembered.
@@ -171,22 +171,26 @@
               <option value="">Choose a project…</option>
               {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
             </select></label>
-            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; for (const item of CREW_ROLES) crew[item.role] = { tool, model: '' } }}>
+            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; effort = ''; for (const item of CREW_ROLES) crew[item.role] = { tool, model: '', effort: '' } }}>
               {#if !tools.length}<option value="">{project ? 'None available' : 'Choose a project first'}</option>{/if}
               {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
             </select></label>
             <label>Model<GafferModelSelect label="Model" {tool} bind:value={model} machine={offeredFor(tool)} {favourites} host={machine?.host ?? ''} disabled={planning || !tool} onchange={next => { for (const item of CREW_ROLES) if (crew[item.role].tool === tool) crew[item.role].model = next }}/></label>
+            <label>Effort<select aria-label="Effort" bind:value={effort} disabled={planning || effortChoices(tool).length < 2} onchange={() => { for (const item of CREW_ROLES) if (crew[item.role].tool === tool) crew[item.role].effort = effort }}>
+              {#each effortChoices(tool) as level (level)}<option value={level}>{level ? level[0].toUpperCase() + level.slice(1) : effortChoices(tool).length < 2 ? 'Not offered by this agent' : 'Agent’s default effort'}</option>{/each}
+            </select></label>
             <label>Sessions<select aria-label="Sessions" bind:value={wanted} disabled={planning}>
               {#each Array.from({ length: cap }, (_, n) => n + 1) as n (n)}<option value={n}>Up to {n}</option>{/each}
             </select></label>
           </div>
-          <details class="limit-editor crew"><summary>{crewTools.every(id => id === tool) && CREW_ROLES.every(item => !crew[item.role].model.trim()) ? 'One agent does every stage' : 'A crew does the stages'} <span>Choose who does what</span></summary>
-            <p class="hint">Right tool for the job: give the thinking stages a stronger model and the building or shipping stages a cheaper one. A new session starts whenever the agent or model changes; otherwise a pipeline keeps one session.</p>
+          <details class="limit-editor crew"><summary>{crewTools.every(id => id === tool) && CREW_ROLES.every(item => crew[item.role].model.trim() === model.trim() && (crew[item.role].effort ?? '') === effort) ? 'One agent does every stage' : 'A crew does the stages'} <span>Choose who does what</span></summary>
+            <p class="hint">Right tool for the job: give the thinking stages a stronger model or more effort, and the building or shipping stages a cheaper one. A new session starts whenever the agent, model or effort changes; otherwise a pipeline keeps one session.</p>
             <div class="crew-rows">
               {#each CREW_ROLES as item (item.role)}<div class="crew-row" role="group" aria-label={`${item.label} crew`}>
                 <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span></div>
-                <select aria-label={`${item.label} agent`} bind:value={crew[item.role].tool} disabled={planning || !tools.length} onchange={() => { crew[item.role].model = crew[item.role].tool === tool ? model : '' }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+                <select aria-label={`${item.label} agent`} bind:value={crew[item.role].tool} disabled={planning || !tools.length} onchange={() => { const same = crew[item.role].tool === tool; crew[item.role].model = same ? model : ''; crew[item.role].effort = same ? effort : '' }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                 <GafferModelSelect label={`${item.label} model`} tool={crew[item.role].tool} bind:value={crew[item.role].model} machine={offeredFor(crew[item.role].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
+                <select aria-label={`${item.label} effort`} bind:value={crew[item.role].effort} disabled={planning || effortChoices(crew[item.role].tool).length < 2}>{#each effortChoices(crew[item.role].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : effortChoices(crew[item.role].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
               </div>{/each}
             </div>
           </details>
@@ -262,9 +266,9 @@
   .add{justify-self:start}
   .limit-editor summary{min-height:44px;display:list-item;align-content:center;cursor:pointer;font-variant-numeric:tabular-nums}.limit-editor summary span{color:var(--accent-text);margin-left:8px}
   .steps{list-style:none;display:flex;gap:6px 18px;flex-wrap:wrap;margin:0;padding:0 0 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:0.875rem}.steps li{display:flex;align-items:center;gap:8px}.steps .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line-strong);font-variant-numeric:tabular-nums;font-size:0.8125rem}.steps li[aria-current]{color:var(--ink);font-weight:600}.steps li[aria-current] .n,.steps li.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-  .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;align-items:center}.crew-role{display:grid;gap:2px;min-width:0}.crew-role span{font-size:0.8125rem;color:var(--muted);font-weight:400}
+  .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.8125rem;color:var(--muted);font-weight:400}
   .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}
-  @media(max-width:559px){.crew-row{grid-template-columns:1fr}}@media(pointer:coarse){.stage-chip{min-height:44px}}
+  @media(max-width:479px){.crew-row{grid-template-columns:1fr}}@media(pointer:coarse){.stage-chip{min-height:44px}}
   .approvals{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}.approvals legend{font-weight:600;padding:0;margin-bottom:6px}
   .choice{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;justify-self:start}.choice label{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;font-weight:600;cursor:pointer;color:var(--muted)}.choice label+label{border-left:1px solid var(--line)}.choice label.on{background:var(--tint);color:var(--ink)}.choice label.off{cursor:not-allowed;opacity:.6}.choice input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:var(--accent)}
   .hint.warn{color:var(--warn)}

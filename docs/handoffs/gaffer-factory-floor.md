@@ -516,7 +516,13 @@ instance.
 - The Sessions page list does not carry the marker yet, only Home.
 - A manual Gaffer chat in a pipeline's session is not told about the pipeline's
   stages, so it cannot answer "where are we" (the owner saw this).
-- Effort per crew role is not offered.
+- Effort per crew role was added in the same PR at the owner's request:
+  `OutcomeStageInput.Effort` → `GafferOutcomeStage.Effort` → `OutcomeLaunch.Effort`
+  → `terminalproto.Create.Effort`, validated with `ValidEffort` and
+  `ToolTakesEffort`; a stage keeps the previous stage's session only when agent,
+  model **and effort** match. The dialog offers it for the main agent and each
+  role, from the web catalogue's effort flag, so OpenCode (no launch effort in
+  `agentOptions`) shows none even though its live chat has an effort control.
 
 ## Not done, for the next slice
 

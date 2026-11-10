@@ -128,7 +128,7 @@
   const crew = (piece: GafferOutcomeSession, record: Outcome) => {
     const stage = piece.stages?.[piece.stage ?? 0]
     const tool = stage?.tool ?? record.tool, model = stage?.model ?? record.model ?? ''
-    return `${chatToolName(tool)}${model ? ` · ${model}` : ''}`
+    return `${chatToolName(tool)}${model ? ` · ${model}` : ''}${stage?.effort ? ` · ${stage.effort} effort` : ''}`
   }
 </script>
 

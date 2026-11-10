@@ -833,3 +833,36 @@ func TestYoloIsThePersonsChoiceAndReachesEveryStageLaunch(t *testing.T) {
 		t.Fatalf("yolo launches: %+v", asked)
 	}
 }
+
+func TestAStageRunsAtItsOwnEffort(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	in := pipelineInput(r, false)
+	for i := range in.Sessions[0].Stages {
+		in.Sessions[0].Stages[i].Tool, in.Sessions[0].Stages[i].Model = "claude", ""
+	}
+	in.Sessions[0].Stages[0].Effort = "high"
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(r.starter.asked()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	asked := r.starter.asked()
+	if len(asked) != 1 || asked[0].Effort != "high" || asked[0].Tool != "claude" {
+		t.Fatalf("effort launch: %+v", asked)
+	}
+	if view, err := r.s.Outcome(r.p.UserID, created.ID); err != nil || view.Sessions[0].Stages[0].Effort != "high" || view.Sessions[0].Stages[1].Effort != "" {
+		t.Fatalf("saved efforts: %+v %v", view, err)
+	}
+	// An effort the agent cannot take, or one reet does not know, is refused before anything is saved.
+	for _, bad := range []struct{ tool, effort string }{{"opencode", "high"}, {"claude", "enormous"}} {
+		in := pipelineInput(r, false)
+		in.Sessions[0].Stages[0].Tool, in.Sessions[0].Stages[0].Model, in.Sessions[0].Stages[0].Effort = bad.tool, "", bad.effort
+		if _, err := r.s.CreateOutcome(r.p.UserID, in); err == nil {
+			t.Fatalf("%+v was accepted", bad)
+		}
+	}
+}

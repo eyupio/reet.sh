@@ -209,7 +209,7 @@ export const STAGES = [
 ] as const
 export type StageKind = typeof STAGES[number]['kind']
 export type CrewRole = 'think' | 'build' | 'ship'
-export type Crew = Record<CrewRole, { tool: string; model: string }>
+export type Crew = Record<CrewRole, { tool: string; model: string; effort?: string }>
 export const CREW_ROLES: { role: CrewRole; label: string; does: string }[] = [
   { role: 'think', label: 'Thinking', does: 'Plan, design and review. Worth a stronger model.' },
   { role: 'build', label: 'Building', does: 'Code and test. Most of the tokens go here.' },
@@ -226,16 +226,16 @@ export function orderStages(kinds: Iterable<string>): StageKind[] {
 }
 
 /** What is sent for one pipeline: each chosen stage with the agent and model of the crew role that does it. */
-export function stagePlan(kinds: Iterable<string>, crew: Crew): { kind: string; tool: string; model: string }[] {
+export function stagePlan(kinds: Iterable<string>, crew: Crew): { kind: string; tool: string; model: string; effort?: string }[] {
   return orderStages(kinds).map(kind => {
     const role = STAGES.find(stage => stage.kind === kind)!.role
-    return { kind, tool: crew[role].tool, model: crew[role].model.trim() }
+    return { kind, tool: crew[role].tool, model: crew[role].model.trim(), ...(crew[role].effort ? { effort: crew[role].effort } : {}) }
   })
 }
 
-/** How many separate agent sessions a pipeline will use: a new one each time the agent or model changes. */
-export function sessionCount(plan: { tool: string; model: string }[]): number {
-  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model ? 1 : 0), 0)
+/** How many separate agent sessions a pipeline will use: a new one each time the agent, model or effort changes. */
+export function sessionCount(plan: { tool: string; model: string; effort?: string }[]): number {
+  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') ? 1 : 0), 0)
 }
 
 export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; summary: string }

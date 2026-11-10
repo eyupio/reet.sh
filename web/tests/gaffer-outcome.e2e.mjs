@@ -127,6 +127,11 @@ try {
       // A name none of them has can still be typed.
       await thinking.selectOption({label:'Other…'});await outcome.getByRole('textbox',{name:'Thinking model name',exact:true}).fill('private-model')
       await thinking.selectOption('opus');await expect(outcome.getByRole('textbox',{name:'Thinking model name',exact:true})).toHaveCount(0)
+      // Effort is per role too: design and review can think harder than babysitting and merging.
+      await expect(outcome.getByRole('combobox',{name:'Thinking effort',exact:true}).getByRole('option')).toHaveText(['Default effort','Low effort','Medium effort','High effort'])
+      await outcome.getByRole('combobox',{name:'Thinking effort',exact:true}).selectOption('high')
+      await outcome.getByRole('combobox',{name:'Shipping effort',exact:true}).selectOption('low')
+      await expect(outcome.getByRole('combobox',{name:'Effort',exact:true})).toHaveValue('')
       await expect(outcome.getByText('sent only what you type here and the project’s name',{exact:false})).toBeVisible()
       expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await outcome.screenshot({path:`${shots}/gaffer-outcome-objective-${width}-${theme}.png`})
@@ -187,8 +192,8 @@ try {
       await expect(results.nth(1)).toContainText('Not started: That agent isn’t installed on that machine.')
       await expect(results.nth(1).getByRole('link')).toHaveCount(0)
       await expect(results.nth(2)).toContainText('Started, but not followed: Its chat was not ready')
-      const cheap=kind=>({kind,tool:'claude',model:''}),strong=kind=>({kind,tool:'claude',model:'opus'})
-      const usual=[cheap('code'),strong('review'),cheap('test'),cheap('pr'),cheap('babysit'),cheap('merge')]
+      const cheap=kind=>({kind,tool:'claude',model:''}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high'}),ship=kind=>({kind,tool:'claude',model:'',effort:'low'})
+      const usual=[cheap('code'),strong('review'),cheap('test'),ship('pr'),ship('babysit'),ship('merge')]
       expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',trust:false,yolo:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
         {title:'Export API',prompt:proposed.sessions[0].prompt,stages:usual},
         {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge')]},

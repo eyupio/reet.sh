@@ -37,6 +37,7 @@ type GafferOutcomeStage struct {
 	Kind           string `json:"kind"`
 	Tool           string `json:"tool"`
 	Model          string `json:"model,omitempty"`
+	Effort         string `json:"effort,omitempty"`
 	State          string `json:"state"`
 	RequestID      string `json:"requestId"`
 	SessionID      string `json:"sessionId,omitempty"`

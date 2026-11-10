@@ -176,3 +176,15 @@ test('sessions of a pipeline are marked with the stage they are doing', () => {
   assert.equal(members.get('unknown'), undefined)
   assert.equal(members.get('s2').pipeline, 'API')
 })
+
+test('a crew role\'s effort is sent with its stages and starts a new session when it changes', () => {
+  const one = { tool: 'claude', model: 'opus' }
+  const crew = { think: { ...one, effort: 'high' }, build: { ...one, effort: '' }, ship: { ...one, effort: 'low' } }
+  assert.deepEqual(o.stagePlan(['design', 'code', 'merge'], crew), [
+    { kind: 'design', tool: 'claude', model: 'opus', effort: 'high' },
+    { kind: 'code', tool: 'claude', model: 'opus' },
+    { kind: 'merge', tool: 'claude', model: 'opus', effort: 'low' },
+  ])
+  assert.equal(o.sessionCount(o.stagePlan(['design', 'code', 'merge'], crew)), 3)
+  assert.equal(o.sessionCount(o.stagePlan(['plan', 'design', 'review'], crew)), 1)
+})

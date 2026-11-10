@@ -20,7 +20,7 @@ import (
 
 // OutcomeLaunch is one approved session for the launch path to start.
 type OutcomeLaunch struct {
-	AgentID, RequestID, Title, Tool, Model, Dir, ProjectID, Prompt string
+	AgentID, RequestID, Title, Tool, Model, Effort, Dir, ProjectID, Prompt string
 	// LinkProjectID ties a later stage's session to the outcome's project in
 	// the session list. It is not a project launch: no worktree is made for it.
 	LinkProjectID string
@@ -71,6 +71,8 @@ type OutcomeStageInput struct {
 	Kind  string `json:"kind"`
 	Tool  string `json:"tool,omitempty"`
 	Model string `json:"model,omitempty"`
+	// Effort is how hard the stage's agent thinks: empty for its own default.
+	Effort string `json:"effort,omitempty"`
 }
 
 // StageKinds is the order a pipeline runs in. A pipeline may leave stages
@@ -279,6 +281,9 @@ func outcomePieces(items []OutcomeSession, tool, model string, autoMerge bool, t
 			if stageTool == "" {
 				stageTool, stageModel = tool, model
 			}
+			if stage.Effort != "" && (!terminalproto.ValidEffort(stage.Effort) || !terminalproto.ToolTakesEffort(stageTool)) {
+				return nil, invalid("sessions", "Choose low, medium or high effort, for an agent that takes one, in “"+title+"”.")
+			}
 			if !terminalproto.ReviewedChatTool(stageTool) || stageModel != "" && !terminalproto.ValidModel(stageModel) {
 				return nil, invalid("sessions", "Choose an agent that can run a Gaffer chat, and a model name it accepts, for every stage of “"+title+"”.")
 			}
@@ -286,7 +291,7 @@ func outcomePieces(items []OutcomeSession, tool, model string, autoMerge bool, t
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stage.Effort, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
@@ -627,8 +632,8 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 	if next > 0 {
 		prev = item.Stages[next-1]
 	}
-	if next > 0 && prev.State == "done" && prev.Tool == stage.Tool && prev.Model == stage.Model && item.ConversationID != "" {
-		// Same agent and model: the session carries on, under a fresh goal and budget for the new stage.
+	if next > 0 && prev.State == "done" && prev.Tool == stage.Tool && prev.Model == stage.Model && prev.Effort == stage.Effort && item.ConversationID != "" {
+		// Same agent, model and effort: the session carries on, under a fresh goal and budget for the new stage.
 		v, err := s.Goal(uid, item.ConversationID)
 		if err == nil && v.SetupAllowed {
 			in := GoalSetupInput{GoalInput: GoalInput{GoalPins: v.Pins, Text: goal, MaxReviews: o.MaxReviews, Hours: o.Hours}, ConversationRevision: v.ConversationRevision, Confirmed: true, Action: "start"}
@@ -683,6 +688,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 	if staged {
 		stage := item.Stages[item.Stage]
 		launch.RequestID, launch.Tool, launch.Model, launch.Prompt = stage.RequestID, stage.Tool, stage.Model, stagePrompt(o, item, item.Stage)
+		launch.Effort = stage.Effort
 		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
 		launch.Title = clipBytes(item.Title, 60) + " · " + stage.Kind
 		goal = StageGoal(o.Objective, item.Title, stage.Kind)

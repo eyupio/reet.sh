@@ -137,6 +137,11 @@ session read and the ten-goal limit. `gaffer-followed`, `home-followups`,
 `gaffer-goal`, `gaffer-widget-ux`, `session-end-gaffer` and `stage-follow` pass
 unchanged apart from the dialog name. Captures use synthetic sessions only.
 
+The 10 November usability pass puts the floor one click from general chat (header
+link and welcome button) and from Home, replaces the separate session picker with
+**Open** on each Not-followed row, and moves the counts into the filter chips.
+
+![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)
 ![Factory floor desktop light](images/ui/gaffer-floor-1440-light.png)
 ![Factory floor review phone light](images/ui/gaffer-floor-review-390-light.png)
 

@@ -208,17 +208,23 @@ report progress. Unsupported channels and providers remain visible limitations.
 
 ## Run the factory floor
 
-Choose **Chat options → Factory floor** from general or session chat. It is one
-job sheet for the whole floor: the sessions you asked Gaffer to look after, with
-decisions first, and under **Not followed** every running structured chat you
-have not. Use **Needs review**, **Following**, **Not followed** or **Finished**
-to narrow the view. Paused goals remain under **All**. Opening or refreshing this
-view starts no goal, model request or worker instruction.
+The factory floor is one click away: **Factory floor** under Gaffer's name in
+general chat, **Open the factory floor** in an empty general chat, or Home's
+**Gaffer:** line, which appears whenever a goal needs review, is being followed,
+or running chats are not followed yet. **Chat options → Factory floor** opens it
+from a session chat. It is one job sheet for the whole floor: the sessions you
+asked Gaffer to look after, with decisions first, and under **Not followed**
+every running structured chat you have not. The filters **Needs review**,
+**Following**, **Not followed** and **Finished** carry their counts and narrow
+the view. Paused goals remain under **All**. Opening or refreshing this view
+starts no goal, model request or worker instruction.
 
 ### Put several sessions in Gaffer's care
 
 Tick the running chats Gaffer should look after, or **Select all**, then choose
-**Look after selected**. Ticking shares nothing and starts nothing. One review
+**Look after selected**. Ticking shares nothing and starts nothing. **Open**
+beside a chat shows that session with its own Gaffer conversation instead, which
+also enables nothing. One review
 lists the chosen sessions, Gaffer's default provider and model, what starting
 shares, one goal and one set of limits. Write the goal or pick one with **Use a
 prompt**; expand **Change limits** for the review budget and hours.

@@ -64,8 +64,9 @@ function fixture({active=1}={}){
 async function openFloor(w){
   await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
   const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
-  await chat.getByRole('button',{name:'Chat options',exact:true}).click()
-  await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Factory floor',exact:true}).click()
+  // One click from general chat: the welcome's own button, and the header link beside Gaffer's name.
+  await expect(chat.getByRole('button',{name:'Factory floor',exact:true})).toBeVisible()
+  await chat.getByRole('button',{name:'Open the factory floor',exact:true}).click()
   return w.page.getByRole('dialog',{name:'Factory floor',exact:true})
 }
 const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
@@ -83,13 +84,16 @@ try {
       await expect(picks.getByText('Plain shell',{exact:true})).toHaveCount(0)
       await expect(picks.getByText('Finished spike',{exact:true})).toHaveCount(0)
       await expect(picks.getByText('Followed work 1',{exact:true})).toHaveCount(0)
-      await expect(floor.getByText('Not followed 2',{exact:false}).first()).toBeVisible()
+      await expect(floor.getByRole('button',{name:'Not followed 2',exact:true})).toBeVisible()
+      await expect(floor.getByRole('button',{name:'Following 1',exact:true})).toBeVisible()
+      await expect(floor.getByRole('button',{name:'Needs review',exact:true})).toBeVisible()
+      await expect(picks.getByRole('link',{name:'Open Billing export',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=floor-ready&gaffer=1')
       const lookAfter=floor.getByRole('button',{name:/^Look after/})
       await expect(lookAfter).toBeDisabled()
       expect(await floor.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
-      await floor.getByRole('button',{name:'Not followed',exact:true}).click()
+      await floor.getByRole('button',{name:/^Not followed/}).click()
       await expect(floor.getByRole('listitem')).toHaveCount(0);await expect(picks.getByRole('checkbox')).toHaveCount(2)
-      await floor.getByRole('button',{name:'Following',exact:true}).click()
+      await floor.getByRole('button',{name:/^Following/}).click()
       await expect(floor.getByRole('listitem')).toHaveCount(1);await expect(picks).toHaveCount(0)
       await floor.getByRole('button',{name:'All',exact:true}).click()
       await floor.getByRole('button',{name:'Select all',exact:true}).click()
@@ -158,7 +162,7 @@ try {
     watch(w,f.box)
     try {
       const floor=await openFloor(w)
-      await floor.getByRole('button',{name:'Not followed',exact:true}).click()
+      await floor.getByRole('button',{name:/^Not followed/}).click()
       await floor.getByRole('button',{name:'Select all',exact:true}).click()
       await expect(floor.getByText(warning,{exact:true})).toBeVisible()
       await expect(floor.getByRole('button',{name:'Look after 2 selected',exact:true})).toBeDisabled()
@@ -169,5 +173,22 @@ try {
       expect(f.box.writes).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Factory floor: four theme/width views, running chats beside followed work, filters, multi-select, one combined review with prompt and limits, per-session setup and results, partial failure, saved starting point, failed session read and the ten-goal limit passed. Nothing is written before Start.')
+  // With nothing followed yet, Home still offers the floor in one click and says how many chats are waiting.
+  for(const width of [1280,390]){
+    const f=fixture({active:0}),w=await openWorkspace(browser,{width,height:900,touch:width<1000,routes:f.routes})
+    watch(w,f.box)
+    try {
+      await w.page.goto(base+'/')
+      const entry=w.page.getByRole('button',{name:'Gaffer: 2 running chats not followed',exact:true})
+      await expect(entry).toBeVisible()
+      expect((await entry.boundingBox()).height).toBeGreaterThanOrEqual(44)
+      await entry.click()
+      const floor=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
+      await expect(floor.getByRole('group',{name:'Running chats not followed',exact:true}).getByRole('checkbox')).toHaveCount(2)
+      await expect(floor.getByRole('listitem')).toHaveCount(0)
+      await w.page.keyboard.press('Escape');await expect(floor).toHaveCount(0);await expect(entry).toBeFocused()
+      expect(f.box.writes).toEqual([]);expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  console.log('Factory floor: four theme/width views, running chats beside followed work, filters, multi-select, one combined review with prompt and limits, per-session setup and results, partial failure, saved starting point, failed session read, the ten-goal limit and the one-click Home entry passed. Nothing is written before Start.')
 } finally { await browser.close() }

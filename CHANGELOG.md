@@ -10,6 +10,9 @@ this file existed releases were described on their GitHub release pages.
   running structured chat that is not followed. Tick several, review one goal
   and one set of limits, and each session is started through its own reviewed
   setup, with a per-session result. Each keeps its own access, goal and budget.
+  The floor opens in one click from general Gaffer chat and from Home, which
+  now also says when running chats are not followed. The separate "Choose a
+  session for Gaffer" picker is replaced by **Open** on each row.
   Browser-only: no server, database or connector change.
 - A portable copy can be taken with a password given for that copy alone.
   `POST /api/v2/admin/backups/run` accepts an optional body `{"password": "..."}`

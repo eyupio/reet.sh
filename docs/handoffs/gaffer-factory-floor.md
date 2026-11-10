@@ -72,13 +72,37 @@ the real controller harness and was not run locally; CI runs it. No Go code
 changed, so the backend suites were not rerun. Final-head CI and review remain the
 publication gate. No real provider, paid call, device or deployment was used.
 
+## Usability pass (10 November 2026)
+
+The user asked for a simpler, more usable UX. Changes, all browser-only:
+
+- **One click to the floor.** General chat's header link under Gaffer's name is
+  now **Factory floor** (it was **Follow a session**), and an empty general chat
+  offers **Open the factory floor**. Chat options keeps its entry.
+- **One way to choose a session.** The separate "Choose a session for Gaffer"
+  picker is removed (`GafferSessionPicker.svelte` deleted). Each Not-followed row
+  has **Open**, which shows that session with its Gaffer conversation and enables
+  nothing, so the general-to-session path is kept on the floor.
+- **Less chrome.** The counts line is gone; the filter chips carry the counts
+  (shown only when above zero).
+- **Home entry without a goal.** Home's Gaffer line also appears when running
+  structured chats are not followed ("Gaffer: N running chats not followed"),
+  after any review/following/unavailable wording. It reads no extra endpoint:
+  Home already holds the sessions and goals. It is an entry, not an attention
+  count; the bell, title and Needs you counts are unchanged.
+
+`gaffer-floor.e2e.mjs` covers the header and welcome entries, the Open link, the
+counted filters and the Home entry with focus return; `session-end-gaffer`
+follows the floor instead of the picker; `gaffer-followed`, `home-followups`,
+`gaffer-chat`, `gaffer-goal` and `gaffer-widget-ux` pass against the same build.
+
 ## Not done, for the next slice
 
-- Home shows its Gaffer entry only when a goal exists, so with nothing followed
-  the floor is reached through Ask Gaffer → Chat options. A Home entry for
-  "N running chats not followed" would need the attention-count contract checked.
 - No bulk pause, stop or resume, and no per-session goal text in one review.
 - The review uses the default provider's own model; a per-session override is
   still made in that session's chat.
 - General chat still cannot instruct workers, and Gaffer cannot start sessions.
-  Both were offered and deferred; each needs its own contract before code.
+  On 9 November the user asked for Gaffer to **own an outcome and start and manage
+  sessions to meet it**. That crosses the current "no new worker launches"
+  boundary and needs its contract agreed (autonomy, limits, where sessions run)
+  before code; nothing for it is implemented here.

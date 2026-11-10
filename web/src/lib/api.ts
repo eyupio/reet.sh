@@ -253,6 +253,15 @@ export type GafferOutcomePlan = { summary: string; sessions: { title: string; pr
 export async function planGafferOutcome(p: GafferProvider, input: { objective: string; project: string; sessions: number }, signal?: AbortSignal): Promise<GafferOutcomePlan> {
   return (await req(`/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
 }
+export type GafferOutcomeSession = { key: string; title: string; prompt: string; state: 'waiting' | 'starting' | 'following' | 'unfollowed' | 'failed' | 'cancelled'; note: string; sessionId?: string; conversationId?: string; updatedAt: number }
+/** An approved plan the controller starts and follows. `state` is "starting" while it still has sessions to start. */
+export type GafferOutcome = { id: string; revision: number; objective: string; state: 'starting' | 'settled' | 'stopped'; note: string; agentId: string; projectId: string; projectName: string; dir: string; tool: string; model?: string; trust?: boolean; providerId: string; maxReviews: number; hours: number; sessions: GafferOutcomeSession[]; createdAt: number; updatedAt: number }
+export type GafferOutcomeInput = { objective: string; projectId: string; tool: string; model: string; trust: boolean; sessions: { title: string; prompt: string }[]; maxReviews: number; hours: number; confirmed: true }
+export async function listGafferOutcomes(signal?: AbortSignal): Promise<GafferOutcome[]> { return (await (await req('/api/v2/gaffer/outcomes', { signal, cache: 'no-store' })).json()).outcomes }
+export async function getGafferOutcome(id: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(id)}`, { signal, cache: 'no-store' })).json() }
+/** Saves the approved plan; the controller then starts and follows each session, with or without this browser. */
+export async function createGafferOutcome(input: GafferOutcomeInput, signal?: AbortSignal): Promise<GafferOutcome> { return (await req('/api/v2/gaffer/outcomes', { method: 'POST', body: json(input), signal })).json() }
+export async function stopGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/stop`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
 export type GafferTurn = {
  goalId?:string;goalRevision?:number;goalNeedsUser?:boolean

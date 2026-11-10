@@ -146,7 +146,15 @@ the objective with project, agent and size; Gaffer's editable plan with the acce
 statement and limits; and per-session results. `web/tests/gaffer-outcome.e2e.mjs`
 passes at 1440 px light and 390 px dark with no sideways scroll at each step.
 
+Later the same day the start moved to the controller: after **Approve and start**
+the dialog reads the outcome record ("Starting session 1 of 3…", **Close and let
+it run**, **Stop starting sessions**) and the floor shows the record's planned
+sessions. The objective gained **Choose a model**, the plan a plugin-trust tick for
+OpenCode and Antigravity, and the floor **Pause all following** / **Stop all
+goals**. `gaffer-outcome.e2e.mjs` and `gaffer-floor.e2e.mjs` cover these.
+
 ![Outcome objective](images/ui/gaffer-outcome-objective-1440-light.png)
+![Outcome results read from the controller](images/ui/gaffer-outcome-results-1440-light.png)
 ![Outcome plan review](images/ui/gaffer-outcome-plan-1440-light.png)
 ![Outcome grouped on the floor, phone dark](images/ui/gaffer-outcome-floor-390-dark.png)
 ![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)

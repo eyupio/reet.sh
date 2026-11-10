@@ -50,6 +50,7 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/terminal/sessions')return json({sessions:[]})
   if(path==='/api/v2/session-backlog')return json({drafts:[]})
   if(path==='/api/v2/gaffer/goals'&&route.request().method()==='GET')return json({goals:[],readAt:Date.now()})
+  if(path==='/api/v2/gaffer/outcomes'&&route.request().method()==='GET')return json({outcomes:[]})
   if(path==='/api/v2/folder-projects')return json({projects:[],savedWaiting:0})
   if(path==='/api/v2/project-groups')return json({groups:[]})
   if(path==='/api/v2/notifications/count')return json({unread})

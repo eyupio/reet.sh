@@ -189,7 +189,8 @@ func outcomeSessions(raw json.RawMessage, max int) (string, []OutcomeSession, er
 	seen := map[string]bool{}
 	out := make([]OutcomeSession, 0, len(in.Sessions))
 	for _, item := range in.Sessions {
-		prompt := strings.TrimSpace(item.Prompt)
+		// Models write tabs and Windows line ends; neither changes the meaning, and the launch prompt rules refuse both.
+		prompt := strings.TrimSpace(strings.NewReplacer("\r\n", "\n", "\r", "\n", "\t", "    ").Replace(item.Prompt))
 		if prompt == "" || len(prompt) > MaxOutcomePromptBytes || !terminalproto.ValidPrompt(prompt) {
 			return "", nil, malformed
 		}

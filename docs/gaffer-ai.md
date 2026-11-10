@@ -227,35 +227,56 @@ and would sooner not start each session yourself.
 1. Write the outcome, choose the project its sessions work in, the agent, and how
    many sessions Gaffer may propose (up to five). Only agents whose chat is
    available on that project's machine are offered, and the machine must be
-   connected.
+   connected. **Choose a model** sets one model for every session; left empty,
+   each uses the agent's default.
 2. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you
    typed and the project's name, nothing else, and proposes the sessions: a title
    and a full prompt for each. This is one model request and may use provider
    credits. It starts nothing.
 3. Review the plan. Every title and prompt is editable; remove a session or **Add
    a session** of your own. **Write the plan myself** skips Gaffer's proposal,
-   for when the model cannot plan or you already know the split.
-4. Choose **Approve and start**. Each session is then started in turn as an
-   ordinary chat in that project, with the prompt shown and ordinary approvals,
-   never YOLO. In a git project each session gets its own worktree, so they do
-   not edit the same files. As each chat comes up it is put in Gaffer's care with
-   a goal that names the outcome and that session's part, and ends "Do not merge."
+   for when the model cannot plan or you already know the split. A prompt the
+   agent could not be started with (one that begins with a dash, for example) and
+   a limit that is not a whole number are pointed out before anything starts.
+4. For OpenCode and Google Antigravity, tick **I trust this folder** if the
+   folder's plugins and customisations may run. Left off, a folder that has any
+   is refused when its session starts.
+5. Choose **Approve and start**. The controller saves the approved plan and
+   starts each session in turn as an ordinary chat in that project, with the
+   prompt shown and ordinary approvals, never YOLO. In a git project each session
+   gets its own worktree, so they do not edit the same files. As each chat comes
+   up it is put in Gaffer's care with a goal that names the outcome and that
+   session's part, and ends "Do not merge."
 
-The results name every session as **Following**, **Started, not followed** (with
-the reason; it then appears under **Not followed**) or **Not started**. Keep the
-dialog open until they settle: your browser starts the sessions, so closing it
-stops the ones still waiting. Sessions already started keep running.
+The controller does the starting, so you can choose **Close and let it run**, or
+close the browser: the sessions still start and are still followed. A controller
+restart picks the outcome up where it stopped and does not start a session twice.
+**Stop starting sessions** leaves the ones not yet started unstarted; sessions
+already started keep running and keep their goals.
 
-On the floor, **Outcomes** lists each outcome with its sessions and how many need
-review, are being followed or have finished. Choose one to see only its sessions.
-Each session keeps its own goal, budget and controls; only you mark a goal
-complete, and no outcome is ever marked done for you.
+Each session ends as **followed**, **started but not followed** (with the reason;
+it then appears under **Not followed**, where you can look after it) or **not
+started** (with the machine's reason). Nothing is retried on its own.
+
+On the floor, **Outcomes** lists each outcome with what was planned, what the
+controller is still starting, and how many sessions need review, are being
+followed or have finished. Choose one to see its plan and only its sessions. Each
+session keeps its own goal, budget and controls; only you mark a goal complete,
+and no outcome is ever marked done for you. The controller keeps the last thirty
+outcomes and starts at most three at a time for an account.
 
 What this does not do yet: Gaffer does not add, replace or retire sessions after
-you approve, sessions do not see each other's work, and nothing merges. An agent
-that asks to trust a folder's plugins first (OpenCode, Google Antigravity) is
-refused here with that reason; start it from the launch bar, then look after it
-from the floor.
+you approve, sessions do not see each other's work, and nothing merges. Restoring
+a controller from a copy stops any outcome that was still starting.
+
+### Pause or stop the sessions shown
+
+With two or more followed sessions in view, **Pause all following** and **Stop
+all goals** act on every one shown, so narrow the view first with a filter or an
+outcome. Each goal is paused or stopped on its own, exactly as from its card; one
+that cannot be changed is named and the rest carry on. Stopping asks first. The
+working models keep running either way. Resuming is still done one session at a
+time, because each needs your check of its approvals and delivery first.
 
 ### Put several sessions in Gaffer's care
 

@@ -403,6 +403,7 @@ address. All three are for the owner only.
   | Project runs | `projectrun.Orchestrator` (`Paused`) | no member is started; members stay pending |
   | Software batches | `softwarerun.Orchestrator` (`Paused`) | no machine is updated; members stay pending |
   | Gaffer goals | `gaffer.Service.reviewDueGoals` | no goal is reviewed |
+  | Gaffer outcomes | `gaffer.Service.advanceOutcomes` | no approved session is started; the outcome waits |
   | Queued chat messages | `terminalbroker.Broker.stepChatQueue` | none is delivered to a worker |
   | Worktree sweeps | `runScheduledMaintenance` | no sweep runs on any machine |
   | Topic sync | `syncTopics` | not fetched |
@@ -449,6 +450,7 @@ resumes with the retry that already exists, and nothing is deleted:
 | Work | Held as | Resume with |
 | --- | --- | --- |
 | Gaffer goals | paused (needs the user) | resume the goal |
+| Gaffer outcomes still starting | stopped; sessions not yet started stay unstarted | give Gaffer the outcome again |
 | Project runs | each pending member becomes failed with the code `paused_by_restore`; started members are untouched | retry the member |
 | Software batches | the first unfinished machine fails with `paused_by_restore` and the batch stops; machines that were running go back to waiting | retry that machine |
 | Queued mail (queued or sending) | held | send it from the outbox; a held reset link points at the old address |

@@ -168,12 +168,104 @@ agent or paid call was used, and a real launch-then-follow has not been run.
 - Outcome identity is the goal's first line, so two outcomes with the same
   objective text merge into one group.
 
+## Controller-owned outcomes, review fixes and floor controls (10 November 2026)
+
+After #713 and #715 merged, the user asked for all three offered follow-ups: an
+independent review, controller-owned outcomes, and the smaller floor improvements.
+This section supersedes the "browser orchestrates the start" parts of the outcome
+contract above.
+
+### Independent review
+
+A fresh-context review of `5f973bf..4d68d6b` found no problem in the plan
+endpoint's gates, model-text handling, HTML escaping or the no-YOLO/approval
+path. It confirmed these defects in the browser-run start, all fixed here:
+
+1. A create the machine refused (state `lost`/`ended`) was shown as started. The
+   controller's launch adapter now reports it as not started.
+2. A fractional limit (1.5 reviews) passed the client check, started every
+   session, then failed every goal setup. Limits must now be whole numbers in the
+   browser (both reviews), and the create body is strictly decoded as integers.
+3. A 60-second browser timeout was reported as "Not started" with no idempotent
+   retry. The controller now owns the launch and retries only under the saved
+   request ID.
+4. The browser accepted prompts the launch refuses (leading dash, tabs, control
+   characters). Tabs and Windows line ends are normalised; the rest block approval;
+   the controller validates the whole plan before anything starts; model plans are
+   normalised the same way.
+5. A misleading "Review Worker messages and Context sharing" reason was shown for
+   a chat that was not ready. Both paths now state the real cause.
+6. Closing the dialog mid-run silently abandoned later sessions. The controller
+   now carries on.
+
+### Contract
+
+- `POST /api/v2/gaffer/outcomes` saves an approved plan: `{objective, projectId,
+  tool, model, trust, sessions:[{title,prompt}], maxReviews, hours, confirmed}`.
+  Writer browser account, canonical origin, and remote sessions enabled. The whole
+  plan is validated first (project owned, reviewed chat tool, 1–5 unique valid
+  titles, launch-valid prompts, whole-number limits, an enabled default provider);
+  a refused plan saves and starts nothing. `GET /api/v2/gaffer/outcomes`,
+  `GET …/{id}` and `POST …/{id}/stop {revision}` read and stop. Activity log:
+  `gaffer-outcome-approved`, `gaffer-outcome-stopped`.
+- Record: table `gaffer_outcomes(id, user_id, created_at, data JSON)`
+  (`internal/store/store_gaffer_outcomes.go`). Outcome state `starting`, `settled`
+  or `stopped`; session state `waiting`, `starting`, `following`, `unfollowed`,
+  `failed`, `cancelled`. Changes are revision-checked, so the person's stop and
+  the runner never overwrite each other. Thirty kept per account; three may be
+  starting at once.
+- Runner (`internal/gaffer/outcome_runs.go`): a supervisor beside the goal
+  supervisor, under its context and joined by `Close`. It starts nothing while the
+  store is fenced, the worker channel is disabled or no launch path is installed.
+  Per session it re-reads the account (a person who lost write access starts
+  nothing more), launches through `SessionStarter`, creates the session's
+  conversation, waits up to 60 seconds for setup to be permitted, then calls the
+  existing `SetupGoal` with the person's approval as its confirmation. The goal
+  text is built by `OutcomeGoal` and still starts `Outcome: …`.
+- Launch (`internal/api/gaffer_outcomes.go`, `outcomeStarter`): the same project
+  check, worktree isolation, broker rules and audit as a browser launch, with the
+  machine, folder and agent taken from the approved outcome. `Yolo` is never set.
+  `Trust` is only the person's own tick. Refusals carry the launch handler's own
+  words.
+- Shutdown and restart: a launch in flight at shutdown is left `starting` and
+  retried under the same request ID, which the broker answers with the session it
+  already made. A session that was started but not yet followed is followed, not
+  started again.
+- Restore: `store_restore.go` marks any `starting` outcome `stopped`, so a restored
+  copy starts nothing.
+- The floor reads the records (`floorOutcomes`): planned sessions, what is still
+  starting, and the goals of the sessions the record started. Goals that only name
+  an outcome in their text (made by #715) still group by that line.
+- Bulk **Pause all following** / **Stop all goals** act on the sessions shown, one
+  goal at a time against a fresh read, with stop confirmed. No bulk resume: resume
+  needs the person's per-session check.
+
+### Validation
+
+`internal/gaffer/outcome_runs_test.go`: two approved sessions started and followed
+with no browser and no provider call; a refusal reported while the next carries
+on; fourteen refused plans and a viewer start nothing; stop leaves the unstarted
+unstarted; restart retries the in-flight launch under its own request ID; a
+stopped copy starts nothing; the goal fits the limit. `internal/api/
+gaffer_outcomes_test.go`: origin, signed-out, API-token, strict-body (fractional
+limit, `yolo` at either level) and remote-sessions-off refusals.
+`gaffer-outcome.e2e.mjs` and `gaffer-floor.e2e.mjs` cover the browser side,
+including closing while it starts, stopping, trust, model, and bulk pause/stop
+with a partial failure. Go race runs for `internal/gaffer`, and the Gaffer and
+restore selections of `internal/api` and `internal/store`, pass locally.
+
+Still synthetic: the launch adapter itself (`outcomeStarter`) has no test against
+a real broker and machine here, so a real start-and-follow remains the first thing
+to try after deploying.
+
 ## Not done, for the next slice
 
-- No bulk pause, stop or resume, and no per-session goal text in one review.
+- No bulk resume (deliberate), and no per-session goal text in one review.
 - The review uses the default provider's own model; a per-session override is
   still made in that session's chat.
 - General chat still cannot instruct workers.
-- A controller-owned outcome record (survives the browser closing, one progress
-  report across sessions, re-planning with approval) is not built; see the limits
-  above.
+- Gaffer still reviews each session on its own: no cross-session report, and no
+  re-planning (proposing an added or replacement session for approval).
+- No per-session model or effort; one model applies to the whole outcome.
+- A failed or unfollowed session of an outcome cannot be retried from the outcome;
+  start it again or look after it from the floor.

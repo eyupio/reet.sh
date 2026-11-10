@@ -48,7 +48,7 @@
   const outcomes=$derived(floorOutcomes(records,rows))
   const chosenOutcome=$derived(outcomes.find(group=>group.id===outcomeFilter))
   const visible=$derived(rows.filter(row=>!chosenOutcome||chosenOutcome.rows.includes(row)).filter(row=>filter==='all'||filter==='attention'&&row.attention||filter==='active'&&row.goal.state==='active'&&!row.attention||filter==='finished'&&['completed','stopped','limit'].includes(row.goal.state)))
-  const label=(row:GafferGoalOverview)=>row.attention?'Needs review':row.goal.state==='active'?'Following':row.goal.state==='completed'?'You marked complete':row.goal.state==='limit'?'Limit reached':row.goal.state==='stopped'?'Stopped':'Paused'
+  const label=(row:GafferGoalOverview)=>row.attention?'Needs you':row.goal.state==='active'?'Following':row.goal.state==='completed'?'You marked complete':row.goal.state==='limit'?'Limit reached':row.goal.state==='stopped'?'Stopped':'Paused'
   const deliveryLabel=(state:string)=>state==='sent'?'Handed to worker':state==='queued'?'Queued for next turn':state==='sending'?'Handoff in progress':state==='uncertain'?'Delivery uncertain':state==='blocked'?'Delivery blocked':state==='removed'?'Instruction removed':'Receipt needs review'
 
   async function load(fresh=false) {
@@ -136,14 +136,14 @@
         <button class="btn quiet refresh" bind:this={refreshButton} disabled={reading} onclick={()=>void load()}>Refresh</button>
       </div>
       <nav class="filters" aria-label="Filter the floor">
-        {#each [['all','All',-1],['attention','Needs review',needsYou],['active','Following',following],['idle','Not followed',candidates.length],['finished','Finished',-1]] as [value,name,count] (value)}<button class="filter" type="button" aria-pressed={filter===value} onclick={()=>filter=String(value)}>{name}{#if Number(count)>0}{' '}<strong>{count}</strong>{/if}</button>{/each}
+        {#each [['all','All',-1],['attention','Needs you',needsYou],['active','Following',following],['idle','Not looked after',candidates.length],['finished','Finished',-1]] as [value,name,count] (value)}<button class="filter" type="button" aria-pressed={filter===value} onclick={()=>filter=String(value)}>{name}{#if Number(count)>0}{' '}<strong>{count}</strong>{/if}</button>{/each}
       </nav>
     {#if bulkNotice}<p role="status">{bulkNotice}</p>{/if}
     {#if error}<p role="alert" class="warning">{error}</p>{#if view}<p class="muted">Showing the last successful read. Refresh to check for changes.</p>{/if}{/if}
     {#if loading}<p role="status">Reading the job sheet…</p>
-    {:else if !rows.length&&!candidates.length&&!error}<div class="empty"><h3>Nowt on the job sheet yet.</h3><p>Give Gaffer an outcome above, or start an agent in Chat and it appears here, ready to be looked after. Opening this view starts no follow-up.</p>{#if sessionsError}<p class="warning">{sessionsError}</p>{/if}</div>
-    {:else if !visible.length&&!(showCandidates&&candidates.length)&&!error}<p>{filter==='idle'?'Every running chat is already on the job sheet.':'No followed sessions in this view.'}</p>
-    {:else if visible.length}<ul class="goals" aria-label="Followed session goals">
+    {:else if !rows.length&&!candidates.length&&!error}<div class="empty"><h3>Nowt on the job sheet yet.</h3><p>Give Gaffer an outcome above, or start an agent in Chat and it appears here, ready to be looked after. Opening this view starts nothing.</p>{#if sessionsError}<p class="warning">{sessionsError}</p>{/if}</div>
+    {:else if !visible.length&&!(showCandidates&&candidates.length)&&!error}<p>{filter==='idle'?'Every running chat is already on the job sheet.':'No sessions here that Gaffer looks after.'}</p>
+    {:else if visible.length}<ul class="goals" aria-label="Sessions Gaffer looks after">
       {#each visible as row (row.goal.conversationId)}{@const g=row.goal}{@const owned=outcomeOf(g.text)}{@const part=outcomePart(g.text)}{@const title=row.session?.title||`Session · ${g.sessionId.slice(-8)}`}<li class:attention={row.attention}>
         <div class="card-head"><h3>{title}</h3><span class="state">{label(row)}</span></div>
         {#if owned}<p class="belongs"><span class="eyebrow-inline">Outcome</span> {owned}{#if part&&part!==title}<span class="part"> · {part}</span>{/if}</p>
@@ -171,8 +171,8 @@
       </li>{/each}
     </ul>{/if}
     </section>
-    {#if !loading&&showCandidates&&(candidates.length||sessionsError)}<section class="idle" aria-label="Not followed">
-      <div class="section-head"><h3>Not followed</h3>{#if candidates.length>1}<button class="btn quiet" type="button" onclick={tickAll}>{chosen.length===candidates.length?'Clear selection':'Select all'}</button>{/if}</div>
+    {#if !loading&&showCandidates&&(candidates.length||sessionsError)}<section class="idle" aria-label="Not looked after">
+      <div class="section-head"><h3>Not looked after</h3>{#if candidates.length>1}<button class="btn quiet" type="button" onclick={tickAll}>{chosen.length===candidates.length?'Clear selection':'Select all'}</button>{/if}</div>
       {#if sessionsError}<p class="warning">{sessionsError}</p>{/if}
       {#if candidates.length}
         <p class="muted">Tick the running chats Gaffer should look after. Ticking shares nothing and starts nothing; one review follows.</p>
@@ -210,7 +210,7 @@
   </div>
 </WorkspaceDialog>
 {/if}
-{#if confirmStop}<ConfirmDialog title={`Stop ${stoppable.length} goals?`} body="This ends Gaffer follow-up for every session shown and removes goal instructions still queued. The working models keep running. Resuming is done one session at a time, after you have checked it." confirmLabel="Stop goals" danger oncancel={()=>confirmStop=false} onconfirm={()=>void bulk('stop',stoppable)}/>{/if}
+{#if confirmStop}<ConfirmDialog title={`Stop ${stoppable.length} goals?`} body="This ends Gaffer looking after for every session shown and removes goal instructions still queued. The working models keep running. Resuming is done one session at a time, after you have checked it." confirmLabel="Stop goals" danger oncancel={()=>confirmStop=false} onconfirm={()=>void bulk('stop',stoppable)}/>{/if}
 {#if outcomeOpen}<GafferOutcome {room} {userId} onstarted={onchanged} onclose={()=>void closeOutcome()}/>{/if}
 {#if reviewing}<GafferFloorReview auto={quick} sessions={chosen} {room} {userId} onstarted={onchanged} onclose={()=>void closeReview()}/>{/if}
 {#if managing}<WorkspaceDialog title="Look after this session" onclose={()=>void closeGoal()}><GafferGoal id={managing.goal.conversationId} {userId} {timeZone} {dateFormat} onchanged={async()=>{await load(true);await onchanged()}}/></WorkspaceDialog>{/if}

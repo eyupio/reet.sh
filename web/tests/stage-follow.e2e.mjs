@@ -50,12 +50,12 @@ try{
   try{
    await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
    const tracker=await overview(w.page),goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
-   const cell=name=>tracker.getByRole('button',{name:`${name}: follow-up options`,exact:true})
+   const cell=name=>tracker.getByRole('button',{name:`${name}: goal options`,exact:true})
    await expect(tracker).toBeVisible()
    const before=await tracker.evaluate(el=>({h:el.getBoundingClientRect().height,next:el.querySelector('.next').getBoundingClientRect().top}))
    // Click: the stage's menu, below the row, over the Next slot; nothing moves.
    await cell('PR').click()
-   const menu=w.page.getByRole('menu',{name:'PR: follow-up options',exact:true})
+   const menu=w.page.getByRole('menu',{name:'PR: goal options',exact:true})
    await expect(menu).toBeVisible();await expect(menu.getByRole('menuitem')).toHaveText(['Babysit the pull request','Babysit it, then merge when green'])
    await expect(menu.getByRole('menuitem').first()).toBeFocused();await expect(cell('PR')).toHaveAttribute('aria-expanded','true')
    expect(await tracker.evaluate(el=>({h:el.getBoundingClientRect().height,next:el.querySelector('.next').getBoundingClientRect().top}))).toEqual(before)
@@ -66,11 +66,11 @@ try{
    await cell('PR').click();await expect(menu).toBeVisible();await w.page.keyboard.press('Tab');await expect(menu).toBeHidden();await expect(cell('PR')).toBeFocused()
    // Right-click opens the same menu; a press elsewhere closes it.
    await cell('Review').click({button:'right'})
-   await expect(w.page.getByRole('menu',{name:'Review: follow-up options',exact:true}).getByRole('menuitem')).toHaveText(['Have Gaffer review it','Address the review comments'])
+   await expect(w.page.getByRole('menu',{name:'Review: goal options',exact:true}).getByRole('menuitem')).toHaveText(['Have Gaffer review it','Address the review comments'])
    await w.page.mouse.click(5,5);await expect(w.page.getByRole('menu')).toHaveCount(0)
    // Keyboard: Enter opens it, arrows move, Enter picks. The editor opens with the goal written in, and nothing is started.
    await cell('Merge').focus();await w.page.keyboard.press('Enter')
-   const merge=w.page.getByRole('menu',{name:'Merge: follow-up options',exact:true})
+   const merge=w.page.getByRole('menu',{name:'Merge: goal options',exact:true})
    await expect(merge.getByRole('menuitem',{name:'Merge when green',exact:true})).toBeFocused()
    await w.page.keyboard.press('ArrowDown');await expect(merge.getByRole('menuitem',{name:'Keep conflicts resolved',exact:true})).toBeFocused()
    await w.page.keyboard.press('ArrowUp');await w.page.keyboard.press('Enter')
@@ -79,7 +79,7 @@ try{
    await expect(field).toHaveValue(/merged as soon as every check passes, no review thread is open and there are no conflicts, then tell me\. Bring decisions back to me\.$/)
    await expect(field).toBeFocused()
    expect(f.box.starts,'picking an item starts nothing').toHaveLength(0)
-   await expect(goal.getByRole('button',{name:'Start follow-up',exact:true})).toBeVisible()
+   await expect(goal.getByRole('button',{name:'Start looking after',exact:true})).toBeVisible()
    await w.page.keyboard.press('Escape');await expect(goal).toBeHidden()
    // The ordinary entry is unchanged: no goal is carried over.
    await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).isVisible().catch(()=>{})
@@ -97,7 +97,7 @@ try{
   try{
    await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
    const tracker=await overview(w.page),chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true}),goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
-   await tracker.getByRole('button',{name:'PR: follow-up options',exact:true}).click()
+   await tracker.getByRole('button',{name:'PR: goal options',exact:true}).click()
    await w.page.getByRole('menuitem',{name:'Babysit the pull request',exact:true}).click()
    await expect(chat).toBeVisible()
    await chat.getByRole('button',{name:'Close Gaffer',exact:true}).click();await expect(chat).toBeHidden()
@@ -116,8 +116,8 @@ try{
    await w.context.grantPermissions(['clipboard-read','clipboard-write'])
    await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
    const tracker=await overview(w.page)
-   await tracker.getByRole('button',{name:'PR: follow-up options',exact:true}).click()
-   const menu=w.page.getByRole('menu',{name:'PR: follow-up options',exact:true})
+   await tracker.getByRole('button',{name:'PR: goal options',exact:true}).click()
+   const menu=w.page.getByRole('menu',{name:'PR: goal options',exact:true})
    await expect(w.page.getByText('Copy a message for the agent',{exact:true})).toBeVisible();await expect(menu).toHaveAccessibleDescription('Copy a message for the agent')
    await menu.getByRole('menuitem',{name:'Copy message for the agent: Babysit the pull request',exact:true}).click()
    await expect(tracker.getByRole('status')).toHaveText('Copied')

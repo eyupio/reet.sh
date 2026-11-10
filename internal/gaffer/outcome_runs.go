@@ -21,6 +21,9 @@ import (
 // OutcomeLaunch is one approved session for the launch path to start.
 type OutcomeLaunch struct {
 	AgentID, RequestID, Title, Tool, Model, Dir, ProjectID, Prompt string
+	// LinkProjectID ties a later stage's session to the outcome's project in
+	// the session list. It is not a project launch: no worktree is made for it.
+	LinkProjectID string
 	// Trust is the person's own confirmation, made when they approved the
 	// plan, that this folder's plugins may run in the agent.
 	Trust bool
@@ -220,54 +223,9 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
-	seen := map[string]bool{}
-	staged, trustless := 0, 0
-	sessions := make([]store.GafferOutcomeSession, 0, len(in.Sessions))
-	for i, item := range in.Sessions {
-		title, prompt := strings.TrimSpace(item.Title), strings.TrimSpace(item.Prompt)
-		if !terminalproto.ValidTitle(title) || seen[title] {
-			return o, invalid("sessions", "Give each session its own title of 1 to 80 plain characters.")
-		}
-		if prompt == "" || len(prompt) > MaxOutcomePromptBytes || !terminalproto.ValidPrompt(prompt) {
-			return o, invalid("sessions", "Write a prompt of at most 8,000 bytes without control characters for “"+title+"”.")
-		}
-		seen[title] = true
-		request, err := newChatID()
-		if err != nil {
-			return o, err
-		}
-		piece := store.GafferOutcomeSession{Key: string(rune('a' + i)), Title: title, Prompt: prompt, RequestID: request, Note: "Waiting its turn.", AutoMerge: in.AutoMerge}
-		if item.AutoMerge != nil {
-			piece.AutoMerge = *item.AutoMerge
-		}
-		last := -1
-		for _, stage := range item.Stages {
-			at := stageIndex(stage.Kind)
-			if at <= last {
-				return o, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once.")
-			}
-			last = at
-			tool, stageModel := stage.Tool, strings.TrimSpace(stage.Model)
-			if tool == "" {
-				tool, stageModel = in.Tool, model
-			}
-			if !terminalproto.ReviewedChatTool(tool) || stageModel != "" && !terminalproto.ValidModel(stageModel) {
-				return o, invalid("sessions", "Choose an agent that can run a Gaffer chat, and a model name it accepts, for every stage of “"+title+"”.")
-			}
-			if in.Trust && tool != "opencode" && tool != "antigravity" {
-				trustless++
-			}
-			id, err := newChatID()
-			if err != nil {
-				return o, err
-			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: tool, Model: stageModel, RequestID: id})
-		}
-		if len(piece.Stages) > 0 {
-			piece.Stages[0].RequestID = request
-		}
-		staged += len(piece.Stages)
-		sessions = append(sessions, piece)
+	sessions, err := outcomePieces(in.Sessions, in.Tool, model, in.AutoMerge, map[string]bool{}, 0)
+	if err != nil {
+		return o, err
 	}
 	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Trust: in.Trust, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
@@ -276,6 +234,56 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	}
 	s.wakeOutcomes()
 	return o, nil
+}
+
+// outcomePieces turns approved sessions into pipeline records. taken holds
+// the titles already used in the outcome and from is how many pieces it has,
+// so added pipelines get titles and keys of their own.
+func outcomePieces(items []OutcomeSession, tool, model string, autoMerge bool, taken map[string]bool, from int) ([]store.GafferOutcomeSession, error) {
+	out := make([]store.GafferOutcomeSession, 0, len(items))
+	for i, item := range items {
+		title, prompt := strings.TrimSpace(item.Title), strings.TrimSpace(item.Prompt)
+		if !terminalproto.ValidTitle(title) || taken[title] {
+			return nil, invalid("sessions", "Give each session its own title of 1 to 80 plain characters.")
+		}
+		if prompt == "" || len(prompt) > MaxOutcomePromptBytes || !terminalproto.ValidPrompt(prompt) {
+			return nil, invalid("sessions", "Write a prompt of at most 8,000 bytes without control characters for “"+title+"”.")
+		}
+		taken[title] = true
+		request, err := newChatID()
+		if err != nil {
+			return nil, err
+		}
+		piece := store.GafferOutcomeSession{Key: string(rune('a' + from + i)), Title: title, Prompt: prompt, RequestID: request, Note: "Waiting its turn.", AutoMerge: autoMerge}
+		if item.AutoMerge != nil {
+			piece.AutoMerge = *item.AutoMerge
+		}
+		last := -1
+		for _, stage := range item.Stages {
+			at := stageIndex(stage.Kind)
+			if at <= last {
+				return nil, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once.")
+			}
+			last = at
+			stageTool, stageModel := stage.Tool, strings.TrimSpace(stage.Model)
+			if stageTool == "" {
+				stageTool, stageModel = tool, model
+			}
+			if !terminalproto.ReviewedChatTool(stageTool) || stageModel != "" && !terminalproto.ValidModel(stageModel) {
+				return nil, invalid("sessions", "Choose an agent that can run a Gaffer chat, and a model name it accepts, for every stage of “"+title+"”.")
+			}
+			id, err := newChatID()
+			if err != nil {
+				return nil, err
+			}
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, RequestID: id})
+		}
+		if len(piece.Stages) > 0 {
+			piece.Stages[0].RequestID = request
+		}
+		out = append(out, piece)
+	}
+	return out, nil
 }
 
 func outcomeWantsTrust(in OutcomeInput) bool {
@@ -504,6 +512,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary string) {
 				continue
 			}
 			key := piece.Key
+			used, _ := s.store.GafferGoalFor(uid, conversation)
 			_, err = s.outcomeStep(uid, o.ID, func(o *store.GafferOutcome) bool {
 				for i := range o.Sessions {
 					row := &o.Sessions[i]
@@ -511,6 +520,8 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary string) {
 						continue
 					}
 					row.Stages[row.Stage].State, row.Stages[row.Stage].Summary, row.Stages[row.Stage].EndedAt = "done", clipBytes(summary, 1800), time.Now().UnixMilli()
+					// What Gaffer's model used on this stage is kept with it: the next stage's goal starts its own count.
+					row.Stages[row.Stage].Reviews, row.Stages[row.Stage].InputTokens, row.Stages[row.Stage].OutputTokens, row.Stages[row.Stage].UsageReported = used.UsedReviews, used.InputTokens, used.OutputTokens, used.UsageReported
 					row.State, row.Note, row.UpdatedAt = "advancing", "The "+row.Stages[row.Stage].Kind+" stage is done. Starting the next.", time.Now().UnixMilli()
 					if o.State != "stopped" {
 						o.State = "starting"
@@ -652,7 +663,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		if item.Stage > 0 && item.WorkDir != "" {
 			// A later stage works where the first one did. It is not a new
 			// project launch, so it gets no worktree of its own.
-			launch.Dir, launch.ProjectID = item.WorkDir, ""
+			launch.Dir, launch.ProjectID, launch.LinkProjectID = item.WorkDir, "", o.ProjectID
 		}
 	}
 	// The account is read again before every session: a person who lost

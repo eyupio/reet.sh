@@ -31,7 +31,7 @@ try {
     w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/'))requests.push({path:new URL(r.url()).pathname,method:r.method()})})
     try {
       await w.page.goto(base+'/')
-      const entry=w.page.getByRole('link',{name:'Gaffer: 1 follow-up needs review',exact:true})
+      const entry=w.page.getByRole('link',{name:'Gaffer: 1 goal needs you',exact:true})
       await expect(entry).toBeVisible();await expect(entry).toHaveAttribute('href','/factory')
       expect(await entry.evaluate(el=>el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
       expect(await w.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
@@ -39,7 +39,7 @@ try {
       // Refresh failures retain the last known count and explicitly label it as old.
       f.box.fail=true
       await w.page.evaluate(()=>window.dispatchEvent(new Event('reet:gaffer-goals-changed')))
-      await expect(w.page.getByRole('link',{name:'Gaffer: 1 follow-up needs review · last read',exact:true})).toBeVisible()
+      await expect(w.page.getByRole('link',{name:'Gaffer: 1 goal needs you · last read',exact:true})).toBeVisible()
       f.box.fail=false
       // With nothing followed the line goes; Home's own Factory button is always there.
       f.box.rows=[]
@@ -62,7 +62,7 @@ try {
   const failedWorkspace=await openWorkspace(browser,{width:390,routes:failed.routes})
   try {
     await failedWorkspace.page.goto(base+'/')
-    await expect(failedWorkspace.page.getByRole('link',{name:'Gaffer follow-ups unavailable',exact:true})).toHaveAttribute('href','/factory')
+    await expect(failedWorkspace.page.getByRole('link',{name:'Gaffer’s goals unavailable',exact:true})).toHaveAttribute('href','/factory')
   } finally {await failedWorkspace.context.close()}
   // The entry leads to the Factory page, where a goal is reviewed and stopped explicitly.
   for (const width of [1440,390]) {
@@ -71,11 +71,11 @@ try {
     w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')writes.push(new URL(r.url()).pathname)})
     try {
       const page=w.page
-      await page.goto(base+'/');await page.getByRole('link',{name:'Gaffer: 1 follow-up needs review',exact:true}).click()
+      await page.goto(base+'/');await page.getByRole('link',{name:'Gaffer: 1 goal needs you',exact:true}).click()
       await expect(page).toHaveURL(/\/factory$/)
       await expect(page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
       const floor=page.locator('[data-floor]')
-      await expect(floor.getByRole('list',{name:'Followed session goals',exact:true}).getByRole('listitem')).toHaveCount(2)
+      await expect(floor.getByRole('list',{name:'Sessions Gaffer looks after',exact:true}).getByRole('listitem')).toHaveCount(2)
       await expect(floor.getByRole('link',{name:'Open session',exact:true}).first()).toHaveAttribute('href','/sessions?agent=a1&session=worker-1&gaffer=1')
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
       expect(writes).toEqual([])
@@ -99,12 +99,12 @@ try {
     const needs=page.locator('#needs-you')
     await expect(needs.locator('.card')).toHaveCount(1)
     const card=needs.locator('.card',{hasText:'Release review'})
-    await expect(card.getByText('Gaffer follow-up also needs review',{exact:true})).toHaveCount(1)
+    await expect(card.getByText('Gaffer’s goal also needs you',{exact:true})).toHaveCount(1)
     await expect(needs.locator('.count')).toHaveText('1')
     await expect(page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
     await expect(page).toHaveTitle(/^\(1\) /)
     await expect(page.getByRole('link',{name:'Gaffer: following 1 session',exact:true})).toBeVisible()
-    await expect(page.getByRole('link',{name:/follow-ups? needs? review/})).toHaveCount(0)
+    await expect(page.getByRole('link',{name:/goals? needs? you/})).toHaveCount(0)
     expect(foldedWorkspace.errors).toEqual([]);expect(foldedWorkspace.state.unexpected).toEqual([])
   } finally {await foldedWorkspace.context.close()}
   // The only goal that needs review is on a session with an approval card, with nothing else followed: it is folded into
@@ -117,12 +117,12 @@ try {
     await page.goto(base+'/')
     const needs=page.locator('#needs-you')
     await expect(needs.locator('.card')).toHaveCount(1)
-    await expect(needs.locator('.card',{hasText:'Release review'}).getByText('Gaffer follow-up also needs review',{exact:true})).toHaveCount(1)
+    await expect(needs.locator('.card',{hasText:'Release review'}).getByText('Gaffer’s goal also needs you',{exact:true})).toHaveCount(1)
     await expect(needs.locator('.count')).toHaveText('1')
     await expect(page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
     await expect(page).toHaveTitle(/^\(1\) /)
-    await expect(page.getByRole('link',{name:'Gaffer: 1 follow-up is in Needs you',exact:true})).toHaveAttribute('href','/factory')
-    await expect(page.getByRole('link',{name:/follow-ups? needs? review/})).toHaveCount(0)
+    await expect(page.getByRole('link',{name:'Gaffer: 1 goal is in Needs you',exact:true})).toHaveAttribute('href','/factory')
+    await expect(page.getByRole('link',{name:/goals? needs? you/})).toHaveCount(0)
     expect(onlyWorkspace.errors).toEqual([]);expect(onlyWorkspace.state.unexpected).toEqual([])
   } finally {await onlyWorkspace.context.close()}
   console.log('Home follow-ups: six theme/width views, the entry as a link to the Factory with its wording, a goal folded into its session card (counted once, entry kept), no implicit writes or provider reads on Home, stale read, Home’s own Factory button, viewer/open-mode boundaries, and explicit review and stop on the Factory page passed.')

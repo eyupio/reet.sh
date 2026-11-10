@@ -5,6 +5,17 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: each outcome and pipeline now shows what Gaffer's own model has used
+  (reviews and tokens) and what is left of the stage's budget. Tokens only; reet
+  attaches no prices and does not see the working agents' usage. **Ask Gaffer for
+  a report** gives one account across an outcome's pipelines and may propose
+  pipelines, which are added only when you approve them. A pipeline that did not
+  start can be **tried again**. **Look after** beside a session's Gaffer chat box
+  starts at once when pre-approved. Wording is unified: look after, goal,
+  following, needs you. Adds `POST /api/v2/gaffer/outcomes/{id}/review`,
+  `POST /api/v2/gaffer/outcomes/{id}/sessions` and
+  `POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/retry`. Needs a controller
+  update.
 - **Factory** is now a page of its own, in the main navigation. Each outcome you
   give Gaffer is drawn as pipelines that move through plan, design, code, review,
   test, pull request, babysit and merge, with the agent and model doing each stage,

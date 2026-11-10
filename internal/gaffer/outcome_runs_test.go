@@ -599,11 +599,207 @@ func TestAGoalReviewHandsAPipelineStageOver(t *testing.T) {
 	}
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
 	tools := seen()
+	// What Gaffer's model used on the stage is kept with the stage.
+	if review.Stages[0].Reviews != 1 {
+		t.Fatalf("stage usage: %+v", review.Stages[0])
+	}
 	if review.Stages[0].Summary != "Endpoint and tests are in." || len(tools) == 0 || !strings.Contains(tools[0], `"hand_over"`) {
 		t.Fatalf("handed over: %+v", review.Stages[0])
 	}
 	// An ordinary goal is never offered the tool.
 	if strings.Contains(tools[0], `"propose_sessions"`) {
 		t.Fatal("a review was offered the planning tool")
+	}
+}
+
+func TestAStoppedPipelineIsTriedAgainOnlyWhenAsked(t *testing.T) {
+	r := outcomeFixture(t)
+	r.starter.refuse["Export API"] = "That agent isn't installed on that machine."
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := r.settle(t, created.ID)
+	failed := o.Sessions[0]
+	if failed.State != "failed" || len(r.starter.asked()) != 2 {
+		t.Fatalf("before retry: %+v", failed)
+	}
+	if _, err := r.s.RetryPipeline(r.p.UserID, created.ID, o.Sessions[1].Key, o.Revision); err == nil {
+		t.Fatal("a followed pipeline was tried again")
+	}
+	if _, err := r.s.RetryPipeline(r.p.UserID, created.ID, failed.Key, o.Revision-1); !errors.Is(err, store.ErrGafferOutcomeBusy) {
+		t.Fatalf("stale retry: %v", err)
+	}
+	r.starter.mu.Lock()
+	delete(r.starter.refuse, "Export API")
+	r.starter.mu.Unlock()
+	if _, err := r.s.RetryPipeline(r.p.UserID, created.ID, failed.Key, o.Revision); err != nil {
+		t.Fatal(err)
+	}
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	asked := r.starter.asked()
+	// The retry is a new request: the refused one is not replayed.
+	if len(asked) != 3 || asked[2].Title != "Export API" || asked[2].RequestID == asked[0].RequestID || again.SessionID == "" {
+		t.Fatalf("after retry: %+v launches=%+v", again, asked)
+	}
+}
+
+func TestPipelinesAreAddedToAnOutcomeOnlyWithApproval(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := r.settle(t, created.ID)
+	more := AddPipelinesInput{Revision: o.Revision, Confirmed: true, Sessions: []OutcomeSession{{Title: "Export docs", Prompt: "Document the export. Do not merge.", Stages: []OutcomeStageInput{{Kind: "code"}, {Kind: "pr"}}}}}
+	unapproved := more
+	unapproved.Confirmed = false
+	var bad *Invalid
+	if _, err := r.s.AddPipelines(r.p.UserID, created.ID, unapproved); !errors.As(err, &bad) {
+		t.Fatalf("unapproved: %v", err)
+	}
+	repeat := more
+	repeat.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Again. Do not merge."}}
+	if _, err := r.s.AddPipelines(r.p.UserID, created.ID, repeat); !errors.As(err, &bad) {
+		t.Fatalf("repeated title: %v", err)
+	}
+	if len(r.starter.asked()) != 2 {
+		t.Fatal("a refused addition started a session")
+	}
+	added, err := r.s.AddPipelines(r.p.UserID, created.ID, more)
+	if err != nil || len(added.Sessions) != 3 || added.State != "starting" || added.Sessions[2].Key == added.Sessions[1].Key {
+		t.Fatalf("added: %+v %v", added, err)
+	}
+	final := r.settle(t, created.ID)
+	docs := final.Sessions[2]
+	// A stage with no agent of its own takes the outcome's.
+	if docs.State != "following" || len(docs.Stages) != 2 || docs.Stages[0].Tool != "opencode" || docs.Stages[0].State != "running" {
+		t.Fatalf("added pipeline: %+v", docs)
+	}
+	many := AddPipelinesInput{Revision: final.Revision, Confirmed: true}
+	for i := 0; i < 5; i++ {
+		many.Sessions = append(many.Sessions, OutcomeSession{Title: "More " + string(rune('A'+i)), Prompt: "Do it. Do not merge."})
+	}
+	if _, err := r.s.AddPipelines(r.p.UserID, created.ID, many); err != nil {
+		t.Fatal(err)
+	}
+	over := AddPipelinesInput{Revision: mustOutcome(t, r, created.ID).Revision, Confirmed: true}
+	for i := 0; i < 3; i++ {
+		over.Sessions = append(over.Sessions, OutcomeSession{Title: "Over " + string(rune('A'+i)), Prompt: "Do it. Do not merge."})
+	}
+	if _, err := r.s.AddPipelines(r.p.UserID, created.ID, over); !errors.As(err, &bad) {
+		t.Fatalf("more than an outcome holds: %v", err)
+	}
+}
+
+// One report across an outcome goes to the outcome's own provider, carries
+// only what Gaffer already recorded, and proposes pipelines without starting any.
+func TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes(t *testing.T) {
+	r := outcomeFixture(t)
+	var mu sync.Mutex
+	var sent []string
+	r.reply = func(w http.ResponseWriter, req *http.Request) {
+		raw, _ := io.ReadAll(req.Body)
+		mu.Lock()
+		sent = append(sent, string(raw))
+		mu.Unlock()
+		args := `{"summary":"The endpoint is in review; nothing covers the docs.","proposals":[{"title":"Export docs","prompt":"Document the export in the README. Do not merge.","why":"No pipeline covers documentation.","stages":["code","pr"]},{"title":"Export API","prompt":"Repeat. Do not merge."}]}`
+		call, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "r1", "type": "function", "function": map[string]any{"name": "report_outcome", "arguments": args}}}}, "finish_reason": "tool_calls"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":300,\"completion_tokens\":80}}\n\ndata: [DONE]\n\n", call)
+	}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed on the branch.")
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	before := mustOutcome(t, r, created.ID)
+	launches := len(r.starter.asked())
+	if _, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, before.Revision-1); !errors.Is(err, store.ErrGafferOutcomeBusy) {
+		t.Fatalf("stale review: %v", err)
+	}
+	got, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, before.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := got.Report
+	if rep == nil || rep.Text != "The endpoint is in review; nothing covers the docs." || rep.InputTokens != 300 || rep.OutputTokens != 80 || !rep.UsageReported || rep.At == 0 {
+		t.Fatalf("report: %+v", rep)
+	}
+	// The proposal that repeats an existing pipeline is dropped; the other waits for the person.
+	if len(rep.Proposals) != 1 || rep.Proposals[0].Title != "Export docs" || strings.Join(rep.Proposals[0].Stages, ",") != "code,pr" || rep.Proposals[0].Why == "" {
+		t.Fatalf("proposals: %+v", rep.Proposals)
+	}
+	if len(got.Sessions) != 1 || len(r.starter.asked()) != launches {
+		t.Fatal("a report added or started a pipeline")
+	}
+	mu.Lock()
+	body := sent[len(sent)-1]
+	mu.Unlock()
+	for _, want := range []string{"Ship CSV export for billing.", "Pipeline 1: Export API", "Handover: Endpoint and tests are committed", "report_outcome", "review: running (in hand)"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("evidence lacks %q: %s", want, body)
+		}
+	}
+	// Approving the proposal is a separate, explicit step that clears it.
+	added, err := r.s.AddPipelines(r.p.UserID, created.ID, AddPipelinesInput{Revision: got.Revision, Confirmed: true, Sessions: []OutcomeSession{{Title: rep.Proposals[0].Title, Prompt: rep.Proposals[0].Prompt, Stages: []OutcomeStageInput{{Kind: "code"}, {Kind: "pr"}}}}})
+	if err != nil || len(added.Sessions) != 2 || added.Report == nil || len(added.Report.Proposals) != 0 || added.Report.Text == "" {
+		t.Fatalf("after approval: %+v %v", added, err)
+	}
+	// A provider no longer allowed session text is not sent the evidence.
+	row, err := r.st.GafferProviderFor(r.p.UserID, created.ProviderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := inputFrom(row)
+	in.AllowCode = false
+	if _, err = r.s.Save(r.p, in); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	calls := len(sent)
+	mu.Unlock()
+	var bad *Invalid
+	if _, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, mustOutcome(t, r, created.ID).Revision); !errors.As(err, &bad) {
+		t.Fatalf("review with session text revoked: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sent) != calls {
+		t.Fatal("the evidence was sent to a provider that may no longer read session text")
+	}
+}
+
+func TestALaterStageSessionIsListedUnderItsProject(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Done.")
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	if asked := r.starter.asked(); asked[1].LinkProjectID != r.project.ID || asked[1].ProjectID != "" {
+		t.Fatalf("later stage launch: %+v", asked[1])
+	}
+	// The link holds only for a session working in the project's folder or one of its worktrees.
+	if err := r.st.LinkTerminalSessionProjectFor(r.p.UserID, review.SessionID, r.project.ID); err != nil {
+		t.Fatal(err)
+	}
+	row, err := r.st.TerminalSessionFor(r.p.UserID, review.SessionID)
+	if err != nil || row.ProjectID == nil || *row.ProjectID != r.project.ID {
+		t.Fatalf("linked session: %+v %v", row.ProjectID, err)
+	}
+	elsewhere, _, err := r.st.ReserveTerminalCreateFor(r.p.UserID, r.project.Host, strings.Repeat("7", 32), r.starter.gen, terminalproto.Create{Title: "Elsewhere", Tool: "opencode", Structured: true, Dir: "/work/other", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.LinkTerminalSessionProjectFor(r.p.UserID, elsewhere.ID, r.project.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a session outside the project was linked: %v", err)
 	}
 }

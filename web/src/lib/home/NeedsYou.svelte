@@ -59,7 +59,7 @@
           <span class="kind">{card.label} · {card.age}</span>
           <span class="title">{card.title}</span>
           {#if metaLine(card)}<span class="meta">{metaLine(card)}</span>{/if}
-          {#if card.reasons.includes('gaffer')}<span class="meta">Gaffer follow-up also needs review</span>{/if}
+          {#if card.reasons.includes('gaffer')}<span class="meta">Gaffer’s goal also needs you</span>{/if}
           {#if card.approval}<Approval sessionId={card.sessionId} approval={card.approval} {onanswered} />{/if}
           {#if card.question}
             <p class="ask">{card.question.message}{#if card.question.queued > 0}<span class="more"> · {card.question.queued} more waiting</span>{/if}</p>

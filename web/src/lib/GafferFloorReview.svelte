@@ -67,7 +67,7 @@
       try { await startOne(session, provider.id); done.push({ id: session.id, title: session.title, ok: true, note: 'Gaffer waits for new worker progress.' }) }
       catch (e) {
         if (life.signal.aborted) return
-        done.push({ id: session.id, title: session.title, ok: false, note: e instanceof Error ? e.message : 'Follow-up was not started.' })
+        done.push({ id: session.id, title: session.title, ok: false, note: e instanceof Error ? e.message : 'Looking after was not started.' })
       }
     }
     progress = ''; outcomes = done; busy = false
@@ -79,7 +79,7 @@
   <div class="review">
     {#if outcomes}
       <p role="status" class="summary">{floorSummary(outcomes)}</p>
-      <ul class="outcomes" aria-label="Follow-up results">
+      <ul class="outcomes" aria-label="Results">
         {#each outcomes as item (item.id)}<li class:failed={!item.ok}><strong>{item.title}</strong><span>{item.ok ? 'Following' : 'Not started'} · {item.note}</span></li>{/each}
       </ul>
       <p class="hint">Each session has its own goal, budget and conversation. Pause, change or stop any of them from its card.</p>
@@ -110,7 +110,7 @@
         {#if blocker}<p class="warning" role="status">{blocker}</p>{:else if !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
         {#if error}<p class="warning" role="alert">{error}</p>{/if}
         {#if progress}<p role="status">{progress}</p>{/if}
-        <div class="actions"><button class="btn primary" type="submit" disabled={busy || loading || !!blocker || !limitsOk}>{busy ? 'Starting…' : `Start follow-up for ${sessions.length} ${many ? 'sessions' : 'session'}`}</button><button class="btn quiet" type="button" disabled={busy} onclick={onclose}>Cancel</button></div>
+        <div class="actions"><button class="btn primary" type="submit" disabled={busy || loading || !!blocker || !limitsOk}>{busy ? 'Starting…' : `Look after ${sessions.length} ${many ? 'sessions' : 'session'}`}</button><button class="btn quiet" type="button" disabled={busy} onclick={onclose}>Cancel</button></div>
       </form>
     {/if}
   </div>

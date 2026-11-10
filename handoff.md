@@ -58,6 +58,12 @@ hand-over; a **merge gate** (per-pipeline auto-merge with an account default, ot
 approval); and two account settings, looking-after pre-approved by default and the auto-merge default. Read "The Factory
 page and staged pipelines" in the handoff for the three decisions, the contract and what is still owed.
 
+A fifth PR followed #719: one-click look-after inside a session's chat, later-stage sessions listed under their project,
+**Try again** for a stopped pipeline, **usage** (Gaffer's reviews and tokens per stage, pipeline and outcome, with reviews
+and time left; tokens only, no prices), a **report across an outcome** on request with **proposed pipelines** that wait for
+approval, and one vocabulary (look after / goal / following / needs you). See "Owed items, smarter outcomes, usage and
+wording" in the handoff.
+
 ## OVERVIEW-4: the Overview leads with what matters (8 November 2026)
 
 Follow-up to OVERVIEW-3 on the session workspace's right-hand panel.

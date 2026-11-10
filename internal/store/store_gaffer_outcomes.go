@@ -13,6 +13,8 @@ import (
 const (
 	MaxGafferOutcomes        = 30
 	MaxGafferOutcomeSessions = 5
+	// MaxGafferOutcomePipelines bounds an outcome after pipelines are added to it.
+	MaxGafferOutcomePipelines = 10
 )
 
 var (
@@ -42,6 +44,32 @@ type GafferOutcomeStage struct {
 	Summary        string `json:"summary,omitempty"`
 	StartedAt      int64  `json:"startedAt,omitempty"`
 	EndedAt        int64  `json:"endedAt,omitempty"`
+	// What Gaffer's own model used following this stage, recorded when the
+	// stage was handed over. It is Gaffer's usage, not the working agent's.
+	Reviews       int  `json:"reviews,omitempty"`
+	InputTokens   int  `json:"inputTokens,omitempty"`
+	OutputTokens  int  `json:"outputTokens,omitempty"`
+	UsageReported bool `json:"usageReported,omitempty"`
+}
+
+// GafferOutcomeReport is Gaffer's account of the whole outcome, made when
+// the person asks for one. Proposals are pipelines it suggests adding; none
+// exists until the person approves it.
+type GafferOutcomeReport struct {
+	Text          string                  `json:"text"`
+	At            int64                   `json:"at"`
+	Model         string                  `json:"model"`
+	InputTokens   int                     `json:"inputTokens"`
+	OutputTokens  int                     `json:"outputTokens"`
+	UsageReported bool                    `json:"usageReported"`
+	Proposals     []GafferOutcomeProposal `json:"proposals,omitempty"`
+}
+
+type GafferOutcomeProposal struct {
+	Title  string   `json:"title"`
+	Prompt string   `json:"prompt"`
+	Stages []string `json:"stages,omitempty"`
+	Why    string   `json:"why,omitempty"`
 }
 
 type GafferOutcomeSession struct {
@@ -83,6 +111,7 @@ type GafferOutcome struct {
 	MaxReviews  int                    `json:"maxReviews"`
 	Hours       int                    `json:"hours"`
 	Sessions    []GafferOutcomeSession `json:"sessions"`
+	Report      *GafferOutcomeReport   `json:"report,omitempty"`
 	CreatedAt   int64                  `json:"createdAt"`
 	UpdatedAt   int64                  `json:"updatedAt"`
 }
@@ -238,4 +267,21 @@ func (s *Store) UpdateGafferOutcomeFor(uid int64, id string, revision int64, cha
 		return o, err
 	}
 	return o, tx.Commit()
+}
+
+// LinkTerminalSessionProjectFor records that a session belongs to a folder
+// project. It is for a later pipeline stage, which starts inside the worktree
+// its first stage was given: the session's folder must be the project's own
+// folder or one of its reet worktrees, on the project's machine.
+func (s *Store) LinkTerminalSessionProjectFor(uid int64, sessionID, projectID string) error {
+	res, err := s.db.Exec(`UPDATE terminal_sessions SET project_id=? WHERE id=? AND user_id=? AND project_id IS NULL
+ AND EXISTS(SELECT 1 FROM folder_projects p WHERE p.id=? AND p.user_id=? AND p.host=terminal_sessions.agent_id
+  AND (terminal_sessions.dir=p.dir OR substr(terminal_sessions.dir,1,length(p.dir)+17)=p.dir||'/.reet/worktrees/'))`, projectID, sessionID, uid, projectID, uid)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

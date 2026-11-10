@@ -72,7 +72,10 @@ try{
   await picker.getByRole('link',{name:'Open First worker',exact:true}).click()
   await expect(p.locator('.session-screen .title')).toHaveText('First worker')
   await expect(chat).toContainText('First worker')
-  await chat.getByRole('button',{name:'Look after this session',exact:true}).click()
+  // Arriving and looking at the review share and start nothing. The review is under Chat options; the composer's own
+  // control is the one-click start, which a person has pre-approved in Gaffer settings.
+  await chat.getByRole('button',{name:'Chat options',exact:true}).click()
+  await p.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Look after this session',exact:true}).click()
   await expect(p.getByRole('dialog',{name:'Look after this session',exact:true})).toContainText('Give Gaffer a goal')
   expect(w.box.writes.filter(x=>!x.path.endsWith('/seen'))).toEqual([])
   expect(w.errors).toEqual([]);await w.context.close()

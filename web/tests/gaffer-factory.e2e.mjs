@@ -25,7 +25,7 @@ const outcomes=[{id:'e'.repeat(32),revision:5,objective:'Ship CSV export for bil
 ]}]
 const goals=[goal('1'.repeat(32),'s1','Export API','active',false,'The endpoint and its tests are committed. The review found one missing error case and is fixing it.'),goal('2'.repeat(32),'s2','Export button','needs_user',true,'The button is in, but the design leaves the empty state open. Which of the two do you want?'),goal('5'.repeat(32),'s5','Login tokens','active',false,'Checks are green.')]
 const sessions=['s1','s2','s3','s4','s5','s6'].map((id,n)=>({id,agentId:'a1',title:['Export API','Export button','Export docs','Importer retry','Login tokens','Docs refresh'][n],state:'running',structured:true,tool:'claude',dir:'/work/x',createdAt:now,updatedAt:now,exitCode:null}))
-const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,acp:true,acpLiveControls:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available'},{tool:'codex',adapter:'codex-acp',state:'available'}]}}]
+const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available'},{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
 const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',createdAt:now,updatedAt:now}]
 const routesFor=box=>({'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
@@ -119,11 +119,17 @@ try {
       await agent.selectOption('codex')
       await add.getByRole('combobox',{name:'Model for Changelog entry',exact:true}).selectOption('gpt-5-codex')
       await add.getByRole('combobox',{name:'Effort for Changelog entry',exact:true}).selectOption('low')
+      // A crew can do its stages: the shipping stage goes back to the outcome's own agent, which reports no effort here.
+      await add.getByText('Choose who does what',{exact:true}).click()
+      await expect(add.getByRole('combobox',{name:'Building agent for Changelog entry',exact:true})).toHaveValue('codex')
+      await add.getByRole('combobox',{name:'Shipping agent for Changelog entry',exact:true}).selectOption('claude')
+      await expect(add.getByRole('combobox',{name:'Shipping effort for Changelog entry',exact:true})).toBeDisabled()
+      await expect(add.getByText('2 agent sessions for 2 stages.',{exact:false})).toBeVisible()
       expect(await add.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await add.screenshot({path:`${shots}/gaffer-factory-add-${width}-${theme}.png`})
       await add.getByRole('button',{name:'Add pipeline',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Added'})).toHaveText('Added “Changelog entry”. The controller is starting it.')
-      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low'},{kind:'pr',tool:'codex',model:'gpt-5-codex',effort:'low'}]}]}])
+      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low'},{kind:'pr',tool:'claude',model:''}]}]}])
       await expect(pipes).toHaveCount(4);await expect(report.getByRole('list',{name:'Proposed pipelines',exact:true})).toHaveCount(0)
       await expect(totals).toContainText('Gaffer tokens4,884')
       expect(box.reviews).toEqual([{revision:6}])

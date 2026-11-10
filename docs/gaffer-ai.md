@@ -253,7 +253,12 @@ project's machine, your favourites and reet's suggestions; **Other…** takes a
 name none of them has. The model beside the main agent applies to every stage
 until you give a crew role its own.
 
-**Effort** works the same way, for agents that take one: set it for the whole
+Tick **Have Gaffer report across this outcome by itself** (on unless you untick
+it) and Gaffer makes that report without being asked when a pipeline finishes or
+stops: one request to its model each time, at most six for an outcome and never
+within ten minutes of the last. It only reports and proposes.
+
+**Effort** works the same way, for agents whose machine reports thinking levels: set it for the whole
 outcome beside the main agent, or per crew role, so the thinking stages can run
 at high effort while babysitting and merging run at low. A change of agent,
 model or effort between two stages starts a new session for the later one.

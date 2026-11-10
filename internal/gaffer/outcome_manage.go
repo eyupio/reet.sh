@@ -92,6 +92,28 @@ func (s *Service) AddPipelines(uid int64, id string, in AddPipelinesInput) (stor
 	if len(in.Sessions) < 1 || len(in.Sessions) > store.MaxGafferOutcomeSessions {
 		return store.GafferOutcome{}, invalid("sessions", "Add between 1 and 5 pipelines at a time.")
 	}
+	// Approving pipelines is a decision about the pipelines named, not about
+	// the rest of the record, which keeps moving while the person reads. It is
+	// applied to the outcome as it now stands, and what is added is checked
+	// against that: the limit, the titles in use and the outcome's own rules.
+	var o store.GafferOutcome
+	for attempt := 0; ; attempt++ {
+		var err error
+		o, err = s.addPipelinesOnce(uid, id, in)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, store.ErrGafferOutcomeBusy) || attempt >= 8 {
+			return outcomeView(o), err
+		}
+	}
+	s.wakeOutcomes()
+	return outcomeView(o), nil
+}
+
+// addPipelinesOnce adds the pipelines to the outcome as it is read now. It
+// reports ErrGafferOutcomeBusy when the record moved in between.
+func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (store.GafferOutcome, error) {
 	current, err := s.store.GafferOutcomeFor(uid, id)
 	if err != nil {
 		return current, err
@@ -117,7 +139,7 @@ func (s *Service) AddPipelines(uid int64, id string, in AddPipelinesInput) (stor
 			}
 		}
 	}
-	o, err := s.store.UpdateGafferOutcomeFor(uid, id, in.Revision, func(o *store.GafferOutcome) bool {
+	o, err := s.store.UpdateGafferOutcomeFor(uid, id, current.Revision, func(o *store.GafferOutcome) bool {
 		now := time.Now().UnixMilli()
 		for i := range pieces {
 			pieces[i].State, pieces[i].UpdatedAt = "waiting", now
@@ -133,11 +155,7 @@ func (s *Service) AddPipelines(uid int64, id string, in AddPipelinesInput) (stor
 		}
 		return true
 	})
-	if err != nil {
-		return outcomeView(o), err
-	}
-	s.wakeOutcomes()
-	return outcomeView(o), nil
+	return o, err
 }
 
 var reportOutcomeTool = elicore.Tool{Name: "report_outcome", Description: "Give the user one account of the whole outcome across its pipelines, and optionally propose pipelines to add. Proposals start nothing: the user reviews and approves them.", Parameters: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":3000},"proposals":{"type":"array","maxItems":3,"items":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":80},"prompt":{"type":"string","minLength":1,"maxLength":6000},"why":{"type":"string","maxLength":400},"stages":{"type":"array","maxItems":8,"items":{"type":"string","enum":["plan","design","code","review","test","pr","babysit","merge"]}}},"required":["title","prompt"],"additionalProperties":false}}},"required":["summary"],"additionalProperties":false}`)}
@@ -151,14 +169,19 @@ const outcomeReviewSystem = "You are Gaffer, the user's warm, practical critical
 // work the provider was allowed to read, starts nothing, and saves the report
 // with any proposals for the person to decide on.
 func (s *Service) ReviewOutcome(parent context.Context, p Principal, id string, revision int64) (store.GafferOutcome, error) {
-	o, err := s.store.GafferOutcomeFor(p.UserID, id)
-	if err != nil {
-		return o, err
-	}
 	// A report changes nothing the person decides on, and pipelines keep
 	// moving while it is asked for and written. It is therefore not refused
 	// for an older revision: it reads the record as it is now.
 	_ = revision
+	return s.reviewOutcome(parent, p, id, false)
+}
+
+// reviewOutcome makes the report. auto marks one Gaffer made unasked.
+func (s *Service) reviewOutcome(parent context.Context, p Principal, id string, auto bool) (store.GafferOutcome, error) {
+	o, err := s.store.GafferOutcomeFor(p.UserID, id)
+	if err != nil {
+		return o, err
+	}
 	old, err := s.store.GafferProviderFor(p.UserID, o.ProviderID)
 	if err != nil {
 		return outcomeView(o), invalid("provider", "This outcome's Gaffer provider is no longer available.")
@@ -187,7 +210,7 @@ func (s *Service) ReviewOutcome(parent context.Context, p Principal, id string, 
 		return outcomeView(o), planFailure(parent, err)
 	}
 	defer stream.Close()
-	report := store.GafferOutcomeReport{Model: cfg.Model}
+	report := store.GafferOutcomeReport{Model: cfg.Model, Auto: auto}
 	var calls []elicore.ToolCall
 	cut := false
 	for {

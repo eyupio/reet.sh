@@ -558,6 +558,42 @@ Antigravity is picked, because their launch is refused in a folder with plugins.
 Tests: `TestAnAddedPipelineCanRunOnItsOwnAgentModelAndEffort`, and
 `gaffer-factory.e2e.mjs` (agent list, model, effort, what is sent).
 
+## Four follow-ups (10 November 2026, after #726)
+
+The owner asked for all four of the remaining items.
+
+1. **Adding pipelines is not refused when the record moved.** `AddPipelines`
+   applies the approval to the outcome as it stands (`addPipelinesOnce`, retried
+   on `ErrGafferOutcomeBusy`); the limit, titles and YOLO rule are checked
+   against that record. Its `revision` is no longer compared. Retry, stop and
+   merge approval stay revision-checked.
+2. **Effort is the agent's own level, for every chat agent.** Every outcome
+   session is a structured chat, whose effort is one of the thinking levels the
+   machine reports for that agent (`launchEfforts(tool, caps, true)`), not reet's
+   low/medium/high terminal presets. The dialogs now offer those, so OpenCode
+   gets an effort wherever its machine reports levels, and the controller
+   accepts any effort that is a valid name (`ValidModel`) instead of
+   `ValidEffort` + `ToolTakesEffort`. The agent confirms the level for the model
+   before any prompt is sent; a level it does not confirm fails the launch with
+   the agent's own message. **This corrects the effort shipped in #722**, which
+   offered the terminal presets for chats.
+3. **Gaffer reports by itself.** `GafferOutcome.AutoReport` (the person's choice
+   at approval, on by default in the dialog) has the outcome supervisor ask for
+   a report when the set of pipelines that are done, ready to merge, not started
+   or unfollowed changes (`autoReportEvent`). It is bounded: one report per
+   event (`AutoReportedFor`, recorded before the request), at most six per
+   outcome, not within ten minutes of the last report, never for a stopped
+   outcome. It is the same request as a report on demand, to the outcome's own
+   provider under the same gates, marked `report.auto`; it starts nothing, and
+   proposals arrive unticked.
+4. **A crew for an added pipeline.** `AddPipelines.svelte` gives each pipeline
+   an agent, model and effort and, under "Choose who does what", one per role;
+   it sends `stagePlan` for anything changed.
+
+Tests: `TestGafferReportsByItselfOncePerPipelineEventWhenAsked`, the added
+pipeline test (now with a stale revision), the effort tests, and the two Factory
+browser suites. Synthetic only.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

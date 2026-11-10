@@ -5,6 +5,8 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: when you approve pipelines Gaffer proposed, each one can be given its
+  own agent, model and effort. Left alone it uses the outcome's.
 - The Library now tells you when a connected machine holds a different version
   of a skill than the copy reet has saved, and lets you choose. **Use that
   machine's version** saves its files as the skill's next version, in the same

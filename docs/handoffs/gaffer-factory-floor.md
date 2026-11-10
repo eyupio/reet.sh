@@ -543,6 +543,21 @@ Adding pipelines, retry, stop and merge approval stay revision-checked.
   role, from the web catalogue's effort flag, so OpenCode (no launch effort in
   `agentOptions`) shows none even though its live chat has an effort control.
 
+## Added pipelines choose their own agent, model and effort (10 November 2026, after #722)
+
+Asked for by the owner. `factory/AddPipelines.svelte` replaces the plain
+confirmation: each ticked proposal has an Agent, Model (`GafferModelSelect`) and
+Effort, starting from the outcome's. Left unchanged, a pipeline's stages are sent
+as `{kind}` and the controller fills in the outcome's agent and model as before;
+changed, every stage carries `tool`, `model` and `effort`. No controller change
+was needed: `AddPipelines` already validates stages like a new outcome's
+(`outcomePieces`), and a YOLO outcome still refuses an agent without a YOLO
+option. One agent runs the whole added pipeline; per-role crews are not offered
+here. An outcome approved without folder trust shows a warning when OpenCode or
+Antigravity is picked, because their launch is refused in a folder with plugins.
+Tests: `TestAnAddedPipelineCanRunOnItsOwnAgentModelAndEffort`, and
+`gaffer-factory.e2e.mjs` (agent list, model, effort, what is sent).
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

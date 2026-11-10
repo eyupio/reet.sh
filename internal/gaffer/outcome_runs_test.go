@@ -916,3 +916,31 @@ func TestGafferChatIsToldWhereItsSessionSitsInThePipeline(t *testing.T) {
 		t.Fatal("a session outside any pipeline was given one")
 	}
 }
+
+func TestAnAddedPipelineCanRunOnItsOwnAgentModelAndEffort(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created = r.settle(t, created.ID)
+	stages := []OutcomeStageInput{{Kind: "code", Tool: "claude", Model: "opus", Effort: "high"}, {Kind: "pr", Tool: "claude", Model: "opus", Effort: "high"}}
+	added, err := r.s.AddPipelines(r.p.UserID, created.ID, AddPipelinesInput{Revision: created.Revision, Confirmed: true, Sessions: []OutcomeSession{{Title: "Docs", Prompt: "Document it. Do not merge.", Stages: stages}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs := added.Sessions[len(added.Sessions)-1]
+	if len(docs.Stages) != 2 || docs.Stages[0].Tool != "claude" || docs.Stages[0].Model != "opus" || docs.Stages[1].Effort != "high" || docs.AutoMerge {
+		t.Fatalf("added pipeline: %+v", docs)
+	}
+	// What it is given is checked like a new outcome's: an effort the agent cannot take is refused and nothing is added.
+	bad := []OutcomeStageInput{{Kind: "code", Tool: "opencode", Effort: "high"}}
+	var refused *Invalid
+	if _, err := r.s.AddPipelines(r.p.UserID, created.ID, AddPipelinesInput{Revision: mustOutcome(t, r, created.ID).Revision, Confirmed: true, Sessions: []OutcomeSession{{Title: "More", Prompt: "Do it. Do not merge.", Stages: bad}}}); !errors.As(err, &refused) && !errors.Is(err, store.ErrGafferOutcomeBusy) {
+		t.Fatalf("an effort OpenCode cannot take: %v", err)
+	}
+	if now := mustOutcome(t, r, created.ID); len(now.Sessions) != len(added.Sessions) {
+		t.Fatalf("a refused pipeline was added: %+v", now.Sessions)
+	}
+}

@@ -291,8 +291,10 @@ waiting on you, and whether the pipelines together will meet the outcome.
 
 Gaffer may also **propose pipelines** to add: work nothing covers, or a
 replacement for one that stopped. Each shows why and the stages it would run.
-Tick the ones you want and choose **Add pipelines**; they use the outcome's agent
-and never merge by themselves. Nothing is added or started unless you approve it,
+Tick the ones you want and choose **Add pipelines**. The approval lists each one
+with its own **Agent**, **Model** and **Effort**, starting from the outcome's:
+change them to put a stronger model on a hard job or a cheaper one on a chore.
+Added pipelines never merge by themselves. Nothing is added or started unless you approve it,
 and an outcome holds at most ten pipelines.
 
 A new installation sees **Set up your factory** instead: connect a machine, add a

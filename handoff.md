@@ -51,6 +51,13 @@ stops on a restore. It also fixes six defects an independent review found in the
 plugin-trust tick for an outcome, and bulk pause/stop on the floor. Read "Controller-owned outcomes" in the handoff; it
 supersedes the browser-orchestration limits recorded for #715.
 
+The fourth PR (#718) first aligned the widget, floor and outcome dialog, then made the factory first-class: a **Factory**
+page and navigation tab that draws each outcome's work as pipelines; **staged pipelines** (plan, design, code, review,
+test, PR, babysit, merge) where each stage has its own agent and model and the controller starts the next on Gaffer's
+hand-over; a **merge gate** (per-pipeline auto-merge with an account default, otherwise Ready to merge and an explicit
+approval); and two account settings, looking-after pre-approved by default and the auto-merge default. Read "The Factory
+page and staged pipelines" in the handoff for the three decisions, the contract and what is still owed.
+
 ## OVERVIEW-4: the Overview leads with what matters (8 November 2026)
 
 Follow-up to OVERVIEW-3 on the session workspace's right-hand panel.

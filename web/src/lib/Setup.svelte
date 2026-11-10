@@ -75,6 +75,7 @@
     <button type="submit" class="btn primary submit" disabled={busy} aria-busy={busy}>{busy ? 'Creating…' : 'Create account'}</button>
   </form>
   <p class="setup-next">Enrol your first machine, enable terminal access with local consent, and open your workspace. Everything stays on this server: no telemetry, one SQLite file.</p>
+  <p class="setup-next">Then open <strong>Factory</strong>. It walks you through the three things Gaffer needs before he can run work for you: a connected machine, a project folder, and a model of his own. After that you hand him an outcome and approve his plan.</p>
 </AuthCard>
 
 <style>

@@ -294,6 +294,100 @@ Not changed, and worth a decision: the vocabulary still mixes "look after",
 "follow", "follow-up" and "goal" across the widget, floor and Home. Unifying it
 touches many strings and tests, so it was left for an explicit choice of terms.
 
+## The Factory page and staged pipelines (10 November 2026)
+
+The user asked for the factory to be a first-class use case, a page rather than a
+modal, showing work as production pipelines; for Gaffer's enablement to be a
+global setting, on by default, with per-session overrides and setup guidance; and
+named the typical flow: plan, design, code, review, test, PR, babysit, merge, with
+the plan able to say which agent and model does which part.
+
+### Decisions the user made
+
+1. **Staged handoffs.** Each pipeline moves through stages, each with its own agent
+   and model, and the controller starts the next stage on a hand-over. Not chosen:
+   one session per pipeline with stages only displayed, or page first and engine
+   later.
+2. **Merge.** Auto-merge is a setting per pipeline, with a global default. (Asked
+   as "who merges"; the user answered in their own words.) The global default ships
+   **off**: that value is this agent's choice, not the user's stated one.
+3. **Pre-approved, one click.** With the global setting on, asking Gaffer to look
+   after a session starts at once with the usual goal and limits. Nothing is sent
+   to the provider until the person asks. Not chosen: following every session
+   automatically, or covering factory pipelines only.
+
+### Contract
+
+- **Stages** (`internal/gaffer/outcome_runs.go`): `StageKinds` is the fixed order
+  plan, design, code, review, test, pr, babysit, merge. A planned session with
+  `stages` is a pipeline; each stage carries the agent and model the person
+  approved. Stages may be left out, never reordered or repeated. A session without
+  stages behaves exactly as before.
+- **Hand-over.** A review of a pipeline stage's goal is also offered `hand_over`
+  (`worker_tools.go`). It takes a summary and nothing else. After the review is
+  saved, `stageHandedOver` marks the stage done, closes that stage's goal as
+  **stopped** ("handed over", never the person's "completed") and asks the
+  controller to advance. An ordinary goal is never offered the tool.
+- **Advance** (`advancePipeline`). The next stage keeps the session when the same
+  agent and model do it, under a fresh goal and budget; otherwise the controller
+  starts a new session in the first stage's working folder (`WorkDir`, the
+  worktree in a git project) with the brief, the last handover and the stage's
+  instruction. Later stages name no project, so they get no second worktree.
+  Every launch still goes through `outcomeStarter`: no YOLO, audited.
+- **Merge gate.** The merge stage starts only if the pipeline has `autoMerge` or
+  `mergeApproved`. Otherwise the pipeline is `ready_to_merge` and nothing starts.
+  `POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge {revision, confirmed}`
+  is the approval (writer browser, canonical origin; activity
+  `gaffer-pipeline-merge-approved`). The merge goal says to merge only when every
+  check passes, no review thread is open and there are no conflicts; every other
+  stage's goal ends "Do not merge." The working agent merges under its own
+  approvals: Gaffer still has no GitHub path.
+- **Plans.** `propose_sessions` may list `stages` (kinds only). The parsed plan has
+  no field for an agent, model or auto-merge, so the provider cannot set them; the
+  crew and the merge tick come from the browser, from the person.
+- **Profile.** `gaffer_standing` (default 1) and `gaffer_auto_merge` (default 0)
+  on `user_profiles`. `gafferStanding` only changes whether the browser shows the
+  review before starting; the controller enforces nothing new from it. Per-session
+  override is the existing review, pause and stop on that session.
+- **Page.** `/factory` (`web/src/lib/factory/Factory.svelte`), a tab after Home.
+  It reads outcomes and goals every five seconds and starts nothing. The floor's
+  session sections render inline there (`GafferFollowedSessions inline`); the
+  dialog form remains only behind **Chat options → Factory floor**. Home's Gaffer
+  line and the chat's entries are links to the page; `?outcome=1` opens the
+  outcome dialog.
+
+### Validation
+
+`outcome_runs_test.go`: a pipeline through code (new model → new session in the
+worktree, handover in the prompt), review to test (same model → same session,
+fresh goal), the merge gate with stale and foreign approvals refused, merge goal
+wording, done; auto-merge per outcome and overridden per pipeline; stage order and
+agent validation; and a real goal review whose provider calls `hand_over`.
+`gaffer_outcomes_test.go` adds the merge route's refusals. Browser:
+`gaffer-factory.e2e.mjs` (tab, tiles, tracks, merge approval, setup guidance,
+settings), `gaffer-outcome.e2e.mjs` (crew, stages, auto-merge, exact approved
+body), `gaffer-floor.e2e.mjs` and `home-followups.e2e.mjs` moved to the page,
+`navigation` and `shell-fidelity` updated for the fifth tab.
+
+### Not done, and known limits
+
+- **No real run.** Everything is synthetic. The hand-over depends on Gaffer's
+  model judging a stage done from the worker's reports; how well that works with
+  real models is untested. A model that never hands over leaves a pipeline at its
+  stage until its review budget runs out.
+- **The session chat is not one-click yet.** "Look after this session" inside a
+  session's Gaffer chat still opens the review; only the Factory list starts at
+  once. The user chose one-click for ordinary sessions, so this is owed.
+- **Later-stage sessions are not tied to the project** in the session list,
+  because they launch in the worktree folder without a project ID.
+- A stage that fails to start leaves the pipeline stopped; there is no retry or
+  re-plan, and Gaffer does not see sibling pipelines.
+- Per-stage budgets are the outcome's one budget, renewed for each stage.
+- No token prices: the crew is the person's choice of agent and model; reet does
+  not know or compare prices.
+- The floor dialog and the page list duplicate some wording; the vocabulary
+  ("look after", "follow", "goal") is still mixed.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

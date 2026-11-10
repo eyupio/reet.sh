@@ -9,7 +9,9 @@
   import { floorBlocker, floorSummary, readFloorDefaults, writeFloorDefaults, MAX_GOAL_BYTES, type FloorOutcome, type FloorSession } from './gafferFloor'
   import { toolName } from './agentLaunch'
 
-  let { sessions, room, userId = 0, onclose, onstarted }: {
+  let { sessions, room, userId = 0, auto = false, onclose, onstarted }: {
+    /** The person has pre-approved looking after sessions: start with their usual goal and limits, with no form to fill. */
+    auto?: boolean;
     sessions: FloorSession[]; room: number; userId?: number; onclose: () => void; onstarted: () => void | Promise<void>
   } = $props()
   const formId = $props.id()
@@ -31,7 +33,7 @@
     void getGafferSettings(life.signal).then(settings => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
     }).catch(e => { if (!life.signal.aborted) error = e instanceof Error ? e.message : 'Gaffer settings could not be read.' })
-      .finally(() => { loading = false })
+      .finally(() => { loading = false; if (auto && provider && !floorBlocker({ chosen: sessions.length, room, text, provider: true }) && limitsOk) void start() })
     return () => life.abort()
   })
 

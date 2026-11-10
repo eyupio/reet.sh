@@ -5,6 +5,18 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Factory** is now a page of its own, in the main navigation. Each outcome you
+  give Gaffer is drawn as pipelines that move through plan, design, code, review,
+  test, pull request, babysit and merge, with the agent and model doing each stage,
+  reviews used, and what is waiting on you. When you approve a plan you choose the
+  crew (which agent and model does the thinking, building and shipping stages) and
+  the stages each pipeline runs. The controller starts the next stage when Gaffer
+  hands one over. A pipeline stops at **Ready to merge** until you approve it,
+  unless you allowed that outcome to merge by itself. Account → Gaffer AI gains
+  **How Gaffer works**: looking after sessions is pre-approved by default, and
+  auto-merge for new pipelines is off by default. Adds
+  `POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge` and two profile
+  columns, created on start. Needs a controller update.
 - The Gaffer factory floor is easier to read and to reach. Followed-session cards
   are short, with the full goal and evidence under **Review & evidence**; the
   floor is wider on desktop and laid out as Outcomes, Sessions and Not followed;

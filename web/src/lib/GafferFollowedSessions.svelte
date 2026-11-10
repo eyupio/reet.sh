@@ -8,14 +8,17 @@
   import GafferOutcome from './GafferOutcome.svelte'
   import { floorOutcomeLine, floorOutcomes, outcomeOf, outcomePart } from './gafferOutcome'
   import GafferCompanionAvatar from './GafferCompanionAvatar.svelte'
+  import { gafferStanding } from './gafferMotion'
   import { sessionHref, terminalSessions, type TerminalSession } from './terminal/api'
   import { floorCandidates, floorChosen, floorRoom } from './gafferFloor'
   import { toolName } from './agentLaunch'
   import GafferProse from './GafferProse.svelte'
   import { formatWhen } from './time'
 
-  let { onclose, onchanged, onselect, onhistory, onerror, userId=0, timeZone='', dateFormat='locale', startWithOutcome=false }: {
+  let { onclose, onchanged, onselect, onhistory, onerror, userId=0, timeZone='', dateFormat='locale', startWithOutcome=false, inline=false, hidden=[], hiddenSessions=[] }: {
     startWithOutcome?:boolean;
+    /** On the Factory page the floor is part of the page, not a dialog, and the page shows outcomes itself. `hidden` are goals the page already draws as pipelines. */
+    inline?:boolean; hidden?:string[]; hiddenSessions?:string[];
     onclose:()=>void; onchanged:()=>void|Promise<void>; onselect:()=>void; onhistory:()=>void; userId?:number;
     onerror:(e:unknown)=>string; timeZone?:string; dateFormat?:string
   } = $props()
@@ -25,6 +28,8 @@
   // The rest of the floor: running chats nobody has asked Gaffer to look after yet. Reading them starts nothing.
   let sessions=$state<TerminalSession[]>([]), sessionsError=$state(''), ticked=$state<Set<string>>(new Set()), reviewing=$state(false)
   let lookAfterButton=$state<HTMLButtonElement>()
+  // With looking-after pre-approved, the button starts at once; "Review first" still shows the goal and limits beforehand.
+  let quick=$state(false)
   // An outcome is an objective Gaffer owns across sessions; its sessions' goals name it, which is how they group here.
   let outcomeOpen=$state(false), outcomeFilter=$state(''), outcomeButton=$state<HTMLButtonElement>()
   let records=$state<OutcomeRecord[]>([])
@@ -32,10 +37,11 @@
   let bulkBusy=$state(false), bulkNotice=$state(''), confirmStop=$state(false)
   let refreshButton=$state<HTMLButtonElement>()
   let controller:AbortController|undefined, epoch=0, returnFocus:HTMLElement|undefined
-  const rows=$derived(view?.goals??[])
+  const rows=$derived((view?.goals??[]).filter(row=>!hidden.includes(row.goal.conversationId)))
   const needsYou=$derived(rows.filter(row=>row.attention).length)
   const following=$derived(rows.filter(row=>row.goal.state==='active'&&!row.attention).length)
-  const candidates=$derived(view?floorCandidates(sessions,rows.map(row=>row.goal)):[])
+  // A session is offered only when it has no goal at all and is not a pipeline's own session.
+  const candidates=$derived(view?floorCandidates(sessions,view.goals.map(row=>row.goal)).filter(item=>!hiddenSessions.includes(item.id)):[])
   const chosen=$derived(floorChosen(candidates,ticked))
   const room=$derived(floorRoom(rows.map(row=>row.goal)))
   const showCandidates=$derived(!outcomeFilter&&(filter==='all'||filter==='idle'))
@@ -120,25 +126,9 @@
   async function closeGoal(){managing=null;await load(true);await tick();(returnFocus?.isConnected?returnFocus:refreshButton)?.focus({preventScroll:true})}
 </script>
 
-<WorkspaceDialog title="Factory floor" wide {onclose}>
-  <div class="overview">
-    <div class="own">
-      <GafferCompanionAvatar size={48}/>
-      <div class="own-copy"><p class="own-title">Hand Gaffer the outcome, not the chores.</p><p class="muted">Gaffer plans the sessions, you approve, and it follows each one to the finish.</p></div>
-      <button class="btn primary" type="button" bind:this={outcomeButton} onclick={()=>outcomeOpen=true}>Give Gaffer an outcome</button>
-    </div>
-    {#if outcomes.length}<section class="outcomes" aria-label="Outcomes">
-      <h3>Outcomes</h3>
-      <ul class="outcome-list">{#each outcomes as group (group.id)}{@const open=outcomeFilter===group.id}<li class:open>
-        <button class="outcome" type="button" aria-pressed={open} onclick={()=>outcomeFilter=open?'':group.id}><strong>{group.objective}</strong><span>{floorOutcomeLine(group)}</span></button>
-        {#if open}<div class="outcome-detail">
-          {#if group.record}<ul class="plan-state" aria-label="Planned sessions of this outcome">{#each group.record.sessions as item (item.key)}<li class:bad={['failed','cancelled','unfollowed'].includes(item.state)}><strong>{item.title}</strong><span>{item.note}</span></li>{/each}</ul>{/if}
-          <p class="muted">Showing this outcome’s sessions below. <button class="clear" type="button" onclick={()=>outcomeFilter=''}>Show everything</button>{#if group.record?.state==='starting'}{@const record=group.record}{' '}<button class="clear" type="button" disabled={bulkBusy} onclick={()=>{const live=records.find(item=>item.id===record.id);if(live)void stopOutcome(live)}}>Stop starting sessions</button>{/if}</p>
-        </div>{/if}
-      </li>{/each}</ul>
-    </section>{/if}
+{#snippet sessionsPart()}
     <section class="sessions" aria-label="Sessions">
-      <div class="section-head"><h3>Sessions</h3>
+      <div class="section-head"><h3 class:sr-only={inline}>Sessions</h3>
         {#if pausable.length>1||stoppable.length>1}<div class="bulk" role="group" aria-label="Actions for the sessions shown">
           {#if pausable.length>1}<button class="btn quiet" type="button" disabled={bulkBusy} onclick={()=>void bulk('pause',pausable)}>Pause all {pausable.length} following</button>{/if}
           {#if stoppable.length>1}<button class="btn quiet" type="button" disabled={bulkBusy} onclick={()=>confirmStop=true}>Stop all {stoppable.length} goals</button>{/if}
@@ -190,15 +180,39 @@
           {#each candidates as item (item.id)}<div class="pick-row"><label class="pick"><input type="checkbox" checked={ticked.has(item.id)} onchange={event=>tick_(item.id,event.currentTarget.checked)}/><span class="pick-text"><strong>{item.title}</strong><span>{toolName(item.tool??'')||'Agent'} · {item.dir||'Directory not reported'}</span></span></label><a class="pick-open" href={`${sessionHref(item)}&gaffer=1`} aria-label={`Open ${item.title}`} onclick={event=>openCandidate(event,item)}>Open</a></div>{/each}
         </div>
         {#if chosen.length>room}<p class="warning" role="status">{room?`Gaffer has room for ${room} more active ${room===1?'goal':'goals'}. Untick ${chosen.length-room}.`:'Gaffer is already following ten sessions. Pause or stop one first.'}</p>{/if}
-        <div class="actions"><button class="btn primary" type="button" bind:this={lookAfterButton} disabled={!chosen.length||chosen.length>room} onclick={()=>reviewing=true}>{chosen.length?`Look after ${chosen.length} selected`:'Look after selected'}</button></div>
+        <div class="actions"><button class="btn primary" type="button" bind:this={lookAfterButton} disabled={!chosen.length||chosen.length>room} onclick={()=>{quick=$gafferStanding;reviewing=true}}>{chosen.length?`Look after ${chosen.length} selected`:'Look after selected'}</button>{#if $gafferStanding}<button class="btn quiet" type="button" disabled={!chosen.length||chosen.length>room} onclick={()=>{quick=false;reviewing=true}}>Review first</button>{/if}</div>
+        {#if $gafferStanding}<p class="muted">Starts at once with your usual goal and limits. You pre-approved this in Gaffer settings.</p>{/if}
       {/if}
     </section>{/if}
-    {#if view}<p class="evidence foot">Read {formatWhen(view.readAt,timeZone,dateFormat)}. Reading the floor makes no model request and starts nothing.</p>{/if}
+    {#if view&&!inline}<p class="evidence foot">Read {formatWhen(view.readAt,timeZone,dateFormat)}. Reading the floor makes no model request and starts nothing.</p>{/if}
+{/snippet}
+{#if inline}
+  <div class="overview" data-floor>{@render sessionsPart()}</div>
+{:else}
+<WorkspaceDialog title="Factory floor" wide {onclose}>
+  <div class="overview" data-floor>
+    <div class="own">
+      <GafferCompanionAvatar size={48}/>
+      <div class="own-copy"><p class="own-title">Hand Gaffer the outcome, not the chores.</p><p class="muted">Gaffer plans the sessions, you approve, and it follows each one to the finish.</p></div>
+      <button class="btn primary" type="button" bind:this={outcomeButton} onclick={()=>outcomeOpen=true}>Give Gaffer an outcome</button>
+    </div>
+    {#if outcomes.length}<section class="outcomes" aria-label="Outcomes">
+      <h3>Outcomes</h3>
+      <ul class="outcome-list">{#each outcomes as group (group.id)}{@const open=outcomeFilter===group.id}<li class:open>
+        <button class="outcome" type="button" aria-pressed={open} onclick={()=>outcomeFilter=open?'':group.id}><strong>{group.objective}</strong><span>{floorOutcomeLine(group)}</span></button>
+        {#if open}<div class="outcome-detail">
+          {#if group.record}<ul class="plan-state" aria-label="Planned sessions of this outcome">{#each group.record.sessions as item (item.key)}<li class:bad={['failed','cancelled','unfollowed'].includes(item.state)}><strong>{item.title}</strong><span>{item.note}</span></li>{/each}</ul>{/if}
+          <p class="muted">Showing this outcome’s sessions below. <button class="clear" type="button" onclick={()=>outcomeFilter=''}>Show everything</button>{#if group.record?.state==='starting'}{@const record=group.record}{' '}<button class="clear" type="button" disabled={bulkBusy} onclick={()=>{const live=records.find(item=>item.id===record.id);if(live)void stopOutcome(live)}}>Stop starting sessions</button>{/if}</p>
+        </div>{/if}
+      </li>{/each}</ul>
+    </section>{/if}
+{@render sessionsPart()}
   </div>
 </WorkspaceDialog>
+{/if}
 {#if confirmStop}<ConfirmDialog title={`Stop ${stoppable.length} goals?`} body="This ends Gaffer follow-up for every session shown and removes goal instructions still queued. The working models keep running. Resuming is done one session at a time, after you have checked it." confirmLabel="Stop goals" danger oncancel={()=>confirmStop=false} onconfirm={()=>void bulk('stop',stoppable)}/>{/if}
 {#if outcomeOpen}<GafferOutcome {room} {userId} onstarted={onchanged} onclose={()=>void closeOutcome()}/>{/if}
-{#if reviewing}<GafferFloorReview sessions={chosen} {room} {userId} onstarted={onchanged} onclose={()=>void closeReview()}/>{/if}
+{#if reviewing}<GafferFloorReview auto={quick} sessions={chosen} {room} {userId} onstarted={onchanged} onclose={()=>void closeReview()}/>{/if}
 {#if managing}<WorkspaceDialog title="Look after this session" onclose={()=>void closeGoal()}><GafferGoal id={managing.goal.conversationId} {userId} {timeZone} {dateFormat} onchanged={async()=>{await load(true);await onchanged()}}/></WorkspaceDialog>{/if}
 
 <style>
@@ -214,6 +228,6 @@
   .belongs{color:var(--ink)}.eyebrow-inline{font-size:0.8125rem;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-right:4px}.part{color:var(--muted)}
   .clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
   .callout{padding:8px 12px;border-radius:8px;background:var(--tint);border:1px solid var(--accent);color:var(--ink)}
-  .goals>li{gap:8px}.foot{border-top:1px solid var(--line);padding-top:12px}
+  .goals>li{gap:8px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.foot{border-top:1px solid var(--line);padding-top:12px}
   @media(max-width:559px){.own{grid-template-columns:auto 1fr}.own .btn{grid-column:1 / -1;justify-self:stretch}.refresh{order:2}.bulk{order:3;flex-basis:100%;justify-content:flex-start}}
 </style>

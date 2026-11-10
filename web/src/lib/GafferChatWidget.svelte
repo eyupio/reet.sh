@@ -28,8 +28,6 @@
   const composeHelpId = `${contextDescriptionId}-keys`
   let historyOpen = $state(false), optionsOpen = $state(false), workerOpen = $state(false), goalOpen=$state(false), relay = $state(false)
   let followedOpen = $state(false)
-  // The floor can open straight on "Give Gaffer an outcome", the thing most people come to Gaffer for.
-  let floorOutcome = $state(false)
   let modelButton = $state<HTMLButtonElement>(), historyButton = $state<HTMLButtonElement>(), contextButton = $state<HTMLButtonElement>(), optionsButton = $state<HTMLButtonElement>(), freshButton = $state<HTMLButtonElement>()
   let modelBefore: {providerId:string;model:string;manual:boolean} | undefined
   let contextOpen = $state(false)
@@ -72,7 +70,7 @@
     document.documentElement.setAttribute('data-gaffer-anchor',panelSide)
     const entry = (opener: HTMLElement, intent?: 'followed') => {
       inlineOpener = opener
-      if (intent === 'followed') { floorOutcome = false; followedOpen = true }
+      if (intent === 'followed') followedOpen = true
       else open = true
     }
     gafferChatEntry.set(entry)
@@ -328,7 +326,7 @@
   <dialog class="gaffer-chat" data-size={panelSize} data-side={panelSide} data-full={full||undefined} bind:this={panel} use:phoneShell={modal} use:moveGafferPanel={{reset:`${panelSize}:${panelSide}:${full}:${phone}:${layoutRevision}`,modal}} aria-labelledby="gaffer-chat-title" aria-modal={modal ? 'true' : 'false'} oncancel={event => {event.preventDefault(); void close()}} onkeydown={event => { if (event.key === 'Escape') {event.preventDefault(); event.stopPropagation(); void close()} }}>
     <header class="chat-head" data-shell-head data-gaffer-drag>
       <button class="identity" type="button" data-gaffer-move disabled={modal} aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" aria-label="Move Gaffer panel with arrow keys or by dragging" title={modal ? 'Gaffer moves with the screen on this size' : 'Drag to move · arrow keys nudge · double-click to snap back'}><GafferCompanionAvatar size={32} thinking={!!running}/></button>
-      <div class="heading"><h2 id="gaffer-chat-title">Gaffer</h2><p class="scope-title" class:follow-scope-label={!scope} title={`${scopeTitle} · ${brainTitle}`}>{#if scope}{scopeTitle}{:else}<span class="sr-only">General Gaffer chat · </span>Factory floor <span aria-hidden="true">⌄</span>{/if}</p>{#if !scope}<button type="button" class="follow-scope" aria-label="Factory floor" aria-haspopup="dialog" title="See every running chat and choose what Gaffer looks after" onclick={()=>{floorOutcome=false;followedOpen=true}}></button>{/if}</div>
+      <div class="heading"><h2 id="gaffer-chat-title">Gaffer</h2><p class="scope-title" class:follow-scope-label={!scope} title={`${scopeTitle} · ${brainTitle}`}>{#if scope}{scopeTitle}{:else}<span class="sr-only">General Gaffer chat · </span>Factory <span aria-hidden="true">›</span>{/if}</p>{#if !scope}<a class="follow-scope" href="/factory" aria-label="Factory" title="Open the Factory: every pipeline Gaffer runs and every session it looks after"></a>{/if}</div>
       <div class="head-actions" role="group" aria-label="Gaffer panel tools">
         <button class="icon" type="button" bind:this={freshButton} aria-label="New conversation" title={freshTitle} aria-haspopup="dialog" disabled={!canStartFresh} onclick={startFresh}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button>
         <button class="icon" bind:this={historyButton} aria-label="Conversation history" title="Conversation history" aria-haspopup="dialog" onclick={() => historyOpen = true}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a9 9 0 1 1 2.6 7M3 4v7h7M12 7v5l3 2" /></svg></button>
@@ -345,7 +343,7 @@
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrolling history must be reachable with a keyboard.) -->
       <div class="transcript" bind:this={transcript} data-shell-body onscroll={() => {if (transcript) stickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 90}} tabindex="0" role="region" aria-label="Gaffer conversation messages">
         {#if loading}<p class="empty" role="status">Finding our place…</p>
-        {:else if loadedScope === scope && !error && !current?.turns.length}<div class="welcome"><GafferCompanionAvatar size={112} sitting/><div class="welcome-copy"><h3>Ey up. I’m Gaffer.</h3><p>Talk it through, question the plan, or ask for a second pair of eyes.</p><p class="note">{scope?'Choose “Look after this session” to review access and set a goal in one place.':'Or hand over the outcome: Gaffer plans the sessions, you approve, and it follows each one to the finish. The factory floor shows everything it is looking after.'}</p>{#if !scope}<div class="floor-entry"><button type="button" class="btn primary" aria-haspopup="dialog" onclick={()=>{floorOutcome=true;followedOpen=true}}>Give Gaffer an outcome</button><button type="button" class="btn" aria-haspopup="dialog" onclick={()=>{floorOutcome=false;followedOpen=true}}>Open the factory floor</button></div>{/if}</div></div>{/if}
+        {:else if loadedScope === scope && !error && !current?.turns.length}<div class="welcome"><GafferCompanionAvatar size={112} sitting/><div class="welcome-copy"><h3>Ey up. I’m Gaffer.</h3><p>Talk it through, question the plan, or ask for a second pair of eyes.</p><p class="note">{scope?'Choose “Look after this session” to review access and set a goal in one place.':'Or hand over the outcome: Gaffer plans the sessions, you approve, and it follows each one to the finish. The Factory shows every pipeline it runs and every session it looks after.'}</p>{#if !scope}<div class="floor-entry"><a class="btn primary" href="/factory?outcome=1">Give Gaffer an outcome</a><a class="btn" href="/factory">Open the Factory</a></div>{/if}</div></div>{/if}
         {#if loadedScope === scope}{#each current?.turns ?? [] as turn (turn.id)}
           <article class="turn">
             <div class="user-message"><p class="speaker">{turn.goalId?'Goal review':'You'}</p><p class="message-text">{turn.prompt}</p></div>
@@ -419,13 +417,13 @@
     <p>Your critical buddy, with a brew standing by. Closing the panel keeps the current answer running.</p>
     <a class="btn" href="/account/gaffer">Gaffer settings</a>
     {#if scope&&!unavailable}<button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void goalChoices()}>Look after this session</button><details><summary>Advanced session controls</summary><div class="chat-options"><button class="btn" type="button" disabled={loading||sending||updating||dirty} onclick={()=>void workerChoices()}>Worker messages</button><button class="btn" type="button" title={contextLabel} aria-describedby={contextDescriptionId} disabled={loading||sending||updating||dirty} onclick={()=>{optionsOpen=false;void contextChoices()}}>Context sharing</button></div></details>{/if}
-    <button class="btn" type="button" onclick={()=>{optionsOpen=false;floorOutcome=false;followedOpen=true}}>Factory floor</button>
+    <button class="btn" type="button" onclick={()=>{optionsOpen=false;followedOpen=true}}>Factory floor</button>
     {#if current}<button class="btn remove" aria-label="Remove conversation" disabled={sending||updating||loading} onclick={()=>{optionsOpen=false;confirming=true}}>Remove chat</button>{/if}
   </div>
 </WorkspaceDialog>{/if}
 
 {#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;goalDraft='';void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {userId} {timeZone} {dateFormat} draft={goalDraft} onchanged={goalChanged}/></WorkspaceDialog>{/if}
-{#if followedOpen}<GafferFollowedSessions startWithOutcome={floorOutcome} {userId} {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(open&&scope&&current)await goalChanged();else window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))}} onselect={()=>{mode='session';followedOpen=false;open=true}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>focusEntry(open ? optionsButton : undefined))}}/>{/if}
+{#if followedOpen}<GafferFollowedSessions {userId} {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(open&&scope&&current)await goalChanged();else window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))}} onselect={()=>{mode='session';followedOpen=false;open=true}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>focusEntry(open ? optionsButton : undefined))}}/>{/if}
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 
 <style>
@@ -487,7 +485,7 @@
   .welcome h3 { margin:0 0 10px; }
   .welcome-copy>p { font-size:15px;line-height:1.6; }
   .welcome .note { margin-top:16px;font-size:14px; }
-  .welcome .floor-entry { margin-top:14px;display:flex;flex-wrap:wrap;gap:8px; }.welcome .floor-entry .btn { min-height:44px; }
+  .welcome .floor-entry { margin-top:14px;display:flex;flex-wrap:wrap;gap:8px; }.welcome .floor-entry .btn { min-height:44px;text-decoration:none;display:inline-flex;align-items:center; }
   .turn+.turn { margin-top:28px; }
   .user-message { background:var(--tint);border:1px solid var(--line-soft);border-radius:12px 12px 4px 12px;padding:12px 14px;margin:0 0 18px 24px; }
   .user-message .speaker { position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0); }

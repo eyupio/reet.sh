@@ -119,6 +119,20 @@ remain the delivery gates. No physical-phone or real-provider claim is made.
 ![Floating Gaffer phone light](images/ui/gaffer-widget-390-light.png)
 ![Floating Gaffer phone dark](images/ui/gaffer-widget-390-dark.png)
 
+## The Factory page (10 November 2026)
+
+`/factory` draws each outcome as pipelines: a rail of stages (done, in hand, to
+come, waiting on you), the controller's line, Gaffer's report, and the numbers
+(who is doing the stage, reviews, deadline, tokens, how merge is decided). Four
+tiles lead the page. A new installation sees a three-step setup. Phones compress
+the rail so all eight stages fit. `gaffer-factory.e2e.mjs` passes at 1440 px light
+and dark and 390 px with no sideways scroll; `navigation` and `shell-fidelity`
+pass with the fifth tab.
+
+![Factory desktop light](images/ui/gaffer-factory-1440-light.png)
+![Factory desktop dark](images/ui/gaffer-factory-1440-dark.png)
+![Factory phone](images/ui/gaffer-factory-390-light.png)
+
 ## Gaffer alignment and polish (10 November 2026)
 
 One audit across the widget, the factory floor, the outcome dialog and Home, at

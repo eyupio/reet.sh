@@ -74,13 +74,11 @@ function fixture({active=1}={}){
   }
   return {box,routes}
 }
+// The floor's sessions are part of the Factory page.
 async function openFloor(w){
-  await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
-  const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
-  // One click from general chat: the welcome's own button, and the header link beside Gaffer's name.
-  await expect(chat.getByRole('button',{name:'Factory floor',exact:true})).toBeVisible()
-  await chat.getByRole('button',{name:'Open the factory floor',exact:true}).click()
-  return w.page.getByRole('dialog',{name:'Factory floor',exact:true})
+  await w.page.goto(base+'/factory')
+  await expect(w.page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
+  return w.page.locator('[data-floor]')
 }
 const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 
@@ -101,7 +99,7 @@ try {
       await expect(floor.getByRole('button',{name:'Following 1',exact:true})).toBeVisible()
       await expect(floor.getByRole('button',{name:'Needs review',exact:true})).toBeVisible()
       await expect(picks.getByRole('link',{name:'Open Billing export',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=floor-ready&gaffer=1')
-      const lookAfter=floor.getByRole('button',{name:/^Look after/})
+      const lookAfter=floor.getByRole('button',{name:/^Look after/}),reviewFirst=floor.getByRole('button',{name:'Review first',exact:true})
       await expect(lookAfter).toBeDisabled()
       expect(await floor.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await floor.getByRole('button',{name:/^Not followed/}).click()
@@ -113,7 +111,7 @@ try {
       await expect(lookAfter).toHaveText('Look after 2 selected')
       if(theme==='light'||width===1440)await floor.screenshot({path:`${shots}/gaffer-floor-${width}-${theme}.png`})
       // Ticking and opening the review share nothing and start nothing.
-      await lookAfter.click()
+      await reviewFirst.click()
       const review=w.page.getByRole('dialog',{name:'Look after these sessions',exact:true})
       await expect(review.getByRole('list',{name:'Sessions to look after',exact:true}).getByRole('listitem')).toHaveCount(2)
       await expect(review.getByText('Workshop Gaffer · gaffer-model',{exact:false})).toBeVisible()
@@ -130,8 +128,8 @@ try {
       await review.getByRole('button',{name:'Cancel',exact:true}).click();await expect(review).toHaveCount(0)
       expect(f.box.writes).toEqual([])
       // Cancelling keeps the ticks. An empty goal cannot start.
-      await expect(lookAfter).toHaveText('Look after 2 selected');await expect(lookAfter).toBeFocused()
-      await lookAfter.click()
+      await expect(lookAfter).toHaveText('Look after 2 selected')
+      await reviewFirst.click()
       await goal.fill('   ');await expect(review.getByRole('button',{name:'Start follow-up for 2 sessions',exact:true})).toBeDisabled()
       await review.getByRole('combobox',{name:'Use a prompt',exact:true}).selectOption({label:'Get the checks green'})
       await review.getByText('Change limits',{exact:true}).click()
@@ -158,7 +156,7 @@ try {
       await expect(picks.getByRole('checkbox')).toHaveCount(1);await expect(picks.getByRole('checkbox')).toBeChecked()
       await expect(lookAfter).toHaveText('Look after 1 selected')
       // The goal and limits are this browser's starting point next time.
-      await lookAfter.click()
+      await reviewFirst.click()
       await expect(review.getByRole('textbox',{name:'Goal for this session',exact:true})).toHaveValue(/^Watch the pull request’s checks\./)
       await expect(review.getByText('6 reviews · 48 hours per session',{exact:false})).toBeVisible()
       await w.page.keyboard.press('Escape');await expect(review).toHaveCount(0)
@@ -213,16 +211,39 @@ try {
     watch(w,f.box)
     try {
       await w.page.goto(base+'/')
-      const entry=w.page.getByRole('button',{name:'Gaffer: 2 running chats not followed',exact:true})
+      const entry=w.page.getByRole('link',{name:'Gaffer: 2 running chats not followed',exact:true})
       await expect(entry).toBeVisible()
       expect((await entry.boundingBox()).height).toBeGreaterThanOrEqual(44)
       await entry.click()
-      const floor=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
+      await expect(w.page).toHaveURL(/\/factory$/)
+      const floor=w.page.locator('[data-floor]')
       await expect(floor.getByRole('group',{name:'Running chats not followed',exact:true}).getByRole('checkbox')).toHaveCount(2)
-      await expect(floor.getByRole('listitem')).toHaveCount(0)
-      await w.page.keyboard.press('Escape');await expect(floor).toHaveCount(0);await expect(entry).toBeFocused()
+      await expect(floor.getByRole('list',{name:'Followed session goals',exact:true})).toHaveCount(0)
+      // Looking after sessions is pre-approved by default: one click starts them with the usual goal and limits, and says so.
+      await expect(floor.getByText('You pre-approved this in Gaffer settings.',{exact:false})).toBeVisible()
+      await floor.getByRole('button',{name:'Select all',exact:true}).click()
+      await floor.getByRole('button',{name:'Look after 2 selected',exact:true}).click()
+      const quick=w.page.getByRole('dialog',{name:'Look after these sessions',exact:true})
+      await expect(quick.getByRole('status')).toHaveText('1 started, 1 not started. The ones not started were left unchanged.')
+      await expect(quick.getByRole('textbox')).toHaveCount(0)
+      expect(f.box.setups.map(s=>s.sid)).toEqual(['floor-ready','floor-blocked'])
+      expect(f.box.setups[0]).toMatchObject({confirmed:true,action:'start',maxReviews:12,hours:24})
+      expect(f.box.setups[0].text).toMatch(/^Ensure a pull request is raised.*Do not merge\.$/)
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // A person who turned pre-approval off is shown the review every time.
+  {
+    const f=fixture({active:0}),w=await openWorkspace(browser,{width:1280,height:900,routes:{...f.routes,'/api/v2/profile':{user:{id:1,name:'Sam',email:'sam@example.test',role:'owner'},sessionCount:1,accounts:true,profile:{theme:'light',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',gafferStanding:false,updatedAt:now}}}})
+    watch(w,f.box)
+    try {
+      const floor=await openFloor(w)
+      await floor.getByRole('button',{name:'Select all',exact:true}).click()
+      await expect(floor.getByRole('button',{name:'Review first',exact:true})).toHaveCount(0)
+      await floor.getByRole('button',{name:'Look after 2 selected',exact:true}).click()
+      await expect(w.page.getByRole('dialog',{name:'Look after these sessions',exact:true}).getByRole('button',{name:'Start follow-up for 2 sessions',exact:true})).toBeVisible()
       expect(f.box.writes).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Factory floor: four theme/width views, running chats beside followed work, filters, multi-select, one combined review with prompt and limits, per-session setup and results, partial failure, saved starting point, failed session read, the ten-goal limit, bulk pause and stop, and the one-click Home entry passed. Nothing is written before Start.')
+  console.log('Factory floor: four theme/width views, running chats beside followed work, filters, multi-select, one combined review with prompt and limits, per-session setup and results, partial failure, saved starting point, failed session read, the ten-goal limit, bulk pause and stop, the Home entry to the Factory, one-click look-after when pre-approved and the review when not passed.')
 } finally { await browser.close() }

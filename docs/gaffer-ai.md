@@ -206,83 +206,100 @@ and omissions described below. It does not poll unchanged evidence or observe
 external PR/check changes on its own: the working model must monitor those and
 report progress. Unsupported channels and providers remain visible limitations.
 
-## Run the factory floor
+## The Factory
 
-The factory floor is one click away: **Factory floor** under Gaffer's name in
-general chat, **Open the factory floor** in an empty general chat, or Gaffer's
-button on Home, which appears whenever a goal needs review, is being followed,
-or running chats are not followed yet. An empty general chat also offers **Give
-Gaffer an outcome**, which opens the floor with that dialog already up. **Chat options → Factory floor** opens it
-from a session chat. It is one job sheet for the whole floor: the sessions you
-asked Gaffer to look after, with decisions first, and under **Not followed**
-every running structured chat you have not. The filters **Needs review**,
-**Following**, **Not followed** and **Finished** carry their counts and narrow
-the view. Paused goals remain under **All**. Opening or refreshing this view
-starts no goal, model request or worker instruction.
+**Factory** is its own page, in the main navigation beside Home. It is where you
+hand Gaffer an outcome and watch it run. Home has a **Factory** button, and a line
+with Gaffer's face whenever something there is waiting; an empty Gaffer chat
+offers **Give Gaffer an outcome** and **Open the Factory**. Opening the page starts
+nothing and makes no model request.
+
+The top of the page shows four numbers: pipelines that **need you**, are **ready to
+merge**, are **running** and are **done**. Below, each outcome lists its pipelines.
+A pipeline is one piece of the work, drawn as a production line:
+
+- **Stages.** Plan, design, code, review, test, pull request, babysit and merge, or
+  the ones you chose for it. Done stages are filled, the one in hand is ringed, the
+  rest are to come.
+- **What is happening.** One line from the controller, Gaffer's latest report, and a
+  highlighted line when Gaffer has brought something back to you.
+- **The numbers.** Which agent and model is doing this stage, reviews used of the
+  budget, when following ends, the last review, Gaffer's own tokens when the
+  provider reports them, and how the merge is decided.
+- **Actions.** Open session, Review goal, and **Approve merge** when it is ready.
+
+A new installation sees **Set up your factory** instead: connect a machine, add a
+project, choose Gaffer's model. Each step links to where it is done and ticks off.
 
 ### Give Gaffer an outcome
 
-Choose **Give Gaffer an outcome** at the top of the floor when you want a result
-and would sooner not start each session yourself.
+1. Write the outcome and choose the project. Only agents whose chat is available on
+   that project's machine are offered, and the machine must be connected.
+2. Choose the **crew** under **Choose who does what**. Thinking covers plan, design
+   and review; Building covers code and test; Shipping covers the pull request,
+   babysitting and merge. Give each its agent and, if you like, a model: a stronger
+   one for thinking, a cheaper one for building or shipping. Left alone, one agent
+   does every stage.
+3. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you
+   typed and the project's name, nothing else, and proposes the pipelines: a title,
+   a brief and the stages each needs. It cannot choose an agent, a model or whether
+   anything merges. **Write the plan myself** skips this.
+4. Review the plan. Edit any title or brief, add or remove a pipeline, and tick the
+   stages each one runs through. The plan says how many agent sessions a pipeline
+   will use: a new session starts whenever the agent or model changes from one
+   stage to the next, and otherwise the same session carries on.
+5. Decide the merge. **Merge by itself** lets each pipeline's agent merge once every
+   check passes, no review thread is open and there are no conflicts. Left off, a
+   pipeline stops at **Ready to merge** and waits for **Approve merge** on the
+   Factory page. The tick starts from your default in Gaffer settings.
+6. For OpenCode and Google Antigravity, tick **I trust this folder** if the folder's
+   plugins may run.
+7. Choose **Approve and start**. The controller starts each pipeline's first stage as
+   an ordinary chat in the project, never in YOLO, in its own worktree in a git
+   project.
 
-1. Write the outcome, choose the project its sessions work in, the agent, and how
-   many sessions Gaffer may propose (up to five). Only agents whose chat is
-   available on that project's machine are offered, and the machine must be
-   connected. **Choose a model** sets one model for every session; left empty,
-   each uses the agent's default.
-2. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you
-   typed and the project's name, nothing else, and proposes the sessions: a title
-   and a full prompt for each. This is one model request and may use provider
-   credits. It starts nothing.
-3. Review the plan. Every title and prompt is editable; remove a session or **Add
-   a session** of your own. **Write the plan myself** skips Gaffer's proposal,
-   for when the model cannot plan or you already know the split. A prompt the
-   agent could not be started with (one that begins with a dash, for example) and
-   a limit that is not a whole number are pointed out before anything starts.
-4. For OpenCode and Google Antigravity, tick **I trust this folder** if the
-   folder's plugins and customisations may run. Left off, a folder that has any
-   is refused when its session starts.
-5. Choose **Approve and start**. The controller saves the approved plan and
-   starts each session in turn as an ordinary chat in that project, with the
-   prompt shown and ordinary approvals, never YOLO. In a git project each session
-   gets its own worktree, so they do not edit the same files. As each chat comes
-   up it is put in Gaffer's care with a goal that names the outcome and that
-   session's part, and ends "Do not merge."
+How a pipeline moves on: Gaffer follows the stage in hand like any session it looks
+after. When the working agent's own reports show the stage's deliverable is done,
+Gaffer hands it over with a short summary. The controller then starts the next
+stage you approved, in the first stage's working folder, with that handover. Gaffer
+does not choose the next stage, its agent or its model. Every stage but merge is
+told not to merge.
 
-The controller does the starting, so you can choose **Close and let it run**, or
-close the browser: the sessions still start and are still followed. A controller
-restart picks the outcome up where it stopped and does not start a session twice.
-**Stop starting sessions** leaves the ones not yet started unstarted; sessions
-already started keep running and keep their goals.
+The controller does the starting and the moving on, so you can close the browser. A
+restart carries on without starting a session twice. **Stop starting sessions**
+leaves what has not started unstarted. Restoring a controller from a copy stops any
+outcome that was still starting. Nothing is retried on its own: a stage that could
+not start says why, and its session is left for you to look after.
 
-Each session ends as **followed**, **started but not followed** (with the reason;
-it then appears under **Not followed**, where you can look after it) or **not
-started** (with the machine's reason). Nothing is retried on its own.
+### Settings for the whole account
 
-On the floor, **Outcomes** lists each outcome with what was planned, what the
-controller is still starting, and how many sessions need review, are being
-followed or have finished. Choose one to see its plan and only its sessions. Each
-session keeps its own goal, budget and controls; only you mark a goal complete,
-and no outcome is ever marked done for you. The controller keeps the last thirty
-outcomes and starts at most three at a time for an account.
+**Account → Gaffer AI → How Gaffer works** has two choices:
 
-What this does not do yet: Gaffer does not add, replace or retire sessions after
-you approve, sessions do not see each other's work, and nothing merges. Restoring
-a controller from a copy stops any outcome that was still starting.
+- **Look after sessions without asking each time** (on by default). When you tell
+  Gaffer to look after sessions from the Factory, it starts at once with your usual
+  goal and limits. Nothing is read or sent until you ask. **Review first** still
+  shows the goal and limits beforehand, and any one session can be reviewed, paused
+  or stopped. Turned off, you are shown the review every time.
+- **Let new pipelines merge by themselves** (off by default). The starting value of
+  the merge tick on each new outcome; you can change it per outcome.
 
-### Pause or stop the sessions shown
+### Other sessions
 
-With two or more followed sessions in view, **Pause all following** and **Stop
-all goals** act on every one shown, so narrow the view first with a filter or an
-outcome. Each goal is paused or stopped on its own, exactly as from its card; one
-that cannot be changed is named and the rest carry on. Stopping asks first. The
-working models keep running either way. Resuming is still done one session at a
-time, because each needs your check of its approvals and delivery first.
+Under the pipelines the Factory lists the sessions you started yourself: the ones
+Gaffer looks after, and the running chats it does not yet. With two or more
+followed sessions in view, **Pause all following** and **Stop all goals** act on
+every one shown, one goal at a time; stopping asks first, and the working models
+keep running either way. Resuming is done one session at a time.
+
+From a session's own Gaffer chat, **Chat options → Factory floor** shows the same
+list in a dialog, so you can look without leaving the session.
 
 ### Put several sessions in Gaffer's care
 
 Tick the running chats Gaffer should look after, or **Select all**, then choose
-**Look after selected**. Ticking shares nothing and starts nothing. **Open**
+**Look after selected**. With looking-after pre-approved (the default) that starts
+them at once with your usual goal and limits; **Review first** opens the review
+described below instead. Ticking shares nothing and starts nothing. **Open**
 beside a chat shows that session with its own Gaffer conversation instead, which
 also enables nothing. One review
 lists the chosen sessions, Gaffer's default provider and model, what starting

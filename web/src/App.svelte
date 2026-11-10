@@ -1,6 +1,6 @@
 <script lang="ts">
   import GafferChatWidget from './lib/GafferChatWidget.svelte'
-  import { gafferAnimations, gafferCompact } from './lib/gafferMotion'
+  import { gafferAnimations, gafferAutoMerge, gafferCompact, gafferStanding } from './lib/gafferMotion'
   import Skeleton from './lib/Skeleton.svelte'
   import AppShell from './lib/shell/AppShell.svelte'
   import ProgressBar from './lib/shell/ProgressBar.svelte'
@@ -55,6 +55,7 @@
   const pages = {
     ActivityPage: () => loadPage(() => import('./lib/ActivityPage.svelte')),
     SessionsPage: () => loadPage(() => import('./lib/sessions/SessionsPage.svelte')),
+    Factory: () => loadPage(() => import('./lib/factory/Factory.svelte')),
     Machines: () => loadPage(() => import('./lib/Machines.svelte')),
     Home: () => loadPage(() => import('./lib/home/Home.svelte')),
     Community: () => loadPage(() => import('./lib/Community.svelte')),
@@ -166,6 +167,8 @@
   const bootLayout = document.documentElement.dataset.bootLayout ?? 'content'
   const isActivity = location.pathname === '/activity'
   const isSkills = location.pathname === '/skills'
+  // The Factory: Gaffer's outcomes drawn as pipelines. It is for an account that can start sessions.
+  const isFactory = location.pathname === '/factory'
   const machineView = new URLSearchParams(location.search).get('view')
   const legacyMachinePage = ['/machines', '/account/machines', '/account/sync'].includes(location.pathname)
   // /sessions lists the sessions; with `session` or `agent` (a session, or a machine's sessions) or the workspace's own
@@ -235,12 +238,13 @@
   const homeLayout = $derived(isHome && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
   const tabs = $derived<Tab[]>([
     { href: '/', label: 'Home', current: isHome },
+    ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory }] : []),
     ...(sessionsAccess ? [{ href: '/sessions', label: 'Sessions', current: isTerminals || isSessions }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !((isTerminals || isSessions) && sessionsAccess) },
     { href: '/skills', label: 'Skills', current: isSkills },
     ...(authMode === 'accounts' ? [] : [{ href: '/activity', label: 'Activity' as const, current: isActivity }]),
   ])
-  const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/machines'].includes(tab.href)))
+  const barTabs = $derived(tabs.filter(tab => ['/', '/factory', '/sessions', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
     ...(canWrite ? [{ href: '/library', label: 'Library', group: 'Skills & distribution', current: isLibrary }] : []),
     ...(authMode === 'accounts' && canWrite ? [{ href: '/prompts', label: 'Prompts', group: 'Skills & distribution', current: isPrompts }] : []),
@@ -536,7 +540,7 @@
       const { profile } = await getProfile()
       if (actor !== currentUser?.id) return
       applyTheme(profile.theme)
-      gafferAnimations.set(profile.gafferAnimations ?? true); gafferCompact.set(profile.gafferCompact ?? true)
+      gafferAnimations.set(profile.gafferAnimations ?? true); gafferCompact.set(profile.gafferCompact ?? true); gafferStanding.set(profile.gafferStanding ?? true); gafferAutoMerge.set(profile.gafferAutoMerge ?? false)
       view = profile.shelfView
       defaultExpanded = profile.cardsExpanded
       timeZone = profile.timezone
@@ -1000,7 +1004,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isFactory ? 'Factory' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -1165,6 +1169,14 @@
       <RouteSkeleton variant={homeLayout && sessionsAccess ? 'home' : 'cards'} />
     {:then { default: Page }}
       <Page userId={currentUser?.id ?? 0} name={currentUser?.name ?? ''} writer={sessionsAccess} canAdd={canWrite} accounts={authMode === 'accounts'} moved={!!retiredProjects} {legacyProject} onsignedout={fail} onattention={(count, cards, seen, answered) => { attention = count; needsCards = cards; onMarkSeen = seen; onAnswered = answered }} />
+    {:catch}
+      <PageLoadError />
+    {/await}
+  {:else if isFactory && sessionsAccess && authMode === 'accounts'}
+    {#await pages.Factory()}
+      <RouteSkeleton variant="cards" />
+    {:then { default: Page }}
+      <Page userId={currentUser?.id ?? 0} {timeZone} {dateFormat} />
     {:catch}
       <PageLoadError />
     {/await}

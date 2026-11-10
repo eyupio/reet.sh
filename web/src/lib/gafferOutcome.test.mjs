@@ -101,3 +101,36 @@ test('the floor groups by the controller record first, then by goals that only n
   const settled = o.floorOutcomes([{ ...record, state: 'stopped', sessions: [record.sessions[0], { ...record.sessions[2], state: 'cancelled' }] }], rows)
   assert.equal(o.floorOutcomeLine(settled[0]), '2 sessions planned · 1 following · 1 not started')
 })
+
+test('stages keep pipeline order and take the agent and model of their crew role', () => {
+  const crew = { think: { tool: 'claude', model: ' opus ' }, build: { tool: 'codex', model: '' }, ship: { tool: 'claude', model: 'haiku' } }
+  assert.deepEqual(o.orderStages(['merge', 'code', 'bogus', 'plan']), ['plan', 'code', 'merge'])
+  assert.deepEqual(o.stagePlan(['review', 'code', 'pr'], crew), [
+    { kind: 'code', tool: 'codex', model: '' }, { kind: 'review', tool: 'claude', model: 'opus' }, { kind: 'pr', tool: 'claude', model: 'haiku' },
+  ])
+  assert.equal(o.sessionCount(o.stagePlan(o.DEFAULT_STAGES, crew)), 4)
+  const one = { tool: 'claude', model: '' }
+  assert.equal(o.sessionCount(o.stagePlan(o.DEFAULT_STAGES, { think: one, build: one, ship: one })), 1)
+  assert.equal(o.sessionCount([]), 0)
+  assert.equal(o.stageLabel('babysit'), 'Babysit')
+})
+
+test('a pipeline track shows what is done, in hand, waiting on the person or failed', () => {
+  const stages = [{ kind: 'code', tool: 'codex', state: 'done', summary: 'Committed.' }, { kind: 'review', tool: 'claude', model: 'opus', state: 'running' }, { kind: 'merge', tool: 'claude', state: 'pending' }]
+  assert.deepEqual(o.track({ state: 'following', stage: 1, stages }).map(n => n.state), ['done', 'running', 'pending'])
+  assert.deepEqual(o.track({ state: 'ready_to_merge', stage: 2, stages: [stages[0], { ...stages[1], state: 'done' }, stages[2]] }).map(n => n.state), ['done', 'done', 'waiting'])
+  assert.deepEqual(o.track({ state: 'unfollowed', stage: 1, stages }).map(n => n.state), ['done', 'failed', 'pending'])
+  assert.deepEqual(o.track({ state: 'done', stage: 2, stages: stages.map(s => ({ ...s, state: 'done' })) }).map(n => n.state), ['done', 'done', 'done'])
+  assert.equal(o.track({ state: 'following', stage: 1, stages })[1].model, 'opus')
+  assert.deepEqual(o.track({ state: 'following' }), [])
+})
+
+test('a pipeline badge and the page tally say who has to act', () => {
+  assert.deepEqual(o.pipelineStatus({ state: 'ready_to_merge' }, false), { label: 'Ready to merge', tone: 'you' })
+  assert.deepEqual(o.pipelineStatus({ state: 'following' }, true), { label: 'Needs you', tone: 'you' })
+  assert.deepEqual(o.pipelineStatus({ state: 'following' }, false), { label: 'Running', tone: 'busy' })
+  assert.deepEqual(o.pipelineStatus({ state: 'done' }, true), { label: 'Done', tone: 'good' })
+  assert.equal(o.pipelineStatus({ state: 'failed' }, false).tone, 'bad')
+  const records = [{ sessions: [{ state: 'following', conversationId: 'a' }, { state: 'following', conversationId: 'b' }, { state: 'ready_to_merge' }, { state: 'done' }, { state: 'failed' }, { state: 'waiting' }] }]
+  assert.deepEqual(o.factoryTally(records, new Set(['b'])), { running: 2, needYou: 1, ready: 1, done: 1 })
+})

@@ -36,7 +36,8 @@
     .more { display: flex; }
     a, .more { padding: 0 14px; font-size: 15px; }
   }
-  @media (min-width: 651px) and (max-width: 799px) { a, .more { padding: 0 8px; font-size: 14px; } }
+  /* Five tabs with Factory: a narrow tablet gets tighter padding so none runs under Jump or the bell. */
+  @media (min-width: 651px) and (max-width: 799px) { .top-tabs { gap: 2px; } a, .more { padding: 0 5px; font-size: 14px; } }
   /* Phone: the bottom tab bar takes over. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .top-tabs { display: none; }

@@ -587,7 +587,7 @@
       return null
     }
     if (needsAuth) return 'That token was not accepted.'
-    return error || 'Could not reach the shelf.'
+    return error || 'Could not reach your library.'
   }
 
   async function signOut() {
@@ -695,7 +695,7 @@
       syncFilter = ''
       selectedMachine = ''
       onlyOne = false
-      showToast(s.created ? `Added ${s.name} to your library. Ready for your machines.` : `Already on the shelf, in ${stageTitle(stageOf(s))}.`, 'Sync all machines', syncInPlace ? syncAll : () => { location.assign('/sync') })
+      showToast(s.created ? `Added ${s.name} to your library. Ready for your machines.` : `Already in your library, under ${stageTitle(stageOf(s))}.`, 'Sync all machines', syncInPlace ? syncAll : () => { location.assign('/sync') })
       await reloadAll()
       await flash(s.id)
       setTimeout(load, 2500) // pick up fetched metadata
@@ -928,7 +928,7 @@
       })
       const text = missing.map((s) => installCommand(s)).filter((x): x is string => Boolean(x)).join('\n')
       if (!text) {
-        ok('Everything on the shelf is already installed there.')
+        ok('Everything in your library is already installed there.')
         return
       }
       if (await copyText(text)) {
@@ -1299,7 +1299,7 @@
       <PageLoadError />
     {/await}
   {:else if isSkills}
-    <PageHeader group="Your skill shelf" title="Skills" lede="Add a skill once. Keep your library on every machine, including skills you write yourself.">
+    <PageHeader group="Your library" title="Skills" lede="Add a skill once. Keep your library on every machine, including skills you write yourself.">
       {#snippet actions()}{#if syncInPlace}<button class="btn" type="button" disabled={syncingAll} onclick={() => void syncAll()}>{syncingAll ? 'Starting…' : 'Sync all machines'}</button>{:else}<a class="btn" href="/sync">Sync all machines</a>{/if}{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}
@@ -1308,7 +1308,7 @@
         <input id="add-input" bind:this={addEl} placeholder="Paste a skills.sh link or install command" autocomplete="off" bind:value={addInput}
           aria-invalid={addError ? 'true' : undefined}
           aria-describedby={addError ? 'add-hint add-error' : 'add-hint'} />
-        <button class="btn primary" type="submit" disabled={adding || !addInput.trim()} aria-busy={adding}>{adding ? 'Adding…' : 'Add to shelf'}</button>
+        <button class="btn primary" type="submit" disabled={adding || !addInput.trim()} aria-busy={adding}>{adding ? 'Adding…' : 'Add to library'}</button>
       </form>
       <p class="add-hint" id="add-hint">Paste a link like <code>skills.sh/anthropics/skills/pdf</code>, or an <code>npx skills add</code> command.</p>
       {#if addError}<p class="add-error" id="add-error" role="alert">{addError}</p>{/if}
@@ -1343,7 +1343,7 @@
           {/if}
         </div>
         <div class="controls">
-          <div class="view-switch" role="group" aria-label="Shelf layout">
+          <div class="view-switch" role="group" aria-label="Library layout">
             <button type="button" aria-pressed={view === 'list'} onclick={() => chooseView('list')}>List</button>
             <button type="button" aria-pressed={view === 'board'} onclick={() => chooseView('board')}>Board</button>
           </div>
@@ -1442,17 +1442,17 @@
 
     <div id="sections" class:board={view === 'board' && !loading && counts.all > 0 && total > 0} class:single-stage={show !== 'all'}>
       {#if loading}
-        <Skeleton label="Loading your shelf" shape="cards" count={3} class="shelf-skeleton" />
+        <Skeleton label="Loading your library" shape="cards" count={3} class="shelf-skeleton" />
       {:else if counts.all === 0 && !filtering && !canWrite}
         <section class="start" aria-labelledby="start-title">
           <p class="eyebrow">Read-only</p>
-          <h2 id="start-title">Your account can browse, but not edit the shelf.</h2>
+          <h2 id="start-title">Your account can browse, but not edit the library.</h2>
           <p class="lede">Ask the owner for a shared list or a member role.</p>
         </section>
       {:else if counts.all === 0 && !filtering}
         <section class="start" aria-labelledby="start-title">
           <p class="eyebrow">Ey up. Start here.</p>
-          <h2 id="start-title">Put the first skill on your shelf.</h2>
+          <h2 id="start-title">Add the first skill to your library.</h2>
           <p class="lede">Capture it now, sort it later. Everything stays on this instance.</p>
           <button class="btn primary" type="button" onclick={focusAdd}>Add your first skill</button>
           <ul class="suggestions" aria-label="Good skills to start with">

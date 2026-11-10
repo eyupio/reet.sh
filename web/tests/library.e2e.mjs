@@ -57,11 +57,11 @@ try {
   await expect(chips.getByRole('button',{name:/^All 5$/})).toHaveAttribute('aria-pressed','true')
   await expect(chips.getByRole('button',{name:/^In use 2$/})).toBeVisible()
   await expect(chips.getByRole('button',{name:/^Disabled 1$/})).toBeVisible()
-  // Shelf details that migration preserved, and which machines keep each item (saved intent, not installation).
+  // Library details that migration preserved, and which machines keep each item (saved intent, not installation).
   const review=row(page,'code-review')
   await expect(review).toContainText('Written here · private · Liked · On list Daily · Tagged review')
   await expect(review).toContainText('Selected on Dev laptop, Office desktop')
-  await expect(review.getByRole('link',{name:'Choose machines'})).toHaveAttribute('href','/machines')
+  await expect(review.getByRole('link',{name:'Choose machines on the Machines page'})).toHaveAttribute('href','/machines')
   await expect(row(page,'api-design')).toContainText('Selected on Dev laptop, not installed while to test')
   await expect(row(page,'release-notes')).toContainText('Not selected on any machine')
   await expect(row(page,'pending-capture')).toContainText('Waiting for complete content')

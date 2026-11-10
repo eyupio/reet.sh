@@ -8,7 +8,7 @@ import type { LibraryItem, LibraryReceipt } from './api'
 export const STATUSES = [
   { id: 'in_use', label: 'In use' },
   { id: 'to_test', label: 'To test' },
-  { id: 'on_shelf', label: 'On the shelf' },
+  { id: 'on_shelf', label: 'Parked' },
   { id: 'disabled', label: 'Disabled' },
 ] as const
 

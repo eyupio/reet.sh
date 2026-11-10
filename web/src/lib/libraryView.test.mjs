@@ -10,8 +10,8 @@ const item = (name, changes = {}) => ({ id: name.padEnd(32, '0'), name, itemType
 const library = [item('alpha'), item('beta', { status: 'to_test' }), item('gamma', { status: 'disabled' }), item('delta', { status: 'on_shelf' }), item('Alpine', { status: 'in_use' })]
 
 test('the four statuses keep the product’s plain words', () => {
-  assert.deepEqual(STATUSES.map(s => s.label), ['In use', 'To test', 'On the shelf', 'Disabled'])
-  assert.equal(statusLabel('on_shelf'), 'On the shelf')
+  assert.deepEqual(STATUSES.map(s => s.label), ['In use', 'To test', 'Parked', 'Disabled'])
+  assert.equal(statusLabel('on_shelf'), 'Parked')
   assert.equal(statusLabel('something_new'), 'something new', 'an unknown status is shown readably, never dropped')
 })
 

@@ -21,7 +21,7 @@
   let sequence = 0
   let timer: ReturnType<typeof setTimeout> | undefined
 
-  const rank = (group: string): number => ['In use', 'Saved', 'On your shelf'].indexOf(group)
+  const rank = (group: string): number => ['In use', 'Saved', 'In your library'].indexOf(group)
   const options = $derived(skills.map(skill => {
     const prompt = useSkillPrompt(skill)
     // A skill with no install source is one reet knows from a machine: reet is its source, and the agent is asked to use
@@ -32,7 +32,7 @@
       label: skill.name || skill.slug || skill.id,
       description: skill.description || '',
       detail: fromReet ? 'reet' : skill.source || skill.url || '',
-      group: skill.used ? 'In use' : skill.bookmarked ? 'Saved' : 'On your shelf',
+      group: skill.used ? 'In use' : skill.bookmarked ? 'Saved' : 'In your library',
       disabled: !prompt,
       reason: prompt ? undefined : 'This skill has no name to use it by.',
     } satisfies SlotOption
@@ -41,7 +41,7 @@
   const status = $derived.by(() => {
     if (loading) return query ? `Searching for “${query}”…` : 'Reading your skills…'
     if (error) return error
-    if (!skills.length) return query ? `No skills match “${query}”.` : 'Your shelf is empty. Add skills on the Skills page.'
+    if (!skills.length) return query ? `No skills match “${query}”.` : 'Your library is empty. Add skills on the Skills page.'
     const count = `${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`
     return query ? `${count} matching “${query}”.` : `${count} ready to use.`
   })

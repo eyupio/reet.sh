@@ -72,7 +72,7 @@ try {
   await page.goto(`${base}/skills`)
   const line = page.locator(`[data-skill="${mine.id}"] .sync-intent`)
   await expect(line).toHaveText(/Not set to sync/)
-  await expect(line.getByRole('link',{name:'Sync to machines…'})).toHaveAttribute('href',`/sync?skill=${encodeURIComponent(mine.id)}`)
+  await expect(line.getByRole('link',{name:'Choose machines'})).toHaveAttribute('href','/machines')
   await context.close()
   const silent = await open({width:1440,skills:[mine],inventory:machineWith('dev-laptop',[mine]),routes:{'/api/v2/sync':{status:500,json:{error:'down'}}}})
   await silent.page.goto(`${base}/skills`)

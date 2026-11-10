@@ -248,7 +248,7 @@
     {:else if prompts.length === 0}
       <div class="empty">
         <h2>A prompt is a head start.</h2>
-        <p>Write the instructions you repeat most. A prompt can fill in the project, branch, folder, session title and the date, and it can pull in a skill's prompt from your shelf.</p>
+        <p>Write the instructions you repeat most. A prompt can fill in the project, branch, folder, session title and the date, and it can pull in a skill's prompt from your library.</p>
         <button type="button" class="btn primary" onclick={() => openEditor()}>Write your first prompt</button>
       </div>
     {:else if filtered.length === 0}

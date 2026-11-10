@@ -418,7 +418,7 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 		var one int
 		err := tx.QueryRow(`SELECT 1 FROM shelf WHERE user_id=? AND skill_id=?`, userID, id).Scan(&one)
 		if errors.Is(err, sql.ErrNoRows) {
-			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not on this account's shelf"})
+			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not in this account's library"})
 			continue
 		}
 		if err != nil {

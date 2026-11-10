@@ -31,7 +31,7 @@ async function scenario({name,width,theme,online,jobs,expectations,shot}){
   [`/api/v2/library/selections/${env.id}`]:selection,
  }})
  await page.goto(`${base}/machines`)
- const opener=page.getByRole('article',{name:env.host,exact:true}).getByRole('button',{name:'Choose skills',exact:true})
+ const opener=page.getByRole('article',{name:env.host,exact:true}).getByRole('button',{name:'Skills on this machine',exact:true})
  await opener.click()
  const dialog=page.getByRole('dialog',{name:`Skills on ${env.host}`,exact:true})
  const panel=dialog.getByRole('region',{name:'Skills to sync'})

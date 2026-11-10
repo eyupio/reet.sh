@@ -32,10 +32,11 @@
       && (!host || env.host.toLowerCase()===host.toLowerCase())
       && current.agents?.some(agent=>agent.host.toLowerCase()===env.host.toLowerCase()))
     : [])
-  // On a machine's own dialog a single folder needs no choice. Tried once per folder, so a failed read is retried by hand.
+  // On a machine's own dialog the first folder is chosen to start with, so the skills show at once. Tried once per folder,
+  // so a failed read is retried by hand and a person who picks another folder is not moved back.
   let autoChosen = ''
   $effect(() => {
-    const only = targets.length === 1 ? targets[0].id : ''
+    const only = targets[0]?.id ?? ''
     if (!host || loading || !libraryReady || target || !only || autoChosen === only) return
     autoChosen = only
     untrack(() => { void choose(only) })
@@ -95,6 +96,7 @@
   <h2 id={headingId} class:vh={!!host}>Skills to sync</h2>
   <p>{host ? 'Choose which library skills belong on this machine. You can save changes while it is offline.' : 'Choose a machine folder and the skills to keep up to date.'} Only skills marked In use are sent.</p>
   {#if targets.length > 0}
+  {#if host}<p>Each AI tool on this machine keeps its skills in its own folder. Pick the folder, then tick the skills it should have.</p>{/if}
   <label>Machine folder <select value={target} disabled={busy || loading} onchange={event=>void choose(event.currentTarget.value)}><option value="">Choose a folder…</option>{#each targets as destination}<option value={destination.id}>{folderLabel(destination)}</option>{/each}</select></label>
   {/if}
   {#if error}<p class="notice bad" role="alert">{error}</p><button class="btn quiet" type="button" disabled={busy || loading} onclick={()=>void (target ? choose(target) : load())}>{target ? 'Reload selection' : 'Try again'}</button>{/if}

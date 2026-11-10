@@ -126,14 +126,14 @@
 
 <section class="mcp" aria-labelledby="mcp-title">
   <div class="heading">
-    <div><p class="eyebrow">Your account · Connections</p><h2 id="mcp-title">MCP access</h2><p class="muted">Bring your shelf and explicitly shared reet context into the AI tools you use. You choose what each connection can read.</p></div>
+    <div><p class="eyebrow">Your account · Connections</p><h2 id="mcp-title">MCP access</h2><p class="muted">Bring your library and explicitly shared reet context into the AI tools you use. You choose what each connection can read.</p></div>
     {#if access}<button type="button" class="btn" disabled={busy} onclick={() => setting({ enabled: !access!.enabled }, access!.enabled ? 'All MCP access is paused.' : 'MCP access is enabled.')}>{access.enabled ? 'Pause all access' : 'Enable access'}</button>{/if}
   </div>
   {#if error}<div class="notice bad" role="alert">{error} <button type="button" class="btn quiet" onclick={load} disabled={busy}>Retry</button></div>{/if}
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
   {#if !access && !error}<Skeleton label="Loading your connections…" shape="rows" count={3} />{/if}
   {#if access}
-    <div class="statusline"><span class:active={access.enabled} class="dot" aria-hidden="true"></span><strong>{access.enabled ? 'MCP access is on' : 'MCP access is paused'}</strong><span class="muted">{access.enabled ? 'Permissions apply to your account only.' : 'OAuth, bearer tokens and browser tools cannot access your shelf.'}</span></div>
+    <div class="statusline"><span class:active={access.enabled} class="dot" aria-hidden="true"></span><strong>{access.enabled ? 'MCP access is on' : 'MCP access is paused'}</strong><span class="muted">{access.enabled ? 'Permissions apply to your account only.' : 'OAuth, bearer tokens and browser tools cannot access your library.'}</span></div>
     <section class="connect-card" aria-labelledby="connect-mcp-title">
       <div class="cardtop"><span class="step">01</span><span class="badge">Recommended · OAuth</span></div>
       <h3 id="connect-mcp-title">Connect with your reet.sh account</h3>
@@ -198,7 +198,7 @@
       <div class="rowhead"><div><h3 id="browser-mcp-title">Browser WebMCP</h3><p class="muted">Let a browser assistant work with the reet.sh page you have open.</p></div><span class="badge subtle">{browserSupported ? 'Available in this browser' : 'Requires a compatible browser'}</span></div>
       <p class="hint">Uses your signed-in session. Read-only by default; when management is allowed, each change asks for your confirmation on this page. Tools are removed when you sign out.</p>
       <div class="browser-options"><label class="check"><input type="checkbox" checked={access.browserEnabled} disabled={busy || !access.enabled} onchange={(e) => setting({ browserEnabled: e.currentTarget.checked }, e.currentTarget.checked ? 'Browser tools enabled in compatible browsers.' : 'Browser tools disabled.')} />Enable browser tools</label><label>Permission<select aria-label="Browser permission" value={access.browserScope} disabled={busy || !access.enabled || !access.browserEnabled} onchange={(e) => setting({ browserScope: e.currentTarget.value as 'read' | 'write' }, 'Browser permission updated.')}><option value="read">Read only</option>{#if access.canWrite}<option value="write">Read & manage, with confirmation</option>{/if}</select></label></div>
-      {#if access.canWrite}<button class="btn quiet" type="button" disabled={busy} onclick={()=>contextClient={path:'/api/v2/mcp/browser/context',name:'Browser WebMCP'}}>Browser context access</button><button class="btn quiet" type="button" disabled={busy} onclick={()=>workerClient={path:'/api/v2/mcp/browser/worker',name:'Browser WebMCP'}}>Browser worker access</button><p class="hint">Session context needs separate explicit grants. Enabling shelf tools does not share it.</p>{/if}
+      {#if access.canWrite}<button class="btn quiet" type="button" disabled={busy} onclick={()=>contextClient={path:'/api/v2/mcp/browser/context',name:'Browser WebMCP'}}>Browser context access</button><button class="btn quiet" type="button" disabled={busy} onclick={()=>workerClient={path:'/api/v2/mcp/browser/worker',name:'Browser WebMCP'}}>Browser worker access</button><p class="hint">Session context needs separate explicit grants. Enabling library tools does not share it.</p>{/if}
       {#if !browserSupported}<p class="hint">Your browser does not expose WebMCP yet. The OAuth and bearer-token connections above work independently.</p>{/if}
     </section>
 

@@ -68,7 +68,7 @@ try {
 
     // Shared names are information, inside the library list.
     await section.locator('summary').filter({ hasText: 'In your library' }).click()
-    await expect(section.getByText('3 names are on your shelf more than once', { exact: false })).toBeVisible()
+    await expect(section.getByText('3 names are in your library more than once', { exact: false })).toBeVisible()
     await expect(section.getByText('improve-animations, improve, setup-matt-pocock-skills')).toBeVisible()
 
     // No page-wide horizontal scroll on a phone.

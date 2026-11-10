@@ -141,7 +141,7 @@ export function eventLabel(e: Event): string {
     case 'restore':
       return `Restored ${d.restored ?? 0} skills`
     case 'export':
-      return 'Exported the shelf'
+      return 'Exported the library'
     case 'tag-rename':
       return 'Renamed a tag'
     case 'tag-merge':

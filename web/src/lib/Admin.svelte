@@ -544,7 +544,7 @@
     <div class="stages">
       <span><strong>{status.stages.use}</strong> in use</span>
       <span><strong>{status.stages.try}</strong> to test</span>
-      <span><strong>{status.stages.shelf}</strong> on the shelf</span>
+      <span><strong>{status.stages.shelf}</strong> parked</span>
       <span><strong>{status.counts.liked}</strong> liked</span>
     </div>
 
@@ -859,7 +859,7 @@
               <label class="check"><input type="checkbox" bind:checked={form.rollupIndividual} /> Show per-person usage in the team rollup</label>
               <label class="field">
                 <span>Instance name</span>
-                <input bind:value={form.instanceName} placeholder="Team shelf" autocomplete="off" />
+                <input bind:value={form.instanceName} placeholder="Team library" autocomplete="off" />
               </label>
             </fieldset>
             {#if saved}<p class="saved" role="status">{saved}</p>{/if}
@@ -953,7 +953,7 @@
       <ConfirmDialog
         title={confirmAction.kind === 'delete' ? `Delete ${confirmAction.user.name}?` : `Make ${confirmAction.user.name} the owner?`}
         body={confirmAction.kind === 'delete'
-          ? 'Their shelf, tokens and sessions are deleted. Transfer ownership first if this is the owner.'
+          ? 'Their library, tokens and sessions are deleted. Transfer ownership first if this is the owner.'
           : 'You become an admin and they become the owner. You can transfer it back later.'}
         confirmLabel={confirmAction.kind === 'delete' ? 'Delete' : 'Transfer'}
         danger={confirmAction.kind === 'delete'}

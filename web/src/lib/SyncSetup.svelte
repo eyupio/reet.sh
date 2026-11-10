@@ -119,7 +119,7 @@
         <span class="machine-dot" class:online={agentOnline(agent)} aria-hidden="true"></span>
         <div class="machine-name"><strong>{agent.host}</strong><span>{agent.paused ? 'Paused · resume in machine settings' : !agent.keepSynced ? 'Automatic sync is off · Sync all machines to enable' : !agentOnline(agent) ? 'Offline · library sync resumes when this machine reconnects' : !machine ? 'Connected · waiting for the first scan' : overview?.detail}</span></div>
         <span class="status" data-tone={agent.paused || !agent.keepSynced ? 'attention' : overview?.tone ?? 'working'}>{agent.paused ? 'Paused' : !agent.keepSynced ? 'Sync off' : !agentOnline(agent) ? 'Waiting for machine' : overview?.label ?? 'Setting up'}</span>
-        <a class="machine-link" href={`/machines?machine=${encodeURIComponent(agent.host)}`} aria-label={`Open ${agent.host}`}>Manage</a>
+        {#if canWrite}<a class="machine-link" href={`/machines?machine=${encodeURIComponent(agent.host)}&choose=skills`} aria-label={`Skills on this machine: ${agent.host}`}>Skills on this machine</a>{:else}<a class="machine-link" href={`/machines?machine=${encodeURIComponent(agent.host)}`} aria-label={`Open ${agent.host}`}>Manage</a>{/if}
       </article>
     {:else}<div class="empty"><strong>Start with your first machine.</strong><p>Connect it once and Reet will bring your skills with you.</p></div>{/each}
   </div>

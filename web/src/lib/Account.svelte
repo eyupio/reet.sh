@@ -442,15 +442,15 @@
           </div>
         </fieldset>
         <fieldset>
-          <legend>Shelf and terminal</legend>
+          <legend>Library and terminal</legend>
           <div class="grid2">
             <label class="wide"><span>When stopping a terminal session</span>
               <select aria-label="Terminal history default" bind:value={profileForm.terminalRemoveOnClose}><option value={false}>Keep the closed session in history</option><option value={true}>Remove from history after it ends</option></select>
               <small>This sets the confirmation’s default. You can change it for each session. Running or pending sessions remain visible until the machine confirms closure.</small>
             </label>
-            <label><span>Default shelf layout</span>
+            <label><span>Default library layout</span>
               <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>
-              <small>Switching List/Board on your shelf also saves this preference.</small>
+              <small>Switching List/Board in your library also saves this preference.</small>
             </label>
             <label><span>Default skill cards</span>
               <select bind:value={profileForm.cardsExpanded}><option value={false}>Collapsed — quick actions and core data</option><option value={true}>Expanded — all details</option></select>

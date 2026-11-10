@@ -172,7 +172,7 @@
               <h2>{item.name}{#if item.itemType !== 'skill'} <small class="type">{item.itemType}</small>{/if}</h2>
               {#if notes.length}<p class="notes">{notes.join(' · ')}</p>{/if}
               {#if item.problem || item.contentState !== 'complete'}<p class="wait">Waiting for complete content. reet saves a copy from the machine that has it when that machine next checks in.</p>{/if}
-              {#if line}<p class="machines">{line} · <a href="/machines">Choose machines</a></p>{/if}
+              {#if line}<p class="machines">{line} · <a href="/machines">Choose machines on the Machines page</a></p>{/if}
               {#each differences[item.id] ?? [] as difference (difference.environmentId)}
                 <div class="differs" data-difference={difference.host}>
                   {#if difference.taking}

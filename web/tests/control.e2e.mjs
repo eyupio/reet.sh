@@ -90,7 +90,7 @@ try {
  await expect(serverUpdates.getByRole('button',{name:/^Retry update to/})).toBeVisible()
  // A right-click anywhere on a machine card opens the same options menu as its ⋮ button.
  await laptop.click({button:'right'})
- await expect(page.getByRole('menuitem',{name:'Choose skills & locations'})).toBeVisible()
+ await expect(page.getByRole('menuitem',{name:'Choose skills & locations'})).toHaveCount(0)
  await expect(page.getByRole('menuitem',{name:'Settings…',exact:true})).toBeVisible()
  await page.keyboard.press('Escape')
  await expect(page.getByRole('menuitem',{name:'Settings…',exact:true})).toBeHidden()

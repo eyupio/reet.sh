@@ -154,7 +154,7 @@ Gaffer entry is a pill; the outcome dialog shows its steps and calm guidance.
 
 **Chat options → Factory floor** replaces the Followed sessions name. The same
 job sheet now also lists running structured chats nobody asked Gaffer to look
-after, under **Not followed**, with checkboxes, **Select all** and **Look after
+after, under **Not looked after**, with checkboxes, **Select all** and **Look after
 selected**. One review (**Look after these sessions**) names the sessions, the
 default provider/model, what starting shares, one goal with **Use a prompt** and
 one set of limits, then reports each session as Following or Not started.

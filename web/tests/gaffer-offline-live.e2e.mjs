@@ -51,7 +51,7 @@ async function start(marker,budget){
   await goal().getByLabel('Review budget',{exact:true}).fill(String(budget))
   await goal().getByLabel('Agreed goal',{exact:true}).fill(`${marker} ensure a PR is raised and its checks and conflicts are addressed. Bring decisions back to me. Do not merge.`)
   await identify(marker)
-  await goal().getByRole('button',{name:'Start follow-up',exact:true}).click()
+  await goal().getByRole('button',{name:'Start looking after',exact:true}).click()
   await expect(goal().locator('.saved-goal')).toContainText(marker)
 }
 const goalData=async marker=>(await api(`/api/v2/gaffer/conversations/${conversations[marker]}/goal`)).goal
@@ -59,7 +59,7 @@ const receipt=async marker=>(await api(`/api/v2/gaffer/conversations/${conversat
 async function waitGoal(marker,stateName){await expect.poll(async()=>(await goalData(marker))?.state,{timeout:90000}).toBe(stateName)}
 async function resume(){
   await goal().getByRole('button',{name:'Resume after review',exact:true}).click()
-  await page.getByRole('dialog',{name:'Resume after checking the working conversation?',exact:true}).getByRole('button',{name:'Resume follow-up',exact:true}).click()
+  await page.getByRole('dialog',{name:'Resume after checking the working conversation?',exact:true}).getByRole('button',{name:'Resume goal',exact:true}).click()
   await expect(goal().getByRole('heading',{name:'Looking after this session',exact:true})).toBeVisible()
 }
 try{
@@ -101,7 +101,7 @@ try{
   await page.keyboard.press('Escape')
 
   await session('ALPHA');await option('Look after this session')
-  await goal().getByRole('button',{name:'Pause follow-up',exact:true}).click()
+  await goal().getByRole('button',{name:'Pause goal',exact:true}).click()
   await expect(goal().getByRole('heading',{name:'Paused',exact:true})).toBeVisible()
   await command('progress',{marker:'ALPHA'})
   await expect(goal().getByText('1 / 2 reviews used',{exact:false})).toBeVisible()

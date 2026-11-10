@@ -449,6 +449,100 @@ old wording was updated. All evidence is synthetic.
 - Added pipelines cannot choose a different crew in the approval dialog.
 - No agent-token figures and no prices, by the user's choice of tokens only.
 
+## A stuck pipeline, YOLO, real models and the Home marker (10 November 2026, after #720)
+
+The owner ran a real outcome on dev.reet.sh and reported four things.
+
+### The pipeline stopped after its first stage (bug)
+
+Evidence from the instance's audit log: the plan session asked for approvals and
+was switched to YOLO by hand; the goal showed Needs you with zero reviews. Cause:
+`reviewGoal` found `Controls.Waiting`, set the goal to `needs_user`, and nothing
+ever looked at it again, so answering the approval did not resume it. With
+ordinary approvals almost every pipeline would hit this.
+
+Fix: such a goal is **held**. `GafferGoal.WaitingOnWorker` is set with
+`needs_user` (`HoldGafferGoalForWorker`); `DueGafferGoals` also returns held
+goals; `reviewHeldGoal` probes the worker without any model request and, once it
+is no longer waiting, `ReleaseGafferGoalHold` makes the goal active again within
+the ten-active limit, **without moving `LastSeq`**, so the finished work is
+reviewed. An expired goal or an ended session ends the hold
+(`EndGafferGoalHold`); a pause, stop or resume by the person clears it. Access is
+checked by the normal review after the release. The goal's revision does not
+change. Also: resuming a **pipeline stage** goal by hand sets `LastSeq` one
+behind the worker's progress so Gaffer reviews what is there (ordinary goals
+still wait for new progress), and the Factory page now shows the goal's own note
+when a pipeline needs you.
+
+The owner's already-stuck pipeline predates the flag: after updating, use
+**Review goal → Resume goal** on it.
+
+### YOLO for an outcome (the owner's decision; reverses "never YOLO")
+
+`OutcomeInput.Yolo` → `GafferOutcome.Yolo` → `OutcomeLaunch.Yolo` →
+`terminalproto.Create.Yolo`. It is a field of the outcome only: a session or
+stage carrying `yolo` is still an unknown field, and neither the plan tool nor
+the report tool can set it. The create route refuses it without the account
+setting; the broker checks the account, the agent and the machine at every
+start and audits each. Added pipelines inherit it. The dialog offers it on the
+plan step behind the existing `YoloDialog` with three gates (account, machine,
+every crew agent). **Gaffer's instructions to a YOLO agent are acted on without
+an approval**; the dialog and the guide say so. Gaffer still has no shell, GitHub
+or merge path and never answers approvals.
+
+### Real models, and the Home marker
+
+`GafferModelSelect.svelte`: favourites, the machine's own list
+(`GET /api/v2/machines/{id}/models`), reet's suggestions and Other…, for the main
+agent and each crew role. The main model applies to roles on the main agent until
+a role is given its own. `factoryMembers`/`factoryBadge` in `gafferOutcome.ts`
+mark a pipeline's sessions on Home's Continue working rows and planning-board
+cards ("Factory · Plan 1 of 8", linking to `/factory`); a failed outcomes read
+only omits the marker.
+
+### Validation
+
+Go: a held goal stays held while the worker waits, makes no model request,
+resumes and is reviewed once the wait ends, and a pause ends the hold; YOLO off
+by default and present on every stage launch when chosen; the route refuses YOLO
+without the account setting. Browser: `gaffer-outcome.e2e.mjs` (model lists,
+Other…, the YOLO confirmation and what is sent), `gaffer-factory.e2e.mjs`
+(Approvals fact), `home-followups.e2e.mjs` (the marker), plus the unit test for
+membership. Synthetic only; the hold was not re-run against the owner's
+instance.
+
+### A report is no longer lost when a pipeline moves
+
+CI kept failing `TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes` with
+"That outcome changed". The cause was in the product: `ReviewOutcome` refused an
+older revision and saved the report against the revision it started from, so any
+supervisor step during the model request (tens of seconds on a real provider)
+threw the report away after its tokens were spent. A report changes nothing the
+person decides on, so it is no longer revision-gated: it reads the record as it
+is and is saved onto the record as it stands, retrying on a concurrent step.
+Adding pipelines, retry, stop and merge approval stay revision-checked.
+
+### Not done
+
+- The Sessions page carries the marker too (added in the same PR): its list rows and the
+  session header, from the same `factoryMembers` read in `TerminalWorkspace`.
+- A Gaffer chat in a pipeline's session is now told about the pipeline (added in
+  the same PR): `ContextSnapshot.Pipeline` (`contextPipeline`) carries the stage
+  in hand, every stage's state and agent, the merge decision, the stage goal's
+  state and a fixed sentence on how a pipeline moves on. Stage names and states
+  go with status sharing; the outcome's words, the pipeline title and the
+  handover notes only with text sharing, clipped and credential-scrubbed like the
+  rest of the snapshot. It is evidence only: the chat still has no tools and
+  cannot move a pipeline. The system prompt tells it not to suggest a new goal
+  for a session whose pipeline already has one.
+- Effort per crew role was added in the same PR at the owner's request:
+  `OutcomeStageInput.Effort` → `GafferOutcomeStage.Effort` → `OutcomeLaunch.Effort`
+  → `terminalproto.Create.Effort`, validated with `ValidEffort` and
+  `ToolTakesEffort`; a stage keeps the previous stage's session only when agent,
+  model **and effort** match. The dialog offers it for the main agent and each
+  role, from the web catalogue's effort flag, so OpenCode (no launch effort in
+  `agentOptions`) shows none even though its live chat has an effort control.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

@@ -94,7 +94,7 @@ try {
       await expect(tiles).toHaveText(['1Need you','0Ready to merge','2Running','1Done'])
       // The outcome's own figures: what Gaffer's model has used so far, and the budget each stage gets. No prices.
       const totals=first.getByLabel('This outcome so far',{exact:true})
-      await expect(totals).toContainText('Pipelines3');await expect(totals).toContainText('Gaffer reviews6');await expect(totals).toContainText('Gaffer tokens4,504');await expect(totals).toContainText('Budget per stage12 reviews · 24 h')
+      await expect(totals).toContainText('Pipelines3');await expect(totals).toContainText('Gaffer reviews6');await expect(totals).toContainText('Gaffer tokens4,504');await expect(totals).toContainText('Budget per stage12 reviews · 24 h');await expect(totals).toContainText('ApprovalsAsk me')
       // A pipeline that never started says why and can be tried again, once, on request.
       const stopped=done.getByRole('list',{name:'Pipelines of this outcome',exact:true}).locator(':scope > li').nth(1)
       await expect(stopped).toContainText('Not started');await expect(stopped).toContainText('That agent isn’t installed on that machine.')

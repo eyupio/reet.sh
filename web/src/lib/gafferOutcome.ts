@@ -209,7 +209,7 @@ export const STAGES = [
 ] as const
 export type StageKind = typeof STAGES[number]['kind']
 export type CrewRole = 'think' | 'build' | 'ship'
-export type Crew = Record<CrewRole, { tool: string; model: string }>
+export type Crew = Record<CrewRole, { tool: string; model: string; effort?: string }>
 export const CREW_ROLES: { role: CrewRole; label: string; does: string }[] = [
   { role: 'think', label: 'Thinking', does: 'Plan, design and review. Worth a stronger model.' },
   { role: 'build', label: 'Building', does: 'Code and test. Most of the tokens go here.' },
@@ -226,16 +226,16 @@ export function orderStages(kinds: Iterable<string>): StageKind[] {
 }
 
 /** What is sent for one pipeline: each chosen stage with the agent and model of the crew role that does it. */
-export function stagePlan(kinds: Iterable<string>, crew: Crew): { kind: string; tool: string; model: string }[] {
+export function stagePlan(kinds: Iterable<string>, crew: Crew): { kind: string; tool: string; model: string; effort?: string }[] {
   return orderStages(kinds).map(kind => {
     const role = STAGES.find(stage => stage.kind === kind)!.role
-    return { kind, tool: crew[role].tool, model: crew[role].model.trim() }
+    return { kind, tool: crew[role].tool, model: crew[role].model.trim(), ...(crew[role].effort ? { effort: crew[role].effort } : {}) }
   })
 }
 
-/** How many separate agent sessions a pipeline will use: a new one each time the agent or model changes. */
-export function sessionCount(plan: { tool: string; model: string }[]): number {
-  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model ? 1 : 0), 0)
+/** How many separate agent sessions a pipeline will use: a new one each time the agent, model or effort changes. */
+export function sessionCount(plan: { tool: string; model: string; effort?: string }[]): number {
+  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') ? 1 : 0), 0)
 }
 
 export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; summary: string }
@@ -329,4 +329,26 @@ export function timeLeft(expiresAt: number, now: number): string {
   if (minutes < 60) return `${minutes} min`
   const hours = Math.floor(minutes / 60)
   return hours < 48 ? `${hours} h ${minutes % 60} min` : `${Math.floor(hours / 24)} days`
+}
+
+// Which sessions belong to a Factory pipeline, so Home and the session lists can say so. Every stage's session is
+// included: a finished stage's session is still part of the pipeline it worked on.
+export type FactoryMember = { outcomeId: string; objective: string; pipeline: string; stage: string; step: number; steps: number; current: boolean }
+type MemberStage = { kind: string; sessionId?: string }
+type MemberPiece = { title: string; sessionId?: string; stage?: number; stages?: MemberStage[] }
+export function factoryMembers(records: { id: string; objective: string; sessions: MemberPiece[] }[]): Map<string, FactoryMember> {
+  const out = new Map<string, FactoryMember>()
+  const label = (kind: string) => STAGES.find(item => item.kind === kind)?.label ?? kind
+  for (const record of records) for (const piece of record.sessions) {
+    const stages = piece.stages ?? []
+    const base = { outcomeId: record.id, objective: record.objective, pipeline: piece.title, steps: stages.length }
+    // Later stages that keep one session overwrite earlier ones, so a session shows the latest stage it is doing.
+    stages.forEach((stage, index) => { if (stage.sessionId && index <= (piece.stage ?? 0)) out.set(stage.sessionId, { ...base, stage: label(stage.kind), step: index + 1, current: index === (piece.stage ?? 0) }) })
+    if (piece.sessionId && !out.has(piece.sessionId)) out.set(piece.sessionId, { ...base, stage: '', step: 0, current: true })
+  }
+  return out
+}
+/** "Factory · Plan 1 of 8", or "Factory" for a session with no stages. */
+export function factoryBadge(member: FactoryMember): string {
+  return member.step ? `Factory · ${member.stage} ${member.step} of ${member.steps}` : 'Factory'
 }

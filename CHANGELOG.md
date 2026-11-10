@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: a pipeline no longer stops for good when its agent asks for an
+  approval. It shows **Needs you** with the reason and carries on by itself once
+  you answer. An outcome can be approved to run on **YOLO** (off by default,
+  confirmed each time, only where the account, machine and agents allow it). The
+  agent lists now offer the machine's real **models**, and an **effort** for the
+  outcome or per crew role. Home marks a session that
+  is part of a pipeline (**Factory · stage n of m**). Needs a controller update.
 - reet now saves a copy of every skill a connected machine shares, by itself.
   When a machine checks in, the controller asks it for the files of each skill
   the library lists without content, and the copy fills that same library entry:

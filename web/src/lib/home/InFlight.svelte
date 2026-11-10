@@ -5,14 +5,17 @@
   import { shortAge, stateWord, type GroupBy, type Group, type HomeSession, type SessionOwner } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import SessionActions from '../sessions/SessionActions.svelte'
+  import { factoryBadge, type FactoryMember } from '../gafferOutcome'
   import SessionHoverCard from '../terminal/SessionHoverCard.svelte'
 
   // In flight: live sessions, and finished ones for a day, grouped by Project, Machine or State. Each row says the state word
   // and where it came from (R10): a terminal session reports no steps, so there is no progress bar. A row opens the session;
   // its actions menu (a right-click, Shift+F10 or the menu key) offers the same actions as on the Sessions page.
-  let { heading = 'In flight', groups, owners, machines, offline, now, loaded, failed = false, groupBy, onchoose, projectColours = new Map<string, string>(),
+  let { heading = 'In flight', factory = new Map(), groups, owners, machines, offline, now, loaded, failed = false, groupBy, onchoose, projectColours = new Map<string, string>(),
     terminals = [], removeDefault = false, onchanged, onnotice, onsignedout }: {
     heading?: string
+    /** Sessions that are part of a Factory pipeline, by session id. */
+    factory?: Map<string, FactoryMember>
     groups: Group[]
     owners: Map<string, SessionOwner>
     machines: MachineHealth[]
@@ -100,7 +103,7 @@
                   onkeydown={(event) => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { hideCard(); void actions?.openMenu(event, s) } }}>
                   {#if status === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<span class="dot" aria-hidden="true"></span>{/if}
                   <span class="main">
-                    <span class="title">{s.title}{#if s.yolo}{' '}<span class="badge yolo">YOLO</span>{/if}</span>
+                    <span class="title">{s.title}{#if s.yolo}{' '}<span class="badge yolo">YOLO</span>{/if}{#if factory.get(s.id)}{' '}<span class="badge factory" title={`Part of a Factory pipeline: ${factory.get(s.id)!.pipeline}`}>{factoryBadge(factory.get(s.id)!)}</span>{/if}</span>
                     <span class="where">{owner?.name || hostOf(s.agentId)}<span class="mobile-age"> · {shortAge(Math.max(0, now - s.updatedAt))} ago</span></span>
                   </span>
                   <span class="state">
@@ -176,6 +179,7 @@
   li[data-status='waiting'], li[data-status='failed'] { box-shadow: inset 2px 0 var(--status); }
   .main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
   .title { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .badge.factory { margin-left: 4px; padding: 0 5px; border: 1px solid var(--accent); border-radius: 5px; color: var(--accent-text); font-size: 13px; font-weight: 600; vertical-align: 1px; }
   .badge.yolo { margin-left: 4px; padding: 0 5px; border: 1px solid var(--warn); border-radius: 5px; color: var(--warn); font-size: 14px; font-weight: 600; vertical-align: 1px; }
   .where { font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .item-details code { font-family: var(--mono); font-size: 14px; }

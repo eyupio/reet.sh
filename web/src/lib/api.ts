@@ -535,7 +535,7 @@ export async function setSoftwareMirror(enabled: boolean): Promise<SoftwareMirro
   return (await req('/api/v2/settings/software-mirror', { method: 'PUT', body: json({ enabled }) })).json()
 }
 export async function cacheSoftwareMirror(): Promise<SoftwareMirrorStatus> {
-  return (await req('/api/v2/settings/software-mirror/cache', { method: 'POST' })).json()
+  return (await req('/api/v2/settings/software-mirror/cache', { method: 'POST', body: json({}) })).json()
 }
 
 export type YoloSetting = { allowed: boolean; changedBy?: string; changedAt?: number }

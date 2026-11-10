@@ -248,6 +248,11 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
   return (await req(path, { method: action === 'delete' ? 'DELETE' : 'POST', body: json({ revision: p.revision, ...(enabled === undefined ? {} : { enabled }) }), signal })).json()
 }
 
+export type GafferOutcomePlan = { summary: string; sessions: { title: string; prompt: string }[]; model: string; usageReported: boolean; inputTokens: number; outputTokens: number }
+/** Asks the provider to propose the sessions for an objective. It reads no reet data and starts nothing. */
+export async function planGafferOutcome(p: GafferProvider, input: { objective: string; project: string; sessions: number }, signal?: AbortSignal): Promise<GafferOutcomePlan> {
+  return (await req(`/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
+}
 export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
 export type GafferTurn = {
  goalId?:string;goalRevision?:number;goalNeedsUser?:boolean

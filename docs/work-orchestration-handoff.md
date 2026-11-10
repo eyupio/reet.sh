@@ -17,6 +17,18 @@ automated code review did not run because of account quota. The
 and records exact commits, implementation, evidence, limitations and authority.
 No further slice is selected. Preserve the wider KZ roadmap; do not restart GM0.
 
+## Factory floor and outcomes — 10 November 2026
+
+Work resumed after the pause. The [factory floor handoff](handoffs/gaffer-factory-floor.md)
+records the user's choices and the delivered contract: one floor of followed and
+unfollowed sessions with a single review for several, and **outcomes**, where
+Gaffer's provider proposes sessions for a typed objective, the person approves the
+plan and the browser starts and follows them. On the user's instruction this
+relaxes "new worker launches" below for an approved plan only; Gaffer's model
+still chooses no machine, folder or flag and gains no shell, GitHub or merge path.
+The KZ work/plan/attempt domain is still not implemented: an outcome is a derived
+grouping of per-session goals, not a durable work record.
+
 ## Active direction: Gaffer session-companion MVP (5 November 2026)
 
 This section records the user's latest decisions and takes precedence over older

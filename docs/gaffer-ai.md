@@ -219,6 +219,44 @@ every running structured chat you have not. The filters **Needs review**,
 the view. Paused goals remain under **All**. Opening or refreshing this view
 starts no goal, model request or worker instruction.
 
+### Give Gaffer an outcome
+
+Choose **Give Gaffer an outcome** at the top of the floor when you want a result
+and would sooner not start each session yourself.
+
+1. Write the outcome, choose the project its sessions work in, the agent, and how
+   many sessions Gaffer may propose (up to five). Only agents whose chat is
+   available on that project's machine are offered, and the machine must be
+   connected.
+2. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you
+   typed and the project's name, nothing else, and proposes the sessions: a title
+   and a full prompt for each. This is one model request and may use provider
+   credits. It starts nothing.
+3. Review the plan. Every title and prompt is editable; remove a session or **Add
+   a session** of your own. **Write the plan myself** skips Gaffer's proposal,
+   for when the model cannot plan or you already know the split.
+4. Choose **Approve and start**. Each session is then started in turn as an
+   ordinary chat in that project, with the prompt shown and ordinary approvals,
+   never YOLO. In a git project each session gets its own worktree, so they do
+   not edit the same files. As each chat comes up it is put in Gaffer's care with
+   a goal that names the outcome and that session's part, and ends "Do not merge."
+
+The results name every session as **Following**, **Started, not followed** (with
+the reason; it then appears under **Not followed**) or **Not started**. Keep the
+dialog open until they settle: your browser starts the sessions, so closing it
+stops the ones still waiting. Sessions already started keep running.
+
+On the floor, **Outcomes** lists each outcome with its sessions and how many need
+review, are being followed or have finished. Choose one to see only its sessions.
+Each session keeps its own goal, budget and controls; only you mark a goal
+complete, and no outcome is ever marked done for you.
+
+What this does not do yet: Gaffer does not add, replace or retire sessions after
+you approve, sessions do not see each other's work, and nothing merges. An agent
+that asks to trust a folder's plugins first (OpenCode, Google Antigravity) is
+refused here with that reason; start it from the launch bar, then look after it
+from the floor.
+
 ### Put several sessions in Gaffer's care
 
 Tick the running chats Gaffer should look after, or **Select all**, then choose

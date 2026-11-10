@@ -5,6 +5,15 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Give Gaffer an outcome** (factory floor). Write what you want done and choose
+  a project and agent; Gaffer proposes the sessions and their prompts, you edit
+  and approve the plan, and the sessions are then started as ordinary chats and
+  followed, each with a goal naming the outcome. The floor groups them under
+  **Outcomes**. Nothing starts before you approve, sessions never start in YOLO,
+  and Gaffer still cannot merge. Adds `POST /api/v2/gaffer/providers/{id}/plan`
+  (browser account only), which sends the provider only the typed objective and
+  project name and saves nothing. Needs a controller update; no database or
+  connector change.
 - Gaffer's **Followed sessions** view is now the **Factory floor** (Ask Gaffer →
   Chat options). Beside the sessions Gaffer already follows it lists every
   running structured chat that is not followed. Tick several, review one goal

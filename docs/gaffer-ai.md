@@ -209,9 +209,10 @@ report progress. Unsupported channels and providers remain visible limitations.
 ## Run the factory floor
 
 The factory floor is one click away: **Factory floor** under Gaffer's name in
-general chat, **Open the factory floor** in an empty general chat, or Home's
-**Gaffer:** line, which appears whenever a goal needs review, is being followed,
-or running chats are not followed yet. **Chat options → Factory floor** opens it
+general chat, **Open the factory floor** in an empty general chat, or Gaffer's
+button on Home, which appears whenever a goal needs review, is being followed,
+or running chats are not followed yet. An empty general chat also offers **Give
+Gaffer an outcome**, which opens the floor with that dialog already up. **Chat options → Factory floor** opens it
 from a session chat. It is one job sheet for the whole floor: the sessions you
 asked Gaffer to look after, with decisions first, and under **Not followed**
 every running structured chat you have not. The filters **Needs review**,
@@ -306,10 +307,14 @@ no shell, GitHub or merge path here.
 
 ### Review followed sessions
 
-Each card shows the agreed work, latest Gaffer report, review budget and deadline.
-Worker evidence observation time and the actual review finish time stay separate
-from the overview read time. Expand **Review & evidence** for the full saved
-report, reported usage and last goal instruction. **Handed to worker** confirms
+The floor reads top to bottom: **Give Gaffer an outcome**, then **Outcomes**,
+then **Sessions** with its filters and the actions for the sessions shown, then
+**Not followed**. Each card is short on purpose. It shows the session, its state,
+the outcome it serves (or the start of its own goal), anything waiting on you in
+a highlighted line, the latest Gaffer report, and its review budget and deadline.
+Expand **Review & evidence** for the full agreed goal, the full saved report, when
+worker evidence was observed and the review finished, reported usage and the last
+goal instruction. Those times stay separate from when the floor was read. **Handed to worker** confirms
 handoff, not completion. Uncertain or blocked delivery needs your review; a model's
 PR/check report still needs verification in the working conversation.
 

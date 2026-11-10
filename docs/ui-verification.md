@@ -119,6 +119,23 @@ remain the delivery gates. No physical-phone or real-provider claim is made.
 ![Floating Gaffer phone light](images/ui/gaffer-widget-390-light.png)
 ![Floating Gaffer phone dark](images/ui/gaffer-widget-390-dark.png)
 
+## Gaffer alignment and polish (10 November 2026)
+
+One audit across the widget, the factory floor, the outcome dialog and Home, at
+1440 px light and dark and 390 px. The floor is wider on desktop with a hero
+action and headed sections; cards are compact with the full record under **Review
+& evidence**; an empty general chat leads with **Give Gaffer an outcome**; Home's
+Gaffer entry is a pill; the outcome dialog shows its steps and calm guidance.
+`gaffer-floor`, `gaffer-outcome`, `gaffer-followed`, `home-followups`,
+`session-end-gaffer`, `gaffer-widget-ux`, `gaffer-chat`, `gaffer-goal`, `home` and
+`attention-contract` pass; no view scrolls sideways.
+
+![Floor desktop light](images/ui/gaffer-floor-1440-light.png)
+![Floor desktop dark](images/ui/gaffer-floor-1440-dark.png)
+![Floor phone](images/ui/gaffer-floor-390-light.png)
+![Widget and Home entries](images/ui/gaffer-floor-entry-1280-light.png)
+![Outcome steps on a phone](images/ui/gaffer-outcome-objective-390-light.png)
+
 ## Gaffer factory floor (9 November 2026)
 
 **Chat options → Factory floor** replaces the Followed sessions name. The same

@@ -49,6 +49,14 @@ export function outcomeOf(goalText: string): string {
   return first.startsWith(OUTCOME_PREFIX) ? first.slice(OUTCOME_PREFIX.length).trim() : ''
 }
 
+/** The session's part of its outcome, from the goal's second line; '' for an ordinary goal. */
+export function outcomePart(goalText: string): string {
+  if (!outcomeOf(goalText)) return ''
+  const second = goalText.split('\n', 2)[1] ?? ''
+  const at = second.indexOf(': ')
+  return at >= 0 && second.startsWith('This session') ? second.slice(at + 2).trim() : ''
+}
+
 /** Followed sessions grouped by the outcome their goal names, in first-seen order. Ordinary goals are left out. */
 export function outcomeGroups<T extends OutcomeRow>(rows: T[]): OutcomeGroup<T>[] {
   const groups = new Map<string, OutcomeGroup<T>>()

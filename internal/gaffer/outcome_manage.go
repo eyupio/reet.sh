@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -154,9 +155,10 @@ func (s *Service) ReviewOutcome(parent context.Context, p Principal, id string, 
 	if err != nil {
 		return o, err
 	}
-	if o.Revision != revision {
-		return outcomeView(o), store.ErrGafferOutcomeBusy
-	}
+	// A report changes nothing the person decides on, and pipelines keep
+	// moving while it is asked for and written. It is therefore not refused
+	// for an older revision: it reads the record as it is now.
+	_ = revision
 	old, err := s.store.GafferProviderFor(p.UserID, o.ProviderID)
 	if err != nil {
 		return outcomeView(o), invalid("provider", "This outcome's Gaffer provider is no longer available.")
@@ -225,11 +227,24 @@ func (s *Service) ReviewOutcome(parent context.Context, p Principal, id string, 
 		return outcomeView(o), err
 	}
 	report.At = time.Now().UnixMilli()
-	o, err = s.store.UpdateGafferOutcomeFor(p.UserID, id, revision, func(o *store.GafferOutcome) bool {
-		o.Report = &report
-		return true
-	})
-	return outcomeView(o), err
+	// The model took a while, and a pipeline may have moved meanwhile. The
+	// report is saved onto the record as it now stands instead of being lost.
+	for attempt := 0; ; attempt++ {
+		cur, err := s.store.GafferOutcomeFor(p.UserID, id)
+		if err != nil {
+			return outcomeView(o), err
+		}
+		saved, err := s.store.UpdateGafferOutcomeFor(p.UserID, id, cur.Revision, func(o *store.GafferOutcome) bool {
+			o.Report = &report
+			return true
+		})
+		if err == nil {
+			return outcomeView(saved), nil
+		}
+		if !errors.Is(err, store.ErrGafferOutcomeBusy) || attempt >= 8 {
+			return outcomeView(cur), err
+		}
+	}
 }
 
 // outcomeEvidence is what the provider is shown: the outcome and, per

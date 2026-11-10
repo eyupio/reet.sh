@@ -728,10 +728,8 @@ func TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes(t *testing.T) {
 		before = again
 	}
 	launches := len(r.starter.asked())
-	if _, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, before.Revision-1); !errors.Is(err, store.ErrGafferOutcomeBusy) {
-		t.Fatalf("stale review: %v", err)
-	}
-	got, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, before.Revision)
+	// Pipelines keep moving while a report is asked for, so an older revision is not a reason to refuse one.
+	got, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, before.Revision-1)
 	if err != nil {
 		t.Fatal(err)
 	}

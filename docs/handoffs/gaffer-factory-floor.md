@@ -511,6 +511,17 @@ Other…, the YOLO confirmation and what is sent), `gaffer-factory.e2e.mjs`
 membership. Synthetic only; the hold was not re-run against the owner's
 instance.
 
+### A report is no longer lost when a pipeline moves
+
+CI kept failing `TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes` with
+"That outcome changed". The cause was in the product: `ReviewOutcome` refused an
+older revision and saved the report against the revision it started from, so any
+supervisor step during the model request (tens of seconds on a real provider)
+threw the report away after its tokens were spent. A report changes nothing the
+person decides on, so it is no longer revision-gated: it reads the record as it
+is and is saved onto the record as it stands, retrying on a concurrent step.
+Adding pipelines, retry, stop and merge approval stay revision-checked.
+
 ### Not done
 
 - The Sessions page carries the marker too (added in the same PR): its list rows and the

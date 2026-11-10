@@ -15,7 +15,7 @@ const session=(id,title,extra={})=>({id,agentId:'a1',title,state:'running',struc
 const goalFor=(conversationId,sessionId,text,maxReviews,hours)=>({...pins,id:conversationId,conversationId,sessionId,revision:1,text,state:'active',note:'Waiting for new worker progress.',maxReviews,usedReviews:0,expiresAt:now+hours*3600000,createdAt:now,updatedAt:now,nextAt:now,lastSeq:0,summary:'',usageReported:false,inputTokens:0,outputTokens:0})
 
 function fixture({active=1}={}){
-  const box={writes:[],created:[],setups:[],goals:[],conversations:new Map(),sessionsFail:false}
+  const box={writes:[],created:[],setups:[],controls:[],goals:[],conversations:new Map(),sessionsFail:false}
   const sessions=[
     session('floor-ready','Billing export'),
     session('floor-blocked','Flaky importer'),
@@ -27,10 +27,23 @@ function fixture({active=1}={}){
     sessions.push(session(sid,`Followed work ${n+1}`))
     box.goals.push({goal:goalFor(cid,sid,'Raise the release PR. Do not merge.',12,24),session:{id:sid,agentId:'a1',title:`Followed work ${n+1}`,state:'running'},available:true,attention:false})
   }
+  // Each followed goal answers its own fresh read and control, as its card would use.
+  const followedRoutes={}
+  for(const row of box.goals){
+    const path=`/api/v2/gaffer/conversations/${row.goal.conversationId}/goal`
+    followedRoutes[path]=()=>({goal:row.goal,pins,allowed:true,setupAllowed:true})
+    followedRoutes[path+'/control']=request=>{
+      const input=request.postDataJSON();box.controls.push({sid:row.goal.sessionId,...input})
+      if(row.goal.sessionId==='floor-followed-2')return {status:409,json:{error:'That goal changed. Reload it.'}}
+      row.goal.state=input.action==='pause'?'paused':'stopped';row.goal.revision++
+      return {goal:row.goal,pins,allowed:true,setupAllowed:true}
+    }
+  }
   // The blocked session already has a Gaffer chat; the ready one has none until the review creates it.
   box.conversations.set('floor-blocked',{id:'b'.repeat(32),sessionId:'floor-blocked',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now})
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const routes={
+    ...followedRoutes,
     '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
     '/api/v2/terminal/sessions':()=>box.sessionsFail?{status:503,json:{error:'The machines could not be reached.'}}:{sessions},
     '/api/v2/gaffer/goals':request=>{expect(request.method()).toBe('GET');return {goals:box.goals,readAt:now}},
@@ -173,6 +186,27 @@ try {
       expect(f.box.writes).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
+  // One action for the sessions shown: pause every followed one, or stop them all after a confirmation.
+  {
+    const f=fixture({active:3}),w=await openWorkspace(browser,{width:1280,height:1000,routes:f.routes})
+    watch(w,f.box)
+    try {
+      const floor=await openFloor(w)
+      await floor.getByRole('button',{name:/^Following/}).click()
+      await floor.getByRole('button',{name:'Pause all 3 following',exact:true}).click()
+      // Each goal is read afresh and paused on its own; one refusal is named and does not stop the others.
+      await expect(floor.getByRole('status').filter({hasText:'Paused'})).toHaveText('Paused 2 of 3. The working models keep running. Not changed: Followed work 3: That goal changed. Reload it.')
+      expect(f.box.controls.map(c=>[c.sid,c.action,c.revision,c.confirmed])).toEqual([['floor-followed-0','pause',1,false],['floor-followed-1','pause',1,false],['floor-followed-2','pause',1,false]])
+      await floor.getByRole('button',{name:'All',exact:true}).click()
+      await floor.getByRole('button',{name:'Stop all 3 goals',exact:true}).click()
+      const confirm=w.page.getByRole('dialog',{name:'Stop 3 goals?',exact:true})
+      await expect(confirm).toContainText('Resuming is done one session at a time')
+      await confirm.getByRole('button',{name:'Stop goals',exact:true}).click()
+      await expect(floor.getByRole('status').filter({hasText:'Stopped'})).toContainText('Stopped 2 of 3.')
+      expect(f.box.controls.slice(3).map(c=>c.action)).toEqual(['stop','stop','stop'])
+      expect(f.box.writes).toHaveLength(6);expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
   // With nothing followed yet, Home still offers the floor in one click and says how many chats are waiting.
   for(const width of [1280,390]){
     const f=fixture({active:0}),w=await openWorkspace(browser,{width,height:900,touch:width<1000,routes:f.routes})
@@ -190,5 +224,5 @@ try {
       expect(f.box.writes).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Factory floor: four theme/width views, running chats beside followed work, filters, multi-select, one combined review with prompt and limits, per-session setup and results, partial failure, saved starting point, failed session read, the ten-goal limit and the one-click Home entry passed. Nothing is written before Start.')
+  console.log('Factory floor: four theme/width views, running chats beside followed work, filters, multi-select, one combined review with prompt and limits, per-session setup and results, partial failure, saved starting point, failed session read, the ten-goal limit, bulk pause and stop, and the one-click Home entry passed. Nothing is written before Start.')
 } finally { await browser.close() }

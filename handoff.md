@@ -43,7 +43,13 @@ picker is folded into it) and **outcomes**: the user chose **plan, approve, then
 /api/v2/gaffer/providers/{id}/plan` has Gaffer's provider propose sessions from the typed objective; the person edits and
 approves; the browser then starts each session through the ordinary launch and sets up its goal, which names the outcome.
 No schema change: outcomes group by the goal's first line. Read the handoff's outcome contract and limits before extending
-it; a controller-owned outcome record is the next step.
+it.
+
+Later on 10 November, after #713 and #715 merged, a third PR made outcomes **controller-owned**: the approved plan is a
+`gaffer_outcomes` record and the controller starts and follows the sessions without a browser, survives a restart and
+stops on a restore. It also fixes six defects an independent review found in the browser-run start, adds one model and a
+plugin-trust tick for an outcome, and bulk pause/stop on the floor. Read "Controller-owned outcomes" in the handoff; it
+supersedes the browser-orchestration limits recorded for #715.
 
 ## OVERVIEW-4: the Overview leads with what matters (8 November 2026)
 

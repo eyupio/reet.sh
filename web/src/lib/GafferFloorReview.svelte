@@ -5,6 +5,7 @@
   import { ApiError, createGafferConversation, getGafferConversation, getGafferGoal, getGafferSettings, setupGafferGoal, type GafferProvider } from './api'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { BUILT_IN_GOAL_PROMPTS, goalPromptTitle, readGoalPrompts, type GoalPrompt } from './gafferPrompts'
+  import { wholeBetween } from './gafferOutcome'
   import { floorBlocker, floorSummary, readFloorDefaults, writeFloorDefaults, MAX_GOAL_BYTES, type FloorOutcome, type FloorSession } from './gafferFloor'
   import { toolName } from './agentLaunch'
 
@@ -21,6 +22,7 @@
   const bytes = $derived(new TextEncoder().encode(text).length)
   const blocker = $derived(loading ? '' : floorBlocker({ chosen: sessions.length, room, text, provider: !!provider }))
   const many = $derived(sessions.length !== 1)
+  const limitsOk = $derived(wholeBetween(maxReviews, 1, 48) && wholeBetween(hours, 1, 168))
 
   onMount(() => {
     const saved = readFloorDefaults(userId, starting)
@@ -46,12 +48,13 @@
     const id = found.conversation.id
     const view = await getGafferGoal(id, life.signal)
     if (view.goal) throw new Error('This session already has a goal. Review it on its card.')
-    if (!(view.setupAllowed ?? view.allowed)) throw new Error(view.reason || 'This session needs an enabled provider and a structured worker with live message controls.')
+    // The goal view's own reason describes missing grants, which this setup grants; what blocks it here is the provider or the chat.
+    if (!(view.setupAllowed ?? view.allowed)) throw new Error('This session needs an enabled provider and a structured worker with live message controls.')
     await setupGafferGoal(id, { ...view.pins, revision: 0, conversationRevision: view.conversationRevision ?? 0, confirmed: true, action: 'start', text: text.trim(), maxReviews, hours }, life.signal)
   }
 
   async function start() {
-    if (busy || blocker || !provider) return
+    if (busy || blocker || !limitsOk || !provider) return
     busy = true; error = ''
     writeFloorDefaults(userId, { text, maxReviews, hours })
     const done: FloorOutcome[] = []
@@ -102,10 +105,10 @@
         </details>
         <p class="hint">Up to {maxReviews * sessions.length} Gaffer reviews in all, and reviews may use provider credits. This goal and these limits are kept in this browser as your starting point next time.</p>
         {#if bytes > MAX_GOAL_BYTES}<p class="warning">Keep the goal within 2,000 UTF-8 bytes.</p>{/if}
-        {#if blocker}<p class="warning" role="status">{blocker}</p>{/if}
+        {#if blocker}<p class="warning" role="status">{blocker}</p>{:else if !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
         {#if error}<p class="warning" role="alert">{error}</p>{/if}
         {#if progress}<p role="status">{progress}</p>{/if}
-        <div class="actions"><button class="btn primary" type="submit" disabled={busy || loading || !!blocker}>{busy ? 'Starting…' : `Start follow-up for ${sessions.length} ${many ? 'sessions' : 'session'}`}</button><button class="btn quiet" type="button" disabled={busy} onclick={onclose}>Cancel</button></div>
+        <div class="actions"><button class="btn primary" type="submit" disabled={busy || loading || !!blocker || !limitsOk}>{busy ? 'Starting…' : `Start follow-up for ${sessions.length} ${many ? 'sessions' : 'session'}`}</button><button class="btn quiet" type="button" disabled={busy} onclick={onclose}>Cancel</button></div>
       </form>
     {/if}
   </div>

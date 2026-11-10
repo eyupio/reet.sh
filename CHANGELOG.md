@@ -5,6 +5,19 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Gaffer outcomes are now started by the controller. After you approve a plan the
+  sessions start and are followed whether or not the browser stays open, a
+  restart carries on without starting a session twice, and **Stop starting
+  sessions** leaves the rest unstarted. You can choose one model for the outcome
+  and, for OpenCode and Google Antigravity, confirm you trust the folder's
+  plugins. The floor gains **Pause all following** and **Stop all goals** for the
+  sessions shown. Fixes from review: a launch the machine refused is no longer
+  reported as started, limits must be whole numbers, and prompts an agent cannot
+  be started with are caught before anything starts. Adds
+  `GET/POST /api/v2/gaffer/outcomes`, `GET /api/v2/gaffer/outcomes/{id}` and
+  `POST /api/v2/gaffer/outcomes/{id}/stop` (browser account only) and a
+  `gaffer_outcomes` table, created on start. Restoring a copy stops any outcome
+  that was still starting.
 - **Give Gaffer an outcome** (factory floor). Write what you want done and choose
   a project and agent; Gaffer proposes the sessions and their prompts, you edit
   and approve the plan, and the sessions are then started as ordinary chats and

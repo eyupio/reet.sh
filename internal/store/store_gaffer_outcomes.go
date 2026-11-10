@@ -49,6 +49,8 @@ type GafferOutcome struct {
 	ProjectName string                 `json:"projectName"`
 	Dir         string                 `json:"dir"`
 	Tool        string                 `json:"tool"`
+	Model       string                 `json:"model,omitempty"`
+	Trust       bool                   `json:"trust,omitempty"`
 	ProviderID  string                 `json:"providerId"`
 	MaxReviews  int                    `json:"maxReviews"`
 	Hours       int                    `json:"hours"`

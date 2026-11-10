@@ -20,7 +20,10 @@ import (
 
 // OutcomeLaunch is one approved session for the launch path to start.
 type OutcomeLaunch struct {
-	AgentID, RequestID, Title, Tool, Dir, ProjectID, Prompt string
+	AgentID, RequestID, Title, Tool, Model, Dir, ProjectID, Prompt string
+	// Trust is the person's own confirmation, made when they approved the
+	// plan, that this folder's plugins may run in the agent.
+	Trust bool
 }
 
 // SessionStarter starts an approved session as its owner through the same
@@ -41,6 +44,8 @@ type OutcomeInput struct {
 	Objective  string           `json:"objective"`
 	ProjectID  string           `json:"projectId"`
 	Tool       string           `json:"tool"`
+	Model      string           `json:"model"`
+	Trust      bool             `json:"trust"`
 	Sessions   []OutcomeSession `json:"sessions"`
 	MaxReviews int              `json:"maxReviews"`
 	Hours      int              `json:"hours"`
@@ -105,6 +110,13 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if !terminalproto.ReviewedChatTool(in.Tool) {
 		return o, invalid("tool", "Choose an agent that can run a Gaffer chat.")
 	}
+	model := strings.TrimSpace(in.Model)
+	if model != "" && !terminalproto.ValidModel(model) {
+		return o, invalid("model", "Choose a model name this agent accepts, or leave it to the agent's default.")
+	}
+	if in.Trust && in.Tool != "opencode" && in.Tool != "antigravity" {
+		return o, invalid("trust", "Only OpenCode and Google Antigravity ask you to trust a folder's plugins.")
+	}
 	if in.MaxReviews < 1 || in.MaxReviews > 48 || in.Hours < 1 || in.Hours > 168 {
 		return o, invalid("goal", "Choose 1 to 48 reviews over 1 to 168 hours for each session.")
 	}
@@ -149,7 +161,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 		}
 		sessions = append(sessions, store.GafferOutcomeSession{Key: string(rune('a' + i)), Title: title, Prompt: prompt, RequestID: request, Note: "Waiting its turn."})
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Trust: in.Trust, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err
@@ -351,7 +363,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 			return false
 		}
 		startCtx, cancel := context.WithTimeout(ctx, outcomeStartWait)
-		started, err := starter.StartOutcomeSession(startCtx, uid, OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt})
+		started, err := starter.StartOutcomeSession(startCtx, uid, OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Trust: o.Trust, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt})
 		cancel()
 		if ctx.Err() != nil {
 			// The same request ID is sent again after a restart, so a launch

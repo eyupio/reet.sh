@@ -1,14 +1,14 @@
 <script lang="ts">
-  // Give Gaffer an outcome. Gaffer proposes the sessions, the person edits and approves the plan, and only then does this
-  // browser start each session through the ordinary launch and put it in Gaffer's care through the reviewed setup.
-  // Nothing here starts on the model's say-so: a proposed session is text until the person presses Approve.
+  // Give Gaffer an outcome. Gaffer proposes the sessions, the person edits and approves the plan, and only then does the
+  // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
+  // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount } from 'svelte'
-  import { ApiError, createGafferConversation, getGafferConversation, getGafferGoal, getGafferSettings, planGafferOutcome, setupGafferGoal, type GafferProvider } from './api'
-  import { chatToolName, createTerminal, listFolderProjects, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
+  import { createGafferOutcome, getGafferOutcome, getGafferSettings, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider } from './api'
+  import { chatToolName, listFolderProjects, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { MAX_OUTCOME_SESSIONS, objectiveBlocker, outcomeGoal, outcomeSummary, planBlocker, type OutcomeResult, type PlanSession } from './gafferOutcome'
+  import { MAX_OUTCOME_SESSIONS, cleanPrompt, objectiveBlocker, outcomeSummary, planBlocker, startingProgress, wholeBetween, type PlanSession } from './gafferOutcome'
 
   let { room, userId = 0, onclose, onstarted }: { room: number; userId?: number; onclose: () => void; onstarted: () => void | Promise<void> } = $props()
   const formId = $props.id()
@@ -20,7 +20,8 @@
   let objective = $state(''), projectId = $state(''), tool = $state(''), wanted = $state(3)
   let planning = $state(false), planError = $state(''), summary = $state(''), sessions = $state<PlanSession[]>([])
   let maxReviews = $state(12), hours = $state(24)
-  let busy = $state(false), results = $state<OutcomeResult[]>([])
+  let model = $state(''), trust = $state(false)
+  let busy = $state(false), startError = $state(''), record = $state<GafferOutcome | null>(null), watchError = $state('')
   let counter = 0
   const key = () => `plan-${++counter}`
 
@@ -30,10 +31,13 @@
   const cap = $derived(Math.max(1, Math.min(MAX_OUTCOME_SESSIONS, room)))
   const blocker = $derived(loading ? '' : !provider ? 'Choose a default Gaffer provider in Gaffer settings first.' : objectiveBlocker({ objective, project: !!project, machineReady: !!machine?.ready, agent: !!tool && tools.includes(tool), room }))
   const approveBlocker = $derived(planBlocker(sessions, room))
-  const done = $derived(results.length > 0 && !busy)
+  const needsTrust = $derived(tool === 'opencode' || tool === 'antigravity')
+  const limitsOk = $derived(wholeBetween(maxReviews, 1, 48) && wholeBetween(hours, 1, 168))
+  const done = $derived(!!record && record.state !== 'starting')
 
   $effect(() => { if (tools.length && !tools.includes(tool)) tool = tools[0]; if (!tools.length) tool = '' })
   $effect(() => { if (wanted > cap) wanted = cap })
+  $effect(() => { if (!needsTrust) trust = false })
 
   onMount(() => {
     const saved = readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text)
@@ -65,55 +69,41 @@
   }
   const addSession = () => { sessions = [...sessions, { key: key(), title: '', prompt: '' }] }
   const removeSession = (id: string) => { sessions = sessions.filter(item => item.key !== id) }
-  const requestId = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-outcome`).replace(/[^A-Za-z0-9_-]/g, '')
-  const wait = (ms: number) => new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, ms); life.signal.addEventListener('abort', () => { clearTimeout(timer); reject(life.signal.reason) }, { once: true }) })
-  const mark = (id: string, change: Partial<OutcomeResult>) => { results = results.map(item => item.key === id ? { ...item, ...change } : item) }
-
-  /** Puts a started session in Gaffer's care. A new chat needs a moment before its message channel is live, so this waits for it. */
-  async function follow(sessionId: string, title: string): Promise<void> {
-    let found = await getGafferConversation(sessionId, life.signal).catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e })
-    if (!found) found = await createGafferConversation(sessionId, provider!.id, '', life.signal)
-    const id = found.conversation.id
-    for (let attempt = 0; ; attempt++) {
-      const view = await getGafferGoal(id, life.signal)
-      if (view.goal) throw new Error('This session already has a goal.')
-      if (view.setupAllowed ?? view.allowed) {
-        await setupGafferGoal(id, { ...view.pins, revision: 0, conversationRevision: view.conversationRevision ?? 0, confirmed: true, action: 'start', text: outcomeGoal(objective, title), maxReviews, hours }, life.signal)
-        return
-      }
-      if (attempt >= 14) throw new Error(view.reason || 'Its chat was not ready for follow-up in time.')
-      await wait(2000)
-    }
+  // The controller owns the start from here. This only reads its record until every session has an answer.
+  let watching: ReturnType<typeof setInterval> | undefined
+  function watch(id: string) {
+    clearInterval(watching)
+    watching = setInterval(() => {
+      if (document.hidden) return
+      void getGafferOutcome(id, life.signal).then(next => {
+        record = next; watchError = ''
+        if (next.state !== 'starting') { clearInterval(watching); void onstarted() }
+      }).catch(e => { if (!life.signal.aborted) watchError = e instanceof Error ? e.message : 'The outcome could not be read.' })
+    }, 1500)
   }
-
   async function approve() {
-    if (busy || approveBlocker || !provider || !project || !tool) return
-    busy = true; step = 'results'
+    if (busy || approveBlocker || !limitsOk || !provider || !project || !tool) return
+    busy = true; startError = ''
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
-    const chosen = sessions.map(item => ({ ...item, title: item.title.trim(), prompt: item.prompt.trim() }))
-    results = chosen.map(item => ({ key: item.key, title: item.title, step: 'waiting', note: 'Waiting its turn.' }))
-    let any = false
-    // One at a time: each launch is the ordinary reviewed create, with its own worktree in a git project, and a failure names its session.
-    for (const item of chosen) {
-      if (life.signal.aborted) return
-      mark(item.key, { step: 'starting', note: 'Starting the session…' })
-      let sessionId = ''
-      try {
-        const created = await createTerminal(project.host, requestId(), item.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(60000)]), { tool, dir: project.dir, projectId: project.id, prompt: item.prompt, structured: true })
-        sessionId = created.id; any = true
-        mark(item.key, { note: 'Started. Putting it in Gaffer’s care…', sessionId, agentId: created.agentId })
-        await follow(sessionId, item.title)
-        mark(item.key, { step: 'following', note: 'Started and followed. Gaffer waits for its first progress.' })
-      } catch (e) {
-        if (life.signal.aborted) return
-        const reason = e instanceof Error ? e.message : 'The request failed.'
-        mark(item.key, sessionId ? { step: 'unfollowed', note: `Started, but not followed: ${reason} It is under Not followed on the floor.` } : { step: 'failed', note: `Not started: ${reason}` })
-      }
-    }
-    busy = false
-    if (any) await onstarted()
+    try {
+      record = await createGafferOutcome({
+        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), trust, maxReviews, hours, confirmed: true,
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt) })),
+      }, life.signal)
+      step = 'results'
+      watch(record.id)
+      await onstarted()
+    } catch (e) { if (!life.signal.aborted) startError = e instanceof Error ? e.message : 'The outcome was not saved. Nothing was started.' }
+    finally { busy = false }
   }
-  const stepLabel = (item: OutcomeResult) => item.step === 'following' ? 'Following' : item.step === 'unfollowed' ? 'Started, not followed' : item.step === 'failed' ? 'Not started' : item.step === 'starting' ? 'Starting' : 'Waiting'
+  async function stop() {
+    if (!record || busy) return
+    busy = true
+    try { record = await stopGafferOutcome(record, life.signal); watchError = '' }
+    catch (e) { if (!life.signal.aborted) watchError = e instanceof Error ? e.message : 'The outcome was not stopped.' }
+    finally { busy = false }
+  }
+  onMount(() => () => clearInterval(watching))
 </script>
 
 <WorkspaceDialog title="Give Gaffer an outcome" {onclose}>
@@ -139,6 +129,10 @@
               {#each Array.from({ length: cap }, (_, n) => n + 1) as n (n)}<option value={n}>Up to {n}</option>{/each}
             </select></label>
           </div>
+          <details class="limit-editor"><summary>Agent’s default model <span>Choose a model</span></summary>
+            <label class="model">Model<input aria-label="Model" bind:value={model} maxlength="200" placeholder="Leave empty for the agent’s default" disabled={planning}/></label>
+            <p class="hint">Use the name this agent accepts, as in its model picker. Every session of the outcome uses it.</p>
+          </details>
           {#if !projects.length}<p class="hint">No projects yet. <a href="/">Add a project on Home</a> so sessions have a folder to work in.</p>{/if}
           {#if project && !project.isRepo}<p class="hint">This folder is not a git repository, so several sessions would share the same files. One session is safest.</p>{/if}
           {#if provider}<p class="hint">Gaffer plans with {provider.name} · {provider.model || 'model not chosen'}. It is sent only what you type here and the project’s name, and may use provider credits.</p>{/if}
@@ -159,23 +153,29 @@
         </li>{/each}
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a session</button>{/if}
-      <div class="access" aria-label="Outcome access review"><p>Approving starts {sessions.length === 1 ? 'this session' : `these ${sessions.length} sessions`} on {project?.machine || 'the project’s machine'} with ordinary approvals (no YOLO). Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. Gaffer cannot merge, run commands or answer approvals.</p></div>
+      <div class="access" aria-label="Outcome access review"><p>Approving has the controller start {sessions.length === 1 ? 'this session' : `these ${sessions.length} sessions`} on {project?.machine || 'the project’s machine'} with ordinary approvals (no YOLO), one after another, whether or not this page stays open. Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. Gaffer cannot merge, run commands or answer approvals.</p></div>
       <details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours per session <span>Change limits</span></summary>
         <div class="pair two"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours}/></label></div>
       </details>
-      {#if approveBlocker}<p class="warning" role="status">{approveBlocker}</p>{/if}
-      <div class="actions"><button class="btn primary" type="button" disabled={!!approveBlocker || !(maxReviews >= 1 && maxReviews <= 48 && hours >= 1 && hours <= 168)} onclick={() => void approve()}>Approve and start {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}</button><button class="btn quiet" type="button" onclick={() => step = 'objective'}>Back</button></div>
-    {:else}
-      <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
-      <p role="status" class="result-line">{done ? outcomeSummary(results) : 'Starting the approved sessions. Keep this open until each one is settled.'}</p>
+      {#if needsTrust}<label class="trust"><input type="checkbox" bind:checked={trust} disabled={busy}/><span>I trust this folder: {chatToolName(tool)} may run the plugins and customisations it finds in {project?.dir || 'it'}. Leave this off and a folder that has any is refused.</span></label>{/if}
+      {#if approveBlocker}<p class="warning" role="status">{approveBlocker}</p>
+      {:else if !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
+      {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
+      <div class="actions"><button class="btn primary" type="button" disabled={busy || !!approveBlocker || !limitsOk} onclick={() => void approve()}>{busy ? 'Saving the plan…' : `Approve and start ${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}`}</button><button class="btn quiet" type="button" disabled={busy} onclick={() => step = 'objective'}>Back</button></div>
+    {:else if record}
+      <p class="objective"><span class="eyebrow">Outcome</span>{record.objective}</p>
+      <p role="status" class="result-line">{done ? outcomeSummary(record.sessions) : startingProgress(record.sessions)}</p>
+      {#if record.state === 'stopped' && record.note}<p class="hint">{record.note}</p>{/if}
+      {#if watchError}<p class="warning" role="alert">{watchError}</p>{/if}
       <ul class="results" aria-label="Outcome sessions">
-        {#each results as item (item.key)}<li class:failed={item.step === 'failed' || item.step === 'unfollowed'}>
-          <strong>{item.title}</strong><span>{stepLabel(item)} · {item.note}</span>
-          {#if item.sessionId && item.agentId}<a href={`/sessions?agent=${encodeURIComponent(item.agentId)}&session=${encodeURIComponent(item.sessionId)}&gaffer=1`}>Open session</a>{/if}
+        {#each record.sessions as item (item.key)}<li class:failed={item.state === 'failed' || item.state === 'unfollowed' || item.state === 'cancelled'}>
+          <strong>{item.title}</strong><span>{item.note}</span>
+          {#if item.sessionId}<a href={`/sessions?agent=${encodeURIComponent(record.agentId)}&session=${encodeURIComponent(item.sessionId)}&gaffer=1`}>Open session</a>{/if}
         </li>{/each}
       </ul>
       {#if done}<p class="hint">Each session has its own goal naming this outcome, and its own budget. The floor groups them under the outcome; only you mark a goal complete.</p>
-        <div class="actions"><button class="btn primary" type="button" onclick={onclose}>Back to the floor</button></div>{/if}
+        <div class="actions"><button class="btn primary" type="button" onclick={onclose}>Back to the floor</button></div>
+      {:else}<div class="actions"><button class="btn" type="button" onclick={onclose}>Close and let it run</button><button class="btn quiet" type="button" disabled={busy} onclick={() => void stop()}>Stop starting sessions</button></div>{/if}
     {/if}
   </div>
 </WorkspaceDialog>
@@ -191,7 +191,7 @@
   .plan-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.link{border:0;background:none;color:var(--accent-text);font:600 14px var(--sans);cursor:pointer;min-height:44px;padding:0 4px}
   .add{justify-self:start}
   .limit-editor summary{min-height:44px;display:list-item;align-content:center;cursor:pointer;font-variant-numeric:tabular-nums}.limit-editor summary span{color:var(--accent-text);margin-left:8px}
-  .result-line{font-weight:600}
+  .result-line{font-weight:600}.model{padding-top:8px}.trust{display:flex;align-items:flex-start;gap:10px;font-weight:400;min-height:44px}.trust input{width:20px;height:20px;min-height:0;margin:2px 0 0;flex:none;padding:0;accent-color:var(--accent)}
   .results{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.results li{display:grid;gap:2px;padding:10px 14px;min-width:0;overflow-wrap:anywhere}.results li+li{border-top:1px solid var(--line)}.results span{font-size:0.875rem;color:var(--muted)}.results li.failed span{color:var(--bad)}.results a{color:var(--accent-text);font-weight:600;min-height:44px;display:inline-flex;align-items:center;justify-self:start}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}
   button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

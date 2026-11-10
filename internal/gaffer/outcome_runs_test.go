@@ -129,6 +129,7 @@ func (r *outcomeRig) settle(t *testing.T, id string) store.GafferOutcome {
 func TestOutcomeStartsAndFollowsItsApprovedSessionsWithoutABrowser(t *testing.T) {
 	r := outcomeFixture(t)
 	r.s.StartGoalSupervisor()
+	r.in.Model, r.in.Trust = "provider/model-a", true
 	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +148,7 @@ func TestOutcomeStartsAndFollowsItsApprovedSessionsWithoutABrowser(t *testing.T)
 	for i, launch := range asked {
 		want := r.in.Sessions[i]
 		// The machine, folder, project and agent are the approved ones; the model chose none of them.
-		if launch.Title != want.Title || launch.Prompt != want.Prompt || launch.AgentID != r.project.Host || launch.Dir != "/work/billing" || launch.ProjectID != r.project.ID || launch.Tool != "opencode" || !terminalproto.ValidID(launch.RequestID) {
+		if launch.Title != want.Title || launch.Prompt != want.Prompt || launch.AgentID != r.project.Host || launch.Dir != "/work/billing" || launch.ProjectID != r.project.ID || launch.Tool != "opencode" || launch.Model != "provider/model-a" || !launch.Trust || !terminalproto.ValidID(launch.RequestID) {
 			t.Fatalf("launch %d: %+v", i, launch)
 		}
 		item := o.Sessions[i]
@@ -221,6 +222,8 @@ func TestOutcomeIsRefusedWholeBeforeAnythingStarts(t *testing.T) {
 		"empty objective":     change(func(in *OutcomeInput) { in.Objective = "  " }),
 		"unknown project":     change(func(in *OutcomeInput) { in.ProjectID = "missing" }),
 		"terminal tool":       change(func(in *OutcomeInput) { in.Tool = "bash" }),
+		"model as a flag":     change(func(in *OutcomeInput) { in.Model = "--yolo" }),
+		"trust for no reason": change(func(in *OutcomeInput) { in.Tool, in.Trust = "claude", true }),
 		"fractional reviews":  change(func(in *OutcomeInput) { in.MaxReviews = 0 }),
 		"too many hours":      change(func(in *OutcomeInput) { in.Hours = 169 }),
 		"no sessions":         change(func(in *OutcomeInput) { in.Sessions = nil }),

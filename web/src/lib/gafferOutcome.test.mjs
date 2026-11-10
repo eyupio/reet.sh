@@ -61,9 +61,40 @@ test('a plan is approved only when every session can start and be followed', () 
 })
 
 test('the result never claims a session that was not started or not followed', () => {
-  const r = (step) => ({ key: step, title: step, step, note: '' })
+  const r = (state) => ({ key: state, title: state, state, note: '' })
   assert.equal(o.outcomeSummary([r('following'), r('following')]), 'Reet. Gaffer owns this outcome: 2 started and followed.')
-  assert.equal(o.outcomeSummary([r('following'), r('unfollowed'), r('failed')]), '1 started and followed, 1 started but not followed yet, 1 not started.')
+  assert.equal(o.outcomeSummary([r('following'), r('unfollowed'), r('failed'), r('cancelled')]), '1 started and followed, 1 started but not followed yet, 2 not started.')
   assert.equal(o.outcomeSummary([r('failed')]), '1 not started.')
   assert.equal(o.outcomeSummary([]), 'Nothing was started.')
+  assert.equal(o.startingProgress([r('following'), r('starting'), r('waiting')]), 'Starting session 2 of 3. The controller carries on if you close this.')
+  assert.equal(o.startingProgress([r('following'), r('failed')]), 'Starting session 2 of 2. The controller carries on if you close this.')
+})
+
+test('a prompt the launch would refuse is caught before anything starts', () => {
+  assert.equal(o.cleanPrompt('  a\r\nb\tc\rd  '), 'a\nb    c\nd')
+  assert.equal(o.planBlocker([{ key: 'k', title: 'A', prompt: 'Line one\r\n\tindented' }], 5), '')
+  assert.match(o.planBlocker([{ key: 'k', title: 'A', prompt: '- Add the endpoint' }], 5), /with a word, not a dash/)
+  assert.match(o.planBlocker([{ key: 'k', title: 'A', prompt: 'Do it\u0000now' }], 5), /cannot be sent/)
+  assert.match(o.planBlocker([{ key: 'k', title: 'A\u200Db', prompt: 'Do it' }], 5), /title of session 1/)
+})
+
+test('a limit must be a whole number in range', () => {
+  assert.equal(o.wholeBetween(12, 1, 48), true)
+  for (const bad of [1.5, 0, 49, NaN, '12', null, undefined]) assert.equal(o.wholeBetween(bad, 1, 48), false, String(bad))
+})
+
+test('the floor groups by the controller record first, then by goals that only name an outcome', () => {
+  const g = (sessionId, text, state = 'active', attention = false) => ({ goal: { sessionId, text, state }, attention })
+  const record = { id: 'o1', objective: 'Ship export', state: 'starting', sessions: [
+    { key: 'a', title: 'API', state: 'following', note: '', sessionId: 's1' },
+    { key: 'b', title: 'UI', state: 'unfollowed', note: '', sessionId: 's2' },
+    { key: 'c', title: 'Docs', state: 'waiting', note: '' },
+  ] }
+  const rows = [g('s1', o.outcomeGoal('Ship export', 'API')), g('s9', o.outcomeGoal('Old outcome', 'Part'), 'needs_user', true), g('s8', 'Ordinary goal')]
+  const groups = o.floorOutcomes([record], rows)
+  assert.deepEqual(groups.map(x => [x.id, x.objective, x.rows.length]), [['o1', 'Ship export', 1], ['text:Old outcome', 'Old outcome', 1]])
+  assert.equal(o.floorOutcomeLine(groups[0]), '3 sessions planned · starting · 1 following · 1 not followed')
+  assert.equal(o.floorOutcomeLine(groups[1]), '1 session · 1 needs review')
+  const settled = o.floorOutcomes([{ ...record, state: 'stopped', sessions: [record.sessions[0], { ...record.sessions[2], state: 'cancelled' }] }], rows)
+  assert.equal(o.floorOutcomeLine(settled[0]), '2 sessions planned · 1 following · 1 not started')
 })

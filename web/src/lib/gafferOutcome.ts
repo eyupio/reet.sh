@@ -12,8 +12,9 @@ const OUTCOME_LINE_BYTES = 600
 export type PlanSession = { key: string; title: string; prompt: string }
 export type OutcomeRow = { goal: { text: string; state: string }; attention: boolean }
 export type OutcomeGroup<T> = { objective: string; rows: T[]; needsReview: number; following: number; finished: number }
-export type OutcomeStep = 'waiting' | 'starting' | 'following' | 'unfollowed' | 'failed'
-export type OutcomeResult = { key: string; title: string; step: OutcomeStep; note: string; sessionId?: string; agentId?: string }
+export type OutcomeStep = 'waiting' | 'starting' | 'following' | 'unfollowed' | 'failed' | 'cancelled'
+export type OutcomeResult = { key: string; title: string; state: OutcomeStep; note: string; sessionId?: string }
+export type OutcomeRecord = { id: string; objective: string; state: string; sessions: OutcomeResult[] }
 
 const encoder = new TextEncoder()
 const bytes = (text: string) => encoder.encode(text).length
@@ -86,6 +87,16 @@ export function objectiveBlocker(input: { objective: string; project: boolean; m
   return ''
 }
 
+const CONTROL = /[\u0000-\u0009\u000B-\u001F\u007F]/
+/** A prompt as it is sent: tabs and Windows line ends become spaces and plain new lines, which the launch accepts. */
+export function cleanPrompt(prompt: string): string {
+  return prompt.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').trim()
+}
+/** Whether a limit is a whole number in range; a field can hold 1.5 without the browser objecting. */
+export function wholeBetween(value: unknown, low: number, high: number): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value >= low && value <= high
+}
+
 /** Why the plan cannot be approved yet, or ''. */
 export function planBlocker(sessions: PlanSession[], room: number): string {
   if (!sessions.length) return 'Add at least one session.'
@@ -99,19 +110,74 @@ export function planBlocker(sessions: PlanSession[], room: number): string {
     if (seen.has(title)) return `Two sessions are both called “${title}”. Give each its own title.`
     seen.add(title)
     if (!session.prompt.trim()) return `Write the prompt for “${title}”.`
-    if (bytes(session.prompt.trim()) > MAX_PLAN_PROMPT_BYTES) return `The prompt for “${title}” is over ${MAX_PLAN_PROMPT_BYTES.toLocaleString('en-GB')} bytes.`
+    const prompt = cleanPrompt(session.prompt)
+    if (bytes(prompt) > MAX_PLAN_PROMPT_BYTES) return `The prompt for “${title}” is over ${MAX_PLAN_PROMPT_BYTES.toLocaleString('en-GB')} bytes.`
+    // The launch refuses these, so say so before anything starts: an agent would read a leading dash as a flag.
+    if (prompt.startsWith('-')) return `Start the prompt for “${title}” with a word, not a dash.`
+    if (CONTROL.test(prompt)) return `The prompt for “${title}” has a character that cannot be sent. Retype that part.`
+    if (CONTROL.test(title) || /\p{Cf}/u.test(title)) return `The title of session ${n} has a character that cannot be used. Retype it.`
   }
   return ''
 }
 
-export function outcomeSummary(results: OutcomeResult[]): string {
-  const following = results.filter(r => r.step === 'following').length
-  const unfollowed = results.filter(r => r.step === 'unfollowed').length
-  const failed = results.filter(r => r.step === 'failed').length
+export function outcomeSummary(results: Pick<OutcomeResult, 'state'>[]): string {
+  const count = (state: OutcomeStep) => results.filter(r => r.state === state).length
+  const following = count('following'), unfollowed = count('unfollowed'), failed = count('failed') + count('cancelled')
   const parts: string[] = []
   if (following) parts.push(`${following} started and followed`)
   if (unfollowed) parts.push(`${unfollowed} started but not followed yet`)
   if (failed) parts.push(`${failed} not started`)
   if (!parts.length) return 'Nothing was started.'
   return !unfollowed && !failed ? `Reet. Gaffer owns this outcome: ${parts[0]}.` : `${parts.join(', ')}.`
+}
+
+/** How far the controller has got with an outcome it is still starting. */
+export function startingProgress(sessions: Pick<OutcomeResult, 'state'>[]): string {
+  const settled = sessions.filter(s => s.state !== 'waiting' && s.state !== 'starting').length
+  return `Starting session ${Math.min(sessions.length, settled + 1)} of ${sessions.length}. The controller carries on if you close this.`
+}
+
+/**
+ * The floor's outcomes: the controller's records, each with the followed goals of the sessions it started, then goals
+ * that only name an outcome in their text (made before the controller kept records). A goal belongs to one group.
+ */
+export function floorOutcomes<T extends OutcomeRow & { goal: { sessionId: string } }>(records: OutcomeRecord[], rows: T[]): (OutcomeGroup<T> & { id: string; record?: OutcomeRecord })[] {
+  const claimed = new Set<T>()
+  const out: (OutcomeGroup<T> & { id: string; record?: OutcomeRecord })[] = []
+  for (const record of records) {
+    const ids = new Set(record.sessions.map(s => s.sessionId).filter(Boolean))
+    const mine = rows.filter(row => ids.has(row.goal.sessionId) && !claimed.has(row))
+    mine.forEach(row => claimed.add(row))
+    out.push({ id: record.id, record, objective: record.objective, rows: mine, ...tally(mine) })
+  }
+  for (const group of outcomeGroups(rows.filter(row => !claimed.has(row)))) out.push({ id: `text:${group.objective}`, ...group })
+  return out
+}
+
+function tally(rows: OutcomeRow[]) {
+  let needsReview = 0, following = 0, finished = 0
+  for (const row of rows) {
+    if (row.attention) needsReview++
+    else if (row.goal.state === 'active') following++
+    else if (['completed', 'stopped', 'limit'].includes(row.goal.state)) finished++
+  }
+  return { needsReview, following, finished }
+}
+
+/** One line for an outcome on the floor: what the controller is still doing, then how its followed sessions stand. */
+export function floorOutcomeLine(group: OutcomeGroup<unknown> & { record?: OutcomeRecord }): string {
+  const record = group.record
+  if (!record) return outcomeProgress(group)
+  const parts: string[] = []
+  const total = record.sessions.length
+  parts.push(`${total} ${total === 1 ? 'session' : 'sessions'} planned`)
+  if (record.state === 'starting') parts.push('starting')
+  if (group.needsReview) parts.push(`${group.needsReview} ${group.needsReview === 1 ? 'needs' : 'need'} review`)
+  if (group.following) parts.push(`${group.following} following`)
+  if (group.finished) parts.push(`${group.finished} finished`)
+  const unfollowed = record.sessions.filter(s => s.state === 'unfollowed').length
+  const failed = record.sessions.filter(s => s.state === 'failed' || s.state === 'cancelled').length
+  if (unfollowed) parts.push(`${unfollowed} not followed`)
+  if (failed) parts.push(`${failed} not started`)
+  return parts.join(' · ')
 }

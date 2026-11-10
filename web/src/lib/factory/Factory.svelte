@@ -14,6 +14,7 @@
   import GafferFollowedSessions from '../GafferFollowedSessions.svelte'
   import GafferGoal from '../GafferGoal.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
+  import AddPipelines, { type AddedPipeline } from './AddPipelines.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
 
   let { userId = 0, timeZone = '', dateFormat = 'locale' }: { userId?: number; timeZone?: string; dateFormat?: string } = $props()
@@ -112,12 +113,12 @@
     const now = picked[record.id] ?? []
     picked = { ...picked, [record.id]: on ? [...now, title] : now.filter(item => item !== title) }
   }
-  async function add() {
+  async function add(chosen: AddedPipeline[]) {
     if (!adding || busy) return
-    const record = adding, chosen = chosenProposals(record)
+    const record = adding
     busy = true; notice = ''; adding = null
     try {
-      await addGafferPipelines(latest(record), chosen.map(item => ({ title: item.title, prompt: item.prompt, stages: (item.stages?.length ? item.stages : DEFAULT_STAGES).map(kind => ({ kind })) })))
+      await addGafferPipelines(latest(record), chosen)
       notice = chosen.length === 1 ? `Added “${chosen[0].title}”. The controller is starting it.` : `Added ${chosen.length} pipelines. The controller is starting them.`
     } catch (e) { notice = e instanceof Error ? e.message : 'The pipelines were not added. Nothing was started.' }
     busy = false
@@ -184,7 +185,7 @@
           <p class="eyebrow">Gaffer’s report · {when(record.report.at)}</p>
           <GafferProse text={record.report.text}/>
           {#if record.report.proposals?.length}
-            <p class="hint">Gaffer suggests adding {record.report.proposals.length === 1 ? 'this pipeline' : 'these pipelines'}. Nothing is added or started unless you approve it; each uses this outcome’s agent.</p>
+            <p class="hint">Gaffer suggests adding {record.report.proposals.length === 1 ? 'this pipeline' : 'these pipelines'}. Nothing is added or started unless you approve it, and you choose each one’s agent, model and effort then.</p>
             <ul class="proposals" aria-label="Proposed pipelines">
               {#each record.report.proposals as item (item.title)}<li><label><input type="checkbox" checked={(picked[record.id] ?? []).includes(item.title)} onchange={event => pick(record, item.title, event.currentTarget.checked)}/><span><strong>{item.title}</strong>{#if item.why}<span class="why">{item.why}</span>{/if}<span class="why">{(item.stages?.length ? item.stages : DEFAULT_STAGES).map(stageLabel).join(' → ')}</span></span></label></li>{/each}
             </ul>
@@ -231,7 +232,7 @@
 </div>
 
 {#if outcomeOpen}<GafferOutcome room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
-{#if adding}{@const chosen = chosenProposals(adding)}<ConfirmDialog title={chosen.length === 1 ? `Add “${chosen[0].title}”?` : `Add ${chosen.length} pipelines?`} body="The controller starts each added pipeline as an ordinary chat in this outcome’s project, never in YOLO, and Gaffer follows it stage by stage. None of them merges by itself: each stops at Ready to merge and waits for you." confirmLabel={chosen.length === 1 ? 'Add pipeline' : 'Add pipelines'} oncancel={() => adding = null} onconfirm={() => void add()}/>{/if}
+{#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
 {#if merging}<ConfirmDialog title={`Merge “${merging.piece.title}”?`} body="This tells the pipeline’s agent to merge its pull request once every check passes, no review thread is open and there are no conflicts. If any of those is not true it fixes that first or brings it back to you. A merge cannot be undone from here." confirmLabel="Approve merge" oncancel={() => merging = null} onconfirm={() => void approve()}/>{/if}
 {#if managing}<WorkspaceDialog title="Look after this session" onclose={() => { managing = null; void load() }}><GafferGoal id={managing.goal.conversationId} {userId} {timeZone} {dateFormat} onchanged={load}/></WorkspaceDialog>{/if}
 

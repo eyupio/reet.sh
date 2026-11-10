@@ -1290,10 +1290,10 @@ func verifyContent(ctx context.Context, m Manifest, payload []byte) error {
 	}
 	var snap store.Snapshot
 	if err := json.Unmarshal(payload, &snap); err != nil {
-		return errors.New("the shelf backup is not valid JSON: " + err.Error())
+		return errors.New("the library backup is not valid JSON: " + err.Error())
 	}
 	if snap.Skills == nil {
-		return errors.New("the shelf backup has no skills")
+		return errors.New("the library backup has no skills")
 	}
 	return nil
 }

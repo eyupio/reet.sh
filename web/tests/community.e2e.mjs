@@ -39,11 +39,11 @@ try {
 
     await tab(page, /^Skills/).click()
     await expect(count(page)).toHaveText('3 skills')
-    await expect(page.getByRole('button', { name: 'Save to personal shelf' })).toHaveCount(3)
+    await expect(page.getByRole('button', { name: 'Save to your library' })).toHaveCount(3)
     await expect(page.getByRole('button', { name: 'Copy install command' })).toHaveCount(3)
-    await page.getByRole('button', { name: 'Save to personal shelf' }).first().click()
-    await expect(page.getByRole('button', { name: 'Saved to your shelf' })).toBeVisible()
-    await expect(page.getByRole('status').filter({ hasText: 'Saved pdf to your personal shelf.' })).toBeVisible()
+    await page.getByRole('button', { name: 'Save to your library' }).first().click()
+    await expect(page.getByRole('button', { name: 'Saved to your library' })).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: 'Saved pdf to your library.' })).toBeVisible()
     expect(errors).toEqual([])
     await context.close()
   }
@@ -68,7 +68,7 @@ try {
     await expect(count(page)).toHaveText('0 of 3 lists')
     await tab(page, /^Skills/).click()
     await expect(count(page)).toHaveText('1 of 3 skills')
-    await expect(page.getByRole('button', { name: 'Save to personal shelf' })).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Save to your library' })).toHaveCount(1)
     expect(errors).toEqual([])
     await context.close()
   }

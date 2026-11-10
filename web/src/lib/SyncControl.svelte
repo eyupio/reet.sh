@@ -167,7 +167,7 @@
       ].join('\n')).join('\n\n')
       confirm = {
         title: 'Remove duplicate skills?',
-        body: `This removes ${count} duplicate ${count === 1 ? 'entry' : 'entries'} from your shelf. The copy a saved sync plan already uses is kept; installed files on machines are not changed.`,
+        body: `This removes ${count} duplicate ${count === 1 ? 'entry' : 'entries'} from your library. The copy a saved sync plan already uses is kept; installed files on machines are not changed.`,
         details,
         confirmLabel: 'Remove duplicates',
         action: () => run(async () => {
@@ -271,7 +271,7 @@
       return
     }
     if (mode !== 'additive' && onlyMachine.length) {
-      confirm = { title: 'Save a plan that removes extra skills?', body: `${onlyMachine.length} installed skills are outside this plan. A later approved apply can remove them from the selected install locations, keeping local backups. Shelf entries and notes remain. Saving alone does not change installed files.`, action: commit }
+      confirm = { title: 'Save a plan that removes extra skills?', body: `${onlyMachine.length} installed skills are outside this plan. A later approved apply can remove them from the selected install locations, keeping local backups. Library entries and notes remain. Saving alone does not change installed files.`, action: commit }
     } else void commit()
   }
   function targetFor(host: string) {
@@ -316,7 +316,7 @@
       }
       if (remaining.size) throw new Error('Some selected skills are no longer reported. Refresh inventories and review again.')
       await loadSource()
-      notice = `${adopted} selected skills added to reet.sh. Existing notes and shelf choices were preserved.`
+      notice = `${adopted} selected skills added to reet.sh. Existing notes and library choices were preserved.`
     })
   }
   function online(job: SyncJob): boolean {
@@ -661,8 +661,8 @@
   <h2 id="selection-title">Choose what to sync</h2>
   <p>Use a custom plan for project folders, or turn Automatic sync off above to manage a machine manually. Home folders with automatic sync follow your shared library.</p>
   <div class="pickers">
-    <label>Source<select aria-label="Source" bind:value={source} onchange={loadSource} disabled={busy}><option value="shelf">Shelf &amp; lists</option><option value="hosted">My written skills</option>{#each fleet as m (m.host)}<optgroup label={m.host}>{#each agentGroups(m) as g (g.id)}<option value={g.id}>{groupLabel(g)}</option>{/each}</optgroup>{/each}</select></label>
-    {#if source === 'shelf'}<label>List<select aria-label="List" bind:value={listId} onchange={loadSource} disabled={busy}><option value={0}>My shelf</option>{#each lists as list}<option value={list.id}>{list.name}</option>{/each}</select></label>{/if}
+    <label>Source<select aria-label="Source" bind:value={source} onchange={loadSource} disabled={busy}><option value="shelf">Library &amp; lists</option><option value="hosted">My written skills</option>{#each fleet as m (m.host)}<optgroup label={m.host}>{#each agentGroups(m) as g (g.id)}<option value={g.id}>{groupLabel(g)}</option>{/each}</optgroup>{/each}</select></label>
+    {#if source === 'shelf'}<label>List<select aria-label="List" bind:value={listId} onchange={loadSource} disabled={busy}><option value={0}>My library</option>{#each lists as list}<option value={list.id}>{list.name}</option>{/each}</select></label>{/if}
     <label>Machine<select aria-label="Machine" bind:value={selectedMachine} onchange={() => selectMachine(selectedMachine)} disabled={busy}><option value="">Choose a machine</option><option value="*">All machines</option>{#each fleet as m (m.host)}<option value={m.host}>{m.host}</option>{/each}</select></label>
     <label>Sync mode<select aria-label="Sync mode" bind:value={mode} disabled={!canWrite || busy}><option value="additive">Additive</option><option value="bidirectional">Bidirectional review</option><option value="mirror">Exact set</option></select></label>
   </div>
@@ -670,7 +670,7 @@
   <details class="decide">
     <summary>How sync decides</summary>
     <p>Every selected install location receives the same sync plan. Each keeps its own folder and review. All machines uses every install location a machine has reported, including machines that are offline.</p>
-    <p>Bookmarks and “In use” are personal shelf choices. They never approve installation or removal. Matching here means skill identity/source, not file contents or versions.</p>
+    <p>Bookmarks and “In use” are personal library choices. They never approve installation or removal. Matching here means skill identity/source, not file contents or versions.</p>
   </details>
   {#if machine || selectedMachine === '*'}
     <div class="agent-scopes">
@@ -719,7 +719,7 @@
         </span>
         {#if unknownSkill && canWrite}<a class="link" href="/skills" onclick={(event) => event.stopPropagation()}>Link source</a>{/if}
       </label>
-    {:else}<p>No skills here yet. Add skills to your shelf or report a machine inventory.</p>{/each}{/if}
+    {:else}<p>No skills here yet. Add skills to your library or report a machine inventory.</p>{/each}{/if}
   </div>
   {#if targetEnvs.length}
     <p class:bad={!ready} role="status">{ready ? `Selected install locations last reported ${ago(oldestScan)}.` : 'One or more selected install locations need a fresh complete scan. Rescan before saving or applying.'}</p>
@@ -739,7 +739,7 @@
     {#if localDuplicates.length}<p class="hint">Local copies of {localDuplicates.map(s => s.name).join(', ')} will be backed up and replaced automatically with the selected source.</p>{/if}
     {#if sourceConflicts.length}<p class="bad">Source conflicts: {sourceConflicts.map(s => s.name).join(', ')}. Resolve the installed source before applying.</p>{/if}
     {#if conflicts.length}<p class="bad" role="alert">Concurrent changes: {conflicts.join(', ')}. Select the source you want for each conflict, or keep it absent, then <button class="btn quiet" onclick={() => conflicts = []}>Confirm conflict choices</button>.</p>{/if}
-    <details><summary>Only on selected install locations ({onlyMachine.length})</summary><p>Select skills to add to {listId && source === 'shelf' ? 'the selected reet.sh list' : 'your reet.sh shelf'}.</p>{#each onlyMachine as skill}<label class="skill"><input type="checkbox" value={skill.id} bind:group={adopt} disabled={!canWrite || busy} /><span>{skill.name}<small>{skill.source || 'Unknown source'}</small></span></label>{/each}{#if canWrite}<button class="btn" disabled={busy || loading || !sourceLoaded || !ready || !adopt.length || (source === 'shelf' && listId > 0 && !listEditable)} onclick={adoptSelected}>Add selected to reet.sh</button>{/if}</details>
+    <details><summary>Only on selected install locations ({onlyMachine.length})</summary><p>Select skills to add to {listId && source === 'shelf' ? 'the selected reet.sh list' : 'your reet.sh library'}.</p>{#each onlyMachine as skill}<label class="skill"><input type="checkbox" value={skill.id} bind:group={adopt} disabled={!canWrite || busy} /><span>{skill.name}<small>{skill.source || 'Unknown source'}</small></span></label>{/each}{#if canWrite}<button class="btn" disabled={busy || loading || !sourceLoaded || !ready || !adopt.length || (source === 'shelf' && listId > 0 && !listEditable)} onclick={adoptSelected}>Add selected to reet.sh</button>{/if}</details>
     {#if unknown.length}<p class="bad inline-blocked" role="alert">Unknown source blocks saving: {unknown.map(s => s.name).join(', ')}. <a href="/skills">Link the source on Skills</a> before selecting it.</p>{/if}
     <div class="save-dock">
       <p class="save-summary">{selected.length} of {candidates.length} skills selected · {targetEnvs.length} install {targetEnvs.length === 1 ? 'location' : 'locations'} · {modeLabel(mode)}<span class="save-hint">No files change until a preview is approved.</span></p>
@@ -792,7 +792,7 @@
                   <div class="more-list">
                     <button class="btn quiet" disabled={busy} onclick={() => edit(item)}>Edit sync plan</button>
                     <button class="btn quiet" disabled={busy || !env?.complete} onclick={() => reconcile(item)}>Review local &amp; web changes</button>
-                    <button class="btn quiet danger" disabled={busy} onclick={() => confirm = { title: 'Delete this sync plan?', body: 'This removes the sync plan. Installed skills, shelf entries and notes remain.', confirmLabel: 'Delete plan', action: () => run(async () => onupdate(await deleteSyncTarget(item.target.id))) }}>Delete plan</button>
+                    <button class="btn quiet danger" disabled={busy} onclick={() => confirm = { title: 'Delete this sync plan?', body: 'This removes the sync plan. Installed skills, library entries and notes remain.', confirmLabel: 'Delete plan', action: () => run(async () => onupdate(await deleteSyncTarget(item.target.id))) }}>Delete plan</button>
                   </div>
                 </details>
               </div>

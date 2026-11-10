@@ -87,9 +87,9 @@
 </script>
 
 <dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); onclose() }} aria-labelledby="machine-import-title">
- <header data-shell-head><div><p class="eyebrow" data-shell-aside>Your private toolkit</p><h2 id="machine-import-title">Bring a machine skill into reet</h2></div><button type="button" onclick={onclose} aria-label="Close skill imports" data-shell-close>Close ×</button></header>
+ <header data-shell-head><div><p class="eyebrow" data-shell-aside>Save a copy to your library</p><h2 id="machine-import-title">Bring a machine skill into reet</h2></div><button type="button" onclick={onclose} aria-label="Close skill imports" data-shell-close>Close ×</button></header>
  <div class="body" data-shell-body>
-  <p class="intro">{#if source?.direct && !error && (!selected || selected.state !== 'reviewing' || (selected.preview?.skillValid && !blocked))}Saving a private copy of {name} straight into your library. Your machine files, shelf choices and published skills stay separate.{:else}Review a skill’s files, choose what to keep, then save a private copy. Your machine files, shelf choices and published skills stay separate.{/if}</p>
+  <p class="intro">{#if source?.direct && !error && (!selected || selected.state !== 'reviewing' || (selected.preview?.skillValid && !blocked))}Saving a private copy of {name} straight into your library. Your machine files, library choices and published skills stay separate.{:else}Review a skill’s files, choose what to keep, then save a private copy. Your machine files, library choices and published skills stay separate.{/if}</p>
   {#if error}<p role="alert" class="error">{error}</p>{/if}
   {#if loading}<Skeleton label="Loading imports and private copies…" count={2} />{/if}
   {#if !selected && selectedID}<Skeleton label="Loading the selected import…" count={2} />
@@ -106,7 +106,7 @@
    </section>
   {:else}
    <section aria-label="Import review">
-    <div class="review-head"><div><h3>{selected.name}</h3><p>{selected.host} · {agentLabels[selected.agent] ?? selected.agent} · {selected.project || 'Home scope'}</p><p>Destination: {selected.bundleId ? `private bundle ${selected.bundleId}` : 'new private copy'}</p></div><span class="status-pill">{stateLabels[selected.state] ?? selected.state}</span></div>
+    <div class="review-head"><div><h3>{selected.name}</h3><p>{selected.host} · {agentLabels[selected.agent] ?? selected.agent} · {selected.project || 'this machine’s home folder'}</p><p>{selected.bundleId ? `Adds to the copy already in your library (${selected.bundleId})` : 'Saves a new copy to your library'}</p></div><span class="status-pill">{stateLabels[selected.state] ?? selected.state}</span></div>
     <p role="status">{messages[selected.state] ?? 'Checking the import request.'}</p>
     {#if selected.error}<p class="error">{reasons[selected.error] ?? 'Request a fresh preview to continue.'}</p>{/if}
     {#if selected.preview && selected.state === 'reviewing'}

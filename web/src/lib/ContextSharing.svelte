@@ -40,7 +40,7 @@
 </script>
 
 <section class="sharing" aria-label="Context sharing">
-  <p class="lead">{gaffer?'Choose what Gaffer may read for this conversation.':'Choose exactly what this connection may read. Shelf permissions stay separate.'}</p>
+  <p class="lead">{gaffer?'Choose what Gaffer may read for this conversation.':'Choose exactly what this connection may read. Library permissions stay separate.'}</p>
   <p class="hint">Reads use the controller’s retained snapshot. Live machine health, current PR checks, files, reasoning, approval prompts and raw tool input/output are excluded.</p>
   {#if !gaffer}
     <label class="scope-label">Scope<select aria-label="Context scope" value={selected} disabled={loading||busy} onchange={e=>{selected=e.currentTarget.value;void load()}}>

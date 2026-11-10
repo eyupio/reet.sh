@@ -41,7 +41,7 @@ try {
     const { context, page, errors, patches } = await open({})
     await page.goto(`${base}/account/profile`)
     await expect(count(page)).toHaveText('10 preferences')
-    for (const name of ['Identity', 'Appearance', 'Shelf and terminal', 'Publishing']) {
+    for (const name of ['Identity', 'Appearance', 'Library and terminal', 'Publishing']) {
       await expect(page.getByRole('group', { name })).toBeVisible()
     }
 
@@ -54,7 +54,7 @@ try {
     await form.getByLabel('Time zone').fill('Europe/London')
     await form.getByLabel('Dates').selectOption('dmy')
     await form.getByLabel('Terminal history default').selectOption({ label: 'Remove from history after it ends' })
-    await form.getByLabel('Default shelf layout').selectOption('board')
+    await form.getByLabel('Default library layout').selectOption('board')
     await form.getByLabel('Default skill cards').selectOption({ label: 'Expanded — all details' })
     await form.getByLabel('Your skill name prefix').fill('acme-')
     await panel(page).getByRole('button', { name: 'Save profile' }).click()

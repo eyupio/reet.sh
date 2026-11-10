@@ -120,7 +120,7 @@ func (r RestoreReport) Inventory() []string {
 		accounts += " (" + strings.Join(roles, ", ") + ")"
 	}
 	lines := []string{
-		fmt.Sprintf("The copy %s holds %s, %d shelves, %d skills, %d lists, %d tags, %d environments, %d connected machines and %d backup destinations.",
+		fmt.Sprintf("The copy %s holds %s, %d personal libraries, %d skills, %d lists, %d tags, %d environments, %d connected machines and %d backup destinations.",
 			r.ID, accounts, r.Shelves, r.Skills, r.Lists, r.Tags, r.Environments, r.Machines, r.Destinations),
 	}
 	if r.LibraryItems > 0 || r.PrivateBundles > 0 {
@@ -445,7 +445,7 @@ func holds(h store.RestoreSummary) []string {
 	if h.Users > 1 {
 		what = append(what, fmt.Sprintf("%d accounts", h.Users))
 	}
-	add(h.Shelves, "shelves")
+	add(h.Shelves, "personal libraries")
 	add(h.Skills, "skills")
 	add(h.LibraryItems, "library items")
 	add(h.PrivateBundles, "private content bundles")

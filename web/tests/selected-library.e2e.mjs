@@ -49,7 +49,7 @@ try {
    }
   }})
   await page.goto(`${base}/machines`)
-  const opener=page.getByRole('article',{name:scope.host,exact:true}).getByRole('button',{name:'Choose skills',exact:true})
+  const opener=page.getByRole('article',{name:scope.host,exact:true}).getByRole('button',{name:'Skills on this machine',exact:true})
   await opener.click()
   const dialog=page.getByRole('dialog',{name:`Skills on ${scope.host}`,exact:true})
   const panel=dialog.getByRole('region',{name:'Skills to sync'})
@@ -59,10 +59,10 @@ try {
    await panel.getByRole('button',{name:'Try again',exact:true}).click()
   }
   if(multiple){
-   await expect(panel.getByLabel('Machine folder')).toHaveValue('')
-   await expect(panel.getByRole('button',{name:'Save selection'})).toHaveCount(0)
-   await panel.getByLabel('Machine folder').selectOption(scope.id)
+   // With several folders the first one is chosen to start with; the choice stays a person's to change.
+   await expect(panel.getByLabel('Machine folder')).toHaveValue(scope.id)
   }
+  await expect(panel).toContainText('Each AI tool on this machine keeps its skills in its own folder. Pick the folder, then tick the skills it should have.')
   await expect(panel.getByLabel('Machine folder')).toHaveValue(scope.id)
   await expect(panel.getByLabel('Machine folder').locator('option')).toHaveCount(multiple ? 3 : 2)
   await expect(panel.getByRole('checkbox',{name:'Skill to test'})).toBeDisabled()

@@ -28,7 +28,7 @@ for(const [width,theme] of [[390,'dark'],[1280,'light']]){
    '/api/v2/library/selections':request=>{const body=request.postDataJSON();saved.push(body);return {...body,version:'v1'}},
   }})
  await page.goto(`${base}/machines`)
- const opener=page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Choose skills',exact:true})
+ const opener=page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Skills on this machine',exact:true})
  await opener.click()
  const dialog=page.getByRole('dialog',{name:'Skills on new-box',exact:true})
  const panel=dialog.getByRole('region',{name:'Skills to sync'})
@@ -76,7 +76,7 @@ for(const [width,theme] of [[390,'dark'],[1280,'light']]){
    '/api/v2/library/selections/new-box-agents':{status:404,json:{error:'private skill unavailable'}},
   }})
  await page.goto(`${base}/machines`)
- const opener=page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Choose skills',exact:true})
+ const opener=page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Skills on this machine',exact:true})
  await opener.click()
  const dialog=page.getByRole('dialog',{name:'Skills on new-box',exact:true})
  const found=dialog.getByRole('region',{name:'Found on this machine, not in your library'})
@@ -124,7 +124,7 @@ for(const [label,files,valid] of [['clean',[{path:'SKILL.md',bytes:10,digest:'a'
    '/api/v2/skill-imports/imp1/approve':req=>{calls.approve.push(req.postDataJSON());current=request('completed',{receipt:{bundle:{id:'bundle-1',name:'local-helper',head:'rev-1'},revision:{id:'rev-1',manifestDigest:'d'.repeat(64)}}});return {json:current}}
   }})
  await page.goto(`${base}/machines`)
- await page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Choose skills',exact:true}).click()
+ await page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Skills on this machine',exact:true}).click()
  await page.getByRole('dialog',{name:'Skills on new-box',exact:true}).getByRole('button',{name:'Import local-helper privately'}).click()
  const imports=page.getByRole('dialog',{name:'Bring a machine skill into reet'})
  if(label==='clean'){
@@ -149,7 +149,7 @@ for(const [label,files,valid] of [['clean',[{path:'SKILL.md',bytes:10,digest:'a'
   sync:{environments:[withContent('pending',[seen('local-helper')])],machines:[{host:'new-box',groups:[withContent('pending',[seen('local-helper')])],skillCount:0}],agents:[{id:'agent-new',host:'new-box',paused:false,autoUpdate:false,keepSynced:true,lastSeen:Date.now()}],targets:[],jobs:[],runs:[],updateJobs:[]},
   routes:{'/api/v2/library':{schemaVersion:1,items:library},'/api/v2/library/selections/new-box-agents':{status:404,json:{error:'private skill unavailable'}}}})
  await page.goto(`${base}/machines`)
- await page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Choose skills',exact:true}).click()
+ await page.getByRole('article',{name:'new-box',exact:true}).getByRole('button',{name:'Skills on this machine',exact:true}).click()
  const dialog=page.getByRole('dialog',{name:'Skills on new-box',exact:true})
  await expect(dialog.getByRole('button',{name:'Save selection'})).toBeVisible()
  await expect(dialog.getByRole('region',{name:'Found on this machine, not in your library'})).toHaveCount(0)

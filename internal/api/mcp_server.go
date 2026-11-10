@@ -445,7 +445,7 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		method, path = "POST", listPath+"/skills"
 		delete(body, "list_id")
 		if (str("id") == "") == (str("input") == "") {
-			return nil, errors.New("Supply exactly one of id (a skill already on the shelf) or input (an owner/repo/skill reference or skills.sh URL).")
+			return nil, errors.New("Supply exactly one of id (a skill already in the library) or input (an owner/repo/skill reference or skills.sh URL).")
 		}
 	case "reet_add_list_skills":
 		method, path = "POST", listPath+"/skills/bulk"
@@ -520,7 +520,7 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 				return sk, nil
 			}
 		}
-		return nil, errors.New("skill not found on this account's shelf")
+		return nil, errors.New("skill not found in this account's library")
 	case "reet_list_skills":
 		meta["counts"] = data["counts"]
 	case "reet_list_environments":

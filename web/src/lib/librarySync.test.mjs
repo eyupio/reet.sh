@@ -126,7 +126,7 @@ test('what is being copied names a few skills, then counts the rest', () => {
 test('a shared name is explained as information, not as a problem', () => {
   assert.equal(duplicatesNote([]), '')
   const note = duplicatesNote([{ slug: 'improve-animations', keep: {}, remove: [{}] }])
-  assert.match(note, /^One name is on your shelf more than once/)
+  assert.match(note, /^One name is in your library more than once/)
   assert.match(note, /improve-animations/)
   assert.match(note, /untouched/)
   const many = duplicatesNote(['a', 'b', 'c', 'd', 'e', 'f'].map(slug => ({ slug, keep: {}, remove: [{}] })))

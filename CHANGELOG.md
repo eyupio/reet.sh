@@ -24,6 +24,21 @@ this file existed releases were described on their GitHub release pages.
   agent lists now offer the machine's real **models**, and an **effort** for the
   outcome or per crew role. Home marks a session that
   is part of a pipeline (**Factory · stage n of m**). Needs a controller update.
+- The skills you own are now called your library everywhere you read about
+  them. The same collection used to be called the shelf, your skill shelf, My
+  shelf, your personal shelf and your private toolkit, depending on the page;
+  buttons now read "Add to library" and "Remove from library", and the tools
+  and layout switch are "Library tools" and "Library layout". The status "On
+  the shelf" is now "Parked", including in the Markdown and CSV exports.
+  Choosing which skills a machine has is one button with one name, "Skills on
+  this machine", on the machine card, in Home's machine menu and on Sync; the
+  second menu entry that opened the same dialog is gone. The dialog explains
+  that each AI tool keeps its skills in its own folder and opens on the first
+  folder instead of an empty choice. "Sync to machines…" on a skill card, which
+  led to a page that said everything was in sync, is now "Choose machines" and
+  goes to Machines. Words only: nothing stored on the controller, no setting
+  and no API field or value changes, and exported file names stay the same.
+
 - reet now saves a copy of every skill a connected machine shares, by itself.
   When a machine checks in, the controller asks it for the files of each skill
   the library lists without content, and the copy fills that same library entry:

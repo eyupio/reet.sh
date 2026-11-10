@@ -62,7 +62,7 @@
     landing?: { environmentId: string; name?: string; note: string } | null
     /** Called as soon as `landing` has been turned into the dialog, so it cannot open again when this is drawn again. */
     onlanded?: () => void
-    /** A machine whose skill dialog should open once (from a link such as Home's Skills & sync); cleared through onchose. */
+    /** A machine whose skill dialog should open once (from a link such as Home's Skills on this machine); cleared through onchose. */
     chooseHost?: string
     onchose?: () => void
     /** The machine just brought in by that dialog: its card is marked for a few seconds. */
@@ -93,7 +93,7 @@
   // so a change made inside them shows there at once instead of in a stale copy.
   let settingsHost = $state('')
   let libraryFor = $state<{ host: string; opener: HTMLElement } | null>(null)
-  // The machine's own skill dialog, from its card button or the menu. Focus goes back to that button when it closes.
+  // The machine's own skill dialog, from its card button or a link that asks for it. Focus goes back to that button when it closes.
   function openChooser(machine: Machine, fallback?: HTMLElement | null) {
     const opener = document.querySelector<HTMLElement>(`[data-choose-skills="${CSS.escape(machine.host)}"]`) ?? fallback ?? null
     if (opener) libraryFor = { host: machine.host, opener }
@@ -296,7 +296,7 @@
       ].join('\n')).join('\n\n')
       confirm = {
         title: 'Remove duplicate skills?',
-        body: `Reet will remove ${count} duplicate ${count === 1 ? 'entry' : 'entries'} from your shelf so sync can continue. The copy a saved sync plan already uses is kept; installed files on machines are not changed.`,
+        body: `Reet will remove ${count} duplicate ${count === 1 ? 'entry' : 'entries'} from your library so sync can continue. The copy a saved sync plan already uses is kept; installed files on machines are not changed.`,
         details,
         confirmLabel: 'Remove duplicates',
         danger: true,
@@ -451,7 +451,7 @@
   function askForgetGroup(group: SyncEnvironment, machine: Machine) {
     confirm = {
       title: `Forget ${groupLabel(group)} on ${machine.host}?`,
-      body: 'This removes this agent report and its saved sync reference. Installed files and shelf entries stay. A future scan can report it again.',
+      body: 'This removes this agent report and its saved sync reference. Installed files and library entries stay. A future scan can report it again.',
       confirmLabel: 'Forget install location',
       danger: true,
       action: async () => { if (await run(`forget-${group.id}`, () => forgetEnvironment(group.id))) onnotice(`Forgot ${groupLabel(group)}. Installed files are unchanged.`) },
@@ -526,7 +526,7 @@
             <div><strong>{sync.label}</strong><small>{sync.detail}</small></div>
           </div>
           <div class="sync-cta">
-            {#if accounts && canWrite && enrolled}<button class="btn" class:primary={highlight === machine.host} type="button" data-choose-skills={machine.host} onclick={(event) => (libraryFor = { host: machine.host, opener: event.currentTarget })}>Choose skills</button>{/if}
+            {#if accounts && canWrite && enrolled}<button class="btn" class:primary={highlight === machine.host} type="button" data-choose-skills={machine.host} onclick={(event) => (libraryFor = { host: machine.host, opener: event.currentTarget })}>Skills on this machine</button>{/if}
             {#if offersDedupe(sync.detail)}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); void dedupe(machine) }}>{busy === `dedupe-${machine.host}` ? 'Checking…' : 'Dedupe skills'}</button>
             {:else if offersSourceFix(sync.detail)}
@@ -542,11 +542,7 @@
               <summary aria-label={`More options for ${machine.host}`} title="More options"><Icon name="more" size={18} /></summary>
               <div class="sync-menu-panel" role="menu">
                 {#if canWrite}<button type="button" role="menuitem" disabled={!enrolled} title={!enrolled ? 'Connect an agent first' : undefined} onclick={(event) => { closeMenu(event); addSkillFor = machine }}>Add a skill…</button>{/if}
-                {#if accounts && canWrite && enrolled}
-                  <button type="button" role="menuitem" onclick={(event) => { closeMenu(event); openChooser(machine) }}>Choose skills &amp; locations</button>
-                {:else}
-                  <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; locations</a>
-                {/if}
+                {#if !(accounts && canWrite && enrolled)}<a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; locations</a>{/if}
                 {#if enrolled && savedTargets(machine).length}<button type="button" role="menuitem" disabled={!!busy || enrolled.paused || sync.tone === 'working'} onclick={(event) => { closeMenu(event); void previewNow(machine, enrolled) }}>Preview changes only</button>{/if}
                 {#if enrolled}<button type="button" role="menuitem" disabled={!!busy} onclick={(event) => { closeMenu(event); void scan(enrolled) }}>Rescan machine</button>{/if}
                 <button type="button" role="menuitem" onclick={(event) => { closeMenu(event); commandsFor = machine }}>Commands…</button>

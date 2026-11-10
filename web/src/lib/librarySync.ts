@@ -107,5 +107,5 @@ export function copyingLine(items: Pick<ImportRequest, 'name'>[]): string {
 export function duplicatesNote(groups: SyncDuplicate[]): string {
   if (!groups.length) return ''
   const lead = groups.length === 1 ? 'One name is' : `${groups.length} names are`
-  return `${lead} on your shelf more than once, so Reet syncs one copy of each (${names(groups.map(group => group.slug))}). The other copies stay on your shelf, untouched.`
+  return `${lead} in your library more than once, so Reet syncs one copy of each (${names(groups.map(group => group.slug))}). The other copies stay in your library, untouched.`
 }

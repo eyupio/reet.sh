@@ -304,10 +304,10 @@
       </ul>
     {/if}
     {#if syncSnapshot}
-      <p class="sync-intent {syncIntentTone}" title={syncIntentTone === 'none' ? 'No sync plan includes this skill. Add now or Sync to machines… sets one.' : 'From your sync plans. Badges above say what each machine last reported.'}>
+      <p class="sync-intent {syncIntentTone}" title={syncIntentTone === 'none' ? 'No sync plan includes this skill. Add now sets one, or choose machines on the Machines page.' : 'From your sync plans. Badges above say what each machine last reported.'}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4" /></svg>
         <span>{syncIntentText}</span>
-        {#if syncIntentTone === 'none' && canWrite}<a href={`/sync?skill=${encodeURIComponent(skill.id)}`} onclick={(event) => event.stopPropagation()}>Sync to machines…</a>{/if}
+        {#if syncIntentTone === 'none' && canWrite}<a href="/machines" onclick={(event) => event.stopPropagation()}>Choose machines</a>{/if}
       </p>
     {/if}
   {/if}
@@ -508,10 +508,10 @@
       {#if command}<button type="button" role="menuitem" onclick={copyInstall}>Copy install command</button>{/if}
       {#if prompt}<button type="button" role="menuitem" onclick={() => { closeMenu(); void copyText(prompt) }}>Copy prompt</button>{/if}
       {#if skill.sourceType === 'hosted'}<a role="menuitem" href={`/hosting?edit=${encodeURIComponent(skill.slug)}`}>Edit written skill</a>{/if}
-      <a role="menuitem" href={`/sync?skill=${encodeURIComponent(skill.id)}`}>Sync to machines…</a>
+      <a role="menuitem" href="/machines">Choose machines</a>
       <button type="button" role="menuitem" onclick={() => { closeMenu(); void onpatch(skill, { liked: !skill.liked }, 'like') }}>{skill.liked ? 'Unlike' : 'Like'}</button>
       <button type="button" role="menuitem" onclick={() => { closeMenu(); onexpand(!expanded) }}>{expanded ? 'Collapse details' : 'Expand details'}</button>
-      <button type="button" role="menuitem" class="danger" onclick={() => { closeMenu(); onremove(skill) }}>Remove from shelf</button>
+      <button type="button" role="menuitem" class="danger" onclick={() => { closeMenu(); onremove(skill) }}>Remove from library</button>
     </div>
   {/if}
 </li>

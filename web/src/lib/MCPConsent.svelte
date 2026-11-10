@@ -19,7 +19,7 @@
 </script>
 
 <section class="consent" aria-labelledby="consent-title">
-  <p class="eyebrow">Connect your shelf</p>
+  <p class="eyebrow">Connect your library</p>
   <h1 id="consent-title">{info ? `Allow ${info.clientName} to connect?` : 'Review this connection'}</h1>
   {#if error}<div class="error" role="alert"><p>{error}</p><button type="button" class="btn" onclick={load} disabled={busy}>Try again</button></div>{/if}
   {#if !info && !error}<p class="muted" role="status">Checking the client and requested permissions…</p>{/if}
@@ -27,8 +27,8 @@
     <p class="lede">You’re signed in as <strong>{info.account}</strong>. This connection uses your account and the lists you can access.</p>
     <div class="permissions">
       <p class="label">What you allow</p>
-      <label class="choice"><input type="radio" name="scope" bind:group={scope} value="read" /><span><strong>Read your shelf</strong><small>Skills, personal notes, tags, machine inventories, sync plans and accessible lists.</small></span></label>
-      {#if info.scope === 'write' && info.canWrite}<label class="choice"><input type="radio" name="scope" bind:group={scope} value="write" /><span><strong>Read and manage your shelf</strong><small>Also add, edit or remove skills and personal notes, change tags, and create or add skills to personal lists.</small></span></label>{/if}
+      <label class="choice"><input type="radio" name="scope" bind:group={scope} value="read" /><span><strong>Read your library</strong><small>Skills, personal notes, tags, machine inventories, sync plans and accessible lists.</small></span></label>
+      {#if info.scope === 'write' && info.canWrite}<label class="choice"><input type="radio" name="scope" bind:group={scope} value="write" /><span><strong>Read and manage your library</strong><small>Also add, edit or remove skills and personal notes, change tags, and create or add skills to personal lists.</small></span></label>{/if}
     </div>
     <div class="details"><p><strong>Your control stays here.</strong> This does not grant access to account settings, passwords, API credentials, backups or administration. It does not install or execute skills.</p><p>Authorization lasts 30 days. Pause or revoke it at any time in Account → MCP access.</p>{#if !info.enabled}<p>Approving turns MCP access on for your account. Existing connections resume unless you paused them individually.</p>{/if}</div>
     <p class="callback">Return to <strong>{info.callbackHost}</strong> after approval. Client names are provided by the connecting app; approve only a connection you started.</p>

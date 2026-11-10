@@ -258,6 +258,42 @@ Still synthetic: the launch adapter itself (`outcomeStarter`) has no test agains
 a real broker and machine here, so a real start-and-follow remains the first thing
 to try after deploying.
 
+## Alignment and polish pass (10 November 2026)
+
+The user asked for the widget, the floor and the automation to be checked for
+alignment and brought to a professional standard, as reet's main selling point.
+An audit of every screen (desktop, phone, dark) found, and this pass fixes:
+
+- **Cards were walls of text.** Every outcome session repeated the seven-line
+  standing instruction, plus three separate evidence lines. A card now shows the
+  title, state, an **Outcome** chip with the objective (or the goal clamped to
+  three lines), a highlighted line when something waits on the person, the latest
+  report clamped, and one budget line. The full goal and evidence times moved into
+  **Review & evidence**. Nothing was removed from the record.
+- **The floor was a 580 px column on a desktop.** `WorkspaceDialog` gained `wide`
+  (820 px); the floor uses it. Phones are unchanged.
+- **Loose structure.** The floor now has a hero action, then **Outcomes**,
+  **Sessions** (filters on one scrolling row; bulk actions and Refresh in the
+  heading row) and **Not followed**, each under a heading. An outcome's plan opens
+  inside its own row instead of pushing the filters down.
+- **The headline action was buried.** An empty general chat now leads with **Give
+  Gaffer an outcome** (opens the floor with the dialog up, `startWithOutcome`) and
+  keeps **Open the factory floor** beside it. Home's Gaffer line is a pill button
+  with his face rather than an underlined sentence.
+- **Red error before any input.** The outcome dialog showed "Write the outcome you
+  want." in the error colour on opening. Missing input is now muted guidance;
+  the error colour is kept for real failures. The dialog also shows its three
+  steps (Outcome, Plan, Start).
+
+Accessible names used by the suites are unchanged. `gaffer-outcome.e2e.mjs` adds
+the direct widget entry, the steps, guidance styling and the compact card (the
+standing instruction hidden until expanded). All Gaffer, Home and attention suites
+pass against this build.
+
+Not changed, and worth a decision: the vocabulary still mixes "look after",
+"follow", "follow-up" and "goal" across the widget, floor and Home. Unifying it
+touches many strings and tests, so it was left for an explicit choice of terms.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

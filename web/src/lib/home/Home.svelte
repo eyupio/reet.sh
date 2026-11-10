@@ -1,4 +1,5 @@
 <script lang="ts">
+  import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, getSyncState, listGafferGoals, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
@@ -441,9 +442,9 @@
       <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
       {#if writer}<div class="home-controls"><button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Show the project names and groups' : 'Hide the project list'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
       <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
-        {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed || unfollowed)}<button type="button" class="followups" disabled={!$gafferChatEntry} aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget, 'followed')}>
+        {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed || unfollowed)}<button type="button" class="followups" disabled={!$gafferChatEntry} aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget, 'followed')}><GafferCompanionAvatar size={26}/><span class="followups-text">
           {#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'follow-up needs' : 'follow-ups need'} review{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if foldedGoals}Gaffer: {foldedGoals} {foldedGoals === 1 ? 'follow-up is' : 'follow-ups are'} in Needs you{:else if followupsFailed}Gaffer follow-ups unavailable{:else if unfollowed}Gaffer: {unfollowed} running {unfollowed === 1 ? 'chat' : 'chats'} not followed{/if}{#if followupsFailed && (followupsNeedReview || following || foldedGoals)}{' · last read'}{/if}
-        </button>{/if}
+        </span></button>{/if}
       </div>
     </header>
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
@@ -513,7 +514,10 @@
   .attention-window button:focus-visible { outline: 2px solid var(--accent); }
   .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .workspace-summary:has(.followups) { align-items: center; gap: 0 18px; }
-  .followups { min-height: 44px; padding: 8px 0; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  /* Gaffer's line on Home is the way onto the factory floor, so it reads as a control and carries his face. */
+  .followups { min-height: 44px; padding: 0 14px 0 8px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+  .followups:hover:not(:disabled) { border-color: var(--line-strong); background: var(--tint); }
+  .followups-text { min-width: 0; overflow-wrap: anywhere; }
   .followups:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */

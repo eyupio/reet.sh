@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The Gaffer factory floor is easier to read and to reach. Followed-session cards
+  are short, with the full goal and evidence under **Review & evidence**; the
+  floor is wider on desktop and laid out as Outcomes, Sessions and Not followed;
+  an empty Gaffer chat leads with **Give Gaffer an outcome**; Gaffer's entry on
+  Home is a button; and the outcome dialog shows its steps. Browser-only.
 - Gaffer outcomes are now started by the controller. After you approve a plan the
   sessions start and are followed whether or not the browser stays open, a
   restart carries on without starting a session twice, and **Stop starting

@@ -74,11 +74,15 @@ function fixture({planFails=false,settles=true}={}){
   }
   return {box,routes}
 }
-async function openOutcome(w){
+// `direct` takes the widget's own primary action, which opens the outcome straight away over the floor it will appear on.
+async function openOutcome(w,direct=false){
   await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
-  await w.page.getByRole('dialog',{name:'Gaffer',exact:true}).getByRole('button',{name:'Open the factory floor',exact:true}).click()
-  const floor=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
-  await floor.getByRole('button',{name:'Give Gaffer an outcome',exact:true}).click()
+  const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true}),floor=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
+  if(direct)await chat.getByRole('button',{name:'Give Gaffer an outcome',exact:true}).click()
+  else{
+    await chat.getByRole('button',{name:'Open the factory floor',exact:true}).click()
+    await floor.getByRole('button',{name:'Give Gaffer an outcome',exact:true}).click()
+  }
   return {floor,outcome:w.page.getByRole('dialog',{name:'Give Gaffer an outcome',exact:true})}
 }
 const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
@@ -88,11 +92,15 @@ try {
     const f=fixture(),w=await openWorkspace(browser,{width,height:1000,theme,touch:width<1000,terminalMachines:machines,routes:f.routes})
     watch(w,f.box)
     try {
-      const {floor,outcome}=await openOutcome(w)
+      const {floor,outcome}=await openOutcome(w,width===1440)
       const ask=outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}),own=outcome.getByRole('button',{name:'Write the plan myself',exact:true})
       // Nothing can be asked until there is an outcome, a connected project and an agent that can chat.
       await expect(ask).toBeDisabled();await expect(own).toBeDisabled()
-      await expect(outcome.getByText('Write the outcome you want.',{exact:true})).toBeVisible()
+      // What is still needed reads as guidance, not as an error, until something has actually gone wrong.
+      const need=outcome.getByText('Write the outcome you want.',{exact:true})
+      await expect(need).toBeVisible();await expect(need).toHaveClass(/hint/)
+      const steps=outcome.getByRole('list',{name:'Steps',exact:true})
+      await expect(steps.locator('[aria-current="step"]')).toHaveText('1Outcome')
       await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
       await expect(outcome.getByText('Choose the project the sessions work in.',{exact:true})).toBeVisible()
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-attic')
@@ -112,6 +120,7 @@ try {
       // The plan is the typed objective and the project's name, nothing else.
       const plan=outcome.getByRole('list',{name:'Planned sessions',exact:true})
       await expect(plan.getByRole('listitem')).toHaveCount(2)
+      await expect(steps.locator('[aria-current="step"]')).toHaveText('2Plan')
       expect(f.box.plans).toEqual([{revision:4,objective,project:'billing',sessions:3}])
       await expect(outcome.getByText('Two independent halves: the endpoint, then the button.',{exact:true})).toBeVisible()
       await expect(outcome.getByRole('textbox',{name:'Session 1 title',exact:true})).toHaveValue('Export API')
@@ -168,6 +177,13 @@ try {
       const group=outcomes.getByRole('button',{name:/^Ship CSV export for billing\./})
       await expect(group).toContainText('3 sessions planned · 1 following · 1 not followed · 1 not started')
       await expect(floor.getByRole('heading',{name:'Export API',exact:true})).toBeVisible()
+      // The card names the outcome it serves and keeps the standing instruction out of the way until it is asked for.
+      const card=floor.getByRole('list',{name:'Followed session goals',exact:true}).getByRole('listitem').first()
+      await expect(card).toContainText('Outcome Ship CSV export for billing.')
+      await expect(card.getByText('Keep this session moving',{exact:false})).toBeHidden()
+      await card.getByText('Review & evidence',{exact:true}).click()
+      await expect(card.getByText('Keep this session moving',{exact:false})).toBeVisible()
+      await card.getByText('Review & evidence',{exact:true}).click()
       const picks=floor.getByRole('group',{name:'Running chats not followed',exact:true})
       await expect(picks.getByRole('checkbox')).toHaveCount(1);await expect(picks).toContainText('Export docs')
       await group.click();await expect(group).toHaveAttribute('aria-pressed','true')

@@ -26,6 +26,9 @@ test('only a goal that starts with the outcome line belongs to an outcome', () =
   assert.equal(o.outcomeOf('Raise the PR. Outcome: no'), '')
   assert.equal(o.outcomeOf('  Outcome: indented'), '')
   assert.equal(o.outcomeOf(''), '')
+  assert.equal(o.outcomePart(o.outcomeGoal('Ship it', 'Export API')), 'Export API')
+  assert.equal(o.outcomePart('Outcome: Ship it'), '')
+  assert.equal(o.outcomePart('Ordinary goal\nThis session’s part: no'), '')
 })
 
 test('followed sessions group by outcome with honest counts', () => {

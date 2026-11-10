@@ -259,7 +259,8 @@ at high effort while babysitting and merging run at low. A change of agent,
 model or effort between two stages starts a new session for the later one.
 
 A session that is part of a pipeline is marked **Factory · stage n of m** on
-Home, in Continue working and on the planning board, with a link to the Factory.
+Home, in Continue working and on the planning board, and on the Sessions page,
+in its list and the session's header, with a link to the Factory.
 
 If you resume a pipeline stage's goal by hand (**Review goal → Resume goal**),
 Gaffer reviews the work already there instead of waiting for new progress.

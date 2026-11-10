@@ -513,7 +513,8 @@ instance.
 
 ### Not done
 
-- The Sessions page list does not carry the marker yet, only Home.
+- The Sessions page carries the marker too (added in the same PR): its list rows and the
+  session header, from the same `factoryMembers` read in `TerminalWorkspace`.
 - A manual Gaffer chat in a pipeline's session is not told about the pipeline's
   stages, so it cannot answer "where are we" (the owner saw this).
 - Effort per crew role was added in the same PR at the owner's request:

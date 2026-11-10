@@ -717,12 +717,19 @@ func TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes(t *testing.T) {
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
 	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed on the branch.")
 	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
-	before := mustOutcome(t, r, created.ID)
-	launches := len(r.starter.asked())
-	if _, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, before.Revision-1); !errors.Is(err, store.ErrGafferOutcomeBusy) {
-		t.Fatalf("stale review: %v", err)
+	// The supervisor may still be recording the hand-over: wait until the record stops changing.
+	before := r.settle(t, created.ID)
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+		time.Sleep(300 * time.Millisecond)
+		again := mustOutcome(t, r, created.ID)
+		if again.Revision == before.Revision {
+			break
+		}
+		before = again
 	}
-	got, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, before.Revision)
+	launches := len(r.starter.asked())
+	// Pipelines keep moving while a report is asked for, so an older revision is not a reason to refuse one.
+	got, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, before.Revision-1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -801,5 +808,99 @@ func TestALaterStageSessionIsListedUnderItsProject(t *testing.T) {
 	}
 	if err := r.st.LinkTerminalSessionProjectFor(r.p.UserID, elsewhere.ID, r.project.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a session outside the project was linked: %v", err)
+	}
+}
+
+func TestYoloIsThePersonsChoiceAndReachesEveryStageLaunch(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	// Left unchosen, no launch asks for it.
+	plain, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil || plain.Yolo {
+		t.Fatalf("plain outcome: %+v %v", plain, err)
+	}
+	r.piece(t, plain.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	for _, launch := range r.starter.asked() {
+		if launch.Yolo {
+			t.Fatalf("a launch asked for YOLO unasked: %+v", launch)
+		}
+	}
+	before := len(r.starter.asked())
+	in := pipelineInput(r, false)
+	in.Yolo = true
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil || !created.Yolo {
+		t.Fatalf("yolo outcome: %+v %v", created, err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Committed.")
+	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	asked := r.starter.asked()[before:]
+	if len(asked) != 2 || !asked[0].Yolo || !asked[1].Yolo {
+		t.Fatalf("yolo launches: %+v", asked)
+	}
+}
+
+func TestAStageRunsAtItsOwnEffort(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	in := pipelineInput(r, false)
+	for i := range in.Sessions[0].Stages {
+		in.Sessions[0].Stages[i].Tool, in.Sessions[0].Stages[i].Model = "claude", ""
+	}
+	in.Sessions[0].Stages[0].Effort = "high"
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(r.starter.asked()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	asked := r.starter.asked()
+	if len(asked) != 1 || asked[0].Effort != "high" || asked[0].Tool != "claude" {
+		t.Fatalf("effort launch: %+v", asked)
+	}
+	if view, err := r.s.Outcome(r.p.UserID, created.ID); err != nil || view.Sessions[0].Stages[0].Effort != "high" || view.Sessions[0].Stages[1].Effort != "" {
+		t.Fatalf("saved efforts: %+v %v", view, err)
+	}
+	// An effort the agent cannot take, or one reet does not know, is refused before anything is saved.
+	for _, bad := range []struct{ tool, effort string }{{"opencode", "high"}, {"claude", "enormous"}} {
+		in := pipelineInput(r, false)
+		in.Sessions[0].Stages[0].Tool, in.Sessions[0].Stages[0].Model, in.Sessions[0].Stages[0].Effort = bad.tool, "", bad.effort
+		if _, err := r.s.CreateOutcome(r.p.UserID, in); err == nil {
+			t.Fatalf("%+v was accepted", bad)
+		}
+	}
+}
+
+func TestGafferChatIsToldWhereItsSessionSitsInThePipeline(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed. token=abcdefgh12345678")
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	full := r.s.contextPipeline(r.p.UserID, review.SessionID, store.ContextFlags{Status: true, Text: true})
+	if full == nil || full.StageInHand != "review" || full.State != "following" || len(full.Stages) != 4 || full.Outcome == "" || full.Title != "Export API" || full.Merge != "waits for the person's approval" || full.GoalState != "active" || full.HowItMovesOn == "" {
+		t.Fatalf("pipeline context: %+v", full)
+	}
+	if full.Stages[0].State != "done" || full.Stages[0].ThisSession || !full.Stages[1].ThisSession || !strings.Contains(full.Stages[0].Handover, "committed") || strings.Contains(full.Stages[0].Handover, "abcdefgh12345678") {
+		t.Fatalf("stages: %+v", full.Stages)
+	}
+	// The first stage's own session is still part of the pipeline.
+	if earlier := r.s.contextPipeline(r.p.UserID, code.SessionID, store.ContextFlags{Status: true}); earlier == nil || !earlier.Stages[0].ThisSession || earlier.StageInHand != "review" {
+		t.Fatalf("earlier stage session: %+v", earlier)
+	}
+	// Status sharing alone carries the stages and states, and none of the words.
+	bare := r.s.contextPipeline(r.p.UserID, review.SessionID, store.ContextFlags{Status: true})
+	if bare == nil || bare.Outcome != "" || bare.Title != "" || bare.Note != "" || bare.GoalNote != "" || bare.Stages[0].Handover != "" || bare.StageInHand != "review" {
+		t.Fatalf("status-only pipeline context: %+v", bare)
+	}
+	if r.s.contextPipeline(r.p.UserID, "not-a-pipeline-session", store.ContextFlags{Status: true, Text: true}) != nil {
+		t.Fatal("a session outside any pipeline was given one")
 	}
 }

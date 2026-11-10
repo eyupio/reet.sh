@@ -26,6 +26,7 @@ func (s *server) registerGafferRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v2/gaffer/providers/{id}", access(s.gafferSave))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/models", access(s.gafferModels))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/test", access(s.gafferAction))
+	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/plan", access(s.gafferPlan))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/default", access(s.gafferAction))
 	mux.HandleFunc("POST /api/v2/gaffer/providers/{id}/enabled", access(s.gafferAction))
 	mux.HandleFunc("DELETE /api/v2/gaffer/providers/{id}", access(s.gafferAction))
@@ -135,6 +136,29 @@ func (s *server) gafferAction(w http.ResponseWriter, r *http.Request) {
 	}
 	s.eventRequest(r, action, "", map[string]any{"provider": id})
 	s.gafferList(w, r)
+}
+
+// gafferPlan asks the person's provider to propose the sessions for an
+// objective. It reads no reet data and starts nothing: the browser shows the
+// plan for review and starts approved sessions through the launch routes.
+func (s *server) gafferPlan(w http.ResponseWriter, r *http.Request) {
+	var in gaffer.OutcomePlanInput
+	if !decodeStrictJSON(w, r, 16<<10, &in, "That outcome request is invalid or too large.") {
+		return
+	}
+	if in.Revision < 1 {
+		writeErr(w, 400, "Reload this provider before asking for a plan.")
+		return
+	}
+	id := r.PathValue("id")
+	plan, err := s.gafferProviders.PlanOutcome(r.Context(), s.gafferPrincipal(r), id, in)
+	if err != nil {
+		gafferError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-outcome-planned", "", map[string]any{"provider": id, "sessions": len(plan.Sessions)})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, plan)
 }
 
 func gafferError(w http.ResponseWriter, err error) {

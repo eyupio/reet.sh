@@ -19,6 +19,8 @@ import ImageLightbox from './ImageLightbox.svelte'
  import ChatPreview from './ChatPreview.svelte'
  import ChatStatus from './ChatStatus.svelte'
  import type { ChatProgressState } from '../gafferProgress'
+import { gafferChatEntry } from '../gafferContext'
+import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
 import ChatQueue from './ChatQueue.svelte'
@@ -736,7 +738,10 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   <strong>{statusWord}</strong>
   {#if statusDetail && !failed}<span class="detail">{statusDetail}</span>{/if}
  </div>
- {#if onnewchat && !ended}<button type="button" class="btn new-chat" disabled={newChatOff} title="Start a new chat on this machine" onclick={event => onnewchat(event.currentTarget)}>New chat</button>{/if}
+ <div class="chat-actions">
+  {#if $gafferChatEntry && !ended}<button type="button" class="gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={24} /></button>{/if}
+  {#if onnewchat && !ended}<button type="button" class="btn new-chat" disabled={newChatOff} title="Start a new chat on this machine" onclick={event => onnewchat(event.currentTarget)}>New chat</button>{/if}
+ </div>
  </div>
  {#if reattaching}
   <!-- The status line above is the one live region while reconnecting; this note does not announce again. -->
@@ -1060,7 +1065,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
     <span class="field-prompt" aria-hidden="true">›</span>
-    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="2" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…  Type \\ for a saved prompt.`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} onblur={() => closePromptMenu(false)} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
+    <textarea id={`${session.id}-chat-prompt`} class="composer-input" bind:this={composerInput} bind:value={draft} oninput={typed} rows="1" maxlength="2000" placeholder={reattaching ? pendingCopy.status : working || queued.length ? 'Queue a message to steer the next turn…' : `Ask ${toolName} to change this project…`} title={reattaching ? pendingCopy.status : undefined} onkeydown={keydown} onblur={() => closePromptMenu(false)} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'}></textarea>
     <div class="field-actions">
      {#if working && !reattaching}<button type="button" class="btn stop" onclick={() => void stop()}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>Stop</button>{/if}
      <button type="button" class="btn primary send" disabled={reattaching || sending || uploading || changingModel || modeUnknown || (!draft.trim() && !images.length) || chat.connection === 'reconnecting'} onclick={() => void send()}>{uploading ? 'Uploading…' : sending ? 'Sending…' : working || queued.length ? 'Queue' : 'Send'}{#if working || queued.length}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /></svg>{:else}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>{/if}</button>
@@ -1147,7 +1152,12 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  .chat-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--line-soft); font-size: 14px; color: var(--muted); background: var(--bg); }
  .chat-live { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
  .chat-status strong { font-weight: 500; color: var(--ink); }
+ .chat-actions { display: flex; align-items: center; gap: 6px; flex: none; }
  .chat-status .new-chat { flex: none; padding: 2px 10px; font-size: 13px; }
+ /* On a phone the companion has no clear floating corner over a chat; its entry sits in the status row instead. */
+ .gaffer-entry { display: none; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 50%; background: none; cursor: pointer; }
+ .gaffer-entry:hover { background: var(--tint); }
+ .gaffer-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
  .chat-status .detail { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); flex: none; }
  .status-dot.busy { background: var(--accent-text); animation: pulse 1.6s ease-in-out infinite; }
@@ -1156,6 +1166,9 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  @keyframes pulse { 50% { opacity: .35; } }
  @media (prefers-reduced-motion: reduce) { .status-dot.busy { animation: none; } }
  .log { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 16px clamp(12px, 2.4vw, 24px) 24px; display: flex; flex-direction: column; gap: 6px; scroll-behavior: smooth; }
+ /* A short conversation sits just above the composer instead of leaving a well of empty space below it.
+    An auto margin collapses to nothing once the log overflows, so nothing at the top becomes unreachable. */
+ .log::before { content: ''; margin-top: auto; }
  @media (prefers-reduced-motion: reduce) { .log { scroll-behavior: auto; } }
  /* Rows keep their natural height: the log scrolls, it never squashes a tool card to fit. */
  .log > * { flex: none; min-width: 0; max-width: 100%; box-sizing: border-box; }
@@ -1376,12 +1389,15 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   .meta { display: none; }
   .hint { display: none; }
   .composer { margin: 0 8px 8px; padding: 8px; }
-  .model-controls label, .effort-controls label { display: none; }
+  .model-controls label { display: none; }
+  .effort-controls label { font-size: 12px; }
   .star-word { display: none; }
   .think-preview { font-size: 14px; }
  }
  @media (max-width: 650px) {
   .log { padding: 12px 12px 16px; }
+  /* Notices sit outside the log, so they keep the log's side gutters rather than touching the screen edge. */
+  .chat-pane > .notice { margin-inline: 12px; }
   .row.user .bubble { max-width: 92%; }
   .bubble.agent { font-size: 14px; }
   .tool-head { min-height: 42px; }
@@ -1390,7 +1406,9 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   .skills-btn { height: 36px; }
   .composer-bar { flex-wrap: wrap; }
  }
+ @media (max-width: 767px) { .gaffer-entry { display: inline-flex; } }
  @media (pointer: coarse) {
+  .gaffer-entry { width: 44px; height: 44px; }
   .tool-head { min-height: 44px; }
   /* A touch browser zooms the page in to a field under 16px when it takes focus and leaves it scaled; app.css only sets 16px up to 560px. */
   .composer-input, .model-picker, .qfield textarea { font-size: 16px; }

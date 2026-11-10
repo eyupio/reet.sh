@@ -14,8 +14,10 @@ this file existed releases were described on their GitHub release pages.
   (`/sync/advanced`), linked once from Sync. Existing plans keep working and
   older links such as `/sync?machine=…` are sent on to the new page. The second
   copy of the skills picker has gone from Sync: a machine's skills are chosen
-  in its **Skills on this machine** dialog. Needs a controller update for a
-  reload of `/sync/advanced` to work.
+  in its **Skills on this machine** dialog. A connected machine nobody has
+  chosen skills for now says "No skills chosen for … yet" and where to choose
+  them; it used to say "Syncing your machines…" for as long as that lasted.
+  Needs a controller update for a reload of `/sync/advanced` to work.
 - Factory: when you approve pipelines Gaffer proposed, each one can be given its
   own agent, model and effort. Left alone it uses the outcome's.
 - The Library now tells you when a connected machine holds a different version

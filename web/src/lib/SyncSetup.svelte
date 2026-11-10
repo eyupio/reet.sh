@@ -171,6 +171,7 @@
   .fleet[data-state='in-sync'] .fleet-dot { background: var(--good); }
   .fleet[data-state='behind'] .fleet-dot { background: var(--accent-text); }
   .fleet[data-state='attention'] .fleet-dot { background: var(--warn); }
+  .fleet[data-state='unchosen'] .fleet-dot { background: var(--warn); }
   .fleet[data-state='syncing'] .fleet-dot { background: var(--accent-text); animation: fleet-pulse 1.4s ease-in-out infinite; }
   @keyframes fleet-pulse { 50% { opacity: .35; } }
   @media (prefers-reduced-motion: reduce) { .fleet[data-state='syncing'] .fleet-dot { animation: none; } }

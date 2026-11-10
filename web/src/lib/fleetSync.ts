@@ -12,7 +12,7 @@ import { agoLabel, foldHost, machineSyncOverview } from './syncOverview'
  * is left alone on purpose. Only a machine that is missing skills, or has
  * automatic sync turned off, is something pressing the button fixes.
  */
-export type FleetSyncState = 'none' | 'syncing' | 'behind' | 'attention' | 'waiting' | 'paused' | 'in-sync'
+export type FleetSyncState = 'none' | 'syncing' | 'behind' | 'attention' | 'unchosen' | 'waiting' | 'paused' | 'in-sync'
 
 export type FleetSyncStatus = {
   state: FleetSyncState
@@ -37,8 +37,16 @@ export type FleetSyncStatus = {
  */
 const BETWEEN_FOLDERS_MS = 20_000
 
-type Kind = 'paused' | 'offline' | 'behind' | 'syncing' | 'attention' | 'in-sync'
+type Kind = 'paused' | 'offline' | 'behind' | 'syncing' | 'attention' | 'unchosen' | 'in-sync'
 type Classified = { host: string; kind: Kind; text: string }
+
+/** How long after a machine is first seen a missing plan still counts as being prepared. */
+const SETTLING_MS = 60_000
+
+function settling(machine: { groups?: { firstSeen?: number }[] }, now: number): boolean {
+  const seen = (machine.groups ?? []).map(group => group.firstSeen ?? 0).filter(Boolean)
+  return seen.length > 0 && now - Math.min(...seen) < SETTLING_MS
+}
 
 function classify(agent: SyncAgent, snapshot: SyncState, now: number): Classified {
   const host = agent.host
@@ -54,8 +62,10 @@ function classify(agent: SyncAgent, snapshot: SyncState, now: number): Classifie
     case 'synced': return { host, kind: 'in-sync', text: '' }
     case 'action': return { host, kind: overview.lastSync > 0 && now - overview.lastSync < BETWEEN_FOLDERS_MS ? 'syncing' : 'behind', text: '' }
     case 'working': return { host, kind: 'syncing', text: '' }
-    // Connected, automatic sync on, and nothing planned yet: that is set up on its own.
-    case 'setup': return { host, kind: 'syncing', text: '' }
+    // Connected, automatic sync on, and nothing planned yet. A machine that has only just been scanned may still be
+    // having its plan prepared; after that, nothing planned means nobody has chosen its skills, and saying
+    // "Syncing…" for ever would be untrue.
+    case 'setup': return { host, kind: settling(machine, now) ? 'syncing' : 'unchosen', text: '' }
     default: return { host, kind: 'attention', text: overview.detail }
   }
 }
@@ -85,7 +95,7 @@ export function fleetSyncStatus(snapshot: Pick<SyncState, 'agents' | 'machines' 
   const agents = snapshot.agents ?? []
   const all = agents.map(agent => classify(agent, snapshot as SyncState, now))
   const of = (kind: Kind) => all.filter(item => item.kind === kind)
-  const [paused, offline, behind, syncing, attention, inSync] = (['paused', 'offline', 'behind', 'syncing', 'attention', 'in-sync'] as const).map(of)
+  const [paused, offline, behind, syncing, attention, unchosen, inSync] = (['paused', 'offline', 'behind', 'syncing', 'attention', 'unchosen', 'in-sync'] as const).map(of)
   const counts = { machines: all.length, inSync: inSync.length, behind: behind.length, syncing: syncing.length, attention: attention.length, offline: offline.length, paused: paused.length }
   const hosts = (list: Classified[]) => list.map(item => item.host)
 
@@ -105,6 +115,9 @@ export function fleetSyncStatus(snapshot: Pick<SyncState, 'agents' | 'machines' 
   } else if (attention.length) {
     state = 'attention'
     headline = `${plural(attention.length, 'machine needs', 'machines need')} a look.`
+  } else if (unchosen.length) {
+    state = 'unchosen'
+    headline = unchosen.length === 1 ? `No skills chosen for ${unchosen[0].host} yet.` : `${unchosen.length} machines have no skills chosen yet.`
   } else if (!inSync.length) {
     state = 'waiting'
     headline = "Your machines will sync when they're back online."
@@ -119,6 +132,9 @@ export function fleetSyncStatus(snapshot: Pick<SyncState, 'agents' | 'machines' 
   } else if (state === 'attention') {
     // The machine's own words, so the person can act on exactly what it says.
     parts.push(attention.length === 1 ? `${attention[0].host}: ${attention[0].text}` : `${names(hosts(attention))} need a look.`)
+  } else if (state === 'unchosen') {
+    parts.push(unchosen.length === 1 ? 'Open Skills on this machine to choose them.' : `Open Skills on this machine for ${names(hosts(unchosen))} to choose them.`)
+    if (offline.length) parts.push(offline.length === 1 ? `${offline[0].host} is offline.` : `${offline.length} machines are offline.`)
   } else if (state !== 'paused') {
     if (attention.length) parts.push(attention.length === 1 ? `${attention[0].host} needs a look.` : `${names(hosts(attention))} need a look.`)
     if (offline.length) {
@@ -165,7 +181,11 @@ export function machineSyncRow(agent: SyncAgent, snapshot: Pick<SyncState, 'agen
   const overview = machineSyncOverview(machine, snapshot as SyncState, now)
   // Nothing planned yet on a connected machine is prepared without anyone doing anything, which is what the
   // sentence calls syncing. The row says the same and does not ask for a choice.
-  if (overview.tone === 'setup') return row('Setting up', 'Reet is getting this machine’s skills ready.', 'working')
+  if (overview.tone === 'setup') {
+    return settling(machine, now)
+      ? row('Setting up', 'Reet is getting this machine’s skills ready.', 'working')
+      : row('No skills chosen', 'Choose what this machine should have in Skills on this machine.', 'attention')
+  }
   const tone = overview.tone === 'action' ? 'working' : overview.tone
   return row(overview.label, overview.detail, tone)
 }

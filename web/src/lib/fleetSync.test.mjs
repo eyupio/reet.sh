@@ -20,10 +20,10 @@ const STALE = now - 10 * 60_000
 
 // One machine's slice of the sync state: an agent, its scanned folder, and its plan.
 function host(name, options = {}) {
-  const { online = true, paused = false, keepSynced = true, scanned = true, planned = true, missing = 0, problem, running = false, finishedAgo } = options
+  const { online = true, paused = false, keepSynced = true, scanned = true, planned = true, missing = 0, problem, running = false, finishedAgo, firstSeen = STALE } = options
   const id = `${name}-scope`
   const skills = Array.from({ length: missing }, (_, i) => ({ id: `s${i}`, name: `s${i}`, slug: `s${i}`, source: 'org/repo', sourceType: 'github' }))
-  const group = { id, name: id, agent: 'claude', host: name, lastSeen: now, scannedAt: now, complete: true, skills: [] }
+  const group = { id, name: id, agent: 'claude', host: name, firstSeen, lastSeen: now, scannedAt: now, complete: true, skills: [] }
   return {
     agent: { id: `agent-${name}`, host: name, lastSeen: online ? now : OFFLINE, paused, keepSynced },
     machine: scanned ? { host: name, groups: [group], skillCount: 1 } : undefined,
@@ -163,7 +163,7 @@ test('automatic sync off outranks offline: pressing the button turns it on where
 
 test('a machine that has scanned but has no plan yet is being set up, not behind', () => {
   // The shared library prepares each machine's folders on its own after the first complete scan.
-  const status = fleetSyncStatus(fleet(host('laptop'), host('fresh', { planned: false })), now)
+  const status = fleetSyncStatus(fleet(host('laptop'), host('fresh', { planned: false, firstSeen: now - 5_000 })), now)
   assert.equal(status.state, 'syncing')
   assert.equal(status.headline, 'Syncing your machines…')
 })
@@ -214,13 +214,27 @@ test('a machine row says what the sentence says about that machine', () => {
   assert.equal(row(host('a', { problem: 'Two skills share a name.' })).detail, 'Two skills share a name.')
 })
 
-test('a connected machine with nothing planned yet is being set up, as the sentence says, not asked for a choice', () => {
-  const unplanned = host('a', { planned: false })
-  assert.equal(fleetSyncStatus(fleet(unplanned), now).headline, 'Syncing your machines…')
-  const row = machineSyncRow(unplanned.agent, fleet(unplanned), now)
+test('a machine first seen a moment ago with nothing planned is being set up, in the sentence and on its row', () => {
+  const fresh = host('a', { planned: false, firstSeen: now - 5_000 })
+  assert.equal(fleetSyncStatus(fleet(fresh), now).headline, 'Syncing your machines…')
+  const row = machineSyncRow(fresh.agent, fleet(fresh), now)
   assert.equal(row.label, 'Setting up')
   assert.equal(row.tone, 'working')
-  assert.doesNotMatch(`${row.label} ${row.detail}`, /No skills set to sync|Choose/)
+})
+
+test('a settled machine with nothing planned has no skills chosen: nothing is syncing and the sentence says what to do', () => {
+  const unplanned = host('a', { planned: false })
+  const status = fleetSyncStatus(fleet(unplanned), now)
+  assert.equal(status.state, 'unchosen')
+  assert.equal(status.headline, 'No skills chosen for a yet.')
+  assert.equal(status.detail, 'Open Skills on this machine to choose them.')
+  assert.doesNotMatch(fleetSyncSentence(status), /Syncing/)
+  const row = machineSyncRow(unplanned.agent, fleet(unplanned), now)
+  assert.equal(row.label, 'No skills chosen')
+  assert.equal(row.tone, 'attention')
+  // Another machine that is really syncing still leads.
+  assert.equal(fleetSyncStatus(fleet(unplanned, host('b', { running: true })), now).headline, 'Syncing your machines…')
+  assert.equal(fleetSyncStatus(fleet(host('a', { planned: false }), host('b', { planned: false })), now).headline, '2 machines have no skills chosen yet.')
 })
 
 test('a review waiting or a finished update is said on the machine row', () => {

@@ -228,7 +228,15 @@ func SetupTerminalHost(options TerminalSetupOptions, in io.Reader, out io.Writer
 	deadline := time.Now().Add(15 * time.Second)
 	for !localTerminalAgentConnected(config) {
 		if time.Now().After(deadline) {
-			return errors.New("local setup is saved, but the private connection has not become ready; no remote readiness is claimed")
+			message := "local setup is saved, but this machine has not connected to the controller yet"
+			if status, err := ReadAgentStatus(config); err == nil {
+				if problems := status.Problems(); len(problems) > 0 {
+					message += ".\n" + strings.Join(problems, "\n")
+				} else {
+					message += "; it is still trying. Check again with: reet agent status"
+				}
+			}
+			return errors.New(message)
 		}
 		time.Sleep(250 * time.Millisecond)
 	}

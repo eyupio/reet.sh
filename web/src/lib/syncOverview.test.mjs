@@ -129,3 +129,14 @@ test('saving private copies of machine-only skills is progress, not a reason to 
   assert.equal(attention.tone, 'attention')
   assert.equal(attention.label, 'Sync needs attention')
 })
+
+test('a machine is not called in sync while a selected skill has no saved copy', () => {
+  const held = [{ itemId: 'i1', name: 'db-migrate', reason: 'content' }]
+  const waiting = machineSyncOverview(machine([group('a', [skill('one')])]), state({ targets: [target('a', [], [], { held })], environments: [group('a')] }), now)
+  assert.equal(waiting.tone, 'attention')
+  assert.equal(waiting.label, '1 selected skill not installed yet')
+  assert.match(waiting.detail, /db-migrate: reet has no saved copy yet/)
+  // Kept in the library on purpose (not In use) is a choice, not something to chase.
+  const parked = machineSyncOverview(machine([group('a', [skill('one')])]), state({ targets: [target('a', [], [], { held: [{ itemId: 'i1', name: 'x', reason: 'status' }] })], environments: [group('a')] }), now)
+  assert.equal(parked.tone, 'synced')
+})

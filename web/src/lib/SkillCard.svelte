@@ -102,7 +102,7 @@
   const installationLabels = { installed: 'Installed', missing: 'Missing', unknown: 'Not confirmed' }
   const syncIntent = $derived(skillSyncIntent(skill.id, syncSnapshot))
   const syncIntentText = $derived(skillSyncSummary(syncIntent))
-  const syncIntentTone = $derived(syncIntent.pending.length ? 'pending' : syncIntent.set.length ? 'set' : 'none')
+  const syncIntentTone = $derived(syncIntent.pending.length || syncIntent.held.length ? 'pending' : syncIntent.set.length ? 'set' : 'none')
   const hasSavedSetFor = (host: string) => (syncSnapshot?.targets ?? []).some((target) => target.target.host.toLowerCase() === host.toLowerCase())
 
   $effect(() => {

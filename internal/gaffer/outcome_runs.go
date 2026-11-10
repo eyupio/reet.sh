@@ -63,6 +63,10 @@ type OutcomeInput struct {
 	// AutoMerge lets every pipeline of this outcome merge by itself once it is
 	// green, unless a pipeline says otherwise. It is the person's own choice.
 	AutoMerge bool `json:"autoMerge"`
+	// AutoReport has Gaffer report across the outcome by itself when a
+	// pipeline finishes or stops. Each report is one model request, and it
+	// only ever proposes.
+	AutoReport bool `json:"autoReport"`
 }
 
 // OutcomeStageInput is one stage of a planned pipeline: what it is and which
@@ -239,7 +243,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Trust: in.Trust, Yolo: in.Yolo, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Trust: in.Trust, Yolo: in.Yolo, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err
@@ -281,8 +285,11 @@ func outcomePieces(items []OutcomeSession, tool, model string, autoMerge bool, t
 			if stageTool == "" {
 				stageTool, stageModel = tool, model
 			}
-			if stage.Effort != "" && (!terminalproto.ValidEffort(stage.Effort) || !terminalproto.ToolTakesEffort(stageTool)) {
-				return nil, invalid("sessions", "Choose low, medium or high effort, for an agent that takes one, in “"+title+"”.")
+			// Every stage is a chat, whose effort is one of the agent's own
+			// thinking levels: a name, not one of reet's three. The agent
+			// confirms it for the chosen model before any prompt is sent.
+			if stage.Effort != "" && !terminalproto.ValidModel(stage.Effort) {
+				return nil, invalid("sessions", "Choose an effort the agent offers, or leave it to the agent's default, in “"+title+"”.")
 			}
 			if !terminalproto.ReviewedChatTool(stageTool) || stageModel != "" && !terminalproto.ValidModel(stageModel) {
 				return nil, invalid("sessions", "Choose an agent that can run a Gaffer chat, and a model name it accepts, for every stage of “"+title+"”.")
@@ -424,6 +431,7 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 	if s.store.Fenced() {
 		return
 	}
+	s.autoReports(ctx)
 	rows, err := s.store.StartingGafferOutcomes()
 	// The controller's settings are read only when there is an outcome to
 	// start, as the goal supervisor reads them only for a due goal.
@@ -435,6 +443,67 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 			return
 		}
 		s.runOutcome(ctx, o.OwnerID, o.ID)
+	}
+}
+
+const (
+	maxAutoReports    = 6
+	autoReportSpacing = 10 * time.Minute
+)
+
+// autoReportEvent names what an outcome's pipelines have finished or stopped
+// at: the pipelines that are done, ready to merge, not started or no longer
+// followed. It is empty while every pipeline is still at work.
+func autoReportEvent(o store.GafferOutcome) string {
+	var parts []string
+	for _, piece := range o.Sessions {
+		switch piece.State {
+		case "done", "ready_to_merge", "failed", "unfollowed":
+			parts = append(parts, piece.Key+":"+piece.State)
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+// autoReports asks for a report on each outcome whose owner chose that, once
+// per change in which pipelines have finished or stopped. It is bounded: at
+// most maxAutoReports for an outcome, and not within autoReportSpacing of its
+// last report. A report starts nothing and only ever proposes.
+func (s *Service) autoReports(ctx context.Context) {
+	rows, err := s.store.AutoReportGafferOutcomes()
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	for _, o := range rows {
+		if ctx.Err() != nil {
+			return
+		}
+		event := autoReportEvent(o)
+		if event == "" || event == o.AutoReportedFor || o.AutoReports >= maxAutoReports {
+			continue
+		}
+		if o.Report != nil && time.Since(time.UnixMilli(o.Report.At)) < autoReportSpacing {
+			continue
+		}
+		p, err := s.chatPrincipal(o.OwnerID)
+		if err != nil {
+			continue
+		}
+		// Recorded before the request, so a failed or slow one is not asked for again and again.
+		if _, err = s.outcomeStep(o.OwnerID, o.ID, func(o *store.GafferOutcome) bool {
+			if o.AutoReportedFor == event {
+				return false
+			}
+			o.AutoReportedFor, o.AutoReports = event, o.AutoReports+1
+			return true
+		}); err != nil {
+			continue
+		}
+		s.wg.Add(1)
+		go func(id string) {
+			defer s.wg.Done()
+			_, _ = s.reviewOutcome(ctx, p, id, true)
+		}(o.ID)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -877,7 +878,7 @@ func TestAStageRunsAtItsOwnEffort(t *testing.T) {
 		t.Fatalf("saved efforts: %+v %v", view, err)
 	}
 	// An effort the agent cannot take, or one reet does not know, is refused before anything is saved.
-	for _, bad := range []struct{ tool, effort string }{{"opencode", "high"}, {"claude", "enormous"}} {
+	for _, bad := range []struct{ tool, effort string }{{"opencode", "--yolo"}, {"claude", "high effort"}} {
 		in := pipelineInput(r, false)
 		in.Sessions[0].Stages[0].Tool, in.Sessions[0].Stages[0].Model, in.Sessions[0].Stages[0].Effort = bad.tool, "", bad.effort
 		if _, err := r.s.CreateOutcome(r.p.UserID, in); err == nil {
@@ -926,7 +927,7 @@ func TestAnAddedPipelineCanRunOnItsOwnAgentModelAndEffort(t *testing.T) {
 	}
 	created = r.settle(t, created.ID)
 	stages := []OutcomeStageInput{{Kind: "code", Tool: "claude", Model: "opus", Effort: "high"}, {Kind: "pr", Tool: "claude", Model: "opus", Effort: "high"}}
-	added, err := r.s.AddPipelines(r.p.UserID, created.ID, AddPipelinesInput{Revision: created.Revision, Confirmed: true, Sessions: []OutcomeSession{{Title: "Docs", Prompt: "Document it. Do not merge.", Stages: stages}}})
+	added, err := r.s.AddPipelines(r.p.UserID, created.ID, AddPipelinesInput{Revision: 1, Confirmed: true, Sessions: []OutcomeSession{{Title: "Docs", Prompt: "Document it. Do not merge.", Stages: stages}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -935,12 +936,62 @@ func TestAnAddedPipelineCanRunOnItsOwnAgentModelAndEffort(t *testing.T) {
 		t.Fatalf("added pipeline: %+v", docs)
 	}
 	// What it is given is checked like a new outcome's: an effort the agent cannot take is refused and nothing is added.
-	bad := []OutcomeStageInput{{Kind: "code", Tool: "opencode", Effort: "high"}}
+	bad := []OutcomeStageInput{{Kind: "code", Tool: "opencode", Effort: "--yolo"}}
 	var refused *Invalid
 	if _, err := r.s.AddPipelines(r.p.UserID, created.ID, AddPipelinesInput{Revision: mustOutcome(t, r, created.ID).Revision, Confirmed: true, Sessions: []OutcomeSession{{Title: "More", Prompt: "Do it. Do not merge.", Stages: bad}}}); !errors.As(err, &refused) && !errors.Is(err, store.ErrGafferOutcomeBusy) {
-		t.Fatalf("an effort OpenCode cannot take: %v", err)
+		t.Fatalf("an effort that is not a name: %v", err)
 	}
 	if now := mustOutcome(t, r, created.ID); len(now.Sessions) != len(added.Sessions) {
 		t.Fatalf("a refused pipeline was added: %+v", now.Sessions)
+	}
+}
+
+func TestGafferReportsByItselfOncePerPipelineEventWhenAsked(t *testing.T) {
+	r := outcomeFixture(t)
+	var calls atomic.Int32
+	r.reply = func(w http.ResponseWriter, req *http.Request) {
+		calls.Add(1)
+		args := `{"summary":"One pipeline did not start.","proposals":[]}`
+		call, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "r1", "type": "function", "function": map[string]any{"name": "report_outcome", "arguments": args}}}}, "finish_reason": "tool_calls"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", call)
+	}
+	r.starter.refuse["Export API"] = "That agent isn't installed on that machine."
+	r.s.StartGoalSupervisor()
+	// Not asked for: a pipeline that did not start brings no report.
+	plain, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.settle(t, plain.ID)
+	r.s.autoReports(context.Background())
+	in := r.in
+	in.AutoReport = true
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil || !created.AutoReport {
+		t.Fatalf("created: %+v %v", created, err)
+	}
+	r.settle(t, created.ID)
+	deadline := time.Now().Add(10 * time.Second)
+	var got store.GafferOutcome
+	for time.Now().Before(deadline) {
+		r.s.autoReports(context.Background())
+		got = mustOutcome(t, r, created.ID)
+		if got.Report != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got.Report == nil || !got.Report.Auto || got.Report.Text != "One pipeline did not start." || got.AutoReports != 1 || got.AutoReportedFor != "a:failed" {
+		t.Fatalf("auto report: %+v", got)
+	}
+	// The same event is not reported twice, and the other outcome was never reported on.
+	r.s.autoReports(context.Background())
+	r.s.autoReports(context.Background())
+	time.Sleep(200 * time.Millisecond)
+	if calls.Load() != 1 || mustOutcome(t, r, plain.ID).Report != nil {
+		t.Fatalf("model requests: %d", calls.Load())
+	}
+	if len(r.starter.asked()) != 4 {
+		t.Fatalf("a report started something: %d launches", len(r.starter.asked()))
 	}
 }

@@ -717,7 +717,16 @@ func TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes(t *testing.T) {
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
 	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed on the branch.")
 	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
-	before := mustOutcome(t, r, created.ID)
+	// The supervisor may still be recording the hand-over: wait until the record stops changing.
+	before := r.settle(t, created.ID)
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+		time.Sleep(300 * time.Millisecond)
+		again := mustOutcome(t, r, created.ID)
+		if again.Revision == before.Revision {
+			break
+		}
+		before = again
+	}
 	launches := len(r.starter.asked())
 	if _, err := r.s.ReviewOutcome(context.Background(), r.p, created.ID, before.Revision-1); !errors.Is(err, store.ErrGafferOutcomeBusy) {
 		t.Fatalf("stale review: %v", err)

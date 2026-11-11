@@ -723,6 +723,10 @@ func (s *Session) handleUpdate(raw json.RawMessage) {
 		if json.Unmarshal(raw, &envelope) == nil {
 			s.updateSettings(envelope.Update)
 		}
+	case "usage_update":
+		if usage := contextUsage(raw); usage != nil {
+			s.emit(Event{Kind: "usage", Usage: usage})
+		}
 	case "compaction_update":
 		var envelope struct {
 			Update struct {
@@ -1689,6 +1693,10 @@ func (s *Session) PromptWithAttachments(ctx context.Context, text string, images
 		StopReason string `json:"stopReason"`
 	}
 	_ = json.Unmarshal(raw, &result)
+	// What the turn used is reported whatever way it ended.
+	if usage := turnUsage(raw); usage != nil {
+		s.emit(Event{Kind: "usage", Usage: usage})
+	}
 	s.mu.Lock()
 	reported := s.turnError
 	s.mu.Unlock()

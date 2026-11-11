@@ -253,7 +253,7 @@ project's machine, your favourites and reet's suggestions; **Other…** takes a
 name none of them has. The model beside the main agent applies to every stage
 until you give a crew role its own.
 
-Tick **Have Gaffer report across this outcome by itself** (on unless you untick
+Tick **Have Gaffer report across this outcome by itself** (off unless you tick
 it) and Gaffer makes that report without being asked when a pipeline finishes or
 stops: one request to its model each time, at most six for an outcome and never
 within ten minutes of the last. It only reports and proposes.
@@ -273,6 +273,12 @@ to find it done; Gaffer's last review goes along as the handover. The **Merge**
 line on each pipeline has a switch between merging by itself and waiting for
 you, which you can change at any time before the pipeline is done.
 
+**Tell the agent…** on a pipeline sends your own words to its working agent for
+its next turn, without opening the session. **Send back…** has the stage in hand,
+or an earlier one, done again: you choose the stage and say why, that stage and
+the later ones start over in a fresh agent session in the same folder and branch,
+and the agent is told your reason. Nothing already committed is undone.
+
 In a pipeline session's Gaffer chat you can simply say it: "continue to the next
 stage" moves the pipeline on, and "get it to write the plan" passes that
 instruction to the working agent. Gaffer still cannot merge, run commands or
@@ -290,8 +296,17 @@ Gaffer reviews the work already there instead of waiting for new progress.
 The Factory counts what **Gaffer's own model** used: every finished stage keeps
 its reviews and tokens, the stage in hand reads its live goal, and a report you
 ask for is added to the outcome's total. Where a provider reports no token count
-the page says so instead of showing a number. reet does not see what the working
-agents use, and it attaches no price to any of it.
+the page says so instead of showing a number. It attaches no price to any of it.
+
+**Agent tokens** is what the working agents themselves report. When an agent
+says how many tokens a turn took, reet adds the turns up for the stage that did
+them, the pipeline and the outcome, with cached tokens counted apart and a
+split by agent where more than one worked on it. **Context left** shows, for the
+stage in hand, how much of that agent's context window remains, and turns amber
+at 15% or less. Both read **Not reported** for an agent that says nothing; reet
+never estimates. They need the machine's reet updated as well as the
+controller, and they do not include your plan's or provider's own quota, which
+agents do not tell reet.
 
 Budgets are per stage: each stage gets the outcome's review budget and hours
 afresh, and the page shows what is left of the stage in hand. A stage that uses

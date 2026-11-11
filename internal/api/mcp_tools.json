@@ -463,8 +463,8 @@
   },
   {
     "name": "reet_set_pipeline_merge",
-    "title": "Set how a pipeline’s merge is decided",
-    "description": "Requires management scope and a writer account. Choose whether one pipeline merges by itself at its merge stage once every check passes (mode \"by_itself\", which needs confirm=true) or stops at Ready to merge and waits for the user’s approval (mode \"wait\"). It merges nothing now. Returns {data: object} as structured content and text.",
+    "title": "Make a pipeline wait for merge approval",
+    "description": "Requires management scope and a writer account. Make one pipeline stop at Ready to merge and wait for the user’s approval instead of merging by itself. The only mode is \"wait\": letting a pipeline merge by itself is the user’s choice on the Factory page and cannot be set here. It merges nothing. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -480,15 +480,11 @@
           "description": "The pipeline’s key from reet_list_factory or reet_get_factory_outcome, such as \"a\"."
         },
         "mode": {
+          "default": "wait",
           "type": "string",
           "enum": [
-            "by_itself",
             "wait"
           ]
-        },
-        "confirm": {
-          "type": "boolean",
-          "description": "Must be true, and only when the user asked for exactly this change."
         },
         "response_format": {
           "default": "json",
@@ -502,8 +498,7 @@
       },
       "required": [
         "outcome_id",
-        "pipeline",
-        "mode"
+        "pipeline"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false
@@ -671,6 +666,429 @@
       },
       "required": [
         "outcome_id"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_list_factory_projects",
+    "title": "List projects an outcome can run in",
+    "description": "List the user’s projects with their id, name, machine and whether they are git repositories, to choose project_id for reet_start_outcome. Not available to a read-only account. Does not change anything. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_start_outcome",
+    "title": "Start a Factory outcome",
+    "description": "Requires management scope and a writer account. Approve an outcome on the user’s behalf: the controller starts each pipeline’s first stage as an agent session on the project’s machine and Gaffer follows it stage by stage. This starts real agents that run commands and may use the user’s agent and Gaffer credits. Sessions always start with ordinary approvals, never YOLO, with no folder trust, and every pipeline stops at Ready to merge and waits for the user. Use only when the user asked you to start exactly this work, with confirm=true. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "What the user wants done, in their words."
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Exact id from reet_list_factory_projects."
+        },
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex",
+            "opencode",
+            "cline",
+            "antigravity"
+          ],
+          "description": "The coding agent that does every stage."
+        },
+        "pipelines": {
+          "minItems": 1,
+          "maxItems": 5,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": "Short name for the pipeline, unique in the outcome."
+              },
+              "prompt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8000,
+                "description": "A self-contained brief for the coding agent that does this pipeline."
+              },
+              "stages": {
+                "description": "Stages in pipeline order. Omit for code, review, test, pr, babysit, merge.",
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "design",
+                    "code",
+                    "review",
+                    "test",
+                    "pr",
+                    "babysit",
+                    "merge"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "title",
+              "prompt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "reports_by_itself": {
+          "default": false,
+          "description": "Have Gaffer report across the outcome when a pipeline finishes or stops. Each report is one model request.",
+          "type": "boolean"
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "Must be true, and only when the user asked for exactly this change."
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "objective",
+        "project_id",
+        "agent",
+        "pipelines",
+        "confirm"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_add_pipelines",
+    "title": "Add pipelines to an outcome",
+    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "outcome_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$",
+          "description": "Exact outcome id from reet_list_factory."
+        },
+        "pipelines": {
+          "minItems": 1,
+          "maxItems": 5,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": "Short name for the pipeline, unique in the outcome."
+              },
+              "prompt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8000,
+                "description": "A self-contained brief for the coding agent that does this pipeline."
+              },
+              "stages": {
+                "description": "Stages in pipeline order. Omit for code, review, test, pr, babysit, merge.",
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "design",
+                    "code",
+                    "review",
+                    "test",
+                    "pr",
+                    "babysit",
+                    "merge"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "title",
+              "prompt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "Must be true, and only when the user asked for exactly this change."
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "outcome_id",
+        "pipelines",
+        "confirm"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_tell_pipeline_agent",
+    "title": "Tell a pipeline’s agent what to do next",
+    "description": "Requires management scope and a writer account. Queue one instruction from the user for the working agent of a pipeline’s stage in hand, for its next turn. Supply a stable 32-character lowercase hex request_id: an identical retry reads the receipt. Sent means accepted by the agent, not completed work. It cannot interrupt, answer approvals or change YOLO. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "outcome_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$",
+          "description": "Exact outcome id from reet_list_factory."
+        },
+        "pipeline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4,
+          "description": "The pipeline’s key from reet_list_factory or reet_get_factory_outcome, such as \"a\"."
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$",
+          "description": "Stable request ID; keep it when retrying an unconfirmed call."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000,
+          "description": "The instruction the user asked for."
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "outcome_id",
+        "pipeline",
+        "request_id",
+        "text"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "data"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reet_send_pipeline_back",
+    "title": "Send a pipeline back to an earlier stage",
+    "description": "Requires management scope and a writer account. Have the stage in hand, or an earlier one, done again: that stage and every later one start over in a fresh agent session in the same folder and branch, and the agent is told the reason. Nothing already committed is undone. Use only when the user asked for it, with confirm=true. Returns {data: object} as structured content and text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "outcome_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$",
+          "description": "Exact outcome id from reet_list_factory."
+        },
+        "pipeline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4,
+          "description": "The pipeline’s key from reet_list_factory or reet_get_factory_outcome, such as \"a\"."
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "design",
+            "code",
+            "review",
+            "test",
+            "pr",
+            "babysit",
+            "merge"
+          ],
+          "description": "The stage to do again: the one in hand or one before it."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Why it is being sent back; the agent is told this."
+        },
+        "confirm": {
+          "type": "boolean",
+          "description": "Must be true, and only when the user asked for exactly this change."
+        },
+        "response_format": {
+          "default": "json",
+          "description": "JSON or a Markdown JSON code block.",
+          "type": "string",
+          "enum": [
+            "json",
+            "markdown"
+          ]
+        }
+      },
+      "required": [
+        "outcome_id",
+        "pipeline",
+        "stage",
+        "reason",
+        "confirm"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false

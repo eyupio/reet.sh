@@ -504,6 +504,14 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 		return nil
 	}
 	if event, ok := m.Body.(*terminalproto.ACPEvent); ok {
+		if event.Kind == "usage" {
+			// The agent's own numbers. They are kept beside the session, not in
+			// its conversation, and only for a session this account owns.
+			if u := event.Usage; u != nil {
+				_ = p.b.st.AddTerminalSessionUsage(p.key.uid, m.SessionID, u.InputTokens, u.OutputTokens, u.CachedTokens, u.ContextUsed, u.ContextSize)
+			}
+			return nil
+		}
 		if p.b.chatExists(p.key.uid, m.SessionID) {
 			p.b.publishChat(p.key.uid, m.SessionID, *event)
 		}

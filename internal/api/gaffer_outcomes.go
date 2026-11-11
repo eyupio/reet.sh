@@ -30,6 +30,8 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/retry", access(s.gafferOutcomeRetry))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/advance", access(s.gafferOutcomeAdvance))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/automerge", access(s.gafferOutcomeAutoMerge))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/back", access(s.gafferOutcomeBack))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/tell", access(s.gafferOutcomeTell))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions", access(s.gafferOutcomeAdd))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/review", access(s.gafferOutcomeReview))
 }
@@ -164,6 +166,55 @@ func (s *server) gafferOutcomeAdvance(w http.ResponseWriter, r *http.Request) {
 	s.eventRequest(r, "gaffer-pipeline-moved-on", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key")})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeBack is the person sending a pipeline back to an earlier stage.
+func (s *server) gafferOutcomeBack(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Stage     string `json:"stage"`
+		Reason    string `json:"reason"`
+		Confirmed bool   `json:"confirmed"`
+	}
+	if !decodeStrictJSON(w, r, 8<<10, &in, "That request is invalid.") {
+		return
+	}
+	if !in.Confirmed {
+		writeErr(w, 400, "Confirm sending this pipeline back before its stage is done again.")
+		return
+	}
+	if !s.terminalEnabled() {
+		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
+		return
+	}
+	o, err := s.gafferProviders.SendPipelineBack(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Stage, in.Reason)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-pipeline-sent-back", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "stage": in.Stage})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeTell passes the person's instruction to the working agent of a
+// pipeline's stage in hand. The text is theirs; nothing is added to it.
+func (s *server) gafferOutcomeTell(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		RequestID string `json:"requestId"`
+		Text      string `json:"text"`
+	}
+	if !decodeStrictJSON(w, r, 16<<10, &in, "That instruction is invalid or too large.") {
+		return
+	}
+	m, err := s.gafferProviders.TellPipelineAgent(r.Context(), s.uid(r), r.PathValue("id"), r.PathValue("key"), in.RequestID, in.Text)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-pipeline-agent-told", "", map[string]any{"outcome": r.PathValue("id"), "pipeline": r.PathValue("key"), "message": m.ID, "state": m.State})
+	m.Text = ""
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"message": m})
 }
 
 // gafferOutcomeAutoMerge is the person changing whether one pipeline merges

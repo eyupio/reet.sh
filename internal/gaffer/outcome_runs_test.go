@@ -1112,3 +1112,97 @@ func TestGafferChatMovesThePipelineOnWhenThePersonSaysContinue(t *testing.T) {
 		t.Fatalf("tools offered: %v", tools)
 	}
 }
+
+func TestThePersonSendsAPipelineBackAndTheStageIsDoneAgainInTheSameFolder(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint committed.")
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	for name, bad := range map[string][2]string{"later stage": {"test", "Needs it."}, "no reason": {"code", "  "}, "unknown stage": {"deploy", "Why not."}} {
+		if _, err := r.s.SendPipelineBack(r.p.UserID, created.ID, review.Key, bad[0], bad[1]); err == nil {
+			t.Fatalf("%s was accepted", name)
+		}
+	}
+	before := len(r.starter.asked())
+	if _, err := r.s.SendPipelineBack(r.p.UserID, created.ID, review.Key, "code", "The export leaks other tenants' rows."); err != nil {
+		t.Fatal(err)
+	}
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.Stage == 0 && p.SessionID != ""
+	})
+	asked := r.starter.asked()
+	if len(asked) != before+1 {
+		t.Fatalf("launches after sending back: %d, was %d", len(asked), before)
+	}
+	last := asked[len(asked)-1]
+	if last.Dir != code.WorkDir || last.ProjectID != "" || last.RequestID == code.Stages[0].RequestID || again.SessionID == code.SessionID || again.SessionID == review.SessionID {
+		t.Fatalf("stage done again: %+v piece %+v", last, again)
+	}
+	if !strings.Contains(last.Prompt, "sent back to it. Why: Sent back from the review stage. The export leaks other tenants' rows.") || !strings.HasPrefix(last.Prompt, "You are doing ONE stage of a staged piece of work: the code stage.") {
+		t.Fatalf("prompt: %q", last.Prompt)
+	}
+	if again.Stages[0].State != "running" || again.Stages[1].State != "pending" || again.Stages[1].Summary != "" || again.Stages[1].RequestID == review.Stages[1].RequestID {
+		t.Fatalf("stages after sending back: %+v", again.Stages)
+	}
+	// The stage it left has its goal closed; the stage done again has its own.
+	if old, err := r.st.GafferGoalFor(r.p.UserID, review.ConversationID); err != nil || old.State != "stopped" {
+		t.Fatalf("left stage goal: %+v %v", old, err)
+	}
+	if g, err := r.st.GafferGoalFor(r.p.UserID, again.ConversationID); err != nil || g.State != "active" || !strings.Contains(g.Text, "\nStage: code\n") {
+		t.Fatalf("goal of the stage done again: %+v %v", g, err)
+	}
+}
+
+func TestAStageKeepsWhatItsAgentReportedUsing(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	in := pipelineInput(r, false)
+	// One agent and model for the first two stages, so they share a session.
+	in.Sessions[0].Stages[1].Model = in.Sessions[0].Stages[0].Model
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	// Nothing reported yet: the stage says so rather than showing a zero.
+	if o, err := r.s.Outcome(r.p.UserID, created.ID); err != nil || o.Sessions[0].Stages[0].AgentUsageReported {
+		t.Fatalf("before any report: %+v %v", o.Sessions[0].Stages[0], err)
+	}
+	if err = r.st.AddTerminalSessionUsage(r.p.UserID, code.SessionID, 1000, 200, 5000, 40000, 200000); err != nil {
+		t.Fatal(err)
+	}
+	live, err := r.s.Outcome(r.p.UserID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := live.Sessions[0].Stages[0]; !s.AgentUsageReported || s.AgentInputTokens != 1000 || s.AgentOutputTokens != 200 || s.AgentCachedTokens != 5000 || s.ContextUsed != 40000 || s.ContextSize != 200000 {
+		t.Fatalf("live stage usage: %+v", s)
+	}
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Committed.")
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	if review.SessionID != code.SessionID {
+		t.Fatalf("the second stage did not keep the session: %+v", review)
+	}
+	if s := review.Stages[0]; !s.AgentUsageReported || s.AgentInputTokens != 1000 || s.AgentOutputTokens != 200 || s.AgentCachedTokens != 5000 {
+		t.Fatalf("kept at hand-over: %+v", s)
+	}
+	// The session's total keeps growing; the second stage counts only what came after the first.
+	if err = r.st.AddTerminalSessionUsage(r.p.UserID, code.SessionID, 300, 50, 0, 90000, 200000); err != nil {
+		t.Fatal(err)
+	}
+	after, err := r.s.Outcome(r.p.UserID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := after.Sessions[0].Stages[1]; !s.AgentUsageReported || s.AgentInputTokens != 300 || s.AgentOutputTokens != 50 || s.AgentCachedTokens != 0 || s.ContextUsed != 90000 {
+		t.Fatalf("second stage usage: %+v", s)
+	}
+	if s := after.Sessions[0].Stages[0]; s.AgentInputTokens != 1000 || s.ContextSize != 0 {
+		t.Fatalf("first stage changed after its hand-over: %+v", s)
+	}
+}

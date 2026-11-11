@@ -64,11 +64,15 @@ func TestFactoryMCPToolsReadForWritersAndControlOnlyWithManagementScope(t *testi
 		}
 	}
 	// What cannot be undone, or lets a merge happen unasked, needs the explicit confirmation.
-	for _, name := range []string{"reet_move_pipeline_on", "reet_approve_pipeline_merge", "reet_stop_outcome", "reet_set_pipeline_merge"} {
+	for _, name := range []string{"reet_move_pipeline_on", "reet_approve_pipeline_merge", "reet_stop_outcome", "reet_start_outcome", "reet_add_pipelines", "reet_send_pipeline_back"} {
 		_, err := s.executeMCPFactory(ctx, write, name, map[string]any{"outcome_id": missing, "pipeline": "a", "mode": "by_itself"})
 		if err == nil || !strings.Contains(err.Error(), "confirm=true") {
 			t.Fatalf("%s without confirm: %v", name, err)
 		}
+	}
+	// A client can make a pipeline wait, never let it merge by itself.
+	if _, err := s.executeMCPFactory(ctx, write, "reet_set_pipeline_merge", map[string]any{"outcome_id": missing, "pipeline": "a", "mode": "by_itself", "confirm": true}); err == nil || !strings.Contains(err.Error(), "only be made to wait") {
+		t.Fatalf("merge by itself over MCP: %v", err)
 	}
 	// Every Factory tool is defined, and only the two reads are marked read-only.
 	seen := 0

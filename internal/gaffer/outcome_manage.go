@@ -457,3 +457,120 @@ func (s *Service) SetPipelineAutoMerge(uid int64, id, key string, on bool) (stor
 	}
 	return outcomeView(o), nil
 }
+
+// SendPipelineBack is the person sending a pipeline back to an earlier stage,
+// or having the stage in hand done again, with their reason. That stage and
+// every one after it are to do again, in a fresh session in the same folder
+// and branch; the agent is told why. Nothing already committed is undone.
+func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (store.GafferOutcome, error) {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return store.GafferOutcome{}, err
+	}
+	if err := s.outcomesReady(); err != nil {
+		return store.GafferOutcome{}, err
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" || len(reason) > 2000 || !store.ValidWorkerText(reason) {
+		return store.GafferOutcome{}, invalid("back", "Say why it is being sent back, in up to 2,000 UTF-8 bytes of plain text.")
+	}
+	o, err := s.store.GafferOutcomeFor(uid, id)
+	if err != nil {
+		return o, err
+	}
+	var piece *store.GafferOutcomeSession
+	for i := range o.Sessions {
+		if o.Sessions[i].Key == key {
+			piece = &o.Sessions[i]
+		}
+	}
+	if piece == nil || len(piece.Stages) == 0 || piece.State != "following" && piece.State != "ready_to_merge" && piece.State != "done" && piece.State != "unfollowed" {
+		return outcomeView(o), invalid("back", "That pipeline has no stage to send back to.")
+	}
+	at := piece.Stage
+	if at >= len(piece.Stages) {
+		at = len(piece.Stages) - 1
+	}
+	target := -1
+	for i := 0; i <= at; i++ {
+		if piece.Stages[i].Kind == kind {
+			target = i
+		}
+	}
+	if target < 0 {
+		return outcomeView(o), invalid("back", "Choose the stage in hand or one before it.")
+	}
+	if piece.ConversationID != "" {
+		if g, err := s.store.GafferGoalFor(uid, piece.ConversationID); err == nil {
+			if g.ActiveTurnID != "" {
+				return outcomeView(o), invalid("back", "Gaffer is reviewing this stage right now. Try again in a moment.")
+			}
+			if g.State != "stopped" && g.State != "completed" {
+				if _, err := s.store.ControlGafferGoal(uid, piece.ConversationID, g.Revision, "stop", store.GafferGoal{SessionID: g.SessionID}); err != nil {
+					return outcomeView(o), err
+				}
+			}
+		}
+	}
+	from := piece.Stages[at].Kind
+	fresh := make([]string, len(piece.Stages))
+	for i := target; i < len(piece.Stages); i++ {
+		if fresh[i], err = newChatID(); err != nil {
+			return outcomeView(o), err
+		}
+	}
+	found := false
+	o, err = s.outcomeStep(uid, id, func(o *store.GafferOutcome) bool {
+		for i := range o.Sessions {
+			row := &o.Sessions[i]
+			if row.Key != key || len(row.Stages) != len(fresh) {
+				continue
+			}
+			for j := target; j < len(row.Stages); j++ {
+				// A stage done again is asked for under a new request, so it gets a session of its own.
+				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, State: "pending", RequestID: fresh[j]}
+			}
+			row.Stages[target].SentBack = "Sent back from the " + from + " stage. " + clipBytes(reason, 1500)
+			row.Stage, row.MergeApproved = target, false
+			// The session in hand belongs to the stage that was left; the stage done again starts its own.
+			row.SessionID, row.ConversationID = "", ""
+			row.State, row.Note, row.UpdatedAt = "advancing", "Sent back to the "+kind+" stage. Starting it again.", time.Now().UnixMilli()
+			if o.State != "stopped" {
+				o.State = "starting"
+			}
+			found = true
+			return true
+		}
+		return false
+	})
+	if err != nil {
+		return outcomeView(o), err
+	}
+	if !found {
+		return outcomeView(o), store.ErrGafferOutcomeBusy
+	}
+	s.wakeOutcomes()
+	return outcomeView(o), nil
+}
+
+// TellPipelineAgent passes the person's own instruction to the working agent
+// of the stage in hand, for its next turn. It uses the session's messaging
+// grant, given when the outcome was approved. Accepted is not completed.
+func (s *Service) TellPipelineAgent(ctx context.Context, uid int64, id, key, request, text string) (store.WorkerMessage, error) {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return store.WorkerMessage{}, err
+	}
+	o, err := s.store.GafferOutcomeFor(uid, id)
+	if err != nil {
+		return store.WorkerMessage{}, err
+	}
+	for _, piece := range o.Sessions {
+		if piece.Key != key {
+			continue
+		}
+		if piece.SessionID == "" || piece.ConversationID == "" || piece.State != "following" && piece.State != "unfollowed" && piece.State != "ready_to_merge" {
+			return store.WorkerMessage{}, invalid("tell", "That pipeline has no working session to tell right now.")
+		}
+		return s.WorkerMessage(ctx, uid, "gaffer", piece.ConversationID, piece.SessionID, request, "", text)
+	}
+	return store.WorkerMessage{}, invalid("tell", "That pipeline is not part of this outcome.")
+}

@@ -170,7 +170,7 @@ model remains responsible for all implementation, commands, PRs and checks.
   still have a committed instruction. Explicit confirmed browser stop-and-send is
   separate; neither the model nor MCP can interrupt or answer approvals.
 - Hosted/browser/scoped-stdio share three management-only tools. Management now
-  discovers 43 tools; read-only writers retain 15 and viewers 11. Credentials cannot
+  discovers 48 tools; read-only writers retain 16 and viewers 11. Credentials cannot
   self-grant. Browser WebMCP retains its existing write confirmation.
 
 Verification: new domain/API/broker race tests pass, including real queue dispatch

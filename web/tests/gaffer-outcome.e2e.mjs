@@ -194,7 +194,7 @@ try {
       await expect(results.nth(2)).toContainText('Started, but not followed: Its chat was not ready')
       const cheap=kind=>({kind,tool:'claude',model:''}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high'}),ship=kind=>({kind,tool:'claude',model:'',effort:'low'})
       const usual=[cheap('code'),strong('review'),cheap('test'),ship('pr'),ship('babysit'),ship('merge')]
-      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',trust:false,yolo:false,autoReport:true,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
+      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',trust:false,yolo:false,autoReport:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
         {title:'Export API',prompt:proposed.sessions[0].prompt,stages:usual},
         {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge')]},
         {title:'Export docs',prompt:'Document the export in the README.    Raise a pull request. Do not merge.',stages:usual},
@@ -242,9 +242,9 @@ try {
       // Merging by itself is this outcome's own choice, off until ticked.
       const auto=outcome.getByRole('checkbox',{name:/^Merge by itself once every check passes/})
       await expect(auto).not.toBeChecked();await auto.check()
-      // Reporting by itself is on unless unticked; here it is turned off.
+      // Reporting by itself spends Gaffer tokens unasked, so it is off until ticked.
       const reports=outcome.getByRole('checkbox',{name:/^Have Gaffer report across this outcome by itself/})
-      await expect(reports).toBeChecked();await reports.uncheck()
+      await expect(reports).not.toBeChecked();await reports.check()
       // OpenCode reports no effort levels on this machine, so none is offered for it.
       // YOLO is off until confirmed, and is this outcome's choice only.
       const approvals=outcome.getByRole('radiogroup',{name:'Approvals',exact:true})
@@ -257,7 +257,7 @@ try {
       await expect(outcome.getByText('On YOLO the agents do not wait for you',{exact:false})).toBeVisible()
       await outcome.screenshot({path:`${shots}/gaffer-outcome-yolo-1280-light.png`})
       await outcome.getByRole('button',{name:'Approve and start 2 sessions',exact:true}).click()
-      expect(f.box.approved[0]).toMatchObject({tool:'opencode',trust:true,yolo:true,autoReport:false,model:'',autoMerge:true})
+      expect(f.box.approved[0]).toMatchObject({tool:'opencode',trust:true,yolo:true,autoReport:true,model:'',autoMerge:true})
       expect(f.box.approved[0].sessions[0].stages.every(stage=>stage.tool==='opencode')).toBe(true)
       await expect(outcome.getByRole('status')).toHaveText('Starting session 1 of 2. The controller carries on if you close this.')
       await outcome.getByRole('button',{name:'Close and let it run',exact:true}).click();await expect(outcome).toHaveCount(0)

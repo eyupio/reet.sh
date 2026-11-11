@@ -148,6 +148,9 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 			}
 		}
 	}
+	if stage.SentBack != "" {
+		text += "\n\nThis stage is being done again: the work was sent back to it. Why: " + stage.SentBack + " Work in the same folder and branch, keep what is sound, and put right what was sent back."
+	}
 	text += "\n\nThe whole piece of work, for context only. Do not carry out the parts that belong to other stages:\n" + item.Prompt
 	text += "\n\nThis stage is finished when you have left " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
 	if len(later) > 0 {
@@ -390,7 +393,7 @@ func (s *Service) Outcomes(uid int64) ([]store.GafferOutcome, error) {
 		return nil, err
 	}
 	for i := range rows {
-		rows[i] = outcomeView(rows[i])
+		rows[i] = s.withAgentUsage(uid, outcomeView(rows[i]))
 	}
 	return rows, nil
 }
@@ -400,7 +403,7 @@ func (s *Service) Outcome(uid int64, id string) (store.GafferOutcome, error) {
 		return store.GafferOutcome{}, err
 	}
 	o, err := s.store.GafferOutcomeFor(uid, id)
-	return outcomeView(o), err
+	return s.withAgentUsage(uid, outcomeView(o)), err
 }
 
 // StopOutcome ends the starting of sessions not yet attempted. Sessions
@@ -639,6 +642,8 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary string) {
 			}
 			key := piece.Key
 			used, _ := s.store.GafferGoalFor(uid, conversation)
+			// What the stage's agent reported using is kept with the stage, like Gaffer's own figures.
+			agent, agentReported := s.stageAgentUsage(uid, piece, piece.Stage)
 			_, err = s.outcomeStep(uid, o.ID, func(o *store.GafferOutcome) bool {
 				for i := range o.Sessions {
 					row := &o.Sessions[i]
@@ -648,6 +653,9 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary string) {
 					row.Stages[row.Stage].State, row.Stages[row.Stage].Summary, row.Stages[row.Stage].EndedAt = "done", clipBytes(summary, 1800), time.Now().UnixMilli()
 					// What Gaffer's model used on this stage is kept with it: the next stage's goal starts its own count.
 					row.Stages[row.Stage].Reviews, row.Stages[row.Stage].InputTokens, row.Stages[row.Stage].OutputTokens, row.Stages[row.Stage].UsageReported = used.UsedReviews, used.InputTokens, used.OutputTokens, used.UsageReported
+					if agentReported {
+						row.Stages[row.Stage].AgentInputTokens, row.Stages[row.Stage].AgentOutputTokens, row.Stages[row.Stage].AgentCachedTokens, row.Stages[row.Stage].AgentUsageReported = agent.InputTokens, agent.OutputTokens, agent.CachedTokens, true
+					}
 					row.State, row.Note, row.UpdatedAt = "advancing", "The "+row.Stages[row.Stage].Kind+" stage is done. Starting the next.", time.Now().UnixMilli()
 					if o.State != "stopped" {
 						o.State = "starting"
@@ -787,7 +795,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
 		launch.Title = clipBytes(item.Title, 60) + " · " + stage.Kind
 		goal = StageGoal(o.Objective, item.Title, stage.Kind)
-		if item.Stage > 0 && item.WorkDir != "" {
+		if item.WorkDir != "" {
 			// A later stage works where the first one did. It is not a new
 			// project launch, so it gets no worktree of its own.
 			launch.Dir, launch.ProjectID, launch.LinkProjectID = item.WorkDir, "", o.ProjectID

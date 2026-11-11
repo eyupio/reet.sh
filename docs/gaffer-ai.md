@@ -312,6 +312,28 @@ Budgets are per stage: each stage gets the outcome's review budget and hours
 afresh, and the page shows what is left of the stage in hand. A stage that uses
 its budget stops and waits for you.
 
+### When a pipeline needs you
+
+A card marked **Needs you** says why in one sentence, shows Gaffer's latest
+review, and asks **What do you want to do?** with a button for each thing you
+can do:
+
+- **Have Gaffer look again** resumes the goal, so Gaffer reviews the work
+  that is there now.
+- **Tell the agent…** sends your own instruction to the working agent.
+- **Move to next stage** (or **Finish this stage**) closes the stage on your
+  word.
+- **Open the session** takes you to the agent, to read or answer it. When the
+  agent is waiting for your approval this is the only choice, and Gaffer
+  carries on by itself once you have answered.
+- **Try the review again** appears when Gaffer's own review failed.
+- **Give it a new budget** appears when the stage ran out of reviews or time.
+
+If Gaffer reviewed the stage and simply chose no next step, the card says that
+rather than asking for a decision. The **Need you** and **Ready to merge**
+numbers at the top of the page go to the first such pipeline, and Home's
+**Factory pipelines** list links to each pipeline's card.
+
 ### What the pipeline card tells you
 
 - **In this stage** is how long the stage in hand has been running.

@@ -51,6 +51,10 @@ type GafferGoal struct {
 	// ReviewFailed marks a goal that needs the person because Gaffer's own
 	// review did not complete. Resuming it tries the review again.
 	ReviewFailed bool `json:"reviewFailed,omitempty"`
+	// NoStep marks a goal that needs the person only because Gaffer's review
+	// chose no next step: it neither instructed the working model, asked the
+	// person something, nor handed the stage over.
+	NoStep bool `json:"noStep,omitempty"`
 }
 
 func (s *Store) migrateGafferGoals() error {
@@ -213,6 +217,7 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 	g.Note = ""
 	g.WaitingOnWorker = false
 	g.ReviewFailed = false
+	g.NoStep = false
 	switch action {
 	case "pause":
 		g.State = "paused"
@@ -529,4 +534,21 @@ func (s *Store) RecoverGafferGoals() error {
 		}
 	}
 	return nil
+}
+
+// MarkGafferGoalNoStep rewords a goal that needs the person because its
+// review ended without a next step. It changes nothing else, and nothing at
+// all when the goal has moved on since.
+func (s *Store) MarkGafferGoalNoStep(uid int64, c, id, note string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		g, err := goalRow(tx, uid, c)
+		if err != nil {
+			return err
+		}
+		if g.ID != id || g.State != "needs_user" || g.ActiveTurnID != "" || g.WaitingOnWorker || g.ReviewFailed {
+			return ErrGafferConflict
+		}
+		g.NoStep, g.Note = true, note
+		return saveGoal(tx, g)
+	})
 }

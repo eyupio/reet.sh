@@ -2,6 +2,7 @@ package gaffer
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -152,5 +153,39 @@ func TestAFailedReviewSaysWhyAndCanBeTriedAgain(t *testing.T) {
 	}
 	if again, _ := st.GafferGoalFor(p.UserID, g.ConversationID); again.ReviewFailed || again.State != "active" {
 		t.Fatalf("after resume: %+v", again)
+	}
+}
+
+// A review that only writes prose leaves the goal saying so, not "needs your
+// decision": nothing was asked of the person.
+func TestAReviewThatChoosesNoStepSaysSoInsteadOfAskingForADecision(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"All quiet; nothing needs you yet.\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 12)
+	workerProgress(t, st, g, 1)
+	s.reviewDueGoals(context.Background())
+	deadline := time.Now().Add(5 * time.Second)
+	row := g
+	for time.Now().Before(deadline) {
+		row, _ = st.GafferGoalFor(p.UserID, g.ConversationID)
+		if row.State == "needs_user" && row.NoStep {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if row.State != "needs_user" || !row.NoStep || row.Note != goalNoStepNote || row.ReviewFailed {
+		t.Fatalf("no-step review: %+v", row)
+	}
+	v, _ := s.Goal(p.UserID, g.ConversationID)
+	if _, err := s.ControlGoal(p.UserID, g.ConversationID, row.Revision, "resume", v.Pins, true); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := st.GafferGoalFor(p.UserID, g.ConversationID); again.NoStep {
+		t.Fatalf("resume kept the mark: %+v", again)
 	}
 }

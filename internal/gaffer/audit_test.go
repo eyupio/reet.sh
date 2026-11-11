@@ -243,3 +243,59 @@ func TestAYoloPipelineStopsAtTheMergeUnlessThePersonConfirmedIt(t *testing.T) {
 		t.Fatalf("plain auto-merge: %+v %v", plain, err)
 	}
 }
+
+// A stage that carries on in the same session is given its instruction by
+// the controller, not left for Gaffer's first review to send.
+func TestAStageInTheSameSessionIsToldItsWorkByTheController(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint committed.", "gaffer")
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	before, err := r.st.TerminalQueueFor(r.p.UserID, review.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Review to test keeps the session (same agent and model).
+	r.s.stageHandedOver(r.p.UserID, review.ConversationID, "Two fixes committed.", "gaffer")
+	test := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
+	if test.SessionID != review.SessionID || test.Note != "The test stage is under way in the same session." {
+		t.Fatalf("test stage: %+v", test)
+	}
+	after, err := r.st.TerminalQueueFor(r.p.UserID, test.SessionID)
+	if err != nil || len(after) != len(before)+1 {
+		t.Fatalf("queued for the session: %d before, %d after, %v", len(before), len(after), err)
+	}
+	sent := after[len(after)-1].Text
+	if !strings.HasPrefix(sent, "You are doing ONE stage of a staged piece of work: the test stage.") || !strings.Contains(sent, "Handover from the review stage: Two fixes committed.") {
+		t.Fatalf("instruction: %q", sent)
+	}
+}
+
+// The person's own instruction for a pipeline's agent is queued for its
+// session. (It was refused: a message with no Gaffer turn was treated as a
+// model's and failed its turn check.)
+func TestThePersonsInstructionReachesThePipelinesAgent(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	sent, err := r.s.TellPipelineAgent(context.Background(), r.p.UserID, created.ID, code.Key, strings.Repeat("7", 32), "Write the plan as text now. Change no code.")
+	if err != nil || sent.State != "queued" && sent.State != "sent" && sent.State != "sending" {
+		t.Fatalf("tell: %+v %v", sent, err)
+	}
+	queue, err := r.st.TerminalQueueFor(r.p.UserID, code.SessionID)
+	if err != nil || len(queue) == 0 || queue[len(queue)-1].Text != "Write the plan as text now. Change no code." {
+		t.Fatalf("queue: %+v %v", queue, err)
+	}
+	if _, err = r.s.TellPipelineAgent(context.Background(), r.p.UserID, created.ID, "zz", strings.Repeat("8", 32), "x"); err == nil {
+		t.Fatal("an unknown pipeline was told")
+	}
+}

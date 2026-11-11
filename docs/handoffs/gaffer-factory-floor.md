@@ -1017,6 +1017,52 @@ Synthetic only: no real provider has driven these tools.
 - Six tools per turn, one per model round, no parallel calls.
 - No per-conversation or per-project override: the choice is per account.
 
+## What a stuck card asks of you, and three controller fixes (11 November 2026, after #737)
+
+The owner sent a live card: raw markdown in Gaffer's review, "Needs you" with
+no way to tell what to do, an agent idle at the PR stage, and asked for simple
+clickable options, a better Factory page, and Factory context on Home with a
+link to the item.
+
+- **Bug: a same-session stage was never told its work.** `advancePipeline`
+  started the next stage's goal in the same session and left the stage's
+  instruction to Gaffer's first review. On the live pipeline that review wrote
+  prose, so the agent sat idle at PR with "No worker instruction was queued".
+  The controller now sends `stagePrompt` itself through `WorkerMessage` (no
+  turn) and says in the pipeline's note if that failed. The stage review is
+  told not to resend it.
+- **Bug: Tell the agent… never worked.** `AdmitWorkerMessageFor` required every
+  `gaffer` message to belong to a running turn (`ID == TurnID`), so
+  `TellPipelineAgent` (turn "") always got `ErrGafferConflict`, shown as "this
+  Gaffer provider changed". A message with no turn is now accepted as the
+  person's or the controller's, under the session's grant. It had no Go test;
+  it has one now.
+- **No-step reviews.** A goal review that answers in prose with no tool sets
+  `GoalNeedsUser`, which read "Gaffer needs your decision". `chatJob.noStep` →
+  `MarkGafferGoalNoStep` → `GafferGoal.NoStep` and `goalNoStepNote`.
+- **Card.** `needsYou(goal, reason, last)` in `gafferOutcome.ts` gives one
+  sentence and the choices (`answer`, `retry`, `again`, `tell`, `move`,
+  `budget`, `open`); `Factory.svelte` draws them in a `decide` region with
+  the review inside it, rendered by `GafferProse` and clamped. "Have Gaffer
+  look again" resumes the goal. Usage and budget facts sit in a closed
+  `<details>`. Tiles that want the person jump to the first such card. Each
+  card has the id `pipelineAnchor(outcome, key)`; a `#pipeline-…` hash brings
+  it into view.
+- **Home.** `factoryRows` and `home/FactoryStatus.svelte`: a "Factory
+  pipelines" section, needs-you first, each line a link to
+  `/factory#pipeline-<outcome>-<key>`. It reuses the outcomes and goals Home
+  already reads.
+
+Tests: `audit_test.go` (the stage instruction queued by the controller; the
+person's instruction queued), `goal_stuck_test.go` (no-step note, cleared by
+resume), `gafferOutcome.test.mjs` (rows and choices),
+`gaffer-factory.e2e.mjs` (tile jump, the decide region and its buttons),
+`home-followups.e2e.mjs` (the Home line and its link). Synthetic only.
+
+**Still open, the owner's words: "the UX is dreadful on the factory page".**
+This slice restructured the card that needs you and folded the figures away;
+it did not redesign the page. What else is wrong was not specified.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

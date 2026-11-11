@@ -64,7 +64,13 @@ try {
       await expect(page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Factory',exact:true}).first()).toHaveAttribute('aria-current','page')
       // The headline numbers say who has to act.
       const tiles=page.getByRole('list',{name:'Factory at a glance',exact:true}).getByRole('listitem')
-      await expect(tiles).toHaveText(['1Need you','1Ready to merge','1Running','1Done'])
+      await expect(tiles).toHaveText(['1Need you · show me','1Ready to merge · show me','1Running','1Done'])
+      // A number that wants the person is a button to the first such pipeline, which says what it needs and offers what to do.
+      await page.getByRole('button',{name:'1 need you. Go to the first',exact:true}).click()
+      const needy=page.getByRole('region',{name:'What Export button needs from you',exact:true})
+      await expect(needy).toBeVisible();await expect(needy).toContainText('Gaffer brought a question back to you.');await expect(needy).toContainText('What do you want to do?')
+      await expect(needy.locator('.decide-choices button')).toHaveText(['Have Gaffer look again','Tell the agent…','Move to next stage','Open the session'])
+      await expect(needy).toContainText('Which of the two do you want?')
       // With a machine, a project and a provider in place there is nothing left to set up.
       await expect(page.getByRole('region',{name:'Set up your factory',exact:true})).toHaveCount(0)
       const first=page.getByRole('article',{name:/^Outcome: Ship CSV export for billing/})
@@ -106,7 +112,7 @@ try {
       expect(box.merges).toEqual([{revision:5,confirmed:true}])
       await expect(docs.getByRole('button',{name:'Approve merge',exact:true})).toHaveCount(0)
       await expect(docs).toContainText('You approved it')
-      await expect(tiles).toHaveText(['1Need you','0Ready to merge','2Running','1Done'])
+      await expect(tiles).toHaveText(['1Need you · show me','0Ready to merge','2Running','1Done'])
       // The outcome's own figures: what Gaffer's model has used so far, and the budget each stage gets. No prices.
       const totals=first.getByLabel('This outcome so far',{exact:true})
       await expect(totals).toContainText('Pipelines3');await expect(totals).toContainText('Gaffer reviews6');await expect(totals).toContainText('Gaffer tokens4,504');await expect(totals).toContainText('Budget per stage12 reviews · 24 h');await expect(totals).toContainText('ApprovalsAsk me');await expect(totals).toContainText('Agent tokens97k · 410k cached (Codex 85k, Claude Code 12k)')

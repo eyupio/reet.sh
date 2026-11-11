@@ -279,6 +279,10 @@ func (s *Service) reviewDueGoals(ctx context.Context) {
 	done.Wait()
 }
 
+// goalNoStepNote is what a goal says when Gaffer's review ended without
+// instructing the working model, asking the person anything or handing over.
+const goalNoStepNote = "Gaffer reviewed this and chose no next step, so it has stopped here. Nothing is being asked of you in particular: tell the agent what to do next, resume the goal to have Gaffer look again, or move the work on if it is done."
+
 const (
 	workerWaitingNote = "The working model needs your input or approval. Gaffer cannot answer for you, and carries on once you have."
 	heldGoalRecheck   = 15 * time.Second

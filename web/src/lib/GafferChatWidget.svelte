@@ -422,7 +422,7 @@
   </div>
 </WorkspaceDialog>{/if}
 
-{#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;goalDraft='';void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} {userId} {timeZone} {dateFormat} draft={goalDraft} onchanged={goalChanged}/></WorkspaceDialog>{/if}
+{#if goalOpen&&current}<WorkspaceDialog title="Look after this session" onclose={()=>{goalOpen=false;goalDraft='';void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><GafferGoal id={current.conversation.id} sessionId={scope} {userId} {timeZone} {dateFormat} draft={goalDraft} onchanged={goalChanged}/></WorkspaceDialog>{/if}
 {#if followedOpen}<GafferFollowedSessions {userId} {timeZone} {dateFormat} onerror={message} onchanged={async()=>{if(open&&scope&&current)await goalChanged();else window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))}} onselect={()=>{mode='session';followedOpen=false;open=true}} onhistory={()=>{followedOpen=false;historyOpen=true}} onclose={()=>{followedOpen=false;void tick().then(()=>focusEntry(open ? optionsButton : undefined))}}/>{/if}
 {#if workerOpen&&current}<WorkspaceDialog title="Worker messages" onclose={()=>{workerOpen=false;void tick().then(()=>optionsButton?.focus({preventScroll:true}))}}><WorkerMessaging path={`/api/v2/gaffer/conversations/${encodeURIComponent(current.conversation.id)}/worker`} gaffer {timeZone} {dateFormat} onchanged={workerPermissionSaved} onrequest={()=>{relay=true;workerOpen=false;if(canAutoFocus())void tick().then(()=>composer?.focus({preventScroll:true}))}}/></WorkspaceDialog>{/if}
 

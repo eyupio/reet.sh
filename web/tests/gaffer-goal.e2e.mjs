@@ -5,10 +5,11 @@ const base=process.env.REET_UI_URL||'http://127.0.0.1:4173',shots=process.env.RE
 await mkdir(shots,{recursive:true})
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
 const sid='goal-session-alpha',cid='c'.repeat(32),pid='a'.repeat(32),now=Date.now()
+const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0GQAAAAASUVORK5CYII=','base64')
 function fixture(){
  const provider={id:pid,revision:1,name:'Workshop Gaffer',kind:'openai_compatible',baseUrl:'https://example.test/v1',model:'gaffer-model',enabled:true,isDefault:true,localOnly:false,allowStatus:false,allowSessions:true,allowCode:true,hasKey:true,createdAt:now,updatedAt:now}
  const session={id:sid,agentId:'a1',title:'Prepare the release',tool:'opencode',model:'working-model',structured:true,state:'running',createdAt:now,updatedAt:now,exitCode:null,dir:'/work'}
- const pins={providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},box={allowed:false,starts:[],controls:[],workerWrites:0}
+ const pins={providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},box={allowed:false,starts:[],controls:[],workerWrites:0,uploads:[]}
  const view={conversation:{id:cid,sessionId:sid,providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[],messages:[]}
  const goalView=()=>({goal:view.goal??null,pins,allowed:!!view.goal&&box.allowed,setupAllowed:box.allowed,providerName:'Workshop Gaffer',conversationRevision:view.conversation.revision,requiresProviderAccess:!view.goal})
  const routes={
@@ -24,6 +25,7 @@ function fixture(){
   [`/api/v2/terminal/sessions/${sid}/seen`]:{},
   [`/api/v2/terminal/sessions/${sid}/chat/controls`]:{controls:{working:false,waiting:false,model:'working-model',options:[]}},
   [`/api/v2/terminal/sessions/${sid}/chat/queue`]:request=>{if(request.method()==='POST')box.workerWrites++;return{queue:[]}},
+  [`/api/v2/terminal/sessions/${sid}/uploads`]:request=>{expect(request.method()).toBe('POST');box.uploads.push(String(request.headers()['content-type']||''));return{status:200,headers:{'X-Reet-Upload-Path':'/work/goal-upload.png','X-Reet-Upload-Reference':'/work/goal-upload.png'},json:{uploaded:'true'}}},
  }
  return{routes,view,box}
 }
@@ -67,6 +69,34 @@ try{
    await goal.getByRole('button',{name:'Resume after review',exact:true}).click();const resume=w.page.getByRole('dialog',{name:'Resume after checking the working conversation?',exact:true});expect(f.box.controls).toHaveLength(1);await resume.getByRole('button',{name:'Resume follow-up',exact:true}).click();await expect(goal.getByRole('heading',{name:'Looking after this session',exact:true})).toBeVisible();expect(f.view.goal.usedReviews).toBe(1)
    await goal.getByRole('button',{name:'Mark goal complete',exact:true}).click();await w.page.getByRole('dialog',{name:'Mark this goal complete?',exact:true}).getByRole('button',{name:'Mark complete',exact:true}).click();await expect(goal.getByRole('heading',{name:'You marked this complete',exact:true})).toBeVisible();expect(f.box.controls.map(x=>x.action)).toEqual(['pause','resume','complete']);expect(f.box.workerWrites).toBe(0)
    await w.page.keyboard.press('Escape');await expect(chat.getByRole('button',{name:'Chat options',exact:true})).toBeFocused();expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ // The optional image: validation, removal, one upload at submit, and a clean reopen after an error and a save.
+ {
+  const f=fixture(),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:undefined,routes:f.routes})
+  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+  try{
+   await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`);await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
+   const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true}),goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
+   const openGoal=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Look after this session',exact:true}).click()}
+   f.box.allowed=true;await openGoal();const input=goal.locator('input[type=file]')
+   await goal.getByLabel('Agreed goal',{exact:true}).fill('Ensure a PR is raised. Bring decisions back to me. Do not merge.')
+   await input.setInputFiles({name:'drawing.gif',mimeType:'image/gif',buffer:PNG})
+   await expect(goal.getByText('Attach a PNG, JPEG or WebP image.',{exact:true})).toBeVisible()
+   await w.page.keyboard.press('Escape');await openGoal()
+   await expect(goal.getByText('Attach a PNG, JPEG or WebP image.',{exact:true})).toHaveCount(0)
+   await goal.getByLabel('Agreed goal',{exact:true}).fill('Ensure a PR is raised. Bring decisions back to me. Do not merge.')
+   await input.setInputFiles({name:'over.png',mimeType:'image/png',buffer:Buffer.alloc((5<<20)+1)})
+   await expect(goal.getByText('That image is larger than 5 MiB.',{exact:true})).toBeVisible()
+   await input.setInputFiles({name:'goal.png',mimeType:'image/png',buffer:PNG})
+   await expect(goal.getByText('goal.png',{exact:true})).toBeVisible();await expect(goal.getByRole('button',{name:'Remove goal.png',exact:true})).toBeVisible()
+   await goal.getByRole('button',{name:'Remove goal.png',exact:true}).click();await expect(goal.getByText('goal.png',{exact:true})).toHaveCount(0)
+   await input.setInputFiles({name:'goal.png',mimeType:'image/png',buffer:PNG})
+   await goal.getByRole('button',{name:'Start follow-up',exact:true}).click()
+   await expect(goal.getByRole('heading',{name:'Looking after this session',exact:true})).toBeVisible()
+   expect(f.box.uploads).toEqual(['image/png']);expect(f.box.starts).toHaveLength(1);expect(f.box.starts[0].text).toMatch(/\n\nImage: \/work\/goal-upload\.png$/)
+   await goal.getByRole('button',{name:'Edit goal or start a new budget',exact:true}).click()
+   await expect(goal.getByText('goal.png',{exact:true})).toHaveCount(0);await expect(goal.locator('.chosen')).toHaveCount(0)
   }finally{await w.context.close()}
  }
  console.log('Gaffer goals: explicit grants and budgets, UTF-8 bounds, durable reopen, automatic review labels, escaped evidence, pause/resume/complete confirmations, focus and eight theme/width views passed.')

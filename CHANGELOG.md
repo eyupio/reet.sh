@@ -23,6 +23,15 @@ this file existed releases were described on their GitHub release pages.
 - MCP: `reet_list_factory` returns the controller's build and each machine's,
   and each stage says when it started, who closed it and what its agent last
   reported.
+- When the Library says a machine has a different version of a skill, **See
+  what differs** now lists the files: which are changed, which exist only on
+  that machine and which only in reet's copy, with their sizes. The machine
+  reports names, sizes and fingerprints only, so no file contents leave it for
+  a comparison, and it cannot show the changed lines inside a file. Choosing
+  **Use that machine's version** afterwards takes the files it just listed. An
+  answer arrives a few seconds after you ask, while the machine is online.
+  Needs a controller update.
+
 - Gaffer: a goal no longer looks active when nothing can happen without you.
   If Gaffer's instruction is still undelivered after ten minutes and the
   working agent is not busy, or the agent has sat idle for thirty minutes after

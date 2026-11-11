@@ -5,6 +5,9 @@ UI-only: no route, API or data-model behaviour changed here.
 
 ## How this was reviewed
 
+- Re-run against `main` at `4d68d6bb` after the branch was found to be based on
+  an older tree (102 commits behind). Findings below were re-checked on the
+  merged tree; surfaces added by `main` since the first pass are included.
 - Walked the route table in `web/src/App.svelte` and every routed component.
 - Walked the shell (`web/src/lib/shell/`) and shared tokens
   (`web/src/app.css`, `web/src/workspace.css`, `web/src/dialog-shell.css`).
@@ -23,6 +26,7 @@ UI-only: no route, API or data-model behaviour changed here.
 | `/machines` | `EnvironmentSync` → `MachineFleet`, `MachineSetup`, `SyncActivity`, `MachineSkillImports`, `AddMachineDialog`; Projects drawer | Keep; setup panel already demoted behind Add a machine. |
 | `/sync`, `/machines?view=compare` | `SyncControl` (compare view), `SelectedLibrary` | Keep; naming unified (below). |
 | `/skills` | Shelf groups list/board, filters, `SkillCard`, `BulkBar`, sync overlay | Keep. |
+| `/library` | `Library` items by status, per-item machine use and receipts; `MachineLibrary` dialog from Machines | Keep; overlaps the shelf but answers a different question (below). |
 | `/activity` (no accounts) | `ActivityPage` → `ActivitySection` | Keep; same section is reused inside Account. |
 | `/account/*` | Profile, Agents, Gaffer AI, Password, Single sign-on, Sign-ins, API tokens, MCP access, Backups, Maintenance, Activity | Keep; one section renamed (below). |
 | `/community` | Public lists and skills | Keep. |
@@ -87,7 +91,10 @@ dates with bare `toLocaleDateString()`, so they ignored the date order and time
 zone chosen in Account → Profile. They now receive `timeZone` / `dateFormat`
 from `web/src/App.svelte` and use `formatWhen` from `web/src/lib/time.ts`, the
 same helper the rest of the UI uses. The step-by-step machine setup’s update
-times were brought along too (`web/src/lib/MachineSetup.svelte`).
+times were brought along too (`web/src/lib/MachineSetup.svelte`). The account’s
+embedded Machines and Sync panels (`web/src/lib/Account.svelte`) now pass the
+profile’s `timezone` / `dateFormat` into `EnvironmentSync`, which previously
+fell back to the browser locale there.
 
 ### 6. Several “Sync now / Sync all machines” entry points — flagged, not merged
 
@@ -112,6 +119,15 @@ counts that also appear on Machines. On Home these are the at-a-glance decision
 inputs for “which machine has room / is healthy”, so they stay. The detail and
 actions remain on Machines.
 
+### 9. Skills and Library both list skills — kept, flagged
+
+`web/src/lib/App.svelte` routes `/skills` to the shelf (“Your skill shelf”) and
+`/library` to the newer item/status list (“Every skill you own”). Both list the
+same skills, but the shelf is about where a skill is in use and the library is
+about its selection status and receipts. This arrived on `main` after the first
+review; merging them is a product decision, not a UI-label fix, so both stay and
+the overlap is listed for follow-up.
+
 ## Consistency drift recorded
 
 | Area | Drift | Disposition |
@@ -119,7 +135,7 @@ actions remain on Machines.
 | Navigation labels | Sync / Compare & sync | Fixed to Sync. |
 | Account labels | Sessions (auth) vs Sessions (agents) | Fixed to Sign-ins. |
 | Setups | Setups / Setup profiles | Fixed to Setups. |
-| Dates | `formatWhen` vs raw `toLocaleDateString` | Fixed on Setups, Write a skill and machine setup. Other raw timestamps are mostly `title` tooltips; listed for follow-up. |
+| Dates | `formatWhen` vs raw `toLocaleDateString` | Fixed on Setups, Write a skill, machine setup and the account’s Machines/Sync panels. Other raw timestamps are mostly `title` tooltips; listed for follow-up. |
 | Units | Byte counts already use `bytes()`/`toLocaleString`; ages use `elapsed`/`shortAge` | No change needed. |
 | Empty states | “No setups yet.”, “No lists yet.”, “Nothing in flight.” are consistent in tone | No change. |
 | Actions | Primary filled button per screen mostly holds; sync is the exception | Flagged above. |
@@ -163,3 +179,5 @@ actions remain on Machines.
    timestamps only in `title` attributes.
 3. Consider renaming the auth-session sign-out notices (“That session is signed
    out.”) to “browser” wording to match the Sign-ins section.
+4. Decide whether Skills and Library stay as two routes or the shelf becomes a
+   view of Library (finding 9).

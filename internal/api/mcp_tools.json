@@ -253,7 +253,7 @@
   {
     "name": "reet_list_factory",
     "title": "List Factory outcomes",
-    "description": "List the Factory’s outcomes with their pipelines: each pipeline’s state, the stage in hand, every stage’s state and agent, how its merge is decided and the state of the goal Gaffer follows it with. Not available to a read-only account. Handover notes and report text are not included; no session transcript is read. Does not change anything. Returns {data: object} as structured content and text.",
+    "description": "List the Factory’s outcomes with their pipelines: each pipeline’s state, the stage in hand, every stage’s state and agent, how its merge is decided and the state of the goal Gaffer follows it with. Each stage also says when it started, who closed it (closed_by: gaffer, person or chat) and, for the stage in hand, what its agent last reported doing and when. The answer includes the controller’s build and each machine’s build, to tell whether one is new enough for a feature. Not available to a read-only account. Handover notes and report text are not included; no session transcript is read. Does not change anything. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5879,6 +5879,22 @@
             "gaffer",
             "machine"
           ]
+        },
+        "exclude": {
+          "description": "Leave out events from these sources, e.g. [\"scan\",\"machine\"] to read past routine scans and per-turn YOLO rows.",
+          "maxItems": 6,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ui",
+              "mcp",
+              "scan",
+              "import",
+              "gaffer",
+              "machine"
+            ]
+          }
         },
         "before": {
           "description": "Cursor: return events older than this event ID.",

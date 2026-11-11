@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 )
@@ -1508,4 +1509,44 @@ func (s *Store) DeleteUser(id int64) error {
 		}
 		return nil
 	})
+}
+
+// OutcomeEventsFor returns the activity recorded for one Factory outcome,
+// newest first: every event of the account whose action starts "gaffer-" and
+// whose detail names that outcome.
+func (s *Store) OutcomeEventsFor(userID int64, outcome string, limit int) ([]Event, error) {
+	if limit < 1 || limit > 200 {
+		limit = 200
+	}
+	rows, err := s.db.Query(`SELECT id,at,source,action,detail FROM events
+ WHERE user_id=? AND action LIKE 'gaffer-%' AND json_valid(detail) AND json_extract(detail,'$.outcome')=?
+ ORDER BY id DESC LIMIT ?`, userID, outcome, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Event{}
+	for rows.Next() {
+		var ev Event
+		if err = rows.Scan(&ev.ID, &ev.At, &ev.Source, &ev.Action, &ev.Detail); err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	return out, rows.Err()
+}
+
+// AddEventUnlessRepeatedFor records an event unless the same user, action and
+// detail were already recorded within window. It is for events that repeat
+// unchanged many times an hour and say nothing new each time.
+func (s *Store) AddEventUnlessRepeatedFor(userID int64, source, action string, detail any, window time.Duration) error {
+	b, err := json.Marshal(detail)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO events(at,user_id,actor,source,action,skill_id,detail)
+		SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (
+			SELECT 1 FROM events WHERE user_id=? AND action=? AND detail=? AND at>?)`,
+		now(), userID, "", source, action, "", string(b), userID, action, string(b), now()-window.Milliseconds())
+	return err
 }

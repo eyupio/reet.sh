@@ -29,8 +29,13 @@ const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:tr
 // What the working agents reported: the code stage's own count, and the review stage in hand with its context window.
 Object.assign(outcomes[0].sessions[0].stages[2],{agentInputTokens:60000,agentOutputTokens:24600,agentCachedTokens:410000,agentUsageReported:true})
 Object.assign(outcomes[0].sessions[0].stages[3],{agentInputTokens:9000,agentOutputTokens:3400,agentUsageReported:true,contextUsed:176000,contextSize:200000})
+// The first pipeline's plan was moved on by the person, and its review stage in hand reports what its agent is doing.
+Object.assign(outcomes[0].sessions[0].stages[0],{closedBy:'person'});Object.assign(outcomes[0].sessions[0].stages[1],{closedBy:'gaffer'})
+Object.assign(outcomes[0].sessions[0].stages[3],{startedAt:now-42*60000,agentState:'working',agentActiveAt:now-20*60000})
+const story=[{id:9,at:now-60000,source:'gaffer',action:'gaffer-stage-started',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'review',reason:'The review stage is under way.'})},{id:8,at:now-120000,source:'gaffer',action:'gaffer-stage-handed-over',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'code',by:'gaffer',reason:'x'})}]
 const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',createdAt:now,updatedAt:now}]
 const routesFor=box=>({'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
+ [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/history`]:{events:story},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/b/advance`]:request=>{box.moved.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[1];piece.stages[piece.stage].state='done';piece.stage++;piece.stages[piece.stage].state='running';piece.note='The review stage is under way.';o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/a/tell`]:request=>{box.told.push(request.postDataJSON());return {message:{id:'m1',state:'queued'}}},
@@ -157,6 +162,16 @@ try {
       await expect(pipes.nth(0)).toContainText('By itself when green');expect(box.modes).toEqual([{on:true}])
       await pipes.nth(0).getByRole('button',{name:'Make Export API wait for you before merging',exact:true}).click()
       await expect(pipes.nth(0)).toContainText('Waits for you');expect(box.modes).toEqual([{on:true},{on:false}])
+      // The card says who closed each stage, how long the stage in hand has run and what its agent last reported…
+      await expect(pipes.nth(0).getByRole('listitem').filter({hasText:'Plan'})).toContainText('moved on by you, not handed over by Gaffer')
+      await expect(pipes.nth(0).getByRole('listitem').filter({hasText:'Design'})).not.toContainText('moved on by you')
+      await expect(pipes.nth(0)).toContainText('In this stage');await expect(pipes.nth(0)).toContainText('42 min')
+      await expect(pipes.nth(0)).toContainText('Working · last active 20 min ago')
+      // …and the outcome's history is read from the activity log only when asked for.
+      await first.getByRole('button',{name:'History',exact:true}).click()
+      const told=first.getByRole('region',{name:'History of this outcome',exact:true})
+      await expect(told).toContainText("A pipeline's review stage started");await expect(told).toContainText("Gaffer handed over a pipeline's code stage");await expect(told).toContainText('Export API')
+      await first.getByRole('button',{name:'Hide history',exact:true}).click();await expect(told).toHaveCount(0)
       // They can tell a pipeline's agent what to do next, in their own words…
       await pipes.nth(0).getByRole('button',{name:'Tell the agent…',exact:true}).click()
       const tell=page.getByRole('dialog',{name:'Tell the agent of “Export API”',exact:true})

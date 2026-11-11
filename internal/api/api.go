@@ -1711,7 +1711,17 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Reet-Source") == "scan" {
 		source, action = "scan", "scan"
 	}
-	s.event(s.uid(r), source, action, "", map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned})
+	detail := map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned}
+	if source == "scan" && created == 0 && pruned == 0 && len(errs) == 0 {
+		// A machine scans every minute. A scan that found nothing new is
+		// recorded once for the same counts, then again after six hours, so the
+		// log shows the machine is still reporting without a row a minute.
+		if err := s.st.AddEventUnlessRepeatedFor(s.uid(r), source, action, detail, 6*time.Hour); err != nil && s.debug {
+			log.Printf("event store action=%s error=%v", action, err)
+		}
+	} else {
+		s.event(s.uid(r), source, action, "", detail)
+	}
 	writeJSON(w, 200, map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned, "errors": errs, "user": s.currentUser(r).Name})
 }
 
@@ -1961,8 +1971,15 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
 	after, _ := strconv.ParseInt(q.Get("after"), 10, 64)
+	// exclude=scan,machine leaves those sources out; at most eight are read.
+	var exclude []string
+	for _, source := range strings.Split(q.Get("exclude"), ",") {
+		if source = strings.TrimSpace(source); source != "" && len(source) <= 32 && len(exclude) < 8 {
+			exclude = append(exclude, source)
+		}
+	}
 	events, hasMore, err := s.st.ListEventsPageFor(s.uid(r), store.EventQuery{
-		Limit: limit, SkillID: q.Get("skill"), Action: q.Get("action"), Source: q.Get("source"),
+		Limit: limit, SkillID: q.Get("skill"), Action: q.Get("action"), Source: q.Get("source"), Exclude: exclude,
 		Before: before, After: after,
 	})
 	if err != nil {

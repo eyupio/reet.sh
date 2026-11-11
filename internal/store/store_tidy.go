@@ -628,10 +628,13 @@ func (s *Store) FindDuplicatesFor(userID int64) ([]DuplicateGroup, error) {
 
 // EventQuery selects one page of audit events.
 type EventQuery struct {
-	Limit         int
-	SkillID       string
-	Action        string
-	Source        string
+	Limit   int
+	SkillID string
+	Action  string
+	Source  string
+	// Exclude leaves out events from these sources, for a log that is mostly
+	// one noisy source.
+	Exclude       []string
 	Before, After int64
 }
 
@@ -658,6 +661,10 @@ func (s *Store) ListEventsPageFor(userID int64, q EventQuery) ([]Event, bool, er
 	if q.Source != "" {
 		clauses = append(clauses, "ev.source=?")
 		args = append(args, q.Source)
+	}
+	for _, source := range q.Exclude {
+		clauses = append(clauses, "ev.source!=?")
+		args = append(args, source)
 	}
 	if q.Before > 0 {
 		clauses = append(clauses, "ev.id<?")

@@ -654,6 +654,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 						continue
 					}
 					row.Stages[row.Stage].State, row.Stages[row.Stage].Summary, row.Stages[row.Stage].EndedAt = "done", clipBytes(summary, 1800), time.Now().UnixMilli()
+					row.Stages[row.Stage].ClosedBy = by
 					// What Gaffer's model used on this stage is kept with it: the next stage's goal starts its own count.
 					row.Stages[row.Stage].Reviews, row.Stages[row.Stage].InputTokens, row.Stages[row.Stage].OutputTokens, row.Stages[row.Stage].UsageReported = used.UsedReviews, used.InputTokens, used.OutputTokens, used.UsageReported
 					if agentReported {
@@ -740,8 +741,12 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		return set("done", "Every stage is done. Check the result; only you mark the work complete.", nil)
 	}
 	stage := item.Stages[next]
-	if stage.Kind == "merge" && !item.AutoMerge && !item.MergeApproved {
-		return set("ready_to_merge", "Ready to merge. Nothing merges until you approve it.", func(row *store.GafferOutcomeSession) { row.Stage = next })
+	if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
+		note := "Ready to merge. Nothing merges until you approve it."
+		if item.AutoMerge {
+			note = "Ready to merge. This pipeline’s agent runs on YOLO, so the merge waits for you unless you confirmed it may merge by itself."
+		}
+		return set("ready_to_merge", note, func(row *store.GafferOutcomeSession) { row.Stage = next })
 	}
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return set("unfollowed", "Stopped before the "+stage.Kind+" stage: this account can no longer start sessions.", nil)

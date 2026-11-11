@@ -110,6 +110,11 @@ func TestAPipelinesMovesAreRecordedWithTheirReason(t *testing.T) {
 			t.Fatalf("session text reached the activity log: %+v", row)
 		}
 	}
+	// Each done stage keeps who closed it, so the page can mark a stage nobody reviewed.
+	final := mustOutcome(t, r, created.ID).Sessions[0].Stages
+	if final[0].ClosedBy != "gaffer" || final[1].ClosedBy != "person" || final[2].ClosedBy != "gaffer" || final[3].ClosedBy != "" {
+		t.Fatalf("closed by: %q %q %q %q", final[0].ClosedBy, final[1].ClosedBy, final[2].ClosedBy, final[3].ClosedBy)
+	}
 	last := log.all()[6]
 	if last.detail["state"] != "ready_to_merge" || !strings.Contains(fmt.Sprint(last.detail["reason"]), "Nothing merges until you approve it") {
 		t.Fatalf("merge wait: %+v", last)
@@ -196,5 +201,45 @@ func TestAGoalsStopsAndReleasesAreRecordedOnce(t *testing.T) {
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("a model request was made: %d", calls.Load())
+	}
+}
+
+// A pipeline whose agent runs on YOLO does not also merge by itself unless
+// the person confirmed exactly that: set to auto-merge at approval, it still
+// stops at Ready to merge; the switch refuses without the confirmation and,
+// with it, lets the merge stage start.
+func TestAYoloPipelineStopsAtTheMergeUnlessThePersonConfirmedIt(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	in := pipelineInput(r, true)
+	in.Yolo = true
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil || !created.Yolo || !created.Sessions[0].AutoMerge || MergesByItself(created, created.Sessions[0]) {
+		t.Fatalf("outcome: %+v %v", created, err)
+	}
+	for stage := 0; stage < 3; stage++ {
+		at := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == stage })
+		r.s.stageHandedOver(r.p.UserID, at.ConversationID, "Done.", "gaffer")
+	}
+	ready := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
+	if !strings.Contains(ready.Note, "runs on YOLO") || ready.Stages[3].State != "pending" {
+		t.Fatalf("a YOLO pipeline went into its merge unconfirmed: %+v", ready)
+	}
+	if _, err = r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, ready.Key, true, false); err == nil || !strings.Contains(err.Error(), "YOLO") {
+		t.Fatalf("merge-by-itself on YOLO was accepted unconfirmed: %v", err)
+	}
+	on, err := r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, ready.Key, true, true)
+	if err != nil || !on.Sessions[0].YoloMergeOK || !MergesByItself(on, on.Sessions[0]) {
+		t.Fatalf("confirmed: %+v %v", on.Sessions[0], err)
+	}
+	// Turning it off again withdraws the confirmation too.
+	off, err := r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, ready.Key, false, false)
+	if err != nil || off.Sessions[0].AutoMerge || off.Sessions[0].YoloMergeOK {
+		t.Fatalf("off: %+v %v", off.Sessions[0], err)
+	}
+	// An outcome on ordinary approvals is unchanged: auto-merge needs nothing more.
+	plain, err := r.s.CreateOutcome(r.p.UserID, func() OutcomeInput { in := pipelineInput(r, true); in.Objective = "Another outcome."; return in }())
+	if err != nil || !MergesByItself(plain, plain.Sessions[0]) {
+		t.Fatalf("plain auto-merge: %+v %v", plain, err)
 	}
 }

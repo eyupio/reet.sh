@@ -80,6 +80,21 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 				item["in_hand"] = true
 				row["stage_in_hand"] = stage.Kind
 			}
+			if stage.StartedAt > 0 {
+				item["started_at"] = stage.StartedAt
+			}
+			if stage.EndedAt > 0 {
+				item["ended_at"] = stage.EndedAt
+			}
+			if stage.ClosedBy != "" {
+				item["closed_by"] = stage.ClosedBy
+			}
+			if stage.AgentState != "" {
+				item["agent_state"] = stage.AgentState
+			}
+			if stage.AgentActiveAt > 0 {
+				item["agent_active_at"] = stage.AgentActiveAt
+			}
 			if stage.AgentUsageReported {
 				item["agent_tokens"] = stage.AgentInputTokens + stage.AgentOutputTokens
 				if stage.AgentCachedTokens > 0 {
@@ -94,7 +109,7 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 			}
 			if stage.Kind == "merge" {
 				row["merge"] = "waits_for_approval"
-				if piece.AutoMerge {
+				if gaffer.MergesByItself(o, piece) {
 					row["merge"] = "by_itself_when_green"
 				} else if piece.MergeApproved {
 					row["merge"] = "approved"
@@ -107,7 +122,7 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 		}
 		if piece.ConversationID != "" {
 			if g, err := s.st.GafferGoalFor(uid, piece.ConversationID); err == nil {
-				row["goal"] = map[string]any{"state": g.State, "note": g.Note, "reviews_used": g.UsedReviews, "reviews_max": g.MaxReviews, "expires_at": g.ExpiresAt, "waiting_on_agent": g.WaitingOnWorker}
+				row["goal"] = map[string]any{"state": g.State, "note": g.Note, "reviews_used": g.UsedReviews, "reviews_max": g.MaxReviews, "expires_at": g.ExpiresAt, "waiting_on_agent": g.WaitingOnWorker, "review_failed": g.ReviewFailed, "last_reviewed_at": g.LastReviewedAt}
 			}
 		}
 		pipelines = append(pipelines, row)
@@ -115,7 +130,7 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 	out := map[string]any{
 		"id": o.ID, "revision": o.Revision, "objective": o.Objective, "state": o.State, "note": o.Note,
 		"project": o.ProjectName, "agent": o.Tool, "approvals": approvals, "reports_by_itself": o.AutoReport,
-		"created_at": o.CreatedAt, "updated_at": o.UpdatedAt, "pipelines": pipelines,
+		"created_at": o.CreatedAt, "updated_at": o.UpdatedAt, "pipelines": pipelines, "machine_id": o.AgentID,
 	}
 	if o.Report != nil {
 		report := map[string]any{"at": o.Report.At, "by_itself": o.Report.Auto, "proposals": len(o.Report.Proposals)}
@@ -142,7 +157,15 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 		for _, o := range rows {
 			out = append(out, s.mcpOutcome(uid, o, false))
 		}
-		return map[string]any{"outcomes": out}, nil
+		// The builds answer "is this controller, or that machine, new enough
+		// for a feature": a client otherwise has to guess from side effects.
+		machines := []map[string]any{}
+		if agents, err := s.st.SyncAgentsFor(uid); err == nil {
+			for _, a := range agents {
+				machines = append(machines, map[string]any{"id": a.ID, "name": a.Host, "version": a.Version, "commit": a.Commit, "last_seen": a.LastSeen})
+			}
+		}
+		return map[string]any{"outcomes": out, "controller": map[string]any{"version": s.version, "commit": s.commit}, "machines": machines}, nil
 	}
 	if name == "reet_list_factory_projects" {
 		rows, err := s.st.ListFolderProjectsFor(uid)
@@ -226,7 +249,7 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 		if mode := str("mode"); mode != "" && mode != "wait" {
 			return nil, errors.New("Over MCP a pipeline can only be made to wait for approval. Letting it merge by itself is set on the Factory page.")
 		}
-		o, err = s.gafferProviders.SetPipelineAutoMerge(uid, id, key, false)
+		o, err = s.gafferProviders.SetPipelineAutoMerge(uid, id, key, false, false)
 	case "reet_approve_pipeline_merge":
 		o, err = latest(func(revision int64) (store.GafferOutcome, error) {
 			return s.gafferProviders.ApproveMerge(uid, id, key, revision)

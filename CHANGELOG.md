@@ -5,6 +5,24 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Gaffer: a stage review now reads the working agent's latest reply at length
+  (up to 9 KiB), not a 2 KiB fragment, so it can see a plan, design or final
+  report and hand the stage over by itself. Needs a controller update.
+- Factory: each pipeline card shows how long the stage in hand has run and
+  what its agent last reported doing and when; a stage you moved on yourself is
+  marked differently from one Gaffer handed over; **History** on an outcome
+  lists what happened to its pipelines and why; and a Gaffer review that fails
+  says why and offers **Try the review again**. Needs a controller update.
+- Factory: **a YOLO pipeline no longer merges by itself unless you confirm
+  exactly that.** A pipeline whose agent runs on YOLO stops at Ready to merge
+  even when set to merge by itself, until you turn the switch on from its card
+  and confirm. Pipelines approved with both before this update stop too.
+- Activity log: a scan that found nothing new is recorded once for the same
+  counts and again after six hours, not every minute. The events read (and
+  MCP's `reet_list_events`) can leave sources out with `exclude`.
+- MCP: `reet_list_factory` returns the controller's build and each machine's,
+  and each stage says when it started, who closed it and what its agent last
+  reported.
 - When the Library says a machine has a different version of a skill, **See
   what differs** now lists the files: which are changed, which exist only on
   that machine and which only in reet's copy, with their sizes. The machine

@@ -312,6 +312,33 @@ Budgets are per stage: each stage gets the outcome's review budget and hours
 afresh, and the page shows what is left of the stage in hand. A stage that uses
 its budget stops and waits for you.
 
+### What the pipeline card tells you
+
+- **In this stage** is how long the stage in hand has been running.
+- **Agent** is what its session last reported (working, waiting for you, idle)
+  and how long ago it was last active. It turns amber for an idle agent, and
+  for one that says it is working but has shown nothing for fifteen minutes.
+- A stage dot with **»** instead of a tick was moved on by you (the button, or
+  telling Gaffer in the chat), not handed over by Gaffer after a review.
+- **History**, on the outcome, lists what happened to its pipelines, newest
+  first, from the activity log.
+- **Try the review again** appears when Gaffer's own review failed. The card
+  shows the provider's reason; the button resumes the goal, which reviews the
+  work already there.
+
+Gaffer judges a stage from the working agent's latest reply, which it is given
+at length (up to 9 KiB, the end kept when longer), so a plan or design written
+in the session can be read in full enough to hand over.
+
+### YOLO and merging by itself
+
+A pipeline whose agent runs on YOLO acts without asking you. Letting it merge
+by itself as well would leave nothing stopping for you between the code and
+the merge, so it takes a separate confirmation: on the pipeline's card, **Let
+it merge by itself** asks you to confirm for a YOLO pipeline. Until you do,
+the pipeline stops at **Ready to merge** and its Merge line reads "Waits for
+you (YOLO)", whatever was ticked when the outcome was approved.
+
 ### When nothing can happen without you
 
 Gaffer waits for the working agent, but not for ever. Two cases turn a goal to

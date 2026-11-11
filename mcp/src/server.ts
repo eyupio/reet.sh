@@ -89,7 +89,7 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
   const outcomeId = z.string().regex(/^[a-f0-9]{32}$/).describe('Exact outcome id from reet_list_factory.');
   const pipelineKey = z.string().min(1).max(4).describe('The pipeline’s key from reet_list_factory or reet_get_factory_outcome, such as "a".');
   const confirmed = z.boolean().describe('Must be true, and only when the user asked for exactly this change.');
-  tool('list_factory', 'List Factory outcomes', 'List the Factory’s outcomes with their pipelines: each pipeline’s state, the stage in hand, every stage’s state and agent, how its merge is decided and the state of the goal Gaffer follows it with. Not available to a read-only account. Handover notes and report text are not included; no session transcript is read. Does not change anything.', {}, factoryConnectionRequired);
+  tool('list_factory', 'List Factory outcomes', 'List the Factory’s outcomes with their pipelines: each pipeline’s state, the stage in hand, every stage’s state and agent, how its merge is decided and the state of the goal Gaffer follows it with. Each stage also says when it started, who closed it (closed_by: gaffer, person or chat) and, for the stage in hand, what its agent last reported doing and when. The answer includes the controller’s build and each machine’s build, to tell whether one is new enough for a feature. Not available to a read-only account. Handover notes and report text are not included; no session transcript is read. Does not change anything.', {}, factoryConnectionRequired);
   tool('get_factory_outcome', 'Read one Factory outcome', 'Read one outcome and its pipelines. A connection with management scope also receives each finished stage’s handover note and Gaffer’s latest report, which are derived from session text; other connections receive states only. Does not change anything.', { outcome_id: outcomeId }, factoryConnectionRequired);
   tool('move_pipeline_on', 'Move a pipeline to its next stage', 'Requires management scope and a writer account. On the user’s word, close the stage in hand of one pipeline as it stands and have the controller start its next stage, without waiting for Gaffer’s review to find it done. Refused while Gaffer is reviewing that stage or when the pipeline has no stage in hand. It does not merge, approve or run anything. Use only when the user asked to continue, skip or accept that stage.', { outcome_id: outcomeId, pipeline: pipelineKey, confirm: confirmed }, factoryConnectionRequired, { write: true });
   tool('retry_pipeline', 'Try a stopped pipeline again', 'Requires management scope and a writer account. Try again a pipeline that did not start, is no longer followed or was cancelled. A session that did start is kept and followed; one that never started is asked for again. Refused for a pipeline that is not stopped.', { outcome_id: outcomeId, pipeline: pipelineKey }, factoryConnectionRequired, { write: true });
@@ -348,10 +348,12 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
     skill: id.optional(),
     action: z.string().max(100).optional().describe('Exact action, e.g. bulk-update or list-delete.'),
     source: z.enum(['ui', 'mcp', 'scan', 'import', 'gaffer', 'machine']).optional().describe('Who made the change.'),
+    exclude: z.array(z.enum(['ui', 'mcp', 'scan', 'import', 'gaffer', 'machine'])).max(6).optional().describe('Leave out events from these sources, e.g. ["scan","machine"] to read past routine scans and per-turn YOLO rows.'),
     before: z.string().regex(/^\d+$/).optional().describe('Cursor: return events older than this event ID.'),
     after: z.string().regex(/^\d+$/).optional().describe('Cursor: return events newer than this event ID.'),
-  }, async ({ limit, skill, action, source, before, after }) => {
+  }, async ({ limit, skill, action, source, exclude, before, after }) => {
     const query = new URLSearchParams({ limit: String(limit) });
+    if (exclude?.length) query.set('exclude', exclude.join(','));
     for (const [key, value] of Object.entries({ skill, action, source, before, after })) if (value) query.set(key, String(value));
     return client.request('/api/events', 'GET', undefined, query);
   });

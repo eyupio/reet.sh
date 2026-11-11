@@ -25,6 +25,7 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes", access(s.gafferOutcomes))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes", access(s.gafferOutcomeCreate))
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcome))
+	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}/history", access(s.gafferOutcomeHistory))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop", access(s.gafferOutcomeStop))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge", access(s.gafferOutcomeMerge))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/retry", access(s.gafferOutcomeRetry))
@@ -65,6 +66,24 @@ func (s *server) gafferOutcome(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeHistory is the activity recorded for one outcome: what the
+// person, Gaffer and the controller did to its pipelines, newest first. It
+// reads the activity log only.
+func (s *server) gafferOutcomeHistory(w http.ResponseWriter, r *http.Request) {
+	o, err := s.gafferProviders.Outcome(s.uid(r), r.PathValue("id"))
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	events, err := s.st.OutcomeEventsFor(s.uid(r), o.ID, 200)
+	if err != nil {
+		writeErr(w, 500, "The history could not be read.")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"events": events})
 }
 
 func (s *server) gafferOutcomeCreate(w http.ResponseWriter, r *http.Request) {
@@ -222,6 +241,8 @@ func (s *server) gafferOutcomeTell(w http.ResponseWriter, r *http.Request) {
 func (s *server) gafferOutcomeAutoMerge(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		On *bool `json:"on"`
+		// YoloConfirmed is the person's separate yes for a YOLO pipeline.
+		YoloConfirmed bool `json:"yoloConfirmed"`
 	}
 	if !decodeStrictJSON(w, r, 1024, &in, "That request is invalid.") {
 		return
@@ -230,12 +251,12 @@ func (s *server) gafferOutcomeAutoMerge(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, "Say whether this pipeline merges by itself.")
 		return
 	}
-	o, err := s.gafferProviders.SetPipelineAutoMerge(s.uid(r), r.PathValue("id"), r.PathValue("key"), *in.On)
+	o, err := s.gafferProviders.SetPipelineAutoMerge(s.uid(r), r.PathValue("id"), r.PathValue("key"), *in.On, in.YoloConfirmed)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-pipeline-merge-setting", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "autoMerge": *in.On})
+	s.eventRequest(r, "gaffer-pipeline-merge-setting", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "autoMerge": *in.On, "yoloConfirmed": *in.On && in.YoloConfirmed})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }

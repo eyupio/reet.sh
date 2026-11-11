@@ -47,6 +47,10 @@ type GafferOutcomeStage struct {
 	AgentUsageReported bool  `json:"agentUsageReported,omitempty"`
 	ContextUsed        int64 `json:"contextUsed,omitempty"`
 	ContextSize        int64 `json:"contextSize,omitempty"`
+	// AgentState and AgentActiveAt are what the stage in hand's session last
+	// reported doing and when it was last active. Live only, never saved.
+	AgentState    string `json:"agentState,omitempty"`
+	AgentActiveAt int64  `json:"agentActiveAt,omitempty"`
 	// SentBack is why the person sent the pipeline back to this stage, told
 	// to the agent that does it again.
 	SentBack       string `json:"sentBack,omitempty"`
@@ -55,8 +59,11 @@ type GafferOutcomeStage struct {
 	SessionID      string `json:"sessionId,omitempty"`
 	ConversationID string `json:"conversationId,omitempty"`
 	Summary        string `json:"summary,omitempty"`
-	StartedAt      int64  `json:"startedAt,omitempty"`
-	EndedAt        int64  `json:"endedAt,omitempty"`
+	// ClosedBy is who ended a done stage: "gaffer" (its review handed the
+	// stage over), "person" (they moved it on) or "chat" (they told Gaffer to).
+	ClosedBy  string `json:"closedBy,omitempty"`
+	StartedAt int64  `json:"startedAt,omitempty"`
+	EndedAt   int64  `json:"endedAt,omitempty"`
 	// What Gaffer's own model used following this stage, recorded when the
 	// stage was handed over. It is Gaffer's usage, not the working agent's.
 	Reviews       int  `json:"reviews,omitempty"`
@@ -101,11 +108,15 @@ type GafferOutcomeSession struct {
 	// stage in hand. WorkDir is where the first stage's session works, which
 	// later stages share. AutoMerge and MergeApproved are the person's own
 	// choices: without one of them the merge stage never starts.
-	Stages        []GafferOutcomeStage `json:"stages,omitempty"`
-	Stage         int                  `json:"stage"`
-	WorkDir       string               `json:"workDir,omitempty"`
-	AutoMerge     bool                 `json:"autoMerge,omitempty"`
-	MergeApproved bool                 `json:"mergeApproved,omitempty"`
+	Stages    []GafferOutcomeStage `json:"stages,omitempty"`
+	Stage     int                  `json:"stage"`
+	WorkDir   string               `json:"workDir,omitempty"`
+	AutoMerge bool                 `json:"autoMerge,omitempty"`
+	// YoloMergeOK is the person's separate confirmation that a pipeline whose
+	// agent runs on YOLO may also merge by itself. Without it such a pipeline
+	// stops at Ready to merge whatever AutoMerge says.
+	YoloMergeOK   bool `json:"yoloMergeOk,omitempty"`
+	MergeApproved bool `json:"mergeApproved,omitempty"`
 }
 
 type GafferOutcome struct {

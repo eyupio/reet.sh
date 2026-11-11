@@ -892,6 +892,60 @@ a long silent turn that the agent does not report as working would be called
 idle.
 
 
+## Deliverable in view, card clarity, YOLO merge guard, quieter log (11 November 2026, after #734)
+
+The owner asked what needed improving after a second live read and chose all
+four groups offered. One PR, a commit each.
+
+- **Latest reply at length.** `ContextSnapshot.LatestReply` (`latestReply`,
+  `store.ContextLatestReplyFor`): every `agent` event after the last `user`
+  event, joined, scrubbed by `contextText`, capped at `MaxLatestReplyBytes`
+  (9 KiB; the end is kept and `startOmitted` set). Needs history and text
+  sharing. History events are unchanged (2 KiB each), and the snapshot still
+  fits `MaxContextBytes` because older events are dropped first. The stage
+  review's instruction points at it. **Reason:** on the live instance Gaffer
+  could not see a plan's body and never handed over. Also returned by
+  `reet_get_context` under the same grant.
+- **Who closed a stage.** `GafferOutcomeStage.ClosedBy` from
+  `stageHandedOver`'s `by`; a send-back resets the stage and so clears it.
+- **Agent activity.** `AgentState`/`AgentActiveAt` on the stage in hand, read
+  live in `withAgentUsage` from the session row (`ChatStatus`, `ActivityAt`);
+  never saved.
+- **Failed review.** `FinishGafferGoal` sets `GafferGoal.ReviewFailed` and
+  puts the turn's error (300 bytes) in the note; any control action clears the
+  flag. The page's button reads the goal view and resumes it.
+- **History.** `GET /api/v2/gaffer/outcomes/{id}/history` →
+  `store.OutcomeEventsFor`: the account's `gaffer-%` events whose detail names
+  the outcome, newest 200. Same access as the outcome read.
+- **YOLO merge guard.** `GafferOutcomeSession.YoloMergeOK`; `MergesByItself`
+  is `AutoMerge && (!Yolo || YoloMergeOK)` and gates the merge stage, the MCP
+  `merge` value and the chat's pipeline context. `SetPipelineAutoMerge` takes
+  `yoloOK` and refuses to turn it on for a YOLO outcome without it; the route
+  takes `yoloConfirmed`. MCP still cannot turn it on at all. **Existing YOLO
+  pipelines set to merge by themselves now stop at Ready to merge** (the owner
+  had left one running that way before choosing this guard).
+- **Scan rows.** `AddEventUnlessRepeatedFor`: an unchanged scan (nothing
+  created or pruned, no error) is skipped when the same detail was recorded
+  in the last six hours.
+- **Events read.** `EventQuery.Exclude`, `?exclude=a,b`, MCP `exclude`.
+- **Builds.** `reet_list_factory` adds `controller{version,commit}` and
+  `machines[{id,name,version,commit,last_seen}]`; an outcome carries
+  `machine_id`.
+
+Tests: `context_test.go` (latest reply: span, scrubbing, text grant, bound),
+`audit_test.go` (closed-by, the YOLO merge guard), `goal_stuck_test.go` (a
+failed review's note and retry), the store tests for outcome events, repeated
+events and exclusion, `gafferOutcome.test.mjs`, and `gaffer-factory.e2e.mjs`
+(stage marks, time in stage, agent line, history). Not covered in a browser:
+the YOLO confirmation dialog and Try the review again. Synthetic only.
+
+**Decided by the owner for the next slice:** Gaffer is to be given every reet
+MCP tool, controllable in Gaffer settings with a per-tool selection. That
+removes the "only the person approves a merge or starts an outcome" boundary
+wherever the person switches those tools on. Not built yet.
+
+## Not done, for the next slice
+
 - No bulk resume (deliberate), and no per-session goal text in one review.
 - The review uses the default provider's own model; a per-session override is
   still made in that session's chat.

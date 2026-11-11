@@ -238,8 +238,8 @@ export function sessionCount(plan: { tool: string; model: string; effort?: strin
   return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') ? 1 : 0), 0)
 }
 
-export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; summary: string }
-type PipelinePiece = { state: string; stage?: number; stages?: { kind: string; tool: string; model?: string; state: string; summary?: string }[] }
+export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; summary: string; moved: boolean }
+type PipelinePiece = { state: string; stage?: number; stages?: { kind: string; tool: string; model?: string; state: string; summary?: string; closedBy?: string }[] }
 /** A pipeline's stages as the page draws them. The stage in hand shows the pipeline's own state: running, waiting on the person, or failed. */
 export function track(piece: PipelinePiece): TrackNode[] {
   const at = piece.stage ?? 0
@@ -250,7 +250,8 @@ export function track(piece: PipelinePiece): TrackNode[] {
       else if (['failed', 'unfollowed', 'cancelled'].includes(piece.state)) state = 'failed'
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
-    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', summary: stage.summary ?? '' }
+    // A stage the person moved on was closed on their word, not on Gaffer's review of it.
+    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat') }
   })
 }
 
@@ -323,6 +324,26 @@ export function tokensText(usage: Usage): string {
 }
 
 /** How long a goal still follows for, in words. */
+/** How long ago something happened, in the page's short form. Empty when the time is not known. */
+export function ago(at: number | undefined, now: number): string {
+  if (!at) return ''
+  const minutes = Math.floor((now - at) / 60000)
+  if (minutes < 1) return 'under a minute'
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  return hours < 48 ? `${hours} h ${minutes % 60} min` : `${Math.floor(hours / 24)} days`
+}
+
+/** What the stage in hand's agent last reported doing, and for how long it has been quiet. `quiet` marks an agent that
+ *  says it is working but has shown nothing for a quarter of an hour, or that is idle. */
+export function agentActivity(stage: { agentState?: string; agentActiveAt?: number } | undefined, now: number): { text: string; quiet: boolean } {
+  if (!stage?.agentState && !stage?.agentActiveAt) return { text: '', quiet: false }
+  const since = ago(stage.agentActiveAt, now), minutes = stage.agentActiveAt ? Math.floor((now - stage.agentActiveAt) / 60000) : 0
+  const names: Record<string, string> = { working: 'Working', waiting: 'Waiting for you', idle: 'Idle', finished: 'Finished', failed: 'Stopped', cancelled: 'Cancelled' }
+  const name = names[stage.agentState ?? ''] ?? 'Not reported'
+  return { text: since ? `${name} · last active ${since} ago` : name, quiet: stage.agentState === 'idle' || (stage.agentState === 'working' && minutes >= 15) }
+}
+
 export function timeLeft(expiresAt: number, now: number): string {
   const minutes = Math.floor((expiresAt - now) / 60000)
   if (minutes <= 0) return 'Ended'

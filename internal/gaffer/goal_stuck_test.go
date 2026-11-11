@@ -2,6 +2,8 @@ package gaffer
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -108,6 +110,47 @@ func TestAnIdleWorkingModelWithNothingQueuedBringsTheGoalBackToThePerson(t *test
 	}
 	s.reviewDueGoals(context.Background())
 	if again, _ := st.GafferGoalFor(p.UserID, g.ConversationID); again.State != "active" || again.ResumedAt == 0 {
+		t.Fatalf("after resume: %+v", again)
+	}
+}
+
+// A review of Gaffer's own that fails leaves the goal with the reason, marked
+// so the page can offer to try again; resuming clears the mark.
+func TestAFailedReviewSaysWhyAndCanBeTriedAgain(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	log := recordAudit(s)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, `{"error":{"message":"model overloaded"}}`, http.StatusServiceUnavailable)
+	}))
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 12)
+	workerProgress(t, st, g, 1)
+	s.reviewDueGoals(context.Background())
+	deadline := time.Now().Add(5 * time.Second)
+	var row = g
+	for time.Now().Before(deadline) {
+		row, _ = st.GafferGoalFor(p.UserID, g.ConversationID)
+		if row.State == "needs_user" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if row.State != "needs_user" || !row.ReviewFailed || !strings.Contains(row.Note, "did not complete (failed)") || !strings.Contains(row.Note, "resume the goal to try again") {
+		t.Fatalf("failed review: %+v", row)
+	}
+	log.wait(t, "gaffer-goal-needs-you")
+	v, err := s.Goal(p.UserID, g.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ControlGoal(p.UserID, g.ConversationID, row.Revision, "resume", v.Pins, true); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := st.GafferGoalFor(p.UserID, g.ConversationID); again.ReviewFailed || again.State != "active" {
 		t.Fatalf("after resume: %+v", again)
 	}
 }

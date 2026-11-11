@@ -1039,15 +1039,15 @@ func TestThePersonMovesAPipelineOnWhateverTheStageGoalSays(t *testing.T) {
 		t.Fatalf("next stage goal: %+v %v", next, err)
 	}
 	// The merge setting is theirs to change, per pipeline, at any time before it is done.
-	on, err := r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, code.Key, true)
+	on, err := r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, code.Key, true, false)
 	if err != nil || !on.Sessions[0].AutoMerge {
 		t.Fatalf("auto-merge on: %+v %v", on, err)
 	}
-	off, err := r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, code.Key, false)
+	off, err := r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, code.Key, false, false)
 	if err != nil || off.Sessions[0].AutoMerge {
 		t.Fatalf("auto-merge off: %+v %v", off, err)
 	}
-	if _, err = r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, "zz", true); err == nil {
+	if _, err = r.s.SetPipelineAutoMerge(r.p.UserID, created.ID, "zz", true, false); err == nil {
 		t.Fatal("an unknown pipeline's merge setting was changed")
 	}
 }

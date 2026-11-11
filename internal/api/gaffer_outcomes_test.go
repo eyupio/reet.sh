@@ -37,7 +37,7 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 	if _, err := st.CreateAPIToken(1, "Outcome refusal test", auth.HashToken("synthetic-api-token")); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/api/v2/gaffer/outcomes", "/api/v2/gaffer/outcomes/" + strings.Repeat("a", 32)} {
+	for _, path := range []string{"/api/v2/gaffer/outcomes", "/api/v2/gaffer/outcomes/" + strings.Repeat("a", 32), "/api/v2/gaffer/outcomes/" + strings.Repeat("a", 32) + "/history"} {
 		if code, _ := gafferClient(t, &http.Client{}, srv, "GET", path, "", "Authorization", "Bearer synthetic-api-token"); code != 403 {
 			t.Fatalf("API token read of %s: %d", path, code)
 		}

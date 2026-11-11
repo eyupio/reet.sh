@@ -247,7 +247,7 @@
 
 <section class="sync" class:compare={view === 'compare'} aria-labelledby={view === 'compare' ? undefined : 'sync-title'}>
   {#if view !== 'compare'}
-  <h2 class="vh" id="sync-title">{view === 'machines' ? 'Machines' : 'Compare & sync'}</h2>
+  <h2 class="vh" id="sync-title">{view === 'machines' ? 'Machines' : 'Sync'}</h2>
   <div class="page-tools">
     {#if view === 'machines' && canAdd}<button class="btn primary" type="button" data-add-machine onclick={(event) => openJoin(event.currentTarget)}>Add a machine</button>{/if}
     {#if view === 'machines' && canWrite && !canAdd}<button class="btn" type="button" onclick={() => openSetup()}>Connect a machine</button>{/if}
@@ -279,7 +279,7 @@
         {#if !canWrite}<p class="hint">Ask an owner or editor to connect the first machine.</p>{/if}
       </section>
     {/if}
-    <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
+    <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} {timeZone} {dateFormat} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
   {/if}
 
   {#if view === 'machines' && canWrite && machines.length}

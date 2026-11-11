@@ -28,7 +28,7 @@ const routes = () => ({
   ...Object.fromEntries(names.map(name => [`/api/v2/setup/profiles/${name}`, record(name)])),
 })
 const open = options => openWorkspace(browser, { width: 1440, routes: routes(), ...options })
-const panel = page => page.getByRole('region', { name: 'Setup profiles' })
+const panel = page => page.getByRole('region', { name: 'Setups' })
 const count = page => panel(page).getByRole('status').first()
 const row = (page, name) => panel(page).getByRole('button', { name: new RegExp(`^${name}`) })
 

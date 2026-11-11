@@ -572,7 +572,10 @@ Gaffer can use** lists each one, grouped, with three choices:
   that call once; **Decline** runs nothing. Gaffer is told it has not run.
 - **Allow.** Gaffer runs it as soon as it decides your message calls for it.
 
-You can set a whole group at once. The groups are: reading the Factory;
+**All tools**, at the top, sets every tool at once, and each group has its own
+set-all; a group or the whole list reads **Custom** when its tools differ. Each
+tool has a three-way control: ✓ Allow, ✋ Ask me, ⊘ Off. Open a tool's name to
+read what it does. The groups are: reading the Factory;
 controlling pipelines (move on, retry, send back, tell the agent, stop, ask for
 a report, make a merge wait); starting agents (a new outcome, added pipelines);
 approving a merge; reading the shelf and the activity log; changing the shelf;

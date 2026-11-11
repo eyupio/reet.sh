@@ -1082,6 +1082,18 @@ complete). In the same PR:
 Not done: the outcome header, totals and report layout are unchanged; the
 open/closed choice is not remembered between visits.
 
+## Tools list: set all, and one control per tool (11 November 2026, after #738)
+
+The owner asked for a select-all "like Claude does" and attached Claude's
+connector permissions. `GafferTools.svelte` only: an **All tools** select
+(`Set every tool`), a select per group (`Set all tools in <group>`), both
+reading "Custom" when mixed; each tool is a `radiogroup` of three buttons
+(Allow, Ask me, Off) named "<title>: what Gaffer may do"; the description sits
+behind the tool's name; a group folds. The save is unchanged: the whole choice
+is sent on every change, and "Off" for all sends `{modes:{}}`. No controller
+change. `gaffer-tools.e2e.mjs` covers one tool, a group, every tool, Custom,
+the description, folding, the merge warning and a failed save.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

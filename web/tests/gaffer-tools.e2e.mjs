@@ -48,24 +48,42 @@ try {
   const tools=w.page.getByRole('region',{name:'Tools Gaffer can use',exact:true})
   await expect(tools).toContainText('0 allowed · 0 ask first · 4 off')
   await expect(tools).toContainText('Gaffer’s goal reviews never get these tools')
-  const read=tools.locator('details').filter({hasText:'Factory: read'})
-  await read.locator('summary').click()
-  await read.getByLabel('List Factory outcomes: what Gaffer may do',{exact:true}).selectOption('allow')
+  const pick=(title,choice)=>tools.getByRole('radiogroup',{name:`${title}: what Gaffer may do`,exact:true}).getByRole('radio',{name:choice,exact:true})
+  // One tool: three choices in one small control, the chosen one marked.
+  await expect(pick('List Factory outcomes','Off')).toHaveAttribute('aria-checked','true')
+  await pick('List Factory outcomes','Allow').click()
+  await expect(pick('List Factory outcomes','Allow')).toHaveAttribute('aria-checked','true')
   await expect(tools).toContainText('1 allowed · 0 ask first · 3 off')
   expect(f.box.saves).toEqual([{modes:{reet_list_factory:'allow'}}])
-  await read.getByLabel('Set all tools in Factory: read',{exact:true}).selectOption('ask')
+  // A mixed group reads Custom; one choice sets the whole group.
+  const readAll=tools.getByLabel('Set all tools in Factory: read',{exact:true})
+  await expect(readAll).toHaveValue('')
+  await readAll.selectOption('ask')
   await expect(tools).toContainText('0 allowed · 2 ask first · 2 off')
   expect(f.box.saves[1]).toEqual({modes:{reet_list_factory:'ask',reet_get_factory_outcome:'ask'}})
+  // One choice sets every tool, and Off for all sends an empty choice.
+  const every=tools.getByLabel('Set every tool',{exact:true})
+  await expect(every).toHaveValue('')
+  await every.selectOption('ask')
+  await expect(tools).toContainText('0 allowed · 4 ask first · 0 off');await expect(every).toHaveValue('ask')
+  expect(Object.keys(f.box.saves[2].modes).length).toBe(4)
+  await every.selectOption('off')
+  await expect(tools).toContainText('0 allowed · 0 ask first · 4 off');expect(f.box.saves[3]).toEqual({modes:{}})
+  // A tool's description is behind its name, and a group can be folded away.
+  await expect(tools.getByText('Read one outcome and its pipelines.')).toBeHidden()
+  await tools.getByText('Read one outcome',{exact:true}).click()
+  await expect(tools.getByText('Read one outcome and its pipelines.')).toBeVisible()
+  await tools.getByRole('button',{name:'Hide the tools in Factory: read',exact:true}).click()
+  await expect(pick('List Factory outcomes','Allow')).toHaveCount(0)
+  await tools.getByRole('button',{name:'Show the tools in Factory: read',exact:true}).click()
   // Allowing a merge approval without asking is said plainly.
-  const merge=tools.locator('details').filter({hasText:'Factory: merge'})
-  await merge.locator('summary').click()
-  await merge.getByLabel('Approve a pipeline’s merge: what Gaffer may do',{exact:true}).selectOption('allow')
+  await pick('Approve a pipeline’s merge','Allow').click()
   await expect(tools.getByRole('status').filter({hasText:'Allowed without asking'})).toContainText('Approve a pipeline’s merge')
   // A save that fails puts the choice back and says so.
   f.box.failSave=true
-  await merge.getByLabel('Approve a pipeline’s merge: what Gaffer may do',{exact:true}).selectOption('off')
+  await pick('Approve a pipeline’s merge','Off').click()
   await expect(tools.getByRole('alert')).toContainText('could not be saved')
-  await expect(merge.getByLabel('Approve a pipeline’s merge: what Gaffer may do',{exact:true})).toHaveValue('allow')
+  await expect(pick('Approve a pipeline’s merge','Allow')).toHaveAttribute('aria-checked','true')
   await w.page.screenshot({path:`${captures}/settings-${width}-${theme}.png`,fullPage:true})
 
   // Chat: a tool that ran shows its result; one that asks waits with its exact arguments and runs on Approve, once.
@@ -95,5 +113,5 @@ try {
   expect(d.errors).toEqual([])
   await d.context.close()
  }
- console.log('Gaffer tools: the per-tool choice in settings (one tool, a group, the merge warning, a failed save) and a call approved once or declined in the chat passed on desktop light and phone dark.')
+ console.log('Gaffer tools: the per-tool choice in settings (one tool, a group, every tool, the merge warning, a failed save) and a call approved once or declined in the chat passed on desktop light and phone dark.')
 } finally { await browser.close() }

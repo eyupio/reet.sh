@@ -4,7 +4,9 @@
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
   import { onMount } from 'svelte'
   import { createGafferOutcome, getGafferOutcome, getGafferSettings, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
-  import { chatToolName, listFolderProjects, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
+  import { chatToolName, launchUpload, listFolderProjects, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
+  import { imagePrompt } from './terminal/upload'
+  import ImageAttachment from './ImageAttachment.svelte'
   import GafferModelSelect from './GafferModelSelect.svelte'
   import YoloDialog from './launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from './launchBar'
@@ -40,8 +42,11 @@
   // Gaffer reports across the outcome by itself when a pipeline finishes or stops. Each report is one model request.
   let autoReport = $state(false)
   let busy = $state(false), startError = $state(''), record = $state<GafferOutcome | null>(null), watchError = $state('')
+  let image = $state<File | null>(null), imageUploading = $state(false), imageError = $state('')
   let counter = 0
   const key = () => `plan-${++counter}`
+  function clearImage() { image = null; imageError = '' }
+  $effect(() => { void image; imageError = '' })
 
   const project = $derived(projects.find(item => item.id === projectId) ?? null)
   const machine = $derived(project ? machines.find(item => item.agentId === project.host) ?? null : null)
@@ -135,14 +140,24 @@
   }
   async function approve() {
     if (busy || approveBlocker || !limitsOk || !provider || !project || !tool) return
-    busy = true; startError = ''
+    busy = true; startError = ''; imageError = ''
+    let reference = ''
+    if (image) {
+      imageUploading = true
+      try { reference = (await launchUpload(project.host, image, life.signal)).reference }
+      catch (e) {
+        if (!life.signal.aborted) imageError = e instanceof Error ? e.message : 'The image could not be uploaded.'
+        imageUploading = false; busy = false; return
+      }
+      finally { imageUploading = false }
+    }
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
         objective: objective.trim(), projectId: project.id, tool, model: model.trim(), trust, yolo: yolo && !yoloWhy, autoReport, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew) })),
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew) })),
       }, life.signal)
-      step = 'results'
+      step = 'results'; clearImage()
       watch(record.id)
       await onstarted()
     } catch (e) { if (!life.signal.aborted) startError = e instanceof Error ? e.message : 'The outcome was not saved. Nothing was started.' }
@@ -171,6 +186,7 @@
         <form onsubmit={event => { event.preventDefault(); void ask() }}>
           <label for={`${formId}-objective`}>Outcome</label>
           <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning}></textarea>
+          <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
           <div class="pair">
             <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning}>
               <option value="">Choose a project…</option>
@@ -211,6 +227,7 @@
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
       {#if summary}<div class="summary"><p class="eyebrow">Gaffer’s plan</p><p>{summary}</p></div>{/if}
       <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief, and tick the stages it runs through. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
+      <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Session {index + 1}</label><button class="link" type="button" aria-label={`Remove session ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>

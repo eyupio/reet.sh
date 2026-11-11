@@ -576,11 +576,11 @@
   {:else if section === 'activity'}
     <ActivitySection writer={writer ?? canWrite} onsignedout={onerror} timeZone={profile.timezone} dateFormat={profile.dateFormat} />
   {:else if section === 'machines'}
-    <EnvironmentSync {canWrite} accounts token={freshToken} {startConnect} onsignedout={onerror} view="machines">
+    <EnvironmentSync {canWrite} accounts token={freshToken} {startConnect} timeZone={profile.timezone} dateFormat={profile.dateFormat} onsignedout={onerror} view="machines">
       {#snippet tokenSetup()}{@render tokenForm()}{/snippet}
     </EnvironmentSync>
   {:else if section === 'sync'}
-    <EnvironmentSync {canWrite} view="compare" />
+    <EnvironmentSync {canWrite} timeZone={profile.timezone} dateFormat={profile.dateFormat} view="compare" />
   {:else if section === 'tokens'}
     {#if !canWrite}
       <p class="muted">Viewer accounts cannot create API tokens.</p>

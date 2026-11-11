@@ -1707,18 +1707,20 @@ func TestCancelIgnoredByTheAgentEndsTheChatAfterTheGracePeriod(t *testing.T) {
 	if err := session.Cancel(); err != nil {
 		t.Fatal(err)
 	}
+	// 30 s still tells a 300 ms grace period from the one-minute turn timeout,
+	// and survives a loaded runner (a 10 s wait failed once on a full -race run).
 	select {
 	case <-session.Done():
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("an ignored cancel left the chat running")
 	}
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("the turn never returned after the chat was ended")
 	}
 	// Done closes when the process exits; Close records the retirement just after.
-	for deadline := time.Now().Add(10 * time.Second); !session.GroupRetired(); {
+	for deadline := time.Now().Add(30 * time.Second); !session.GroupRetired(); {
 		if time.Now().After(deadline) {
 			t.Fatal("the process group was not confirmed gone")
 		}

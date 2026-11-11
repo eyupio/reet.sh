@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import { controlGafferGoal, getGafferGoal, listGafferGoals, listGafferOutcomes, stopGafferOutcome, type GafferGoalOverview, type GafferGoalOverviewView, type GafferOutcome as OutcomeRecord } from './api'
+  import { controlGafferGoal, getGafferGoal, listGafferConversations, listGafferGoals, listGafferOutcomes, removeGafferConversation, stopGafferOutcome, type GafferGoalOverview, type GafferGoalOverviewView, type GafferOutcome as OutcomeRecord } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import GafferGoal from './GafferGoal.svelte'
@@ -35,6 +35,21 @@
   let records=$state<OutcomeRecord[]>([])
   // One action for the sessions shown: pause or stop every followed one in the current view.
   let bulkBusy=$state(false), bulkNotice=$state(''), confirmStop=$state(false)
+  // A goal whose session is archived or gone can only be read. Removing it deletes Gaffer's saved chat for that
+  // session, and the goal with it; nothing on any machine is touched.
+  let removing=$state<GafferGoalOverview|null>(null)
+  async function removeGoal() {
+    const row=removing
+    if(!row||bulkBusy)return
+    bulkBusy=true;bulkNotice='';removing=null
+    try{
+      const found=(await listGafferConversations()).conversations.find(item=>item.id===row.goal.conversationId)
+      if(found)await removeGafferConversation(found)
+      bulkNotice='Removed. The saved Gaffer chat and its goal are gone.'
+      await load(true);await onchanged()
+    }catch(e){bulkNotice=e instanceof Error?e.message:'That goal was not removed.'}
+    bulkBusy=false
+  }
   let refreshButton=$state<HTMLButtonElement>()
   let controller:AbortController|undefined, epoch=0, returnFocus:HTMLElement|undefined
   const rows=$derived((view?.goals??[]).filter(row=>!hidden.includes(row.goal.conversationId)))
@@ -166,7 +181,7 @@
         </div></details>
         <div class="actions">
           {#if row.available&&row.session}<a class="btn" href={`/sessions?agent=${encodeURIComponent(row.session.agentId)}&session=${encodeURIComponent(row.session.id)}&gaffer=1`} onclick={event=>openSession(event,row)}>Open session</a><button class="btn quiet" onclick={event=>{returnFocus=event.currentTarget;managing=row}}>Review goal</button>
-          {:else}<button class="btn quiet" onclick={onhistory}>Conversation history</button>{/if}
+          {:else}<button class="btn quiet" disabled={bulkBusy} onclick={()=>removing=row}>Remove</button>{#if !inline}<button class="btn quiet" onclick={onhistory}>Conversation history</button>{/if}{/if}
         </div>
       </li>{/each}
     </ul>{/if}
@@ -210,6 +225,7 @@
   </div>
 </WorkspaceDialog>
 {/if}
+{#if removing}<ConfirmDialog title="Remove this goal?" body="This deletes Gaffer’s saved chat and goal for a session that is archived or no longer available. It cannot be undone. Nothing on any machine is changed." confirmLabel="Remove" oncancel={()=>removing=null} onconfirm={()=>void removeGoal()}/>{/if}
 {#if confirmStop}<ConfirmDialog title={`Stop ${stoppable.length} goals?`} body="This ends Gaffer looking after for every session shown and removes goal instructions still queued. The working models keep running. Resuming is done one session at a time, after you have checked it." confirmLabel="Stop goals" danger oncancel={()=>confirmStop=false} onconfirm={()=>void bulk('stop',stoppable)}/>{/if}
 {#if outcomeOpen}<GafferOutcome {room} {userId} onstarted={onchanged} onclose={()=>void closeOutcome()}/>{/if}
 {#if reviewing}<GafferFloorReview auto={quick} sessions={chosen} {room} {userId} onstarted={onchanged} onclose={()=>void closeReview()}/>{/if}

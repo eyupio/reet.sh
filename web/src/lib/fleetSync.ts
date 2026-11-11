@@ -163,6 +163,8 @@ export type MachineSyncRow = {
   label: string
   detail: string
   tone: 'synced' | 'attention' | 'review' | 'working' | 'waiting'
+  /** Set when Auto fix can settle what stopped this machine. */
+  fix?: { targetId: string; agentId: string }
   /** Something that happened or is waiting on this machine: a review to give, or an update that finished. */
   note?: { text: string; action?: string; href?: string }
 }
@@ -187,7 +189,7 @@ export function machineSyncRow(agent: SyncAgent, snapshot: Pick<SyncState, 'agen
       : row('No skills chosen', 'Choose what this machine should have in Skills on this machine.', 'attention')
   }
   const tone = overview.tone === 'action' ? 'working' : overview.tone
-  return row(overview.label, overview.detail, tone)
+  return { ...row(overview.label, overview.detail, tone), ...(overview.fix ? { fix: overview.fix } : {}) }
 }
 
 function machineNote(agent: SyncAgent, snapshot: Pick<SyncState, 'jobs'>, now: number): MachineSyncRow['note'] {

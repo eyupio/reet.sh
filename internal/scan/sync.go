@@ -789,13 +789,32 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 						problems[desired.Slug] = "A different source uses this name in another app."
 						continue
 					}
-					return nil, fmt.Errorf("%s is shared with %s from a different source; resolve it before syncing", found.Name, found.Agent)
+					// One name that another app already holds from elsewhere is left
+					// alone and reported on that skill. It used to stop the whole
+					// folder, so every other skill waited on a conflict that the
+					// controller's fix could not settle for a privately held skill.
+					blocked[desired.Slug] = true
+					problems[desired.Slug] = fmt.Sprintf("%s already has this skill from %s, so reet left it alone. Remove that copy on the machine to use reet's.", sharedFolderName(found.Agent), found.Source)
 				}
 			}
+		}
+		if !target.Canonical && len(blocked) > 0 {
+			kept := []store.SyncSkill{}
+			for _, want := range desired {
+				if !blocked[want.Slug] {
+					kept = append(kept, want)
+				}
+			}
+			desired = kept
 		}
 		for _, found := range inventory.Found {
 			matches := found.Agent == target.Target.Agent &&
 				found.Project == target.Target.Project
+			// A skill left alone above is left out of the plan entirely: an exact-set
+			// plan must not read it as an extra and remove it.
+			if !target.Canonical && blocked[found.Name] {
+				continue
+			}
 			if matches && found.Host == *host {
 				actual = append(actual, found)
 			}
@@ -1259,6 +1278,23 @@ func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(stri
 		onBackup(path)
 	}
 	return nil
+}
+
+// sharedFolderName names an app's skills folder for a person.
+func sharedFolderName(agent string) string {
+	switch agent {
+	case "agents":
+		return "The shared skills folder"
+	case "claude":
+		return "Claude Code"
+	case "codex":
+		return "Codex"
+	case "opencode":
+		return "OpenCode"
+	case "cursor":
+		return "Cursor"
+	}
+	return agent
 }
 
 func canonicalSource(source string) string {

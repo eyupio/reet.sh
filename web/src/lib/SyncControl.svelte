@@ -192,7 +192,7 @@
     await run(async () => {
       const preview = await resolveSyncSourceConflicts([item.target.id], false)
       if (!preview.changes.length) {
-        notice = 'No installed source conflict left to fix. Try a fresh preview.'
+        notice = 'Auto fix cannot settle this one: reet holds this skill as its own copy, so there is no other source to follow. Update reet on the machine and sync again (it then skips only this skill), or remove the copy on the machine to use reet’s.'
         return
       }
       const count = preview.changes.length
@@ -219,7 +219,7 @@
     try {
       const preview = await resolveSyncSourceConflicts([job.targetId], false)
       if (!preview.changes.length) {
-        notice = 'No installed source conflict left to fix. Try a fresh preview.'
+        notice = 'Auto fix cannot settle this one: reet holds this skill as its own copy, so there is no other source to follow. Update reet on the machine and sync again (it then skips only this skill), or remove the copy on the machine to use reet’s.'
         return
       }
       const count = preview.changes.length

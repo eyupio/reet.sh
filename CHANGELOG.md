@@ -5,6 +5,19 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Sync no longer stops a whole machine folder over one skill. When another app
+  on the machine already has a skill of the same name from a different source,
+  reet now leaves that one skill alone, says so with the reason, and syncs
+  everything else. It used to fail the folder with "… is shared with agents
+  from a different source; resolve it before syncing", and **Auto fix** then
+  answered "No installed source conflict left to fix" for any skill reet holds
+  as its own copy, so nothing could clear it. A machine needs the new reet
+  build for this; until it has it, the failure is described in plain words, and
+  **Auto fix** is offered where the failure is shown: the Sync activity panel,
+  the machine's row on Sync and the machine card. When Auto fix cannot settle
+  it, it now says why and what to do instead. A finished sync lists any skill
+  it left alone, and the machine shows "1 skill left alone" in place of
+  "Everything in sync".
 - Gaffer settings: the list of tools Gaffer can use is quicker to set. **All
   tools** sets every tool at once, each group has its own set-all, and each
   tool has a small three-way control (Allow, Ask me, Off) instead of a

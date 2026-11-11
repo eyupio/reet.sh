@@ -4,6 +4,7 @@
   import MachineSkillSync from './MachineSkillSync.svelte'
   import { copiesSignature, copyingLine, duplicatesNote, leftOutHeadline, libraryNotice } from './librarySync'
   import { fleetSyncStatus, machineSyncRow } from './fleetSync'
+  import SourceFix from './SourceFix.svelte'
   import { foldHost } from './syncOverview'
   import { ADVANCED_SYNC } from './syncRoutes'
   import Skeleton from './Skeleton.svelte'
@@ -123,6 +124,7 @@
         <div class="machine-name">
           <strong>{agent.host}</strong><span>{row.detail}</span>
           <!-- What needs a person on this machine, or what just finished on it, is said here and not as a page headline. -->
+          {#if row.fix && canWrite}<span class="machine-note"><SourceFix targetId={row.fix.targetId} agentId={row.fix.agentId} host={agent.host} online={row.online} {onupdate} /></span>{/if}
           {#if row.note}<span class="machine-note">{row.note.text}{#if row.note.href && row.note.action} <a href={row.note.href}>{row.note.action}</a>{/if}</span>{/if}
           {#each reviewsFor(agent.host) as item (item.id)}
             <span class="machine-note">{item.name}: some files need your review before they can be copied.{#if canWrite} <button type="button" class="btn" onclick={() => copying = item}>Review files</button>{/if}</span>

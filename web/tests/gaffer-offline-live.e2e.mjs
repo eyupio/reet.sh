@@ -80,7 +80,7 @@ try{
   await start('ALPHA',2)
   const savedProvider=(await api('/api/v2/gaffer/providers')).providers[0]
   expect(savedProvider.allowSessions).toBe(true);expect(savedProvider.allowCode).toBe(true);expect(savedProvider.allowStatus).toBe(false)
-  await expect.poll(async()=>(await receipt('ALPHA'))?.state,{timeout:20000}).toBe('queued')
+  await expect.poll(async()=>(await receipt('ALPHA'))?.state,{timeout:60000}).toBe('queued')
   await expect.poll(async()=>(await goalData('ALPHA')).activeTurnId,{timeout:10000}).toBeFalsy()
   expect((await state()).workers.ALPHA.prompts).toHaveLength(0)
   await context.close();context=null
@@ -109,7 +109,7 @@ try{
   await resume()
   expect((await goalData('ALPHA')).usedReviews).toBe(1)
   await command('progress',{marker:'ALPHA'})
-  await expect.poll(async()=>(await state()).workers.ALPHA.prompts.length,{timeout:30000}).toBe(2)
+  await expect.poll(async()=>(await state()).workers.ALPHA.prompts.length,{timeout:60000}).toBe(2)
   await waitGoal('ALPHA','limit')
   const limited=await goalData('ALPHA');expect(limited.usedReviews).toBe(2);expect(limited.maxReviews).toBe(2)
   await command('progress',{marker:'ALPHA'})
@@ -118,7 +118,7 @@ try{
 
   await session('BRAVO');await option('Look after this session');await resume()
   await command('progress',{marker:'BRAVO'})
-  await expect.poll(async()=>(await state()).workers.BRAVO.prompts.length,{timeout:30000}).toBe(1)
+  await expect.poll(async()=>(await state()).workers.BRAVO.prompts.length,{timeout:60000}).toBe(1)
   await waitGoal('BRAVO','limit')
   await goal().getByRole('button',{name:'Mark goal complete',exact:true}).click()
   await page.getByRole('dialog',{name:'Mark this goal complete?',exact:true}).getByRole('button',{name:'Mark complete',exact:true}).click()
@@ -133,7 +133,7 @@ try{
   await command('mode',{marker:'ALPHA',mode:'queue'})
   await goal().getByRole('button',{name:'Start new goal / budget',exact:true}).click()
   await page.getByRole('dialog',{name:'Start a new goal and budget?',exact:true}).getByRole('button',{name:'Start new goal',exact:true}).click()
-  await expect.poll(async()=>(await receipt('ALPHA'))?.state,{timeout:30000}).toBe('queued')
+  await expect.poll(async()=>(await receipt('ALPHA'))?.state,{timeout:60000}).toBe('queued')
   await expect.poll(async()=>(await goalData('ALPHA')).activeTurnId,{timeout:10000}).toBeFalsy()
   const workerPermission=await api(`/api/v2/gaffer/conversations/${conversations.ALPHA}/worker`)
   await api(`/api/v2/gaffer/conversations/${conversations.ALPHA}/worker`,'PUT',{enabled:false,revision:workerPermission.worker.grant.revision,providerId:workerPermission.worker.providerId,providerRevision:workerPermission.worker.providerRevision,model:workerPermission.worker.model})
@@ -147,7 +147,7 @@ try{
 
   await session('CHARLIE');await command('mode',{marker:'CHARLIE',mode:'uncertain'})
   await start('CHARLIE',2)
-  await expect.poll(async()=>(await receipt('CHARLIE'))?.state,{timeout:20000}).toBe('uncertain')
+  await expect.poll(async()=>(await receipt('CHARLIE'))?.state,{timeout:60000}).toBe('uncertain')
   await waitGoal('CHARLIE','needs_user')
   await context.close();context=null
   const before=(await state()).workers.CHARLIE

@@ -253,7 +253,7 @@ project's machine, your favourites and reet's suggestions; **Other…** takes a
 name none of them has. The model beside the main agent applies to every stage
 until you give a crew role its own.
 
-Tick **Have Gaffer report across this outcome by itself** (on unless you untick
+Tick **Have Gaffer report across this outcome by itself** (off unless you tick
 it) and Gaffer makes that report without being asked when a pipeline finishes or
 stops: one request to its model each time, at most six for an outcome and never
 within ten minutes of the last. It only reports and proposes.

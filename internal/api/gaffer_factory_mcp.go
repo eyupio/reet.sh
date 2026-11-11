@@ -155,7 +155,7 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 		return map[string]any{"outcome": s.mcpOutcome(uid, o, full)}, nil
 	}
 	confirmed := args["confirm"] == true
-	needsConfirm := name == "reet_start_outcome" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" || name == "reet_move_pipeline_on" || name == "reet_approve_pipeline_merge" || name == "reet_stop_outcome" || name == "reet_set_pipeline_merge" && str("mode") == "by_itself"
+	needsConfirm := name == "reet_start_outcome" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" || name == "reet_move_pipeline_on" || name == "reet_approve_pipeline_merge" || name == "reet_stop_outcome"
 	if needsConfirm && !confirmed {
 		return nil, errors.New("Pass confirm=true only when the user has asked for exactly this. Nothing was changed.")
 	}
@@ -212,11 +212,12 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 			return s.gafferProviders.RetryPipeline(uid, id, key, revision)
 		})
 	case "reet_set_pipeline_merge":
-		mode := str("mode")
-		if mode != "by_itself" && mode != "wait" {
-			return nil, errors.New(`Choose mode "by_itself" or "wait".`)
+		// A client may only make a pipeline wait. Letting one merge by itself is the
+		// person's own choice, made on the Factory page.
+		if mode := str("mode"); mode != "" && mode != "wait" {
+			return nil, errors.New("Over MCP a pipeline can only be made to wait for approval. Letting it merge by itself is set on the Factory page.")
 		}
-		o, err = s.gafferProviders.SetPipelineAutoMerge(uid, id, key, mode == "by_itself")
+		o, err = s.gafferProviders.SetPipelineAutoMerge(uid, id, key, false)
 	case "reet_approve_pipeline_merge":
 		o, err = latest(func(revision int64) (store.GafferOutcome, error) {
 			return s.gafferProviders.ApproveMerge(uid, id, key, revision)

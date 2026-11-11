@@ -463,8 +463,8 @@
   },
   {
     "name": "reet_set_pipeline_merge",
-    "title": "Set how a pipeline’s merge is decided",
-    "description": "Requires management scope and a writer account. Choose whether one pipeline merges by itself at its merge stage once every check passes (mode \"by_itself\", which needs confirm=true) or stops at Ready to merge and waits for the user’s approval (mode \"wait\"). It merges nothing now. Returns {data: object} as structured content and text.",
+    "title": "Make a pipeline wait for merge approval",
+    "description": "Requires management scope and a writer account. Make one pipeline stop at Ready to merge and wait for the user’s approval instead of merging by itself. The only mode is \"wait\": letting a pipeline merge by itself is the user’s choice on the Factory page and cannot be set here. It merges nothing. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -480,15 +480,11 @@
           "description": "The pipeline’s key from reet_list_factory or reet_get_factory_outcome, such as \"a\"."
         },
         "mode": {
+          "default": "wait",
           "type": "string",
           "enum": [
-            "by_itself",
             "wait"
           ]
-        },
-        "confirm": {
-          "type": "boolean",
-          "description": "Must be true, and only when the user asked for exactly this change."
         },
         "response_format": {
           "default": "json",
@@ -502,8 +498,7 @@
       },
       "required": [
         "outcome_id",
-        "pipeline",
-        "mode"
+        "pipeline"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false

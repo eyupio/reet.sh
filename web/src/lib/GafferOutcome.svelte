@@ -38,7 +38,7 @@
   let crew = $state<Crew>({ think: { tool: '', model: '' }, build: { tool: '', model: '' }, ship: { tool: '', model: '' } })
   let autoMerge = $state(false)
   // Gaffer reports across the outcome by itself when a pipeline finishes or stops. Each report is one model request.
-  let autoReport = $state(true)
+  let autoReport = $state(false)
   let busy = $state(false), startError = $state(''), record = $state<GafferOutcome | null>(null), watchError = $state('')
   let counter = 0
   const key = () => `plan-${++counter}`

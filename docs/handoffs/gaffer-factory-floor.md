@@ -701,6 +701,17 @@ the reason in the prompt, later stages reset, goals), the MCP scope and
 confirmation rules for the new tools, the tool contract in the stdio package,
 and the Factory browser suite for both dialogs. Synthetic only.
 
+## Three defaults decided (11 November 2026)
+
+Asked one at a time; the owner chose:
+
+- **MCP and merges: approve only.** `reet_approve_pipeline_merge` stays (one
+  pipeline that is Ready to merge, `confirm: true`). `reet_set_pipeline_merge`
+  can only make a pipeline wait; "by_itself" is refused and is no longer in its
+  schema. Letting a pipeline merge by itself is set on the Factory page only.
+- **Automatic reports: off by default.** The dialog's box starts unticked.
+- **Auto-merge: stays off by default.**
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

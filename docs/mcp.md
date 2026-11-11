@@ -169,7 +169,7 @@ Six more are the person's own controls and need management scope:
 | --- | --- |
 | `reet_move_pipeline_on` | Closes the stage in hand as it stands and starts the next, without waiting for Gaffer's review. Needs `confirm: true`. |
 | `reet_retry_pipeline` | Tries a pipeline that did not start, or stopped, again. |
-| `reet_set_pipeline_merge` | `mode: "wait"` or `"by_itself"` (which needs `confirm: true`). Merges nothing now. |
+| `reet_set_pipeline_merge` | Makes a pipeline wait for your approval before merging. It cannot switch one to merge by itself; that is set on the Factory page. |
 | `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true`. |
 | `reet_stop_outcome` | Stops an outcome. Needs `confirm: true`. |
 | `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |

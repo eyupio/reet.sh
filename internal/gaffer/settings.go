@@ -172,6 +172,7 @@ type Service struct {
 	worker          WorkerMessenger
 	starter         SessionStarter
 	auditor         atomic.Pointer[AuditFunc]
+	toolHost        atomic.Pointer[ToolHost]
 	outcomeWake     chan struct{}
 	workerEnabled   func() bool
 	workerLimiter   *auth.Limiter

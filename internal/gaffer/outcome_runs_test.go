@@ -441,7 +441,7 @@ func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
 		t.Fatal("the stage goal was not recognised as a pipeline stage")
 	}
 	// Code is handed over to a different model: a new session in the first one's folder, with the handover.
-	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed on the branch.")
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed on the branch.", "gaffer")
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
 	asked := r.starter.asked()
 	if len(asked) != 2 || review.SessionID == code.SessionID || review.Stages[0].State != "done" || review.Stages[0].Summary == "" {
@@ -455,7 +455,7 @@ func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
 		t.Fatalf("the finished stage's goal: %+v %v", old, err)
 	}
 	// Review to test is the same agent and model: the session carries on under a fresh goal.
-	r.s.stageHandedOver(r.p.UserID, review.ConversationID, "Two fixes committed; nothing needs a decision.")
+	r.s.stageHandedOver(r.p.UserID, review.ConversationID, "Two fixes committed; nothing needs a decision.", "gaffer")
 	test := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
 	if test.SessionID != review.SessionID || test.ConversationID != review.ConversationID || len(r.starter.asked()) != 2 {
 		t.Fatalf("test stage should keep the session: %+v", test)
@@ -464,7 +464,7 @@ func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
 		t.Fatalf("test goal: %+v %v", g, err)
 	}
 	// Test is done. Merge was not allowed, so nothing more starts until the person says so.
-	r.s.stageHandedOver(r.p.UserID, test.ConversationID, "All checks pass locally.")
+	r.s.stageHandedOver(r.p.UserID, test.ConversationID, "All checks pass locally.", "gaffer")
 	ready := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
 	time.Sleep(60 * time.Millisecond)
 	if ready.Stage != 3 || ready.Stages[3].State != "pending" || len(r.starter.asked()) != 2 {
@@ -495,7 +495,7 @@ func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
 	if merge.SessionID != test.SessionID {
 		t.Fatalf("merge should keep the session: %+v", merge)
 	}
-	r.s.stageHandedOver(r.p.UserID, merge.ConversationID, "Merged.")
+	r.s.stageHandedOver(r.p.UserID, merge.ConversationID, "Merged.", "gaffer")
 	done := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "done" })
 	if done.Stages[3].State != "done" {
 		t.Fatalf("done: %+v", done)
@@ -524,7 +524,7 @@ func TestAPipelineAllowedToMergeGoesStraightToItsMergeStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
-	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Done.")
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Done.", "gaffer")
 	merge := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
 	if !merge.AutoMerge || merge.MergeApproved {
 		t.Fatalf("merge: %+v", merge)
@@ -538,7 +538,7 @@ func TestAPipelineAllowedToMergeGoesStraightToItsMergeStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	c2 := r.piece(t, second.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
-	r.s.stageHandedOver(r.p.UserID, c2.ConversationID, "Done.")
+	r.s.stageHandedOver(r.p.UserID, c2.ConversationID, "Done.", "gaffer")
 	r.piece(t, second.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
 }
 
@@ -716,7 +716,7 @@ func TestOutcomeReviewReportsAcrossPipelinesAndOnlyProposes(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
-	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed on the branch.")
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed on the branch.", "gaffer")
 	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
 	// The supervisor may still be recording the hand-over: wait until the record stops changing.
 	before := r.settle(t, created.ID)
@@ -802,7 +802,7 @@ func TestALaterStageSessionIsListedUnderItsProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
-	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Done.")
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Done.", "gaffer")
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
 	if asked := r.starter.asked(); asked[1].LinkProjectID != r.project.ID || asked[1].ProjectID != "" {
 		t.Fatalf("later stage launch: %+v", asked[1])
@@ -846,7 +846,7 @@ func TestYoloIsThePersonsChoiceAndReachesEveryStageLaunch(t *testing.T) {
 		t.Fatalf("yolo outcome: %+v %v", created, err)
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
-	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Committed.")
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Committed.", "gaffer")
 	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
 	asked := r.starter.asked()[before:]
 	if len(asked) != 2 || !asked[0].Yolo || !asked[1].Yolo {
@@ -895,7 +895,7 @@ func TestGafferChatIsToldWhereItsSessionSitsInThePipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
-	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed. token=abcdefgh12345678")
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed. token=abcdefgh12345678", "gaffer")
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
 	full := r.s.contextPipeline(r.p.UserID, review.SessionID, store.ContextFlags{Status: true, Text: true})
 	if full == nil || full.StageInHand != "review" || full.State != "following" || len(full.Stages) != 4 || full.Outcome == "" || full.Title != "Export API" || full.Merge != "waits for the person's approval" || full.GoalState != "active" || full.HowItMovesOn == "" {
@@ -1054,6 +1054,7 @@ func TestThePersonMovesAPipelineOnWhateverTheStageGoalSays(t *testing.T) {
 
 func TestGafferChatMovesThePipelineOnWhenThePersonSaysContinue(t *testing.T) {
 	r := outcomeFixture(t)
+	log := recordAudit(r.s)
 	var mu sync.Mutex
 	var tools [][]string
 	round := 0
@@ -1105,6 +1106,8 @@ func TestGafferChatMovesThePipelineOnWhenThePersonSaysContinue(t *testing.T) {
 	if review.Stages[0].State != "done" || !strings.Contains(review.Stages[0].Summary, "The plan text is missing; the person accepted that.") {
 		t.Fatalf("stage after the chat: %+v", review.Stages[0])
 	}
+	// A move made from the chat is in the activity log, and says it was the person's word.
+	log.wait(t, "gaffer-stage-started code", "gaffer-stage-handed-over code chat", "gaffer-stage-started review")
 	mu.Lock()
 	defer mu.Unlock()
 	// The person's chat in a pipeline session is given both ways to act; the reporting round has none.
@@ -1121,7 +1124,7 @@ func TestThePersonSendsAPipelineBackAndTheStageIsDoneAgainInTheSameFolder(t *tes
 		t.Fatal(err)
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
-	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint committed.")
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint committed.", "gaffer")
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
 	for name, bad := range map[string][2]string{"later stage": {"test", "Needs it."}, "no reason": {"code", "  "}, "unknown stage": {"deploy", "Why not."}} {
 		if _, err := r.s.SendPipelineBack(r.p.UserID, created.ID, review.Key, bad[0], bad[1]); err == nil {
@@ -1183,7 +1186,7 @@ func TestAStageKeepsWhatItsAgentReportedUsing(t *testing.T) {
 	if s := live.Sessions[0].Stages[0]; !s.AgentUsageReported || s.AgentInputTokens != 1000 || s.AgentOutputTokens != 200 || s.AgentCachedTokens != 5000 || s.ContextUsed != 40000 || s.ContextSize != 200000 {
 		t.Fatalf("live stage usage: %+v", s)
 	}
-	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Committed.")
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Committed.", "gaffer")
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
 	if review.SessionID != code.SessionID {
 		t.Fatalf("the second stage did not keep the session: %+v", review)

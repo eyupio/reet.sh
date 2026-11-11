@@ -3,6 +3,7 @@ package gaffer
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 
@@ -283,6 +284,38 @@ const (
 	heldGoalRecheck   = 15 * time.Second
 )
 
+// How long a goal may look active while nothing can happen without the
+// person. Variables so tests can shorten them.
+var (
+	// instructionDeliveryWait is how long Gaffer's instruction may sit
+	// undelivered while the working model is not busy.
+	instructionDeliveryWait = 10 * time.Minute
+	// idleWorkerWait is how long the working model may sit idle after Gaffer's
+	// last review, with nothing queued for it, before the goal needs the person.
+	idleWorkerWait = 30 * time.Minute
+)
+
+// workerControls asks the working model's chat what it is doing. ok is false
+// when it could not be asked.
+func (s *Service) workerControls(ctx context.Context, g store.GafferGoal) (terminalproto.ACPControls, bool) {
+	if s.worker == nil || s.workerEnabled != nil && !s.workerEnabled() {
+		return terminalproto.ACPControls{}, false
+	}
+	probe, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	status, err := s.worker.ChatControl(probe, g.OwnerID, g.SessionID, terminalproto.ACPControl{Action: "get"})
+	return status.Controls, err == nil
+}
+
+// minutes is a wait in words for a goal's note.
+func minutes(d time.Duration) string {
+	n := int(d.Round(time.Minute) / time.Minute)
+	if n <= 1 {
+		return "a minute"
+	}
+	return strconv.Itoa(n) + " minutes"
+}
+
 // reviewHeldGoal looks again at a goal that needs the person only because the
 // working model was waiting for them. No model request is made. Once the wait
 // is over the goal is active again and reviewed like any other; anything else
@@ -293,14 +326,20 @@ func (s *Service) reviewHeldGoal(ctx context.Context, g store.GafferGoal) {
 			_ = s.store.HoldGafferGoalForWorker(g, note, time.Now().Add(heldGoalRecheck).UnixMilli())
 		}
 	}
+	// The hold ends without the goal carrying on: it now simply needs the person.
+	end := func(note string) {
+		if s.store.EndGafferGoalHold(g, note) == nil {
+			s.auditGoal(g, "gaffer-goal-needs-you", note)
+		}
+	}
 	if g.ExpiresAt <= time.Now().UnixMilli() {
-		_ = s.store.EndGafferGoalHold(g, "The follow-up time limit was reached while the working model waited for you. Review or start a new budget.")
+		end("The follow-up time limit was reached while the working model waited for you. Review or start a new budget.")
 		return
 	}
 	// Access is checked as for any goal on the first review after the release.
 	row, err := s.store.TerminalSessionFor(g.OwnerID, g.SessionID)
 	if err != nil || row.State != terminalproto.Running {
-		_ = s.store.EndGafferGoalHold(g, "The working session has ended or is unavailable. Review its outcome before choosing further work.")
+		end("The working session has ended or is unavailable. Review its outcome before choosing further work.")
 		return
 	}
 	if s.worker == nil || s.workerEnabled != nil && !s.workerEnabled() {
@@ -322,6 +361,7 @@ func (s *Service) reviewHeldGoal(ctx context.Context, g store.GafferGoal) {
 		hold(g.Note)
 		return
 	}
+	s.auditGoal(g, "gaffer-goal-released", "The working model is no longer waiting for the person. Gaffer is following again.")
 	s.wakeGoals()
 }
 
@@ -333,7 +373,19 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 		if ctx.Err() != nil {
 			return
 		}
-		_ = s.store.ObserveGafferGoal(g, state, note, time.Now().Add(delay).UnixMilli())
+		if s.store.ObserveGafferGoal(g, state, note, time.Now().Add(delay).UnixMilli()) == nil {
+			// Only a goal that stops being followed is recorded, not each look at an active one.
+			if action := goalStateAction(state); action != "" {
+				s.auditGoal(g, action, note)
+			}
+		}
+	}
+	// Only the person can answer a waiting working model. The goal needs them
+	// until they have, and then carries on by itself.
+	hold := func() {
+		if s.store.HoldGafferGoalForWorker(g, workerWaitingNote, time.Now().Add(heldGoalRecheck).UnixMilli()) == nil {
+			s.auditGoal(g, "gaffer-goal-held", workerWaitingNote)
+		}
 	}
 	if g.State == "needs_user" {
 		s.reviewHeldGoal(ctx, g)
@@ -360,6 +412,27 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 		}
 		switch m.State {
 		case "queued", "sending":
+			// A queued instruction waits for the working model's turn to end.
+			// One that is still undelivered long after, while the model is not
+			// busy, will not be delivered by waiting: the person has to look.
+			if waited := time.Since(time.UnixMilli(m.CreatedAt)); waited >= instructionDeliveryWait && s.worker != nil && (s.workerEnabled == nil || s.workerEnabled()) {
+				controls, ok := s.workerControls(ctx, g)
+				if ctx.Err() != nil {
+					return
+				}
+				switch {
+				case ok && controls.Waiting:
+					hold()
+					return
+				case ok && (controls.Working || controls.Configuring || controls.Compacting):
+				case ok:
+					observe("needs_user", "Gaffer’s instruction has waited "+minutes(waited)+" without reaching the working model, which is not busy. Check its session; the instruction is still queued. Resume the goal to try again.", time.Minute)
+					return
+				default:
+					observe("needs_user", "Gaffer’s instruction has waited "+minutes(waited)+" undelivered and the working session could not be reached. Check the machine and the session, then resume the goal.", time.Minute)
+					return
+				}
+			}
 			observe("active", "Waiting for the existing instruction's delivery.", 10*time.Second)
 			return
 		case "uncertain", "blocked", "removed":
@@ -382,6 +455,25 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 		return
 	}
 	if seq == 0 || seq <= g.LastSeq {
+		// Gaffer has reviewed everything there is. If the working model has
+		// then sat idle with nothing queued for it, no progress is coming:
+		// most often it asked the person something. Say so rather than look
+		// active until the goal expires.
+		since := max(g.LastReviewedAt, g.ResumedAt)
+		if g.LastReviewedAt > 0 && time.Since(time.UnixMilli(since)) >= idleWorkerWait {
+			controls, ok := s.workerControls(ctx, g)
+			if ctx.Err() != nil {
+				return
+			}
+			if ok && controls.Waiting {
+				hold()
+				return
+			}
+			if ok && !controls.Working && !controls.Configuring && !controls.Compacting {
+				observe("needs_user", "The working model has been idle for "+minutes(time.Since(time.UnixMilli(since)))+" since Gaffer last looked, and nothing is queued for it. It may be waiting for your answer: read its last message, then resume the goal or move the work on.", time.Minute)
+				return
+			}
+		}
 		observe("active", "Waiting for new worker progress. No model request was made.", 15*time.Second)
 		return
 	}
@@ -400,9 +492,7 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 		return
 	}
 	if status.Controls.Waiting {
-		// Only the person can answer. The goal needs them until they have, and
-		// then carries on by itself: their answer is all it was waiting for.
-		_ = s.store.HoldGafferGoalForWorker(g, workerWaitingNote, time.Now().Add(heldGoalRecheck).UnixMilli())
+		hold()
 		return
 	}
 	if status.Controls.Working || status.Controls.Configuring || status.Controls.Compacting {

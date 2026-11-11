@@ -343,11 +343,11 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
 
   tool('find_duplicates', 'Find likely duplicate skills', 'Group shelf skills by normalised name and upstream source, flag local versus upstream pairs, and suggest a canonical ID. Read-only; it does not merge or remove anything.', {}, async () => client.request('/api/v2/skills/duplicates'));
 
-  tool('list_events', 'Read shelf activity', 'Read audit events with optional skill, action and source filters. Use before to page older and after to page newer; follow has_more. source=mcp shows changes made by MCP clients, with the client name in detail. Does not change anything.', {
+  tool('list_events', 'Read shelf activity', 'Read audit events with optional skill, action and source filters. Use before to page older and after to page newer; follow has_more. source=mcp shows changes made by MCP clients, with the client name in detail. source=gaffer shows what Gaffer and the controller did to Factory pipelines and goals by themselves (stages handed over and started, goals that need the person, were held or released), each with its outcome, pipeline, stage and reason. source=machine shows session events such as yolo-allow, one row per turn with a count of the requests YOLO allowed. Does not change anything.', {
     limit: pagination.limit,
     skill: id.optional(),
     action: z.string().max(100).optional().describe('Exact action, e.g. bulk-update or list-delete.'),
-    source: z.enum(['ui', 'mcp', 'scan', 'import']).optional().describe('Who made the change.'),
+    source: z.enum(['ui', 'mcp', 'scan', 'import', 'gaffer', 'machine']).optional().describe('Who made the change.'),
     before: z.string().regex(/^\d+$/).optional().describe('Cursor: return events older than this event ID.'),
     after: z.string().regex(/^\d+$/).optional().describe('Cursor: return events newer than this event ID.'),
   }, async ({ limit, skill, action, source, before, after }) => {

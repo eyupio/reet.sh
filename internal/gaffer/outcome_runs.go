@@ -630,7 +630,7 @@ func (s *Service) pipelineStage(uid int64, conversation string) bool {
 // stageHandedOver records that Gaffer's review found the stage in hand
 // finished, closes that stage's goal and asks the controller for the next
 // stage. Gaffer's model chose none of what follows.
-func (s *Service) stageHandedOver(uid int64, conversation, summary string) {
+func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 	rows, err := s.store.GafferOutcomesFor(uid)
 	if err != nil {
 		return
@@ -640,7 +640,10 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary string) {
 			if piece.State != "following" || len(piece.Stages) == 0 || piece.ConversationID != conversation {
 				continue
 			}
-			key := piece.Key
+			key, kind := piece.Key, ""
+			if piece.Stage < len(piece.Stages) {
+				kind = piece.Stages[piece.Stage].Kind
+			}
 			used, _ := s.store.GafferGoalFor(uid, conversation)
 			// What the stage's agent reported using is kept with the stage, like Gaffer's own figures.
 			agent, agentReported := s.stageAgentUsage(uid, piece, piece.Stage)
@@ -667,6 +670,16 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary string) {
 			if err != nil {
 				return
 			}
+			// Why the stage ended is recorded: Gaffer's review found it done, or
+			// the person said so. The handover's words stay on the stage.
+			reason := "Gaffer’s review found the " + kind + " stage done and handed it over."
+			switch by {
+			case "person":
+				reason = "The person moved the pipeline on from the " + kind + " stage."
+			case "chat":
+				reason = "The person told Gaffer in the session’s chat to move the pipeline on from the " + kind + " stage."
+			}
+			s.audit(uid, "gaffer-stage-handed-over", map[string]any{"outcome": o.ID, "pipeline": key, "stage": kind, "by": by, "session": piece.SessionID, "reviews": used.UsedReviews, "reason": reason})
 			// The finished stage's goal is closed without calling it the
 			// person's completion: only they mark a goal complete.
 			if g, err := s.store.GafferGoalFor(uid, conversation); err == nil && g.State == "active" && g.ActiveTurnID == "" {
@@ -712,7 +725,10 @@ func (s *Service) ApproveMerge(uid int64, id, key string, revision int64) (store
 func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, item store.GafferOutcomeSession) bool {
 	uid := o.OwnerID
 	set := func(state, note string, more func(*store.GafferOutcomeSession)) bool {
-		_, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, more))
+		after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, more))
+		if err == nil {
+			s.auditPipeline(after, item.Key)
+		}
 		return err == nil
 	}
 	next := item.Stage + 1
@@ -782,7 +798,10 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, item store.GafferOutcomeSession) bool {
 	uid := o.OwnerID
 	fail := func(state, note string) bool {
-		_, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, nil))
+		after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, state, note, nil))
+		if err == nil {
+			s.auditPipeline(after, item.Key)
+		}
 		return err == nil
 	}
 	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Trust: o.Trust, Yolo: o.Yolo, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
@@ -871,12 +890,15 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 				if staged {
 					note = "The " + item.Stages[item.Stage].Kind + " stage is under way."
 				}
-				_, err = s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "following", note, func(row *store.GafferOutcomeSession) {
+				after, err := s.outcomeStep(uid, o.ID, setOutcomeSession(item.Key, "following", note, func(row *store.GafferOutcomeSession) {
 					row.ConversationID = cid
 					if row.Stage < len(row.Stages) {
 						row.Stages[row.Stage].ConversationID = cid
 					}
 				}))
+				if err == nil {
+					s.auditPipeline(after, item.Key)
+				}
 				return err == nil
 			}
 			if errors.Is(err, ErrUnavailable) && ctx.Err() != nil {

@@ -384,7 +384,7 @@ func (s *Service) MovePipelineOn(uid int64, id, key string) (store.GafferOutcome
 		if piece.State != "following" || len(piece.Stages) == 0 || piece.Stage >= len(piece.Stages) || piece.ConversationID == "" {
 			return outcomeView(o), invalid("advance", "That pipeline has no stage in hand to move on from.")
 		}
-		if err := s.movePipelineOn(uid, piece.ConversationID, ""); err != nil {
+		if err := s.movePipelineOn(uid, piece.ConversationID, "", "person"); err != nil {
 			return outcomeView(o), err
 		}
 		o, err = s.store.GafferOutcomeFor(uid, id)
@@ -396,7 +396,7 @@ func (s *Service) MovePipelineOn(uid int64, id, key string) (store.GafferOutcome
 // movePipelineOn closes the goal of the stage in hand for the pipeline that
 // conversation follows, whatever state the goal is in, and hands the stage
 // over on the person's word. note is what they said, if anything.
-func (s *Service) movePipelineOn(uid int64, conversation, note string) error {
+func (s *Service) movePipelineOn(uid int64, conversation, note, by string) error {
 	if !s.pipelineStage(uid, conversation) {
 		return invalid("advance", "That pipeline has no stage in hand to move on from.")
 	}
@@ -419,7 +419,7 @@ func (s *Service) movePipelineOn(uid int64, conversation, note string) error {
 			}
 		}
 	}
-	s.stageHandedOver(uid, conversation, summary)
+	s.stageHandedOver(uid, conversation, summary, by)
 	if s.pipelineStage(uid, conversation) {
 		// Still on the same stage: the record moved under the hand-over.
 		return store.ErrGafferOutcomeBusy

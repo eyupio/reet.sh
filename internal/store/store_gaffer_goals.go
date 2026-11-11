@@ -45,6 +45,9 @@ type GafferGoal struct {
 	// working model is waiting for their answer or approval. The supervisor
 	// keeps looking at it and resumes it once that wait is over.
 	WaitingOnWorker bool `json:"waitingOnWorker,omitempty"`
+	// ResumedAt is when the person last resumed the goal. An idle working
+	// model is measured from then, not from a review made before the pause.
+	ResumedAt int64 `json:"resumedAt,omitempty"`
 }
 
 func (s *Store) migrateGafferGoals() error {
@@ -235,6 +238,7 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 		g.WorkerRevision = pins.WorkerRevision
 		g.LastSeq = pins.LastSeq
 		g.NextAt = now()
+		g.ResumedAt = now()
 		if err = goalAuthority(tx, *g); err != nil {
 			return err
 		}

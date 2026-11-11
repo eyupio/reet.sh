@@ -231,7 +231,7 @@ func TestProfileDefaultLaunchFieldsAndInvalidCombinations(t *testing.T) {
 		"bad tool":             {"defaultTool": "bash"},
 		"bad model":            {"defaultModel": "-rm"},
 		"bad effort":           {"defaultEffort": "max"},
-		"effort on codex":      {"defaultTool": "codex", "defaultModel": "", "defaultEffort": "high"},
+		"effort on opencode":   {"defaultTool": "opencode", "defaultModel": "", "defaultEffort": "high"},
 		"model without tool":   {"defaultTool": "", "defaultModel": "model-one", "defaultEffort": ""},
 		"effort without tool":  {"defaultTool": "", "defaultModel": "", "defaultEffort": "high"},
 		"retain model no tool": {"defaultTool": ""},
@@ -278,6 +278,15 @@ func TestProfileThemeEditIgnoresALegacyModelWithoutTool(t *testing.T) {
 	}
 }
 
+// Codex takes a thinking level in its terminal launch (a config override), so a project may keep one as its default.
+func TestFolderProjectCodexTakesAnEffort(t *testing.T) {
+	f := projectFixture(t)
+	created := f.fpCreate(t, map[string]any{"defaultTool": "codex", "defaultModel": "model-one", "defaultEffort": "high"})
+	if created["defaultTool"] != "codex" || created["defaultEffort"] != "high" {
+		t.Fatal("codex project with an effort", created)
+	}
+}
+
 func TestFolderProjectClineAndEffort(t *testing.T) {
 	f := projectFixture(t)
 	created := f.fpCreate(t, map[string]any{"defaultTool": "cline", "defaultModel": "model-one", "defaultEffort": "high"})
@@ -289,7 +298,7 @@ func TestFolderProjectClineAndEffort(t *testing.T) {
 	if res.code != 200 || res.out["defaultEffort"] != "low" || res.out["defaultTool"] != "cline" {
 		t.Fatal("effort update", res.code, res.raw)
 	}
-	res = f.fpDo(t, f.cookie, "PATCH", "/api/v2/folder-projects/"+id, map[string]any{"defaultTool": "codex"}, `"2"`)
+	res = f.fpDo(t, f.cookie, "PATCH", "/api/v2/folder-projects/"+id, map[string]any{"defaultTool": "opencode"}, `"2"`)
 	if res.code != 422 || res.out["code"] != "invalid_effort" || res.out["field"] != "defaultEffort" {
 		t.Fatal("effort left on an agent that takes none", res.code, res.raw)
 	}
@@ -299,7 +308,7 @@ func TestFolderProjectClineAndEffort(t *testing.T) {
 	for name, body := range map[string]map[string]any{
 		"model without tool":  {"defaultTool": "", "defaultModel": "model-one"},
 		"effort without tool": {"defaultTool": "", "defaultModel": "", "defaultEffort": "high"},
-		"effort on codex":     {"defaultTool": "codex", "defaultEffort": "high"},
+		"effort on opencode":  {"defaultTool": "opencode", "defaultEffort": "high"},
 		"unknown effort":      {"defaultTool": "cline", "defaultEffort": "max"},
 		"unknown tool":        {"defaultTool": "bash"},
 	} {

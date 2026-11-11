@@ -129,7 +129,7 @@ test pins the ordinary flags to `--model`, `--prompt` and
 | Tool | Arguments (with a model and a prompt) | Confirmed from |
 | --- | --- | --- |
 | `claude` | `claude [--dangerously-skip-permissions] [--continue \| --resume <id>] [--effort <level>] [--model <model>] [-- <prompt>]` | `claude --help` on Claude Code 2.1.319, captured in `internal/terminalhost/testdata/help/claude.txt` with the registry tarball and integrity in `sources.json`: "Usage: claude [options] [command] [prompt]", `-c, --continue` ("Continue the most recent conversation in the current directory"), `-r, --resume [value]`, `--dangerously-skip-permissions`, `--effort <level>` and `--model <model>`. The bundled argument parser of 2.1.310 was read to confirm that `--` ends options. Only version and help were run. |
-| `codex` | `codex --model <model> -- <prompt>` | https://learn.chatgpt.com/docs/developer-commands?surface=cli (reached from https://developers.openai.com/codex/cli/reference): "Running `codex` with no subcommand launches the interactive terminal UI", `--model, -m`, and an optional `PROMPT`. Source: `codex-rs/tui/src/cli.rs` in openai/codex has a positional `prompt: Option<String>`. |
+| `codex` | `codex [--ask-for-approval never] [resume --last \| resume <id>] [-c model_reasoning_effort=<level>] [--model <model>] [-- <prompt>]` | `codex --help` and `codex resume --help` on codex-cli 0.166.0, captured in `internal/terminalhost/testdata/help/codex.txt` with the registry tarball and integrity in `sources.json`: `--model`, `-a/--ask-for-approval`, `-c/--config <key=value>` and a `resume` subcommand that takes the same options plus `--last`, with an optional `PROMPT`. Codex has no effort flag, so the level is a `model_reasoning_effort` config override, which the help does not name; the argv was run through the real terminal UI under a pty against a stand-in provider (no account, network or real model) on codex-cli 0.156.1 and 0.166.0, and the provider received the chosen model, effort and approval policy and, for `resume`, the earlier turns (probe report, "Codex terminal probes"). |
 | `opencode` | `opencode --model <model> --prompt <prompt>` | https://opencode.ai/docs/cli/: "opencode [project]" starts the terminal UI, with `--prompt` and `--model`. The positional is a project path, so the prompt goes through the flag. |
 | `antigravity` | `agy --model <model> --prompt-interactive <prompt>` | Antigravity CLI 1.5.0 captured version/help in `internal/terminalhost/testdata/help/agy.txt`; official archive and verified SHA-256 in `sources.json`. `--prompt` is a print-mode alias and is not used. The `agy` alias distinguishes the CLI from the desktop app. |
 
@@ -312,7 +312,7 @@ answers 422 `base_missing`, naming the machine in the sentence. An empty base
 keeps the existing HEAD behaviour.
 
 Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its
-confirmed `--thinking` option, and Claude Code 2.1.319 and Antigravity CLI 1.5.0 to `--effort` (Claude Code's own help also lists `xhigh` and `max`, which a launch does not carry); other presets have no effort mapping until their
+confirmed `--thinking` option, Claude Code 2.1.319 and Antigravity CLI 1.5.0 to `--effort` (Claude Code's own help also lists `xhigh` and `max`, which a launch does not carry), and Codex to a `-c model_reasoning_effort=<level>` override (its CLI does not check the value, so only these three are sent; `ultra` is not, because a model that lacks it falls back to `medium`); other presets have no effort mapping until their
 exact CLI arguments have captured help evidence. An
 unsupported mapping answers `launch_option_unsupported`; it never silently
 ignores the choice. YOLO maps to a reviewed option only for Claude Code
@@ -322,12 +322,16 @@ ignores the choice. YOLO maps to a reviewed option only for Claude Code
 it with `yolo_refused`, and the account setting must allow it first. A Claude Code chat in Gaffer takes YOLO through the
 same three gates: the account setting, the machine switch and the confirmation.
 
-Terminal resume exists for OpenCode (`--continue`, and `--session <id>`) and Claude Code (`--continue`, and
-`--resume <id>`). `--continue` continues the tool's most recent conversation in the launch folder. The preset carries
+Terminal resume exists for OpenCode (`--continue`, and `--session <id>`), Claude Code (`--continue`, and
+`--resume <id>`) and Codex (`resume --last`, and `resume <id>`, a subcommand rather than a flag). `--continue` and
+`resume --last` continue the tool's most recent conversation in the launch folder. For Codex that is the latest session there that is not a `codex exec` one, and a Gaffer chat's session counts: if a chat in the folder is newer than the terminal session, Continue opens the chat's conversation. When the folder has no such session, Codex starts a new conversation without an error, so a Continue that shows an empty welcome screen was not a resume. Resume, a session id and effort need a `codex` of 0.156.1 or newer, the oldest version they were measured on: the connector reads `codex --version` before starting and refuses an older one with `launch_option_unsupported`, so the machine's CLI never answers with its own parse error. A version it cannot read is not refused. A launch with none of those options, such as a plain start, a model, a prompt or YOLO, never runs `--version`. Older CLIs were probed only far enough to set the floor: `codex resume` exists from 0.38.0 and not in 0.34.0, but through the stand-in provider the effort override reached no request on 0.38.0, 0.60.1 or 0.100.0, so the floor stays at the version that was measured working. The preset carries
 `--resume <id>` for a Claude Code session id, but nothing in the browser starts it yet: the only path that sends a session
 id is the switch from a running Gaffer chat to the agent's own terminal, which the web offers for OpenCode only. Whether a
 Claude Code chat's id is one the CLI's `--resume` opens is not measured, because only the CLI's help was captured. Offering
-that switch for Claude Code is a separate, later change.
+that switch for Claude Code is a separate, later change. For Codex, a chat's id was measured to open under `codex resume <id>`, from the same
+folder and from another, with the earlier turns reaching the provider; that was run against a stand-in provider on codex-cli 0.156.1 and
+0.166.0, not with a signed-in account. codex-cli 0.166.0 also keeps a background app-server that can hold a session after its terminal closes,
+and a `resume` with a changed configuration can then show "open in another app"; closing that session first avoids it.
 
 Cline 3.0.74 is enabled after a pinned, help-only installation confirmed its
 `--auto-approve false --tui` safety and interactive arguments, `--model` and

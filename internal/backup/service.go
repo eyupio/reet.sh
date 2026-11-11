@@ -362,8 +362,8 @@ func (s *Service) SaveSettings(ownerID int64, in SettingsInput) (store.BackupSet
 		if strings.TrimSpace(password) == "" {
 			current.PasswordSealed = ""
 		} else {
-			if len(password) < MinPassword {
-				return store.BackupSettings{}, fmt.Errorf("a copy password needs at least %d characters", MinPassword)
+			if err := ValidateCopyPassword(password); err != nil {
+				return store.BackupSettings{}, err
 			}
 			if s.cfg.Sealer == nil {
 				return store.BackupSettings{}, errors.New("backups are not enabled: no usable backup key")
@@ -387,6 +387,16 @@ func (s *Service) SaveSettings(ownerID int64, in SettingsInput) (store.BackupSet
 		return store.BackupSettings{}, err
 	}
 	return s.st.BackupSettingsFor(ownerID)
+}
+
+// ValidateCopyPassword is the one rule for a copy password, whether it is saved
+// as the setting or given for a single copy: at least MinPassword characters,
+// and not blank. The message never contains the password.
+func ValidateCopyPassword(password string) error {
+	if strings.TrimSpace(password) == "" || len(password) < MinPassword {
+		return fmt.Errorf("a copy password needs at least %d characters", MinPassword)
+	}
+	return nil
 }
 
 // copyPassword opens the stored copy password for one owner, or "" when
@@ -575,17 +585,33 @@ func targetOf(ownerID int64) string {
 func (s *Service) RunInstance(ctx context.Context, trigger string) (Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.runLocked(ctx, 0, trigger)
+	return s.runLocked(ctx, 0, trigger, nil)
+}
+
+// RunInstanceWithPassword takes a copy of the whole database sealed with a
+// password given for this one copy. The stored copy password is not read,
+// changed or cleared: it is a setting for every copy, and this is a parameter of
+// one. A password that fails ValidateCopyPassword is refused before anything is
+// taken. Copies are serialised, so no other copy can be sealed with it.
+func (s *Service) RunInstanceWithPassword(ctx context.Context, trigger, password string) (Item, error) {
+	if err := ValidateCopyPassword(password); err != nil {
+		return Item{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runLocked(ctx, 0, trigger, &password)
 }
 
 // RunUser takes a copy of one person's shelf and ships it.
 func (s *Service) RunUser(ctx context.Context, userID int64, trigger string) (Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.runLocked(ctx, userID, trigger)
+	return s.runLocked(ctx, userID, trigger, nil)
 }
 
-func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) (Item, error) {
+// runLocked takes one copy. requestPassword, when not nil, seals this copy
+// instead of the stored copy password, which is then not read at all.
+func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string, requestPassword *string) (Item, error) {
 	if !s.Usable() {
 		return Item{}, errors.New("backups are not enabled: no usable backup key")
 	}
@@ -620,6 +646,13 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 	}
 	id := s.newID(ownerID)
 	var payload []byte
+	var source string
+	var fenced *bool
+	if ownerID == 0 {
+		if source, err = s.st.ControllerID(); err != nil {
+			return fail(err)
+		}
+	}
 	if ownerID == 0 {
 		temp, err := os.CreateTemp(s.cfg.Dir, ".reet-snapshot-*")
 		if err != nil {
@@ -629,6 +662,14 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 		temp.Close()
 		_ = os.Remove(tempName)
 		defer os.Remove(tempName)
+		// The fence is read either side of the snapshot. A copy is marked
+		// fenced only when it was fenced throughout, so a fence lifted (or
+		// raised) while it was being taken reads as "not fenced", which is
+		// the safe side.
+		before, err := s.st.FenceSince()
+		if err != nil {
+			return fail(err)
+		}
 		vctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		err = s.st.VacuumInto(vctx, tempName)
 		cancel()
@@ -638,6 +679,12 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 		if info, statErr := os.Stat(tempName); statErr == nil && info.Size() > maxObjectBytes {
 			return fail(fmt.Errorf("the database snapshot is %d MiB, larger than this build's %d MiB limit; prune the event history or back it up as a file on this machine", info.Size()>>20, maxObjectBytes>>20))
 		}
+		after, ferr := s.st.FenceSince()
+		if ferr != nil {
+			return fail(ferr)
+		}
+		wasFenced := before > 0 && before == after
+		fenced = &wasFenced
 		payload, err = os.ReadFile(tempName)
 		if err != nil {
 			return fail(err)
@@ -655,11 +702,13 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string) 
 	if len(payload) > maxObjectBytes {
 		return fail(fmt.Errorf("this copy would be %d MiB, larger than this build's %d MiB limit; reduce the event history or keep the copy on this machine only", len(payload)>>20, maxObjectBytes>>20))
 	}
-	password, err := s.copyPassword(ownerID)
-	if err != nil {
+	var password string
+	if requestPassword != nil {
+		password = *requestPassword
+	} else if password, err = s.copyPassword(ownerID); err != nil {
 		return fail(err)
 	}
-	m := Manifest{ID: id, Kind: scope, OwnerID: ownerID, Target: targetOf(ownerID), TakenAt: started, Version: s.cfg.Version}
+	m := Manifest{ID: id, Kind: scope, OwnerID: ownerID, Target: targetOf(ownerID), TakenAt: started, Version: s.cfg.Version, Source: source, Fenced: fenced}
 	sealed, err := s.cfg.Sealer.SealArchive(m, payload, SealOptions{
 		Compress: settings.Compression != CompressionNone,
 		Password: password,
@@ -1241,10 +1290,10 @@ func verifyContent(ctx context.Context, m Manifest, payload []byte) error {
 	}
 	var snap store.Snapshot
 	if err := json.Unmarshal(payload, &snap); err != nil {
-		return errors.New("the shelf backup is not valid JSON: " + err.Error())
+		return errors.New("the library backup is not valid JSON: " + err.Error())
 	}
 	if snap.Skills == nil {
-		return errors.New("the shelf backup has no skills")
+		return errors.New("the library backup has no skills")
 	}
 	return nil
 }
@@ -1649,6 +1698,12 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 func (s *Service) runDue(ctx context.Context) {
+	// A fenced controller takes no scheduled copies: they would ship to a
+	// destination and could push the final copy out of retention. The owner's
+	// own "run now" still works.
+	if s.st.Fenced() {
+		return
+	}
 	now := time.Now().UnixMilli()
 	settings, settingsErr := s.settingsFor(0)
 	due := settingsErr == nil && settings.EverySeconds > 0 &&

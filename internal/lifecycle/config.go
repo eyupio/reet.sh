@@ -145,4 +145,8 @@ var serverEnv = []string{"REET_AUTH", "REET_TOKEN", "SKILLS_SH_TOKEN", "REET_LOG
 	"REET_BACKUP_S3_ENDPOINT", "REET_BACKUP_S3_REGION", "REET_BACKUP_S3_BUCKET", "REET_BACKUP_S3_PREFIX", "REET_BACKUP_S3_ACCESS_KEY_ID",
 	"REET_BACKUP_S3_SECRET_ACCESS_KEY", "REET_BACKUP_S3_PATH_STYLE", "REET_BACKUP_S3_NAME", "REET_BACKUP_ALLOW_LOCAL"}
 
+// ServerEnv is the settings `reet install` saves for a service. A moved
+// controller's checklist is checked against it.
+func ServerEnv() []string { return append([]string(nil), serverEnv...) }
+
 func jsonBytes(v any) ([]byte, error) { return json.Marshal(v) }

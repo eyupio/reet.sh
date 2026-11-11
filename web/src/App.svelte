@@ -1,10 +1,11 @@
 <script lang="ts">
   import GafferChatWidget from './lib/GafferChatWidget.svelte'
-  import { gafferAnimations, gafferCompact } from './lib/gafferMotion'
+  import { gafferAnimations, gafferAutoMerge, gafferCompact, gafferStanding } from './lib/gafferMotion'
   import Skeleton from './lib/Skeleton.svelte'
   import AppShell from './lib/shell/AppShell.svelte'
   import ProgressBar from './lib/shell/ProgressBar.svelte'
   import { pageGroup, type JumpItem, type Tab } from './lib/shell/tabs'
+  import { ADVANCED_SYNC, syncRedirect } from './lib/syncRoutes'
   import { PAGE_GROUP } from './lib/shell/pageNav'
   import { onAttentionChanged, signalAttentionChanged } from './lib/attentionSignal'
   import { listFolderProjects, markSessionSeen, sessionHref, terminalMachines, terminalSessions, type FolderProject } from './lib/terminal/api'
@@ -55,6 +56,7 @@
   const pages = {
     ActivityPage: () => loadPage(() => import('./lib/ActivityPage.svelte')),
     SessionsPage: () => loadPage(() => import('./lib/sessions/SessionsPage.svelte')),
+    Factory: () => loadPage(() => import('./lib/factory/Factory.svelte')),
     Machines: () => loadPage(() => import('./lib/Machines.svelte')),
     Home: () => loadPage(() => import('./lib/home/Home.svelte')),
     Community: () => loadPage(() => import('./lib/Community.svelte')),
@@ -70,6 +72,7 @@
     PublicList: () => loadPage(() => import('./lib/PublicList.svelte')),
     ResetPassword: () => loadPage(() => import('./lib/ResetPassword.svelte')),
     Setup: () => loadPage(() => import('./lib/Setup.svelte')),
+    Library: () => loadPage(() => import('./lib/Library.svelte')),
     SetupProfiles: () => loadPage(() => import('./lib/SetupProfiles.svelte')),
     Prompts: () => loadPage(() => import('./lib/Prompts.svelte')),
     SignIn: () => loadPage(() => import('./lib/SignIn.svelte')),
@@ -159,12 +162,18 @@
   // /sessions/ (a trailing slash) is /sessions.
   if (location.pathname === '/sessions/') window.history.replaceState(window.history.state, '', `/sessions${location.search}${location.hash}`)
   if (/^\/terminals\/?$/.test(location.pathname)) window.history.replaceState(window.history.state, '', `/sessions${location.search}${location.hash}`)
+  // Sync is two pages. A Sync address that carries something only the plan controls read (a machine, a skill to remove, a
+  // list, or their anchor) goes to Advanced sync with all of it, so an older link never lands on a page that ignores it.
+  const syncMoved = syncRedirect(location.pathname, location.search, location.hash)
+  if (syncMoved) window.history.replaceState(window.history.state, '', syncMoved)
   // `/` is Home: the full Home for a writer in accounts mode, the fleet strip alone for everyone else signed in (R16).
   const isHome = location.pathname === '/'
   const bootApp = document.documentElement.dataset.boot === 'app'
   const bootLayout = document.documentElement.dataset.bootLayout ?? 'content'
   const isActivity = location.pathname === '/activity'
   const isSkills = location.pathname === '/skills'
+  // The Factory: Gaffer's outcomes drawn as pipelines. It is for an account that can start sessions.
+  const isFactory = location.pathname === '/factory'
   const machineView = new URLSearchParams(location.search).get('view')
   const legacyMachinePage = ['/machines', '/account/machines', '/account/sync'].includes(location.pathname)
   // /sessions lists the sessions; with `session` or `agent` (a session, or a machine's sessions) or the workspace's own
@@ -174,11 +183,14 @@
   // A bare /sessions is the workspace too (its empty state offers a new session); the older list stays at /sessions?view=list.
   const isSessions = isSessionsPage && machineView === 'list'
   const isTerminals = isSessionsPage && !isSessions || legacyMachinePage && machineView === 'terminal'
-  const isSync = location.pathname === '/sync' || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
+  // The sync-plan controls on their own page. It is a Sync page for the tabs and the header's row.
+  const isSyncAdvanced = location.pathname === ADVANCED_SYNC
+  const isSync = location.pathname === '/sync' || isSyncAdvanced || legacyMachinePage && !isTerminals && (machineView === 'compare' || location.pathname === '/account/sync')
   const isHosting = location.pathname === '/hosting'
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
+  const isLibrary = location.pathname === '/library'
   const isProfiles = ['/profiles', '/setups'].includes(location.pathname)
   const isPrompts = location.pathname === '/prompts' || location.pathname === '/prompts/'
   // Without Sessions access (a viewer, a token or an open instance) /sessions shows Machines, as /terminals did.
@@ -233,13 +245,15 @@
   const homeLayout = $derived(isHome && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
   const tabs = $derived<Tab[]>([
     { href: '/', label: 'Home', current: isHome },
+    ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory }] : []),
     ...(sessionsAccess ? [{ href: '/sessions', label: 'Sessions', current: isTerminals || isSessions }] : []),
     { href: '/machines', label: 'Machines', current: isMachines && !((isTerminals || isSessions) && sessionsAccess) },
     { href: '/skills', label: 'Skills', current: isSkills },
     ...(authMode === 'accounts' ? [] : [{ href: '/activity', label: 'Activity' as const, current: isActivity }]),
   ])
-  const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/machines'].includes(tab.href)))
+  const barTabs = $derived(tabs.filter(tab => ['/', '/factory', '/sessions', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
+    ...(canWrite ? [{ href: '/library', label: 'Library', group: 'Skills & distribution', current: isLibrary }] : []),
     ...(authMode === 'accounts' && canWrite ? [{ href: '/prompts', label: 'Prompts', group: 'Skills & distribution', current: isPrompts }] : []),
     { href: '/profiles', label: 'Setups', group: 'Skills & distribution', current: isProfiles },
     { href: '/shared', label: 'Lists', group: 'Skills & distribution', current: isShared || isList },
@@ -256,7 +270,9 @@
     return found && !authenticated ? { ...found, items: found.items.filter(item => item.current) } : found
   } })
   // Jump searches what the workspace already lists: sessions, folder projects and machines (a writer's terminal machines,
-  // and the machines on the shelf inventory for everyone). Read when Jump is used; a list that cannot be read is left out.
+  // and the machines on the shelf inventory for everyone). The sessions, projects and terminal machines are read when Jump
+  // is used, and a list that cannot be read is left out. Skills and shelf machines are already in memory, so they are passed
+  // as they change (`jumpLive`) instead of being read once and held, which left them out when they finished loading later.
   async function jumpItems(): Promise<JumpItem[]> {
     const items: JumpItem[] = []
     const hosts = new Map<string, string>()
@@ -270,15 +286,19 @@
       if (projects.status === 'fulfilled') for (const project of projects.value) items.push({ kind: 'project', label: project.name, detail: project.machine ? `Project · ${project.machine}` : 'Project', href: `/?project=${encodeURIComponent(project.id)}` })
       if ([sessions, projects, terminal].every(result => result.status === 'rejected')) throw new Error('Nothing could be read.')
     }
+    for (const host of new Set(hosts.values())) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
+    return items
+  }
+  const jumpLive = $derived.by<JumpItem[]>(() => {
+    const items: JumpItem[] = []
     for (const skill of skills) {
       const state = syncSnapshot ? skillSyncSummary(skillSyncIntent(skill.id, syncSnapshot)) : ''
       const detail = state ? `Skill · ${state}` : skill.source ? `Skill · ${skill.source}` : 'Skill'
       items.push({ kind: 'skill', label: skill.name, detail, href: `/skills?skill=${encodeURIComponent(skill.id)}` })
     }
-    const names = new Set([...hosts.values(), ...shelfMachines.map(machine => machine.host)])
-    for (const host of names) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
+    for (const host of new Set(shelfMachines.map(machine => machine.host))) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
     return items
-  }
+  })
   const scanCommand = $derived(`reet scan --prune --server ${origin}`)
   const suggestions = [
     { slug: 'anthropics/skills/pdf', name: 'PDF', blurb: 'Read, extract and combine PDF files.' },
@@ -527,7 +547,7 @@
       const { profile } = await getProfile()
       if (actor !== currentUser?.id) return
       applyTheme(profile.theme)
-      gafferAnimations.set(profile.gafferAnimations ?? true); gafferCompact.set(profile.gafferCompact ?? true)
+      gafferAnimations.set(profile.gafferAnimations ?? true); gafferCompact.set(profile.gafferCompact ?? true); gafferStanding.set(profile.gafferStanding ?? true); gafferAutoMerge.set(profile.gafferAutoMerge ?? false)
       view = profile.shelfView
       defaultExpanded = profile.cardsExpanded
       timeZone = profile.timezone
@@ -574,7 +594,7 @@
       return null
     }
     if (needsAuth) return 'That token was not accepted.'
-    return error || 'Could not reach the shelf.'
+    return error || 'Could not reach your library.'
   }
 
   async function signOut() {
@@ -682,7 +702,7 @@
       syncFilter = ''
       selectedMachine = ''
       onlyOne = false
-      showToast(s.created ? `Added ${s.name} to your library. Ready for your machines.` : `Already on the shelf, in ${stageTitle(stageOf(s))}.`, 'Sync all machines', syncInPlace ? syncAll : () => { location.assign('/sync') })
+      showToast(s.created ? `Added ${s.name} to your library. Ready for your machines.` : `Already in your library, under ${stageTitle(stageOf(s))}.`, 'Sync all machines', syncInPlace ? syncAll : () => { location.assign('/sync') })
       await reloadAll()
       await flash(s.id)
       setTimeout(load, 2500) // pick up fetched metadata
@@ -915,7 +935,7 @@
       })
       const text = missing.map((s) => installCommand(s)).filter((x): x is string => Boolean(x)).join('\n')
       if (!text) {
-        ok('Everything on the shelf is already installed there.')
+        ok('Everything in your library is already installed there.')
         return
       }
       if (await copyText(text)) {
@@ -991,7 +1011,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isFactory ? 'Factory' : isActivity ? 'Activity' : isSyncAdvanced ? 'Advanced sync' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -1027,7 +1047,7 @@
 <ProgressBar />
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems}>
+    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive} home={isHome}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
@@ -1131,7 +1151,7 @@
     {#await pages.Hosting()}
       <RouteSkeleton variant="form" />
     {:then { default: Page }}
-      <Page {canWrite} reports={machineReports} snapshot={syncSnapshot} onsync={syncInPlace ? syncAll : undefined} syncing={syncingAll} />
+      <Page {canWrite} reports={machineReports} snapshot={syncSnapshot} onsync={syncInPlace ? syncAll : undefined} syncing={syncingAll} {timeZone} {dateFormat} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -1159,6 +1179,14 @@
     {:catch}
       <PageLoadError />
     {/await}
+  {:else if isFactory && sessionsAccess && authMode === 'accounts'}
+    {#await pages.Factory()}
+      <RouteSkeleton variant="cards" />
+    {:then { default: Page }}
+      <Page userId={currentUser?.id ?? 0} {timeZone} {dateFormat} />
+    {:catch}
+      <PageLoadError />
+    {/await}
   {:else if isSessions && sessionsAccess}
     {#await pages.SessionsPage()}
       <RouteSkeleton variant="rows" />
@@ -1171,7 +1199,15 @@
     {#await pages.Machines()}
       <RouteSkeleton variant={terminalLayout ? 'workspace' : 'rows'} />
     {:then { default: Page }}
-      <Page userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
+      <Page userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} advanced={isSyncAdvanced} ontitle={title => (workspaceTitle = title)} />
+    {:catch}
+      <PageLoadError />
+    {/await}
+  {:else if isLibrary}
+    {#await pages.Library()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page {canWrite} {timeZone} onerror={fail} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -1179,7 +1215,7 @@
     {#await pages.SetupProfiles()}
       <RouteSkeleton variant="cards" />
     {:then { default: Page }}
-      <Page {canWrite} onerror={fail} />
+      <Page {canWrite} {timeZone} {dateFormat} onerror={fail} />
     {:catch}
       <PageLoadError />
     {/await}
@@ -1270,7 +1306,7 @@
       <PageLoadError />
     {/await}
   {:else if isSkills}
-    <PageHeader group="Your skill shelf" title="Skills" lede="Add a skill once. Keep your library on every machine, including skills you write yourself.">
+    <PageHeader group="Your library" title="Skills" lede="Add a skill once. Keep your library on every machine, including skills you write yourself.">
       {#snippet actions()}{#if syncInPlace}<button class="btn" type="button" disabled={syncingAll} onclick={() => void syncAll()}>{syncingAll ? 'Starting…' : 'Sync all machines'}</button>{:else}<a class="btn" href="/sync">Sync all machines</a>{/if}{#if canWrite && authMode !== 'accounts'}<a class="btn" href="/hosting">Create a skill</a>{/if}{/snippet}
     </PageHeader>
     {#if canWrite}
@@ -1279,7 +1315,7 @@
         <input id="add-input" bind:this={addEl} placeholder="Paste a skills.sh link or install command" autocomplete="off" bind:value={addInput}
           aria-invalid={addError ? 'true' : undefined}
           aria-describedby={addError ? 'add-hint add-error' : 'add-hint'} />
-        <button class="btn primary" type="submit" disabled={adding || !addInput.trim()} aria-busy={adding}>{adding ? 'Adding…' : 'Add to shelf'}</button>
+        <button class="btn primary" type="submit" disabled={adding || !addInput.trim()} aria-busy={adding}>{adding ? 'Adding…' : 'Add to library'}</button>
       </form>
       <p class="add-hint" id="add-hint">Paste a link like <code>skills.sh/anthropics/skills/pdf</code>, or an <code>npx skills add</code> command.</p>
       {#if addError}<p class="add-error" id="add-error" role="alert">{addError}</p>{/if}
@@ -1314,7 +1350,7 @@
           {/if}
         </div>
         <div class="controls">
-          <div class="view-switch" role="group" aria-label="Shelf layout">
+          <div class="view-switch" role="group" aria-label="Library layout">
             <button type="button" aria-pressed={view === 'list'} onclick={() => chooseView('list')}>List</button>
             <button type="button" aria-pressed={view === 'board'} onclick={() => chooseView('board')}>Board</button>
           </div>
@@ -1413,17 +1449,17 @@
 
     <div id="sections" class:board={view === 'board' && !loading && counts.all > 0 && total > 0} class:single-stage={show !== 'all'}>
       {#if loading}
-        <Skeleton label="Loading your shelf" shape="cards" count={3} class="shelf-skeleton" />
+        <Skeleton label="Loading your library" shape="cards" count={3} class="shelf-skeleton" />
       {:else if counts.all === 0 && !filtering && !canWrite}
         <section class="start" aria-labelledby="start-title">
           <p class="eyebrow">Read-only</p>
-          <h2 id="start-title">Your account can browse, but not edit the shelf.</h2>
+          <h2 id="start-title">Your account can browse, but not edit the library.</h2>
           <p class="lede">Ask the owner for a shared list or a member role.</p>
         </section>
       {:else if counts.all === 0 && !filtering}
         <section class="start" aria-labelledby="start-title">
           <p class="eyebrow">Ey up. Start here.</p>
-          <h2 id="start-title">Put the first skill on your shelf.</h2>
+          <h2 id="start-title">Add the first skill to your library.</h2>
           <p class="lede">Capture it now, sort it later. Everything stays on this instance.</p>
           <button class="btn primary" type="button" onclick={focusAdd}>Add your first skill</button>
           <ul class="suggestions" aria-label="Good skills to start with">
@@ -1541,7 +1577,7 @@
 
 {#if selecting && !needsAuth}
   <BulkBar
-    syncHref={`/sync?${selected.map(id => `skill=${encodeURIComponent(id)}`).join('&')}`}
+    syncHref="/sync"
     count={selected.length} {tagOptions} busy={bulkBusy}
     onclear={toggleSelecting} ontag={bulkTag} onstage={bulkStage}
     onlike={() => bulkPatch({ liked: true })} onremove={bulkRemove}

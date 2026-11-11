@@ -45,6 +45,7 @@ func (s *server) newSoftwareRuns() *softwarerun.Orchestrator {
 	return softwarerun.New(softwarerun.Config{
 		Store:  s.st,
 		Broker: s.terminals,
+		Paused: s.st.Fenced,
 		Settled: func(uid int64, batch store.SoftwareBatch) {
 			s.event(uid, "ui", "software-batch", "", softwareBatchAudit(batch, "finish"))
 		},
@@ -83,6 +84,10 @@ func (s *server) recordSoftwareEntry(uid int64, agentID string, expectGeneration
 // controller restart. A member left running is reset to pending and reconciled.
 func (s *Server) ResumeSoftwareBatches(ctx context.Context) {
 	if s.s == nil || s.s.softwareRuns == nil {
+		return
+	}
+	if s.s.st.Fenced() {
+		log.Printf("software batches: this controller is fenced; pending batches wait until the fence is lifted")
 		return
 	}
 	if err := s.s.softwareRuns.Resume(); err != nil {

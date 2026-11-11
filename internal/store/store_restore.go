@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 )
 
 // SchemaVersion is what this build writes to the database's user_version. It
@@ -69,6 +72,17 @@ type Adaptation struct {
 	MCPConnectionsRevoked int
 	IdentityDropped       bool
 	GafferGoalsPaused     int
+	// MailBaseRewritten and SyncOriginsRewritten say which saved addresses
+	// were changed to the new public address; MCPGrantsStale counts the OAuth
+	// grants removed because they were issued for the old one.
+	MailBaseRewritten    bool
+	SyncOriginsRewritten int
+	MCPGrantsStale       int
+	// Paused lists, as a person reads them, the work that was held back so the
+	// restored controller does not repeat it: project run members, software
+	// batches, queued mail. The operator resumes each with the retry the
+	// product already has for it.
+	Paused []string
 	// Cleared names each stored secret that could not be opened on the
 	// controller the copy lands on, and what to do about it. The value is
 	// removed rather than kept as something nothing can read.
@@ -83,6 +97,11 @@ type AdaptOptions struct {
 	// DropTokens revokes personal API tokens and MCP connections. By default
 	// they come across.
 	DropTokens bool
+	// PublicURL, when set, is the new address of the controller: the saved mail
+	// base URL and the sync library origin are rewritten to it, and MCP grants
+	// issued for the old address are removed. It must already be a plain
+	// http(s) origin (see ValidatePublicURL). Empty leaves every address alone.
+	PublicURL string
 	// Unreadable says whether a sealed secret cannot be opened by the
 	// controller the copy lands on. Nil leaves every secret alone.
 	Unreadable func(sealed string) bool
@@ -246,6 +265,12 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 			return out, err
 		}
 	}
+	// An outcome still starting sessions in the copy must not start them again here.
+	if tableExists(ctx, tx, "gaffer_outcomes") {
+		if _, err = exec("gaffer_outcomes", `UPDATE gaffer_outcomes SET data=json_set(data,'$.state','stopped','$.revision',json_extract(data,'$.revision')+1,'$.note','This controller was restored from a copy, so the sessions not yet started were left unstarted.') WHERE json_extract(data,'$.state')='starting'`); err != nil {
+			return out, err
+		}
+	}
 	if opts.DropSessions {
 		if out.SessionsEnded, err = exec("sessions", `DELETE FROM sessions`); err != nil {
 			return out, err
@@ -268,6 +293,33 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 			}
 		}
 	}
+	// What a copy says about a fence is about the controller it was taken
+	// from. The controller it lands on is the one meant to be live.
+	if _, err = exec("settings", `DELETE FROM settings WHERE key IN(?,?)`, SettingFenceSince, SettingFenceMovedTo); err != nil {
+		return out, err
+	}
+	if opts.PublicURL != "" {
+		n, err := exec("mail_settings", `UPDATE mail_settings SET base_url=? WHERE base_url<>'' AND base_url<>?`, opts.PublicURL, opts.PublicURL)
+		if err != nil {
+			return out, err
+		}
+		out.MailBaseRewritten = n > 0
+		if out.SyncOriginsRewritten, err = exec("sync_library", `UPDATE sync_library SET origin=? WHERE origin<>'' AND origin<>?`, opts.PublicURL, opts.PublicURL); err != nil {
+			return out, err
+		}
+		// A grant is bound to the address it was issued for (its resource).
+		// Removing the OAuth rows makes each client ask again, here.
+		for _, t := range []string{"mcp_oauth_codes", "mcp_oauth_access", "mcp_oauth_refresh"} {
+			n, err := exec(t, `DELETE FROM `+t)
+			if err != nil {
+				return out, err
+			}
+			out.MCPGrantsStale += n
+		}
+	}
+	if out.Paused, err = pauseWork(ctx, tx, out.GafferGoalsPaused); err != nil {
+		return out, err
+	}
 	n, err := exec("private_transport_identity", `DELETE FROM private_transport_identity`)
 	if err != nil {
 		return out, err
@@ -287,6 +339,10 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 		detail["tokensDropped"] = opts.DropTokens
 		detail["secretsCleared"] = len(out.Cleared)
 		detail["gafferGoalsPaused"] = out.GafferGoalsPaused
+		detail["workPaused"] = len(out.Paused)
+		if opts.PublicURL != "" {
+			detail["publicUrl"] = opts.PublicURL
+		}
 		raw, _ := json.Marshal(detail)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO events(at,user_id,actor,source,action,skill_id,detail) VALUES(?,0,'',?,?,'',?)`,
 			now(), opts.EventSource, opts.EventAction, string(raw)); err != nil {
@@ -397,4 +453,102 @@ func clearUnreadable(ctx context.Context, tx *sql.Tx, unreadable func(string) bo
 		cleared = append(cleared, r.label+" was sealed under another key and is cleared; "+unreadableFix+" under Admin → Email.")
 	}
 	return cleared, nil
+}
+
+// ValidatePublicURL accepts a plain http or https origin, such as
+// https://reet.example.com or http://10.0.0.5:8080, and returns it without a
+// trailing slash. A path, query, fragment or credentials are refused, because
+// the saved addresses are origins that paths are added to.
+func ValidatePublicURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	plainPath := u != nil && (u.Path == "" || u.Path == "/")
+	ok := err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.User == nil &&
+		u.RawQuery == "" && u.Fragment == "" && !u.ForceQuery && plainPath && u.Opaque == ""
+	if !ok {
+		return "", errors.New("the public URL must be a plain http or https origin, such as https://reet.example.com, with no path, query, fragment or credentials")
+	}
+	return strings.TrimRight(raw, "/"), nil
+}
+
+// PausedByRestore is the code a held-back project run member or software batch
+// member carries, and the reason a person reads.
+const PausedByRestore = "paused_by_restore"
+
+// pauseWork holds back what a restored copy would otherwise start again by
+// itself at the next start, using the states the product already has, so the
+// operator resumes each with the retry that already exists: a project run
+// member waits as failed with a code, a software batch stops on its next
+// member, and queued mail is held. Nothing is deleted. It returns one line per
+// thing held, for the report.
+func pauseWork(ctx context.Context, tx *sql.Tx, gaffer int) ([]string, error) {
+	var lines []string
+	if gaffer > 0 {
+		lines = append(lines, fmt.Sprintf("%d Gaffer goal(s): paused; each needs an explicit resume.", gaffer))
+	}
+	rows := func(query string, args ...any) ([][3]string, error) {
+		r, err := tx.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer r.Close()
+		var out [][3]string
+		for r.Next() {
+			var a, b, c string
+			if err := r.Scan(&a, &b, &c); err != nil {
+				return nil, err
+			}
+			out = append(out, [3]string{a, b, c})
+		}
+		return out, r.Err()
+	}
+	if tableExists(ctx, tx, "project_run_members") {
+		held, err := rows(`SELECT r.id,r.project_name,CAST(COUNT(*) AS TEXT) FROM project_runs r JOIN project_run_members m ON m.run_id=r.id AND m.user_id=r.user_id
+			WHERE m.state='pending' GROUP BY r.user_id,r.id ORDER BY r.created_at,r.rowid`)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE project_run_members SET state='failed',code=? WHERE state='pending'`, PausedByRestore); err != nil {
+			return nil, err
+		}
+		for _, h := range held {
+			lines = append(lines, fmt.Sprintf("project run %s (%s): %s member(s) held; retry each member to start it.", h[0], h[1], h[2]))
+		}
+	}
+	if tableExists(ctx, tx, "software_batches") {
+		held, err := rows(`SELECT b.id,b.tool,CAST(COUNT(*) AS TEXT) FROM software_batches b JOIN software_batch_members m ON m.batch_id=b.id AND m.user_id=b.user_id
+			WHERE b.state IN('pending','running') AND m.state IN('pending','running') GROUP BY b.user_id,b.id ORDER BY b.created_at,b.rowid`)
+		if err != nil {
+			return nil, err
+		}
+		const active = `batch_id IN(SELECT id FROM software_batches WHERE state IN('pending','running'))`
+		first := `position=(SELECT MIN(x.position) FROM software_batch_members x WHERE x.batch_id=software_batch_members.batch_id AND x.user_id=software_batch_members.user_id AND x.state IN('pending','running'))`
+		// A member that was running has an unknown outcome; every other running
+		// member goes back to waiting, and the first stops the batch as a failure would.
+		if _, err := tx.ExecContext(ctx, `UPDATE software_batch_members SET state='failed',code=?,updated_at=? WHERE state IN('pending','running') AND `+active+` AND `+first, PausedByRestore, now()); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE software_batch_members SET state='pending',updated_at=? WHERE state='running' AND `+active, now()); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE software_batches SET state='stopped',updated_at=? WHERE state IN('pending','running')`, now()); err != nil {
+			return nil, err
+		}
+		for _, h := range held {
+			lines = append(lines, fmt.Sprintf("software batch %s (%s): stopped with %s machine(s) waiting; retry the first machine to continue.", h[0], h[1], h[2]))
+		}
+	}
+	if tableExists(ctx, tx, "mail_outbox") {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mail_outbox WHERE state IN('queued','sending')`).Scan(&n); err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			if _, err := tx.ExecContext(ctx, `UPDATE mail_outbox SET state='held',updated_at=? WHERE state IN('queued','sending')`, now()); err != nil {
+				return nil, err
+			}
+			lines = append(lines, fmt.Sprintf("%d queued email(s): held; send each from the outbox once mail is set up here. A held password-reset link points at the old address.", n))
+		}
+	}
+	return lines, nil
 }

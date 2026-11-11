@@ -419,7 +419,7 @@
     error = ''
     try {
       branchPrune = await setBranchPruneSetting(afterWorktree)
-      branchPruneNotice = afterWorktree ? 'Merged local branches are pruned after a worktree is removed.' : 'Automatic branch pruning is off.'
+      branchPruneNotice = afterWorktree ? 'The repository is updated to main and merged local branches are pruned after a worktree is removed.' : 'Automatic cleanup after a worktree is removed is off.'
     } catch (e) {
       input.checked = branchPrune.afterWorktree
       error = e instanceof Error ? e.message : String(e)
@@ -544,7 +544,7 @@
     <div class="stages">
       <span><strong>{status.stages.use}</strong> in use</span>
       <span><strong>{status.stages.try}</strong> to test</span>
-      <span><strong>{status.stages.shelf}</strong> on the shelf</span>
+      <span><strong>{status.stages.shelf}</strong> parked</span>
       <span><strong>{status.counts.liked}</strong> liked</span>
     </div>
 
@@ -859,7 +859,7 @@
               <label class="check"><input type="checkbox" bind:checked={form.rollupIndividual} /> Show per-person usage in the team rollup</label>
               <label class="field">
                 <span>Instance name</span>
-                <input bind:value={form.instanceName} placeholder="Team shelf" autocomplete="off" />
+                <input bind:value={form.instanceName} placeholder="Team library" autocomplete="off" />
               </label>
             </fieldset>
             {#if saved}<p class="saved" role="status">{saved}</p>{/if}
@@ -932,9 +932,9 @@
     {#if (role === 'owner' || role === 'admin') && branchPrune}
     <section class="block" aria-labelledby="admin-branch-prune">
       <h2 id="admin-branch-prune">Repository maintenance</h2>
-      <p class="muted">After a worktree is removed, prune the local branches in its repository whose work is already merged. Only the proven-safe set is deleted: never unmerged work, the current or default branch, or one a worktree has checked out. Remote branches are left alone, and each run is recorded in Activity.</p>
-      <label class="check"><input type="checkbox" checked={branchPrune.afterWorktree} disabled={branchPruneSaving} onchange={saveBranchPrune} /> Prune merged branches after a worktree is removed</label>
-      <p class="muted" role="status">{branchPruneNotice || (branchPrune.changedBy ? `Last changed by ${branchPrune.changedBy}.` : 'Off unless an owner or admin turns it on.')}</p>
+      <p class="muted">After a worktree is removed, bring its source repository up to date with main, then prune the local branches whose work is already merged. The folder is only fast-forwarded: never when it has uncommitted changes, is on another branch or has diverged from main. Only the proven-safe set of branches is deleted: never unmerged work, the current or default branch, or one a worktree has checked out. Remote branches are left alone, and each run is recorded in Activity.</p>
+      <label class="check"><input type="checkbox" checked={branchPrune.afterWorktree} disabled={branchPruneSaving} onchange={saveBranchPrune} /> Clean up after a worktree is removed (update main, prune merged branches)</label>
+      <p class="muted" role="status">{branchPruneNotice || (branchPrune.changedBy ? `Last changed by ${branchPrune.changedBy}.` : 'On unless an owner or admin turns it off.')}</p>
     </section>
     {/if}
     {#if (role === 'owner' || role === 'admin') && mirror}
@@ -953,7 +953,7 @@
       <ConfirmDialog
         title={confirmAction.kind === 'delete' ? `Delete ${confirmAction.user.name}?` : `Make ${confirmAction.user.name} the owner?`}
         body={confirmAction.kind === 'delete'
-          ? 'Their shelf, tokens and sessions are deleted. Transfer ownership first if this is the owner.'
+          ? 'Their library, tokens and sessions are deleted. Transfer ownership first if this is the owner.'
           : 'You become an admin and they become the owner. You can transfer it back later.'}
         confirmLabel={confirmAction.kind === 'delete' ? 'Delete' : 'Transfer'}
         danger={confirmAction.kind === 'delete'}

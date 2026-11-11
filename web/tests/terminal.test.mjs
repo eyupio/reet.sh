@@ -194,6 +194,24 @@ test('a refused create carries the status, the server sentence and its code', as
     assert.equal(e.code, undefined)
   })
 })
+const { retrySoftwareBatchMember, skipSoftwareBatchMember, abandonSoftwareBatch } = await import(apiURL)
+test('batch decisions send a JSON body so the controller accepts the write', async () => {
+  await withFetch(() => new Response('{"id":"b1","members":[]}', { status: 200 }), async requests => {
+    await retrySoftwareBatchMember('b1', 1)
+    await skipSoftwareBatchMember('b1', 1)
+    await abandonSoftwareBatch('b1')
+    assert.deepEqual(requests.map(r => r.path), [
+      '/api/v2/software/batches/b1/members/1/retry',
+      '/api/v2/software/batches/b1/members/1/skip',
+      '/api/v2/software/batches/b1/abandon',
+    ])
+    for (const r of requests) {
+      assert.equal(r.init.method, 'POST')
+      assert.equal(new Headers(r.init.headers).get('content-type'), 'application/json')
+      assert.equal(r.init.body, '{}')
+    }
+  })
+})
 test('agents-v2 create preserves selected options and omits false approvals', async () => {
   await withFetch(() => new Response('{"id":"s"}', { status: 200 }), async requests => {
     const launch = { tool:'claude', base:'main', effort:'high', worktree:'0123456789abcdef', project:'reet', yolo:false }

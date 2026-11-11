@@ -49,7 +49,7 @@ func TestClaudeMissingLoginAtTheFirstPromptIsActionable(t *testing.T) {
 func TestCodexMissingLoginAtTheFirstPromptIsActionable(t *testing.T) {
 	opts, _ := options(t, "codex-prompt-auth-required", "1.13.1")
 	opts.Agent = CodexCandidate
-	opts.BaseEnv = append(opts.BaseEnv, "HOME="+t.TempDir())
+	opts.BaseEnv = append(opts.BaseEnv, codexFolderHome(t))
 	session, err := Start(context.Background(), opts)
 	if err != nil {
 		t.Fatalf("start: %v", err)

@@ -331,7 +331,7 @@ func TestMCPExistingClientsFollowRoleChangesDisablingAndAdminRevocation(t *testi
 	}
 	session := mcpSession(t, ts, token)
 	tools, err := session.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 35 {
+	if err != nil || len(tools.Tools) != 48 {
 		t.Fatalf("member tools: %v", err)
 	}
 	if err = st.UpdateUserRole(u.ID, "viewer"); err != nil {

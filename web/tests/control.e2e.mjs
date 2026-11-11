@@ -27,6 +27,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/environments')data={environments,machines:snapshot.machines}
  else if(path==='/api/tags')data={tags:[]}
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
+ else if(path==='/api/v2/library')data={schemaVersion:1,items:[]}
  else if(path==='/api/v2/sync'){
   if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}})
   data=snapshot
@@ -48,7 +49,7 @@ await page.route('**/api/**',async route=>{
  }
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
- else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:terminalReady,serverEnabled:true,capabilities:{terminalControl:true,osUser:'developer',terminalEnabled:true,readiness:'ready',launch:true,agentsV2:true,tools:['claude'],acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'missing',minimumVersion:'0.99.1'}]}}))}}
+ else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:terminalReady,serverEnabled:true,capabilities:{terminalControl:true,osUser:'developer',terminalEnabled:true,readiness:'ready',launch:true,agentsV2:true,tools:['claude','codex'],acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'missing',minimumVersion:'0.99.1'},{tool:'codex',adapter:'codex-acp',state:'missing',minimumVersion:'1.13.1'}]}}))}}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}
  else if(path==='/api/v2/notifications/count')data={unread:0}
  else if(path==='/api/version')data={version:'test',commit:'fixture'}
@@ -89,7 +90,7 @@ try {
  await expect(serverUpdates.getByRole('button',{name:/^Retry update to/})).toBeVisible()
  // A right-click anywhere on a machine card opens the same options menu as its ⋮ button.
  await laptop.click({button:'right'})
- await expect(page.getByRole('menuitem',{name:'Choose skills & locations'})).toBeVisible()
+ await expect(page.getByRole('menuitem',{name:'Choose skills & locations'})).toHaveCount(0)
  await expect(page.getByRole('menuitem',{name:'Settings…',exact:true})).toBeVisible()
  await page.keyboard.press('Escape')
  await expect(page.getByRole('menuitem',{name:'Settings…',exact:true})).toBeHidden()
@@ -128,9 +129,15 @@ try {
  await expect(page.getByRole('dialog')).toHaveCount(0)
  writes.length=0
  await noOverflow()
+ // The Sync page carries no plan controls: they are one link away, on Advanced sync.
  await page.goto(`${base}/sync`)
- await page.locator('details.advanced-selection > summary').click()
- // The compare panel opens on the machine's saved set, not a blank form that contradicts it.
+ await expect(page.getByRole('heading',{level:1,name:'Sync',exact:true})).toBeVisible()
+ await expect(page.getByLabel('Sync mode',{exact:true})).toHaveCount(0)
+ await expect(page.getByRole('button',{name:'Sync all · preview'})).toHaveCount(0)
+ await page.getByRole('link',{name:'Advanced sync',exact:true}).click()
+ await expect(page).toHaveURL(`${base}/sync/advanced`)
+ await expect(page.getByRole('heading',{level:1,name:'Advanced sync',exact:true})).toBeVisible()
+ // The plan controls open on the machine's saved set, not a blank form that contradicts it.
  await expect(page.getByText('Editing sync plan · revision rev-laptop-shared')).toBeVisible()
  await expect(page.getByText('3 of 3 skills selected')).toBeVisible()
  await expect(page.getByRole('button',{name:'Sync all · preview'})).toBeEnabled()
@@ -146,8 +153,9 @@ try {
  expect(writes.filter(w=>w.body.kind==='preview')).toHaveLength(3)
  expect(writes.some(w=>w.body.action==='approve')).toBe(false)
  failQueue=false
+ // An older link that names a machine is sent on to Advanced sync, which honours it.
  await page.goto(`${base}/sync?machine=*`)
- await page.locator('details.advanced-selection > summary').click()
+ await expect(page).toHaveURL(`${base}/sync/advanced?machine=*`)
  await expect(page.getByLabel('Machine',{exact:true})).toHaveValue('*')
  // Nothing selected never offers a plain Save: an empty set is only cleared deliberately.
  await expect(page.getByText('0 of 3 skills selected')).toBeVisible()
@@ -189,9 +197,13 @@ try {
  await expect(page.getByRole('link',{name:'Create a skill',exact:true})).toBeVisible()
  await page.goto(`${base}/terminals`)
  await expect(page.getByRole('heading',{name:'Sessions'})).toBeVisible()
+ // The older address for Sync shows the Sync page; with a machine it is a link into the plan controls.
  await page.goto(`${base}/machines?view=compare`)
- await page.locator('details.advanced-selection > summary').click()
- await expect(page.getByLabel('Machine',{exact:true})).toBeVisible()
+ await expect(page.getByRole('heading',{level:1,name:'Sync',exact:true})).toBeVisible()
+ await expect(page.getByLabel('Machine',{exact:true})).toHaveCount(0)
+ await page.goto(`${base}/machines?view=compare&machine=dev-laptop`)
+ await expect(page).toHaveURL(`${base}/sync/advanced?machine=dev-laptop`)
+ await expect(page.getByLabel('Machine',{exact:true})).toHaveValue('dev-laptop')
  // A scan is not proof of a live terminal connection. The wizard verifies both separately.
  terminalReady=false
  await page.goto(`${base}/machines#connect-machine`)
@@ -218,17 +230,20 @@ try {
   await openSettings(page.getByRole('article',{name:'dev-laptop'}))
   await expect(page.getByRole('dialog',{name:'dev-laptop'})).toBeVisible()
   await noOverflow()
-  // The machine reports Claude Code's Gaffer adapter missing: the hint is there, with its command, and wholly inside the dialog.
-  const adapterHint=page.getByRole('dialog',{name:'dev-laptop'}).locator('.claude-adapter')
-  await expect(adapterHint).toBeVisible()
-  await expect(adapterHint).toContainText('npm install --global @agentclientprotocol/claude-agent-acp@0.99.1')
-  const inside=await adapterHint.locator('code').evaluate(el=>{const r=el.getBoundingClientRect(),d=el.closest('dialog').getBoundingClientRect();return r.left>=d.left-1&&r.right<=d.right+1})
-  expect(inside).toBe(true)
+  // The machine reports the Gaffer adapters for Claude Code and Codex missing: each hint is there, with its command, and wholly inside the dialog.
+  const hints=page.getByRole('dialog',{name:'dev-laptop'}).locator('.chat-adapter')
+  await expect(hints).toHaveCount(2)
+  await expect(hints.first()).toContainText('npm install --global @agentclientprotocol/claude-agent-acp@0.99.1')
+  await expect(hints.last()).toContainText('npm install --global @agentclientprotocol/codex-acp@1.13.1')
+  for(const adapterHint of [hints.first(),hints.last()]){
+   await expect(adapterHint).toBeVisible()
+   const inside=await adapterHint.locator('code').evaluate(el=>{const r=el.getBoundingClientRect(),d=el.closest('dialog').getBoundingClientRect();return r.left>=d.left-1&&r.right<=d.right+1})
+   expect(inside).toBe(true)
+  }
   if(width===390&&process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings-phone-dark.png`})
   await page.getByRole('button',{name:'Close settings'}).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.goto(`${base}/sync?machine=*`)
- await page.locator('details.advanced-selection > summary').click()
   await expect(page.locator('.scope-option')).toHaveCount(3)
   await noOverflow()
  }
@@ -239,7 +254,6 @@ try {
  snapshot={...snapshot,agents:snapshot.agents.map(agent=>({...agent,lastSeen:Date.now()})),jobs:[failedJob('r1','a','laptop-shared'),failedJob('r2','b','build-shared')]}
  await page.setViewportSize({width:390,height:844})
  await page.goto(`${base}/sync`)
- await page.locator('details.advanced-selection > summary').click()
  const devJob=page.locator('.activity-host').filter({hasText:'dev-laptop'}).locator('.activity-job').filter({hasText:'Apply failed'})
  const devRetry=devJob.getByRole('button',{name:/run it/})
  await devRetry.scrollIntoViewIfNeeded()
@@ -267,7 +281,6 @@ try {
  await page.setViewportSize({width:1440,height:900})
  failSource=true
  await page.goto(`${base}/sync?machine=*`)
- await page.locator('details.advanced-selection > summary').click()
  await expect(page.getByRole('alert').first()).toContainText('Source unavailable')
  await expect(page.getByRole('button',{name:'Save sync plan (no files change yet)',exact:true})).toBeDisabled()
  failSource=false

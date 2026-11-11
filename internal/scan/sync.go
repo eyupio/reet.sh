@@ -31,10 +31,11 @@ import (
 
 // SyncAction is one install, replace or remove in a sync plan.
 type SyncAction struct {
-	BeforeDigest string          `json:"beforeDigest,omitempty"`
-	Add          bool            `json:"add"`
-	Replace      bool            `json:"replace,omitempty"`
-	Skill        store.SyncSkill `json:"skill"`
+	BeforeDigest  string                        `json:"beforeDigest,omitempty"`
+	Add           bool                          `json:"add"`
+	Replace       bool                          `json:"replace,omitempty"`
+	Skill         store.SyncSkill               `json:"skill"`
+	RemovalIntent *store.LibraryDeploymentCheck `json:"removalIntent,omitempty"`
 }
 type SyncPlan struct {
 	Problems  map[string]string `json:"problems,omitempty"`
@@ -52,9 +53,19 @@ func (p SyncPlan) Hash() string {
 }
 
 type syncOptions struct {
-	filterDesired    func([]store.SyncSkill) []store.SyncSkill
-	onExisting       func(store.SyncSkill, store.SyncTarget, string) error
-	onInstalled      func(store.SyncSkill, string, []skillbundle.ContentFile) error
+	filterDesired func([]store.SyncSkill) []store.SyncSkill
+	onExisting    func(store.SyncSkill, store.SyncTarget, string) error
+	onInstalled   func(store.SyncSkill, string, []skillbundle.ContentFile) error
+	// onInstalled pins the base before writing; onInstallVerified records
+	// ownership only after the private installer actually completed its rename.
+	onInstallVerified func(store.SyncSkill, string) error
+	managedRemovals   func(store.SyncTarget, string) ([]SyncAction, map[string]string, error)
+	// managedDeletions names, for managed items, the local deletions not yet
+	// observed long enough to act on (their reinstall waits) and those that are
+	// (they are restored by replacing the folder, even when what is left is no
+	// longer readable as a skill).
+	managedDeletions func(store.SyncTarget, string) (pending, restorable map[string]bool, err error)
+	removeManaged    func(SyncAction, string, io.Writer, func(string)) error
 	verifyEnrollment bool
 	approvedHash     string
 	cwd              string
@@ -735,6 +746,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	problems := map[string]string{}
 	collect := func() ([]SyncAction, error) {
 		problems = map[string]string{}
+		heldBack := map[string]string{}
 		desired := target.Desired
 		if options.filterDesired != nil {
 			desired = options.filterDesired(desired)
@@ -745,7 +757,8 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				}
 				for _, skill := range target.Desired {
 					if !included[skill.ItemID] {
-						problems[skill.Slug] = "Local edits are waiting to upload; this item is retained."
+						// Reported below, unless this is only a deletion not yet believed.
+						heldBack[skill.Slug] = "Local edits are waiting to upload; this item is retained."
 					}
 				}
 			}
@@ -776,13 +789,32 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 						problems[desired.Slug] = "A different source uses this name in another app."
 						continue
 					}
-					return nil, fmt.Errorf("%s is shared with %s from a different source; resolve it before syncing", found.Name, found.Agent)
+					// One name that another app already holds from elsewhere is left
+					// alone and reported on that skill. It used to stop the whole
+					// folder, so every other skill waited on a conflict that the
+					// controller's fix could not settle for a privately held skill.
+					blocked[desired.Slug] = true
+					problems[desired.Slug] = fmt.Sprintf("%s already has this skill from %s, so reet left it alone. Remove that copy on the machine to use reet's.", sharedFolderName(found.Agent), found.Source)
 				}
 			}
+		}
+		if !target.Canonical && len(blocked) > 0 {
+			kept := []store.SyncSkill{}
+			for _, want := range desired {
+				if !blocked[want.Slug] {
+					kept = append(kept, want)
+				}
+			}
+			desired = kept
 		}
 		for _, found := range inventory.Found {
 			matches := found.Agent == target.Target.Agent &&
 				found.Project == target.Target.Project
+			// A skill left alone above is left out of the plan entirely: an exact-set
+			// plan must not read it as an extra and remove it.
+			if !target.Canonical && blocked[found.Name] {
+				continue
+			}
 			if matches && found.Host == *host {
 				actual = append(actual, found)
 			}
@@ -811,12 +843,27 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		if _, err := os.ReadDir(path); err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("cannot read target skills directory: %w", err)
 		}
+		var pendingDeletion, restorable map[string]bool
+		forceReplace := map[string]bool{}
 		if target.Canonical {
 			// Only additive private items use this partial-plan rule. Parent
 			// links and unknown entries are never interpreted as empty.
 			if target.Mode != "additive" {
 				return nil, errors.New("canonical library requires additive sync")
 			}
+			if options.managedDeletions != nil {
+				var err error
+				if pendingDeletion, restorable, err = options.managedDeletions(target, targetPath); err != nil {
+					return nil, err
+				}
+			}
+		}
+		for slug, message := range heldBack {
+			if !pendingDeletion[slug] {
+				problems[slug] = message
+			}
+		}
+		if target.Canonical {
 			for _, want := range desired {
 				candidate := filepath.Join(targetPath, want.Slug)
 				if err := safeLibraryParent(targetPath); err != nil {
@@ -830,8 +877,18 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 						continue
 					}
 					if _, err := privateSkillDigest(candidate); err != nil {
-						blocked[want.Slug] = true
-						problems[want.Slug] = "The local content cannot be read completely."
+						switch {
+						case restorable[want.Slug]:
+							// A recorded deletion that has persisted: what is left is
+							// backed up and replaced from canonical bytes.
+							forceReplace[want.Slug] = true
+						case pendingDeletion[want.Slug]:
+							// Not yet believed; hold quietly instead of reporting a problem.
+							blocked[want.Slug] = true
+						default:
+							blocked[want.Slug] = true
+							problems[want.Slug] = "The local content cannot be read completely."
+						}
 					} else if options.onExisting != nil {
 						if err := options.onExisting(want, target, targetPath); err != nil {
 							blocked[want.Slug] = true
@@ -917,6 +974,30 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			return nil, err
 		}
 
+		if target.Canonical && options.managedRemovals != nil {
+			removals, blocked, err := options.managedRemovals(target, targetPath)
+			if err != nil {
+				return nil, err
+			}
+			for slug, message := range blocked {
+				problems[slug] = message
+			}
+			actions = append(actions, removals...)
+		}
+		if target.Canonical {
+			kept := actions[:0]
+			for _, action := range actions {
+				if action.Add && pendingDeletion[action.Skill.Slug] {
+					continue
+				}
+				if action.Add && forceReplace[action.Skill.Slug] {
+					action.Replace = true
+				}
+				kept = append(kept, action)
+			}
+			actions = kept
+		}
+
 		canonicalBase := home
 		if target.Target.Project != "" {
 			canonicalBase = cwd
@@ -925,7 +1006,7 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			if action.Add {
 				for _, candidate := range []string{filepath.Join(targetPath, action.Skill.Slug), filepath.Join(canonicalBase, ".agents", "skills", action.Skill.Slug)} {
 					if _, err := os.Lstat(candidate); err == nil {
-						if skill, err := os.Stat(filepath.Join(candidate, "SKILL.md")); err != nil || skill.IsDir() {
+						if skill, err := os.Stat(filepath.Join(candidate, "SKILL.md")); (err != nil || skill.IsDir()) && !(action.Replace && forceReplace[action.Skill.Slug]) {
 							return nil, fmt.Errorf("unrecognised existing entry %s; inspect or move it aside before installing", candidate)
 						}
 					} else if !os.IsNotExist(err) {
@@ -1028,6 +1109,11 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		return errLocalSkillsChanged
 	}
 
+	// On a library (canonical) target one item's failure is that item's problem:
+	// the others still run, and every failure is reported at the end. Failures
+	// that affect the whole target (withdrawn consent, a replaced enrollment,
+	// cancellation) and every failure on other targets still stop the apply.
+	failed := map[string]error{}
 	for index, action := range actions {
 		verb := "Installing"
 		if !action.Add {
@@ -1046,6 +1132,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 					}
 					return nil
 				})
+				if operationErr == nil && options.onInstallVerified != nil {
+					operationErr = options.onInstallVerified(action.Skill, targetPath)
+				}
 			} else if operationErr == nil {
 				source, err := syncSource(action.Skill)
 				if err != nil {
@@ -1063,7 +1152,19 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				}
 			}
 		} else {
-			operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
+			if action.RemovalIntent != nil {
+				if options.removeManaged == nil {
+					operationErr = errors.New("managed removal is not supported by this executor")
+				} else {
+					operationErr = options.removeManaged(action, targetPath, out, options.onBackup)
+				}
+			} else {
+				operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
+			}
+		}
+		if operationErr != nil && target.Canonical && itemScopedFailure(operationErr) {
+			failed[action.Skill.Slug] = operationErr
+			continue
 		}
 		if operationErr != nil {
 			_ = rescan()
@@ -1083,11 +1184,46 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	if err != nil {
 		return err
 	}
+	if len(failed) > 0 {
+		kept := remaining[:0]
+		for _, action := range remaining {
+			if _, isFailed := failed[action.Skill.Slug]; !isFailed {
+				kept = append(kept, action)
+			}
+		}
+		remaining = kept
+	}
 	if len(remaining) > 0 {
 		return errors.New("commands completed but the installed skills still differ from the plan; inspect the agent installation, then sync again")
 	}
+	if len(failed) > 0 {
+		return itemFailuresError(failed)
+	}
 	fmt.Fprintln(out, "Sync complete. Updated inventory persisted on the controller.")
 	return nil
+}
+
+// itemScopedFailure reports whether an apply failure belongs to one item.
+func itemScopedFailure(err error) bool {
+	return !errors.Is(err, errLocalAuthorityChanged) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
+}
+
+// itemFailuresError names every item that failed while the healthy ones synced.
+func itemFailuresError(failed map[string]error) error {
+	slugs := make([]string, 0, len(failed))
+	for slug := range failed {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	parts := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		parts = append(parts, slug+": "+failed[slug].Error())
+	}
+	noun := "items need"
+	if len(slugs) == 1 {
+		noun = "item needs"
+	}
+	return fmt.Errorf("sync finished; %d %s attention (%s); inspect the recorded results and backups before retrying", len(slugs), noun, strings.Join(parts, "; "))
 }
 
 // linkSharedInstall exposes a skill in an agent's own folder. The skills CLI
@@ -1116,7 +1252,7 @@ func linkSharedInstall(home, targetPath, slug string) error {
 	return os.Symlink(rel, link)
 }
 
-func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(string)) error {
+func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(string), beforeMove ...func(string) error) error {
 	// Move only the selected directory entry. Symlinks are moved as symlinks;
 	// their canonical skill content stays intact for other agents.
 	root := filepath.Join(filepath.Dir(targetPath), ".reet-sync-backups")
@@ -1128,6 +1264,12 @@ func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(stri
 		return err
 	}
 	path := filepath.Join(backup, slug)
+	for _, prepare := range beforeMove {
+		if err := prepare(path); err != nil {
+			_ = os.Remove(backup) // still empty; no content has moved
+			return err
+		}
+	}
 	if err = os.Rename(filepath.Join(targetPath, slug), path); err != nil {
 		return err
 	}
@@ -1136,6 +1278,23 @@ func backupSkillEntry(targetPath, slug string, out io.Writer, onBackup func(stri
 		onBackup(path)
 	}
 	return nil
+}
+
+// sharedFolderName names an app's skills folder for a person.
+func sharedFolderName(agent string) string {
+	switch agent {
+	case "agents":
+		return "The shared skills folder"
+	case "claude":
+		return "Claude Code"
+	case "codex":
+		return "Codex"
+	case "opencode":
+		return "OpenCode"
+	case "cursor":
+		return "Cursor"
+	}
+	return agent
 }
 
 func canonicalSource(source string) string {

@@ -41,7 +41,7 @@
     try {
       await addSkill(skill.id, { bookmarked: true })
       saved = [...saved, skill.id]
-      notice = `Saved ${skill.name} to your personal shelf.`
+      notice = `Saved ${skill.name} to your library.`
     } catch (e) {
       actionError = e instanceof Error ? e.message : String(e)
     } finally {
@@ -71,7 +71,7 @@
   onMount(() => { void load() })
 </script>
 
-<PageHeader title="Community" lede="Publicly published lists and their skills. Explore without an account; your personal shelf, teams and selected-people lists stay separate." />
+<PageHeader title="Community" lede="Publicly published lists and their skills. Explore without an account; your library, teams and selected-people lists stay separate." />
 
 {#if actionError}<p class="notice bad" role="alert">{actionError}</p>{/if}
 {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
@@ -140,8 +140,8 @@
           </div>
           <div class="actions">
             {#if canSave}
-              <button type="button" class="btn" disabled={!!saving || saved.includes(skill.id)} onclick={() => save(skill)}>{saved.includes(skill.id) ? 'Saved to your shelf' : saving === skill.id ? 'Saving…' : 'Save to personal shelf'}</button>
-            {:else}<a class="btn" href="/skills">Open your shelf to save</a>{/if}
+              <button type="button" class="btn" disabled={!!saving || saved.includes(skill.id)} onclick={() => save(skill)}>{saved.includes(skill.id) ? 'Saved to your library' : saving === skill.id ? 'Saving…' : 'Save to your library'}</button>
+            {:else}<a class="btn" href="/skills">Open your library to save</a>{/if}
             {#if installCommand(skill)}<CopyButton text={installCommand(skill)!} label="Copy install command" />{/if}
           </div>
         </div>

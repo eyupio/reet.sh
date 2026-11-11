@@ -41,9 +41,9 @@ try {
       await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
       const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
       await chat.getByPlaceholder('Talk it through with Gaffer…').fill('Keep my general chat draft')
-      const open=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Followed sessions',exact:true}).click()}
+      const open=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Factory floor',exact:true}).click()}
       await open()
-      const overview=w.page.getByRole('dialog',{name:'Followed sessions',exact:true})
+      const overview=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
       await expect(overview.getByRole('listitem')).toHaveCount(5)
       await expect(overview.getByRole('listitem').first().getByRole('heading',{name:'Release needs a decision',exact:true})).toBeVisible()
       await expect(overview.getByText('Delivery uncertain',{exact:false}).first()).toBeVisible()
@@ -56,25 +56,25 @@ try {
       if(width===1440||width===390)await overview.screenshot({path:`${shots}/gaffer-followed-${width}-${theme}.png`})
       f.box.rows[0].goal.summary+=' <img src=x onerror="window.__overviewXss=true">'
       await overview.getByRole('button',{name:'Refresh',exact:true}).click()
-      await overview.getByRole('button',{name:'Needs review',exact:true}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
+      await overview.getByRole('button',{name:/^Needs you/}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
       await overview.getByText('Review & evidence',{exact:true}).click()
       await expect(overview.getByText('<img src=x onerror="window.__overviewXss=true">',{exact:false}).first()).toBeVisible()
       expect(await w.page.evaluate(()=>window.__overviewXss)).toBeUndefined()
       await expect(overview.locator('img[src="x"]')).toHaveCount(0)
       await expect(overview.getByText('Check the failing test and report back. Do not merge.',{exact:true})).toBeVisible()
       await expect(overview.getByText('Handoff records delivery to the worker, not completion of the work.',{exact:true})).toBeVisible()
-      await overview.getByRole('button',{name:'Following',exact:true}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
+      await overview.getByRole('button',{name:/^Following/}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
       await expect(overview.getByRole('link',{name:'Open session',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=followed-session-2&gaffer=1')
       f.active.delivery.state='queued';await overview.getByRole('button',{name:'Refresh',exact:true}).click()
       await expect(overview.getByText('Queued for next turn',{exact:true}).first()).toBeVisible()
       await overview.getByRole('button',{name:'Review goal',exact:true}).click()
       const goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
-      await goal.getByRole('button',{name:'Pause follow-up',exact:true}).click()
+      await goal.getByRole('button',{name:'Pause goal',exact:true}).click()
       await expect(goal.getByRole('heading',{name:'Paused',exact:true})).toBeVisible()
       expect(f.box.controls).toHaveLength(1)
       await w.page.keyboard.press('Escape');await expect(goal).toHaveCount(0)
       // A paused row leaves the active filter; remaining entries and draft survive.
-      await expect(overview.getByText('No followed sessions in this view.',{exact:true})).toBeVisible()
+      await expect(overview.getByText('No sessions here that Gaffer looks after.',{exact:true})).toBeVisible()
       await expect(overview.getByRole('button',{name:'Refresh',exact:true})).toBeFocused()
       await overview.getByRole('button',{name:'All',exact:true}).click()
       f.box.fail=true;await overview.getByRole('button',{name:'Refresh',exact:true}).click()
@@ -87,5 +87,31 @@ try {
       expect(f.box.unexpectedWrites).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Followed sessions: eight theme/width views, general-chat entry, decision filters, retained evidence/escaping, receipt semantics, nested goal control, stale-read retry, empty state, draft and focus passed. No model/worker writes.')
+  // A goal whose session is archived or gone can be removed, on the floor's own dialog and on the Factory page.
+  for(const where of ['dialog','factory']){
+    const f=fixture(),w=await openWorkspace(browser,{width:1280,height:1000,routes:f.routes}),removed=[]
+    const gone=f.box.rows[3],id=gone.goal.conversationId
+    f.routes['/api/v2/gaffer/conversations']=request=>new URL(request.url()).searchParams.get('all')==='true'?{conversations:[{id,sessionId:gone.goal.sessionId,providerId:'p',model:'',revision:7,createdAt:now,updatedAt:now}]}:{status:404,json:{error:'none'}}
+    f.routes[`/api/v2/gaffer/conversations/${id}`]=request=>{expect(request.method()).toBe('DELETE');removed.push(request.postDataJSON());f.box.rows=f.box.rows.filter(row=>row!==gone);return {status:204,json:{}}}
+    try {
+      let floor
+      if(where==='dialog'){
+        await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
+        await w.page.getByRole('dialog',{name:'Gaffer',exact:true}).getByRole('button',{name:'Chat options',exact:true}).click()
+        await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Factory floor',exact:true}).click()
+        floor=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
+      } else { await w.page.goto(base+'/factory');floor=w.page.locator('[data-floor]') }
+      const card=floor.getByRole('listitem').filter({has:w.page.getByRole('heading',{name:'Archived session',exact:true})})
+      // The Factory page has no chat history to open, so it offers only the removal.
+      await expect(card.getByRole('button',{name:'Conversation history',exact:true})).toHaveCount(where==='dialog'?1:0)
+      await card.getByRole('button',{name:'Remove',exact:true}).click()
+      const confirm=w.page.getByRole('dialog',{name:'Remove this goal?',exact:true})
+      await expect(confirm).toContainText('Nothing on any machine is changed.');expect(removed).toEqual([])
+      await confirm.getByRole('button',{name:'Remove',exact:true}).click()
+      await expect(floor.getByRole('heading',{name:'Archived session',exact:true})).toHaveCount(0)
+      await expect(floor.getByText('Removed. The saved Gaffer chat and its goal are gone.',{exact:true})).toBeVisible()
+      expect(removed).toEqual([{revision:7}]);expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  console.log('Followed sessions: eight theme/width views, general-chat entry, decision filters, retained evidence/escaping, receipt semantics, nested goal control, stale-read retry, empty state, draft, focus and removing a goal whose session is gone passed. No model/worker writes.')
 } finally { await browser.close() }

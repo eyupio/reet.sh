@@ -1036,7 +1036,7 @@ try {
   await branches.getByRole('option',{name:'develop',exact:true}).click()
   // The machine follows the project (R18): it is named, not chosen.
   await expect(bar(page).getByRole('button',{name:/^Machine: /})).toHaveCount(0)
-  await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio from develop in a fresh worktree')
+  await expect.poll(() => sentenceText(page)).toBe('Run Codex with gpt-5-codex on Site at studio from develop in a fresh worktree · thinking default')
   await startButton(page).click()
   await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.posts[0]).toMatchObject({agentId:'a1', tool:'codex', model:'gpt-5-codex', dir:'/home/dev/site', projectId:'fp3', project:'site', base:'develop'})
@@ -1324,7 +1324,7 @@ try {
   await sheet.getByRole('button',{name:'Done',exact:true}).click()
   await expect(sheet).toBeHidden()
   await expect(bar(page).getByRole('button',{name:'Change',exact:true})).toBeFocused()
-  await expect(line).toHaveText('Codex on Store rewrite at studio · main · fresh worktree')
+  await expect(line).toHaveText('Codex on Store rewrite at studio · main · fresh worktree · thinking default')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await start.click()
   await expect(page).toHaveURL(/\/sessions\?/)

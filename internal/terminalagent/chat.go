@@ -136,6 +136,9 @@ type chatLink struct {
 	// only when it is set: an older controller's strict decoder rejects them.
 	questions bool
 	previews  bool
+	// usage is acp-usage-v1 on this connection: the controller takes the
+	// agent's token and context reports. An older one would refuse the kind.
+	usage bool
 	// catalogue is acp-model-catalogue-v1 on this connection: a model selector
 	// may then carry the agent's whole catalogue instead of 16 values.
 	catalogue bool
@@ -251,6 +254,7 @@ type chatFeatures struct {
 	previews  bool
 	catalogue bool
 	provider  bool
+	usage     bool
 }
 
 // attachChats attaches a control connection to a supervisor. A nil supervisor
@@ -264,11 +268,11 @@ func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalh
 		s = newChatSupervisor(ctx, opts)
 		s.startResume()
 	}
-	return s.attach(ctx, generation, send, f.history, f.details, f.questions, f.previews, f.catalogue, f.provider)
+	return s.attach(ctx, generation, send, f.history, f.details, f.questions, f.previews, f.catalogue, f.provider, f.usage)
 }
 
 func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, flags ...bool) *chatHost {
-	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(flags) > 0 && flags[0], previews: len(flags) > 1 && flags[1], catalogue: len(flags) > 2 && flags[2], provider: len(flags) > 3 && flags[3]}
+	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(flags) > 0 && flags[0], previews: len(flags) > 1 && flags[1], catalogue: len(flags) > 2 && flags[2], provider: len(flags) > 3 && flags[3], usage: len(flags) > 4 && flags[4]}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -562,6 +566,17 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(in.Tool, acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}, nil
 }
 
+// yoloAnswers reports whether YOLO may answer a permission card for this chat, whether the card arrives now or was already waiting
+// when YOLO was switched on. Codex asks only in read-only; in agent mode its own reviewer decides, so a card that still arrives is
+// left to the person.
+func yoloAnswers(tool string, process chatProcess) bool {
+	if tool != "codex" {
+		return true
+	}
+	reader, ok := process.(interface{ Mode() string })
+	return ok && reader.Mode() == "read-only"
+}
+
 // reportedACP is the native session id sent to the controller. It is sent only
 // on a connection that negotiated history and only for a tool whose descriptor
 // offers it: Claude's UUID does not fit the wire's id format and its replay is
@@ -809,7 +824,7 @@ func (h *chatHost) mode(sessionID string, yolo bool) error {
 	process := cs.process
 	h.sup.mu.Unlock()
 	h.sup.touchRecord(sessionID, yolo)
-	if yolo {
+	if yolo && yoloAnswers(cs.tool, process) {
 		if allower, ok := process.(interface{ AllowAllPending() error }); ok {
 			_ = allower.AllowAllPending()
 		}
@@ -988,6 +1003,21 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 			return
 		}
 	}
+	if event.Kind == "usage" {
+		// Numbers only, and only for a controller that asked for them. They are
+		// not part of the conversation, so they are never queued or replayed.
+		s.mu.Lock()
+		link := s.link
+		send := link != nil && link.usage && !cs.quiet
+		s.mu.Unlock()
+		if !send || event.Usage == nil {
+			return
+		}
+		u := event.Usage
+		wire := terminalproto.ACPEvent{Kind: "usage", Usage: &terminalproto.ACPUsage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CachedTokens: u.CachedTokens, ContextUsed: u.ContextUsed, ContextSize: u.ContextSize}}
+		_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), Generation: link.generation, SessionID: cs.id, Body: &wire})
+		return
+	}
 	var wire terminalproto.ACPEvent
 	var ok bool
 	if event.Kind == "preview" && event.Preview != nil {
@@ -1010,7 +1040,7 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 	s.mu.Lock()
 	yolo, process := cs.yolo, cs.process
 	s.mu.Unlock()
-	permission := yolo && event.Kind == "permission"
+	permission := yolo && event.Kind == "permission" && yoloAnswers(cs.tool, process)
 	hasPermission := permission && event.PermissionID != ""
 	if hasPermission && process != nil {
 		// YOLO answers this once, for the person. The process emits the real

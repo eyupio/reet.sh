@@ -38,16 +38,19 @@ import (
 	"github.com/eyupio/reet.sh/internal/softwaremirror"
 	"github.com/eyupio/reet.sh/internal/softwarerun"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/syncproof"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 )
 
 type server struct {
-	importMu       sync.Mutex
-	st             *store.Store
-	f              meta.Fetcher
-	token          string
-	version        string
-	commit         string
+	importMu sync.Mutex
+	st       *store.Store
+	f        meta.Fetcher
+	token    string
+	version  string
+	commit   string
+	// mcpAPI is the API handler reet's own tools are run against, for Gaffer.
+	mcpAPI         http.Handler
 	debug          bool
 	topics         bool
 	refreshJob     bool
@@ -312,7 +315,9 @@ func (s *Server) Close() error {
 // New returns the API handler. An empty token disables authentication.
 func New(st *store.Store, f meta.Fetcher, token string, opts ...Option) *Server {
 	s := newServer(st, f, token, opts...)
-	return &Server{s: s, h: s.logRequests(s.auth(s.routes()))}
+	s.workers.Add(1)
+	go func() { defer s.workers.Done(); s.fenceWatcher() }()
+	return &Server{s: s, h: s.logRequests(s.fenceGate(s.auth(s.routes())))}
 }
 
 func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *server {
@@ -359,6 +364,12 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s.terminals = terminalbroker.New(st)
 	s.terminals.SetWorkerMessagingPolicy(s.terminalEnabled)
 	s.gafferProviders.SetWorker(s.terminals, s.terminalEnabled)
+	s.gafferProviders.SetSessionStarter(outcomeStarter{s})
+	// What Gaffer and the controller do by themselves is in the activity log too, under its own source.
+	s.gafferProviders.SetToolHost(gafferToolHost{s})
+	s.gafferProviders.SetAudit(func(uid int64, action string, detail map[string]any) {
+		s.event(uid, "gaffer", action, "", detail)
+	})
 	s.gafferProviders.StartGoalSupervisor()
 	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
 	s.terminals.OnSessionClosed(s.onSessionClosed)
@@ -470,8 +481,11 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/export", s.requireWriter(s.export))
 	mux.HandleFunc("POST /api/restore", s.requireWriter(s.restore))
 	s.registerBackupRoutes(mux)
+	s.registerFenceRoutes(mux)
 	s.registerProfileRoutes(mux)
 	s.registerGafferRoutes(mux)
+	s.registerGafferOutcomeRoutes(mux)
+	s.registerGafferToolRoutes(mux)
 	s.registerGafferChatRoutes(mux)
 	s.registerModelFavouriteRoutes(mux)
 	s.registerMCPRoutes(mux)
@@ -565,7 +579,7 @@ func guardedPath(path string) bool {
 
 func openAuthPath(path string) bool {
 	switch path {
-	case "/api/version", "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join", "/api/v2/auth/forgot", "/api/v2/auth/reset",
+	case "/api/version", syncproof.Path, "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join", "/api/v2/auth/forgot", "/api/v2/auth/reset",
 		"/api/v2/auth/oidc/start", "/api/v2/auth/oidc/callback", ssoLogoutPath:
 		return true
 	}
@@ -900,6 +914,9 @@ func (s *server) topicWorker() {
 }
 
 func (s *server) syncTopics() {
+	if s.st.Fenced() {
+		return
+	}
 	if v, _ := s.st.GetSetting("topics_enabled"); v == "0" {
 		return
 	}
@@ -951,6 +968,9 @@ func (s *server) refreshWorker() {
 }
 
 func (s *server) refreshBatch() {
+	if s.st.Fenced() {
+		return
+	}
 	if v, _ := s.st.GetSetting("refresh_enabled"); v == "0" {
 		return
 	}
@@ -1044,7 +1064,7 @@ func stageLabel(sk store.Skill) string {
 	case store.LibraryToTest:
 		return "To test"
 	case store.LibraryOnShelf:
-		return "On the shelf"
+		return "Parked"
 	case store.LibraryDisabled:
 		return "Disabled"
 	}
@@ -1054,7 +1074,7 @@ func stageLabel(sk store.Skill) string {
 	if sk.Bookmarked {
 		return "To test"
 	}
-	return "On the shelf"
+	return "Parked"
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -1695,7 +1715,17 @@ func (s *server) importSkills(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Reet-Source") == "scan" {
 		source, action = "scan", "scan"
 	}
-	s.event(s.uid(r), source, action, "", map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned})
+	detail := map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned}
+	if source == "scan" && created == 0 && pruned == 0 && len(errs) == 0 {
+		// A machine scans every minute. A scan that found nothing new is
+		// recorded once for the same counts, then again after six hours, so the
+		// log shows the machine is still reporting without a row a minute.
+		if err := s.st.AddEventUnlessRepeatedFor(s.uid(r), source, action, detail, 6*time.Hour); err != nil && s.debug {
+			log.Printf("event store action=%s error=%v", action, err)
+		}
+	} else {
+		s.event(s.uid(r), source, action, "", detail)
+	}
 	writeJSON(w, 200, map[string]any{"imported": imported, "created": created, "ignored": ignoredCount, "pruned": pruned, "errors": errs, "user": s.currentUser(r).Name})
 }
 
@@ -1809,7 +1839,7 @@ func bulkAction(p store.Patch) (string, map[string]any) {
 		detail["liked"] = *p.Liked
 		return "bulk-like", detail
 	case p.Bookmarked != nil || p.Used != nil:
-		to := "On the shelf"
+		to := "Parked"
 		if p.Used != nil && *p.Used {
 			to = "In use"
 		} else if p.Bookmarked != nil && *p.Bookmarked {
@@ -1945,8 +1975,15 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
 	after, _ := strconv.ParseInt(q.Get("after"), 10, 64)
+	// exclude=scan,machine leaves those sources out; at most eight are read.
+	var exclude []string
+	for _, source := range strings.Split(q.Get("exclude"), ",") {
+		if source = strings.TrimSpace(source); source != "" && len(source) <= 32 && len(exclude) < 8 {
+			exclude = append(exclude, source)
+		}
+	}
 	events, hasMore, err := s.st.ListEventsPageFor(s.uid(r), store.EventQuery{
-		Limit: limit, SkillID: q.Get("skill"), Action: q.Get("action"), Source: q.Get("source"),
+		Limit: limit, SkillID: q.Get("skill"), Action: q.Get("action"), Source: q.Get("source"), Exclude: exclude,
 		Before: before, After: after,
 	})
 	if err != nil {
@@ -2100,7 +2137,7 @@ func (s *server) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.MigrateToOwner(user.ID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not migrate the shelf")
+		writeErr(w, http.StatusInternalServerError, "could not migrate the library")
 		return
 	}
 	if _, err := s.newSession(w, r, user); err != nil {
@@ -2901,14 +2938,14 @@ func installCommand(s store.Skill) string {
 
 func markdown(skills []store.Skill) string {
 	var b strings.Builder
-	b.WriteString("# reet.sh shelf\n")
+	b.WriteString("# reet.sh library\n")
 	groups := []struct {
 		title string
 		match func(store.Skill) bool
 	}{
 		{"In use", func(s store.Skill) bool { return s.Used }},
 		{"To test", func(s store.Skill) bool { return !s.Used && s.Bookmarked }},
-		{"On the shelf", func(s store.Skill) bool { return !s.Used && !s.Bookmarked }},
+		{"Parked", func(s store.Skill) bool { return !s.Used && !s.Bookmarked }},
 	}
 	for _, group := range groups {
 		var items []store.Skill
@@ -3046,6 +3083,6 @@ main{width:100%%;max-width:440px;padding:32px;border:1px solid var(--line);borde
 h1{margin:12px 0;font:500 28px/1.2 Georgia,serif;letter-spacing:-.025em;overflow-wrap:anywhere}p{color:var(--muted);font-size:14px}
 a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin-top:12px;padding:10px 16px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-size:14px;font-weight:600;text-decoration:none}
 a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
-</style></head><body><main><img src="/favicon.svg" width="40" height="40" alt=""><p class="eyebrow">reet.sh · Bookmarklet</p><h1>%s</h1><p>This window will close automatically. You can also return to your shelf.</p><a href="/">Open your shelf</a></main>
+</style></head><body><main><img src="/favicon.svg" width="40" height="40" alt=""><p class="eyebrow">reet.sh · Bookmarklet</p><h1>%s</h1><p>This window will close automatically. You can also return to your library.</p><a href="/">Open your library</a></main>
 <script>setTimeout(function(){window.close()},1500)</script></body></html>`, html.EscapeString(msg))
 }

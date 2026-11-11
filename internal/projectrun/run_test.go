@@ -499,7 +499,9 @@ func TestRunHasAtMostTwoInFlightAndOnePerMachine(t *testing.T) {
 // at once, and the other machine works in parallel.
 func TestOneMachineUnderLoadSerialisesAcrossRunsWhileOthersRunInParallel(t *testing.T) {
 	f := newFixture(t)
-	f.broker.delay = 15 * time.Millisecond
+	// Long enough that two machines' creates overlap even on a loaded runner: the assertion below is about
+	// overlap, which a 15 ms window missed when the scheduler stalled for longer than that.
+	f.broker.delay = 100 * time.Millisecond
 	o := f.orchestrator(t)
 	var members [][2]string
 	for i := 0; i < 8; i++ {
@@ -1296,5 +1298,34 @@ func TestIdleMachinesLeaveNoSlotBehind(t *testing.T) {
 	o.mu.Unlock()
 	if n != 0 {
 		t.Fatal(n, "machine slots kept")
+	}
+}
+
+// While the controller is fenced (Paused) a run starts nothing and its members
+// stay pending; Resume after the lift starts them.
+func TestAPausedOrchestratorStartsNothingAndResumeContinuesAfterTheLift(t *testing.T) {
+	f := newFixture(t)
+	var paused atomic.Bool
+	paused.Store(true)
+	o := f.orchestrator(t, func(c *Config) { c.Paused = paused.Load })
+	p := f.project(t, false, [2]string{f.laptop, "/home/t/site"}, [2]string{f.server, "/srv/site"})
+	r := f.run(t, p)
+	o.Start(f.uid, r.ID)
+	got := settle(t, o, f.st, f.uid, r.ID)
+	if n := len(f.broker.sent()); n != 0 {
+		t.Fatalf("%d creates were sent while paused", n)
+	}
+	for _, m := range got.Members {
+		if m.State != store.RunMemberPending || m.Sent {
+			t.Fatalf("member %d is %s (sent %v) after a paused pass", m.Position, m.State, m.Sent)
+		}
+	}
+	paused.Store(false)
+	if err := o.Resume(); err != nil {
+		t.Fatal(err)
+	}
+	got = settle(t, o, f.st, f.uid, r.ID)
+	if got.State != store.RunComplete || len(f.broker.sent()) != 2 {
+		t.Fatalf("after the lift: %s, %d creates", got.State, len(f.broker.sent()))
 	}
 }

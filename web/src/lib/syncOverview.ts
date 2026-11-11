@@ -73,6 +73,8 @@ export type MachineSyncOverview = {
   run?: SyncRun
   job?: SyncJob
   progress?: { done: number; total: number }
+  /** Set when Auto fix can settle what stopped this machine: the folder to fix and the machine's agent. */
+  fix?: { targetId: string; agentId: string }
 }
 
 function envLabel(env?: { host: string; agent: string; project?: string }): string {
@@ -97,6 +99,28 @@ function jobLabel(job: SyncJob): string {
   return state[job.status] ?? job.status.replaceAll('-', ' ')
 }
 
+const sharedWith = /^(.+?) is shared with (.+?) from a different source/i
+const folderOwner: Record<string, string> = { agents: 'the shared skills folder', claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' }
+
+/** The skill and folder named by "X is shared with agents from a different source", or null for any other message. */
+export function sourceConflict(message: string): { name: string; where: string } | null {
+  const found = sharedWith.exec((message ?? '').trim())
+  if (!found) return null
+  const owner = found[2].trim()
+  return { name: found[1].trim(), where: folderOwner[owner.toLowerCase()] ?? owner }
+}
+
+/**
+ * The machine's own words for this name an internal folder and give an order with no way to follow it ("resolve it
+ * before syncing"). Say what is there instead. A message that is not this conflict is returned as a finished sentence.
+ */
+export function sourceConflictSentence(message: string, host: string): string {
+  const text = (message ?? '').trim()
+  const found = sourceConflict(text)
+  if (!found) return /[.!?]$/.test(text) ? text : `${text}.`
+  return `${!host || host === 'the machine' ? 'The machine' : host} already has a copy of ${found.name} that came from somewhere else, in ${found.where}, so reet did not overwrite it.`
+}
+
 export function machineSyncOverview(machine: Machine, snapshot: SyncState, now = Date.now()): MachineSyncOverview {
   const agent = agentFor(snapshot, machine.host)
   const targets = targetsFor(snapshot, machine.host).filter(target => syncableAgent(target.target.agent))
@@ -108,7 +132,8 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
   const lastSync = Math.max(0,
     ...jobs.filter(job => job.status === 'succeeded').map(job => job.updatedAt),
     ...targets.filter(target => target.appliedRevision === target.revision).map(target => target.updatedAt))
-  const href = `/sync?machine=${encodeURIComponent(machine.host)}`
+  // The plan controls read `machine`, so this goes to Advanced sync (see syncRoutes.ts).
+  const href = `/sync/advanced?machine=${encodeURIComponent(machine.host)}`
   const base = { href, targets: targets.length, missing, extra, lastSync, run, job: active }
   const targetEnvs: Array<SyncEnvironment | undefined> = targets.map(target => (snapshot.environments ?? []).find(env => env.id === target.target.id))
   const fresh = targets.length > 0 && targetEnvs.every(env => isFresh(env, now))
@@ -167,13 +192,42 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
     return !!target && job.revision === target.revision
   })
   if (problem || failure?.status === 'failed') {
-    return { ...base, tone: 'attention', label: 'Sync needs attention', detail: problem || failure?.message || 'Open Sync activity to retry.', canSync: true }
+    const message = problem || failure?.message || ''
+    // The machine already has the skill from somewhere else. That has a one-press fix, so say it plainly and carry
+    // what the fix needs to wherever this is shown.
+    if (sourceConflict(message)) {
+      const targetId = problem ? targets.find(target => target.problem)?.target.id : failure?.targetId
+      return { ...base, tone: 'attention', label: 'A skill is already there from another source', detail: sourceConflictSentence(message, machine.host), canSync: true, ...(targetId ? { fix: { targetId, agentId: agent.id } } : {}) }
+    }
+    return { ...base, tone: 'attention', label: 'Sync needs attention', detail: message || 'Open Sync activity to retry.', canSync: true }
+  }
+  // The last sync of the current plan finished but left a skill alone. That is not "in sync", and not a skill
+  // still to install either: say which, and why, in the machine's own words for it.
+  const leftAlone = Object.entries(failure?.plan?.problems ?? {})
+  if (leftAlone.length) {
+    const [slug, reason] = leftAlone[0]
+    return { ...base, tone: 'attention', label: `${leftAlone.length} skill${leftAlone.length === 1 ? '' : 's'} left alone`, detail: `${slug}: ${reason}${leftAlone.length > 1 ? ` And ${leftAlone.length - 1} more.` : ''}`, canSync: false }
   }
   if (missing > 0) {
     return { ...base, tone: 'action', label: `${missing} skill${missing === 1 ? '' : 's'} to install`, detail: detailFor('Ready to apply'), canSync: true }
   }
   if (extra > 0 && targets.some(target => (target.mode ?? 'mirror') !== 'additive')) {
     return { ...base, tone: 'review', label: `${extra} extra skill${extra === 1 ? '' : 's'} found`, detail: 'An exact-set sync will ask before removing anything.', canSync: true }
+  }
+  // Selected in the library but not installable yet. "In sync" would be untrue while a person is still waiting for these.
+  const waiting = [...new Set(targets.flatMap(target => (target.held ?? []).filter(item => item.reason !== 'status').map(item => item.name)))].sort((a, b) => a.localeCompare(b))
+  if (waiting.length) {
+    const shown = waiting.length <= 3 ? waiting.join(', ') : `${waiting.slice(0, 2).join(', ')} and ${waiting.length - 2} more`
+    const duplicate = targets.some(target => (target.held ?? []).some(item => item.reason === 'duplicate'))
+    return {
+      ...base,
+      tone: 'attention',
+      label: `${waiting.length} selected skill${waiting.length === 1 ? '' : 's'} not installed yet`,
+      detail: duplicate
+        ? `${shown}: more than one selected skill has the same name, so neither is installed. Untick one in this machine's skills.`
+        : `${shown}: reet has no saved copy yet. Open this machine's skills and save a copy from the machine.`,
+      canSync: false,
+    }
   }
   const offline = agent.lastSeen <= now - 90_000
   return {

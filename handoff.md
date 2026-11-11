@@ -28,6 +28,42 @@ been selected; older “next task” statements are historical. The checkpoint r
 completed UX/setup, offline acceptance, benchmark correction, limitations and
 standing permissions. Resume from current main and agree the next bounded slice.
 
+## Gaffer factory floor (9 November 2026)
+
+Work resumed from the pause point above with the user's direction to make Gaffer a simpler, more capable controller of
+an agent factory. They chose the **factory floor** as the next slice and **pick several, one review** as its start flow.
+**Chat options → Factory floor** is the former Followed sessions job sheet plus every running structured chat not yet
+followed; ticked sessions share one review and each is then started through the existing reviewed per-session setup.
+Browser-only: no backend, schema or protocol change, and Gaffer's authority is unchanged. The
+[factory floor handoff](docs/handoffs/gaffer-factory-floor.md) records the decisions, contract, validation and the
+deferred options (commanding sessions from general chat, bulk pause/stop).
+
+On 10 November the same branch gained a usability pass (the floor is one click from general chat and Home, the session
+picker is folded into it) and **outcomes**: the user chose **plan, approve, then run**. `POST
+/api/v2/gaffer/providers/{id}/plan` has Gaffer's provider propose sessions from the typed objective; the person edits and
+approves; the browser then starts each session through the ordinary launch and sets up its goal, which names the outcome.
+No schema change: outcomes group by the goal's first line. Read the handoff's outcome contract and limits before extending
+it.
+
+Later on 10 November, after #713 and #715 merged, a third PR made outcomes **controller-owned**: the approved plan is a
+`gaffer_outcomes` record and the controller starts and follows the sessions without a browser, survives a restart and
+stops on a restore. It also fixes six defects an independent review found in the browser-run start, adds one model and a
+plugin-trust tick for an outcome, and bulk pause/stop on the floor. Read "Controller-owned outcomes" in the handoff; it
+supersedes the browser-orchestration limits recorded for #715.
+
+The fourth PR (#718) first aligned the widget, floor and outcome dialog, then made the factory first-class: a **Factory**
+page and navigation tab that draws each outcome's work as pipelines; **staged pipelines** (plan, design, code, review,
+test, PR, babysit, merge) where each stage has its own agent and model and the controller starts the next on Gaffer's
+hand-over; a **merge gate** (per-pipeline auto-merge with an account default, otherwise Ready to merge and an explicit
+approval); and two account settings, looking-after pre-approved by default and the auto-merge default. Read "The Factory
+page and staged pipelines" in the handoff for the three decisions, the contract and what is still owed.
+
+A fifth PR followed #719: one-click look-after inside a session's chat, later-stage sessions listed under their project,
+**Try again** for a stopped pipeline, **usage** (Gaffer's reviews and tokens per stage, pipeline and outcome, with reviews
+and time left; tokens only, no prices), a **report across an outcome** on request with **proposed pipelines** that wait for
+approval, and one vocabulary (look after / goal / following / needs you). See "Owed items, smarter outcomes, usage and
+wording" in the handoff.
+
 ## OVERVIEW-4: the Overview leads with what matters (8 November 2026)
 
 Follow-up to OVERVIEW-3 on the session workspace's right-hand panel.

@@ -327,6 +327,14 @@ func (s *Store) validateSyncImport(tx *sql.Tx, uid int64, in RemoteImportCreate)
 	if err != nil || count != 1 {
 		return ErrRemoteImport
 	}
+	// A capture with no destination only saves the machine's copy into the
+	// library; nothing is installed anywhere, so there is no folder to check.
+	if in.DestinationID == "" {
+		if in.FollowShelf {
+			return ErrRemoteImport
+		}
+		return nil
+	}
 	err = tx.QueryRow(`SELECT count(*) FROM environments e JOIN sync_agents a ON a.host=e.host COLLATE NOCASE AND a.user_id=e.user_id WHERE e.id=? AND e.user_id=? AND a.paused=0 AND e.agent IN ('agents','claude','cursor','opencode')`, in.DestinationID, uid).Scan(&count)
 	if err != nil || count != 1 {
 		return ErrRemoteImport

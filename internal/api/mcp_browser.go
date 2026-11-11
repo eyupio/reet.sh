@@ -55,6 +55,9 @@ func (s *server) mcpBrowserTools(w http.ResponseWriter, r *http.Request) {
 		if mcpContextTool(tool.Name) && access.User.Role == "viewer" {
 			continue
 		}
+		if mcpFactoryTool(tool.Name) && access.User.Role == "viewer" {
+			continue
+		}
 		if access.canWrite() || tool.Annotations.ReadOnlyHint {
 			tools = append(tools, tool)
 		}

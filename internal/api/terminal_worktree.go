@@ -210,10 +210,13 @@ func (s *server) terminalWorktreeRemove(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, 200, map[string]any{"ok": true, "path": removed.Path, "branch": removed.Branch})
 }
 
-// autoPruneAfterWorktree runs the account's opt-in maintenance after a
-// worktree is removed: plan and prune the merged local branches of the
-// repository the worktree came from. It runs off the request and deletes only
-// the proven-safe set; anything that fails is left for the person to see.
+// autoPruneAfterWorktree runs the account's maintenance after a worktree is
+// removed (on unless an admin turned it off): fast-forward the repository the
+// worktree came from to its remote main, then plan and prune its merged local
+// branches. The sync comes first so that work merged on the remote counts as
+// merged locally. It runs off the request, changes the folder only by a
+// fast-forward of a clean checkout of main, and deletes only the proven-safe
+// set; anything that fails is left for the person to see.
 func (s *server) autoPruneAfterWorktree(uid int64, agent, run string) {
 	if !s.branchPruneAfterWorktree() {
 		return
@@ -223,8 +226,14 @@ func (s *server) autoPruneAfterWorktree(uid int64, agent, run string) {
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
+		if synced, err := s.terminals.SyncBranch(ctx, uid, agent, terminalproto.BranchSync{Dir: dir}); err == nil {
+			s.event(uid, "ui", "branch-sync", "", map[string]any{
+				"machine": agent, "host": s.machineHost(uid, agent), "dir": dir,
+				"base": synced.Base, "status": string(synced.Status), "automatic": true,
+			})
+		}
 		plan, err := s.terminals.BranchPrunePlan(ctx, uid, agent, terminalproto.BranchPrunePlan{Dir: dir})
 		invalidPlan := plan.Reason != "" || plan.Base == ""
 		if err != nil || invalidPlan {

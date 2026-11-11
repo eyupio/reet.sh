@@ -103,11 +103,28 @@ func TestInstalledToolsForHomeCountsAManagedCopy(t *testing.T) {
 	}
 }
 
+// A tool with no effort mapping refuses an effort rather than dropping it. Cline's maps three levels; Pi and Cursor are disabled.
 func TestLaunchArgvEffortMapping(t *testing.T) {
-	in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: "codex", Effort: "high"}
-	argv, err := LaunchArgv(in, fakeLookPath("codex"))
+	in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: "opencode", Effort: "high"}
+	argv, err := LaunchArgv(in, fakeLookPath("opencode"))
 	if argv != nil || !errors.Is(err, ErrLaunchOptionUnsupported) || LaunchResultCode(err) != terminalproto.LaunchOptionUnsupported {
 		t.Fatal(argv, err)
+	}
+}
+
+// Codex has no effort flag: the level is a config override, which the CLI passes to the provider (measured with codex-cli 0.156.1 and
+// 0.166.0, probe report "Codex terminal probes"). Only the three levels a terminal launch carries are mapped.
+func TestLaunchArgvCodexEffort(t *testing.T) {
+	look := fakeLookPath("codex")
+	for _, level := range []string{"low", "medium", "high"} {
+		got, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", Effort: level}, look)
+		want := []string{"/opt/fake/bin/codex", "-c", "model_reasoning_effort=" + level}
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("effort %s: got %q, %v; want %q", level, got, err, want)
+		}
+	}
+	if argv, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "codex", Effort: "ultra"}, look); argv != nil || err == nil {
+		t.Fatalf("an effort outside the three launch levels reached argv: %q %v", argv, err)
 	}
 }
 
@@ -170,7 +187,7 @@ func TestPresetFlagsAppearInHelpText(t *testing.T) {
 }
 
 // capturedVersions maps a captured binary to the version recorded in
-// sources.json. Codex predates sources.json and keeps its reviewed version.
+// sources.json.
 func capturedVersions(t *testing.T) map[string]string {
 	t.Helper()
 	raw, err := catalogueHelp.ReadFile("testdata/help/sources.json")
@@ -183,7 +200,7 @@ func capturedVersions(t *testing.T) map[string]string {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	out := map[string]string{"codex": "0.163.0"}
+	out := map[string]string{}
 	for _, s := range doc.Sources {
 		out[s.Capture] = s.Version
 	}
@@ -270,6 +287,12 @@ func TestPresetFlagValuesAppearInHelpText(t *testing.T) {
 					continue
 				}
 				block, value := flagBlock(help, args[i]), args[i+1]
+				// Codex has no effort flag. Its effort is a -c override whose key the help does not list; the key is proved by the probe
+				// (probe report, "Codex terminal probes": the provider's request carries the effort) and the help must still describe -c as a
+				// key=value override.
+				if p.ID == "codex" && args[i] == "-c" && strings.HasPrefix(value, "model_reasoning_effort=") && strings.Contains(block, "key=value") {
+					continue
+				}
 				boolean := (value == "true" || value == "false") && strings.Contains(block, "<boolean>")
 				if !boolean && !blockHasToken(block, value) {
 					t.Fatalf("%s: value %q for %s not described by captured help", p.ID, value, args[i])

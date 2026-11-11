@@ -418,7 +418,7 @@ func (s *Store) BulkUpdateFor(userID int64, ids []string, change BulkChange, dry
 		var one int
 		err := tx.QueryRow(`SELECT 1 FROM shelf WHERE user_id=? AND skill_id=?`, userID, id).Scan(&one)
 		if errors.Is(err, sql.ErrNoRows) {
-			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not on this account's shelf"})
+			results = append(results, BulkItemResult{ID: id, Code: "skill_not_found", Message: "skill is not in this account's library"})
 			continue
 		}
 		if err != nil {
@@ -628,10 +628,13 @@ func (s *Store) FindDuplicatesFor(userID int64) ([]DuplicateGroup, error) {
 
 // EventQuery selects one page of audit events.
 type EventQuery struct {
-	Limit         int
-	SkillID       string
-	Action        string
-	Source        string
+	Limit   int
+	SkillID string
+	Action  string
+	Source  string
+	// Exclude leaves out events from these sources, for a log that is mostly
+	// one noisy source.
+	Exclude       []string
 	Before, After int64
 }
 
@@ -658,6 +661,10 @@ func (s *Store) ListEventsPageFor(userID int64, q EventQuery) ([]Event, bool, er
 	if q.Source != "" {
 		clauses = append(clauses, "ev.source=?")
 		args = append(args, q.Source)
+	}
+	for _, source := range q.Exclude {
+		clauses = append(clauses, "ev.source!=?")
+		args = append(args, source)
 	}
 	if q.Before > 0 {
 		clauses = append(clauses, "ev.id<?")

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 )
@@ -17,6 +18,7 @@ import (
 // of a broken harness. Run TestSimpleSyncHarness separately as its control.
 func TestSimpleSyncContractLocalDeletionRestoresAndNotifies(t *testing.T) {
 	h := newSyncContractHarness(t)
+	h.enableManagedRemovals()
 	h.hosted("restore-me", "canonical instructions", false, true)
 	m := h.machine("restore-machine")
 	h.rounds(1, m)
@@ -34,6 +36,9 @@ func TestSimpleSyncContractLocalDeletionRestoresAndNotifies(t *testing.T) {
 	if err := os.Remove(m.path("restore-me", "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
+	// A deletion is believed only after it persists past the debounce window.
+	h.rounds(2, m)
+	time.Sleep(450 * time.Millisecond)
 	h.rounds(8, m)
 	if got, err := os.ReadFile(m.path("restore-me", "SKILL.md")); err != nil ||
 		string(got) != syncContractContent("restore-me", "canonical instructions") {
@@ -59,6 +64,7 @@ func TestSimpleSyncContractLocalDeletionRestoresAndNotifies(t *testing.T) {
 
 func TestSimpleSyncContractLeavingInUseRemovesManagedCopy(t *testing.T) {
 	h := newSyncContractHarness(t)
+	h.enableManagedRemovals()
 	skill := h.hosted("deactivate-me", "kept in history", true, true)
 	m := h.machine("deactivate-machine")
 	h.rounds(1, m)

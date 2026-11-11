@@ -31,15 +31,20 @@ var CodexCandidate = Spec{
 	MinVersion:   "1.13.1",
 	LoginHomeEnv: "CODEX_HOME",
 	LoginHomeDir: ".codex",
-	RequireMode:  "read-only",
-	StartMode:    "read-only",
+	// codex refuses to start when CODEX_HOME names a folder that does not exist,
+	// which is what a person who has never used Codex has (probe report, "Codex
+	// parity probes").
+	LoginFolderMustExist: true,
+	RequireMode:          "read-only",
+	StartMode:            "read-only",
 	// A person may move a chat between the mode that can ask before a command
 	// leaves the sandbox and the one where an automatic reviewer decides. Never
 	// "agent-full-access".
 	ChoosableModes: []string{"read-only", "agent"},
 	// Measured from codex-acp 1.13.1 (2 November 2026). These are descriptive
-	// only; no effort or other option control is offered yet. Reasoning effort
-	// can also be embedded in a model id, and the values can depend on the model.
+	// only; no effort or other option control is offered yet. The effort values
+	// depend on the model (probe report, "Codex parity probes"); the adapters
+	// measured on 9 November carry no effort in a model id.
 	Options: []terminalproto.ACPAgentOption{
 		{ID: "collaboration_mode", Category: terminalproto.AgentOptionCollaborationMode, Values: []string{"default", "plan"}},
 		{ID: "reasoning_effort", Category: terminalproto.AgentOptionThoughtLevel, Values: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
@@ -49,6 +54,14 @@ var CodexCandidate = Spec{
 	// alive (probe report, "Codex gates, re-run"). Stop therefore ends the chat
 	// when a command is running, so nothing keeps running behind a stopped chat.
 	EndChatOnStopWhileToolRuns: true,
+	// A chosen model is applied by switching to it and reading the switch back
+	// (measured: every listed model reads back). The effort list follows the
+	// model, so a model is always applied before an effort.
+	ConfirmModelBySwitch: true,
+	// session/load reopens a stored conversation, and one the adapter never
+	// stored is refused with a -32603 whose details name the thread, which the
+	// connector maps to the missing stored conversation (measured).
+	Reattach: true,
 }
 
 // handleAuthStatus forwards only the adapter's bounded public label. The

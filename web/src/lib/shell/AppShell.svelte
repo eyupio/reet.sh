@@ -3,7 +3,7 @@
   import Logo from '../Logo.svelte'
   import WorkspaceSidebar from './WorkspaceSidebar.svelte'
   import PanelResizer from './PanelResizer.svelte'
-  import { clampSidebarWidth, readCollapsed, readWidth, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, sidebarTrack } from './workspaceLayout'
+  import { clampSidebarWidth, HOME_SIDEBAR_DEFAULT, HOME_SIDEBAR_MAX, HOME_SIDEBAR_MIN, readCollapsed, readWidth, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN } from './workspaceLayout'
   import { browserViewport, keyboardChrome, keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker } from '../terminal/sizing'
   import Bell from './Bell.svelte'
   import BottomTabs from './BottomTabs.svelte'
@@ -21,7 +21,7 @@
   // `compact` is the terminal workspace's slim header: no bottom bar (the terminal keeps its own height rule), and on a
   // phone a More button in the top bar reaches every page instead.
   let {
-    tabs, attention, needsCards = [], onseen, onanswered, compact, bar, more, bell = false, jump, account,
+    tabs, attention, needsCards = [], onseen, onanswered, compact, bar, more, bell = false, jump, jumpLive = [], account, home = false,
   }: {
     tabs: Tab[]
     attention: number
@@ -37,25 +37,35 @@
     /** The bell and its Needs you count, for a writer in accounts mode only. */
     bell?: boolean
     jump: () => Promise<JumpItem[]>
+    /** Jump rows the page already holds (skills, shelf machines), passed through to the search as they change. */
+    jumpLive?: JumpItem[]
     account?: Snippet
+    /** Home's panel also holds the project list, so it has its own wider range and remembered width. */
+    home?: boolean
   } = $props()
 
   // The workspace sidebar's width and fold, remembered in this browser. A missing or unreadable value falls back.
+  // Home's panel is a different size from the navigation-only one, so each keeps its own width.
+  // svelte-ignore state_referenced_locally
+  const limits = home
+    ? { min: HOME_SIDEBAR_MIN, max: HOME_SIDEBAR_MAX, fallback: HOME_SIDEBAR_DEFAULT, key: 'reet.sidebar.home.width' }
+    : { min: SIDEBAR_MIN, max: SIDEBAR_MAX, fallback: SIDEBAR_DEFAULT, key: 'reet.sidebar.width' }
+  const clamp = (width: number) => clampSidebarWidth(width, limits.min, limits.max, limits.fallback)
   const savedSidebar = (() => {
     try {
       return {
-        width: readWidth(localStorage.getItem('reet.sidebar.width'), SIDEBAR_DEFAULT, clampSidebarWidth),
+        width: readWidth(localStorage.getItem(limits.key), limits.fallback, clamp),
         collapsed: readCollapsed(localStorage.getItem('reet.sidebar.collapsed')),
       }
-    } catch { return { width: SIDEBAR_DEFAULT, collapsed: false } }
+    } catch { return { width: limits.fallback, collapsed: false } }
   })()
   let sidebarWidth = $state(savedSidebar.width)
   let sidebarCollapsed = $state(savedSidebar.collapsed)
   let sidebarToggle = $state<HTMLButtonElement>()
-  function setSidebarWidth(width: number) { sidebarWidth = clampSidebarWidth(width) }
+  function setSidebarWidth(width: number) { sidebarWidth = clamp(width) }
   function commitSidebarWidth(width: number) {
-    sidebarWidth = clampSidebarWidth(width)
-    try { localStorage.setItem('reet.sidebar.width', String(sidebarWidth)) } catch { /* The sidebar keeps its width for this page. */ }
+    sidebarWidth = clamp(width)
+    try { localStorage.setItem(limits.key, String(sidebarWidth)) } catch { /* The sidebar keeps its width for this page. */ }
   }
   function setSidebarCollapsed(collapsed: boolean) {
     sidebarCollapsed = collapsed
@@ -65,7 +75,7 @@
   }
   // The page's content, the top bar and the sidebar itself all read this width.
   $effect(() => {
-    document.documentElement.style.setProperty('--workspace-sidebar-width', `${sidebarTrack(sidebarCollapsed, sidebarWidth)}px`)
+    document.documentElement.style.setProperty('--workspace-sidebar-width', `${sidebarCollapsed ? 0 : clamp(sidebarWidth)}px`)
     return () => { document.documentElement.style.removeProperty('--workspace-sidebar-width') }
   })
 
@@ -168,7 +178,7 @@
 
 {#if showSidebar && !sidebarCollapsed}<WorkspaceSidebar {tabs} {moreCurrent} {moreOpen} onmore={openMore} oncollapsed={() => setSidebarCollapsed(true)} />{/if}
 {#if showSidebar && !sidebarCollapsed}
-  <PanelResizer value={sidebarWidth} min={SIDEBAR_MIN} max={SIDEBAR_MAX} resetValue={SIDEBAR_DEFAULT} label="Resize the navigation"
+  <PanelResizer value={sidebarWidth} min={limits.min} max={limits.max} resetValue={limits.fallback} label="Resize the navigation"
     position="left: calc(var(--workspace-sidebar-width, 228px) - 4px)" onchange={setSidebarWidth} oncommit={commitSidebarWidth} />
 {/if}
 <div class="shell-bar" class:compact class:workspace={showSidebar}>
@@ -188,7 +198,7 @@
     <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
   {/if}
   <span class="grow"></span>
-  <JumpSearch load={jump} open={searchOpen} bind:input onclose={closeSearch}
+  <JumpSearch load={jump} live={jumpLive} open={searchOpen} bind:input onclose={closeSearch}
     onfocuschange={(focused) => { searchFocused = focused; measureKeyboard() }} />
   <button type="button" class="icon search-button" bind:this={searchButton} aria-label="Jump to a session, project, skill or machine" aria-expanded={searchOpen}
     onclick={() => (searchOpen ? closeSearch() : void openSearch())}>

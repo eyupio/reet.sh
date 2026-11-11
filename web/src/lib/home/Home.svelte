@@ -1,13 +1,17 @@
 <script lang="ts">
+  import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
-  import { getProfile, getSyncState, listGafferGoals, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
+  import { getProfile, getSyncState, listGafferGoals, listGafferOutcomes, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
+  import { factoryMembers, factoryRows, type FactoryMember } from '../gafferOutcome'
+  import FactoryStatus from './FactoryStatus.svelte'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText, titleFor } from '../agentLaunch'
   import { hasPending } from '../attention'
   import { announceWaiting, attentionCount, fleetCards, foldGafferGoals, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
+  import { floorCandidates } from '../gafferFloor'
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import type { LaunchDefaults } from '../launchBar'
   import StartAgentDialog from '../StartAgentDialog.svelte'
@@ -52,9 +56,9 @@
   let groups = $state<ProjectGroup[] | undefined>()
   // The project or group the board is narrowed to (null: everything).
   let scope = $state<{ kind: 'project' | 'group'; id: string } | null>(null)
-  // Projects use a compact strip unless an expanded rail was explicitly saved. The choice stays in this browser.
+  // The project list starts open; a fold is kept in this browser.
   let railCollapsed = $state((() => {
-    try { return localStorage.getItem('reet.rail.collapsed') !== '0' } catch { return true }
+    try { return localStorage.getItem('reet.rail.collapsed') === '1' } catch { return false }
   })())
   // The rail's width on a wide desktop, also remembered in this browser.
   const savedRailWidth = (() => {
@@ -84,6 +88,12 @@
   let problem = $state('')
   let followups = $state<GafferGoalOverviewView | undefined>()
   let followupsFailed = $state(false)
+  // Which sessions are part of a Factory pipeline. A helper only: a failed read leaves the cards without the marker.
+  let factory = $state<Map<string, FactoryMember>>(new Map())
+  // The Factory's pipelines as Home lists them: what each is part of, where it stands, and a link to its card.
+  let factoryRecords = $state<Awaited<ReturnType<typeof listGafferOutcomes>>>([])
+  const factoryStatus = $derived(factoryRows(factoryRecords, new Map((followups?.goals ?? []).map(row => [row.goal.conversationId, row]))))
+  const factoryNeeds = $derived(factoryStatus.filter(row => row.tone === 'you').length)
   const following = $derived(followups?.goals.filter(row => row.goal.state === 'active' && !row.attention).length ?? 0)
   let readOnce = false
   const life = new AbortController()
@@ -101,6 +111,8 @@
   const needs = $derived(folded.cards)
   const followupsNeedReview = $derived(folded.unfolded)
   // Goals that need review but sit on a Needs you card keep Home's entry to Followed sessions when nothing else would show it.
+  // Running chats nobody has asked Gaffer to look after: the factory floor's other half, offered only once the goals are read.
+  const unfollowed = $derived(followups && sessions ? floorCandidates(sessions, followups.goals.map(row => row.goal)).length : 0)
   const attentionGoals = $derived(followups?.goals.filter(row => row.attention).length ?? 0)
   const foldedGoals = $derived(Math.max(0, attentionGoals - followupsNeedReview))
 
@@ -178,6 +190,7 @@
         if (accounts) {
           if (f.status === 'fulfilled' && f.value) { followups = f.value; followupsFailed = false }
           else followupsFailed = true
+          void listGafferOutcomes(bounded()).then(found => { if (!stale()) { factory = factoryMembers(found); factoryRecords = found } }).catch(() => {})
         }
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
         if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
@@ -238,6 +251,29 @@
 
   // The rail and what its cards do (ProjectRailHost); the launch bar's project slot opens its Add project too.
   let host = $state<ProjectRailHost>()
+  // On a desktop the project list is moved into the workspace navigation panel, so Home keeps one left column. Where that
+  // panel is not on screen (a tablet, a phone, or folded navigation) the rail stays in Home's own column.
+  const RAIL_TARGET = '[data-workspace-rail]'
+  let railInSidebar = $state(false)
+  function railPortal(node: HTMLElement) {
+    const parent = node.parentNode as HTMLElement | null
+    const anchor = node.nextSibling
+    let target: Element | null | undefined
+    let queued = false
+    const place = () => {
+      queued = false
+      const next = document.querySelector(RAIL_TARGET)
+      if (next === target) return
+      target = next
+      if (next) { next.appendChild(node); railInSidebar = true }
+      else if (parent && node.parentNode !== parent) { parent.insertBefore(node, anchor); railInSidebar = false }
+    }
+    const schedule = () => { if (!queued) { queued = true; requestAnimationFrame(place) } }
+    place()
+    const observer = new MutationObserver(schedule)
+    observer.observe(document.body, { childList: true, subtree: true })
+    return { destroy() { observer.disconnect(); node.remove() } }
+  }
   function openAdd(opener: HTMLElement) { void host?.openAdd(opener) }
   // Choosing a card marks it as the project the board's Start a session dialog starts in too.
   let launchProject = $state<string | null>(null)
@@ -360,7 +396,7 @@
   let movedShown = $state(false)
   onMount(() => {
     try {
-      railCollapsed = localStorage.getItem('reet.rail.collapsed') !== '0'
+      railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1'
       if (localStorage.getItem(`reet.home.view.${userId}`) === 'continue') homeView = 'continue'
     } catch { /* Keep projects compact when storage is unavailable. */ }
     // The session screen's + and the Sessions page's New session arrive at /#launch: the bar opens in its modal.
@@ -391,12 +427,13 @@
   })
 </script>
 
-<div class="home" class:writer class:rail-collapsed={railCollapsed} style:--rail-width={`${railWidth}px`}>
+<div class="home" class:writer class:rail-collapsed={railCollapsed} class:rail-embedded={railInSidebar && !narrow} style:--rail-width={`${railWidth}px`}>
 
-  <!-- On a desktop the rail is the left column; on a tablet or phone it lives on the Sessions screen, and Home keeps only what
-       adds a project from the launch sentence. -->
+  <!-- On a desktop the project list is moved into the workspace navigation panel (use:railPortal); on a tablet or phone it
+       lives on the Sessions screen, and Home keeps only what adds a project from the launch sentence. -->
   {#if writer}
-    <ProjectRailHost bind:this={host} rail={!narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
+    <div class="rail-portal" use:railPortal>
+    <ProjectRailHost bind:this={host} rail={!narrow} embedded={railInSidebar && !narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
       chosen={launchProject ?? chosen} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected} onchoose={(project) => chooseProject(project)}
       {scope} onscope={(next) => (scope = next)} collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId}
       width={railWidth} onwidth={setRailWidth} onwidthcommit={commitRailWidth}
@@ -407,20 +444,27 @@
         {#if selected.length >= 2}<button type="button" class="start-chosen" onclick={() => (launchOpen = true)}>Start in these projects</button>{/if}
       {/snippet}
     </ProjectRailHost>
+    </div>
   {/if}
   <div class="column">
     <header class="workspace-heading">
       <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
-      {#if writer}<div class="home-controls"><button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Expand the project names and groups' : 'Keep projects in a compact strip'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
+      {#if writer}<div class="home-controls">{#if accounts}<a class="btn home-factory" href="/factory" title="Gaffer’s pipelines: hand over an outcome and watch it run">Factory</a>{/if}<button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Show the project names and groups' : 'Hide the project list'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
       <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
-        {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed)}<button type="button" class="followups" disabled={!$gafferChatEntry} aria-haspopup="dialog" onclick={event => $gafferChatEntry?.(event.currentTarget, 'followed')}>
-          {#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'follow-up needs' : 'follow-ups need'} review{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if foldedGoals}Gaffer: {foldedGoals} {foldedGoals === 1 ? 'follow-up is' : 'follow-ups are'} in Needs you{:else if followupsFailed}Gaffer follow-ups unavailable{/if}{#if followupsFailed && (followupsNeedReview || following || foldedGoals)}{' · last read'}{/if}
-        </button>{/if}
+        {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed || unfollowed)}<a class="followups" href="/factory"><GafferCompanionAvatar size={26}/><span class="followups-text">
+          {#if true}{#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'goal needs' : 'goals need'} you{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if foldedGoals}Gaffer: {foldedGoals} {foldedGoals === 1 ? 'goal is' : 'goals are'} in Needs you{:else if followupsFailed}Gaffer’s goals unavailable{:else if unfollowed}Gaffer: {unfollowed} running {unfollowed === 1 ? 'chat' : 'chats'} not followed{/if}{#if followupsFailed && (followupsNeedReview || following || foldedGoals)}{' · last read'}{/if}{/if}
+        </span></a>{/if}
       </div>
     </header>
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
+      {#if accounts && factoryStatus.length}
+        <details class="home-detail factory-detail" open><summary>Factory pipelines <span>{factoryStatus.length}</span>{#if factoryNeeds}<span class="factory-needs">{factoryNeeds} {factoryNeeds === 1 ? 'needs' : 'need'} you</span>{/if}</summary>
+          <FactoryStatus rows={factoryStatus}/>
+          <p class="factory-foot"><a href="/factory">Open the Factory</a></p>
+        </details>
+      {/if}
       {#if needs.length}
         <details class="home-detail attention-detail" open><summary>Needs you <span>{needs.length}</span></summary><NeedsYou calm totalCount={attentionCount(needs)} cards={needs.slice(0, attentionLimit)} onseen={markSeen} onanswered={answered} />
           {#if needs.length > 5}<div class="attention-window"><span>Showing {Math.min(attentionLimit, needs.length)} of {needs.length}</span><button type="button" onclick={() => attentionLimit = attentionLimit < needs.length ? attentionLimit + 5 : 5}>{attentionLimit < needs.length ? `Show ${Math.min(5, needs.length - attentionLimit)} more` : 'Show fewer'}</button>{#if attentionLimit < needs.length}<button type="button" onclick={async event => { const panel = event.currentTarget.parentElement; attentionLimit = needs.length; await tick(); panel?.querySelector('button')?.focus() }}>View all {needs.length}</button>{/if}</div>{/if}</details>
@@ -431,13 +475,13 @@
       </div>
       {#if homeView === 'continue'}<div>
         {#if scope}<p class="continue-scope">{scopeName} <button type="button" class="btn" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
-        <InFlight heading="Continue working" groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
+        <InFlight heading="Continue working" {factory} groups={continueGroups} {owners} machines={health ?? []} offline={continueOffline} {now} loaded={sessions !== undefined} failed={sessionsFailed}
           groupBy={continueGroup} onchoose={value => (continueGroup = value)} {projectColours} terminals={terminals ?? []} {removeDefault}
           onchanged={() => load(true)} onnotice={value => (notice = value)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>
       {/if}
       <div hidden={homeView !== 'board'}>
-      <SessionBoard embedded {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
+      <SessionBoard embedded {factory} {userId} {sessions} {sessionsFailed} projects={projects ?? []} machines={terminals ?? []} health={health ?? []} {profile} {now} initialProject={launchProject ?? chosen} {removeDefault}
         scopeIds={scopedIds} scopeKind={scope?.kind} scopeName={scopeName} onclearscope={() => (scope = null)}
         onchanged={() => load(true)} onstart={(opener) => startNewSession(opener)} onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} />
       </div>
@@ -477,32 +521,40 @@
   .workspace-heading h1 { font: 600 24px/1.3 var(--sans); letter-spacing: -.025em; margin: 0; }
   .welcome-note { color: var(--muted); font-size: 14px; margin: 4px 0 0; }
   .home-controls { display: flex; align-items: center; gap: 8px; }
+  /* The Factory button sits beside Projects on a desktop; a tablet or phone already has Factory in its tab bar. */
+  .home-factory { text-decoration: none; display: none; align-items: center; min-height: 44px; }
+  @media (min-width: 1100px) { .home-factory { display: inline-flex; } }
   .home-projects { display: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
-  @media (min-width: 1240px) { .home-projects { display: inline-flex; align-items: center; } }
+  @media (min-width: 1100px) { .home-projects { display: inline-flex; align-items: center; } }
   .home-start { min-height: 44px; padding: 8px 14px; border-radius: 8px; font: 500 14px var(--sans); white-space: nowrap; }
   .attention-window { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 13px; color: var(--muted); }
   .attention-window button { min-height: 44px; padding: 4px 0; background: transparent; border: 0; color: var(--ink); font: inherit; text-decoration: underline; cursor: pointer; }
   .attention-window button:focus-visible { outline: 2px solid var(--accent); }
   .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .workspace-summary:has(.followups) { align-items: center; gap: 0 18px; }
-  .followups { min-height: 44px; padding: 8px 0; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  /* Gaffer's line on Home is the way onto the factory floor, so it reads as a control and carries his face. */
+  .followups { min-height: 44px; padding: 0 14px 0 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+  .followups:hover { border-color: var(--line-strong); background: var(--tint); }
+  .followups-text { min-width: 0; overflow-wrap: anywhere; }
   .followups:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   /* The header is 61 px on a desktop, 65 px on a tablet and 57 px on a phone (measured at each breakpoint). These only set the
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
   .home :global(p) { line-height: 1.55; }
-  /* The rail is the mock-up's 272 px of cards inside 14 px padding and a 1 px rule: 301 px by default, and as wide as
-     the person drags it (Home hands it --rail-width). */
-  .home.writer { grid-template-columns: var(--rail-width, 301px) minmax(0, 1fr); }
-  .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
+  /* On a wide desktop the project list lives in the workspace panel (rail-embedded), so Home is one column. Where the panel
+     is not on screen the rail returns to Home's own column: 301 px by default, as wide as the person drags it, or its
+     56 px strip while folded. */
+  .home.writer:not(.rail-embedded) { grid-template-columns: var(--rail-width, 301px) minmax(0, 1fr); }
+  .home.writer:not(.rail-embedded).rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
   /* Name the two columns explicitly: the rail and the board are the page's two grid items, and an absolute heading
      must never leave either of them waiting for the next row. */
   .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked)) { border-color: transparent; border-radius: 8px; background: transparent; }
   .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked):hover) { background: var(--line-soft); }
   .home.writer :global(aside.rail .strip) { height: calc(100dvh - var(--top)); min-height: 0; overflow-y: auto; scrollbar-width: thin; }
   .home.writer :global(aside.rail .strip > button) { flex-shrink: 0; }
-  .home.writer > :global(aside.rail) { grid-column: 1; grid-row: 1; }
+  .home.writer > .rail-portal { grid-column: 1; grid-row: 1; min-width: 0; }
   .home.writer > .column { grid-column: 2; grid-row: 1; }
+  .home.writer.rail-embedded > .column { grid-column: 1; grid-row: 1; }
   .home:not(.writer) > .column { grid-column: 1; grid-row: 1; }
   .column { min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
   .home:not(.writer) .column { padding-bottom: 36px; }
@@ -520,19 +572,23 @@
   .home-detail > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
   .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 14px; font-variant-numeric: tabular-nums; }
   .home-detail[open] > summary { margin-bottom: 12px; }
+  .home-detail > summary .factory-needs { color: var(--accent-text); font-weight: 600; }
+  .factory-foot { margin: 10px 0 0; font-size: 14px; }
   .attention-detail > summary { color: var(--warn); }
   .start-chosen { min-height: 34px; padding: 4px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: var(--accent-ink); font: 600 14px var(--sans); cursor: pointer; }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 
-  @media (max-width: 1239px) { .home.writer, .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); } }
+  @media (max-width: 1239px) {
+    .home.writer:not(.rail-embedded) { grid-template-columns: 56px minmax(0, 1fr); }
+  }
   @media (max-width: 1099px) {
     .home.writer > .column { grid-column: 1; }
   }
   /* Tablet: machines, Needs you, then In flight, one column; the project rail is on the Sessions screen. */
   @media (max-width: 1099px) {
     .home { font-size: 15px; --top: 65px; }
-    .home.writer, .home.writer.rail-collapsed { grid-template-columns: minmax(0, 1fr); }
+    .home.writer, .home.writer:not(.rail-embedded), .home.writer.rail-collapsed:not(.rail-embedded), .home.writer.rail-embedded { grid-template-columns: minmax(0, 1fr); }
   }
   /* Phone: one column with 16 px gutters; the launch bar sits above the tab bar. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {

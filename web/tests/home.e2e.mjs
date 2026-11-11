@@ -129,7 +129,7 @@ async function home(options={}) {
  const opened = await openWorkspace(browser, {width:1440, sync:makeSync(), routes, ...options, routes})
  // Existing project-management cases exercise an explicitly expanded rail.
  // The Continue matrix opts out to verify the new compact default and persistence.
- if(options.railExpanded !== false)await opened.page.addInitScript(()=>{if(localStorage.getItem('reet.rail.collapsed')===null)localStorage.setItem('reet.rail.collapsed','0')})
+ await opened.page.addInitScript(expanded=>{if(localStorage.getItem('reet.rail.collapsed')===null)localStorage.setItem('reet.rail.collapsed',expanded?'0':'1')}, options.railExpanded !== false)
  // #288 moved machines, Needs you and Quick launch into expandable sections; open them after each navigation.
  const openSections = async () => {
   await opened.page.locator('details.home-detail > summary').first().waitFor({state:'attached', timeout:10000}).catch(() => {})
@@ -202,16 +202,22 @@ try {
    await expect(page.getByRole('button',{name:'New session',exact:true})).toHaveCount(1)
    expect((await page.locator('.workspace-heading').boundingBox()).height).toBeLessThanOrEqual(130)
    expect(await page.evaluate(()=>localStorage.getItem('reet.home.view.1'))).toBeNull()
-   if(width>=1240){
+   if(width>=1100){
+    // The project list lives inside the workspace panel, so Projects folds the list in place rather than the column.
     const projects=page.locator('.workspace-heading').getByRole('button',{name:'Projects',exact:true}),projectRail=rail(page)
-    expect((await projectRail.boundingBox()).width).toBeLessThanOrEqual(64)
-    await expect(projectRail.getByRole('button',{name:'Expand the project rail',exact:true})).toHaveAttribute('aria-expanded','false')
-    expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBeNull()
+    await expect(page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
+    await expect(page.locator('main aside.rail')).toHaveCount(0)
+    await expect(projects).toHaveAttribute('aria-expanded','false')
+    await expect(projectRail.getByRole('button',{name:'Show the project list',exact:true})).toHaveAttribute('aria-expanded','false')
+    await expect(projectRail.locator('.full .card')).toHaveCount(0)
+    expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBe('1')
     await projects.click();await expect(projects).toHaveAttribute('aria-expanded','true')
-    expect((await projectRail.boundingBox()).width).toBeGreaterThanOrEqual(240)
+    expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBe('0')
+    await expect(projectRail.locator('.full .card').first()).toBeVisible()
     await page.reload();await expect(projects).toHaveAttribute('aria-expanded','true')
     await projects.click();await expect(projects).toHaveAttribute('aria-expanded','false')
-    expect((await projectRail.boundingBox()).width).toBeLessThanOrEqual(64)
+    expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBe('1')
+    await expect(projectRail.locator('.full .card')).toHaveCount(0)
    }
    const search=page.getByRole('searchbox',{name:'Search sessions',exact:true})
    await search.fill('release')
@@ -320,14 +326,19 @@ try {
   expect(box.createdBody.tool).toBeUndefined()
   await expect(page).toHaveURL(/\/sessions\?/)
   await page.goto(base)
-  // A right-click on the machine opens the full menu (New session, New project, New terminal, Open on Machines, Skills & sync).
+  // A right-click on the machine opens the full menu (New session, New project, New terminal, Open on Machines, Skills on this machine).
   await strip(page).getByRole('link',{name:/^studio, /}).click({button:'right'})
   const menu = page.getByRole('menu',{name:'studio'})
-  await expect(menu.getByRole('menuitem')).toHaveText(['New session…','New project…','New terminal','Open on Machines','Skills & sync'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['New session…','New project…','New terminal','Open on Machines','Skills on this machine'])
   await menu.getByRole('menuitem',{name:'New terminal'}).click()
   await expect.poll(() => box.createdBody?.title ?? null).toBe('Terminal')
   expect(box.createdBody.tool).toBeUndefined()
   await expect(page).toHaveURL(/\/sessions\?/)
+  // Skills on this machine no longer goes to the sync comparison page: it lands on the machine and opens its skill dialog once.
+  await page.goto(base)
+  await strip(page).getByRole('link',{name:/^studio, /}).click({button:'right'})
+  await page.getByRole('menu',{name:'studio'}).getByRole('menuitem',{name:'Skills on this machine'}).click()
+  await expect(page).toHaveURL(/\/machines\?machine=studio&choose=skills/)
   expect(errors).toEqual([])
   await context.close()
  }
@@ -610,7 +621,9 @@ try {
   await expect(notes.locator('.icon.folder')).toHaveCount(1)
   await expect(notes.locator('.branch')).toHaveCount(0)
   await expect(r.getByText('Folders are browsed live on the machine',{exact:true})).toHaveCount(0)
-  expect(Math.round(await r.evaluate(el => el.getBoundingClientRect().width))).toBe(301)
+  // The rail is embedded in the workspace panel, so it takes the panel's content width rather than a column of its own.
+  await expect(page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
+  expect(Math.round(await r.evaluate(el => el.getBoundingClientRect().width))).toBeGreaterThanOrEqual(240)
   // Choosing a card narrows the board to it (and marks it); its + opens Start an agent on that folder and machine.
   await notes.click()
   await expect(notes).toHaveAttribute('aria-current','true')
@@ -667,13 +680,14 @@ try {
   await expect(page.locator('main')).not.toContainText(/healthy|verified/i)
   expect(errors).toEqual([])
   await context.close()
-  // Under 1240 px the rail is a 56 px strip that still reaches each project and Add.
+  // At 1200 px the workspace panel is on screen too, so the project list is embedded there and still reaches Add.
   const narrow = await home({width:1200})
   await narrow.page.goto(base)
   const n = rail(narrow.page)
+  await expect(narrow.page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
   await expect(n.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})).toBeVisible()
   await expect(n.getByRole('button',{name:'Add a project'})).toBeVisible()
-  expect(Math.round(await n.evaluate(el => el.getBoundingClientRect().width))).toBe(56)
+  expect(Math.round(await n.evaluate(el => el.getBoundingClientRect().width))).toBeGreaterThanOrEqual(240)
   expect(await noSideways(narrow.page)).toBe(true)
   await narrow.context.close()
  }
@@ -727,24 +741,19 @@ try {
   await expect(r.getByRole('button',{name:/^Store rewrite, Blue, studio, main/})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
-  // From the panel over the 56 px strip, New session here closes the panel and sets the bar the same way.
+  // At 1200 px the project list is embedded in the workspace panel: New session here sets the bar the same way.
   const narrow = await home({width:1200})
   await narrow.page.goto(base)
-  await rail(narrow.page).getByRole('button',{name:'Open the project rail'}).click()
-  await rail(narrow.page).locator('.full').getByRole('button',{name:'More for Notes',exact:true}).click()
-  // By keyboard, so no press outside the panel closes it first: the choice itself must.
+  await rail(narrow.page).getByRole('button',{name:'More for Notes',exact:true}).click()
   await expect(narrow.page.getByRole('menu',{name:'Notes'}).getByRole('menuitem',{name:'New session here'})).toBeFocused()
   await narrow.page.keyboard.press('Enter')
-  await expect(rail(narrow.page).getByRole('button',{name:'Close the project rail'})).toHaveCount(0)
   const narrowDialog = narrow.page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(narrowDialog).toBeVisible()
   await expect(narrowDialog.getByLabel('Project')).toHaveValue('fp2')
   await narrow.page.keyboard.press('Escape')
   await expect(narrowDialog).toBeHidden()
-  // The menu sits outside the panel's box (#228 moved it out of the cards): pressing one of its other items does not count
-  // as a press outside the panel, so Move down keeps the panel open with its new order.
-  await rail(narrow.page).getByRole('button',{name:'Open the project rail'}).click()
-  await rail(narrow.page).locator('.full').getByRole('button',{name:'More for Store rewrite',exact:true}).click()
+  // The menu sits outside the cards: pressing one of its other items reorders the list.
+  await rail(narrow.page).getByRole('button',{name:'More for Store rewrite',exact:true}).click()
   await narrow.page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'Move down'}).click()
   await expect.poll(() => narrow.box.writes.find(w => w.path === '/api/v2/folder-projects/reorder')?.body ?? null).toEqual({ids:['fp2','fp1'], versions:[1,1]})
   expect(narrow.errors).toEqual([])
@@ -886,41 +895,30 @@ try {
   await context.close()
  }
 
- // From 1100 to 1239 px the rail is a 56 px strip: each project shows its repository badge, branch and worktrees in use in
- // place, and every action of the full rail is reachable by keyboard through Open the project rail, which marks a note or
- // saved folders waiting.
- if (run('collapsed strip reaches every rail action by keyboard')) {
+ // At 1100 to 1239 px the workspace panel is on screen too, so the project list is embedded there: every card action is
+ // reachable, and folding the list leaves its heading, Add and the fold button in the panel.
+ if (run('embedded rail reaches every action at narrow desktops')) {
   for (const width of [1239, 1100]) {
    const {context,page,errors,box} = await home({width, savedWaiting:2, projects:[fproject('fp1','Store rewrite','a1','/home/dev/store',{baseBranch:'main',note:'Old shop'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]})
    await page.goto(`${base}/?project=fp1`)
-   const strip = rail(page).locator('.strip')
-   const store = strip.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})
-   await expect(store).toHaveAttribute('aria-current','true')
-   await expect(strip.getByRole('button',{name:/^Notes, /})).not.toHaveAttribute('aria-current','true')
+   const r = rail(page)
+   await expect(page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
+   const panel = r.locator('.full')
+   const store = panel.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})
    await expect(store, `${width}`).toBeVisible()
-   await expect(store.locator('.badge')).toBeVisible()
-   await expect(store.locator('.mini-branch')).toHaveText('main')
-   await expect(store.locator('.mini-wt')).toHaveText('1')
-   expect(Math.round(await rail(page).evaluate(el => el.getBoundingClientRect().width))).toBe(56)
-   const toggle = strip.locator('button.manage')
-   await expect(toggle).toHaveAccessibleName('Open the project rail: 1 note, 2 folders waiting')
-   // Opened from a scrolled page, the panel starts where the strip is on screen (the header has scrolled away).
-   await page.evaluate(() => scrollTo(0, 120))
-   await toggle.focus()
-   await page.keyboard.press('Enter')
-   await expect(toggle).toHaveAttribute('aria-expanded','true')
-   await expect(toggle).toHaveAccessibleName('Close the project rail')
-   const panel = rail(page).locator('.full')
-   await expect(panel.getByRole('button',{name:'Add a project'})).toBeFocused()
-   const [panelTop, stripTop] = await page.evaluate(() => [document.querySelector('aside.rail .full').getBoundingClientRect().top, document.querySelector('aside.rail').getBoundingClientRect().top])
-   expect(Math.round(panelTop)).toBe(Math.max(0, Math.round(stripTop)))
-   // Tab and Shift+Tab stay inside the panel: the page drawn under it never takes focus.
-   for (const key of [...Array(25).fill('Tab'), ...Array(5).fill('Shift+Tab')]) {
-    await page.keyboard.press(key)
-    expect(await page.evaluate(() => !!document.activeElement?.closest('aside.rail .full')), `${width}px ${key}`).toBe(true)
-   }
-   await panel.getByRole('button',{name:'Add a project'}).focus()
-   // The card menu.
+   await expect(store).toHaveAttribute('aria-current','true')
+   await expect(panel.getByRole('button',{name:/^Notes, /})).not.toHaveAttribute('aria-current','true')
+   await expect(store.locator('.icon.repo')).toHaveCount(1)
+   await expect(store.locator('.branch')).toHaveText('main')
+   await expect(store.locator('.wt')).toHaveText('1 worktree in use')
+   // Folding the list leaves the heading, Add and the fold button in the panel.
+   await panel.getByRole('button',{name:'Hide the project list',exact:true}).click()
+   await expect(store).toBeHidden()
+   await expect(r.getByRole('heading',{name:'Projects'})).toBeVisible()
+   await expect(r.getByRole('button',{name:'Add a project'})).toBeVisible()
+   await r.getByRole('button',{name:'Show the project list',exact:true}).click()
+   await expect(store).toBeVisible()
+   // The card menu by keyboard.
    await panel.getByRole('button',{name:'More for Store rewrite',exact:true}).focus()
    await page.keyboard.press('Enter')
    const menu = page.getByRole('menu',{name:'Store rewrite'})
@@ -943,18 +941,6 @@ try {
    await bring.focus()
    await page.keyboard.press('Enter')
    await expect.poll(() => box.writes.filter(w => w.path === '/api/v2/folder-projects/import-saved').length).toBe(1)
-   // Escape closes the panel and gives focus back.
-   await panel.getByRole('button',{name:'Add a project'}).focus()
-   await page.keyboard.press('Escape')
-   await expect(toggle).toHaveAttribute('aria-expanded','false')
-   await expect(toggle).toHaveAccessibleName(/^Open the project rail/)
-   await expect(toggle).toBeFocused()
-   await expect(panel).toBeHidden()
-   // Its own Close button does the same.
-   await toggle.click()
-   await panel.getByRole('button',{name:'Close the project rail',exact:true}).click()
-   await expect(panel).toBeHidden()
-   await expect(toggle).toBeFocused()
    expect(await noSideways(page)).toBe(true)
    expect(errors).toEqual([])
    await context.close()
@@ -1212,16 +1198,19 @@ try {
   await context.close()
  }
 
- // The drawings: desktop keeps the project rail beside the session board; tablet and phone drop the rail.
- // Every width draws the board with no sideways scroll, and a phone's Start is at least 48 px.
+ // The drawings: on a desktop the project list is inside the workspace panel beside the session board; tablet and phone
+ // drop the rail. Every width draws the board with no sideways scroll, and a phone's Start is at least 48 px.
  if (run('layout follows the desktop, tablet and phone drawings')) {
   for (const [width,touch] of [[1440,false],[834,true],[390,true],[320,true]]) {
    const {context,page,errors} = await home({width,touch})
    await page.goto(base)
    await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
    await expect(page.getByRole('region',{name:'Active'})).toBeVisible()
-   if (width >= 1100) await expect(rail(page)).toBeVisible()
-   else await expect(page.locator('main aside.rail')).toHaveCount(0)
+   if (width >= 1100) {
+    await expect(rail(page)).toBeVisible()
+    await expect(page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
+    await expect(page.locator('main aside.rail')).toHaveCount(0)
+   } else await expect(page.locator('main aside.rail')).toHaveCount(0)
    await expect(card(page,'studio')).toBeVisible()
    if (width < 651) {
     await openLaunch(page)
@@ -1346,9 +1335,9 @@ try {
   await context.close()
  }
 
- // Status is never colour alone: a phone chip that is not online says so in words, and the rail's narrow strip names each
- // Project's state in its link.
- if (run('status in words on phone chips and the rail strip')) {
+ // Status is never colour alone: a phone chip that is not online says so in words, and the embedded rail names each
+ // Project's state in its card.
+ if (run('status in words on phone chips and the rail cards')) {
   const phone = await home({width:390,touch:true})
   await phone.page.goto(base)
   await expect(card(phone.page,'desk').locator('.status')).toBeVisible()
@@ -1358,8 +1347,8 @@ try {
   await phone.context.close()
   const narrow = await home({width:1200})
   await narrow.page.goto(base)
-  await expect(rail(narrow.page).locator('.strip').getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})).toBeVisible()
-  await expect(rail(narrow.page).locator('.strip').getByRole('button',{name:'Notes, desk, machine offline',exact:true})).toBeVisible()
+  await expect(rail(narrow.page).getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})).toBeVisible()
+  await expect(rail(narrow.page).getByRole('button',{name:'Notes, desk, machine offline',exact:true})).toBeVisible()
   await narrow.context.close()
  }
  // The shell and Home across screens, themes and motion: 1360 px with a mouse, 834 px on a touch tablet and 390 and 320 px on a

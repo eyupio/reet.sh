@@ -110,12 +110,20 @@ func runHome(initial []string, resumed *homeResult) (int, error) {
 	ctx := context.Background()
 	return homeLoop(homeActions{
 		choose: func() ([]string, error) { return cliui.Choose(ctx, os.Stdin, os.Stdout, version) },
-		pause:  func(code int) (bool, error) { return cliui.Pause(ctx, os.Stdin, os.Stdout, code) },
+		// A resumed upgrade re-executed inside the frame its first half opened.
+		pause: func(code int) (bool, error) {
+			defer cliui.LeaveFrame(os.Stdout)
+			return cliui.Pause(ctx, os.Stdin, os.Stdout, code)
+		},
 		run: func(args []string) (homeRun, error) {
-			// Commands that must prompt or own the terminal keep their original
-			// handoff. The rest run under the output view so their results stay
-			// in the interface instead of the terminal's scrollback.
+			// Commands that must prompt or own the terminal run on the
+			// interface's own screen with the real terminal attached. The rest
+			// run under the output view. Neither leaves reet for the shell's
+			// scrollback.
+			label := strings.Join(append([]string{"reet"}, args...), " ")
 			if ownsTerminal(args) {
+				cliui.EnterFrame(os.Stdout, label)
+				defer cliui.LeaveFrame(os.Stdout)
 				code, err := runHomeSelection(path, args, func(args []string) int { return runHomeCommand(ctx, path, args) }, reexecBinary)
 				if err != nil {
 					return homeRun{}, err
@@ -123,7 +131,6 @@ func runHome(initial []string, resumed *homeResult) (int, error) {
 				quit, err := cliui.Pause(ctx, os.Stdin, os.Stdout, code)
 				return homeRun{code: code, quit: quit}, err
 			}
-			label := strings.Join(append([]string{"reet"}, args...), " ")
 			code, quit, err := cliui.RunOutput(ctx, os.Stdin, os.Stdout, label, func(ctx context.Context, out io.Writer) (int, error) {
 				return runHomeCaptured(ctx, path, args, out), nil
 			})

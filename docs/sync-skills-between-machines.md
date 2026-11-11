@@ -72,7 +72,7 @@ A complete, recent scan is required before a target can be saved for sync. Stale
 
 ## 3. Choose a source and destinations
 
-Open **Machines → Sync → Advanced sync**. Start from one of these sources:
+Open **Machines → Sync** and follow the **Advanced sync** link (the page is `/sync/advanced`). Start from one of these sources:
 
 - **Reet.sh shelf & lists** — your personal shelf, or a list you can read.
 - **My reet.sh skills** — published skills by their public URL, and unpublished drafts served privately from this controller.
@@ -92,7 +92,7 @@ Then choose **Apply changes**. The agent checks the enrolment, target, desired r
 
 ## 5. Check the result
 
-**Sync activity** shows queued, running, awaiting approval, succeeded, failed and cancelled jobs. A successful apply rescans and records the desired revision.
+**Sync activity**, on Advanced sync and as **Recent activity** on the Sync page, shows queued, running, awaiting approval, succeeded, failed and cancelled jobs. A successful apply rescans and records the desired revision.
 
 When a run has a failure or something waiting for review, the page opens with a **Needs you** strip. Read the exact command or reason on the card before retrying; a retry asks for a fresh preview rather than replaying an old approval.
 

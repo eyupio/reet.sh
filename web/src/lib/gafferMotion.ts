@@ -6,6 +6,10 @@ export const gafferAnimations = writable(true)
 
 // Account preference: how each Gaffer card starts. A card's own toggle overrides it for that card only.
 export const gafferCompact = writable(true)
+/** The person's standing permission for Gaffer to look after a session they point it at, without a review each time. */
+export const gafferStanding = writable(true)
+/** Whether a new pipeline is allowed to merge by itself unless the person says otherwise for it. */
+export const gafferAutoMerge = writable(false)
 
 // Shared by CSS playback and the welcome lifecycle so the scene outlives its four frames.
 export const GAFFER_GESTURE_MS = 2_600

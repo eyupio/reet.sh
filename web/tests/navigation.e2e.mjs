@@ -34,7 +34,7 @@ try {
   await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
   expect(await page.title()).toBe('Home · reet.sh')
   const top = await tabs(page).getByRole('link').allInnerTexts()
-  expect(top.map(t=>t.trim())).toEqual(['Home','Sessions','Machines','Skills'])
+  expect(top.map(t=>t.trim())).toEqual(['Home','Factory','Sessions','Machines','Skills'])
   await expect(tabs(page).getByRole('link',{name:'Home',exact:true})).toHaveAttribute('aria-current','page')
   for (const [name,href] of [['Home','/'],['Sessions','/sessions'],['Machines','/machines'],['Skills','/skills']])
    await expect(tabs(page).getByRole('link',{name,exact:true})).toHaveAttribute('href',href)
@@ -110,6 +110,22 @@ try {
   await context.close()
  }
 
+ // Jump reads sessions and Projects when it is first used and holds them for 15 seconds, but a skill list that finishes
+ // loading after that first use must still be found: the skills answer is held back here, Jump is used before it arrives,
+ // and the skill appears once it has. (The list used to be built once, so the skill was missing for the 15 seconds.)
+ if (run('jump finds a skill that finished loading after it was first used')) {
+  const {context,page,errors} = await open({width:1440,skills:[skill('code-review')]})
+  await page.route('**/api/skills*', async route => { await new Promise(resolve => setTimeout(resolve, 1500)); await route.fallback() })
+  await page.goto(`${base}/skills`)
+  const jump = page.getByRole('combobox',{name:'Jump to a session, project, skill or machine'})
+  await jump.fill('code')
+  const results = page.getByRole('listbox',{name:'Jump results'})
+  await expect(results.getByRole('option',{name:/code-review/})).toHaveAttribute('href','/skills?skill=demo%2Ftoolkit%2Fcode-review')
+  await expect(results.getByRole('option',{name:/code-review/})).toContainText('Skill ·')
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A phone has four tabs along the bottom: Home, Sessions, Machines and More, 64 px tall with 44 px targets; More lists the rest.
  if (run('phone shows four bottom tabs and More lists the rest')) {
   for (const width of [320,390]) {
@@ -118,7 +134,7 @@ try {
    await expect(page.getByRole('heading',{name:'Home',exact:true,level:1})).toBeVisible()
    const bar = tabs(page)
    const items = await bar.locator(':scope a, :scope button').allInnerTexts()
-   expect(items.map(t=>t.trim())).toEqual(['Home','Sessions','Machines','More'])
+   expect(items.map(t=>t.trim())).toEqual(['Home','Factory','Sessions','Machines','More'])
    const m = await bar.evaluate(el=>{const r=el.getBoundingClientRect();return{bottom:r.bottom,height:r.height,targets:[...el.querySelectorAll('a,button')].map(a=>{const b=a.getBoundingClientRect();return[b.width,b.height]})}})
    expect(m.height).toBeGreaterThanOrEqual(64)
    expect(Math.round(m.bottom)).toBe(812)
@@ -141,7 +157,7 @@ try {
    await expect(more).toBeVisible()
    const links = await more.getByRole('link').allInnerTexts()
    // Neither Control (folded into Home and Machines) nor Activity (in the account) is under More any more.
-   expect(links.map(t=>t.trim())).toEqual(['Skills','Prompts','Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
+   expect(links.map(t=>t.trim())).toEqual(['Skills','Library','Prompts','Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
    await page.keyboard.press('Escape')
    await expect(more).toBeHidden()
    await expect(bar.getByRole('button',{name:'More'})).toBeFocused()
@@ -159,7 +175,7 @@ try {
   const {context,page} = await open({width:834,touch:true})
   await page.goto(base)
   const items = await tabs(page).locator(':scope a, :scope button').evaluateAll(els=>els.filter(e=>e.getClientRects().length).map(e=>e.textContent.trim()))
-  expect(items).toEqual(['Home','Sessions','Machines','More'])
+  expect(items).toEqual(['Home','Factory','Sessions','Machines','More'])
   const top = await tabs(page).evaluate(el=>el.getBoundingClientRect().top)
   expect(top).toBeLessThan(80)
   await tabs(page).getByRole('button',{name:'More'}).click()
@@ -203,8 +219,8 @@ try {
   await tabs(page).getByRole('button',{name:'More',exact:true}).click()
   const more = page.getByRole('dialog',{name:'More'})
   const names = await more.getByRole('link').allInnerTexts()
-  expect(names.map(t=>t.trim())).toEqual(['Prompts','Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
-  await expect(more.getByRole('region',{name:'Skills & distribution'}).getByRole('link')).toHaveText(['Prompts','Setups','Lists','Write a skill'])
+  expect(names.map(t=>t.trim())).toEqual(['Library','Prompts','Setups','Lists','Write a skill','Community','Support','Teams & organisations','Instance administration'])
+  await expect(more.getByRole('region',{name:'Skills & distribution'}).getByRole('link')).toHaveText(['Library','Prompts','Setups','Lists','Write a skill'])
   await expect(more.getByRole('region',{name:'Help & community'}).getByRole('link')).toHaveText(['Community','Support'])
   await expect(more.getByRole('region',{name:'Workspace'}).getByRole('link')).toHaveText(['Teams & organisations','Instance administration'])
   const hrefs = [...await tabs(page).getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href'))), ...await more.getByRole('link').evaluateAll(els=>els.map(e=>e.getAttribute('href')))]

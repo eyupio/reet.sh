@@ -1,8 +1,8 @@
 # Reet.sh skills and enrolled machines
 
-New connectors keep **selected In use skills** up to date through your private library. In **Sync → Skills to sync**, choose a machine folder, select its skills and save. The selection survives an offline machine; a new machine receives nothing until you choose items for it. Select all adds the current In use items without subscribing to future additions.
+New connectors keep **selected In use skills** up to date through your private library. On **Machines**, open a machine's **Skills on this machine** dialog, choose a folder, select its skills and save. The **Sync** page links each machine to the same dialog. The selection survives an offline machine; a new machine receives nothing until you choose items for it. Select all adds the current In use items without subscribing to future additions.
 
-Advanced custom plans and older connector compatibility remain available below. Managed removal/restoration and the replacement minimal pages are separate rollout stages.
+The **Sync** page (`/sync`) shows one status sentence, a row for each machine and recent activity. Anything that needs you, such as a plan waiting for review or a problem on one machine, is said on that machine's row. Custom plans (list-based or exact-set plans, plan revisions and manual scans) and older connector compatibility are on their own page, **Advanced sync** (`/sync/advanced`), linked once from Sync and described below. Managed removal/restoration and the replacement minimal pages are separate rollout stages.
 
 ## Connect an installation
 
@@ -36,7 +36,7 @@ reet doctor
 
 ## Keep selected skills up to date
 
-1. Open **Sync → Skills to sync** and choose an enrolled machine folder.
+1. Open **Machines**, choose **Skills on this machine** for an enrolled machine, and choose a folder.
 2. Select individual skills or **Select all In use**, then **Save selection**. An offline machine or stale inventory does not prevent saving intent.
 3. Leave the connector running. It verifies and installs ready items automatically, with no browser preview/apply chain. Edits from either selected machine or the controller propagate through immutable private revisions. A failed item leaves healthy items running.
 
@@ -56,6 +56,8 @@ Clearing a selection stops updates in this stage. Removing managed copies on des
 
 ## Advanced custom plans and older connectors
 
+These controls are on the **Advanced sync** page: open **Sync** and follow the **Advanced sync** link, or go to `/sync/advanced`. Older links that name a machine, a list or a skill to remove (`/sync?machine=…`, `/sync?list=…`, `/sync?machine=…&remove=…`) are sent on to that page with what they carried.
+
 ### Compare, select and apply
 
 1. Choose the source collection and target machine/agent/project. Select individual skills or Select visible after searching.
@@ -63,7 +65,7 @@ Clearing a selection stops updates in this stage. Removing managed copies on des
 3. Choose a mode and **Save desired skills**. Exact and bidirectional modes warn when extras may be removed.
 4. Choose **Preview on machine**. The agent reads current files, validates sources/shared folders, and returns a concrete plan.
 5. **Apply changes** to approve that plan. The agent checks enrollment, target, desired revision, local plan hash and filesystem state again before applying. Changed plans fail and require a fresh preview.
-6. Read Sync activity for queued/running/awaiting approval/succeeded/failed/cancelled status. The page opens with a **Needs you** strip when anything failed or is waiting for review; full activity sits below the saved sets. A successful apply rescans and acknowledges the desired revision.
+6. Read Sync activity for queued/running/awaiting approval/succeeded/failed/cancelled status. It is at the top of Advanced sync, above the plan controls, and on the Sync page as **Recent activity**; a plan waiting for review is also said on its machine's row on Sync, with a **Review changes** link. A successful apply rescans and acknowledges the desired revision.
 
 The UI refreshes while visible, preserves existing data on refresh failures, and shows when data was last refreshed. Onboarding only confirms a complete scan received after the connection attempt began, rather than accepting an old matching hostname report.
 
@@ -82,6 +84,25 @@ Matching is based on skill identity and source, not file contents or upstream co
 ### Sync a machine automatically
 
 Machines with saved desired sets show **Sync saved skills (installs automatically)** (or **Sync now (installs automatically)** for one set). It starts a controller-driven run across that machine's saved scopes without a CLI command. The enrolled agent previews each scope, the controller automatically approves plans that only install or replace entries, and the agent applies them and rescans. Plans that would remove skills stay **awaiting approval** and remain visible in Sync activity; later scopes in the run still continue. **Sync now** beside an individual saved set starts the same automatic flow for that scope. The agent must be enrolled, online and running, and remote apply must already be enabled locally. Use **Pause sync jobs** to stop the run claiming further work.
+
+## Follow a controller that has moved
+
+When a controller moves (see [backups](backups.md#moving-a-controller-the-order-of-it)), each machine keeps working against the old address until it is told the new one. On the machine, run:
+
+```sh
+reet agent set-server https://reet.new.example
+```
+
+The machine keeps its identity, secret and settings, and only its saved address changes. It then restarts the agent as `reet agent restart` does. The address must be an origin (no path, query or credentials) over HTTPS; plain HTTP is accepted only for this machine itself. Use `--config PATH` for a non-default enrollment file and `--service-prefix` as the other agent commands do.
+
+**The machine does not hand its credentials to just any address.** Before it trusts the new controller it runs two checks, in order, and changes nothing unless both pass:
+
+1. **The controller proves it holds this machine's record.** The machine sends its id and a fresh random nonce, with no credential. A controller stores only a hash of a machine's secret, so it answers with an HMAC of the nonce keyed by that hash (`POST /api/v2/sync/agent-proof`). The machine hashes its own secret and checks the answer. A controller that does not hold the record cannot make it, an answer recorded earlier cannot be replayed because the nonce is new each time, and the answer reveals neither the hash nor the secret. A redirect is not followed.
+2. **The controller accepts the credentials.** Only now are the machine's credentials sent, once, to ask who they belong to; the answer must be this machine.
+
+If a check fails, the command says which one and why (for example that the controller has no record of this machine, has itself moved, or does not support the proof request yet), and the enrollment file is left exactly as it was. If the address is saved but the agent cannot be restarted, it says so and tells you to run `reet agent restart`.
+
+The fence records the address it was given (`--moved-to`) so a later release can let machines learn it on their own; machines do not read it yet, so run this command on each one.
 
 ## Controls and recovery
 

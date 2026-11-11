@@ -31,7 +31,7 @@ export function sinceLabel(stage: Stage, ts: number): string {
     const age = elapsed(ts)
     return age === 'just now' ? 'To test just now' : `To test for ${age}`
   }
-  return `On the shelf ${elapsed(ts)}`
+  return `Parked ${elapsed(ts)}`
 }
 
 /** One absolute timestamp for a title: the person's date order and time zone, without seconds. */

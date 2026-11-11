@@ -1,4 +1,5 @@
 import { enrollCommands, scanCommand, shellQuote } from './machineSetup'
+import { sourceConflictSentence } from './syncOverview'
 
 export type SyncProblemKind =
   | 'skills-folder'
@@ -202,7 +203,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
       commands: [],
       retry: false,
       local: false,
-      href: '/sync#sync-selection',
+      href: '/sync/advanced#sync-selection',
     }
   }
   if (stalePlan.test(text)) {
@@ -231,13 +232,13 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
       kind: 'source',
       title: autoFix ? 'This skill is installed from a different source' : 'This skill needs a source decision',
       detail: autoFix
-        ? `${text} Auto fix follows the source already on the machine, then syncs again. No installed files are changed.`
+        ? `${sourceConflictSentence(text, host)} Auto fix keeps that copy and points the sync plan at it, then syncs again. No files on the machine are changed.`
         : `${text} Link the skill to a source, or move the other copy aside, then retry.`,
       commands: [],
       retry: false,
       local: false,
       autoFix,
-      href: /linked|link.*source|saved sync source/.test(text) ? '/skills' : '/sync#sync-selection',
+      href: /linked|link.*source|saved sync source/.test(text) ? '/skills' : '/sync/advanced#sync-selection',
     }
   }
   return {

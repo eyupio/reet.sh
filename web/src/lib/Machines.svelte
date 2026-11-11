@@ -1,6 +1,5 @@
 <script lang="ts">
   import EnvironmentSync from './EnvironmentSync.svelte'
-  import SelectedLibrary from './SelectedLibrary.svelte'
   import WorkspaceSkeleton from './terminal/WorkspaceSkeleton.svelte'
   import PageHeader from './PageHeader.svelte'
   import type { SectionItem } from './SectionNav.svelte'
@@ -9,7 +8,7 @@
   import { createToken } from './api'
   import { describeError } from './contentReview'
   import { onMount, type Component } from 'svelte'
-  let { canWrite, accounts, monitoring=false, compare = false, userId=0, timeZone = '', dateFormat = 'locale', onsignedout, ontitle }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean;userId?:number; timeZone?: string; dateFormat?: string; onsignedout?: (e: unknown) => void; ontitle?: (title: string) => void } = $props()
+  let { canWrite, accounts, monitoring=false, compare = false, advanced = false, userId=0, timeZone = '', dateFormat = 'locale', onsignedout, ontitle }: { canWrite: boolean; accounts: boolean; monitoring?:boolean; compare?: boolean; advanced?: boolean;userId?:number; timeZone?: string; dateFormat?: string; onsignedout?: (e: unknown) => void; ontitle?: (title: string) => void } = $props()
   let token = $state(''), name = $state('machine token'), busy = $state(false), error = $state(''), softwareOpen = $state(false)
   // A session address (?session=, ?agent= or view=terminal) opens the workspace. A bare /sessions reaches this page only for
   // someone without Sessions (a viewer, a token or an open instance), who gets the Machines page itself.
@@ -35,15 +34,17 @@
     { label: 'Inventory & connection', href: '/machines', current: !compare },
     { label: 'Sync', href: '/sync', current: compare }
   ]}
-  <PageHeader group="Machines" groupHref={!compare && focus ? '/machines' : undefined} title={compare ? "Sync" : focus || "Machines"} lede={compare ? "One shared skill library, kept up to date on every machine." : focus ? "Inspect this machine's install locations, health and sync plans, or continue in its terminal." : "Connect your machines. Reet keeps your skills in sync and your agents ready to work."} {sections} sectionsLabel="Machines">
+  <!-- Advanced sync is a page under Sync: its label links back there, as a machine's page links back to Machines. -->
+  <PageHeader group={advanced ? "Sync" : "Machines"} groupHref={advanced ? '/sync' : !compare && focus ? '/machines' : undefined} title={advanced ? "Advanced sync" : compare ? "Sync" : focus || "Machines"} lede={advanced ? "For sync plans you set up by hand: plans that follow a list or keep an exact set of skills, their plan revisions, and manual scans. Most people only need Sync." : compare ? "One shared skill library, kept up to date on every machine." : focus ? "Inspect this machine's install locations, health and sync plans, or continue in its terminal." : "Connect your machines. Reet keeps your skills in sync and your agents ready to work."} {sections} sectionsLabel="Machines">
     <!-- Software is an action, not a place: beside the title at every width, so a phone does not open the folded menu first. -->
     {#snippet actions()}{#if accounts && canWrite}<button type="button" class="btn software" onclick={() => (softwareOpen = true)}>Software</button>{/if}{/snippet}
   </PageHeader>
+  {#if advanced}<p class="back"><a href="/sync">Back to Sync</a></p>{/if}
 {/if}
 {#if terminals && accounts && canWrite}{#if TerminalView}<TerminalView {userId} {ontitle} />{:else if error}<p class="notice bad" role="alert">{error}</p>{:else}
   <WorkspaceSkeleton label="Loading the terminal workspace" context={workspaceContext} />
   {/if}{:else}
-<EnvironmentSync {canWrite} {accounts} {timeZone} {dateFormat} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} startConnect={location.hash === '#connect-machine'}>
+<EnvironmentSync {canWrite} {accounts} {timeZone} {dateFormat} monitorAccess={monitoring} terminalAccess={accounts&&canWrite} {token} {onsignedout} view={compare ? 'compare' : 'machines'} {advanced} startConnect={location.hash === '#connect-machine'}>
   {#snippet tokenSetup()}
     {#if accounts && canWrite}
       {#if !token}
@@ -53,7 +54,6 @@
     {:else}<p>Use the token configured for this instance when the CLI asks. Instances without authentication do not require one.</p>{/if}
   {/snippet}
 </EnvironmentSync>
-{#if compare && accounts && canWrite}<SelectedLibrary />{/if}
 {/if}
 {#if softwareOpen}<FleetSoftware onclose={() => (softwareOpen = false)} />{/if}
 {#if !terminals && !compare && accounts && canWrite}
@@ -65,6 +65,7 @@
 <style>
  form {display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:20px} label {display:grid;gap:6px;font-size:0.875rem} p {font-size:0.875rem;color:var(--muted)}
  .software {min-height:44px}
+ .back {margin:-8px 0 16px} .back a {display:inline-flex;align-items:center;min-height:44px;color:var(--muted);text-decoration:underline;text-underline-offset:3px} .back a:hover {color:var(--ink)}
  .projects-drawer {margin:26px 0 0;border-top:1px solid var(--line);padding-top:14px}
  .projects-drawer > summary {cursor:pointer;color:var(--muted);font-size:0.875rem;font-weight:600;min-height:32px}
 </style>

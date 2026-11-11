@@ -51,8 +51,12 @@ type Detail = {
   folderProjects?: unknown[]
   path?: string
   pages?: number
+  mode?: string
+  allow?: number
+  ask?: number
   machine?: string
   state?: string
+  stage?: string
   defaultTool?: string
   defaultModel?: string
   defaultEffort?: string
@@ -81,7 +85,28 @@ export function eventLabel(e: Event): string {
     case 'forget-machine': return `Forgot machine ${d.host || ''}`
     case 'terminal-launch': return launchActivity(d)
     case 'yolo-launch': return `Started ${toolName(d.tool || '')} on YOLO${d.host || d.machine ? ` on ${d.host || d.machine}` : ''}`
-    case 'yolo-allow': return `YOLO allowed a request in a ${toolName(d.tool || '')} session`
+    case 'yolo-allow': {
+      // One row counts the approvals of a turn; rows written before that carry no count.
+      const n = typeof d.count === 'number' && d.count > 1 ? d.count : 1
+      return `YOLO allowed ${n === 1 ? 'a request' : `${n} requests`} in a ${toolName(d.tool || '')} session`
+    }
+    case 'gaffer-tool-call': return `Gaffer used ${d.tool || 'a reet tool'}${d.mode === 'ask' ? ' after you approved it' : ''}${d.ok === false ? '; it failed' : ''}`
+    case 'gaffer-tool-proposed': return `Gaffer asked to use ${d.tool || 'a reet tool'}`
+    case 'gaffer-tool-declined': return `You declined Gaffer's use of ${d.tool || 'a reet tool'}`
+    case 'gaffer-tools-changed': return `Changed the tools Gaffer can use (${d.allow ?? 0} allowed, ${d.ask ?? 0} ask first)`
+    case 'gaffer-stage-handed-over':
+      if (d.by === 'person') return `You moved a pipeline on from its ${d.stage || 'current'} stage`
+      if (d.by === 'chat') return `Gaffer moved a pipeline on from its ${d.stage || 'current'} stage because you said so in its chat`
+      return `Gaffer handed over a pipeline's ${d.stage || 'current'} stage`
+    case 'gaffer-stage-started': return d.stage ? `A pipeline's ${d.stage} stage started` : 'An outcome session started and Gaffer is following it'
+    case 'gaffer-pipeline-waiting-merge': return 'A pipeline is ready and waits for your merge decision'
+    case 'gaffer-pipeline-done': return 'A pipeline finished every stage'
+    case 'gaffer-pipeline-stopped': return `A pipeline stopped${d.stage ? ` at its ${d.stage} stage` : ''}${d.reason ? `: ${d.reason}` : ''}`
+    case 'gaffer-pipeline-moved-on': return 'Moved a pipeline to its next stage'
+    case 'gaffer-goal-needs-you': return `A goal needs you${d.stage ? ` (${d.stage} stage)` : ''}${d.reason ? `: ${d.reason}` : ''}`
+    case 'gaffer-goal-held': return `Gaffer is waiting${d.stage ? ` at the ${d.stage} stage` : ''} while the agent waits for your answer`
+    case 'gaffer-goal-released': return `Gaffer is following again${d.stage ? ` (${d.stage} stage)` : ''} now the agent has its answer`
+    case 'gaffer-goal-limit': return `A goal ran out of budget${d.stage ? ` (${d.stage} stage)` : ''}${d.reason ? `: ${d.reason}` : ''}`
     case 'yolo-allowed': return 'Allowed YOLO sessions for the account'
     case 'yolo-disallowed': return 'Turned off YOLO sessions for the account'
     case 'project-create': return d.name ? `Created project ${d.name}${typeof d.members === 'number' ? ` with ${repositories(d.members)}` : ''}` : 'Created a project'
@@ -141,7 +166,7 @@ export function eventLabel(e: Event): string {
     case 'restore':
       return `Restored ${d.restored ?? 0} skills`
     case 'export':
-      return 'Exported the shelf'
+      return 'Exported the library'
     case 'tag-rename':
       return 'Renamed a tag'
     case 'tag-merge':
@@ -385,6 +410,7 @@ export function eventCategory(e: Event): EventCategory {
   if (known) return known
   if (e.action.startsWith('project-')) return 'projects'
   if (e.action.startsWith('sync-agent-')) return 'agents'
+  if (e.action.startsWith('gaffer-tool') || e.action.startsWith('gaffer-stage-') || e.action.startsWith('gaffer-pipeline-') || e.action.startsWith('gaffer-goal-')) return 'agents'
   if (e.action.startsWith('bulk-') || e.action.startsWith('hosted-') || e.action.startsWith('skill-content-')) return 'skills'
   if (e.action.startsWith('list-')) return 'lists'
   if (e.action.startsWith('backup-') || e.action.startsWith('mail-') || e.action.startsWith('group-') || e.action.startsWith('ticket-')) return 'admin'

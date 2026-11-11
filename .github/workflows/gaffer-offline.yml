@@ -40,8 +40,21 @@ jobs:
       - name: Prepare Chromium
         run: |
           cd web
-          npx playwright install --with-deps chromium
-          echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" >> "$GITHUB_ENV"
+          # Use the browser already on the runner when there is one: installing Playwright's own needs the
+          # Ubuntu mirrors for its system packages, and on 11 November they could not be reached, which failed
+          # this job before it tested anything. The same choice the terminal browser job makes.
+          browser_path="$(command -v google-chrome || command -v chromium || true)"
+          if [ -n "$browser_path" ]; then
+            "$browser_path" --version
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$browser_path" >> "$GITHUB_ENV"
+          else
+            for attempt in 1 2 3; do
+              if npx playwright install --with-deps chromium; then break; fi
+              if [ "$attempt" = 3 ]; then echo "::error::could not install Chromium after $attempt attempts"; exit 1; fi
+              sleep $((attempt * 20))
+            done
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" >> "$GITHUB_ENV"
+          fi
       - name: Exercise real HTTP, scheduler, private worker and browser
         env:
           REET_UI_SCREENSHOTS: ${{ runner.temp }}/gaffer-offline-${{ matrix.runtime }}

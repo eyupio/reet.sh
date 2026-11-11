@@ -1,8 +1,8 @@
 # Codex fully supported natively: design (draft)
 
-Status: draft for owner review. Not committed: the working branch carries the stage follow-up menu PR until it merges.
+Status: agreed in outline with the owner; slice 1 is done (see the probe report).
 Modelled on `2026-11-08-claude-code-native-support-design.md`. Evidence comes from a read-only survey of the code, `docs/device-checks.md`
-and the captured help; no `codex` binary was available, so nothing here was freshly run.
+and the captured help, and, for slice 1, from running the real adapter signed out (see the probe report).
 
 ## Goal
 
@@ -23,19 +23,19 @@ not assumed, and each one that does not work is hidden or explained.
 ## Where Codex differs from Claude Code
 
 - Sign-in is checked at `session/new`, not at the first prompt, so Run B gates starting any chat, not only the default-on flip.
-- Effort is `reasoning_effort` (`low` to `ultra`, no `default`), and effort is also embedded in model ids (`gpt-6-astra[low]`). Switching model may change the effort list.
+- Effort is `reasoning_effort` (`low` to `ultra`, no `default`) and its values depend on the model; the adapters measured on 9 November carry no effort in model ids. A model switch keeps the chosen effort where the new model offers it.
 - Modes are three sandbox modes plus `collaboration_mode` (`default`/`plan`, not exposed). Approvals are model-driven escalations. `allow_always` is a persistent rule and is not offered.
 - Terminal: `resume` is a subcommand (`codex resume [--last] [id]`), effort is a `-c key=value` override with no flag, the existing YOLO flag keeps the sandbox, and the real bypass is a different flag.
 - Two packages are involved (the adapter and `@openai/codex`), and the captured help (0.163.0) and the chat probes (0.156.1) are different versions.
 
 ## Slices
 
-1. **Probe, no product change.** Extend the Codex probes to measure: effort and model read-back after `set_config_option`, options per model,
-   image capability, `session/load` replay and the unstored-load error code. Add an opt-in `TestRealCodexStart`. Record a `sources.json` entry for the captured CLI version.
-2. **Gaffer parity, behind the setting.** Descriptor flags exactly as the probe shows (history, model, images, reattach, read-back confirmation), fake-frame tests,
+1. **Probe, no product change.** Extend the Codex probe to measure: effort and model read-back after `set_config_option`, options per model,
+   image capability and the unstored-load error code, with an opt-in `TestRealCodexStart`. Done, results in the probe report ("Codex parity probes"); history replay needs a stored turn and waits for Run B. The pinned CLI help capture and its `sources.json` entry move to slice 3, where the terminal preset needs them, as they did for Claude Code.
+2. **Gaffer parity, behind the setting. Done, with the lifecycle measured against a stand-in provider** (see "Codex lifecycle probes" in the probe report) so history, images and effort did not have to wait for Run B. Descriptor flags exactly as the probe shows (history, model, images, reattach, read-back confirmation), fake-frame tests,
    a chat-YOLO test for Codex, and wording for what YOLO means in `read-only` versus `agent`.
 3. **Terminal and web.** Resume, effort and image argv for the terminal preset once the decisions below are made; the web catalogue and Start dialog follow; docs rows.
-4. **Hint, docs, flip.** A missing-adapter hint generalised per tool (naming both packages), a "Codex in Gaffer" docs section, then the default-on flip as its own small PR after Run B.
+4. **Hint, docs, flip. The hint and docs are done (the missing-adapter hint is a per-tool table covering Codex); the flip is held for Run B.** A missing-adapter hint generalised per tool (naming both packages), a "Codex in Gaffer" docs section, then the default-on flip as its own small PR after Run B.
 
 ## Decisions
 

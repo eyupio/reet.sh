@@ -248,8 +248,55 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
   return (await req(path, { method: action === 'delete' ? 'DELETE' : 'POST', body: json({ revision: p.revision, ...(enabled === undefined ? {} : { enabled }) }), signal })).json()
 }
 
+export type GafferOutcomePlan = { summary: string; sessions: { title: string; prompt: string; stages?: { kind: string }[] }[]; model: string; usageReported: boolean; inputTokens: number; outputTokens: number }
+/** Asks the provider to propose the sessions for an objective. It reads no reet data and starts nothing. */
+export async function planGafferOutcome(p: GafferProvider, input: { objective: string; project: string; sessions: number }, signal?: AbortSignal): Promise<GafferOutcomePlan> {
+  return (await req(`/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
+}
+export type GafferOutcomeStage = { kind: string; tool: string; model?: string; effort?: string; agentInputTokens?: number; agentOutputTokens?: number; agentCachedTokens?: number; agentUsageReported?: boolean; contextUsed?: number; contextSize?: number; state: 'pending' | 'running' | 'done'; sessionId?: string; conversationId?: string; summary?: string; closedBy?: 'gaffer' | 'person' | 'chat'; agentState?: string; agentActiveAt?: number; startedAt?: number; endedAt?: number; reviews?: number; inputTokens?: number; outputTokens?: number; usageReported?: boolean }
+/** Gaffer's account of a whole outcome, with pipelines it suggests adding. A proposal is nothing until the person approves it. */
+export type GafferOutcomeReport = { text: string; at: number; model: string; inputTokens: number; outputTokens: number; usageReported: boolean; auto?: boolean; proposals?: { title: string; prompt: string; stages?: string[]; why?: string }[] }
+export type GafferOutcomeSession = { key: string; title: string; prompt: string; state: 'waiting' | 'starting' | 'following' | 'advancing' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'; note: string; sessionId?: string; conversationId?: string; updatedAt: number; stages?: GafferOutcomeStage[]; stage?: number; workDir?: string; autoMerge?: boolean; yoloMergeOk?: boolean; mergeApproved?: boolean }
+/** An approved plan the controller starts and follows. `state` is "starting" while it still has sessions to start. */
+export type GafferOutcome = { id: string; revision: number; objective: string; state: 'starting' | 'settled' | 'stopped'; note: string; agentId: string; projectId: string; projectName: string; dir: string; tool: string; model?: string; trust?: boolean; yolo?: boolean; autoReport?: boolean; providerId: string; maxReviews: number; hours: number; sessions: GafferOutcomeSession[]; report?: GafferOutcomeReport; createdAt: number; updatedAt: number }
+export type GafferOutcomeInput = { objective: string; projectId: string; tool: string; model: string; trust: boolean; yolo?: boolean; autoReport?: boolean; autoMerge: boolean; sessions: { title: string; prompt: string; stages?: { kind: string; tool: string; model: string; effort?: string }[] }[]; maxReviews: number; hours: number; confirmed: true }
+const outcomePath = (id: string) => `/api/v2/gaffer/outcomes/${encodeURIComponent(id)}`
+/** Tries a stopped pipeline again. A step that never started is asked for afresh; a session that did start is kept. */
+/** The person moving a pipeline on from the stage in hand. Their decision: it does not wait for Gaffer's review. */
+export async function moveGafferPipelineOn(o: Pick<GafferOutcome, 'id'>, key: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/advance`, { method: 'POST', body: json({ confirmed: true }), signal })).json() }
+/** The person sending a pipeline back to the stage in hand or an earlier one, with their reason. That stage and the later ones are done again. */
+export async function sendGafferPipelineBack(o: Pick<GafferOutcome, 'id'>, key: string, stage: string, reason: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/back`, { method: 'POST', body: json({ stage, reason, confirmed: true }), signal })).json() }
+/** The person's own instruction for the working agent of a pipeline's stage in hand. Accepted is not completed. */
+export async function tellGafferPipelineAgent(o: Pick<GafferOutcome, 'id'>, key: string, requestId: string, text: string, signal?: AbortSignal): Promise<{ message: { id: string; state: string; note?: string } }> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/tell`, { method: 'POST', body: json({ requestId, text }), signal })).json() }
+/** Whether one pipeline merges by itself at its merge stage, or waits for the person's approval. */
+export async function setGafferPipelineAutoMerge(o: Pick<GafferOutcome, 'id'>, key: string, on: boolean, yoloConfirmed = false, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/automerge`, { method: 'POST', body: json(on && yoloConfirmed ? { on, yoloConfirmed } : { on }), signal })).json() }
+export async function retryGafferPipeline(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/retry`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
+/** Adds pipelines the person approved to an outcome. A stage with no agent takes the outcome's own. */
+export async function addGafferPipelines(o: Pick<GafferOutcome, 'id' | 'revision'>, sessions: { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string }[] }[], signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions`, { method: 'POST', body: json({ revision: o.revision, confirmed: true, sessions }), signal })).json() }
+/** Asks Gaffer's provider for one report across the outcome's pipelines. One model request; it starts nothing. */
+export async function reviewGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/review`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
+/** The person approving the merge of a pipeline that is ready. Nothing merges without this or the pipeline's own auto-merge. */
+export async function approveGafferMerge(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/sessions/${encodeURIComponent(key)}/merge`, { method: 'POST', body: json({ revision: o.revision, confirmed: true }), signal })).json() }
+export async function listGafferOutcomes(signal?: AbortSignal): Promise<GafferOutcome[]> { return (await (await req('/api/v2/gaffer/outcomes', { signal, cache: 'no-store' })).json()).outcomes }
+/** What the person, Gaffer and the controller did to an outcome's pipelines, newest first, from the activity log. */
+export async function listGafferOutcomeHistory(id: string, signal?: AbortSignal): Promise<Event[]> { return (await (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(id)}/history`, { signal, cache: 'no-store' })).json()).events }
+export async function getGafferOutcome(id: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(id)}`, { signal, cache: 'no-store' })).json() }
+/** Saves the approved plan; the controller then starts and follows each session, with or without this browser. */
+export async function createGafferOutcome(input: GafferOutcomeInput, signal?: AbortSignal): Promise<GafferOutcome> { return (await req('/api/v2/gaffer/outcomes', { method: 'POST', body: json(input), signal })).json() }
+export async function stopGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/stop`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
+/** One call of a reet tool by Gaffer in a chat turn. `pending` waits for the person's approval. */
+export type GafferTurnTool = { id: string; name: string; args: string; mode: 'ask' | 'allow'; state: 'ran' | 'failed' | 'pending' | 'approved' | 'declined'; result?: string; at: number }
+export type GafferToolMode = 'off' | 'ask' | 'allow'
+/** A reet tool Gaffer can be given, with the account's choice for it. */
+export type GafferToolChoice = { name: string; title: string; description: string; readOnly: boolean; destructive: boolean; group: string; mode: GafferToolMode }
+export async function getGafferTools(signal?: AbortSignal): Promise<GafferToolChoice[]> { return (await (await req('/api/v2/gaffer/tools', { signal, cache: 'no-store' })).json()).tools }
+/** Replaces the whole choice: a tool left out is off. */
+export async function saveGafferTools(modes: Record<string, string>, signal?: AbortSignal): Promise<GafferToolChoice[]> { return (await (await req('/api/v2/gaffer/tools', { method: 'PUT', body: JSON.stringify({ modes }), signal })).json()).tools }
+/** The person's answer to a call Gaffer asked to make: approve runs exactly that call once; decline runs nothing. */
+export async function answerGafferTool(conversation: string, turn: string, tool: string, approve: boolean, signal?: AbortSignal): Promise<GafferTurn> { return (await req(`/api/v2/gaffer/conversations/${encodeURIComponent(conversation)}/turns/${encodeURIComponent(turn)}/tools/${encodeURIComponent(tool)}`, { method: 'POST', body: JSON.stringify({ approve }), signal })).json() }
 export type GafferTurn = {
+ tools?: GafferTurnTool[]
  goalId?:string;goalRevision?:number;goalNeedsUser?:boolean
   workerGrantRevision?:number
   context?: ContextUse
@@ -276,7 +323,7 @@ export async function getWorkerSettings(path:string,signal?:AbortSignal):Promise
 export async function saveWorkerSettings(path:string,view:WorkerSettings,enabled:boolean,signal?:AbortSignal):Promise<{worker:WorkerSettings}>{return(await req(path,{method:'PUT',body:JSON.stringify({sessionId:view.grant.sessionId,revision:view.grant.revision,enabled,providerId:view.providerId??'',providerRevision:view.providerRevision??0,model:view.model??''}),signal})).json()}
 export async function interruptWorkerMessage(path:string,message:WorkerMessage,signal?:AbortSignal):Promise<{message:WorkerMessage}>{const url=new URL(path,location.origin);url.pathname+=`/messages/${encodeURIComponent(message.id)}/interrupt`;return(await req(url.pathname+url.search,{method:'POST',body:JSON.stringify({revision:message.revision,confirm:true}),signal})).json()}
 export type GoalPins={providerId:string;providerRevision:number;model:string;contextRevision:number;workerRevision:number}
-export type GafferGoal=GoalPins&{id:string;conversationId:string;sessionId:string;revision:number;text:string;state:string;note:string;maxReviews:number;usedReviews:number;expiresAt:number;createdAt:number;updatedAt:number;nextAt:number;lastSeq:number;lastObservedAt?:number;lastReviewedAt?:number;activeTurnId?:string;pendingId?:string;summary?:string;inputTokens:number;outputTokens:number;usageReported:boolean}
+export type GafferGoal=GoalPins&{id:string;conversationId:string;sessionId:string;revision:number;text:string;state:string;note:string;maxReviews:number;usedReviews:number;waitingOnWorker?:boolean;reviewFailed?:boolean;noStep?:boolean;expiresAt:number;createdAt:number;updatedAt:number;nextAt:number;lastSeq:number;lastObservedAt?:number;lastReviewedAt?:number;activeTurnId?:string;pendingId?:string;summary?:string;inputTokens:number;outputTokens:number;usageReported:boolean}
 export type GafferGoalView={goal:GafferGoal|null;pins:GoalPins;allowed:boolean;reason?:string;setupAllowed?:boolean;providerName?:string;requiresProviderAccess?:boolean;conversationRevision?:number}
 export async function setupGafferGoal(id:string,input:GoalPins&{revision:number;conversationRevision:number;confirmed:true;action:'start'|'resume';text?:string;maxReviews?:number;hours?:number},signal?:AbortSignal):Promise<GafferGoalView>{return(await req(goalPath(id)+'/setup',{method:'POST',body:JSON.stringify(input),signal})).json()}
 export type GafferGoalOverview={goal:GafferGoal;session?:{id:string;agentId:string;title:string;state:string};available:boolean;attention:boolean;reason?:string;delivery?:WorkerMessage}
@@ -535,7 +582,7 @@ export async function setSoftwareMirror(enabled: boolean): Promise<SoftwareMirro
   return (await req('/api/v2/settings/software-mirror', { method: 'PUT', body: json({ enabled }) })).json()
 }
 export async function cacheSoftwareMirror(): Promise<SoftwareMirrorStatus> {
-  return (await req('/api/v2/settings/software-mirror/cache', { method: 'POST' })).json()
+  return (await req('/api/v2/settings/software-mirror/cache', { method: 'POST', body: json({}) })).json()
 }
 
 export type YoloSetting = { allowed: boolean; changedBy?: string; changedAt?: number }
@@ -610,8 +657,10 @@ export async function getRollup(): Promise<Rollup> {
 
 export type ContentInventory = { state: string; schemaVersion?: number; observedAt?: number; receivedAt?: number; skills: { name: string; complete: boolean; digest?: string; files: number; bytes: number; issues?: string[] }[] }
 export type SyncEnvironment = Environment & { content?: ContentInventory; error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
-export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source'> & { sourceType: Skill['sourceType'] | 'private'; /** Why an owned draft cannot be synced right now; such a candidate is listed but not installable. */ problem?: string }
-export type SyncTarget = { problem?: string; followSource?: boolean; mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
+export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source'> & { /** The canonical library item this installs, for library targets. */ itemId?: string; sourceType: Skill['sourceType'] | 'private'; /** Why an owned draft cannot be synced right now; such a candidate is listed but not installable. */ problem?: string }
+/** A selected library item that is not being installed: no saved copy yet (`content`), not In use (`status`), or its name is selected twice (`duplicate`). `id` is its shelf skill, where it has one. */
+export type SyncHeld = { itemId: string; id?: string; name: string; reason: 'content' | 'status' | 'duplicate' }
+export type SyncTarget = { problem?: string; followSource?: boolean; mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; /** Library items selected for this folder that sync leaves out, and why. */ held?: SyncHeld[]; revision: string; updatedAt: number }
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
 export type SetupProfileComponent = {
   kind: string; source: string; scope: string; state?: string
@@ -1045,7 +1094,7 @@ export function backupDownloadUrl(admin: boolean, id: string): string {
 
 // --- profile ---------------------------------------------------------------
 
-export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; hostedPrefix: string; updatedAt: number
+export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix: string; updatedAt: number
   /** Launch defaults: the base branch for fresh worktrees ('' for none) and whether sessions get a worktree by default. */
   defaultBaseBranch?: string; worktreesByDefault?: boolean
   /** New sessions without a project: the agent, its model and its thinking level; '' is the agent's own default. */
@@ -1105,7 +1154,7 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean> }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean> }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 
@@ -1156,7 +1205,7 @@ export async function deleteHostedSkill(slug: string): Promise<void> {
 }
 
 export type SyncAgent = { keepSynced?: boolean; id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
-export type SyncPlan = { backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
+export type SyncPlan = { problems?: Record<string, string>; backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
 export type UpdateStage = { key: string; label: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
 export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
 export async function syncCandidates(listId = 0, collection = 'shelf'): Promise<{ skills: SyncSkill[]; /** Names with more than one copy, library only: one was kept, the rest were left out. */ duplicates?: SyncDuplicate[] }> { return (await req(`/api/v2/sync/candidates?list=${listId}&collection=${encodeURIComponent(collection)}`)).json() }
@@ -1288,9 +1337,26 @@ export async function getAdoptionBreakdown(previewId: string, revisionId: string
 
 export async function syncFromMachine(input: {skillId:string;destination:string;sourceId?:string;destinationId?:string;followShelf?:boolean;requestKey:string}):Promise<ImportRequest>{return(await req('/api/v2/sync/from-machine',{method:'POST',body:json(input)})).json()}
 
-export type LibraryItem = { id: string; name: string; itemType: string; status: string; contentState: string; problem?: string; revisionId?: string }
+export type LibraryItem = {
+  id: string; name: string; itemType: string; status: string; contentState: string; problem?: string; revisionId?: string
+  /** For safe status changes: the version this view was read at. */
+  version?: number; published?: boolean; createdAt?: number; updatedAt?: number
+  /** The shelf details migration preserves (likes, lists, tags). */
+  metadata?: { liked?: boolean; bookmarked?: boolean; lists?: { id: number; name: string }[]; tags?: { id: number; name: string }[] }
+  aliases?: { kind: string; reference: string }[]
+}
+/** One saved version of an item: whether it became current or was kept beside the current one. */
+export type LibraryReceipt = { eventId: string; revisionId: string; won: boolean; base: string; savedAt: number; orderAt: number; uncertainty: number; clockFallback: boolean }
 export type LibrarySelection = { targetId: string; itemIds: string[]; version: string }
-export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[] }> { return (await req('/api/v2/library')).json() }
+export async function setLibraryStatus(id: string, status: string, expectedVersion: number): Promise<LibraryItem> { return (await req(`/api/v2/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: json({ status, expectedVersion }) })).json() }
+export async function getLibraryHistory(id: string): Promise<LibraryReceipt[]> { return (await req(`/api/v2/library-history/${encodeURIComponent(id)}`)).json() }
+/** A connected machine holding a version of a library item that reet has never saved. `taking` is set while that version is being saved as the item's copy. */
+/** One file that is not the same in reet's copy and on the machine: in both but different (`changed`), only on the machine, or only in reet's copy. */
+export type DifferenceFile = { path: string; change: 'changed' | 'machine' | 'reet'; reetBytes?: number; machineBytes?: number }
+export type LibraryDifference = { environmentId: string; host: string; agent: string; digest: string; taking?: boolean; /** The machine is being asked which files it has. */ comparing?: boolean; /** The machine answered; `files` lists what differs. */ compared?: boolean; files?: DifferenceFile[] }
+export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[]; differences?: Record<string, LibraryDifference[]> | null }> { return (await req('/api/v2/library')).json() }
+/** `take` saves the machine's version as the item's copy; `keep` leaves reet's copy and stops flagging that machine's current files. */
+export async function resolveLibraryDifference(itemId: string, environmentId: string, action: 'take' | 'keep' | 'compare'): Promise<void> { await req(`/api/v2/library/${encodeURIComponent(itemId)}/difference`, { method: 'POST', body: json({ environmentId, action }) }) }
 export async function getLibrarySelection(target: string): Promise<LibrarySelection> {
   const response = await req(`/api/v2/library/selections/${encodeURIComponent(target)}`)
   return response.json()

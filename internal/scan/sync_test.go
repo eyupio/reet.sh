@@ -273,6 +273,43 @@ func TestSyncRefusesRemovingSharedCanonicalSkill(t *testing.T) {
 	}
 }
 
+// A skill another app already has from elsewhere is left alone and reported on
+// that skill. The rest of the folder still syncs, and an exact-set plan does not
+// remove the copy it left alone.
+func TestSyncLeavesAConflictingSkillAloneAndSyncsTheRest(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	shared := filepath.Join(home, ".agents", "skills")
+	mkSkill(t, shared, "held", true)
+	os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(`{"skills":{"held":{"source":"o/r"}}}`), 0600)
+	claude := filepath.Join(home, ".claude", "skills")
+	mkSkill(t, claude, "held", true)
+	desired := []store.SyncSkill{
+		{ID: "local/held", Name: "held", Slug: "held", SourceType: "private", Source: "private:" + strings.Repeat("a", 32) + ":" + strings.Repeat("b", 32) + ":" + strings.Repeat("c", 64)},
+		{ID: "x/y/other", Name: "other", Slug: "other", SourceType: "github", Source: "x/y"},
+	}
+	for _, mode := range []string{"additive", "mirror"} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{"canWrite": true, "targets": []store.SyncTarget{{Target: store.Environment{ID: "target", Host: "local", Agent: "claude"}, Mode: mode, Desired: desired, Revision: "one"}}})
+		}))
+		var plan SyncPlan
+		err := runSyncWithOptions([]string{"--server", srv.URL, "--target", "target", "--env", "local"}, strings.NewReader(""), &bytes.Buffer{}, func([]string, string) error { t.Fatal("a preview must not install"); return nil }, "dev", syncOptions{onPlan: func(p SyncPlan) { plan = p }})
+		srv.Close()
+		if err != nil {
+			t.Fatalf("%s: one conflicting name stopped the whole folder: %v", mode, err)
+		}
+		if !strings.Contains(plan.Problems["held"], "The shared skills folder already has this skill from o/r") {
+			t.Fatalf("%s: the skill left alone was not reported: %+v", mode, plan.Problems)
+		}
+		if len(plan.Actions) != 1 || plan.Actions[0].Skill.Slug != "other" || !plan.Actions[0].Add {
+			t.Fatalf("%s: the plan must install the other skill and touch nothing else: %+v", mode, plan.Actions)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(claude, "held", "SKILL.md")); err != nil {
+		t.Fatal("the copy left alone was changed")
+	}
+}
+
 func TestHelpNeverPrintsEnvironmentToken(t *testing.T) {
 	t.Setenv("REET_TOKEN", "private-token-do-not-print")
 	for _, cmd := range []string{"scan", "sync"} {

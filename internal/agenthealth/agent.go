@@ -47,6 +47,7 @@ type AgentConfig struct {
 	browse             bool
 	branches           bool
 	branchPrune        bool
+	branchSync         bool
 	browseAllowed      bool
 	clipboard          bool
 	clipboardAllowed   bool
@@ -83,17 +84,19 @@ type AgentConfig struct {
 	attention          bool
 	progress           bool
 	OnConnection       func(bool)
-	TerminalSession    TerminalFactory
-	control            func(context.Context, terminalproto.Message) error
-	ServerURL          string
-	Token              string
-	AgentID            string
-	Secret             string
-	Version            string
-	InstanceID         string
-	Home               string
-	TerminalEnabled    bool
-	TerminalReadiness  terminalproto.Readiness
+	// OnError receives why the private connection is down, and "" once it is up.
+	OnError           func(string)
+	TerminalSession   TerminalFactory
+	control           func(context.Context, terminalproto.Message) error
+	ServerURL         string
+	Token             string
+	AgentID           string
+	Secret            string
+	Version           string
+	InstanceID        string
+	Home              string
+	TerminalEnabled   bool
+	TerminalReadiness terminalproto.Readiness
 	// Consent is polled for local terminal opt-in and readiness changes.
 	Consent func() (enabled bool, readiness terminalproto.Readiness, err error)
 	// LaunchTools lists the agent CLIs this connector can start, from its
@@ -169,6 +172,9 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 		if connected {
 			backoff = cfg.BackoffMin
 			lastError = ""
+		}
+		if cfg.OnError != nil && err != nil {
+			cfg.OnError(err.Error())
 		}
 		if err != nil {
 			message := err.Error()
@@ -356,6 +362,9 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 		cfg.OnConnection(true)
 		defer cfg.OnConnection(false)
 	}
+	if cfg.OnError != nil {
+		cfg.OnError("")
+	}
 	if cfg.TerminalSession != nil {
 		var closeTerminal func()
 		terminalHeaders := authHeaders(cfg)
@@ -427,6 +436,11 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 		case *terminalproto.BranchPrune:
 			if cfg.branchPrune && !currentCapabilities(cfg).BranchPrune {
 				m.Body = terminalproto.BranchPruneResult{Reason: terminalproto.BranchesDenied}
+				return send(ctx, m)
+			}
+		case *terminalproto.BranchSync:
+			if cfg.branchSync && !currentCapabilities(cfg).BranchSync {
+				m.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesDenied}
 				return send(ctx, m)
 			}
 		}
@@ -526,6 +540,11 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 			return m, false
 		}
 		m.Body = terminalproto.BranchPruneResult{Reason: terminalproto.BranchesConflict}
+	case *terminalproto.BranchSync:
+		if !terminalproto.SupportsBranchSync(features) {
+			return m, false
+		}
+		m.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesConflict}
 	default:
 		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 	}
@@ -764,6 +783,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
 	cfg.branchPrune = terminalproto.SupportsBranchPrune(advertised)
+	cfg.branchSync = terminalproto.SupportsBranchSync(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
@@ -843,6 +863,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.branchPrune {
 		features = append(features, terminalproto.BranchPruneFeature)
+	}
+	if cfg.branchSync {
+		features = append(features, terminalproto.BranchSyncFeature)
 	}
 	if cfg.clipboard {
 		features = append(features, terminalproto.ClipboardFeature)
@@ -1140,6 +1163,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Attention:       cfg.attention && control,
 		Branches:        cfg.branches && worktree && enabled,
 		BranchPrune:     cfg.branchPrune && worktree && enabled,
+		BranchSync:      cfg.branchSync && worktree && enabled,
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,

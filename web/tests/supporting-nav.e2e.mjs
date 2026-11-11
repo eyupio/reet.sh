@@ -198,9 +198,9 @@ try {
     const row = page.getByRole('navigation', { name: 'Account', exact: true })
     await expect(row).toHaveCount(1)
     await expect(row.getByRole('link', { name: 'Profile' })).toHaveAttribute('aria-current', 'page')
-    // The Machines and Compare & sync entries still lead to the Machines page and its sync view.
+    // The Machines and Sync entries still lead to the Machines page and its sync view.
     await expect(row.getByRole('link', { name: 'Machines', exact: true })).toHaveAttribute('href', '/machines')
-    await expect(row.getByRole('link', { name: 'Compare & sync' })).toHaveAttribute('href', '/machines?view=compare')
+    await expect(row.getByRole('link', { name: 'Sync', exact: true })).toHaveAttribute('href', '/machines?view=compare')
     // The row spans the content column under the avatar: it is not indented beside it, and it stays on one line.
     const column = await page.locator('section.account').boundingBox()
     const nav = await row.boundingBox()
@@ -227,9 +227,9 @@ try {
       const data = desktop.locator('details.nav-group').filter({ hasText: 'Data & activity' })
       await expect(security.locator('summary')).toHaveClass(/current/)
       await expect(data.locator('summary')).not.toHaveClass(/current/)
-      await expect(security.getByRole('link', { name: 'Sessions', exact: true })).toBeHidden()
+      await expect(security.getByRole('link', { name: 'Sign-ins', exact: true })).toBeHidden()
       await security.locator('summary').click()
-      await expect(security.getByRole('link', { name: 'Sessions', exact: true })).toHaveAttribute('aria-current', 'page')
+      await expect(security.getByRole('link', { name: 'Sign-ins', exact: true })).toHaveAttribute('aria-current', 'page')
       for (const name of ['Password', 'API tokens', 'MCP access']) await expect(security.getByRole('link', { name, exact: true })).toBeVisible()
       // Opening the other dropdown closes this one; Escape closes it and puts focus back on its summary.
       await data.locator('summary').click()
@@ -249,11 +249,11 @@ try {
     await page.goto(`${base}/account/sessions`)
     const row = page.getByRole('navigation', { name: 'Account', exact: true })
     const menu = row.locator('details.mobile')
-    await expect(menu.locator(':scope > summary')).toContainText('Sessions')
+    await expect(menu.locator(':scope > summary')).toContainText('Sign-ins')
     await menu.locator(':scope > summary').click()
     const security = menu.locator('details.nav-group').filter({ hasText: 'Security' })
     await security.locator('summary').click()
-    await expect(security.getByRole('link', { name: 'Sessions', exact: true })).toHaveAttribute('aria-current', 'page')
+    await expect(security.getByRole('link', { name: 'Sign-ins', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(security.getByRole('link', { name: 'Password', exact: true })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
     expect(errors).toEqual([])
@@ -262,6 +262,7 @@ try {
 
   // The other pages: one h1 that is the menu name, the group label, and the row with the current page marked.
   const pages = [
+    { name: 'library', path: '/library', title: 'Library', group: 'Skills & distribution', current: 'Library', others: ['Setups', 'Lists', 'Write a skill'] },
     { name: 'setups', path: '/profiles', title: 'Setups', group: 'Skills & distribution', current: 'Setups', others: ['Lists', 'Write a skill'] },
     { name: 'write a skill', path: '/hosting', title: 'Write a skill', group: 'Skills & distribution', current: 'Write a skill', others: ['Setups', 'Lists'] },
     { name: 'support', path: '/support', title: 'Support', group: 'Help & community', current: 'Support', others: ['Community'], routes: { '/api/v2/tickets': { tickets: [] }, '/api/v2/groups': { groups: [] } } },

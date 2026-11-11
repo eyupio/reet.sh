@@ -89,6 +89,9 @@ func (s *server) hostedMCP(api http.Handler) http.Handler {
 			if mcpContextTool(tool.Name) && access.User.Role == "viewer" {
 				continue
 			}
+			if mcpFactoryTool(tool.Name) && access.User.Role == "viewer" {
+				continue
+			}
 			if !access.canWrite() && !tool.Annotations.ReadOnlyHint {
 				continue
 			}
@@ -212,6 +215,16 @@ func (s *server) mcpDo(ctx context.Context, api http.Handler, access mcpAccess, 
 	needsWrite := method != "GET" && !access.canWrite()
 	if !allowedPath || needsWrite {
 		return nil, errors.New("this MCP connection is read-only")
+	}
+	// An MCP call is a POST whatever it does, so the fence is checked here, on
+	// the request it makes: reads go through and writes are refused.
+	if method != "GET" {
+		if f, err := s.st.Fence(); err != nil || f.Fenced {
+			if err != nil {
+				return nil, errors.New("this controller cannot tell whether it has moved, so it is not accepting changes")
+			}
+			return nil, errors.New(fenceMessage(f))
+		}
 	}
 	raw, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(context.WithValue(ctx, userContextKey{}, access.User), method, origin+path+"?"+query.Encode(), bytes.NewReader(raw))
@@ -340,6 +353,9 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 	if mcpContextTool(name) {
 		return s.executeMCPContext(access, name, args)
 	}
+	if mcpFactoryTool(name) {
+		return s.executeMCPFactory(ctx, access, name, args)
+	}
 	if name == "reet_forget_machine" || name == "reet_merge_machines" {
 		return s.executeMCPMachines(ctx, api, access, origin, name, args)
 	}
@@ -435,7 +451,7 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		method, path = "POST", listPath+"/skills"
 		delete(body, "list_id")
 		if (str("id") == "") == (str("input") == "") {
-			return nil, errors.New("Supply exactly one of id (a skill already on the shelf) or input (an owner/repo/skill reference or skills.sh URL).")
+			return nil, errors.New("Supply exactly one of id (a skill already in the library) or input (an owner/repo/skill reference or skills.sh URL).")
 		}
 	case "reet_add_list_skills":
 		method, path = "POST", listPath+"/skills/bulk"
@@ -455,6 +471,17 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 		for _, key := range []string{"skill", "action", "source", "before", "after"} {
 			if v := str(key); v != "" {
 				query.Set(key, v)
+			}
+		}
+		if list, ok := args["exclude"].([]any); ok {
+			var sources []string
+			for _, item := range list {
+				if v, ok := item.(string); ok && v != "" {
+					sources = append(sources, v)
+				}
+			}
+			if len(sources) > 0 {
+				query.Set("exclude", strings.Join(sources, ","))
 			}
 		}
 	case "reet_create_tag":
@@ -510,7 +537,7 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 				return sk, nil
 			}
 		}
-		return nil, errors.New("skill not found on this account's shelf")
+		return nil, errors.New("skill not found in this account's library")
 	case "reet_list_skills":
 		meta["counts"] = data["counts"]
 	case "reet_list_environments":

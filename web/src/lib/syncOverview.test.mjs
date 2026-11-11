@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 const { outputText } = ts.transpileModule(readFileSync(new URL('./syncOverview.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
 const {
-  machineSyncOverview, syncJobStages, jobPlanCounts, savedInstallTargets, fallbackInstallTarget, pickSyncCandidate, agoLabel,
+  machineSyncOverview, sourceConflictSentence, syncJobStages, jobPlanCounts, savedInstallTargets, fallbackInstallTarget, pickSyncCandidate, agoLabel,
 } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const now = Date.now()
@@ -128,4 +128,28 @@ test('saving private copies of machine-only skills is progress, not a reason to 
   const attention = machineSyncOverview(machine([group('a')]), state({ targets: [broken], environments: [group('a')] }), now)
   assert.equal(attention.tone, 'attention')
   assert.equal(attention.label, 'Sync needs attention')
+})
+
+test('a machine is not called in sync while a selected skill has no saved copy', () => {
+  const held = [{ itemId: 'i1', name: 'db-migrate', reason: 'content' }]
+  const waiting = machineSyncOverview(machine([group('a', [skill('one')])]), state({ targets: [target('a', [], [], { held })], environments: [group('a')] }), now)
+  assert.equal(waiting.tone, 'attention')
+  assert.equal(waiting.label, '1 selected skill not installed yet')
+  assert.match(waiting.detail, /db-migrate: reet has no saved copy yet/)
+  // Kept in the library on purpose (not In use) is a choice, not something to chase.
+  const parked = machineSyncOverview(machine([group('a', [skill('one')])]), state({ targets: [target('a', [], [], { held: [{ itemId: 'i1', name: 'x', reason: 'status' }] })], environments: [group('a')] }), now)
+  assert.equal(parked.tone, 'synced')
+})
+
+test('a sync that left a skill alone is not called in sync, and a source conflict carries its one-press fix', () => {
+  const job = (changes) => ({ id: 'j1', agentId: 'agent-1', targetId: 'a', kind: 'auto', status: 'succeeded', revision: 'r1', hash: '', plan: {}, message: '', createdAt: now, updatedAt: now, ...changes })
+  const skipped = machineSyncOverview(machine([group('a', [skill('one')])]), state({ targets: [target('a', [skill('held')])], environments: [group('a')], jobs: [job({ plan: { problems: { held: 'The shared skills folder already has this skill from o/r, so reet left it alone.' } } })] }), now)
+  assert.equal(skipped.tone, 'attention')
+  assert.equal(skipped.label, '1 skill left alone')
+  assert.match(skipped.detail, /^held: The shared skills folder already has this skill from o\/r/)
+  // An agent that has not been updated still stops the whole folder with its old sentence.
+  const stopped = machineSyncOverview(machine([group('a', [skill('one')])]), state({ targets: [target('a')], environments: [group('a')], jobs: [job({ status: 'failed', message: 'held is shared with agents from a different source; resolve it before syncing' })] }), now)
+  assert.equal(stopped.detail, 'laptop already has a copy of held that came from somewhere else, in the shared skills folder, so reet did not overwrite it.')
+  assert.deepEqual(stopped.fix, { targetId: 'a', agentId: 'agent-1' })
+  assert.equal(sourceConflictSentence('nothing like it', 'laptop'), 'nothing like it.')
 })

@@ -45,7 +45,7 @@ jobs:
     name: tmux minimum (3.2)
     # Keep PR validation available when the self-hosted pool is offline.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'zoomies-linux-x64' }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -56,12 +56,29 @@ jobs:
         run: CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/terminalhost.test" ./internal/terminalhost
       - name: Run tests against tmux 3.2
         run: |
-          docker run --rm \
+          # The container's own DNS, not the runner's: on 11 November the runner's resolver could not look
+          # up any *.ubuntu.com name ("Temporary failure resolving 'archive.ubuntu.com'"), with the container on
+          # the bridge or on the host network alike, so the install failed before any test ran. Public
+          # resolvers avoid that. Each try fails fast (15 s per fetch) and the install falls back to a mirror
+          # outside ubuntu.com, so a bad network costs a few minutes and never the job's whole timeout.
+          docker run --rm --dns 1.1.1.1 --dns 8.8.8.8 \
             -v "$RUNNER_TEMP/terminalhost.test:/terminalhost.test:ro" \
             ubuntu:22.04 \
             bash -ec '
-              apt-get update -qq
-              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux git >/dev/null
+              apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+              install() { apt-get update -qq $apt_opts && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $apt_opts tmux git >/dev/null; }
+              installed=
+              for attempt in 1 2 3; do
+                if install; then installed=1; break; fi
+                if [ "$attempt" = 1 ]; then
+                  echo "package install failed; trying a mirror outside ubuntu.com"
+                  sed -i "s#http://\(archive\|security\).ubuntu.com/ubuntu#http://mirrors.edge.kernel.org/ubuntu#g" /etc/apt/sources.list
+                else
+                  echo "package install failed (attempt $attempt); retrying in $((attempt * 10))s"
+                  sleep $((attempt * 10))
+                fi
+              done
+              [ -n "$installed" ] || { echo "::error::could not install tmux and git"; exit 1; }
               tmux -V
               tmux -V | grep -Eq "^tmux 3\.2"
               /terminalhost.test -test.timeout=3m

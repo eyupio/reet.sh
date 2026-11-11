@@ -29,8 +29,9 @@ try {
     const bootLogo = await page.locator('#boot .boot-brand').boundingBox()
     expect(header.x).toBe(0)
     expect(header.width).toBe(width)
-    const workspaceRail = width >= 1100 && !path.includes('view=terminal') && (path === '/' || path === '/machines' || path === '/sessions?view=list') ? 228 : 0
-    const rail = path === '/' ? width >= 1240 && collapsed === false ? 301 : width >= 1100 ? 56 : 0 : 0
+    // On Home the project list is inside the workspace panel, so it is 300 px wide with no second rail column.
+    const workspaceRail = width >= 1100 && !path.includes('view=terminal') && (path === '/' || path === '/machines' || path === '/sessions?view=list') ? (path === '/' ? 300 : 228) : 0
+    const rail = 0
     if (path === '/') {
       expect(staticBox.x).toBe(workspaceRail + rail)
       expect(staticBox.width).toBe(width - workspaceRail - rail)

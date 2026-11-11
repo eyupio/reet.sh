@@ -113,8 +113,8 @@ test('the count is skills, however they are grouped', () => {
 })
 
 test('the headline says everything else is syncing, and counts correctly', () => {
-  assert.equal(leftOutHeadline(1), '1 skill is left out for now. Everything else is syncing.')
-  assert.equal(leftOutHeadline(9), '9 skills are left out for now. Everything else is syncing.')
+  assert.equal(leftOutHeadline(1), '1 skill is left out for now.')
+  assert.equal(leftOutHeadline(9), '9 skills are left out for now.')
 })
 
 test('what is being copied names a few skills, then counts the rest', () => {
@@ -126,7 +126,7 @@ test('what is being copied names a few skills, then counts the rest', () => {
 test('a shared name is explained as information, not as a problem', () => {
   assert.equal(duplicatesNote([]), '')
   const note = duplicatesNote([{ slug: 'improve-animations', keep: {}, remove: [{}] }])
-  assert.match(note, /^One name is on your shelf more than once/)
+  assert.match(note, /^One name is in your library more than once/)
   assert.match(note, /improve-animations/)
   assert.match(note, /untouched/)
   const many = duplicatesNote(['a', 'b', 'c', 'd', 'e', 'f'].map(slug => ({ slug, keep: {}, remove: [{}] })))

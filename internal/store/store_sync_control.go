@@ -797,6 +797,17 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 				message = "Desired revision changed during apply; rescan and preview."
 				replan = true
 			}
+			if status == "succeeded" {
+				current, fenceErr := removalAcknowledgementCurrent(tx, uid, agentID, j.TargetID, j.Plan)
+				if fenceErr != nil {
+					return fenceErr
+				}
+				if !current {
+					status = "failed"
+					message = "Library intent changed during removal; planning again."
+					replan = true
+				}
+			}
 			if status == "succeeded" && planHasProblems(plan) {
 				message = "Healthy items synced; some selected items are waiting."
 			}
@@ -824,7 +835,14 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 		}
 		finalKind, finalStatus := j.Kind, status
 		if j.Kind == "auto" && status == "awaiting-approval" {
-			if additivePlan(plan) {
+			verdict, verdictErr := planRemovalVerdict(tx, uid, agentID, j.TargetID, plan, s.ManagedRemovalsEnabled())
+			if verdictErr != nil {
+				return verdictErr
+			}
+			if verdict == removalStale {
+				finalStatus, replan = "failed", true
+				message = "Library intent changed before removal; requesting a fresh plan."
+			} else if additivePlan(plan) || verdict == removalApproved {
 				finalKind = "apply"
 				if len(planActions(plan)) == 0 {
 					finalStatus = "succeeded"
@@ -982,4 +1000,17 @@ func (s *Store) SyncHostedFor(uid int64, origin string) ([]SyncSkill, error) {
 		out = append(out, SyncSkill{ID: rf.ID, Name: sk.Slug, Slug: sk.Slug, Source: rf.Source, SourceType: rf.SourceType, URL: rf.URL})
 	}
 	return out, nil
+}
+
+// AgentSecretHash is the stored hash of an enrolled machine's secret, read so a
+// controller can prove it holds the record (see internal/syncproof). It is
+// never returned to a caller outside the server. A machine whose account is
+// disabled has no usable record.
+func (s *Store) AgentSecretHash(id string) (string, bool, error) {
+	var h string
+	err := s.db.QueryRow(`SELECT a.secret_hash FROM sync_agents a JOIN users u ON u.id=a.user_id WHERE a.id=? AND u.disabled_at=0`, id).Scan(&h)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return h, err == nil, err
 }

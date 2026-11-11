@@ -208,6 +208,8 @@ func (b *Broker) reattachChat(ctx context.Context, uid int64, session string, tr
 	} else {
 		s.State = terminalproto.Running
 	}
+	// The adapter loads the conversation in its start mode whatever mode the chat was left in, so the mode kept here goes back to it.
+	_ = b.st.RecordTerminalAgentModeFor(uid, session, b.startAgentMode(uid, s.AgentID, s.Tool))
 	b.restoreChat(uid, s)
 	b.startChatQueue(uid, s.ID)
 	_ = b.st.AddEventFor(uid, "machine", "chat-reattach", "", map[string]string{

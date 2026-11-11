@@ -378,7 +378,20 @@ func (m pauseModel) View() tea.View {
 	return tea.NewView("\n" + fit(status, m.width) + "\n" + fit("Enter / Esc home   q quit", m.width) + "\n")
 }
 
-// Pause leaves the child's original stdout/stderr in normal terminal scrollback.
+// EnterFrame moves a command that must own the terminal onto the interface's
+// full screen, under the same heading home uses, so choosing it does not drop
+// the user back into shell scrollback. The command still talks to the real
+// terminal, so its prompts and password input are unchanged.
+func EnterFrame(out io.Writer, label string) {
+	colour := Colour()
+	fmt.Fprint(out, "\x1b[?1049h\x1b[2J\x1b[H")
+	fmt.Fprintf(out, "%s  %s\n\n", Brand(colour), styled(plain(label), "muted", colour))
+}
+
+// LeaveFrame returns to home's caller: the shell screen as it was before reet.
+func LeaveFrame(out io.Writer) { fmt.Fprint(out, "\x1b[?1049l") }
+
+// Pause shows the result under the command's own output and waits for a key.
 func Pause(ctx context.Context, in io.Reader, out io.Writer, code int) (bool, error) {
 	result, err := tea.NewProgram(pauseModel{code: code, width: 80}, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out)).Run()
 	if err != nil {

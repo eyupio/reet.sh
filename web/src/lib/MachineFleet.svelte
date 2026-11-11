@@ -12,6 +12,7 @@
   import MachineAddSkill from './MachineAddSkill.svelte'
   import AgentUpdate from './AgentUpdate.svelte'
   import MachineSettings from './MachineSettings.svelte'
+  import MachineLibrary from './MachineLibrary.svelte'
   import UpdateReview from './UpdateReview.svelte'
   import ContentObservation from './ContentObservation.svelte'
   import MachineSkillContent from './MachineSkillContent.svelte'
@@ -21,6 +22,7 @@
   import Icon from './Icon.svelte'
   import { agoLabel, machineSyncOverview } from './syncOverview'
   import { offersDedupe, offersSourceFix } from './syncProblems'
+  import { advancedSyncHref } from './syncRoutes'
   import { formatWhen } from './time'
 
   let {
@@ -37,6 +39,8 @@
     onimport,
     landing = null,
     onlanded,
+    chooseHost = '',
+    onchose,
     highlight = '',
     onupdate,
     onerror,
@@ -54,11 +58,14 @@
     monitorAccess?:boolean
     /** Opens the Add a machine dialog; absent when the person cannot use it. Given the button, which gets focus back. */
     onjoin?: (opener: HTMLElement | null, context?: JoinContext) => void
-    onimport: (source: { environmentId: string; name: string }) => void
+    onimport: (source: { environmentId: string; name: string; direct?: boolean }) => void
     /** A folder the Add a machine dialog chose for the Private skills dialog to open on, with the note saying which. Used once. */
     landing?: { environmentId: string; name?: string; note: string } | null
     /** Called as soon as `landing` has been turned into the dialog, so it cannot open again when this is drawn again. */
     onlanded?: () => void
+    /** A machine whose skill dialog should open once (from a link such as Home's Skills on this machine); cleared through onchose. */
+    chooseHost?: string
+    onchose?: () => void
     /** The machine just brought in by that dialog: its card is marked for a few seconds. */
     highlight?: string
     onupdate: (state: SyncState) => void
@@ -86,6 +93,22 @@
   // The settings dialog and the review read the live snapshot by host and id,
   // so a change made inside them shows there at once instead of in a stale copy.
   let settingsHost = $state('')
+  let libraryFor = $state<{ host: string; opener: HTMLElement } | null>(null)
+  // The machine's own skill dialog, from its card button or a link that asks for it. Focus goes back to that button when it closes.
+  function openChooser(machine: Machine, fallback?: HTMLElement | null) {
+    const opener = document.querySelector<HTMLElement>(`[data-choose-skills="${CSS.escape(machine.host)}"]`) ?? fallback ?? null
+    if (opener) libraryFor = { host: machine.host, opener }
+  }
+  $effect(() => {
+    const host = chooseHost
+    if (!host) return
+    untrack(() => {
+      const machine = machines.find((m) => m.host.toLowerCase() === host.toLowerCase())
+      // Only a writer in accounts mode with an enrolled connector has the dialog; anyone else just lands on the machine.
+      if (machine && accounts && canWrite && agentFor(machine)) openChooser(machine, document.querySelector<HTMLElement>('[data-add-machine]'))
+      onchose?.()
+    })
+  })
   let review = $state<{ agentId: string; initial: 'dev' | 'latest' } | null>(null)
   const settingsMachine = $derived(machines.find((machine) => machine.host === settingsHost))
   const toneRank: Record<string, number> = { action: 0, review: 1, working: 2, attention: 3, setup: 4, synced: 5 }
@@ -274,7 +297,7 @@
       ].join('\n')).join('\n\n')
       confirm = {
         title: 'Remove duplicate skills?',
-        body: `Reet will remove ${count} duplicate ${count === 1 ? 'entry' : 'entries'} from your shelf so sync can continue. The copy a saved sync plan already uses is kept; installed files on machines are not changed.`,
+        body: `Reet will remove ${count} duplicate ${count === 1 ? 'entry' : 'entries'} from your library so sync can continue. The copy a saved sync plan already uses is kept; installed files on machines are not changed.`,
         details,
         confirmLabel: 'Remove duplicates',
         danger: true,
@@ -300,7 +323,7 @@
     try {
       const preview = await resolveSyncSourceConflicts(ids, false)
       if (!preview.changes.length) {
-        onnotice('No installed source conflict left to fix. Try a fresh preview.')
+        onnotice('Auto fix cannot settle this one: reet holds this skill as its own copy, so there is no other source to follow. Update reet on the machine and sync again (it then skips only this skill), or remove the copy on the machine to use reet’s.')
         return
       }
       const details = preview.changes.map(change => [
@@ -429,7 +452,7 @@
   function askForgetGroup(group: SyncEnvironment, machine: Machine) {
     confirm = {
       title: `Forget ${groupLabel(group)} on ${machine.host}?`,
-      body: 'This removes this agent report and its saved sync reference. Installed files and shelf entries stay. A future scan can report it again.',
+      body: 'This removes this agent report and its saved sync reference. Installed files and library entries stay. A future scan can report it again.',
       confirmLabel: 'Forget install location',
       danger: true,
       action: async () => { if (await run(`forget-${group.id}`, () => forgetEnvironment(group.id))) onnotice(`Forgot ${groupLabel(group)}. Installed files are unchanged.`) },
@@ -485,13 +508,13 @@
       {@const scanOnly = scanOnlyAgents(machine)}
       {@const state = machineStatus(machine)}
       {@const sync = machineSyncOverview(machine, snapshot)}
-      <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${machine.host}`} oncontextmenu={cardContextMenu}>
+      <article class="machine" class:just-added={highlight === machine.host} aria-labelledby={`machine-${encodeURIComponent(machine.host)}`} oncontextmenu={cardContextMenu}>
         <header class="machine-head">
           <div class="identity">
             <span class="dot {enrolled ? (agentTone(enrolled) === 'online' ? 'current' : agentTone(enrolled)) : 'empty'}" aria-hidden="true"></span>
             <div>
-              <h3 id={`machine-${machine.host}`} title={machine.host}>{machine.host}</h3>
-              {#if highlight === machine.host}<p class="added-note">Just added</p>{/if}
+              <h3 id={`machine-${encodeURIComponent(machine.host)}`} title={machine.host}>{machine.host}</h3>
+              {#if highlight === machine.host}<p class="added-note">Just added{#if accounts && canWrite && enrolled} — choose its skills next{/if}</p>{/if}
               {#if machine.aliases?.length}<p class="alias">Also known as {machine.aliases.join(', ')}</p>{:else}<p class="alias">Machine inventory and install locations</p>{/if}
             </div>
           </div>
@@ -504,22 +527,23 @@
             <div><strong>{sync.label}</strong><small>{sync.detail}</small></div>
           </div>
           <div class="sync-cta">
+            {#if accounts && canWrite && enrolled}<button class="btn" class:primary={highlight === machine.host} type="button" data-choose-skills={machine.host} onclick={(event) => (libraryFor = { host: machine.host, opener: event.currentTarget })}>Skills on this machine</button>{/if}
             {#if offersDedupe(sync.detail)}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); void dedupe(machine) }}>{busy === `dedupe-${machine.host}` ? 'Checking…' : 'Dedupe skills'}</button>
-            {:else if offersSourceFix(sync.detail)}
+            {:else if sync.fix}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void autoFix(machine, enrolled) }}>{busy === `fix-${machine.host}` ? 'Checking…' : 'Auto fix'}</button>
             {:else if sync.canSync}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void syncNow(machine, enrolled) }}>{busy === `sync-${enrolled?.id}` ? 'Starting…' : 'Sync now'}</button>
             {:else if sync.tone === 'working'}
               <a class="btn sync-now" href="/sync#sync-jobs">View progress</a>
-            {:else}
+            {:else if !(accounts && canWrite && enrolled)}
               <a class="btn sync-now" href={sync.href}>{sync.tone === 'setup' ? 'Set up sync' : 'Open sync'}</a>
             {/if}
             <details class="sync-menu">
               <summary aria-label={`More options for ${machine.host}`} title="More options"><Icon name="more" size={18} /></summary>
               <div class="sync-menu-panel" role="menu">
                 {#if canWrite}<button type="button" role="menuitem" disabled={!enrolled} title={!enrolled ? 'Connect an agent first' : undefined} onclick={(event) => { closeMenu(event); addSkillFor = machine }}>Add a skill…</button>{/if}
-                <a role="menuitem" href={`/sync?machine=${encodeURIComponent(machine.host)}`}>Choose skills &amp; locations</a>
+                {#if !(accounts && canWrite && enrolled)}<a role="menuitem" href={advancedSyncHref(machine.host)}>Choose skills &amp; locations</a>{/if}
                 {#if enrolled && savedTargets(machine).length}<button type="button" role="menuitem" disabled={!!busy || enrolled.paused || sync.tone === 'working'} onclick={(event) => { closeMenu(event); void previewNow(machine, enrolled) }}>Preview changes only</button>{/if}
                 {#if enrolled}<button type="button" role="menuitem" disabled={!!busy} onclick={(event) => { closeMenu(event); void scan(enrolled) }}>Rescan machine</button>{/if}
                 <button type="button" role="menuitem" onclick={(event) => { closeMenu(event); commandsFor = machine }}>Commands…</button>
@@ -649,6 +673,9 @@
     onclose={() => (settingsHost = '')}
   />
 {/if}
+
+<!-- Each open is its own instance (keyed), so reopening from the button right after a close is not a reused, closed dialog. -->
+{#if libraryFor}{#key libraryFor}<MachineLibrary host={libraryFor.host} {snapshot} opener={libraryFor.opener} onclose={() => (libraryFor = null)} onimport={canWrite && accounts ? (source) => { libraryFor = null; onimport(source) } : undefined} />{/key}{/if}
 
 {#if review && reviewAgent}
   <UpdateReview agent={reviewAgent} releases={snapshot.releases} initial={review.initial} onconfirm={confirmReview} oncancel={() => (review = null)} />

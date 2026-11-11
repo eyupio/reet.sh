@@ -4,6 +4,7 @@
   import { groupLabel, installationStatus, installationSummary, type InstallationReport } from './machines'
   import { recordInstallCopy, type Environment, type Event, type Flags, type ListRef, type Skill, type SyncState, type Tag } from './api'
   import { skillSyncIntent, skillSyncSummary } from './skillSync'
+  import { advancedSyncHref } from './syncRoutes'
   import CopyButton from './CopyButton.svelte'
   import { copyText } from './clipboard'
   import { eventLabel, eventTitle } from './events'
@@ -102,7 +103,7 @@
   const installationLabels = { installed: 'Installed', missing: 'Missing', unknown: 'Not confirmed' }
   const syncIntent = $derived(skillSyncIntent(skill.id, syncSnapshot))
   const syncIntentText = $derived(skillSyncSummary(syncIntent))
-  const syncIntentTone = $derived(syncIntent.pending.length ? 'pending' : syncIntent.set.length ? 'set' : 'none')
+  const syncIntentTone = $derived(syncIntent.pending.length || syncIntent.held.length ? 'pending' : syncIntent.set.length ? 'set' : 'none')
   const hasSavedSetFor = (host: string) => (syncSnapshot?.targets ?? []).some((target) => target.target.host.toLowerCase() === host.toLowerCase())
 
   $effect(() => {
@@ -296,7 +297,7 @@
             {:else}
               <strong>{installationLabels[report.status]}</strong>
               {#if report.status === 'installed' && canWrite && hasSavedSetFor(report.host)}
-                <a class="remove-from" href={`/sync?machine=${encodeURIComponent(report.host)}&remove=${encodeURIComponent(skill.id)}`} onclick={(event) => event.stopPropagation()} aria-label={`Remove ${skill.name} from ${report.host} in Sync`} title="Open Sync to review the exact set. No files change until you preview and approve.">Remove…</a>
+                <a class="remove-from" href={advancedSyncHref(report.host, skill.id)} onclick={(event) => event.stopPropagation()} aria-label={`Remove ${skill.name} from ${report.host} in Advanced sync`} title="Open Advanced sync to review the exact set. No files change until you preview and approve.">Remove…</a>
               {/if}
             {/if}
           </li>
@@ -304,10 +305,10 @@
       </ul>
     {/if}
     {#if syncSnapshot}
-      <p class="sync-intent {syncIntentTone}" title={syncIntentTone === 'none' ? 'No sync plan includes this skill. Add now or Sync to machines… sets one.' : 'From your sync plans. Badges above say what each machine last reported.'}>
+      <p class="sync-intent {syncIntentTone}" title={syncIntentTone === 'none' ? 'No sync plan includes this skill. Add now sets one, or choose machines on the Machines page.' : 'From your sync plans. Badges above say what each machine last reported.'}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4" /></svg>
         <span>{syncIntentText}</span>
-        {#if syncIntentTone === 'none' && canWrite}<a href={`/sync?skill=${encodeURIComponent(skill.id)}`} onclick={(event) => event.stopPropagation()}>Sync to machines…</a>{/if}
+        {#if syncIntentTone === 'none' && canWrite}<a href="/machines" onclick={(event) => event.stopPropagation()}>Choose machines</a>{/if}
       </p>
     {/if}
   {/if}
@@ -503,15 +504,15 @@
         </button>
       {/each}
       {#if installableReports.length}
-        <a role="menuitem" href={`/sync?machine=${encodeURIComponent(installableReports[0].host)}`}>Review sync for {installableReports[0].host}</a>
+        <a role="menuitem" href={advancedSyncHref(installableReports[0].host)}>Review sync for {installableReports[0].host}</a>
       {/if}
       {#if command}<button type="button" role="menuitem" onclick={copyInstall}>Copy install command</button>{/if}
       {#if prompt}<button type="button" role="menuitem" onclick={() => { closeMenu(); void copyText(prompt) }}>Copy prompt</button>{/if}
       {#if skill.sourceType === 'hosted'}<a role="menuitem" href={`/hosting?edit=${encodeURIComponent(skill.slug)}`}>Edit written skill</a>{/if}
-      <a role="menuitem" href={`/sync?skill=${encodeURIComponent(skill.id)}`}>Sync to machines…</a>
+      <a role="menuitem" href="/machines">Choose machines</a>
       <button type="button" role="menuitem" onclick={() => { closeMenu(); void onpatch(skill, { liked: !skill.liked }, 'like') }}>{skill.liked ? 'Unlike' : 'Like'}</button>
       <button type="button" role="menuitem" onclick={() => { closeMenu(); onexpand(!expanded) }}>{expanded ? 'Collapse details' : 'Expand details'}</button>
-      <button type="button" role="menuitem" class="danger" onclick={() => { closeMenu(); onremove(skill) }}>Remove from shelf</button>
+      <button type="button" role="menuitem" class="danger" onclick={() => { closeMenu(); onremove(skill) }}>Remove from library</button>
     </div>
   {/if}
 </li>

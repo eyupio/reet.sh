@@ -17,6 +17,7 @@ try {
    '/api/v2/machines/health':{serverNow:now,machines:[{...machine,state:'connected'}]},
   }})
   const writes=[];w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')writes.push(r.url())})
+  await w.page.addInitScript(()=>{if(localStorage.getItem('reet.rail.collapsed')===null)localStorage.setItem('reet.rail.collapsed','0')})
   try {
    const page=w.page;await page.goto(base+'/')
    const board=page.getByRole('region',{name:'Your work, in good order.',exact:true})
@@ -53,10 +54,11 @@ try {
    await active.getByRole('button',{name:'Show fewer',exact:true}).click();await expect(active.locator('.session-card')).toHaveCount(5);await expect(active.getByRole('button',{name:'Show 5 more',exact:true})).toBeFocused()
    if(width===1440){
     expect(await page.evaluate(()=>document.documentElement.scrollHeight<innerHeight*1.5)).toBe(true)
-    const rail=page.locator('aside.rail .strip')
-    await rail.locator('button.mini').last().evaluate(el=>el.scrollIntoView({block:'center'}))
+    // The project list is embedded in the workspace panel and scrolls inside it.
+    const rail=page.locator('[data-workspace-rail]')
+    await rail.locator('.card').last().evaluate(el=>el.scrollIntoView({block:'center'}))
     expect(await rail.evaluate(el=>el.scrollTop)).toBeGreaterThan(0)
-    await expect(rail.locator('button.mini').last()).toBeInViewport()
+    await expect(rail.locator('.card').last()).toBeInViewport()
     await rail.evaluate(el=>el.scrollTop=0)
    }
    if(width!==320)await page.screenshot({path:`${shots}/compact-board-${width}-${theme}.png`,fullPage:true})

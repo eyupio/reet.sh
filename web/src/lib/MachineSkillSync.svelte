@@ -16,7 +16,7 @@
  const complete=$derived(!!request?.syncRunId&&(run?.status==='completed'||!!snapshot?.environments.find(env=>env.id===request?.destinationId)?.skills.some(item=>item.id===skill.id)))
  const failed=$derived(!complete&&(!!request?.syncError||['failed','expired','cancelled'].includes(request?.state??'')||run?.status==='failed'))
  const step=$derived(request?.state==='completed'?(request.syncRunId?2:1):['approved','uploading'].includes(request?.state??'')?1:0)
- const headline=$derived(complete?`${skill.name} is on ${destination}`:failed?'Sync needs attention':request?.state==='reviewing'?'Some files need your review':step===2?`Installing on ${destination}`:step===1?'Saving a private copy in reet.sh':`Reading ${skill.name} from ${request?.host??sources.find(item=>item.id===sourceId)?.host??'your machine'}`)
+ const headline=$derived(complete?`${skill.name} is on ${destination}`:failed?'Sync needs attention':request?.state==='reviewing'?'Some files need your review':step===2?`Installing on ${destination}`:step===1?'Saving a copy to your library':`Reading ${skill.name} from ${request?.host??sources.find(item=>item.id===sourceId)?.host??'your machine'}`)
  async function refresh(){
   if(!alive||polling)return
   polling=true
@@ -56,19 +56,19 @@
   <p>Reet uses the installed skill’s files when an upstream source is unavailable. The copy stays private in your account.</p>
   {#if !request}
    {#if sources.length>1}<label>Copy from<select bind:value={sourceId}>{#each sources as env (env.id)}<option value={env.id}>{env.host} · {env.agent}{env.project?` · ${env.project}`:''}</option>{/each}</select></label>{/if}
-   <p>Destination: <strong>{destination}</strong></p>
+   <p>Goes to: <strong>{destination}</strong></p>
    <button class="btn primary" disabled={busy||!sourceId} onclick={start}>{busy?'Requesting copy…':`Sync to ${destination}`}</button>
   {:else}
    <h3 aria-live="polite">{headline}</h3>
-   <ol aria-label="Transfer progress">{#each ['Read source machine','Save private copy','Install on destination'] as label,i}<li class:done={complete||i<step} class:active={!complete&&i===step}>{label}</li>{/each}</ol>
+   <ol aria-label="Transfer progress">{#each ['Read the skill from its machine','Save a copy to your library','Install on the machine you chose'] as label,i}<li class:done={complete||i<step} class:active={!complete&&i===step}>{label}</li>{/each}</ol>
    <p>{request.host} → reet.sh → {destination}</p>
    {#if request.state==='reviewing'}<button class="btn primary" onclick={()=>review=true}>Review files</button>{/if}
    {#if request.syncError}<p class="error">{request.syncError}</p>{/if}
    {#if request.syncRunId&&job?.message&&job.status==='failed'}<SyncProblem message={job.message} host={destination} onretry={()=>void retry()} retrying={busy} />{:else if request.error}<p class="error">{request.error.replaceAll('_',' ')}. Refresh the source machine, then request a new copy.</p>{/if}
    {#if step===2&&!complete&&!failed}<p role="status">{job?.stages?.find(stage=>stage.status==='running')?.detail??job?.message??'Waiting for the destination machine to report.'}</p>{/if}
-   {#if run?.status==='review'}<a class="btn primary" href={`/sync?machine=${encodeURIComponent(destination)}#sync-jobs`}>Review changes</a>{/if}
+   {#if run?.status==='review'}<a class="btn primary" href="/sync#sync-jobs">Review changes</a>{/if}
    {#if failed&&!request.syncRunId}<button class="btn primary" disabled={busy} onclick={retry} aria-busy={busy}>{busy?'Trying…':'Fix and try again'}</button>{/if}
-   {#if failed}<a class="btn" href={`/sync?machine=${encodeURIComponent(destination)}`}>Fix it in Sync</a>{/if}
+   {#if failed}<a class="btn" href="/sync#sync-jobs">Fix it in Sync</a>{/if}
   {/if}
   {#if error}<p class="error" role="alert">{error}</p><a href="/machines">Check machine connection and reet updates</a>{/if}
  </div>

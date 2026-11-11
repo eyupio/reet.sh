@@ -146,12 +146,15 @@ type Capabilities struct {
 	// BranchPrune is sent only on a connection that negotiated
 	// branch-prune-v1: the machine can plan and delete merged branches.
 	BranchPrune bool `json:"branchPrune,omitempty"`
-	BrowseOff   bool `json:"browseOff,omitempty"`
-	Clipboard   bool `json:"clipboard,omitempty"`
-	Uploads     bool `json:"uploads,omitempty"`
-	UploadsOff  bool `json:"uploadsOff,omitempty"`
-	Models      bool `json:"models,omitempty"`
-	ModelsOff   bool `json:"modelsOff,omitempty"`
+	// BranchSync is sent only on a connection that negotiated
+	// branch-sync-v1: the machine can fast-forward a repository's base branch.
+	BranchSync bool `json:"branchSync,omitempty"`
+	BrowseOff  bool `json:"browseOff,omitempty"`
+	Clipboard  bool `json:"clipboard,omitempty"`
+	Uploads    bool `json:"uploads,omitempty"`
+	UploadsOff bool `json:"uploadsOff,omitempty"`
+	Models     bool `json:"models,omitempty"`
+	ModelsOff  bool `json:"modelsOff,omitempty"`
 	// ModelsRefresh is sent only on a connection that negotiated
 	// models-refresh-v1: a refresh may then ask for a listing that ignores the
 	// connector's short cache.
@@ -855,6 +858,10 @@ func Decode(data []byte) (Message, error) {
 		b = &BranchPrune{}
 	case "branch_prune_result":
 		b = &BranchPruneResult{}
+	case "branch_sync":
+		b = &BranchSync{}
+	case "branch_sync_result":
+		b = &BranchSyncResult{}
 	case "upload":
 		b = &Upload{}
 	case "models":

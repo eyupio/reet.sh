@@ -155,7 +155,7 @@ func TestPrivateRoutesAreNoindexAndPublicRoutesAreNot(t *testing.T) {
 		}
 		return PublicPage{}, false
 	}))
-	private := []string{"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/activity", "/sync", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups"}
+	private := []string{"/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join?token=t", "/admin/overview", "/account", "/lists/1", "/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting", "/notifications", "/support", "/shared", "/spaces", "/profiles", "/setups"}
 	for _, path := range private {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusOK {

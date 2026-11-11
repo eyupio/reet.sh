@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/ref"
 )
@@ -1533,4 +1534,19 @@ func (s *Store) OutcomeEventsFor(userID int64, outcome string, limit int) ([]Eve
 		out = append(out, ev)
 	}
 	return out, rows.Err()
+}
+
+// AddEventUnlessRepeatedFor records an event unless the same user, action and
+// detail were already recorded within window. It is for events that repeat
+// unchanged many times an hour and say nothing new each time.
+func (s *Store) AddEventUnlessRepeatedFor(userID int64, source, action string, detail any, window time.Duration) error {
+	b, err := json.Marshal(detail)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO events(at,user_id,actor,source,action,skill_id,detail)
+		SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (
+			SELECT 1 FROM events WHERE user_id=? AND action=? AND detail=? AND at>?)`,
+		now(), userID, "", source, action, "", string(b), userID, action, string(b), now()-window.Milliseconds())
+	return err
 }

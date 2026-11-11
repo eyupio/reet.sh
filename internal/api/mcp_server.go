@@ -473,6 +473,17 @@ func (s *server) executeMCP(ctx context.Context, api http.Handler, access mcpAcc
 				query.Set(key, v)
 			}
 		}
+		if list, ok := args["exclude"].([]any); ok {
+			var sources []string
+			for _, item := range list {
+				if v, ok := item.(string); ok && v != "" {
+					sources = append(sources, v)
+				}
+			}
+			if len(sources) > 0 {
+				query.Set("exclude", strings.Join(sources, ","))
+			}
+		}
 	case "reet_create_tag":
 		method, path = "POST", "/api/v2/tags"
 	case "reet_rename_tag":

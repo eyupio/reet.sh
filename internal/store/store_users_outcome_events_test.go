@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestOutcomeEventsAreThatOutcomesGafferRowsNewestFirst(t *testing.T) {
 	st, err := Open(t.TempDir())
@@ -29,5 +32,41 @@ func TestOutcomeEventsAreThatOutcomesGafferRowsNewestFirst(t *testing.T) {
 	}
 	if other, err := st.OutcomeEventsFor(uid+99, "aaa", 10); err != nil || len(other) != 0 {
 		t.Fatalf("another account read them: %+v %v", other, err)
+	}
+}
+
+func TestARepeatedEventIsRecordedOnceAndEventsCanLeaveSourcesOut(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	u, err := st.CreateUser("owner@example.test", "Owner", "owner", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	same := map[string]any{"imported": 76, "created": 0, "ignored": 12, "pruned": 0}
+	for i := 0; i < 5; i++ {
+		if err = st.AddEventUnlessRepeatedFor(u.ID, "scan", "scan", same, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Different counts are news; so is the same detail once the window has passed.
+	if err = st.AddEventUnlessRepeatedFor(u.ID, "scan", "scan", map[string]any{"imported": 77, "created": 0, "ignored": 12, "pruned": 0}, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.AddEventUnlessRepeatedFor(u.ID, "scan", "scan", same, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.AddEventFor(u.ID, "gaffer", "gaffer-goal-held", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	all, _, err := st.ListEventsPageFor(u.ID, EventQuery{Limit: 50})
+	if err != nil || len(all) != 4 {
+		t.Fatalf("events %d %v", len(all), err)
+	}
+	rest, _, err := st.ListEventsPageFor(u.ID, EventQuery{Limit: 50, Exclude: []string{"scan", "machine"}})
+	if err != nil || len(rest) != 1 || rest[0].Action != "gaffer-goal-held" {
+		t.Fatalf("excluding scan: %+v %v", rest, err)
 	}
 }

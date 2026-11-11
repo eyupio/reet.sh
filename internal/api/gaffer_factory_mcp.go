@@ -130,7 +130,7 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 	out := map[string]any{
 		"id": o.ID, "revision": o.Revision, "objective": o.Objective, "state": o.State, "note": o.Note,
 		"project": o.ProjectName, "agent": o.Tool, "approvals": approvals, "reports_by_itself": o.AutoReport,
-		"created_at": o.CreatedAt, "updated_at": o.UpdatedAt, "pipelines": pipelines,
+		"created_at": o.CreatedAt, "updated_at": o.UpdatedAt, "pipelines": pipelines, "machine_id": o.AgentID,
 	}
 	if o.Report != nil {
 		report := map[string]any{"at": o.Report.At, "by_itself": o.Report.Auto, "proposals": len(o.Report.Proposals)}
@@ -157,7 +157,15 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 		for _, o := range rows {
 			out = append(out, s.mcpOutcome(uid, o, false))
 		}
-		return map[string]any{"outcomes": out}, nil
+		// The builds answer "is this controller, or that machine, new enough
+		// for a feature": a client otherwise has to guess from side effects.
+		machines := []map[string]any{}
+		if agents, err := s.st.SyncAgentsFor(uid); err == nil {
+			for _, a := range agents {
+				machines = append(machines, map[string]any{"id": a.ID, "name": a.Host, "version": a.Version, "commit": a.Commit, "last_seen": a.LastSeen})
+			}
+		}
+		return map[string]any{"outcomes": out, "controller": map[string]any{"version": s.version, "commit": s.commit}, "machines": machines}, nil
 	}
 	if name == "reet_list_factory_projects" {
 		rows, err := s.st.ListFolderProjectsFor(uid)

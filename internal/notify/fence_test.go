@@ -37,9 +37,12 @@ func TestAFencedNotifierPrunesNothingUntilTheLift(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	s := &Service{Store: st}
-	go s.Loop(ctx, 5*time.Millisecond)
+	loopDone := make(chan struct{})
+	go func() { defer close(loopDone); s.Loop(ctx, 5*time.Millisecond) }()
+	// The loop reads retention, which the cleanup above restores: stop it and
+	// wait for it first, or the race detector sees the two meet.
+	defer func() { cancel(); <-loopDone }()
 	time.Sleep(100 * time.Millisecond)
 	if !exists() {
 		t.Fatal("a notification was pruned while fenced")

@@ -5,6 +5,7 @@
   import CollectionPanel from './CollectionPanel.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import GafferAvatar from './terminal/GafferAvatar.svelte'
+  import GafferTools from './GafferTools.svelte'
   import { shell } from './dialogShell'
 
   let { onerror }: { onerror?: (e: unknown) => void } = $props()
@@ -128,7 +129,8 @@
     <label class="way"><input type="checkbox" checked={ways.standing} disabled={waysBusy} onchange={event => void setWay('standing', event.currentTarget.checked)}/><span><strong>Look after sessions without asking each time</strong><span class="way-note">When you tell Gaffer to look after a session it may read that session’s recent conversation, including code and logs in it, and send it follow-on instructions, straight away with your usual goal and limits. Nothing is read or sent until you ask, and you can still review or stop any one session. Turn this off to be asked for each session.</span></span></label>
     <label class="way"><input type="checkbox" checked={ways.autoMerge} disabled={waysBusy} onchange={event => void setWay('autoMerge', event.currentTarget.checked)}/><span><strong>Let new pipelines merge by themselves</strong><span class="way-note">The starting choice for each new outcome: its agent merges once every check passes, no review thread is open and there are no conflicts. Left off, a pipeline stops at Ready to merge and waits for you. You can change it for any one outcome when you approve its plan.</span></span></label>
     {#if waysError}<p class="feedback bad" role="alert">{waysError}</p>{/if}
-  </section>{/if}
+  </section>
+  <GafferTools/>{/if}
   {#if notice}<p class="feedback good" role="status">{notice}</p>{/if}
   {#if error}<div class="feedback bad" role="alert"><p>{error}</p><button class="btn quiet" onclick={() => void load()} disabled={!!busy}>Reload providers</button></div>{/if}
   {#if data && !data.available}<p class="feedback bad" role="alert">The controller’s provider-key storage is unavailable. Ask an administrator to check the instance key configuration.</p>{/if}

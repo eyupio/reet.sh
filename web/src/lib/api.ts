@@ -285,7 +285,18 @@ export async function getGafferOutcome(id: string, signal?: AbortSignal): Promis
 export async function createGafferOutcome(input: GafferOutcomeInput, signal?: AbortSignal): Promise<GafferOutcome> { return (await req('/api/v2/gaffer/outcomes', { method: 'POST', body: json(input), signal })).json() }
 export async function stopGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/stop`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
+/** One call of a reet tool by Gaffer in a chat turn. `pending` waits for the person's approval. */
+export type GafferTurnTool = { id: string; name: string; args: string; mode: 'ask' | 'allow'; state: 'ran' | 'failed' | 'pending' | 'approved' | 'declined'; result?: string; at: number }
+export type GafferToolMode = 'off' | 'ask' | 'allow'
+/** A reet tool Gaffer can be given, with the account's choice for it. */
+export type GafferToolChoice = { name: string; title: string; description: string; readOnly: boolean; destructive: boolean; group: string; mode: GafferToolMode }
+export async function getGafferTools(signal?: AbortSignal): Promise<GafferToolChoice[]> { return (await (await req('/api/v2/gaffer/tools', { signal, cache: 'no-store' })).json()).tools }
+/** Replaces the whole choice: a tool left out is off. */
+export async function saveGafferTools(modes: Record<string, string>, signal?: AbortSignal): Promise<GafferToolChoice[]> { return (await (await req('/api/v2/gaffer/tools', { method: 'PUT', body: JSON.stringify({ modes }), signal })).json()).tools }
+/** The person's answer to a call Gaffer asked to make: approve runs exactly that call once; decline runs nothing. */
+export async function answerGafferTool(conversation: string, turn: string, tool: string, approve: boolean, signal?: AbortSignal): Promise<GafferTurn> { return (await req(`/api/v2/gaffer/conversations/${encodeURIComponent(conversation)}/turns/${encodeURIComponent(turn)}/tools/${encodeURIComponent(tool)}`, { method: 'POST', body: JSON.stringify({ approve }), signal })).json() }
 export type GafferTurn = {
+ tools?: GafferTurnTool[]
  goalId?:string;goalRevision?:number;goalNeedsUser?:boolean
   workerGrantRevision?:number
   context?: ContextUse

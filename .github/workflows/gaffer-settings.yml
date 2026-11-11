@@ -48,6 +48,7 @@ jobs:
           done
           node web/tests/gaffer-settings.e2e.mjs
           node web/tests/gaffer-chat.e2e.mjs
+          node web/tests/gaffer-tools.e2e.mjs
           node web/tests/gaffer-context.e2e.mjs
           node web/tests/gaffer-worker.e2e.mjs
           node web/tests/gaffer-goal.e2e.mjs

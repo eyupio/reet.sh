@@ -5,6 +5,17 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Gaffer can use reet's own tools, the same ones an MCP client gets, in your
+  chats with it. **Gaffer settings → Tools Gaffer can use** lists every tool
+  with three choices: **Off** (the default for all of them), **Ask me** (Gaffer
+  shows the exact call in the chat and it runs only when you approve) and
+  **Allow** (it runs straight away). This includes reading the Factory and the
+  activity log, moving, retrying, sending back and stopping pipelines, starting
+  an outcome, approving a merge, and the shelf and machine tools. Switching a
+  tool to Allow lets Gaffer do that on your word with no further click; goal
+  reviews never get these tools, and in a session's chat anything that changes
+  something always asks first. Every use is in the activity log. Needs a
+  controller update.
 - Gaffer: a stage review now reads the working agent's latest reply at length
   (up to 9 KiB), not a 2 KiB fragment, so it can see a plan, design or final
   report and hand the stage over by itself. Needs a controller update.

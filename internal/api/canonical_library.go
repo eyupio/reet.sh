@@ -9,6 +9,10 @@ import (
 )
 
 func (s *server) registerCanonicalLibrary(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v2/library/deployment-intent", s.privateSkillAccess(s.libraryDeploymentIntent))
+	mux.HandleFunc("POST /api/v2/library/install-evidence", s.privateSkillAccess(s.libraryInstallEvidence))
+	mux.HandleFunc("POST /api/v2/library/deletion-observed", s.privateSkillAccess(s.libraryDeletionObserved))
+	mux.HandleFunc("POST /api/v2/library/restore-receipt", s.privateSkillAccess(s.libraryRestoreReceipt))
 	mux.HandleFunc("POST /api/v2/library/bases", s.privateSkillAccess(s.libraryBase))
 	mux.HandleFunc("POST /api/v2/library/protocol", s.privateSkillAccess(s.libraryProtocol))
 	mux.HandleFunc("POST /api/v2/library/edits", s.privateSkillAccess(s.libraryEdit))
@@ -20,6 +24,99 @@ func (s *server) registerCanonicalLibrary(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/v2/library/{item}", s.privateSkillAccess(s.canonicalLibraryStatus))
 	mux.HandleFunc("POST /api/v2/library/locations", s.privateSkillAccess(s.canonicalLibraryLocation))
 	mux.HandleFunc("POST /api/v2/library/locations/content", s.privateSkillAccess(s.canonicalLibraryImport))
+}
+
+func (s *server) libraryDeploymentIntent(w http.ResponseWriter, r *http.Request) {
+	agent, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in store.LibraryDeploymentCheck
+	if !importDecode(w, r, 4096, &in) {
+		return
+	}
+	out, err := s.st.LibraryDeploymentIntentFor(s.uid(r), agent.ID, in)
+	if err != nil {
+		if errors.Is(err, store.ErrContentObservationStale) {
+			writeErr(w, http.StatusConflict, "The machine is paused or its deployment observation changed; retry from current intent.")
+			return
+		}
+		libraryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// libraryInstallEvidence tells a machine whether the controller itself recorded
+// installing this revision of this item into this target. It is evidence for
+// migrating a legacy local binding, never an instruction to change a file.
+func (s *server) libraryInstallEvidence(w http.ResponseWriter, r *http.Request) {
+	agent, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in store.LibraryDeploymentCheck
+	if !importDecode(w, r, 4096, &in) {
+		return
+	}
+	out, err := s.st.LibraryInstallEvidenceFor(s.uid(r), agent.ID, in)
+	if err != nil {
+		if errors.Is(err, store.ErrContentObservationStale) {
+			writeErr(w, http.StatusConflict, "The machine is paused or its deployment observation changed; retry from current intent.")
+			return
+		}
+		libraryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// libraryDeletionObserved is a machine saying that a deletion has persisted
+// long enough to act on. The controller cannot see a file missing inside an
+// installed folder, so this is what asks for the restore sync.
+func (s *server) libraryDeletionObserved(w http.ResponseWriter, r *http.Request) {
+	agent, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in store.LibraryDeploymentCheck
+	if !importDecode(w, r, 4096, &in) {
+		return
+	}
+	queued, err := s.st.QueueLibraryRestoreSyncFor(s.uid(r), agent.ID, in)
+	if err != nil {
+		if errors.Is(err, store.ErrContentObservationStale) {
+			writeErr(w, http.StatusConflict, "The machine is paused or its deployment observation changed; retry from current intent.")
+			return
+		}
+		libraryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"queued": queued})
+}
+
+// libraryRestoreReceipt records a verified restore as one deduplicated
+// informational notification. Accepting the receipt is what lets the machine
+// stop reporting it, whether or not anything was announced.
+func (s *server) libraryRestoreReceipt(w http.ResponseWriter, r *http.Request) {
+	agent, ok := s.agentIdentity(w, r)
+	if !ok {
+		return
+	}
+	var in store.LibraryRestoreReceipt
+	if !importDecode(w, r, 4096, &in) {
+		return
+	}
+	_, notified, err := s.st.RecordLibraryRestoreFor(s.uid(r), agent.ID, in)
+	if err != nil {
+		if errors.Is(err, store.ErrContentObservationStale) {
+			writeErr(w, http.StatusConflict, "The machine is paused or its deployment observation changed; retry from current intent.")
+			return
+		}
+		libraryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true, "notified": notified})
 }
 
 func (s *server) getCanonicalSelection(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +229,13 @@ func (s *server) libraryProtocol(w http.ResponseWriter, r *http.Request) {
 		libraryError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"schemaVersion": 1, "serverTime": time.Now().UnixMilli()})
+	response := map[string]any{"schemaVersion": 1, "serverTime": time.Now().UnixMilli()}
+	// Omitted unless the controller's internal rollout control is on, so older
+	// and unflagged controllers never invite connectors to remove anything.
+	if s.st.ManagedRemovalsEnabled() {
+		response["managedRemovals"] = 1
+	}
+	writeJSON(w, 200, response)
 }
 func (s *server) libraryEdit(w http.ResponseWriter, r *http.Request) {
 	agent, ok := s.agentIdentity(w, r)

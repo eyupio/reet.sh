@@ -23,11 +23,11 @@ import (
 func runBackup(args []string, out io.Writer) error {
 	help := len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")
 	if help {
-		fmt.Fprintln(out, "Usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] ID | import --server URL --token-file F FILE\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
+		fmt.Fprintln(out, "Usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
 		return nil
 	}
 	if len(args) == 0 {
-		return errors.New("usage: reet backup keygen | list | run | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] ID | import --server URL --token-file F FILE")
+		return errors.New("usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]")
 	}
 	switch args[0] {
 	case "keygen":
@@ -40,7 +40,7 @@ func runBackup(args []string, out io.Writer) error {
 	case "list":
 		return backupList(out)
 	case "run":
-		return backupRun(out)
+		return backupRun(args[1:], out)
 	case "open":
 		return backupOpen(args[1:], out)
 	case "escrow":
@@ -51,8 +51,10 @@ func runBackup(args []string, out io.Writer) error {
 		return backupRestore(args[1:], out)
 	case "import":
 		return backupImport(args[1:], out)
+	case "fence":
+		return backupFence(args[1:], out)
 	default:
-		return fmt.Errorf("unknown backup command %q; use keygen, list, run, open, escrow, unescrow, restore or import", args[0])
+		return fmt.Errorf("unknown backup command %q; use keygen, list, run, open, escrow, unescrow, restore, import or fence", args[0])
 	}
 }
 
@@ -91,17 +93,49 @@ func backupList(out io.Writer) error {
 	return nil
 }
 
-func backupRun(out io.Writer) error {
+// backupRun takes one copy now. With --password-file the copy is sealed with
+// that password alone, so a portable copy can be taken for someone else without
+// setting the stored copy password. The password is read from a file, or - for
+// standard input, and is never an argument.
+func backupRun(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet backup run", flag.ContinueOnError)
+	f.SetOutput(out)
+	passwordFile := f.String("password-file", "", "seal this copy with the password in this file, or - for standard input, instead of the stored copy password")
+	if err := f.Parse(args); err != nil {
+		return err
+	}
+	if f.NArg() != 0 {
+		return errors.New("run takes no arguments; give a copy password with --password-file")
+	}
+	// Checked before the store is opened, so a bad password takes nothing.
+	password, given := "", *passwordFile != ""
+	if given {
+		var err error
+		if password, err = readSecretFile(*passwordFile, "the copy password"); err != nil {
+			return err
+		}
+		if err := backup.ValidateCopyPassword(password); err != nil {
+			return err
+		}
+	}
 	st, svc, err := openBackup()
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	item, err := svc.RunInstance(context.Background(), "cli")
+	var item backup.Item
+	if given {
+		item, err = svc.RunInstanceWithPassword(context.Background(), "cli", password)
+	} else {
+		item, err = svc.RunInstance(context.Background(), "cli")
+	}
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "Took %s (%s).\n", item.ID, humanBytes(item.Bytes))
+	if given {
+		fmt.Fprintln(out, "It is sealed with the password you gave, which is not stored here; the stored copy password was not used or changed.")
+	}
 	if len(item.Remotes) == 0 {
 		fmt.Fprintln(out, "It is on this machine; no destination confirmed a copy.")
 	}
@@ -312,12 +346,21 @@ func backupRestore(args []string, out io.Writer) error {
 	dropSessions := f.Bool("drop-sessions", false, "end every browser sign-in and password-reset link in the copy")
 	dropTokens := f.Bool("drop-tokens", false, "revoke every personal API token and MCP connection in the copy")
 	owner := f.String("owner-email", "", "refuse unless this address is an owner account in the copy, so you can sign in afterwards")
+	allowLive := f.Bool("allow-live-source", false, "accept a copy of a controller that was not fenced as it was taken, or whose copy does not say")
+	publicURL := f.String("public-url", "", "the address this controller will answer at; rewrites the saved mail base URL and sync library origin and removes MCP grants for the old one")
 	file, literal := passwordFlags(f)
 	if err := f.Parse(args); err != nil {
 		return err
 	}
 	if f.NArg() > 1 {
 		return errors.New("expected one backup ID")
+	}
+	if *publicURL != "" {
+		u, err := store.ValidatePublicURL(*publicURL)
+		if err != nil {
+			return err
+		}
+		*publicURL = u
 	}
 	id, inputErr := clientconfig.Require(f.Arg(0), "backup ID", false, os.Stdin, os.Stderr)
 	if inputErr != nil {
@@ -334,11 +377,13 @@ func backupRestore(args []string, out io.Writer) error {
 		return err
 	}
 	opts := backup.RestoreOptions{
-		DropSessions: *dropSessions,
-		DropTokens:   *dropTokens,
-		OwnerEmail:   *owner,
-		CheckOnly:    !*yes,
-		Source:       "cli",
+		DropSessions:    *dropSessions,
+		DropTokens:      *dropTokens,
+		OwnerEmail:      *owner,
+		AllowLiveSource: *allowLive,
+		PublicURL:       *publicURL,
+		CheckOnly:       !*yes,
+		Source:          "cli",
 		Before: func(r backup.RestoreReport) {
 			for _, l := range r.Inventory() {
 				fmt.Fprintln(out, l)
@@ -395,8 +440,17 @@ func backupImport(args []string, out io.Writer) error {
 	dropTokens := f.Bool("drop-tokens", false, "revoke every personal API token and MCP connection in the copy")
 	owner := f.String("owner-email", "", "refuse unless this address is an owner account in the copy")
 	replace := f.Bool("replace", false, "import even though this controller already holds data")
+	allowLive := f.Bool("allow-live-source", false, "accept a copy of a controller that was not fenced as it was taken, or whose copy does not say")
+	publicURL := f.String("public-url", "", "the address this controller will answer at; rewrites the saved mail base URL and sync library origin and removes MCP grants for the old one")
 	if err := f.Parse(args); err != nil {
 		return err
+	}
+	if *publicURL != "" {
+		u, err := store.ValidatePublicURL(*publicURL)
+		if err != nil {
+			return err
+		}
+		*publicURL = u
 	}
 	if f.NArg() != 1 {
 		return errors.New("expected one sealed copy FILE")
@@ -442,7 +496,7 @@ func backupImport(args []string, out io.Writer) error {
 	mw := multipart.NewWriter(pw)
 	go func() {
 		fields := [][2]string{{"password", password}, {"ownerEmail", *owner},
-			{"dropSessions", fmt.Sprint(*dropSessions)}, {"dropTokens", fmt.Sprint(*dropTokens)}, {"replace", fmt.Sprint(*replace)}}
+			{"dropSessions", fmt.Sprint(*dropSessions)}, {"dropTokens", fmt.Sprint(*dropTokens)}, {"replace", fmt.Sprint(*replace)}, {"allowLiveSource", fmt.Sprint(*allowLive)}, {"publicUrl", *publicURL}}
 		for _, fl := range fields {
 			if err := mw.WriteField(fl[0], fl[1]); err != nil {
 				pw.CloseWithError(err)
@@ -513,4 +567,61 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// backupFence raises or lifts the fence on the controller whose data is in
+// REET_DATA_DIR. It works on the database file, so it can be used with the
+// server stopped, and a running server sees it at once because the server
+// reads the state from the database each time. Run it before taking the final
+// copy of a controller that is moving.
+func backupFence(args []string, out io.Writer) error {
+	f := flag.NewFlagSet("reet backup fence", flag.ContinueOnError)
+	f.SetOutput(out)
+	movedTo := f.String("moved-to", "", "the address the controller is moving to, for the message people see")
+	lift := f.Bool("lift", false, "lift the fence, returning the controller to exactly what it was")
+	if err := f.Parse(args); err != nil {
+		return err
+	}
+	if f.NArg() != 0 {
+		return errors.New("fence takes no arguments; use --moved-to URL or --lift")
+	}
+	if *lift && *movedTo != "" {
+		return errors.New("--lift and --moved-to cannot be used together")
+	}
+	to, err := store.ValidMovedTo(*movedTo)
+	if err != nil {
+		return errors.New("--moved-to must be an http or https address without credentials")
+	}
+	st, err := store.Open(env("REET_DATA_DIR", "./data"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	before, err := st.Fence()
+	if err != nil {
+		return err
+	}
+	if *lift {
+		if !before.Fenced {
+			fmt.Fprintln(out, "This controller is not fenced; nothing changed.")
+			return nil
+		}
+		if _, err := st.LiftFence(); err != nil {
+			return err
+		}
+		_ = st.AddEvent("cli", "fence-lifted", "", nil)
+		fmt.Fprintln(out, "Lifted the fence. This controller acts again: its schedules, mail and queued work resume, and it takes changes.")
+		return nil
+	}
+	if before.Fenced {
+		fmt.Fprintf(out, "This controller has been fenced since %s; nothing changed.\n", time.UnixMilli(before.Since).Local().Format("2006-01-02 15:04"))
+		return nil
+	}
+	if _, err := st.SetFence(to); err != nil {
+		return err
+	}
+	_ = st.AddEvent("cli", "fence-raised", "", map[string]any{"movedTo": to})
+	fmt.Fprintln(out, "Fenced. This controller now refuses every change (except the owner's backup routes and lifting the fence), and its schedules, mail, notifier and queued work stand still. Reads still work.")
+	fmt.Fprintln(out, "Take the final copy now (reet backup run); a copy taken while fenced is the one a restore accepts without --allow-live-source.")
+	return nil
 }

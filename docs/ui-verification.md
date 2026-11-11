@@ -119,6 +119,40 @@ remain the delivery gates. No physical-phone or real-provider claim is made.
 ![Floating Gaffer phone light](images/ui/gaffer-widget-390-light.png)
 ![Floating Gaffer phone dark](images/ui/gaffer-widget-390-dark.png)
 
+## Gaffer factory floor (9 November 2026)
+
+**Chat options → Factory floor** replaces the Followed sessions name. The same
+job sheet now also lists running structured chats nobody asked Gaffer to look
+after, under **Not followed**, with checkboxes, **Select all** and **Look after
+selected**. One review (**Look after these sessions**) names the sessions, the
+default provider/model, what starting shares, one goal with **Use a prompt** and
+one set of limits, then reports each session as Following or Not started.
+
+`web/tests/gaffer-floor.e2e.mjs` passes at 1440 and 390 px in light/dark. It
+checks that plain terminals, ended chats and already-followed sessions are not
+offered, the filters, that ticking, opening and cancelling the review write
+nothing, the per-session conversation and reviewed-setup requests, a partial
+failure that leaves its session ticked, the saved starting point, a failed
+session read and the ten-goal limit. `gaffer-followed`, `home-followups`,
+`gaffer-goal`, `gaffer-widget-ux`, `session-end-gaffer` and `stage-follow` pass
+unchanged apart from the dialog name. Captures use synthetic sessions only.
+
+The 10 November usability pass puts the floor one click from general chat (header
+link and welcome button) and from Home, replaces the separate session picker with
+**Open** on each Not-followed row, and moves the counts into the filter chips.
+
+**Give Gaffer an outcome** (10 November) is a three-step dialog from the floor:
+the objective with project, agent and size; Gaffer's editable plan with the access
+statement and limits; and per-session results. `web/tests/gaffer-outcome.e2e.mjs`
+passes at 1440 px light and 390 px dark with no sideways scroll at each step.
+
+![Outcome objective](images/ui/gaffer-outcome-objective-1440-light.png)
+![Outcome plan review](images/ui/gaffer-outcome-plan-1440-light.png)
+![Outcome grouped on the floor, phone dark](images/ui/gaffer-outcome-floor-390-dark.png)
+![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)
+![Factory floor desktop light](images/ui/gaffer-floor-1440-light.png)
+![Factory floor review phone light](images/ui/gaffer-floor-review-390-light.png)
+
 ## Gaffer followed-session overview (6 November 2026)
 
 **Chat options → Followed sessions** opens a secondary job sheet from general or
@@ -3450,3 +3484,27 @@ Validation:
 
 **Not checked.** No physical phone or screen reader. The local-skill path was
 checked in unit tests; no live machine was scanned for one.
+
+## Home's project list in the left workspace panel — 9 November 2026
+
+Home used two left columns: the fixed workspace navigation (228 px) and the project rail (301 px, or its
+folded strip), so roughly 530 px went to the left before the board. The project list now lives inside the
+workspace panel, under the navigation, and Home is one content column.
+
+- The panel is 300 px on Home by default and has its own remembered width (`reet.sidebar.home.width`,
+  260–460 px) and separator, separate from the navigation-only panel. Other pages keep 228 px.
+- The **Projects** heading folds only its own section: folded, it keeps the heading, **Add** and the fold
+  control, and hides the cards. The fold is remembered in `reet.rail.collapsed`; the list starts open.
+- Folding the whole navigation leaves the rail in Home's own column, where at 1100–1239 px it keeps its
+  56 px strip and Open the project rail panel.
+- The boot shell (`web/index.html`), the lazy-route skeleton (`RouteSkeleton.svelte`) and the Home grid all
+  reserve the same 300 px, so the content does not move from HTML to auth-wait to the loaded page.
+- Tablet and phone are unchanged: the rail is on the Sessions screen.
+
+Validation, all against the production build in Chromium with synthetic answers:
+
+- `home.e2e.mjs`, `projects.e2e.mjs`, `shell-fidelity.e2e.mjs`, `loading-width.e2e.mjs`,
+  `compact-work-items.e2e.mjs`, `session-board.e2e.mjs`, `navigation.e2e.mjs` and `launch.e2e.mjs` pass.
+- `npm test`, `svelte-check` (0 errors, 0 warnings) and `npm run build` pass.
+
+**Not checked.** No physical phone or tablet, Safari or Firefox, and no screen reader.

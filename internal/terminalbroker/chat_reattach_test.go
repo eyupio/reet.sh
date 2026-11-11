@@ -106,6 +106,25 @@ func TestReattachLostChatBecomesRunningInPlace(t *testing.T) {
 	}
 }
 
+// A reattached chat is loaded by the adapter in its start mode, whatever mode it was left in, so the mode the controller stored must go back to
+// the start mode too. A stale "agent" would show the person a mode the machine is no longer in, and the wording about YOLO that goes with it.
+func TestReattachResetsTheStoredAgentMode(t *testing.T) {
+	b, p, uid, agent, _ := reattachFixture(t)
+	s := lostChat(t, b, p, uid, agent)
+	if err := b.st.RecordTerminalAgentModeFor(uid, s.ID, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	if got := row(t, b, uid, s.ID); got.AgentMode != "agent" {
+		t.Fatalf("the mode was not stored before the reattach: %+v", got)
+	}
+	if err := b.ReattachChat(t.Context(), uid, s.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := row(t, b, uid, s.ID).AgentMode, b.startAgentMode(uid, agent, "opencode"); got != want {
+		t.Fatalf("stored agent mode after a reattach: %q, want the start mode %q", got, want)
+	}
+}
+
 func TestReattachExitedChat(t *testing.T) {
 	b, p, uid, agent, _ := reattachFixture(t)
 	s := switchChat(t, b, uid, agent)

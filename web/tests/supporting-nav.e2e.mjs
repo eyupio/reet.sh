@@ -262,6 +262,7 @@ try {
 
   // The other pages: one h1 that is the menu name, the group label, and the row with the current page marked.
   const pages = [
+    { name: 'library', path: '/library', title: 'Library', group: 'Skills & distribution', current: 'Library', others: ['Setups', 'Lists', 'Write a skill'] },
     { name: 'setups', path: '/profiles', title: 'Setups', group: 'Skills & distribution', current: 'Setups', others: ['Lists', 'Write a skill'] },
     { name: 'write a skill', path: '/hosting', title: 'Write a skill', group: 'Skills & distribution', current: 'Write a skill', others: ['Setups', 'Lists'] },
     { name: 'support', path: '/support', title: 'Support', group: 'Help & community', current: 'Support', others: ['Community'], routes: { '/api/v2/tickets': { tickets: [] }, '/api/v2/groups': { groups: [] } } },

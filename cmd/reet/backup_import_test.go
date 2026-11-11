@@ -77,7 +77,7 @@ func importFixture(t *testing.T) (url, copyFile, tokenFile, passwordFile, dir st
 func TestTheImportCommandSendsACopyAndSaysWhenItTakesEffect(t *testing.T) {
 	url, copyFile, tokenFile, passwordFile, dir, _ := importFixture(t)
 	var out bytes.Buffer
-	if err := backupImport([]string{"--server", url, "--token-file", tokenFile, "--password-file", passwordFile, "--drop-tokens", copyFile}, &out); err != nil {
+	if err := backupImport([]string{"--server", url, "--token-file", tokenFile, "--password-file", passwordFile, "--drop-tokens", "--allow-live-source", copyFile}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"Staged ", "Revoked", "first", "restart"} {
@@ -113,14 +113,14 @@ func TestTheImportCommandSaysHowToReplaceWhenTheControllerHoldsData(t *testing.T
 	if _, err := st.CreateTag("already-here"); err != nil {
 		t.Fatal(err)
 	}
-	err := backupImport([]string{"--server", url, "--token-file", tokenFile, "--password-file", passwordFile, copyFile}, &bytes.Buffer{})
+	err := backupImport([]string{"--server", url, "--token-file", tokenFile, "--password-file", passwordFile, "--allow-live-source", copyFile}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "--replace") || !strings.Contains(err.Error(), "changed nothing") {
 		t.Fatalf("got %v", err)
 	}
 	if p, _ := backup.PendingImport(dir); p != nil {
 		t.Fatal("a refused import was staged")
 	}
-	if err := backupImport([]string{"--server", url, "--token-file", tokenFile, "--password-file", passwordFile, "--replace", copyFile}, &bytes.Buffer{}); err != nil {
+	if err := backupImport([]string{"--server", url, "--token-file", tokenFile, "--password-file", passwordFile, "--replace", "--allow-live-source", copyFile}, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 }

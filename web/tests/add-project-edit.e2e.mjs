@@ -48,7 +48,7 @@ try {
   await d.getByRole('combobox', {name:'Default thinking'}).selectOption('high')
   // Someone else saved a non-effort agent and a model of their own.
   version = 4
-  current = saved({version:4, defaultTool:'codex', defaultModel:'gpt-5-codex', defaultEffort:'', worktreeDefault:'no', starterPrompt:'Read the README first'})
+  current = saved({version:4, defaultTool:'opencode', defaultModel:'gpt-5-codex', defaultEffort:'', worktreeDefault:'no', starterPrompt:'Read the README first'})
   await d.getByRole('button', {name:'Save changes'}).click()
   await expect(d.getByRole('status')).toHaveText('Someone changed this project. Reload it, then try again.')
   // The stale version is never sent again: Save waits for the latest version.
@@ -57,7 +57,7 @@ try {
   await expect(reload).toBeFocused()
   await reload.click()
   await expect(d.getByRole('textbox', {name:/^Name/})).toHaveValue('reet')
-  await expect(d.getByRole('combobox', {name:'Default agent'})).toHaveValue('codex')
+  await expect(d.getByRole('combobox', {name:'Default agent'})).toHaveValue('opencode')
   await expect(d.getByRole('button', {name:/^Default model:/})).toContainText('gpt-5-codex')
   await expect(d.getByRole('combobox', {name:'Default thinking'})).toHaveCount(0)
   await expect(d.getByRole('combobox', {name:'Worktree for each session'})).toHaveValue('no')

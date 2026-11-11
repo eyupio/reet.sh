@@ -66,7 +66,7 @@ func TestARestoreForAnOwnerTheCopyLacksIsRefusedBeforeTheSwap(t *testing.T) {
 	svc, st, dir, id := liveController(t)
 	before := liveBytes(t, dir)
 	closed := false
-	_, err := RestoreInstance(context.Background(), svc, dir, id, "", RestoreOptions{OwnerEmail: "nobody@example.com"},
+	_, err := RestoreInstance(context.Background(), svc, dir, id, "", RestoreOptions{AllowLiveSource: true, OwnerEmail: "nobody@example.com"},
 		func() error { closed = true; return st.Close() })
 	if err == nil || !strings.Contains(err.Error(), "nobody@example.com") {
 		t.Fatalf("want a refusal naming the address, got %v", err)
@@ -89,14 +89,14 @@ func TestARestoreForAnOwnerAnAccountThatIsOnlyAMemberIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RestoreInstance(context.Background(), svc, dir, item.ID, "", RestoreOptions{OwnerEmail: "sam@example.com"}, st.Close); err == nil {
+	if _, err := RestoreInstance(context.Background(), svc, dir, item.ID, "", RestoreOptions{AllowLiveSource: true, OwnerEmail: "sam@example.com"}, st.Close); err == nil {
 		t.Fatal("a member is not a way in as an owner")
 	}
 }
 
 func TestARestoreForAnOwnerTheCopyHasGoesAheadCaseInsensitively(t *testing.T) {
 	svc, st, dir, id := liveController(t)
-	res, err := RestoreInstance(context.Background(), svc, dir, id, "", RestoreOptions{OwnerEmail: "Owner@Example.com"}, st.Close)
+	res, err := RestoreInstance(context.Background(), svc, dir, id, "", RestoreOptions{AllowLiveSource: true, OwnerEmail: "Owner@Example.com"}, st.Close)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestACheckOnlyRestoreReportsAndChangesNothing(t *testing.T) {
 	svc, st, dir, id := liveController(t)
 	before := liveBytes(t, dir)
 	var seen RestoreReport
-	res, err := RestoreInstance(context.Background(), svc, dir, id, "", RestoreOptions{CheckOnly: true, Before: func(r RestoreReport) { seen = r }}, st.Close)
+	res, err := RestoreInstance(context.Background(), svc, dir, id, "", RestoreOptions{AllowLiveSource: true, CheckOnly: true, Before: func(r RestoreReport) { seen = r }}, st.Close)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestARestoreFromANewerCopyIsRefusedNamingBothVersionsAndChangesNothing(t *t
 		t.Fatal(err)
 	}
 	before := liveBytes(t, dir)
-	_, err = RestoreInstance(context.Background(), svc, dir, "instance-20990101T000000Z-deadbeef", "", RestoreOptions{}, st.Close)
+	_, err = RestoreInstance(context.Background(), svc, dir, "instance-20990101T000000Z-deadbeef", "", RestoreOptions{AllowLiveSource: true}, st.Close)
 	if !errors.Is(err, ErrNewerSchema) {
 		t.Fatalf("want ErrNewerSchema, got %v", err)
 	}
@@ -176,7 +176,7 @@ func TestARestoreFromANewerCopyIsRefusedNamingBothVersionsAndChangesNothing(t *t
 
 func TestARestoreWritesItsChoicesToTheActivityLog(t *testing.T) {
 	svc, st, dir, id := liveController(t)
-	if _, err := RestoreInstance(context.Background(), svc, dir, id, "", RestoreOptions{DropSessions: true}, st.Close); err != nil {
+	if _, err := RestoreInstance(context.Background(), svc, dir, id, "", RestoreOptions{AllowLiveSource: true, DropSessions: true}, st.Close); err != nil {
 		t.Fatal(err)
 	}
 	restored, err := store.Open(dir)
@@ -219,7 +219,7 @@ func TestANewControllersOwnStartupDefaultsDoNotCountAsData(t *testing.T) {
 	if h.Tags != 1 || h.Environments != 1 {
 		t.Fatalf("the fixture should hold the defaults: %+v", h)
 	}
-	if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{}); err != nil {
+	if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{AllowLiveSource: true}); err != nil {
 		t.Fatalf("a new controller was refused: %v", err)
 	}
 }
@@ -240,7 +240,7 @@ func TestATagOrMachineAPersonMadeStillCountsAsData(t *testing.T) {
 		if err := add(svc.st, owner); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{}); !errors.Is(err, ErrNotEmpty) {
+		if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{AllowLiveSource: true}); !errors.Is(err, ErrNotEmpty) {
 			t.Fatalf("%s must count as data, got %v", name, err)
 		}
 	}
@@ -263,7 +263,7 @@ func TestLibraryOnlyDataCannotBeReplacedAsAnEmptyController(t *testing.T) {
 		t.Fatal("fixture is not a library-only controller", holdings)
 	}
 	before := liveBytes(t, dir)
-	if _, err = svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{}); !errors.Is(err, ErrNotEmpty) {
+	if _, err = svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{AllowLiveSource: true}); !errors.Is(err, ErrNotEmpty) {
 		t.Fatal("library-only user data was treated as an empty controller", err)
 	}
 	if !bytes.Equal(before, liveBytes(t, dir)) {

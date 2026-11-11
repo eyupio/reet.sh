@@ -53,6 +53,8 @@ jobs:
           node web/tests/gaffer-goal.e2e.mjs
           node web/tests/stage-follow.e2e.mjs
           node web/tests/gaffer-followed.e2e.mjs
+          node web/tests/gaffer-floor.e2e.mjs
+          node web/tests/gaffer-outcome.e2e.mjs
           node web/tests/home-followups.e2e.mjs
           node web/tests/gaffer-widget-ux.e2e.mjs
       - uses: actions/upload-artifact@v4

@@ -28,6 +28,23 @@ been selected; older “next task” statements are historical. The checkpoint r
 completed UX/setup, offline acceptance, benchmark correction, limitations and
 standing permissions. Resume from current main and agree the next bounded slice.
 
+## Gaffer factory floor (9 November 2026)
+
+Work resumed from the pause point above with the user's direction to make Gaffer a simpler, more capable controller of
+an agent factory. They chose the **factory floor** as the next slice and **pick several, one review** as its start flow.
+**Chat options → Factory floor** is the former Followed sessions job sheet plus every running structured chat not yet
+followed; ticked sessions share one review and each is then started through the existing reviewed per-session setup.
+Browser-only: no backend, schema or protocol change, and Gaffer's authority is unchanged. The
+[factory floor handoff](docs/handoffs/gaffer-factory-floor.md) records the decisions, contract, validation and the
+deferred options (commanding sessions from general chat, bulk pause/stop).
+
+On 10 November the same branch gained a usability pass (the floor is one click from general chat and Home, the session
+picker is folded into it) and **outcomes**: the user chose **plan, approve, then run**. `POST
+/api/v2/gaffer/providers/{id}/plan` has Gaffer's provider propose sessions from the typed objective; the person edits and
+approves; the browser then starts each session through the ordinary launch and sets up its goal, which names the outcome.
+No schema change: outcomes group by the goal's first line. Read the handoff's outcome contract and limits before extending
+it; a controller-owned outcome record is the next step.
+
 ## OVERVIEW-4: the Overview leads with what matters (8 November 2026)
 
 Follow-up to OVERVIEW-3 on the session workspace's right-hand panel.

@@ -41,9 +41,9 @@ try {
       await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
       const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
       await chat.getByPlaceholder('Talk it through with Gaffer…').fill('Keep my general chat draft')
-      const open=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Followed sessions',exact:true}).click()}
+      const open=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Factory floor',exact:true}).click()}
       await open()
-      const overview=w.page.getByRole('dialog',{name:'Followed sessions',exact:true})
+      const overview=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
       await expect(overview.getByRole('listitem')).toHaveCount(5)
       await expect(overview.getByRole('listitem').first().getByRole('heading',{name:'Release needs a decision',exact:true})).toBeVisible()
       await expect(overview.getByText('Delivery uncertain',{exact:false}).first()).toBeVisible()
@@ -56,14 +56,14 @@ try {
       if(width===1440||width===390)await overview.screenshot({path:`${shots}/gaffer-followed-${width}-${theme}.png`})
       f.box.rows[0].goal.summary+=' <img src=x onerror="window.__overviewXss=true">'
       await overview.getByRole('button',{name:'Refresh',exact:true}).click()
-      await overview.getByRole('button',{name:'Needs review',exact:true}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
+      await overview.getByRole('button',{name:/^Needs review/}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
       await overview.getByText('Review & evidence',{exact:true}).click()
       await expect(overview.getByText('<img src=x onerror="window.__overviewXss=true">',{exact:false}).first()).toBeVisible()
       expect(await w.page.evaluate(()=>window.__overviewXss)).toBeUndefined()
       await expect(overview.locator('img[src="x"]')).toHaveCount(0)
       await expect(overview.getByText('Check the failing test and report back. Do not merge.',{exact:true})).toBeVisible()
       await expect(overview.getByText('Handoff records delivery to the worker, not completion of the work.',{exact:true})).toBeVisible()
-      await overview.getByRole('button',{name:'Following',exact:true}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
+      await overview.getByRole('button',{name:/^Following/}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
       await expect(overview.getByRole('link',{name:'Open session',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=followed-session-2&gaffer=1')
       f.active.delivery.state='queued';await overview.getByRole('button',{name:'Refresh',exact:true}).click()
       await expect(overview.getByText('Queued for next turn',{exact:true}).first()).toBeVisible()

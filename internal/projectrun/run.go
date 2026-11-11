@@ -203,6 +203,10 @@ type Config struct {
 	ResumeWait time.Duration
 	// Poll is how often a waiting member checks its machine; zero means 500ms.
 	Poll time.Duration
+	// Paused, when it returns true, stops the orchestrator starting any
+	// member. A member it leaves stays pending, so Resume picks it up once
+	// Paused is false again. Nil means never paused.
+	Paused func() bool
 }
 
 // Orchestrator drives runs. One goroutine per run and machine starts the
@@ -276,6 +280,8 @@ func (o *Orchestrator) Resume() error {
 	}
 	return nil
 }
+
+func (o *Orchestrator) paused() bool { return o.cfg.Paused != nil && o.cfg.Paused() }
 
 // Driving reports whether the run has a driver: started and not yet through
 // its last pass. Start registers the driver before it returns, so once Driving
@@ -420,7 +426,7 @@ func (o *Orchestrator) pass(uid int64, runID string, wait time.Duration) {
 		go func(host string, positions []int) {
 			defer wg.Done()
 			for _, position := range positions {
-				if o.ctx.Err() != nil {
+				if o.ctx.Err() != nil || o.paused() {
 					return
 				}
 				o.member(uid, run, host, position, wait, slots)
@@ -507,6 +513,9 @@ func (o *Orchestrator) precheck(uid int64, agent string, deadline time.Time) str
 // refusal (code) or sends its create and records the outcome. A member
 // another caller holds, or one no longer pending, is left alone.
 func (o *Orchestrator) startMember(uid int64, run store.Run, position int, code string) {
+	if o.paused() {
+		return
+	}
 	m, err := o.cfg.Store.RunMemberStart(uid, run.ID, position)
 	if err != nil {
 		return

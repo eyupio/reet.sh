@@ -34,7 +34,7 @@ func SupportsAgents(features string) bool {
 // are absent until the connector starts them.
 var agentOptions = map[string]struct{ effort, model, yolo bool }{
 	"claude":      {effort: true, model: true, yolo: true},
-	"codex":       {model: true, yolo: true},
+	"codex":       {effort: true, model: true, yolo: true},
 	"opencode":    {model: true, yolo: true},
 	"cline":       {effort: true, model: true, yolo: true},
 	"antigravity": {effort: true, model: true, yolo: true},

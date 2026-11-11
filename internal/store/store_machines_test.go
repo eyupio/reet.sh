@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"github.com/eyupio/reet.sh/internal/syncproof"
 	"slices"
 	"testing"
 )
@@ -202,5 +203,36 @@ func TestMachineMergeConflictingReferencesRollsBack(t *testing.T) {
 	targets, _ := s.SyncTargetsFor(owner)
 	if len(envs) != 2 || len(aliases) != 0 || len(targets) != 2 {
 		t.Fatal("failed merge partially changed data")
+	}
+}
+
+// The proof a controller gives is keyed by the stored hash, and the machine
+// makes it from its own secret, so the two must hash alike.
+func TestTheStoredSecretHashIsWhatTheMachineComputesForItsProof(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	owner, err := st.CreateUser("owner@example.com", "Owner", "owner", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, secret, err := st.EnrollSyncAgent(owner.ID, "studio", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := st.AgentSecretHash(agent.ID)
+	if err != nil || !ok || got != syncproof.HashSecret(secret) {
+		t.Fatalf("stored %q, machine computes %q (%v %v)", got, syncproof.HashSecret(secret), ok, err)
+	}
+	if _, ok, _ := st.AgentSecretHash("no-such-machine"); ok {
+		t.Fatal("an unknown machine has a hash")
+	}
+	if _, err := st.db.Exec(`UPDATE users SET disabled_at=1 WHERE id=?`, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := st.AgentSecretHash(agent.ID); ok {
+		t.Fatal("a disabled account's machine has a usable record")
 	}
 }

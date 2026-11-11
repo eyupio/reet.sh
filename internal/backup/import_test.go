@@ -94,7 +94,7 @@ func applied(t *testing.T, dir string) *store.Store {
 func TestAnImportThatDropsSignInsAndTokensEndsThemAndSaysWhatCame(t *testing.T) {
 	raw, user := movable(t)
 	svc, dir := destination(t)
-	rep, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{DropSessions: true, DropTokens: true})
+	rep, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{AllowLiveSource: true, DropSessions: true, DropTokens: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestAnImportThatDropsSignInsAndTokensEndsThemAndSaysWhatCame(t *testing.T) 
 func TestAnImportByDefaultLeavesSignInsAndTokensWorking(t *testing.T) {
 	raw, _ := movable(t)
 	svc, dir := destination(t)
-	rep, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{})
+	rep, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{AllowLiveSource: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestAnImportByDefaultLeavesSignInsAndTokensWorking(t *testing.T) {
 func TestAnUnreadableDestinationIsClearedSwitchedOffAndListed(t *testing.T) {
 	raw, _ := movable(t)
 	svc, dir := destination(t)
-	if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{}); err != nil {
+	if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{AllowLiveSource: true}); err != nil {
 		t.Fatal(err)
 	}
 	st := applied(t, dir)
@@ -199,7 +199,7 @@ func TestACopyFromANewerSchemaIsRefusedAndNothingIsStaged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.StageImport(context.Background(), dir, raw, "", RestoreOptions{}); !errors.Is(err, ErrNewerSchema) {
+	if _, err := svc.StageImport(context.Background(), dir, raw, "", RestoreOptions{AllowLiveSource: true}); !errors.Is(err, ErrNewerSchema) {
 		t.Fatalf("want ErrNewerSchema, got %v", err)
 	}
 	if p, _ := PendingImport(dir); p != nil {
@@ -210,7 +210,7 @@ func TestACopyFromANewerSchemaIsRefusedAndNothingIsStaged(t *testing.T) {
 func TestACancelledImportIsNeverApplied(t *testing.T) {
 	raw, _ := movable(t)
 	svc, dir := destination(t)
-	if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{}); err != nil {
+	if _, err := svc.StageImport(context.Background(), dir, raw, copyPassword, RestoreOptions{AllowLiveSource: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := CancelImport(dir); err != nil {
@@ -224,7 +224,7 @@ func TestACancelledImportIsNeverApplied(t *testing.T) {
 func TestAPasswordCopyNeedsItsPasswordToBeStaged(t *testing.T) {
 	raw, _ := movable(t)
 	svc, dir := destination(t)
-	if _, err := svc.StageImport(context.Background(), dir, raw, "", RestoreOptions{}); !errors.Is(err, ErrPasswordRequired) {
+	if _, err := svc.StageImport(context.Background(), dir, raw, "", RestoreOptions{AllowLiveSource: true}); !errors.Is(err, ErrPasswordRequired) {
 		t.Fatalf("want ErrPasswordRequired, got %v", err)
 	}
 }

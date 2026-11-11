@@ -206,13 +206,84 @@ and omissions described below. It does not poll unchanged evidence or observe
 external PR/check changes on its own: the working model must monitor those and
 report progress. Unsupported channels and providers remain visible limitations.
 
-## Review all followed sessions
+## Run the factory floor
 
-Choose **Chat options → Followed sessions** from general or session chat. The job
-sheet shows only your explicitly selected session goals, with decisions first.
-Use **Needs you**, **Following** or **Finished** to narrow the view. Paused goals
-remain under **All**. Opening or refreshing this view starts no goal, model request
-or worker instruction.
+The factory floor is one click away: **Factory floor** under Gaffer's name in
+general chat, **Open the factory floor** in an empty general chat, or Home's
+**Gaffer:** line, which appears whenever a goal needs review, is being followed,
+or running chats are not followed yet. **Chat options → Factory floor** opens it
+from a session chat. It is one job sheet for the whole floor: the sessions you
+asked Gaffer to look after, with decisions first, and under **Not followed**
+every running structured chat you have not. The filters **Needs review**,
+**Following**, **Not followed** and **Finished** carry their counts and narrow
+the view. Paused goals remain under **All**. Opening or refreshing this view
+starts no goal, model request or worker instruction.
+
+### Give Gaffer an outcome
+
+Choose **Give Gaffer an outcome** at the top of the floor when you want a result
+and would sooner not start each session yourself.
+
+1. Write the outcome, choose the project its sessions work in, the agent, and how
+   many sessions Gaffer may propose (up to five). Only agents whose chat is
+   available on that project's machine are offered, and the machine must be
+   connected.
+2. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you
+   typed and the project's name, nothing else, and proposes the sessions: a title
+   and a full prompt for each. This is one model request and may use provider
+   credits. It starts nothing.
+3. Review the plan. Every title and prompt is editable; remove a session or **Add
+   a session** of your own. **Write the plan myself** skips Gaffer's proposal,
+   for when the model cannot plan or you already know the split.
+4. Choose **Approve and start**. Each session is then started in turn as an
+   ordinary chat in that project, with the prompt shown and ordinary approvals,
+   never YOLO. In a git project each session gets its own worktree, so they do
+   not edit the same files. As each chat comes up it is put in Gaffer's care with
+   a goal that names the outcome and that session's part, and ends "Do not merge."
+
+The results name every session as **Following**, **Started, not followed** (with
+the reason; it then appears under **Not followed**) or **Not started**. Keep the
+dialog open until they settle: your browser starts the sessions, so closing it
+stops the ones still waiting. Sessions already started keep running.
+
+On the floor, **Outcomes** lists each outcome with its sessions and how many need
+review, are being followed or have finished. Choose one to see only its sessions.
+Each session keeps its own goal, budget and controls; only you mark a goal
+complete, and no outcome is ever marked done for you.
+
+What this does not do yet: Gaffer does not add, replace or retire sessions after
+you approve, sessions do not see each other's work, and nothing merges. An agent
+that asks to trust a folder's plugins first (OpenCode, Google Antigravity) is
+refused here with that reason; start it from the launch bar, then look after it
+from the floor.
+
+### Put several sessions in Gaffer's care
+
+Tick the running chats Gaffer should look after, or **Select all**, then choose
+**Look after selected**. Ticking shares nothing and starts nothing. **Open**
+beside a chat shows that session with its own Gaffer conversation instead, which
+also enables nothing. One review
+lists the chosen sessions, Gaffer's default provider and model, what starting
+shares, one goal and one set of limits. Write the goal or pick one with **Use a
+prompt**; expand **Change limits** for the review budget and hours.
+
+**Start follow-up** then sets each session up in turn through the same reviewed
+setup a single session uses. Each session gets its own Gaffer conversation,
+access, goal and budget, so pausing or changing one leaves the others alone. A
+session that already has a Gaffer chat keeps the provider and model chosen there.
+The results name every session as **Following** or **Not started** with the
+reason; a session that could not start is left unchanged and stays ticked, so you
+can try it again or open it. The goal and limits you used are kept in this browser
+as the starting point for next time.
+
+Only running structured chats without a saved goal are offered. A plain terminal
+has no follow-up, and a session that already has a goal, finished or not, is
+managed from its card. Gaffer follows at most ten sessions at once: the floor
+says how much room is left before the review opens. The working model in each
+session still does the coding and PR work under its own approvals; Gaffer gains
+no shell, GitHub or merge path here.
+
+### Review followed sessions
 
 Each card shows the agreed work, latest Gaffer report, review budget and deadline.
 Worker evidence observation time and the actual review finish time stay separate
@@ -226,10 +297,12 @@ when switching within the current workspace. **Review goal** opens the existing
 controls with fresh permission checks and the same resume/completion confirmations.
 Archived or unavailable sessions retain your saved goal for review; use
 **Conversation history** to remove their saved chats. Their unavailable worker
-channels cannot be resumed from the overview.
+channels cannot be resumed from the floor.
 
 The view refreshes retained records while open. A failed refresh keeps the last
 successful read visibly labelled; source times are never replaced by refresh time.
+If the running sessions cannot be read, the followed work stays and the floor
+says what is missing.
 
 ## Add a provider
 

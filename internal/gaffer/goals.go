@@ -241,6 +241,11 @@ func (s *Service) StartGoalSupervisor() {
 	}()
 }
 func (s *Service) reviewDueGoals(ctx context.Context) {
+	// A fenced controller reviews no goal and sends nothing for one. The goals
+	// stay due, and are reviewed once the fence is lifted.
+	if s.store.Fenced() {
+		return
+	}
 	goals, err := s.store.DueGafferGoals(time.Now().UnixMilli())
 	if err != nil {
 		return

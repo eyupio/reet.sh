@@ -133,6 +133,43 @@ understands an image; the thinking levels a real account is offered for each mod
 the CLI's own `--resume`; typed questions and modes (the descriptor reports none). The first-run [device checks](device-checks.md)
 say what to record to close the signed-in gap.
 
+### Codex in Gaffer
+
+Codex chats use the `codex-acp` adapter (version 1.13.1 or newer). Its package brings the `codex` it depends on, which is the copy a chat runs. An
+account sees the chat only after it turns it on in **Settings > Agents** (see [the gate](#gaffer-chats-still-being-verified-claude-code-and-codex)
+below). The adapter was measured signed out against a loopback stand-in for the provider, so no account, network or real model was involved.
+
+- **Approvals.** A chat starts in `read-only`, the one mode that asks before a command leaves the sandbox. `agent` ("Approve for me") is
+  chosen per chat and `agent-full-access` is never offered.
+- **Model.** A chosen model is applied by switching to it and reading the switch back, and the provider's request carries that model.
+- **Reasoning effort.** The values depend on the model (`ultra` is not offered on every model). A start that names a model and an effort
+  (a structured create can carry one; the Start dialog's effort control for Codex comes with the terminal and web slice) applies the model
+  first, then the effort, reads both back before any prompt, and is refused if the model does not offer the effort. After a
+  model switch the chosen effort is kept where the new model offers it, and otherwise the adapter falls back to `medium`. The chosen effort
+  reaches the provider's request.
+- **History and reconnect.** A lost chat reconnects under the same session id by loading the adapter's stored conversation (the replay is
+  dropped), and a closed one can continue with its history, in the same folder, machine and account only. A conversation the adapter never
+  stored is refused with its own sentence.
+- **Images.** The adapter advertises image prompts and an attachment reaches the provider's request as an image input.
+- **YOLO.** A chat takes YOLO through the same three gates as every other agent, and answers permission cards for you only in `read-only`.
+  In `agent` mode Codex's own reviewer decides, so a card that still arrives is left to you, whether it arrives after YOLO is on or was already
+  waiting when you turned it on.
+- **Sign-in.** reet never starts a login. A machine with no Codex folder at all (someone who has never used Codex), or a folder with no login
+  in it, is told "Sign in to Codex on that machine first."
+- **A machine with Codex but no adapter** says so, the same way Claude Code's does: the Start dialog and the machine's Agents settings say reet there
+  cannot find `codex-acp` on its `PATH` and show `npm install --global @agentclientprotocol/codex-acp@1.13.1`, only when the machine itself reports the
+  adapter missing. The package brings the Codex CLI it depends on, and a Gaffer chat runs that copy; the machine's own `codex` shows that Codex is there and runs terminal sessions. An older connector that reports nothing,
+  and an account whose chat is off, get no hint.
+- **The terminal launch** is a separate path; see [launch requests](terminal-launch.md).
+
+What was measured, and where: the descriptor claims, the effort and model sweeps, the stored-conversation replay and the image block, in the
+[probe report](research/structured-adapters/probe-report.md).
+
+**Not measured:** a signed-in Codex turn (none has been run, so the chat is not on by default); whether a real model accepts or understands an
+image; the models and efforts a real account is offered (the lists above come from the adapter signed out and can differ); whether a Codex
+chat's id opens in `codex resume`; typed questions (`request_user_input` is not mapped, so the descriptor reports none). The first-run
+[device checks](device-checks.md) say what to record to close the signed-in gap.
+
 ### Gaffer chats still being verified: Claude Code and Codex
 
 Claude Code and Codex chats are built end to end but not yet checked with a signed-in account, so each account turns them on
@@ -509,7 +546,7 @@ command or file for the session. The agent's completion update and the person's 
 A structured session's header shows **Ask me** and **YOLO** for a live chat on a machine that negotiated
 `acp-approval-v1`. Switching to YOLO asks for the same per-session confirmation as a launch and passes the same gates:
 the account's Allow YOLO setting, the machine's `yolo` capability and the agent's reviewed YOLO option. The controller
-then sends `acp_mode`; the connector sets its own auto-answer for this chat and answers any card already waiting. The
+then sends `acp_mode`; the connector sets its own auto-answer for this chat and answers any card already waiting (a Codex chat is answered only in "Ask before leaving the sandbox", and a card in "Let Codex decide" is left to you). The
 store's `yolo` flag, the YOLO badge and the audit (`yolo-mode`, then `yolo-allow` for each answer) follow. Switching back
 to Ask me stops the auto-answer immediately. A connector older than `acp-approval-v1` reports no `acpApproval` capability,
 so the switch is not offered; terminal sessions keep the mode they launched with. A refusal is sentence-shaped and leaves

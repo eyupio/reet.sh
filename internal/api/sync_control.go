@@ -3,12 +3,14 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/agentupdate"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/syncproof"
 )
 
 func (s *server) registerSyncControl(mux *http.ServeMux) {
@@ -35,6 +37,7 @@ func (s *server) registerSyncControl(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/sync/poll", s.requireWriter(s.pollSyncAgent))
 	mux.HandleFunc("POST /api/v2/sync/result", s.requireWriter(s.finishSyncJob))
 	mux.HandleFunc("POST /api/v2/sync/identity", s.requireWriter(s.syncIdentity))
+	mux.HandleFunc("POST "+syncproof.Path, s.syncAgentProof)
 	mux.HandleFunc("POST /api/v2/sync/private", s.requireWriter(s.privateBootstrap))
 }
 func (s *server) syncCandidates(w http.ResponseWriter, r *http.Request) {
@@ -404,4 +407,35 @@ func (s *server) reportSyncStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// syncAgentProof answers a machine that is deciding whether to trust this
+// controller with its credentials, for `reet agent set-server`. It needs no
+// credential, because it is asked before any is sent. The machine gives its id
+// and a fresh nonce; the answer is an HMAC keyed by the stored hash of the
+// machine's secret, which only a controller holding the machine's record can
+// make. The id is not a secret (it is shown in the Machines page), the nonce is
+// signed under a fixed label so it cannot be turned into another kind of
+// signature, and the answer reveals neither the hash nor the secret.
+func (s *server) syncAgentProof(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID    string `json:"id"`
+		Nonce string `json:"nonce"`
+	}
+	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil || in.ID == "" || len(in.ID) > 128 || !syncproof.ValidNonce(in.Nonce) {
+		writeErrCode(w, http.StatusBadRequest, "bad_proof_request", "", "Send the machine id and a nonce of 32 to 128 hex digits.", "")
+		return
+	}
+	hash, ok, err := s.st.AgentSecretHash(in.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not read the machine record")
+		return
+	}
+	if !ok {
+		writeErrCode(w, http.StatusNotFound, "unknown_machine", "", "This controller has no record of that machine.", "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"proof": syncproof.Compute(hash, in.ID, in.Nonce)})
 }

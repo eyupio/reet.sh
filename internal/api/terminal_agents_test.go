@@ -154,7 +154,7 @@ func TestCreateUnsupportedAgentOptionsRefusedBeforeReserving(t *testing.T) {
 		status       int
 		code, errMsg string
 	}{
-		{"effort on codex", true, map[string]any{"tool": "codex", "effort": "high"}, 409, "launch_option_unsupported", optionSentence},
+		{"effort on opencode", true, map[string]any{"tool": "opencode", "effort": "high"}, 409, "launch_option_unsupported", optionSentence},
 		{"effort on claude old peer", false, map[string]any{"tool": "claude", "effort": "low"}, 409, "launch_option_unsupported", updateSentence},
 		{"tool pi", true, map[string]any{"tool": "pi"}, 422, "tool_unavailable", disabledSentence},
 		{"tool cursor", true, map[string]any{"tool": "cursor"}, 422, "tool_unavailable", disabledSentence},

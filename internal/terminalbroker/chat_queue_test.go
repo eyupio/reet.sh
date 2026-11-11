@@ -222,6 +222,37 @@ func TestEnqueueChatSendsAtOnceWhenIdleAndQueuesWhenWorking(t *testing.T) {
 	}
 }
 
+func TestAFencedControllerDeliversNoQueuedMessageUntilTheLift(t *testing.T) {
+	prompts := 0
+	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+		switch m.Body.(type) {
+		case *terminalproto.ACPControl:
+			return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Options: []terminalproto.ACPSetting{}}}, true
+		case *terminalproto.ACPPrompt:
+			prompts++
+		}
+		return nil, true
+	})
+	s := chatSession(t, b, uid, agent)
+	if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), "next", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.st.SetFence(""); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	if q, _ := b.st.TerminalQueueFor(uid, s.ID); prompts != 0 || len(q) != 1 || q[0].State != "queued" {
+		t.Fatal("a queued message was delivered while fenced", prompts, q)
+	}
+	if _, err := b.st.LiftFence(); err != nil {
+		t.Fatal(err)
+	}
+	b.stepChatQueue(uid, s.ID)
+	if prompts != 1 {
+		t.Fatalf("after the lift %d prompts were sent, want 1", prompts)
+	}
+}
+
 func TestQueueRetriesWhenControlReadConflicts(t *testing.T) {
 	prompts, controls := 0, 0
 	b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls = true }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {

@@ -56,8 +56,9 @@ func TestDescribeClaudeReportsOnlyProvenCapabilities(t *testing.T) {
 	}
 }
 
-// Codex starts in read-only (the only mode that can ask) and reports approvals only.
-func TestCodexReportsApprovalsOnly(t *testing.T) {
+// Codex starts in read-only (the only mode that can ask) and reports what the probes proved: approvals, a read-back model switch,
+// stored conversations that session/load reopens, in-place reconnect and image prompts. Questions stay off.
+func TestCodexReportsWhatTheProbesProved(t *testing.T) {
 	spec, ok := Lookup("codex")
 	if !ok || spec.RequireMode != "read-only" || spec.StartMode != "read-only" || spec.Command != "codex-acp" {
 		t.Fatalf("lookup: %+v %v", spec, ok)
@@ -73,8 +74,8 @@ func TestCodexReportsApprovalsOnly(t *testing.T) {
 	if got.State != "available" || !got.Valid() || got.Adapter != "codex-acp" || got.MinimumVersion != "1.13.1" {
 		t.Fatalf("codex: %+v", got)
 	}
-	if !got.Approval || got.Model || got.History || got.Images || got.Questions {
-		t.Fatalf("unverified capabilities were reported: %+v", got)
+	if !got.Approval || !got.Model || !got.History || !got.Images || !got.Reattach || got.Questions {
+		t.Fatalf("codex capabilities: %+v", got)
 	}
 	if old := Describe("codex", true, "1.0.0"); old.State != "incompatible" || !old.Valid() {
 		t.Fatalf("old codex: %+v", old)
@@ -126,7 +127,7 @@ func TestDescribeAgentOptionValues(t *testing.T) {
 // A descriptor claims in-place reattach only for an adapter whose profile can do it, because the connector refuses a
 // reattach for any other (ErrUnsupported). Claiming it for the rest would offer a reconnect that can only fail.
 func TestDescribeClaimsReattachOnlyWhereTheProfileCanReattach(t *testing.T) {
-	want := map[string]bool{"opencode": true, "cline": true, "antigravity": false, "claude": true, "codex": false}
+	want := map[string]bool{"opencode": true, "cline": true, "antigravity": false, "claude": true, "codex": true}
 	for tool, reattach := range want {
 		spec, ok := Lookup(tool)
 		if !ok {

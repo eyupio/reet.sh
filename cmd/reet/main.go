@@ -288,6 +288,8 @@ func serve() error {
 		return err
 	}
 	defer st.Close()
+	// Internal rollout control for managed library removals; off unless explicitly set.
+	st.SetManagedRemovals(os.Getenv("REET_LIBRARY_MANAGED_REMOVALS") == "1")
 	// Saved Projects become folder projects once; a later start finds nothing
 	// to do. A failure is logged and never stops the controller: the saved
 	// Projects stay readable and the next start tries again.

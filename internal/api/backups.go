@@ -96,12 +96,42 @@ func (s *server) adminBackupRun(w http.ResponseWriter, r *http.Request) {
 	if svc == nil {
 		return
 	}
-	item, err := svc.RunInstance(r.Context(), "manual")
+	// The body is optional. A password in it seals this copy alone, so a person
+	// who holds the controller's owner credential can take a portable copy for
+	// someone else without setting, and then clearing, the stored copy password.
+	var in struct {
+		Password *string `json:"password"`
+	}
+	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, `the body is optional; when sent it is {"password": "..."}`)
+		return
+	}
+	var item backup.Item
+	var err error
+	if in.Password != nil {
+		// Refused here, before anything is taken, with the wording the setting uses.
+		if err = backup.ValidateCopyPassword(*in.Password); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		item, err = svc.RunInstanceWithPassword(r.Context(), "manual", *in.Password)
+	} else {
+		item, err = svc.RunInstance(r.Context(), "manual")
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.event(s.uid(r), "backup", "backup-run", "", map[string]any{"scope": "instance", "id": item.ID, "bytes": item.Bytes})
+	detail := map[string]any{"scope": "instance", "id": item.ID, "bytes": item.Bytes}
+	if in.Password != nil {
+		// That a password was given, never what it was. Who and when are the
+		// entry's own user and time.
+		detail["passwordOnRequest"] = true
+		detail["protection"] = backup.ProtectionPassword
+	}
+	s.event(s.uid(r), "backup", "backup-run", "", detail)
 	writeJSON(w, 200, item)
 }
 
@@ -731,6 +761,10 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 			opts.DropTokens = v == "1" || v == "true"
 		case "replace":
 			opts.Replace = v == "1" || v == "true"
+		case "publicUrl":
+			opts.PublicURL = strings.TrimSpace(v)
+		case "allowLiveSource":
+			opts.AllowLiveSource = v == "1" || v == "true"
 		}
 	}
 	if upload == "" {
@@ -740,7 +774,7 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 	rep, err := svc.StageImportFile(r.Context(), s.st.Dir(), upload, password, opts)
 	if err != nil {
 		code := 400
-		if errors.Is(err, backup.ErrNotEmpty) {
+		if errors.Is(err, backup.ErrNotEmpty) || errors.Is(err, backup.ErrLiveSource) {
 			code = http.StatusConflict
 		}
 		writeErr(w, code, err.Error())
@@ -749,6 +783,7 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{
 		"id": rep.ID, "dropSessions": opts.DropSessions, "dropTokens": opts.DropTokens,
 		"ownerChecked": strings.TrimSpace(opts.OwnerEmail) != "", "replace": opts.Replace,
+		"allowLiveSource": opts.AllowLiveSource, "publicUrl": opts.PublicURL,
 		"safetyCopy": rep.SafetyCopy, "secretsCleared": len(rep.Unreadable),
 	})
 	writeJSON(w, 200, map[string]any{"staged": true, "restartRequired": true, "report": rep})

@@ -18,6 +18,11 @@ Claude Code 2.1.319 help establishes `-c, --continue` (continue the most recent 
 the current directory), `-r, --resume [value]` (a session id or name), `--dangerously-skip-permissions`
 and `--effort <level>` (low, medium, high, xhigh, max). Only version and help were run.
 
+Codex CLI 0.166.0 `--help` and `resume --help` establish `-a/--ask-for-approval`, `-m/--model`, `-c/--config <key=value>` and a `resume` subcommand
+(`[SESSION_ID] [PROMPT]`, `--last`) that takes the same options. There is no effort flag: the preset passes `-c model_reasoning_effort=<level>`, whose key the
+help does not name and which a stand-in-provider probe showed reaching the provider's request. Only version and help were run for the capture. The earlier
+capture was 0.163.0.
+
 Pi 0.73.1 is installed and captured but remains disabled. Its packaged README says:
 
 > **No permission popups.** Run in a container, or build your own confirmation flow with [extensions](#extensions) inline with your environment and security requirements.

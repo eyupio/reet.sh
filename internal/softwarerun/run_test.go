@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -378,5 +379,41 @@ func TestRetryRejectsFinishedBatch(t *testing.T) {
 	defer o.Close()
 	if _, err := o.Retry(uid, batch.ID, 0); !errors.Is(err, store.ErrSoftwareBatchFinished) {
 		t.Fatalf("retry on an abandoned batch: %v", err)
+	}
+}
+
+// While the controller is fenced (Paused) a batch applies nothing and its
+// members stay pending; Resume after the lift applies them.
+func TestAPausedBatchAppliesNothingAndResumeContinuesAfterTheLift(t *testing.T) {
+	st, uid, agents := softwareRunFixture(t, "alpha", "beta")
+	batch := softwareRunBatch(t, st, uid, agents...)
+	broker := &fakeBroker{apply: func(_ string, in terminalproto.SoftwareApply) (terminalproto.SoftwareApplyResult, error) {
+		return applied(in), nil
+	}}
+	var paused atomic.Bool
+	paused.Store(true)
+	o := New(Config{Store: st, Broker: broker, Logf: t.Logf, Paused: paused.Load})
+	defer o.Close()
+	o.Start(uid, batch.ID)
+	deadline := time.Now().Add(5 * time.Second)
+	for o.Driving(uid, batch.ID) && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if calls := broker.called(); len(calls) != 0 {
+		t.Fatalf("%v were applied while paused", calls)
+	}
+	b, _ := st.SoftwareBatchFor(uid, batch.ID)
+	for _, m := range b.Members {
+		if m.State != store.SoftwareMemberPending {
+			t.Fatalf("member %d is %s after a paused pass", m.Position, m.State)
+		}
+	}
+	paused.Store(false)
+	if err := o.Resume(); err != nil {
+		t.Fatal(err)
+	}
+	waitBatch(t, st, uid, batch.ID, store.SoftwareBatchDone)
+	if calls := broker.called(); len(calls) != 2 {
+		t.Fatalf("after the lift: %v", calls)
 	}
 }

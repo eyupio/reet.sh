@@ -75,7 +75,7 @@ A running session is not proof of useful progress. Read the terminal, review app
 
 Open **Sessions** to find work across your machines. Reopen a running session to return to its terminal.
 
-For an exited Codex session, use the tool’s own conversation and continuation features from a new terminal as appropriate. Reet’s reviewed automatic continuation path is currently specific to OpenCode; do not assume it supplies the same resume behavior for Codex.
+For an exited Codex session, Continue starts `codex resume --last` in the same folder, which carries on the latest Codex session there (a Gaffer chat in that folder counts, and `codex exec` sessions do not); if there is none, Codex opens a new conversation instead, without an error. This was measured with a stand-in provider, not with a signed-in account. Codex's own `codex resume` picker is still available from a terminal for any other conversation.
 
 ## Keep simultaneous work separate
 

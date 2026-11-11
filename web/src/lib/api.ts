@@ -248,6 +248,11 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
   return (await req(path, { method: action === 'delete' ? 'DELETE' : 'POST', body: json({ revision: p.revision, ...(enabled === undefined ? {} : { enabled }) }), signal })).json()
 }
 
+export type GafferOutcomePlan = { summary: string; sessions: { title: string; prompt: string }[]; model: string; usageReported: boolean; inputTokens: number; outputTokens: number }
+/** Asks the provider to propose the sessions for an objective. It reads no reet data and starts nothing. */
+export async function planGafferOutcome(p: GafferProvider, input: { objective: string; project: string; sessions: number }, signal?: AbortSignal): Promise<GafferOutcomePlan> {
+  return (await req(`/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
+}
 export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
 export type GafferTurn = {
  goalId?:string;goalRevision?:number;goalNeedsUser?:boolean
@@ -535,7 +540,7 @@ export async function setSoftwareMirror(enabled: boolean): Promise<SoftwareMirro
   return (await req('/api/v2/settings/software-mirror', { method: 'PUT', body: json({ enabled }) })).json()
 }
 export async function cacheSoftwareMirror(): Promise<SoftwareMirrorStatus> {
-  return (await req('/api/v2/settings/software-mirror/cache', { method: 'POST' })).json()
+  return (await req('/api/v2/settings/software-mirror/cache', { method: 'POST', body: json({}) })).json()
 }
 
 export type YoloSetting = { allowed: boolean; changedBy?: string; changedAt?: number }
@@ -610,7 +615,7 @@ export async function getRollup(): Promise<Rollup> {
 
 export type ContentInventory = { state: string; schemaVersion?: number; observedAt?: number; receivedAt?: number; skills: { name: string; complete: boolean; digest?: string; files: number; bytes: number; issues?: string[] }[] }
 export type SyncEnvironment = Environment & { content?: ContentInventory; error?: string; project?: string; scannedAt: number; complete: boolean; os: string; arch: string; version: string; skills: SyncSkill[] }
-export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source'> & { sourceType: Skill['sourceType'] | 'private'; /** Why an owned draft cannot be synced right now; such a candidate is listed but not installable. */ problem?: string }
+export type SyncSkill = Pick<Skill, 'id' | 'name' | 'slug' | 'source'> & { /** The canonical library item this installs, for library targets. */ itemId?: string; sourceType: Skill['sourceType'] | 'private'; /** Why an owned draft cannot be synced right now; such a candidate is listed but not installable. */ problem?: string }
 export type SyncTarget = { problem?: string; followSource?: boolean; mode?: string; baseline?: SyncSkill[]; appliedRevision?: string; hostAliases?: string[]; targetAliases?: string[]; target: Environment & { project?: string }; sourceId: string; sourceName: string; desired: SyncSkill[]; missing: SyncSkill[]; extra: SyncSkill[]; revision: string; updatedAt: number }
 export type SetupProfileSummary = { name: string; revision: number; snapshotId: string; snapshotDigest: string; updatedAt: number }
 export type SetupProfileComponent = {
@@ -1156,7 +1161,7 @@ export async function deleteHostedSkill(slug: string): Promise<void> {
 }
 
 export type SyncAgent = { keepSynced?: boolean; id: string; host: string; version: string; commit?: string; lastSeen: number; paused: boolean; autoUpdate: boolean }
-export type SyncPlan = { backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
+export type SyncPlan = { problems?: Record<string, string>; backups?: string[]; target: string; directory: string; revision: string; actions: { add: boolean; skill: SyncSkill }[] }
 export type UpdateStage = { key: string; label: string; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string }
 export type SyncJob = { id: string; agentId: string; targetId: string; kind: string; status: string; revision: string; hash: string; plan: Partial<SyncPlan>; message: string; stage?: string; stages?: UpdateStage[]; createdAt: number; updatedAt: number }
 export async function syncCandidates(listId = 0, collection = 'shelf'): Promise<{ skills: SyncSkill[]; /** Names with more than one copy, library only: one was kept, the rest were left out. */ duplicates?: SyncDuplicate[] }> { return (await req(`/api/v2/sync/candidates?list=${listId}&collection=${encodeURIComponent(collection)}`)).json() }
@@ -1288,8 +1293,19 @@ export async function getAdoptionBreakdown(previewId: string, revisionId: string
 
 export async function syncFromMachine(input: {skillId:string;destination:string;sourceId?:string;destinationId?:string;followShelf?:boolean;requestKey:string}):Promise<ImportRequest>{return(await req('/api/v2/sync/from-machine',{method:'POST',body:json(input)})).json()}
 
-export type LibraryItem = { id: string; name: string; itemType: string; status: string; contentState: string; problem?: string; revisionId?: string }
+export type LibraryItem = {
+  id: string; name: string; itemType: string; status: string; contentState: string; problem?: string; revisionId?: string
+  /** For safe status changes: the version this view was read at. */
+  version?: number; published?: boolean; createdAt?: number; updatedAt?: number
+  /** The shelf details migration preserves (likes, lists, tags). */
+  metadata?: { liked?: boolean; bookmarked?: boolean; lists?: { id: number; name: string }[]; tags?: { id: number; name: string }[] }
+  aliases?: { kind: string; reference: string }[]
+}
+/** One saved version of an item: whether it became current or was kept beside the current one. */
+export type LibraryReceipt = { eventId: string; revisionId: string; won: boolean; base: string; savedAt: number; orderAt: number; uncertainty: number; clockFallback: boolean }
 export type LibrarySelection = { targetId: string; itemIds: string[]; version: string }
+export async function setLibraryStatus(id: string, status: string, expectedVersion: number): Promise<LibraryItem> { return (await req(`/api/v2/library/${encodeURIComponent(id)}`, { method: 'PATCH', body: json({ status, expectedVersion }) })).json() }
+export async function getLibraryHistory(id: string): Promise<LibraryReceipt[]> { return (await req(`/api/v2/library-history/${encodeURIComponent(id)}`)).json() }
 export async function getLibrary(): Promise<{ schemaVersion: number; items: LibraryItem[] }> { return (await req('/api/v2/library')).json() }
 export async function getLibrarySelection(target: string): Promise<LibrarySelection> {
   const response = await req(`/api/v2/library/selections/${encodeURIComponent(target)}`)

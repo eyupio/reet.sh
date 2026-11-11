@@ -29,7 +29,10 @@ type Preset struct {
 	ResumeArgs []string
 	// SessionArgs precede a native session id to open the terminal on that
 	// session. A preset without them refuses a LaunchSession.
-	SessionArgs    []string
+	SessionArgs []string
+	// OptionsFloor is the oldest CLI version the resume, session-id and effort arguments were measured against. An older machine CLI is
+	// refused those options as launch_option_unsupported. Empty means the options are never version-checked.
+	OptionsFloor   string
 	ACP            string
 	DisabledReason string
 	ModelList      *ModelList
@@ -37,8 +40,10 @@ type Preset struct {
 
 // Existing argument evidence predates this refactor: Claude Code 2.1.310
 // --help (re-captured at 2.1.319, which shows -c/--continue, --resume,
-// --dangerously-skip-permissions and --effort); Codex CLI reference and codex-rs/tui/src/cli.rs (also the captured
-// codex-cli 0.163.0 help); opencode.ai/docs/cli/. Those rows preserve exact argv.
+// --dangerously-skip-permissions and --effort); Codex CLI 0.166.0 --help and
+// `resume --help` (a resume subcommand, -c/--config overrides and no effort flag,
+// so the effort is a model_reasoning_effort override); opencode.ai/docs/cli/.
+// Those rows preserve exact argv.
 //
 // Catalogue preserves the three shipped presets' previously reviewed arguments.
 // New commands require captured help and safest permission defaults; a matching
@@ -48,7 +53,7 @@ type Preset struct {
 // explicit permission bypass. Use its agy alias, not the desktop app's binary.
 var Catalogue = []Preset{
 	{ID: "claude", Name: "Claude Code", Binary: "claude", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--dangerously-skip-permissions"}, ResumeArgs: []string{"--continue"}, SessionArgs: []string{"--resume"}, EffortArgs: map[string][]string{"low": {"--effort", "low"}, "medium": {"--effort", "medium"}, "high": {"--effort", "high"}}, ACP: "adapter"},
-	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--ask-for-approval", "never"}, ACP: "adapter"},
+	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--ask-for-approval", "never"}, ResumeArgs: []string{"resume", "--last"}, SessionArgs: []string{"resume"}, EffortArgs: map[string][]string{"low": {"-c", "model_reasoning_effort=low"}, "medium": {"-c", "model_reasoning_effort=medium"}, "high": {"-c", "model_reasoning_effort=high"}}, OptionsFloor: "0.156.1", ACP: "adapter"},
 	{ID: "opencode", Name: "OpenCode", Binary: "opencode", ModelFlag: "--model", PromptFlag: "--prompt", YoloArgs: []string{"--auto"}, ResumeArgs: []string{"--continue"}, SessionArgs: []string{"--session"}, ACP: "native", ModelList: &ModelList{Argv: []string{"models"}, Env: []string{"OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "NO_COLOR=1", "LANG=C.UTF-8", "CI=1"}}},
 	{ID: "pi", Name: "Pi", Binary: "pi", DisabledReason: "This CLI has no built-in approval policy for tool execution."},
 	{ID: "cursor", Name: "Cursor Agent", Binary: "cursor-agent", DisabledReason: "CLI help and permission defaults have not been confirmed."},
@@ -62,6 +67,7 @@ type launchPreset struct {
 	effortArgs                     map[string][]string
 	safeArgs, yoloArgs, resumeArgs []string
 	sessionArgs                    []string
+	optionsFloor                   string
 	modelList                      *ModelList
 }
 
@@ -71,7 +77,7 @@ var launchPresets = func() map[string]launchPreset {
 		if p.DisabledReason != "" {
 			continue
 		}
-		out[p.ID] = launchPreset{binary: p.Binary, modelFlag: p.ModelFlag, promptFlag: p.PromptFlag, effortArgs: p.EffortArgs, safeArgs: p.SafeArgs, yoloArgs: p.YoloArgs, resumeArgs: p.ResumeArgs, sessionArgs: p.SessionArgs, modelList: p.ModelList}
+		out[p.ID] = launchPreset{binary: p.Binary, modelFlag: p.ModelFlag, promptFlag: p.PromptFlag, effortArgs: p.EffortArgs, safeArgs: p.SafeArgs, yoloArgs: p.YoloArgs, resumeArgs: p.ResumeArgs, sessionArgs: p.SessionArgs, optionsFloor: p.OptionsFloor, modelList: p.ModelList}
 	}
 	return out
 }()

@@ -70,6 +70,7 @@
     PublicList: () => loadPage(() => import('./lib/PublicList.svelte')),
     ResetPassword: () => loadPage(() => import('./lib/ResetPassword.svelte')),
     Setup: () => loadPage(() => import('./lib/Setup.svelte')),
+    Library: () => loadPage(() => import('./lib/Library.svelte')),
     SetupProfiles: () => loadPage(() => import('./lib/SetupProfiles.svelte')),
     Prompts: () => loadPage(() => import('./lib/Prompts.svelte')),
     SignIn: () => loadPage(() => import('./lib/SignIn.svelte')),
@@ -179,6 +180,7 @@
   const isCommunity = location.pathname === '/community'
   const isShared = location.pathname === '/shared'
   const isSpaces = location.pathname === '/spaces'
+  const isLibrary = location.pathname === '/library'
   const isProfiles = ['/profiles', '/setups'].includes(location.pathname)
   const isPrompts = location.pathname === '/prompts' || location.pathname === '/prompts/'
   // Without Sessions access (a viewer, a token or an open instance) /sessions shows Machines, as /terminals did.
@@ -240,6 +242,7 @@
   ])
   const barTabs = $derived(tabs.filter(tab => ['/', '/sessions', '/machines'].includes(tab.href)))
   const more = $derived<Tab[]>([
+    ...(canWrite ? [{ href: '/library', label: 'Library', group: 'Skills & distribution', current: isLibrary }] : []),
     ...(authMode === 'accounts' && canWrite ? [{ href: '/prompts', label: 'Prompts', group: 'Skills & distribution', current: isPrompts }] : []),
     { href: '/profiles', label: 'Setups', group: 'Skills & distribution', current: isProfiles },
     { href: '/shared', label: 'Lists', group: 'Skills & distribution', current: isShared || isList },
@@ -256,7 +259,9 @@
     return found && !authenticated ? { ...found, items: found.items.filter(item => item.current) } : found
   } })
   // Jump searches what the workspace already lists: sessions, folder projects and machines (a writer's terminal machines,
-  // and the machines on the shelf inventory for everyone). Read when Jump is used; a list that cannot be read is left out.
+  // and the machines on the shelf inventory for everyone). The sessions, projects and terminal machines are read when Jump
+  // is used, and a list that cannot be read is left out. Skills and shelf machines are already in memory, so they are passed
+  // as they change (`jumpLive`) instead of being read once and held, which left them out when they finished loading later.
   async function jumpItems(): Promise<JumpItem[]> {
     const items: JumpItem[] = []
     const hosts = new Map<string, string>()
@@ -270,15 +275,19 @@
       if (projects.status === 'fulfilled') for (const project of projects.value) items.push({ kind: 'project', label: project.name, detail: project.machine ? `Project · ${project.machine}` : 'Project', href: `/?project=${encodeURIComponent(project.id)}` })
       if ([sessions, projects, terminal].every(result => result.status === 'rejected')) throw new Error('Nothing could be read.')
     }
+    for (const host of new Set(hosts.values())) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
+    return items
+  }
+  const jumpLive = $derived.by<JumpItem[]>(() => {
+    const items: JumpItem[] = []
     for (const skill of skills) {
       const state = syncSnapshot ? skillSyncSummary(skillSyncIntent(skill.id, syncSnapshot)) : ''
       const detail = state ? `Skill · ${state}` : skill.source ? `Skill · ${skill.source}` : 'Skill'
       items.push({ kind: 'skill', label: skill.name, detail, href: `/skills?skill=${encodeURIComponent(skill.id)}` })
     }
-    const names = new Set([...hosts.values(), ...shelfMachines.map(machine => machine.host)])
-    for (const host of names) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
+    for (const host of new Set(shelfMachines.map(machine => machine.host))) items.push({ kind: 'machine', label: host, detail: 'Machine', href: `/machines?machine=${encodeURIComponent(host)}` })
     return items
-  }
+  })
   const scanCommand = $derived(`reet scan --prune --server ${origin}`)
   const suggestions = [
     { slug: 'anthropics/skills/pdf', name: 'PDF', blurb: 'Read, extract and combine PDF files.' },
@@ -991,7 +1000,7 @@
     }
   }
   const defaultPageTitle = $derived(
-    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
+    (isCommunity ? 'Public community' : isShared ? 'Your lists' : isSpaces ? 'Teams & organisations' : isJoin ? 'Join reet.sh' : isReset ? 'Choose a new password' : authMode === 'accounts' && setupRequired ? 'Set up reet.sh' : isSignUp ? 'Create your account' : authChecked && !authenticated ? 'Sign in' : isHosting ? 'Write a skill' : isLibrary ? 'Library' : isNotifications ? 'Notifications' : isSupport ? 'Support' : isTicket ? 'Support ticket' : isAdmin ? 'Admin' : isHome ? 'Home' : isActivity ? 'Activity' : isSync ? 'Sync' : (isTerminals || isSessions) && sessionsAccess ? 'Sessions' : isMachines ? 'Machines' : isAccount ? 'Your account' : isProfiles ? 'Setups' : isPrompts ? 'Prompts' : isList ? 'Shared list' : isSkills ? 'Skills' : 'Page not found') + ' · reet.sh'
   )
   const pageTitle = $derived(workspaceTitle || defaultPageTitle)
 
@@ -1027,7 +1036,7 @@
 <ProgressBar />
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems}>
+    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive} home={isHome}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu
@@ -1172,6 +1181,14 @@
       <RouteSkeleton variant={terminalLayout ? 'workspace' : 'rows'} />
     {:then { default: Page }}
       <Page userId={currentUser?.id??0} onsignedout={fail} {canWrite} {timeZone} {dateFormat} monitoring={authMode==='accounts'||authMode==='token'} accounts={authMode === 'accounts'} compare={isSync || (location.pathname === '/machines' && new URLSearchParams(location.search).get('view') === 'compare') || location.pathname === '/account/sync'} ontitle={title => (workspaceTitle = title)} />
+    {:catch}
+      <PageLoadError />
+    {/await}
+  {:else if isLibrary}
+    {#await pages.Library()}
+      <RouteSkeleton variant="rows" />
+    {:then { default: Page }}
+      <Page {canWrite} {timeZone} onerror={fail} />
     {:catch}
       <PageLoadError />
     {/await}

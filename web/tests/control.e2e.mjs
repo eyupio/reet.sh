@@ -27,6 +27,7 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/environments')data={environments,machines:snapshot.machines}
  else if(path==='/api/tags')data={tags:[]}
  else if(path==='/api/v2/lists')data={lists:[],linkEnabled:false}
+ else if(path==='/api/v2/library')data={schemaVersion:1,items:[]}
  else if(path==='/api/v2/sync'){
   if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}})
   data=snapshot
@@ -48,7 +49,7 @@ await page.route('**/api/**',async route=>{
  }
  else if(path==='/api/v2/machines/health')data={serverNow:now,machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
- else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:terminalReady,serverEnabled:true,capabilities:{terminalControl:true,osUser:'developer',terminalEnabled:true,readiness:'ready',launch:true,agentsV2:true,tools:['claude'],acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'missing',minimumVersion:'0.99.1'}]}}))}}
+ else if(path==='/api/v2/terminal/machines'){if(failState)return route.fulfill({status:503,json:{error:'Inventory unavailable'}});data={machines:snapshot.agents.map(item=>({agentId:item.id,host:item.host,ready:terminalReady,serverEnabled:true,capabilities:{terminalControl:true,osUser:'developer',terminalEnabled:true,readiness:'ready',launch:true,agentsV2:true,tools:['claude','codex'],acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'missing',minimumVersion:'0.99.1'},{tool:'codex',adapter:'codex-acp',state:'missing',minimumVersion:'1.13.1'}]}}))}}
  else if(path==='/api/v2/terminal/sessions')data={sessions:[]}
  else if(path==='/api/v2/notifications/count')data={unread:0}
  else if(path==='/api/version')data={version:'test',commit:'fixture'}
@@ -218,12 +219,16 @@ try {
   await openSettings(page.getByRole('article',{name:'dev-laptop'}))
   await expect(page.getByRole('dialog',{name:'dev-laptop'})).toBeVisible()
   await noOverflow()
-  // The machine reports Claude Code's Gaffer adapter missing: the hint is there, with its command, and wholly inside the dialog.
-  const adapterHint=page.getByRole('dialog',{name:'dev-laptop'}).locator('.claude-adapter')
-  await expect(adapterHint).toBeVisible()
-  await expect(adapterHint).toContainText('npm install --global @agentclientprotocol/claude-agent-acp@0.99.1')
-  const inside=await adapterHint.locator('code').evaluate(el=>{const r=el.getBoundingClientRect(),d=el.closest('dialog').getBoundingClientRect();return r.left>=d.left-1&&r.right<=d.right+1})
-  expect(inside).toBe(true)
+  // The machine reports the Gaffer adapters for Claude Code and Codex missing: each hint is there, with its command, and wholly inside the dialog.
+  const hints=page.getByRole('dialog',{name:'dev-laptop'}).locator('.chat-adapter')
+  await expect(hints).toHaveCount(2)
+  await expect(hints.first()).toContainText('npm install --global @agentclientprotocol/claude-agent-acp@0.99.1')
+  await expect(hints.last()).toContainText('npm install --global @agentclientprotocol/codex-acp@1.13.1')
+  for(const adapterHint of [hints.first(),hints.last()]){
+   await expect(adapterHint).toBeVisible()
+   const inside=await adapterHint.locator('code').evaluate(el=>{const r=el.getBoundingClientRect(),d=el.closest('dialog').getBoundingClientRect();return r.left>=d.left-1&&r.right<=d.right+1})
+   expect(inside).toBe(true)
+  }
   if(width===390&&process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/machine-settings-phone-dark.png`})
   await page.getByRole('button',{name:'Close settings'}).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)

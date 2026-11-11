@@ -497,3 +497,102 @@ Nothing here is proof of a working signed-in session.
 **What this lets slice 2 turn on:** history and in-place reconnect (the adapter loads stored sessions and refuses unknown ones in a form
 reet already maps), image prompts (with the caveat above), a thinking level at launch, and a launch on a chosen model once the profile
 confirms the model switch by read-back. `fast` and `ultracode` stay listed and uncontrolled.
+
+## Codex parity probes (9 November 2026)
+
+What Gaffer could turn on for Codex beyond approvals, measured against the adapter as reet starts it, with no login, no network and no model call.
+Linux x86-64, Node 22. Two adapters, each installed with the `codex` it depends on: `@agentclientprotocol/codex-acp@1.13.1` (codex-cli 0.156.1,
+the version the earlier probes pinned) and `@agentclientprotocol/codex-acp@2.6.0` (codex-cli 0.166.0, the latest on the registry that day).
+`session/new` needs only a placeholder API key, either from `authenticate` (the probe) or from `auth.json` in the Codex folder (the Go test, which
+is how reet reaches the adapter). Nothing sends `session/prompt`.
+
+```sh
+python3 -I scripts/probe-codex-start.py --workspace /path/to/probe        # needs <workspace>/codex with the adapter installed
+REET_CODEX_ACP=/path/to/node_modules/.bin/codex-acp go test ./internal/acpagent -run TestRealCodexStart -v
+```
+
+| Fact | Measured (both adapters unless stated) | Source |
+| --- | --- | --- |
+| Image prompts advertised | `initialize` reports `promptCapabilities.image` true (and `embeddedContext`). The descriptor still says no images | probe `capabilities` |
+| `session/load` and other session methods advertised | `loadSession` true; session methods `resume`, `list`, `close`, `delete`, `fork`, `additionalDirectories`, `subagents` (2.6.0 adds `title` and `systemPrompt`) | probe `capabilities` |
+| A conversation the adapter never stored | `-32603` "Internal error" with `data.details` "no rollout found for thread id …". Not the `-32002` "Resource not found" the connector maps, so reet reports it as a generic "the agent exited" | probe `unstoredLoad`, `TestRealCodexStart` |
+| Reasoning effort offered | `reasoning_effort`, current `low`. Values depend on the model: `low` to `ultra` on `gpt-6-astra`, `gpt-6-sol`, `gpt-5.6-sol`, `gpt-5.6-terra` (and `gpt-6.1-sol`, `gpt-6.1-terra` on 2.6.0); `low` to `max` on the two `luna` models; `low` to `xhigh` on `gpt-5.5` | probe `sweeps` |
+| Effort reads back | On every model, every effort it offers reads back when set on a session already switched to that model (38 sets on 1.13.1, 50 on 2.6.0, no mismatch). Model ids in these adapters carry no effort suffix (the 2 November note that effort can be embedded in a model id is not what these two versions report) | probe `sweeps` (`effortPerModel`) |
+| An effort the model does not offer | Refused by reet before anything is sent (`ErrControl`), checked on the default model | `TestRealCodexStart` |
+| Model switch and the chosen effort | The effort is kept when the new model offers it; when it does not (`ultra` carried to a `luna` model or `gpt-5.5`) the adapter falls back to `medium`. The effort list follows the model | probe `sweeps` (`effortCarried`); the test checks the effort always stays inside the new model's list |
+| Model switch reads back | Every listed model reads back when set, signed-out | probe `sweeps` |
+| Modes | `read-only`, `agent`, `agent-full-access` on 1.13.1; 2.6.0 adds `workspace-write`. Each reads back when set. Starting mode is `agent`; reet starts the chat in `read-only` | probe `sweeps` |
+| Default model | `gpt-6-astra` on 1.13.1, `gpt-6.1-sol` on 2.6.0. The offered list changes between adapter versions | probe `options` |
+| A Codex folder that exists but holds no login | `session/new` fails `-32000` "Authentication required"; reet reports "Sign in to Codex on that machine first." | `TestRealCodexStart` |
+| No Codex folder at all | codex exits with code 1 (`CODEX_HOME points to …, but that path does not exist`), because the profile sets `CODEX_HOME` to `~/.codex` whether or not it exists. reet reports "the agent exited", not the sign-in message. A person who has never used Codex hits this | probe with `--codex-home` set to a missing path (the summary's `initialize.error` or `session/new`), `TestRealCodexStart` (logged) |
+| Terminal resume and effort (help only) | `codex resume [SESSION_ID] [PROMPT]` is a subcommand (`--last` picks the latest; a UUID or name is accepted); `-c, --config <key=value>` overrides any config value. No effort flag. Help only, nothing was run | `codex resume --help` on both CLIs |
+
+**Not measured:** anything that needs a signed-in session or a model turn: history replay (a stored turn), a real model accepting an image, the effort
+values and model list a real account is offered (these lists come from the adapter signed-out and may differ for an account), whether a chat's session
+id opens in `codex resume`, whether `-c model_reasoning_effort=<value>` is honoured by the terminal CLI, and `authStatus` on a logged-in machine.
+These wait for Run B in [Device checks](../../device-checks.md).
+
+**What this gives the parity slice:** the descriptor can claim images (the adapter advertises them; a real model accepting one is not measured) and
+reconnect to a stored conversation (the adapter advertises `session/load` and rejects unknown ids in a known form, once that error is mapped; replaying history
+waits for Run B); model and effort can be offered and confirmed by read-back, with the effort list refreshed after a model
+switch; the Codex-folder-missing start failure should read as a sign-in request; and the pin is a floor, not a version, because the offered models
+and modes move between adapter versions.
+
+## Codex lifecycle probes (9 November 2026)
+
+What a stored conversation, an image and a chosen effort or model do, measured with the new `scripts/probe-codex-lifecycle.py` against the same two adapters as
+above (`@agentclientprotocol/codex-acp@1.13.1` with codex-cli 0.156.1, and `2.6.0` with 0.166.0). The adapter runs in a throwaway HOME and CODEX_HOME with a
+`model_providers` entry that points at a loopback Responses-API stand-in, so no account, network or real model is involved; the stand-in answers every request with
+one short text message and records what it was sent. Nothing here shows what a real model does with an image or a stored conversation.
+
+```sh
+python3 -I scripts/probe-codex-lifecycle.py load --workspace /path/to/probe
+python3 -I scripts/probe-codex-lifecycle.py images --workspace /path/to/probe
+python3 -I scripts/probe-codex-lifecycle.py options --workspace /path/to/probe
+```
+
+| Fact | Measured (both adapters) | Source |
+| --- | --- | --- |
+| A stored conversation loads | After one turn and a stop, a second adapter process on the same Codex folder answers `session/load` for the stored id | `load` |
+| What the replay carries | `user_message_chunk` and `agent_message_chunk` for the earlier turn, `available_commands_update` and `session_info_update`. reet drops replay before the chat is ready, since it keeps its own transcript | `load` |
+| The loaded conversation continues | A follow-up prompt on the loaded session reaches the provider with the earlier reply in its input | `load` |
+| Load from a different folder | Succeeds. The adapter does not bind a conversation to a folder, so reet's account, machine, tool and folder binding is the only guard | `load` |
+| A conversation never stored | `-32603` "Internal error" with `data.details` "no rollout found for thread id …". reet now maps exactly that detail to the missing stored conversation, and any other internal error is still a generic failure | `load`, `TestRealCodexStart`, `TestCodexUnstoredLoadIsTheMissingConversation` |
+| An image block reaches the provider | The request's input carries it as an `input_image` part, and the turn ends `end_turn`. Whether a real model accepts the image is not measured | `images` |
+| A chosen model reaches the provider | After `session/set_config_option` the request's `model` is the chosen one. The adapter also sends a small helper request on a built-in model of its own that reet does not control | `options` |
+| A chosen effort reaches the provider | After the model switch, setting `high` and then `low` sends `reasoning.effort` `high` and then `low`. The effort option is not offered for the stand-in's own made-up model, so a listed model must be chosen first | `options` |
+
+**What this turned on in the product:** the Codex descriptor now reports a read-back model switch, history, in-place reconnect and image prompts (and still no
+questions). The profile applies a chosen model by switching to it and reading it back, before any chosen effort. A machine with no Codex folder is told to sign in
+instead of seeing "the agent exited". YOLO answers Codex permission cards only in `read-only` (in `agent` mode the probe saw no request at all for the escalation, so a card that does arrive is left to the person, including one already waiting when YOLO is switched on).
+
+**Still not measured:** a signed-in turn, a real model accepting an image, the lists a real account is offered, and whether a Codex chat's id opens in `codex resume`.
+These wait for Run B in [Device checks](../../device-checks.md).
+
+## Codex terminal probes (9 November 2026)
+
+What the argv reet builds for a Codex terminal session does, measured with the new `scripts/probe-codex-terminal.py` against a loopback Responses-API stand-in provider
+(no account, network or real model), on the two CLIs the adapters above install: codex-cli 0.156.1 and 0.166.0. The terminal UI was run under a pty with the exact argv, and the
+stand-in recorded the model, reasoning effort, approval policy and user messages it was sent. Not measured: a signed-in session, a real model, and anything a person sees beyond
+what reached the provider.
+
+```sh
+python3 -I scripts/probe-codex-terminal.py effort --workspace /path/to/probe
+python3 -I scripts/probe-codex-terminal.py chat-id --workspace /path/to/probe        # after probe-codex-lifecycle.py load
+python3 -I scripts/probe-codex-terminal.py argv --workspace /path/to/probe --pre tui -- resume --last -c model_reasoning_effort=low --model gpt-6-astra -- "go on"
+```
+
+| Fact | Measured (both CLIs unless stated) | Source |
+| --- | --- | --- |
+| `-c model_reasoning_effort=<v>` is honoured | The provider's request carries `low`, `medium`, `high` and `xhigh` as given | `effort` |
+| An effort the model does not have | `ultra` on the stand-in's fallback model reached the provider as `medium`; whether a real model that offers `ultra` honours it is not measured, so a launch carries only `low`, `medium` and `high` | `effort` |
+| An invalid effort | `bogus` was passed to the provider unchanged: the CLI does not validate it, so reet must | `effort` |
+| A chat's id opens under `codex resume` | `codex exec resume <id>` of a session the ACP adapter created sent the provider the earlier turns and the new prompt, from the same folder and from another. This is the non-interactive `exec` path | `chat-id` |
+| A new session's argv | `--ask-for-approval never -c model_reasoning_effort=high --model <m> -- "<prompt>"` in the real terminal UI: the provider received that model, `high`, approval `never` and the prompt | `argv` |
+| Open a stored session by id | `--ask-for-approval never resume <id> -c model_reasoning_effort=low --model <m> -- "<prompt>"`: approval `never`, `low`, the model, and the earlier turns plus the new prompt | `argv --pre tui` |
+| Continue the latest session | `resume --last -c model_reasoning_effort=medium --model <m> -- "<prompt>"`: the earlier turns plus the new prompt. `--last` picks the latest session in the folder that is not a `codex exec` one; a session made by the ACP adapter counts (its rollout is marked `vscode`). With no such session, codex starts a new conversation with no error (checked on both CLIs), so a resume cannot be told from a new session by what the provider receives unless the earlier turns are looked for | `argv --pre tui` |
+| A background daemon (0.166.0 only) | The CLI starts an `app-server` under `CODEX_HOME` that outlives the terminal and keeps the session it served. A `resume` of that session with a changed configuration then showed "open in another app" until the daemon was stopped; with it stopped, every form above worked | `argv` |
+| Older CLIs (floor for the version gate) | `codex resume --help` lists `--last` and a session id on 0.38.0, 0.60.1 and 0.100.0; 0.34.0 prints the general help instead, so it has no `resume`. `-c/--config` is in the help of all of them. Through the stand-in, `-c model_reasoning_effort=low`, `medium`, `high` reached the provider as no effort on 0.38.0, 0.60.1 and 0.100.0 (they run, and `ultra` and `bogus` are refused there), so an older CLI is not shown to honour the override. Whether that is the stand-in's model or the CLI is not separated | `effort`, run on each |
+
+**What this turned on in the product:** the Codex terminal preset maps effort (`low`, `medium`, `high`) and resume (`resume --last`, `resume <id>`), the controller and Start dialog offer both,
+and the pinned help capture moved to codex-cli 0.166.0 with its source recorded in `sources.json`. The connector refuses those options on a `codex` older than 0.156.1, the oldest version measured working (`OptionsFloor` in the catalogue).

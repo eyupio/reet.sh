@@ -1,6 +1,7 @@
 package store
 
 import (
+	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"strings"
 	"testing"
 )
@@ -85,15 +86,56 @@ func TestLibraryFlagsADifferingMachineCopyUntilAPersonChooses(t *testing.T) {
 	if got := differences(); len(got) != 1 || got[0].Digest != again {
 		t.Fatalf("a later edit was not flagged after an earlier choice: %+v", got)
 	}
+	// Asking what differs has the machine list its files, and nothing more.
+	for range 2 {
+		if err := s.ResolveLibraryDifferenceFor(uid, saved.ID, env, "compare"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := differences(); len(got) != 1 || !got[0].Comparing || got[0].Taking || got[0].Compared {
+		t.Fatalf("a comparison in progress must say so and take nothing: %+v", got)
+	}
+	var comparisons int
+	var comparison string
+	if err := s.db.QueryRow(`SELECT count(*),COALESCE(max(id),'') FROM machine_import_requests WHERE user_id=? AND request_key LIKE 'compare_%'`, uid).Scan(&comparisons, &comparison); err != nil || comparisons != 1 {
+		t.Fatalf("pressing twice must ask the machine once: %d %v", comparisons, err)
+	}
+	pending, err := s.RemoteImportFor(uid, comparison)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The machine answers with the saved files, one of them edited, and one new file.
+	onMachine := append([]skillbundle.ContentFile{}, machineImportFixture(t).Files...)
+	onMachine[0].Data = append(append([]byte{}, onMachine[0].Data...), []byte("\nedited\n")...)
+	onMachine = append(onMachine, skillbundle.ContentFile{Path: "extra/notes.md", Data: []byte("new")})
+	reviewed := reviewRemote(t, s, uid, agent, pending, onMachine)
+	if reviewed.State != "reviewing" {
+		t.Fatalf("a comparison must wait for the person, not save anything: %+v", reviewed.State)
+	}
+	got = differences()
+	if len(got) != 1 || !got[0].Compared || got[0].Comparing || got[0].Taking || item().RevisionID != saved.RevisionID {
+		t.Fatalf("an answered comparison must be shown and change nothing: %+v", got)
+	}
+	changes := map[string]string{}
+	for _, file := range got[0].Files {
+		changes[file.Path] = file.Change
+	}
+	if len(changes) != 2 || changes[onMachine[0].Path] != "changed" || changes["extra/notes.md"] != "machine" {
+		t.Fatalf("the comparison must list exactly the edited and the new file: %+v", got[0].Files)
+	}
+	// Taking the version uses the files the machine already listed.
 	if err := s.ResolveLibraryDifferenceFor(uid, saved.ID, env, "take"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.ResolveLibraryDifferenceFor(uid, saved.ID, env, "take"); err != nil {
 		t.Fatal("pressing twice must not fail", err)
 	}
-	var taking int
-	if err := s.db.QueryRow(`SELECT count(*) FROM machine_import_requests WHERE user_id=? AND json_extract(data,'$.chosen')=1 AND json_extract(data,'$.bundleId')=? AND json_extract(data,'$.expectedBase')=?`, uid, saved.BundleID, saved.RevisionID).Scan(&taking); err != nil || taking != 1 {
-		t.Fatalf("taking the machine's version must ask that machine once for a new version of the same item: %d %v", taking, err)
+	if approved, err := s.RemoteImportFor(uid, comparison); err != nil || approved.State != "approved" {
+		t.Fatalf("taking after a comparison must approve that comparison: %+v %v", approved.State, err)
+	}
+	var asked int
+	if err := s.db.QueryRow(`SELECT count(*) FROM machine_import_requests WHERE user_id=? AND json_extract(data,'$.bundleId')=? AND json_extract(data,'$.expectedBase')=?`, uid, saved.BundleID, saved.RevisionID).Scan(&asked); err != nil || asked != 1 {
+		t.Fatalf("comparing and then taking must ask the machine for its files once: %d %v", asked, err)
 	}
 	if got := differences(); len(got) != 1 || !got[0].Taking {
 		t.Fatalf("a version being saved must say so: %+v", got)

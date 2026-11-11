@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: **Agent tokens** shows what the working agents themselves report
+  using, per pipeline and per outcome with a split by agent, and **Context
+  left** shows how much of the stage in hand's context window remains. Agents
+  that report nothing read "Not reported". Needs both a controller and a
+  machine update.
 - Factory: **Tell the agent…** sends your instruction to a pipeline's working
   agent, and **Send back…** has a stage done again with your reason. MCP can now
   also start an outcome, add pipelines, tell a pipeline's agent and send it back

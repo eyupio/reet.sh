@@ -296,8 +296,17 @@ Gaffer reviews the work already there instead of waiting for new progress.
 The Factory counts what **Gaffer's own model** used: every finished stage keeps
 its reviews and tokens, the stage in hand reads its live goal, and a report you
 ask for is added to the outcome's total. Where a provider reports no token count
-the page says so instead of showing a number. reet does not see what the working
-agents use, and it attaches no price to any of it.
+the page says so instead of showing a number. It attaches no price to any of it.
+
+**Agent tokens** is what the working agents themselves report. When an agent
+says how many tokens a turn took, reet adds the turns up for the stage that did
+them, the pipeline and the outcome, with cached tokens counted apart and a
+split by agent where more than one worked on it. **Context left** shows, for the
+stage in hand, how much of that agent's context window remains, and turns amber
+at 15% or less. Both read **Not reported** for an agent that says nothing; reet
+never estimates. They need the machine's reet updated as well as the
+controller, and they do not include your plan's or provider's own quota, which
+agents do not tell reet.
 
 Budgets are per stage: each stage gets the outcome's review budget and hours
 afresh, and the page shows what is left of the stage in hand. A stage that uses

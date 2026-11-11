@@ -6,7 +6,7 @@
   import { addGafferPipelines, approveGafferMerge, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, listFolderProjects, terminalMachines } from '../terminal/api'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
-  import { DEFAULT_STAGES, factoryTally, outcomeUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
+  import { DEFAULT_STAGES, agentTokensText, contextLeft, factoryTally, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
   import GafferProse from '../GafferProse.svelte'
   import { formatWhen } from '../time'
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
@@ -222,6 +222,7 @@
           <div><dt>Pipelines</dt><dd>{record.sessions.length}</dd></div>
           <div><dt>Gaffer reviews</dt><dd>{usage.reviews}</dd></div>
           <div><dt>Gaffer tokens</dt><dd>{tokensText(usage)}</dd></div>
+          {#if true}{@const agents = outcomeAgentUsage(record.sessions)}<div><dt>Agent tokens</dt><dd>{agentTokensText(agents.total)}{#if agents.byAgent.length > 1}{' '}<span class="split">({agents.byAgent.map(item => `${chatToolName(item.tool)} ${agentTokensText({ tokens: item.tokens, cached: 0, reported: true })}`).join(', ')})</span>{/if}</dd></div>{/if}
           <div><dt>Budget per stage</dt><dd>{record.maxReviews} reviews · {record.hours} h</dd></div>
           <div><dt>Approvals</dt><dd class:yolo={record.yolo}>{record.yolo ? 'YOLO' : 'Ask me'}</dd></div>
           <div><dt>Reports</dt><dd>{record.autoReport ? 'By itself and on request' : 'On request'}</dd></div>
@@ -254,6 +255,8 @@
                 <div><dt>Time left</dt><dd>{timeLeft(goal.goal.expiresAt, clock)}</dd></div>{/if}
               {#if goal?.goal.lastReviewedAt}<div><dt>Last review</dt><dd>{when(goal.goal.lastReviewedAt)}</dd></div>{/if}
               <div><dt>Gaffer tokens</dt><dd>{tokensText(pipelineUsage(piece, goal?.goal))}</dd></div>
+              <div><dt>Agent tokens</dt><dd>{agentTokensText(pipelineAgentUsage(piece))}</dd></div>
+              {#if piece.state === 'following'}{@const room = contextLeft(piece.stages?.[piece.stage ?? 0])}<div><dt>Context left</dt><dd class:low={room.low}>{room.text || 'Not reported'}</dd></div>{/if}
               {#if nodes.some(node => node.kind === 'merge')}<div><dt>Merge</dt><dd>{piece.autoMerge ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : 'Waits for you'}{#if piece.state !== 'done' && !piece.mergeApproved}{' '}<button class="inline" type="button" disabled={busy} aria-label={`${piece.autoMerge ? 'Make' : 'Let'} ${piece.title} ${piece.autoMerge ? 'wait for you before merging' : 'merge by itself'}`} onclick={() => void mergeMode(record, piece, !piece.autoMerge)}>{piece.autoMerge ? 'Make it wait for me' : 'Let it merge by itself'}</button>{/if}</dd></div>{/if}
             </dl>
             <div class="actions">
@@ -315,6 +318,7 @@
   @media(prefers-reduced-motion:no-preference){.track li.running .dot{animation:pulse 2s ease-in-out infinite}}@keyframes pulse{50%{box-shadow:0 0 0 7px transparent}}
   .now{color:var(--ink)}.pipe.bad .now{color:var(--bad)}.callout{padding:8px 12px;border-radius:8px;background:var(--card);border:1px solid var(--accent)}.report{border-left:2px solid var(--line-strong);padding-left:12px}.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
+  .facts dd.low{color:var(--warn);font-weight:600}.split{color:var(--muted)}
   .facts dd.yolo{color:var(--warn);font-weight:600}
   .facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}.facts div{display:grid;gap:0;min-width:0}.facts dt{font-size:0.75rem;color:var(--muted)}.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center;box-sizing:border-box}

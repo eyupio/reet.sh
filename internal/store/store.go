@@ -420,6 +420,10 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := st.migrateTerminalUsage(); err != nil {
+		st.db.Close()
+		return nil, err
+	}
 	if err := st.migrateGafferOutcomes(); err != nil {
 		db.Close()
 		return nil, err

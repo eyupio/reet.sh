@@ -188,3 +188,23 @@ test('a crew role\'s effort is sent with its stages and starts a new session whe
   assert.equal(o.sessionCount(o.stagePlan(['design', 'code', 'merge'], crew)), 3)
   assert.equal(o.sessionCount(o.stagePlan(['plan', 'design', 'review'], crew)), 1)
 })
+
+test('agent usage is what agents reported, split by agent, and never a made-up zero', () => {
+  const pieces = [
+    { stages: [{ tool: 'claude', state: 'done', agentInputTokens: 1000, agentOutputTokens: 200, agentCachedTokens: 5000, agentUsageReported: true }, { tool: 'codex', state: 'running', agentInputTokens: 300, agentOutputTokens: 50, agentUsageReported: true, contextUsed: 170000, contextSize: 200000 }] },
+    { stages: [{ tool: 'claude', state: 'running' }] },
+  ]
+  assert.deepEqual(o.pipelineAgentUsage(pieces[0]), { tokens: 1550, cached: 5000, reported: true })
+  assert.equal(o.agentTokensText(o.pipelineAgentUsage(pieces[0])), '1,550 · 5,000 cached')
+  assert.equal(o.agentTokensText(o.pipelineAgentUsage(pieces[1])), 'Not reported')
+  const all = o.outcomeAgentUsage(pieces)
+  assert.deepEqual(all.total, { tokens: 1550, cached: 5000, reported: true })
+  assert.deepEqual(all.byAgent, [{ tool: 'claude', tokens: 1200 }, { tool: 'codex', tokens: 350 }])
+  assert.equal(o.agentTokensText({ tokens: 2_400_000, cached: 0, reported: true }), '2.4M')
+  assert.equal(o.agentTokensText({ tokens: 84_600, cached: 0, reported: true }), '85k')
+  assert.deepEqual(o.contextLeft(pieces[0].stages[1]), { text: '15% · 30k of 200k', low: true })
+  assert.deepEqual(o.contextLeft({ tool: 'claude', contextUsed: 20000, contextSize: 200000 }), { text: '90% · 180k of 200k', low: false })
+  assert.deepEqual(o.contextLeft({ tool: 'claude', contextUsed: 500000, contextSize: 200000 }), { text: '0% · 0 of 200k', low: true })
+  assert.deepEqual(o.contextLeft(pieces[1].stages[0]), { text: '', low: false })
+  assert.deepEqual(o.contextLeft(undefined), { text: '', low: false })
+})

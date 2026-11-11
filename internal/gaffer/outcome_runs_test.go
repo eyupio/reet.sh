@@ -1157,3 +1157,52 @@ func TestThePersonSendsAPipelineBackAndTheStageIsDoneAgainInTheSameFolder(t *tes
 		t.Fatalf("goal of the stage done again: %+v %v", g, err)
 	}
 }
+
+func TestAStageKeepsWhatItsAgentReportedUsing(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	in := pipelineInput(r, false)
+	// One agent and model for the first two stages, so they share a session.
+	in.Sessions[0].Stages[1].Model = in.Sessions[0].Stages[0].Model
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	// Nothing reported yet: the stage says so rather than showing a zero.
+	if o, err := r.s.Outcome(r.p.UserID, created.ID); err != nil || o.Sessions[0].Stages[0].AgentUsageReported {
+		t.Fatalf("before any report: %+v %v", o.Sessions[0].Stages[0], err)
+	}
+	if err = r.st.AddTerminalSessionUsage(r.p.UserID, code.SessionID, 1000, 200, 5000, 40000, 200000); err != nil {
+		t.Fatal(err)
+	}
+	live, err := r.s.Outcome(r.p.UserID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := live.Sessions[0].Stages[0]; !s.AgentUsageReported || s.AgentInputTokens != 1000 || s.AgentOutputTokens != 200 || s.AgentCachedTokens != 5000 || s.ContextUsed != 40000 || s.ContextSize != 200000 {
+		t.Fatalf("live stage usage: %+v", s)
+	}
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Committed.")
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	if review.SessionID != code.SessionID {
+		t.Fatalf("the second stage did not keep the session: %+v", review)
+	}
+	if s := review.Stages[0]; !s.AgentUsageReported || s.AgentInputTokens != 1000 || s.AgentOutputTokens != 200 || s.AgentCachedTokens != 5000 {
+		t.Fatalf("kept at hand-over: %+v", s)
+	}
+	// The session's total keeps growing; the second stage counts only what came after the first.
+	if err = r.st.AddTerminalSessionUsage(r.p.UserID, code.SessionID, 300, 50, 0, 90000, 200000); err != nil {
+		t.Fatal(err)
+	}
+	after, err := r.s.Outcome(r.p.UserID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := after.Sessions[0].Stages[1]; !s.AgentUsageReported || s.AgentInputTokens != 300 || s.AgentOutputTokens != 50 || s.AgentCachedTokens != 0 || s.ContextUsed != 90000 {
+		t.Fatalf("second stage usage: %+v", s)
+	}
+	if s := after.Sessions[0].Stages[0]; s.AgentInputTokens != 1000 || s.ContextSize != 0 {
+		t.Fatalf("first stage changed after its hand-over: %+v", s)
+	}
+}

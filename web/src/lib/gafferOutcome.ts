@@ -352,3 +352,40 @@ export function factoryMembers(records: { id: string; objective: string; session
 export function factoryBadge(member: FactoryMember): string {
   return member.step ? `Factory · ${member.stage} ${member.step} of ${member.steps}` : 'Factory'
 }
+
+// What the working agents report using. An agent says how many tokens a turn took and how full its context window is;
+// reet adds the turns up per stage and attaches no price. An agent that reports nothing is said to, never shown as zero.
+type AgentStage = { tool: string; state?: string; agentInputTokens?: number; agentOutputTokens?: number; agentCachedTokens?: number; agentUsageReported?: boolean; contextUsed?: number; contextSize?: number }
+export type AgentUsage = { tokens: number; cached: number; reported: boolean }
+const stageTokens = (stage: AgentStage) => (stage.agentInputTokens ?? 0) + (stage.agentOutputTokens ?? 0)
+/** Input and output tokens the agents of one pipeline reported, with cached tokens counted apart. */
+export function pipelineAgentUsage(piece: { stages?: AgentStage[] }): AgentUsage {
+  const out: AgentUsage = { tokens: 0, cached: 0, reported: false }
+  for (const stage of piece.stages ?? []) {
+    if (!stage.agentUsageReported) continue
+    out.reported = true; out.tokens += stageTokens(stage); out.cached += stage.agentCachedTokens ?? 0
+  }
+  return out
+}
+/** The same across an outcome, split by agent, largest first. */
+export function outcomeAgentUsage(pieces: { stages?: AgentStage[] }[]): { total: AgentUsage; byAgent: { tool: string; tokens: number }[] } {
+  const total: AgentUsage = { tokens: 0, cached: 0, reported: false }, by = new Map<string, number>()
+  for (const piece of pieces) for (const stage of piece.stages ?? []) {
+    if (!stage.agentUsageReported) continue
+    total.reported = true; total.tokens += stageTokens(stage); total.cached += stage.agentCachedTokens ?? 0
+    by.set(stage.tool, (by.get(stage.tool) ?? 0) + stageTokens(stage))
+  }
+  return { total, byAgent: [...by].map(([tool, tokens]) => ({ tool, tokens })).sort((a, b) => b.tokens - a.tokens || a.tool.localeCompare(b.tool)) }
+}
+const compact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M` : n >= 10_000 ? `${Math.round(n / 1000)}k` : n.toLocaleString('en-GB')
+export function agentTokensText(usage: AgentUsage): string {
+  if (!usage.reported) return 'Not reported'
+  return usage.cached ? `${compact(usage.tokens)} · ${compact(usage.cached)} cached` : compact(usage.tokens)
+}
+/** How much of the agent's context window is left, for the stage in hand. '' when the agent has not said. */
+export function contextLeft(stage: AgentStage | undefined): { text: string; low: boolean } {
+  const size = stage?.contextSize ?? 0
+  if (!stage || size <= 0) return { text: '', low: false }
+  const left = Math.max(0, size - Math.min(size, stage.contextUsed ?? 0)), percent = Math.round(left / size * 100)
+  return { text: `${percent}% · ${compact(left)} of ${compact(size)}`, low: percent <= 15 }
+}

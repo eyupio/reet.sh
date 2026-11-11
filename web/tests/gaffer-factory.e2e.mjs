@@ -26,6 +26,9 @@ const outcomes=[{id:'e'.repeat(32),revision:5,objective:'Ship CSV export for bil
 const goals=[goal('1'.repeat(32),'s1','Export API','active',false,'The endpoint and its tests are committed. The review found one missing error case and is fixing it.'),goal('2'.repeat(32),'s2','Export button','needs_user',true,'The button is in, but the design leaves the empty state open. Which of the two do you want?'),goal('5'.repeat(32),'s5','Login tokens','active',false,'Checks are green.')]
 const sessions=['s1','s2','s3','s4','s5','s6'].map((id,n)=>({id,agentId:'a1',title:['Export API','Export button','Export docs','Importer retry','Login tokens','Docs refresh'][n],state:'running',structured:true,tool:'claude',dir:'/work/x',createdAt:now,updatedAt:now,exitCode:null}))
 const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available'},{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
+// What the working agents reported: the code stage's own count, and the review stage in hand with its context window.
+Object.assign(outcomes[0].sessions[0].stages[2],{agentInputTokens:60000,agentOutputTokens:24600,agentCachedTokens:410000,agentUsageReported:true})
+Object.assign(outcomes[0].sessions[0].stages[3],{agentInputTokens:9000,agentOutputTokens:3400,agentUsageReported:true,contextUsed:176000,contextSize:200000})
 const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',createdAt:now,updatedAt:now}]
 const routesFor=box=>({'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
@@ -67,6 +70,9 @@ try {
       await expect(stages).toHaveCount(8)
       await expect(stages.nth(2)).toContainText('done');await expect(stages.nth(3)).toHaveAttribute('aria-current','step');await expect(stages.nth(3)).toContainText('in hand');await expect(stages.nth(4)).toContainText('to come')
       await expect(api).toContainText('Claude Code · opus');await expect(api).toContainText('Reviews left9 of 12');await expect(api).toContainText(/Time left\d+ h \d+ min/);await expect(api).toContainText('Gaffer tokens2,252');await expect(api).toContainText('Waits for you')
+      // What the agents themselves reported: tokens for the pipeline, and how much context the stage in hand has left.
+      await expect(api).toContainText('Agent tokens97k · 410k cached');await expect(api).toContainText('Context left12% · 24k of 200k')
+      await expect(pipes.nth(1)).toContainText('Agent tokensNot reported');await expect(pipes.nth(1)).toContainText('Context leftNot reported')
       await expect(api).toContainText('The review found one missing error case')
       // A pipeline waiting on the person says so and why.
       await expect(pipes.nth(1)).toContainText('Needs you');await expect(pipes.nth(1)).toContainText('Gaffer brought a question back to you.')
@@ -98,7 +104,7 @@ try {
       await expect(tiles).toHaveText(['1Need you','0Ready to merge','2Running','1Done'])
       // The outcome's own figures: what Gaffer's model has used so far, and the budget each stage gets. No prices.
       const totals=first.getByLabel('This outcome so far',{exact:true})
-      await expect(totals).toContainText('Pipelines3');await expect(totals).toContainText('Gaffer reviews6');await expect(totals).toContainText('Gaffer tokens4,504');await expect(totals).toContainText('Budget per stage12 reviews · 24 h');await expect(totals).toContainText('ApprovalsAsk me')
+      await expect(totals).toContainText('Pipelines3');await expect(totals).toContainText('Gaffer reviews6');await expect(totals).toContainText('Gaffer tokens4,504');await expect(totals).toContainText('Budget per stage12 reviews · 24 h');await expect(totals).toContainText('ApprovalsAsk me');await expect(totals).toContainText('Agent tokens97k · 410k cached (Codex 85k, Claude Code 12k)')
       // A pipeline that never started says why and can be tried again, once, on request.
       const stopped=done.getByRole('list',{name:'Pipelines of this outcome',exact:true}).locator(':scope > li').nth(1)
       await expect(stopped).toContainText('Not started');await expect(stopped).toContainText('That agent isn’t installed on that machine.')

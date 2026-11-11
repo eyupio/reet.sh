@@ -80,6 +80,15 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 				item["in_hand"] = true
 				row["stage_in_hand"] = stage.Kind
 			}
+			if stage.AgentUsageReported {
+				item["agent_tokens"] = stage.AgentInputTokens + stage.AgentOutputTokens
+				if stage.AgentCachedTokens > 0 {
+					item["agent_cached_tokens"] = stage.AgentCachedTokens
+				}
+			}
+			if stage.ContextSize > 0 {
+				item["context_used"], item["context_size"] = stage.ContextUsed, stage.ContextSize
+			}
 			if full && stage.Summary != "" {
 				item["handover"] = stage.Summary
 			}

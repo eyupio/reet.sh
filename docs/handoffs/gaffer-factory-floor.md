@@ -712,6 +712,46 @@ Asked one at a time; the owner chose:
 - **Automatic reports: off by default.** The dialog's box starts unticked.
 - **Auto-merge: stays off by default.**
 
+## Agent tokens and context left (11 November 2026)
+
+Asked for by the owner, who chose **context left** as the meaning of "remaining
+usage" (not a token budget, not plan quota).
+
+Path, end to end:
+
+- **Agent → machine** (`internal/acpagent`): `usage.go` reads two optional ACP
+  signals. `turnUsage` reads `usage` on a `session/prompt` result
+  (`inputTokens`, `outputTokens`, `cachedReadTokens`, `cachedWriteTokens`, and
+  their snake_case forms); `contextUsage` reads a `usage_update` session update
+  (`used`, `size`). Each becomes an `Event{Kind: "usage"}`. Zero, negative,
+  oversized or malformed figures report nothing.
+- **Machine → controller**: new feature `acp-usage-v1`
+  (`terminalproto/acp_usage.go`), advertised by the controller. The machine
+  sends a usage event only on a link that has it, because an older controller
+  refuses an unknown event kind; it is sent directly, never queued or replayed,
+  and never for a quiet chat. `ACPEvent.Usage` is valid only on kind `usage`,
+  which may carry nothing else (no text).
+- **Controller**: the broker keeps it beside the session, not in the
+  conversation: table `terminal_session_usage` (tokens added up, the last
+  context report kept), only for a session the account owns.
+- **Factory**: a stage's figures are the session's total less what earlier
+  done stages in the same session already account for (`stageAgentUsage`),
+  kept on the stage at hand-over and read live for the stage in hand
+  (`withAgentUsage`). The page shows Agent tokens per pipeline and per outcome
+  (split by agent) and Context left for the stage in hand. The MCP outcome read
+  carries `agent_tokens`, `agent_cached_tokens`, `context_used`, `context_size`.
+
+**What is not known.** I could not check which agents send either signal, or
+that they use exactly these field names: the parsing follows the ACP usage
+fields as I understand them and was tested with synthetic frames only. An agent
+that sends neither shows "Not reported". Sending a stage back resets that
+stage's kept figures. No prices; no plan or rate-limit quota. Machines need
+updating as well as the controller.
+
+Tests: parsing (`acpagent/usage_test.go`), event validity
+(`terminalproto/acp_test.go`), the store, stage attribution across a shared
+session, the unit helpers and the Factory browser suite.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

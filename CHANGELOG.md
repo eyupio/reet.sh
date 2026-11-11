@@ -5,6 +5,21 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Activity log: what Gaffer and the controller do to a Factory pipeline by
+  themselves is now recorded, under the source `gaffer`: a stage handed over
+  (and whether Gaffer's review, your button or your word in the chat did it), a
+  stage started, a pipeline waiting for your merge decision, done or stopped,
+  and a goal that needs you, is held while the agent waits for your answer, is
+  released, or runs out of budget. Each carries the outcome, pipeline, stage
+  and the controller's reason, so there is a history of why a pipeline moved or
+  stopped. Reasons are the controller's own wording; handover notes stay on the
+  stage. MCP's `reet_list_events` can filter `source=gaffer` and
+  `source=machine`. Needs a controller update.
+- Activity log: YOLO approvals no longer write a row each. The approvals of one
+  turn of a session share one `yolo-allow` row with a `count`, the first and
+  last request and the time span (a turn longer than ten minutes starts another
+  row). Every approval is still counted and saved as it happens. Older rows are
+  unchanged and count as one. Needs a controller update.
 - Factory: a goal whose session is archived or no longer available can now be
   removed from the page. The "Conversation history" button shown there did
   nothing on the Factory page.

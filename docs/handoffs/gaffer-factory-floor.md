@@ -764,6 +764,98 @@ it by the table's cascade. The floor's own dialog keeps Conversation history
 beside it; the Factory page shows Remove only. The controller's reason text
 now says "use Remove". Covered in `gaffer-followed.e2e.mjs` for both places.
 
+## Gaffer's own actions in the activity log, and YOLO approvals rolled up (11 November 2026, after #733)
+
+Asked for by the owner after reading the live instance's audit log through
+MCP: nothing recorded why a pipeline moved or stopped unless the person pressed
+a button, and every YOLO approval wrote its own row (about 340 rows in 29
+minutes from two sessions).
+
+### What the live read showed (dev.reet.sh, read only)
+
+- Three outcomes, one pipeline each, all on PROD_Snicket with OpenCode. The
+  first (`358303b0…`, ordinary approvals) was moved on by the person at plan,
+  design and code; the agent had been idle for hours with three questions
+  open, and Gaffer's reviews kept asking for the plan rather than handing
+  over. The two later ones (YOLO, after the stage-instruction rewrite) were
+  handed over by Gaffer itself: plan and design inside four minutes, code in
+  under half an hour.
+- **A move made from the chat was not audited.** Three stages were moved on by
+  the person, two `gaffer-pipeline-moved-on` rows existed: the route records
+  the button, `move_on` in the chat recorded nothing. Fixed here.
+- No stage carried `agent_tokens`, `context_used` or `context_size`.
+
+### Contract
+
+- **Hook.** `gaffer.AuditFunc` and `Service.SetAudit` (`internal/gaffer/audit.go`),
+  held in an `atomic.Pointer` so it is safe to call with or without the
+  service lock. The API installs `s.event(uid, "gaffer", action, "", detail)`.
+  The gaffer package still has no dependency on the API. It only records; it
+  gives Gaffer no new ability.
+- **Events**, all source `gaffer`:
+  - `gaffer-stage-handed-over {outcome, pipeline, stage, by, session, reviews,
+    reason}` from `stageHandedOver`, which now takes `by`: `gaffer` (a review
+    called `hand_over`), `person` (`MovePipelineOn`: the button and MCP) or
+    `chat` (`move_on` in the session's chat). The route's own
+    `gaffer-pipeline-moved-on` (source `ui`/`mcp`) is unchanged, so a button
+    press writes both.
+  - `gaffer-stage-started`, `gaffer-pipeline-waiting-merge`,
+    `gaffer-pipeline-done`, `gaffer-pipeline-stopped` `{outcome, pipeline,
+    stage, state, reason, session}` from `auditPipeline`, called wherever
+    `advancePipeline` and `runOutcomeSession` leave a pipeline `following`,
+    `ready_to_merge`, `done`, `unfollowed` or `failed`. `starting` and
+    `advancing` are not recorded. `reason` is the pipeline's note.
+  - `gaffer-goal-needs-you`, `gaffer-goal-limit` `{conversation, session, goal,
+    reason}` plus `{outcome, pipeline, stage}` when the goal is a pipeline
+    stage's (`pipelineOf`): from `reviewGoal`'s `observe`, from the end of a
+    hold, and after a review turn when `FinishGafferGoal` leaves the goal in
+    either state. `gaffer-goal-held` once when a hold begins (not at the
+    15-second rechecks) and `gaffer-goal-released` when it ends by itself.
+  - Every event is written only after the store accepted the change.
+- **Reasons are the controller's own words.** Handover summaries and review
+  text are session-derived and are returned over MCP only to a management
+  connection; `reet_list_events` is open to a read connection, so none of that
+  text goes into an event. A test asserts it.
+- **YOLO roll-up** (`internal/terminalbroker/yolo_audit.go`). `publishChat`
+  calls `auditYoloAllow`; the first approval of a turn inserts the
+  `yolo-allow` row (`AddEventIDFor`) and each later one updates its detail
+  (`UpdateEventDetailFor`): `{machine, tool, session, count, permission,
+  lastPermission, from, to}`. Nothing is buffered, so a crash loses no
+  approval. The row closes on the chat's next `user` event or `idle` status,
+  after ten minutes (`yoloRollupWindow`), or when the chat closes. If the
+  update fails the approval is written as a row of its own. Rows written
+  before this have no `count` and read as one.
+- **MCP.** `reet_list_events` `source` accepts `gaffer` and `machine`
+  (the controller already filtered on any source). No new tool: 48 definitions.
+- **Browser.** `events.ts` has sentences for all of the above and for
+  `gaffer-pipeline-moved-on`, which fell through to "… a skill"; they file
+  under Agents.
+
+### Validation
+
+`internal/gaffer/audit_test.go`: a pipeline's whole history in order through a
+Gaffer hand-over, a person's move and the merge wait, with outcome, pipeline
+and reason on every row and no handover text; a stage that cannot start; a hold
+recorded once across three looks, its release, and a needs-you with its reason,
+with no model request. The chat move-on test asserts `by: chat`.
+`internal/terminalbroker/yolo_audit_test.go`: seven approvals across two YOLO
+chats, a refusal and a non-YOLO chat become four rows whose counts add to
+seven; a new turn and the window each start a row; a closed chat keeps nothing.
+`events.test.mjs` covers the sentences. Synthetic only.
+
+### Limits
+
+- **Not run against a real agent or the owner's instance.** Whether OpenCode's
+  chat emits `idle` between turns as the fake does decides whether rows are
+  per turn or per ten minutes; either way the count is right.
+- A goal left needing the person by `FinishGafferGoal` is covered by code but
+  has no test of its own.
+- The controller's reason says a stage was handed over, not why Gaffer judged
+  it done. That judgement is the handover note on the stage.
+- Roll-up state is in memory: after a controller restart the next approval
+  starts a new row even mid-turn.
+- `scan` still writes two rows a minute; not touched.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

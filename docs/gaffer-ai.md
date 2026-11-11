@@ -312,6 +312,38 @@ Budgets are per stage: each stage gets the outcome's review budget and hours
 afresh, and the page shows what is left of the stage in hand. A stage that uses
 its budget stops and waits for you.
 
+### Why a pipeline moved or stopped
+
+The activity log keeps a history of what happened to a pipeline without you, so
+you can see afterwards why it moved on or why it stopped. These are recorded
+under the source `gaffer`, each with the outcome, the pipeline, the stage and a
+reason in the controller's own words:
+
+| Action | When |
+| --- | --- |
+| `gaffer-stage-handed-over` | A stage ended. `by` is `gaffer` (its review found the stage done), `person` (**Move to next stage**, or MCP) or `chat` (you told Gaffer to continue in the session's chat). |
+| `gaffer-stage-started` | The controller started the next stage, in the same session or a new one. |
+| `gaffer-pipeline-waiting-merge` | Every stage before the merge is done and the merge waits for you. |
+| `gaffer-pipeline-done` | Every stage is done. |
+| `gaffer-pipeline-stopped` | A stage could not be started or followed; the reason says why. |
+| `gaffer-goal-needs-you` | The stage's goal went to **Needs you**: Gaffer's review asked for your decision, a review failed, the session ended, access changed, or an instruction's delivery could not be confirmed. |
+| `gaffer-goal-held` | The working agent is waiting for your answer or approval, so Gaffer waits too. Recorded once, not at every look. |
+| `gaffer-goal-released` | You answered the agent and Gaffer is following again. |
+| `gaffer-goal-limit` | The stage's review budget or time ran out. |
+
+The same goal events are recorded for a session Gaffer looks after outside the
+Factory, without the outcome, pipeline and stage. The reason is never Gaffer's
+or the agent's own text: handover notes and reviews stay on the pipeline, where
+only you and a management MCP connection can read them. What you do yourself
+(approve an outcome, move a pipeline on, approve a merge) is recorded as
+before, under your own name.
+
+On a YOLO outcome the approvals the agent was given automatically are recorded
+as `yolo-allow`: one row for each turn of a session, with the number of
+requests allowed, the first and last request and the time they span. A turn
+longer than ten minutes starts another row. Every approval is counted and saved
+as it happens.
+
 ### Ask Gaffer about the whole outcome
 
 **Ask Gaffer for a report** on an outcome is one model request to that outcome's

@@ -166,7 +166,7 @@ func (s *Service) answerRounds(ctx context.Context, job *chatJob, c store.Gaffer
 			}
 			// Done now, on the person's word, so the reply reports what happened.
 			result := "The pipeline has moved on. The controller is starting its next stage."
-			if err := s.movePipelineOn(job.uid, c.ID, note); err != nil {
+			if err := s.movePipelineOn(job.uid, c.ID, note, "chat"); err != nil {
 				result = "The pipeline was not moved on: " + err.Error()
 			}
 			messages = append(messages, elicore.Message{Role: elicore.RoleAssistant, ToolCalls: calls}, elicore.Message{Role: elicore.RoleTool, ToolCallID: calls[0].ID, Content: result})

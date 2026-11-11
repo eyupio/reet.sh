@@ -486,7 +486,14 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 	}
 	_ = s.store.UpdateGafferTurnFor(job.uid, turn)
 	if job.goalID != "" {
-		_ = s.store.FinishGafferGoal(job.uid, c.ID, job.goalID, job.goalRevision, turn.ID)
+		if s.store.FinishGafferGoal(job.uid, c.ID, job.goalID, job.goalRevision, turn.ID) == nil {
+			// A review that leaves the goal needing the person, or out of time, is why a pipeline stops.
+			if g, err := s.store.GafferGoalFor(job.uid, c.ID); err == nil && g.ID == job.goalID {
+				if action := goalStateAction(g.State); action != "" {
+					s.auditGoal(g, action, g.Note)
+				}
+			}
+		}
 	}
 	handover := ""
 	if job.stage && turn.State == "completed" {
@@ -495,7 +502,7 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 	delete(s.chatJobs, c.ID)
 	s.mu.Unlock()
 	if handover != "" {
-		s.stageHandedOver(job.uid, c.ID, handover)
+		s.stageHandedOver(job.uid, c.ID, handover, "gaffer")
 	}
 	stop()
 	job.cancel(nil)

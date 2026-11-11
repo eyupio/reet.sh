@@ -293,14 +293,20 @@ func (s *Service) reviewHeldGoal(ctx context.Context, g store.GafferGoal) {
 			_ = s.store.HoldGafferGoalForWorker(g, note, time.Now().Add(heldGoalRecheck).UnixMilli())
 		}
 	}
+	// The hold ends without the goal carrying on: it now simply needs the person.
+	end := func(note string) {
+		if s.store.EndGafferGoalHold(g, note) == nil {
+			s.auditGoal(g, "gaffer-goal-needs-you", note)
+		}
+	}
 	if g.ExpiresAt <= time.Now().UnixMilli() {
-		_ = s.store.EndGafferGoalHold(g, "The follow-up time limit was reached while the working model waited for you. Review or start a new budget.")
+		end("The follow-up time limit was reached while the working model waited for you. Review or start a new budget.")
 		return
 	}
 	// Access is checked as for any goal on the first review after the release.
 	row, err := s.store.TerminalSessionFor(g.OwnerID, g.SessionID)
 	if err != nil || row.State != terminalproto.Running {
-		_ = s.store.EndGafferGoalHold(g, "The working session has ended or is unavailable. Review its outcome before choosing further work.")
+		end("The working session has ended or is unavailable. Review its outcome before choosing further work.")
 		return
 	}
 	if s.worker == nil || s.workerEnabled != nil && !s.workerEnabled() {
@@ -322,6 +328,7 @@ func (s *Service) reviewHeldGoal(ctx context.Context, g store.GafferGoal) {
 		hold(g.Note)
 		return
 	}
+	s.auditGoal(g, "gaffer-goal-released", "The working model is no longer waiting for the person. Gaffer is following again.")
 	s.wakeGoals()
 }
 
@@ -333,7 +340,12 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 		if ctx.Err() != nil {
 			return
 		}
-		_ = s.store.ObserveGafferGoal(g, state, note, time.Now().Add(delay).UnixMilli())
+		if s.store.ObserveGafferGoal(g, state, note, time.Now().Add(delay).UnixMilli()) == nil {
+			// Only a goal that stops being followed is recorded, not each look at an active one.
+			if action := goalStateAction(state); action != "" {
+				s.auditGoal(g, action, note)
+			}
+		}
 	}
 	if g.State == "needs_user" {
 		s.reviewHeldGoal(ctx, g)
@@ -402,7 +414,9 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 	if status.Controls.Waiting {
 		// Only the person can answer. The goal needs them until they have, and
 		// then carries on by itself: their answer is all it was waiting for.
-		_ = s.store.HoldGafferGoalForWorker(g, workerWaitingNote, time.Now().Add(heldGoalRecheck).UnixMilli())
+		if s.store.HoldGafferGoalForWorker(g, workerWaitingNote, time.Now().Add(heldGoalRecheck).UnixMilli()) == nil {
+			s.auditGoal(g, "gaffer-goal-held", workerWaitingNote)
+		}
 		return
 	}
 	if status.Controls.Working || status.Controls.Configuring || status.Controls.Compacting {

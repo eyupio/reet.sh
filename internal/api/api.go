@@ -363,6 +363,10 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s.terminals.SetWorkerMessagingPolicy(s.terminalEnabled)
 	s.gafferProviders.SetWorker(s.terminals, s.terminalEnabled)
 	s.gafferProviders.SetSessionStarter(outcomeStarter{s})
+	// What Gaffer and the controller do by themselves is in the activity log too, under its own source.
+	s.gafferProviders.SetAudit(func(uid int64, action string, detail map[string]any) {
+		s.event(uid, "gaffer", action, "", detail)
+	})
 	s.gafferProviders.StartGoalSupervisor()
 	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
 	s.terminals.OnSessionClosed(s.onSessionClosed)

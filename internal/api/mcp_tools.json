@@ -5846,7 +5846,7 @@
   {
     "name": "reet_list_events",
     "title": "Read shelf activity",
-    "description": "Read audit events with optional skill, action and source filters. Use before to page older and after to page newer; follow has_more. source=mcp shows changes made by MCP clients, with the client name in detail. Does not change anything. Returns {data: object} as structured content and text.",
+    "description": "Read audit events with optional skill, action and source filters. Use before to page older and after to page newer; follow has_more. source=mcp shows changes made by MCP clients, with the client name in detail. source=gaffer shows what Gaffer and the controller did to Factory pipelines and goals by themselves (stages handed over and started, goals that need the person, were held or released), each with its outcome, pipeline, stage and reason. source=machine shows session events such as yolo-allow, one row per turn with a count of the requests YOLO allowed. Does not change anything. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -5875,7 +5875,9 @@
             "ui",
             "mcp",
             "scan",
-            "import"
+            "import",
+            "gaffer",
+            "machine"
           ]
         },
         "before": {

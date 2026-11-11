@@ -5,6 +5,14 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- When a sync stops because a machine already has a skill from somewhere else,
+  the Sync activity panel that slides up now offers **Auto fix** itself. It
+  used to describe the fix and offer only a link to another page. The first
+  press shows what would change; **Auto fix & sync** then keeps the copy on the
+  machine, points the sync plan at it and syncs again, changing no files on the
+  machine. The message is in plain words: which skill, which machine, and that
+  reet did not overwrite the copy there. Browser-only.
+
 - Factory: a pipeline that **needs you** now says why in one sentence, shows
   Gaffer's review, and asks "What do you want to do?" with buttons for the
   things you can do (have Gaffer look again, tell the agent, move on, open the

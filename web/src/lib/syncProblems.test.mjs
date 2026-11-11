@@ -70,7 +70,11 @@ test('a shared-agent source conflict offers the installed-source auto fix', () =
   assert.equal(problem.kind, 'source')
   assert.equal(problem.autoFix, true)
   assert.equal(problem.retry, false)
-  assert.match(problem.detail, /follows the source already on the machine/i)
+  assert.match(problem.detail, /already has a copy of reet-api-design that came from somewhere else, in Claude Code, so reet did not overwrite it\. Auto fix keeps that copy/)
+  assert.doesNotMatch(problem.detail, /resolve it before syncing|is shared with/)
+  // The shared folder is named in words, and an unparsed message still ends its sentence before the next one starts.
+  assert.match(explainSyncFailure('reet-babysit is shared with agents from a different source; resolve it before syncing', context).detail, /in the shared skills folder/)
+  assert.match(explainSyncFailure('source conflict for improve-animations; inspect its local lock file before syncing', context).detail, /before syncing\. Auto fix keeps/)
 
   const unknown = explainSyncFailure('improve-animations is a local-only skill; back it up and remove it manually before mirroring', context)
   assert.equal(unknown.autoFix, false)

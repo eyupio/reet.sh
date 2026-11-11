@@ -78,6 +78,20 @@ export function offersDedupe(message: string): boolean {
   return duplicateName.test(message ?? '')
 }
 
+const sharedWith = /^(.+?) is shared with (.+?) from a different source/i
+const folderOwner: Record<string, string> = { agents: 'the shared skills folder', claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' }
+
+/**
+ * The machine's own words for this are "X is shared with agents from a different source; resolve it before syncing",
+ * which names an internal folder and gives an order with no way to follow it. Say what is there instead.
+ */
+function sourceConflictSentence(text: string, host: string): string {
+  const found = sharedWith.exec(text)
+  if (!found) return /[.!?]$/.test(text) ? text : `${text}.`
+  const where = folderOwner[found[2].trim().toLowerCase()] ?? found[2].trim()
+  return `${host === 'the machine' ? 'The machine' : host} already has a copy of ${found[1].trim()} that came from somewhere else, in ${where}, so reet did not overwrite it.`
+}
+
 /** True when Reet can follow the source already installed on the machine. */
 export function offersSourceFix(message: string): boolean {
   return sharedAgentSource.test(message ?? '')
@@ -231,7 +245,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
       kind: 'source',
       title: autoFix ? 'This skill is installed from a different source' : 'This skill needs a source decision',
       detail: autoFix
-        ? `${text} Auto fix follows the source already on the machine, then syncs again. No installed files are changed.`
+        ? `${sourceConflictSentence(text, host)} Auto fix keeps that copy and points the sync plan at it, then syncs again. No files on the machine are changed.`
         : `${text} Link the skill to a source, or move the other copy aside, then retry.`,
       commands: [],
       retry: false,

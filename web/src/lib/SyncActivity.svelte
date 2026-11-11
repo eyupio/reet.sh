@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getSyncState, queueSyncJob, updateSyncAgent, type SyncJob, type SyncState } from './api'
+  import { getSyncState, queueSyncJob, resolveSyncSourceConflicts, startSyncRun, updateSyncAgent, type SyncJob, type SyncSourceFix, type SyncState } from './api'
   import { agentOnline, groupLabel } from './machines'
   import { activeJobKindLabel, agoLabel, jobPlanCounts, syncJobStages } from './syncOverview'
   import SyncProblem from './SyncProblem.svelte'
@@ -33,6 +33,10 @@
   let wasLive = $state(false)
   let finishedAt = $state(0)
   let retrying = $state('')
+  // Auto fix is two steps: read what would change, then change it once the person agrees.
+  let fixing = $state('')
+  let fixPlan = $state<{ jobId: string; changes: SyncSourceFix[] } | null>(null)
+  let fixNote = $state<Record<string, string>>({})
 
   const sync = $derived(local ?? snapshot)
   const host = $derived((context?.host ?? '').toLowerCase())
@@ -166,6 +170,34 @@
     onclose?.()
   }
 
+  // The same fix Advanced sync offers: follow the copy already on the machine, then sync again. Nothing on the machine
+  // is changed. The first press only reads what would change.
+  async function prepareFix(job: SyncJob) {
+    if (fixing || !canWrite || !job.targetId) return
+    fixing = job.id; fixNote = { ...fixNote, [job.id]: '' }
+    try {
+      const preview = await resolveSyncSourceConflicts([job.targetId], false)
+      if (preview.changes.length) fixPlan = { jobId: job.id, changes: preview.changes }
+      else fixNote = { ...fixNote, [job.id]: 'There is nothing left to fix here. Sync again to check.' }
+    } catch (e) {
+      fixNote = { ...fixNote, [job.id]: e instanceof Error ? e.message : String(e) }
+    } finally { fixing = '' }
+  }
+  async function applyFix(job: SyncJob) {
+    if (fixing || !canWrite || !job.targetId) return
+    fixing = job.id
+    try {
+      await resolveSyncSourceConflicts([job.targetId], true)
+      const next = onlineFor(job.agentId) ? await startSyncRun(job.agentId, [job.targetId]) : await getSyncState()
+      fixPlan = null
+      local = next
+      error = ''
+      onupdate?.(next)
+    } catch (e) {
+      fixNote = { ...fixNote, [job.id]: e instanceof Error ? e.message : String(e) }
+    } finally { fixing = '' }
+  }
+
   // A fresh scan or preview is the only retry offered: an old approved plan is
   // never replayed from the dock.
   async function retry(job: SyncJob) {
@@ -286,7 +318,18 @@
             {#if job.message}
               {#if job.status === 'failed' || job.status === 'rolled_back'}
                 <SyncProblem message={job.message} host={hostFor(job.agentId)} site={location.origin} compact online={onlineFor(job.agentId)}
-                  retrying={retrying === job.id} onretry={canWrite ? () => void retry(job) : undefined} />
+                  retrying={retrying === job.id} onretry={canWrite ? () => void retry(job) : undefined}
+                  fixing={fixing === job.id} onfix={canWrite && job.targetId && fixPlan?.jobId !== job.id ? () => void prepareFix(job) : undefined} />
+                {#if fixPlan?.jobId === job.id}
+                  <div class="fix-confirm" role="group" aria-label="Confirm auto fix">
+                    <p>Keep the copy of {fixPlan.changes.map(change => change.name).join(', ')} already on {hostFor(job.agentId)} and sync again? Nothing on the machine is changed.</p>
+                    <div class="fix-actions">
+                      <button class="btn primary" type="button" disabled={fixing === job.id} aria-busy={fixing === job.id} onclick={() => void applyFix(job)}>{fixing === job.id ? 'Fixing…' : 'Auto fix & sync'}</button>
+                      <button class="btn quiet" type="button" disabled={fixing === job.id} onclick={() => (fixPlan = null)}>Cancel</button>
+                    </div>
+                  </div>
+                {/if}
+                {#if fixNote[job.id]}<p class="job-message" role="status">{fixNote[job.id]}</p>{/if}
               {:else}
                 <p class="job-message">{job.message}</p>
               {/if}
@@ -407,4 +450,8 @@
     .working .accent, .working .spin, .steps li.active .step-dot { animation: none; }
     .track span { transition: none; }
   }
+  .fix-confirm { display: grid; gap: 8px; margin-top: 8px; }
+  .fix-confirm p { margin: 0; }
+  .fix-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .fix-actions .btn { min-height: 44px; }
 </style>

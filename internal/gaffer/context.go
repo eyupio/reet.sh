@@ -236,7 +236,47 @@ type ContextSnapshot struct {
 	History   *ContextHistory     `json:"history,omitempty"`
 	// Pipeline is set when the session is one stage of a Factory pipeline.
 	Pipeline *ContextPipeline `json:"pipeline,omitempty"`
-	NotRead  []string         `json:"notRead"`
+	// LatestReply is the working model's most recent reply at length, so a
+	// plan, a design or a final report can be judged from more than a fragment.
+	LatestReply *ContextReply `json:"latestReply,omitempty"`
+	NotRead     []string      `json:"notRead"`
+}
+
+// MaxLatestReplyBytes is how much of the working model's latest reply a
+// snapshot carries. History events stay short; this one item is long.
+const MaxLatestReplyBytes = 9 << 10
+
+// ContextReply is everything the working model said since it was last sent a
+// message, joined in order. When it is longer than the limit its end is kept
+// (the closing report) and StartOmitted says the beginning is missing.
+type ContextReply struct {
+	FromSeq      int64  `json:"fromSeq"`
+	ToSeq        int64  `json:"toSeq"`
+	At           int64  `json:"at"`
+	Text         string `json:"text"`
+	StartOmitted bool   `json:"startOmitted,omitempty"`
+}
+
+// latestReply reads the reply. It needs history and text sharing, like the
+// event text it repeats at greater length.
+func (s *Service) latestReply(uid int64, session string) (*ContextReply, error) {
+	parts, first, last, at, err := s.store.ContextLatestReplyFor(uid, session)
+	if err != nil || len(parts) == 0 {
+		return nil, err
+	}
+	text, _ := contextText(strings.TrimSpace(strings.Join(parts, "\n")), 1<<20)
+	if text == "" {
+		return nil, nil
+	}
+	r := &ContextReply{FromSeq: first, ToSeq: last, At: at, Text: text}
+	if len(text) > MaxLatestReplyBytes {
+		text = text[len(text)-MaxLatestReplyBytes:]
+		for !utf8.ValidString(text) {
+			text = text[1:]
+		}
+		r.Text, r.StartOmitted = text, true
+	}
+	return r, nil
 }
 
 var contextKey = regexp.MustCompile(`(?i)\b(?:sk-(?:proj-|ant-)?|github_pat_|gh[pousr]_|xox[baprs]-)[a-z0-9_-]{8,}|\bAKIA[A-Z0-9]{16}\b`)
@@ -364,6 +404,11 @@ func (s *Service) contextSnapshot(uid int64, session string, flags store.Context
 			h.Truncated = true
 		}
 		x.History = h
+		if flags.Text {
+			if x.LatestReply, err = s.latestReply(uid, session); err != nil {
+				return x, err
+			}
+		}
 		for {
 			b, err := json.Marshal(x)
 			if err != nil {

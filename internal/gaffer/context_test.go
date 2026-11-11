@@ -337,3 +337,74 @@ func TestGafferContextMasksRecognisedCredentialsAndKeepsUTF8(t *testing.T) {
 		t.Fatal("bad UTF-8 clipping", len(x), cut)
 	}
 }
+
+// A plan or design is longer than one short history event. The snapshot
+// carries the working model's latest reply at length, so the stage review can
+// read the deliverable; it needs text sharing, is scrubbed and bounded, and
+// holds only what was said since the model was last sent a message.
+func TestGafferContextCarriesTheWorkersLatestReplyAtLength(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	row := contextSessionFixture(t, st, p)
+	provider, err := s.Save(p, Input{Name: "Reply", Kind: "openai_compatible", BaseURL: "http://127.0.0.1:1", LocalOnly: true, Enabled: true, Model: "fake-model", AllowStatus: true, AllowSessions: true, AllowCode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.CreateConversation(p.UserID, ConversationInput{SessionID: row.ID, ProviderID: provider.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := "PLAN_START files to change: " + strings.Repeat("web/src/lib/Factory.svelte, ", 150) + "approach and risks. token=abcdefgh12345678 PLAN_END"
+	events := []map[string]any{
+		{"kind": "agent", "text": "OLD_TURN_TEXT from before the instruction."},
+		{"kind": "user", "text": "Write the plan."},
+		{"kind": "agent", "text": plan},
+		{"kind": "tool", "toolKind": "read", "status": "completed"},
+		{"kind": "agent", "text": "Plan written. No code changed; stopping here."},
+		{"kind": "status", "state": "idle"},
+	}
+	for i, e := range events {
+		raw, _ := json.Marshal(e)
+		if err = st.AppendTerminalChatEventFor(p.UserID, row.ID, int64(i+1), time.Now().UnixMilli(), raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	x, err := s.PreviewContext(p.UserID, "gaffer", c.Conversation.ID, row.ID, store.ContextFlags{History: true, Text: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := x.LatestReply
+	if r == nil || r.FromSeq != 3 || r.ToSeq != 5 || r.StartOmitted ||
+		!strings.Contains(r.Text, "PLAN_START") || !strings.Contains(r.Text, "PLAN_END") || !strings.HasSuffix(r.Text, "stopping here.") {
+		t.Fatalf("latest reply: %+v", r)
+	}
+	if strings.Contains(r.Text, "OLD_TURN_TEXT") || strings.Contains(r.Text, "abcdefgh12345678") {
+		t.Fatalf("an earlier turn or a credential is in the reply: %q", r.Text)
+	}
+	// The short history event alone would have cut the plan off.
+	for _, e := range x.History.Events {
+		if strings.Contains(e.Text, "PLAN_START") && strings.Contains(e.Text, "PLAN_END") {
+			t.Fatal("the history event was expected to be cut short")
+		}
+	}
+	if raw, _ := json.Marshal(x); len(raw) > MaxContextBytes {
+		t.Fatalf("snapshot is %d bytes", len(raw))
+	}
+	// Without text sharing there is no reply text at all.
+	meta, err := s.PreviewContext(p.UserID, "gaffer", c.Conversation.ID, row.ID, store.ContextFlags{History: true})
+	if err != nil || meta.LatestReply != nil {
+		t.Fatalf("metadata-only snapshot carried the reply: %+v %v", meta.LatestReply, err)
+	}
+	// A reply longer than the limit keeps its end and says the start is missing.
+	raw, _ := json.Marshal(map[string]any{"kind": "agent", "text": "LONG_START " + strings.Repeat("界", 5000) + " LONG_END"})
+	if err = st.AppendTerminalChatEventFor(p.UserID, row.ID, 7, time.Now().UnixMilli(), raw); err != nil {
+		t.Fatal(err)
+	}
+	long, err := s.PreviewContext(p.UserID, "gaffer", c.Conversation.ID, row.ID, store.ContextFlags{History: true, Text: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(long)
+	if r = long.LatestReply; r == nil || !r.StartOmitted || len(r.Text) > MaxLatestReplyBytes || !strings.HasSuffix(r.Text, "LONG_END") || strings.Contains(r.Text, "PLAN_START") || !utf8.Valid(out) || len(out) > MaxContextBytes {
+		t.Fatalf("long reply: omitted=%v len=%d snapshot=%d", r != nil && r.StartOmitted, len(r.Text), len(out))
+	}
+}

@@ -1509,3 +1509,28 @@ func (s *Store) DeleteUser(id int64) error {
 		return nil
 	})
 }
+
+// OutcomeEventsFor returns the activity recorded for one Factory outcome,
+// newest first: every event of the account whose action starts "gaffer-" and
+// whose detail names that outcome.
+func (s *Store) OutcomeEventsFor(userID int64, outcome string, limit int) ([]Event, error) {
+	if limit < 1 || limit > 200 {
+		limit = 200
+	}
+	rows, err := s.db.Query(`SELECT id,at,source,action,detail FROM events
+ WHERE user_id=? AND action LIKE 'gaffer-%' AND json_valid(detail) AND json_extract(detail,'$.outcome')=?
+ ORDER BY id DESC LIMIT ?`, userID, outcome, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Event{}
+	for rows.Next() {
+		var ev Event
+		if err = rows.Scan(&ev.ID, &ev.At, &ev.Source, &ev.Action, &ev.Detail); err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	return out, rows.Err()
+}

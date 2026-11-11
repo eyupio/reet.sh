@@ -43,6 +43,13 @@ func (s *Service) withAgentUsage(uid int64, o store.GafferOutcome) store.GafferO
 		if at >= len(piece.Stages) || piece.Stages[at].State == "done" {
 			continue
 		}
+		if piece.SessionID != "" && (piece.State == "following" || piece.State == "ready_to_merge") {
+			// What the session last reported doing, so the page can tell a
+			// busy agent from one that has gone quiet.
+			if row, err := s.store.TerminalSessionFor(uid, piece.SessionID); err == nil {
+				piece.Stages[at].AgentState, piece.Stages[at].AgentActiveAt = row.ChatStatus, row.ActivityAt
+			}
+		}
 		if used, ok := s.stageAgentUsage(uid, *piece, at); ok {
 			stage := &piece.Stages[at]
 			stage.AgentInputTokens, stage.AgentOutputTokens, stage.AgentCachedTokens, stage.AgentUsageReported = used.InputTokens, used.OutputTokens, used.CachedTokens, true

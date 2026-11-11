@@ -110,6 +110,11 @@ func TestAPipelinesMovesAreRecordedWithTheirReason(t *testing.T) {
 			t.Fatalf("session text reached the activity log: %+v", row)
 		}
 	}
+	// Each done stage keeps who closed it, so the page can mark a stage nobody reviewed.
+	final := mustOutcome(t, r, created.ID).Sessions[0].Stages
+	if final[0].ClosedBy != "gaffer" || final[1].ClosedBy != "person" || final[2].ClosedBy != "gaffer" || final[3].ClosedBy != "" {
+		t.Fatalf("closed by: %q %q %q %q", final[0].ClosedBy, final[1].ClosedBy, final[2].ClosedBy, final[3].ClosedBy)
+	}
 	last := log.all()[6]
 	if last.detail["state"] != "ready_to_merge" || !strings.Contains(fmt.Sprint(last.detail["reason"]), "Nothing merges until you approve it") {
 		t.Fatalf("merge wait: %+v", last)

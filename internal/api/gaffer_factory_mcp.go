@@ -80,6 +80,21 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 				item["in_hand"] = true
 				row["stage_in_hand"] = stage.Kind
 			}
+			if stage.StartedAt > 0 {
+				item["started_at"] = stage.StartedAt
+			}
+			if stage.EndedAt > 0 {
+				item["ended_at"] = stage.EndedAt
+			}
+			if stage.ClosedBy != "" {
+				item["closed_by"] = stage.ClosedBy
+			}
+			if stage.AgentState != "" {
+				item["agent_state"] = stage.AgentState
+			}
+			if stage.AgentActiveAt > 0 {
+				item["agent_active_at"] = stage.AgentActiveAt
+			}
 			if stage.AgentUsageReported {
 				item["agent_tokens"] = stage.AgentInputTokens + stage.AgentOutputTokens
 				if stage.AgentCachedTokens > 0 {
@@ -107,7 +122,7 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 		}
 		if piece.ConversationID != "" {
 			if g, err := s.st.GafferGoalFor(uid, piece.ConversationID); err == nil {
-				row["goal"] = map[string]any{"state": g.State, "note": g.Note, "reviews_used": g.UsedReviews, "reviews_max": g.MaxReviews, "expires_at": g.ExpiresAt, "waiting_on_agent": g.WaitingOnWorker}
+				row["goal"] = map[string]any{"state": g.State, "note": g.Note, "reviews_used": g.UsedReviews, "reviews_max": g.MaxReviews, "expires_at": g.ExpiresAt, "waiting_on_agent": g.WaitingOnWorker, "review_failed": g.ReviewFailed, "last_reviewed_at": g.LastReviewedAt}
 			}
 		}
 		pipelines = append(pipelines, row)

@@ -48,6 +48,9 @@ type GafferGoal struct {
 	// ResumedAt is when the person last resumed the goal. An idle working
 	// model is measured from then, not from a review made before the pause.
 	ResumedAt int64 `json:"resumedAt,omitempty"`
+	// ReviewFailed marks a goal that needs the person because Gaffer's own
+	// review did not complete. Resuming it tries the review again.
+	ReviewFailed bool `json:"reviewFailed,omitempty"`
 }
 
 func (s *Store) migrateGafferGoals() error {
@@ -209,6 +212,7 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 	g.PendingID = ""
 	g.Note = ""
 	g.WaitingOnWorker = false
+	g.ReviewFailed = false
 	switch action {
 	case "pause":
 		g.State = "paused"
@@ -438,7 +442,14 @@ func (s *Store) FinishGafferGoal(uid int64, c, id string, rev int64, turnID stri
 			g.Note = "The follow-up time limit was reached."
 		case t.State != "completed":
 			g.State = "needs_user"
+			g.ReviewFailed = true
 			g.Note = "The Gaffer review was interrupted, cancelled or failed. It will not be repeated automatically."
+			if reason := strings.TrimSpace(t.Error); reason != "" {
+				if len(reason) > 300 {
+					reason = strings.ToValidUTF8(reason[:300], "") + "…"
+				}
+				g.Note = "Gaffer’s review did not complete (" + t.State + "): " + reason + " It will not be repeated automatically; resume the goal to try again."
+			}
 		case t.GoalNeedsUser:
 			g.State = "needs_user"
 			g.Note = "Gaffer needs your decision. Read its latest review."

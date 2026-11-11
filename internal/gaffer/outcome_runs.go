@@ -654,6 +654,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 						continue
 					}
 					row.Stages[row.Stage].State, row.Stages[row.Stage].Summary, row.Stages[row.Stage].EndedAt = "done", clipBytes(summary, 1800), time.Now().UnixMilli()
+					row.Stages[row.Stage].ClosedBy = by
 					// What Gaffer's model used on this stage is kept with it: the next stage's goal starts its own count.
 					row.Stages[row.Stage].Reviews, row.Stages[row.Stage].InputTokens, row.Stages[row.Stage].OutputTokens, row.Stages[row.Stage].UsageReported = used.UsedReviews, used.InputTokens, used.OutputTokens, used.UsageReported
 					if agentReported {

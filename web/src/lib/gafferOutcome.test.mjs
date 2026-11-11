@@ -208,3 +208,21 @@ test('agent usage is what agents reported, split by agent, and never a made-up z
   assert.deepEqual(o.contextLeft(pieces[1].stages[0]), { text: '', low: false })
   assert.deepEqual(o.contextLeft(undefined), { text: '', low: false })
 })
+
+test('a stage the person moved on is marked, and the agent line says how long it has been quiet', () => {
+  const nodes = o.track({ state: 'following', stage: 2, stages: [
+    { kind: 'plan', tool: 'opencode', state: 'done', closedBy: 'gaffer' },
+    { kind: 'design', tool: 'opencode', state: 'done', closedBy: 'chat' },
+    { kind: 'code', tool: 'opencode', state: 'running' },
+  ] })
+  assert.deepEqual(nodes.map(node => node.moved), [false, true, false])
+  const now = 10 * 3600_000
+  assert.equal(o.ago(now - 30_000, now), 'under a minute')
+  assert.equal(o.ago(now - 7 * 60_000, now), '7 min')
+  assert.equal(o.ago(now - 95 * 60_000, now), '1 h 35 min')
+  assert.equal(o.ago(undefined, now), '')
+  assert.deepEqual(o.agentActivity({ agentState: 'working', agentActiveAt: now - 2 * 60_000 }, now), { text: 'Working · last active 2 min ago', quiet: false })
+  assert.deepEqual(o.agentActivity({ agentState: 'working', agentActiveAt: now - 20 * 60_000 }, now), { text: 'Working · last active 20 min ago', quiet: true })
+  assert.deepEqual(o.agentActivity({ agentState: 'idle', agentActiveAt: now - 60_000 }, now), { text: 'Idle · last active 1 min ago', quiet: true })
+  assert.deepEqual(o.agentActivity(undefined, now), { text: '', quiet: false })
+})

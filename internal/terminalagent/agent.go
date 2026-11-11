@@ -485,9 +485,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return terminalhost.PruneBranches(ctx, home, req, git)
 					})
 			case *terminalproto.BranchSync:
-				if !terminalproto.SupportsBranchSync(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				if !allowed(opts.Consent) {
 					reply.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesDenied}
 					return send(callCtx, reply)
@@ -1148,6 +1145,10 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.BranchPrunePlan, *terminalproto.BranchPrune:
 		if !has(terminalproto.BranchPruneFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.BranchSync:
+		if !has(terminalproto.BranchSyncFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.Models:

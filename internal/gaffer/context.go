@@ -193,7 +193,7 @@ func (s *Service) contextPipeline(uid int64, session string, flags store.Context
 					continue
 				}
 				out.Merge = "waits for the person's approval"
-				if piece.AutoMerge {
+				if MergesByItself(o, piece) {
 					out.Merge = "by itself once checks pass"
 				} else if piece.MergeApproved {
 					out.Merge = "approved by the person"

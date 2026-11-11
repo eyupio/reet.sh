@@ -429,11 +429,16 @@ func (s *Service) movePipelineOn(uid int64, conversation, note, by string) error
 
 // SetPipelineAutoMerge is the person changing whether one pipeline merges by
 // itself at its merge stage or waits for their approval.
-func (s *Service) SetPipelineAutoMerge(uid int64, id, key string, on bool) (store.GafferOutcome, error) {
+//
+// A pipeline whose agent runs on YOLO acts without approvals, so letting it
+// merge by itself as well takes the person's separate confirmation (yoloOK):
+// without it the request is refused, and such a pipeline stops at Ready to
+// merge.
+func (s *Service) SetPipelineAutoMerge(uid int64, id, key string, on, yoloOK bool) (store.GafferOutcome, error) {
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return store.GafferOutcome{}, err
 	}
-	found := false
+	found, refused := false, false
 	o, err := s.outcomeStep(uid, id, func(o *store.GafferOutcome) bool {
 		for i := range o.Sessions {
 			row := &o.Sessions[i]
@@ -441,10 +446,15 @@ func (s *Service) SetPipelineAutoMerge(uid int64, id, key string, on bool) (stor
 				continue
 			}
 			found = true
-			if row.AutoMerge == on {
+			if on && o.Yolo && !yoloOK {
+				refused = true
 				return false
 			}
-			row.AutoMerge, row.UpdatedAt = on, time.Now().UnixMilli()
+			confirmed := on && o.Yolo
+			if row.AutoMerge == on && row.YoloMergeOK == confirmed {
+				return false
+			}
+			row.AutoMerge, row.YoloMergeOK, row.UpdatedAt = on, confirmed, time.Now().UnixMilli()
 			return true
 		}
 		return false
@@ -455,7 +465,17 @@ func (s *Service) SetPipelineAutoMerge(uid int64, id, key string, on bool) (stor
 	if !found {
 		return outcomeView(o), invalid("merge", "That pipeline has no merge left to decide.")
 	}
+	if refused {
+		return outcomeView(o), invalid("merge", "This pipeline’s agent runs on YOLO. Confirm that it may also merge by itself, with nothing stopping for you between code and merge.")
+	}
 	return outcomeView(o), nil
+}
+
+// MergesByItself reports whether a pipeline goes into its merge stage without
+// the person's approval: it is set to, and where its agent runs on YOLO the
+// person confirmed that too.
+func MergesByItself(o store.GafferOutcome, row store.GafferOutcomeSession) bool {
+	return row.AutoMerge && (!o.Yolo || row.YoloMergeOK)
 }
 
 // SendPipelineBack is the person sending a pipeline back to an earlier stage,

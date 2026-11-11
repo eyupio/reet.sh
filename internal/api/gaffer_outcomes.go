@@ -241,6 +241,8 @@ func (s *server) gafferOutcomeTell(w http.ResponseWriter, r *http.Request) {
 func (s *server) gafferOutcomeAutoMerge(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		On *bool `json:"on"`
+		// YoloConfirmed is the person's separate yes for a YOLO pipeline.
+		YoloConfirmed bool `json:"yoloConfirmed"`
 	}
 	if !decodeStrictJSON(w, r, 1024, &in, "That request is invalid.") {
 		return
@@ -249,12 +251,12 @@ func (s *server) gafferOutcomeAutoMerge(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, "Say whether this pipeline merges by itself.")
 		return
 	}
-	o, err := s.gafferProviders.SetPipelineAutoMerge(s.uid(r), r.PathValue("id"), r.PathValue("key"), *in.On)
+	o, err := s.gafferProviders.SetPipelineAutoMerge(s.uid(r), r.PathValue("id"), r.PathValue("key"), *in.On, in.YoloConfirmed)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-pipeline-merge-setting", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "autoMerge": *in.On})
+	s.eventRequest(r, "gaffer-pipeline-merge-setting", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "autoMerge": *in.On, "yoloConfirmed": *in.On && in.YoloConfirmed})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }

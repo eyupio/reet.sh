@@ -108,11 +108,15 @@ type GafferOutcomeSession struct {
 	// stage in hand. WorkDir is where the first stage's session works, which
 	// later stages share. AutoMerge and MergeApproved are the person's own
 	// choices: without one of them the merge stage never starts.
-	Stages        []GafferOutcomeStage `json:"stages,omitempty"`
-	Stage         int                  `json:"stage"`
-	WorkDir       string               `json:"workDir,omitempty"`
-	AutoMerge     bool                 `json:"autoMerge,omitempty"`
-	MergeApproved bool                 `json:"mergeApproved,omitempty"`
+	Stages    []GafferOutcomeStage `json:"stages,omitempty"`
+	Stage     int                  `json:"stage"`
+	WorkDir   string               `json:"workDir,omitempty"`
+	AutoMerge bool                 `json:"autoMerge,omitempty"`
+	// YoloMergeOK is the person's separate confirmation that a pipeline whose
+	// agent runs on YOLO may also merge by itself. Without it such a pipeline
+	// stops at Ready to merge whatever AutoMerge says.
+	YoloMergeOK   bool `json:"yoloMergeOk,omitempty"`
+	MergeApproved bool `json:"mergeApproved,omitempty"`
 }
 
 type GafferOutcome struct {

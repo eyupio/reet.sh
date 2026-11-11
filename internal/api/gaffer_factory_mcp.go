@@ -109,7 +109,7 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 			}
 			if stage.Kind == "merge" {
 				row["merge"] = "waits_for_approval"
-				if piece.AutoMerge {
+				if gaffer.MergesByItself(o, piece) {
 					row["merge"] = "by_itself_when_green"
 				} else if piece.MergeApproved {
 					row["merge"] = "approved"
@@ -241,7 +241,7 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 		if mode := str("mode"); mode != "" && mode != "wait" {
 			return nil, errors.New("Over MCP a pipeline can only be made to wait for approval. Letting it merge by itself is set on the Factory page.")
 		}
-		o, err = s.gafferProviders.SetPipelineAutoMerge(uid, id, key, false)
+		o, err = s.gafferProviders.SetPipelineAutoMerge(uid, id, key, false, false)
 	case "reet_approve_pipeline_merge":
 		o, err = latest(func(revision int64) (store.GafferOutcome, error) {
 			return s.gafferProviders.ApproveMerge(uid, id, key, revision)

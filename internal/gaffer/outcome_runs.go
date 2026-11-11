@@ -741,8 +741,12 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 		return set("done", "Every stage is done. Check the result; only you mark the work complete.", nil)
 	}
 	stage := item.Stages[next]
-	if stage.Kind == "merge" && !item.AutoMerge && !item.MergeApproved {
-		return set("ready_to_merge", "Ready to merge. Nothing merges until you approve it.", func(row *store.GafferOutcomeSession) { row.Stage = next })
+	if stage.Kind == "merge" && !item.MergeApproved && !MergesByItself(o, item) {
+		note := "Ready to merge. Nothing merges until you approve it."
+		if item.AutoMerge {
+			note = "Ready to merge. This pipeline’s agent runs on YOLO, so the merge waits for you unless you confirmed it may merge by itself."
+		}
+		return set("ready_to_merge", note, func(row *store.GafferOutcomeSession) { row.Stage = next })
 	}
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return set("unfollowed", "Stopped before the "+stage.Kind+" stage: this account can no longer start sessions.", nil)

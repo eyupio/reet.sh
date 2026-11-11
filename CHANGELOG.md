@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A person-pressed model refresh asks an up-to-date machine for a fresh
+  listing instead of accepting its short cache, so the list a person sees after
+  Refresh is the list the agent reports now.
+- An agent software install started from the Software page keeps running if
+  the controller's private connection drops; a later reconcile observes the
+  version it left.
 - A staged import is checked again when the controller next starts. If the
   staged database changed, no longer passes SQLite's integrity check or is newer
   than the binary, it is moved to `pending-import.refused-<timestamp>/` with the

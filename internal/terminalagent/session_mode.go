@@ -349,9 +349,17 @@ func (s *chatSupervisor) hold(sessionID string) bool {
 func (s *chatSupervisor) unhold(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.holds[sessionID]--; s.holds[sessionID] <= 0 {
-		delete(s.holds, sessionID)
+	n, ok := s.holds[sessionID]
+	if !ok || n < 1 {
+		// hold and unhold are strictly paired internal accounting; an
+		// unmatched release is a bug that must not be absorbed silently.
+		panic("terminalagent: unhold without a matching hold")
 	}
+	if n == 1 {
+		delete(s.holds, sessionID)
+		return
+	}
+	s.holds[sessionID] = n - 1
 }
 
 // retireSwapped reports a session whose swap could not leave a process

@@ -38,6 +38,12 @@ func modelsCaps() terminalproto.Capabilities {
 	return caps
 }
 
+func modelsRefreshCaps() terminalproto.Capabilities {
+	caps := modelsCaps()
+	caps.ModelsRefresh = true
+	return caps
+}
+
 func modelsAPIFixture(t *testing.T, caps terminalproto.Capabilities) *modelsAPI {
 	t.Helper()
 	st, err := storetest.Open(t)
@@ -350,6 +356,28 @@ func TestMachineModelsRefreshOfflineKeepsTheCachedList(t *testing.T) {
 	}
 	if out["fetchedAt"] != float64(1000) {
 		t.Fatal("the last good fetchedAt was lost", raw)
+	}
+}
+
+func TestMachineModelsRefreshAsksForAFreshList(t *testing.T) {
+	f := modelsAPIFixture(t, modelsRefreshCaps())
+	if code, _, raw := f.refresh(t, f.cookie, f.agent, `{"tool":"opencode"}`); code != 200 {
+		t.Fatal(code, raw)
+	}
+	sent := f.sentRequests()
+	if len(sent) != 1 || sent[0] != (terminalproto.Models{Tool: "opencode", Refresh: true}) {
+		t.Fatal("refresh did not ask the machine for a fresh list", sent)
+	}
+}
+
+func TestMachineModelsRefreshOnAnOlderMachine(t *testing.T) {
+	f := modelsAPIFixture(t, modelsCaps())
+	if code, _, raw := f.refresh(t, f.cookie, f.agent, `{"tool":"opencode"}`); code != 200 {
+		t.Fatal(code, raw)
+	}
+	sent := f.sentRequests()
+	if len(sent) != 1 || sent[0] != (terminalproto.Models{Tool: "opencode"}) {
+		t.Fatal("refresh field sent to a machine that did not negotiate it", sent)
 	}
 }
 

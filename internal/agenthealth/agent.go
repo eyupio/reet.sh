@@ -53,6 +53,7 @@ type AgentConfig struct {
 	uploads            bool
 	uploadsAllowed     bool
 	models             bool
+	modelsRefresh      bool
 	modelsAllowed      bool
 	software           bool
 	softwareApply      bool
@@ -766,6 +767,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
+	cfg.modelsRefresh = terminalproto.SupportsModelsRefresh(advertised) && cfg.models
 	cfg.software = terminalproto.SupportsSoftware(advertised)
 	cfg.softwareApply = terminalproto.SupportsSoftwareApply(advertised)
 	cfg.acp = terminalproto.SupportsACP(advertised)
@@ -1105,6 +1107,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		UploadsOff:      cfg.uploads && control && enabled && !cfg.uploadsAllowed,
 		Models:          cfg.models && control && enabled && cfg.modelsAllowed,
 		ModelsOff:       cfg.models && control && enabled && !cfg.modelsAllowed,
+		ModelsRefresh:   cfg.models && cfg.modelsRefresh && control && enabled && cfg.modelsAllowed,
 		ACP:             acp,
 		ACPWorktree:     acp && worktree && cfg.acpWorktree,
 		ACPHistory:      acp && cfg.acpHistory,

@@ -152,6 +152,10 @@ type Capabilities struct {
 	UploadsOff  bool `json:"uploadsOff,omitempty"`
 	Models      bool `json:"models,omitempty"`
 	ModelsOff   bool `json:"modelsOff,omitempty"`
+	// ModelsRefresh is sent only on a connection that negotiated
+	// models-refresh-v1: a refresh may then ask for a listing that ignores the
+	// connector's short cache.
+	ModelsRefresh bool `json:"modelsRefresh,omitempty"`
 	// ACP is sent only on a connection that negotiated acp-v1.
 	ACP bool `json:"acp,omitempty"`
 	// ACPAgents is present only after acp-agents-v1 negotiation.
@@ -232,6 +236,9 @@ func (c Capabilities) Validate() error {
 	}
 	if c.AgentsV2 {
 		features = append(features, AgentsFeature)
+	}
+	if c.ModelsRefresh {
+		features = append(features, ModelsRefreshFeature)
 	}
 	for _, tool := range c.Tools {
 		if tool == "antigravity" {
@@ -336,7 +343,8 @@ func (c Capabilities) ValidateFor(features string) error {
 	}
 	modelRule := c.Models && !c.TerminalControl
 	modelOffRule := c.ModelsOff && (c.Models || !c.TerminalControl)
-	if modelRule || modelOffRule {
+	modelRefreshRule := c.ModelsRefresh && (!c.Models || !SupportsModelsRefresh(features))
+	if modelRule || modelOffRule || modelRefreshRule {
 		return ErrInvalid
 	}
 	acpExtras := c.ACPHistory || c.ACPImages || c.ACPApproval || c.ACPQuestions ||

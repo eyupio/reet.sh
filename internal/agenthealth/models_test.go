@@ -198,3 +198,36 @@ func TestModelsSwitchRollsBackAnInvalidCapability(t *testing.T) {
 		t.Fatal("the switch was not rolled back and retried")
 	}
 }
+
+func TestModelsRefreshCapabilityFollowsTheControllerAdvertisement(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("terminal control is Linux and macOS only")
+	}
+	factory := func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
+		return nil, func() {}
+	}
+	for _, tc := range []struct {
+		advertised string
+		models     bool
+		refresh    bool
+	}{
+		{"", false, false},
+		{terminalproto.ModelsRefreshFeature, false, false},
+		{terminalproto.ModelsFeature, true, false},
+		{terminalproto.ModelsFeature + "," + terminalproto.ModelsRefreshFeature, true, true},
+	} {
+		cfg := AgentConfig{TerminalSession: factory, TerminalEnabled: true, TerminalReadiness: terminalproto.Ready, modelsAllowed: true}
+		negotiateFeatures(&cfg, tc.advertised)
+		caps := capabilities(cfg)
+		if err := caps.Validate(); err != nil {
+			t.Fatal(tc.advertised, err)
+		}
+		if caps.Models != tc.models || caps.ModelsRefresh != tc.refresh {
+			t.Fatalf("%q: models=%v refresh=%v", tc.advertised, caps.Models, caps.ModelsRefresh)
+		}
+		data, _ := json.Marshal(caps)
+		if strings.Contains(string(data), `"modelsRefresh":`) != tc.refresh {
+			t.Fatalf("%q: encoded %s", tc.advertised, data)
+		}
+	}
+}

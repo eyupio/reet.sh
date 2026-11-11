@@ -28,6 +28,16 @@ var (
 // A refusal result is returned as an answer; the caller words and caches it.
 // Nothing is stored here.
 func (b *Broker) Models(ctx context.Context, uid int64, agentID, tool string) (terminalproto.ModelsResult, error) {
+	return b.models(ctx, uid, agentID, tool, false)
+}
+
+// ModelsRefresh is Models for a person asking now: the machine runs a fresh
+// listing instead of answering from its short cache.
+func (b *Broker) ModelsRefresh(ctx context.Context, uid int64, agentID, tool string) (terminalproto.ModelsResult, error) {
+	return b.models(ctx, uid, agentID, tool, true)
+}
+
+func (b *Broker) models(ctx context.Context, uid int64, agentID, tool string, refresh bool) (terminalproto.ModelsResult, error) {
 	if !terminalproto.ValidToolV2(tool) {
 		return terminalproto.ModelsResult{}, terminalproto.ErrInvalid
 	}
@@ -47,7 +57,11 @@ func (b *Broker) Models(ctx context.Context, uid int64, agentID, tool string) (t
 		}
 		return terminalproto.ModelsResult{}, ErrModelsUnsupported
 	}
-	body, err := p.ask(ctx, terminalproto.Models{Tool: tool}, ModelsCallTimeout)
+	// An older machine's strict decoder refuses the refresh field, so only ask
+	// a machine that advertised the capability; a refresh against one that did
+	// not is served from its short cache.
+	refresh = refresh && caps.Capabilities.ModelsRefresh
+	body, err := p.ask(ctx, terminalproto.Models{Tool: tool, Refresh: refresh}, ModelsCallTimeout)
 	if err != nil {
 		return terminalproto.ModelsResult{}, err
 	}

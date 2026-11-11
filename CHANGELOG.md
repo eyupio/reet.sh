@@ -18,6 +18,11 @@ this file existed releases were described on their GitHub release pages.
   it, it now says why and what to do instead. A finished sync lists any skill
   it left alone, and the machine shows "1 skill left alone" in place of
   "Everything in sync".
+- Gaffer settings: the list of tools Gaffer can use is quicker to set. **All
+  tools** sets every tool at once, each group has its own set-all, and each
+  tool has a small three-way control (Allow, Ask me, Off) instead of a
+  dropdown. A group that is mixed reads "Custom". Descriptions open from the
+  tool's name, and a group can be folded away.
 - Factory: a pipeline that **needs you** now says why in one sentence, shows
   Gaffer's review, and asks "What do you want to do?" with buttons for the
   things you can do (have Gaffer look again, tell the agent, move on, open the

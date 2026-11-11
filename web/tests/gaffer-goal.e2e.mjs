@@ -88,6 +88,8 @@ try{
    await goal.getByLabel('Agreed goal',{exact:true}).fill('Ensure a PR is raised. Bring decisions back to me. Do not merge.')
    await input.setInputFiles({name:'over.png',mimeType:'image/png',buffer:Buffer.alloc((5<<20)+1)})
    await expect(goal.getByText('That image is larger than 5 MiB.',{exact:true})).toBeVisible()
+   await input.setInputFiles({name:'broken.png',mimeType:'image/png',buffer:Buffer.from('not an image')})
+   await expect(goal.getByText('That image could not be read.',{exact:true})).toBeVisible();await expect(goal.locator('.chosen')).toHaveCount(0)
    await input.setInputFiles({name:'goal.png',mimeType:'image/png',buffer:PNG})
    await expect(goal.getByText('goal.png',{exact:true})).toBeVisible();await expect(goal.getByRole('button',{name:'Remove goal.png',exact:true})).toBeVisible()
    await goal.getByRole('button',{name:'Remove goal.png',exact:true}).click();await expect(goal.getByText('goal.png',{exact:true})).toHaveCount(0)

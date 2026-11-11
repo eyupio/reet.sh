@@ -2,7 +2,6 @@
   // The one image picker shared by Gaffer's goal and outcome modals. It validates, previews and
   // removes a file, but never uploads it: the two modals upload to different places at different
   // times. A parent-held File is the whole of the selection, so a closed modal leaves nothing.
-  import { onDestroy } from 'svelte'
   import { ATTACHMENT_ACCEPT, attachmentMessage, validateAttachment } from './imageAttachment'
   import { formatImageSize } from './terminal/upload'
 
@@ -28,8 +27,6 @@
     preview = url
     return () => URL.revokeObjectURL(url)
   })
-
-  onDestroy(() => { if (preview) URL.revokeObjectURL(preview) })
 
   function pick(event: Event) {
     const target = event.currentTarget as HTMLInputElement
@@ -60,12 +57,12 @@
         <span class="size">{formatImageSize(file.size)}</span>
       </div>
       <div class="chosen-actions">
-        <button type="button" class="link" disabled={disabled || busy} onclick={() => input?.click()}>Replace</button>
+        <button type="button" class="link" disabled={disabled || busy} aria-label={`Replace ${file.name}`} onclick={() => input?.click()}>Replace</button>
         <button type="button" class="link" disabled={disabled || busy} aria-label={`Remove ${file.name}`} onclick={remove}>Remove</button>
       </div>
     </div>
   {:else}
-    <button type="button" class="attach" disabled={disabled || busy} onclick={() => input?.click()}>
+    <button type="button" class="attach" disabled={disabled || busy} aria-describedby={`${id}-hint`} onclick={() => input?.click()}>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" /></svg>
       {label}
     </button>

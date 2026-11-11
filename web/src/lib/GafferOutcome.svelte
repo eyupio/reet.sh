@@ -146,7 +146,7 @@
           <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning}></textarea>
           <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
           <div class="pair">
-            <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning} onchange={clearImage}>
+            <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning}>
               <option value="">Choose a project…</option>
               {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
             </select></label>
@@ -184,7 +184,7 @@
         <div class="pair two"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours}/></label></div>
       </details>
       {#if approveBlocker}<p class="warning" role="status">{approveBlocker}</p>{/if}
-      <div class="actions"><button class="btn primary" type="button" disabled={!!approveBlocker || !(maxReviews >= 1 && maxReviews <= 48 && hours >= 1 && hours <= 168)} onclick={() => void approve()}>Approve and start {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}</button><button class="btn quiet" type="button" onclick={() => step = 'objective'}>Back</button></div>
+      <div class="actions"><button class="btn primary" type="button" disabled={busy || !!approveBlocker || !(maxReviews >= 1 && maxReviews <= 48 && hours >= 1 && hours <= 168)} onclick={() => void approve()}>Approve and start {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}</button><button class="btn quiet" type="button" onclick={() => step = 'objective'}>Back</button></div>
     {:else}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
       <p role="status" class="result-line">{done ? outcomeSummary(results) : 'Starting the approved sessions. Keep this open until each one is settled.'}</p>

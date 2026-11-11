@@ -254,6 +254,9 @@ type ACPEvent struct {
 	// the question kinds and must be absent on every other kind.
 	QuestionID string       `json:"questionId,omitempty"`
 	Question   *ACPQuestion `json:"question,omitempty"`
+	// Usage is the agent's own token and context report. It is meaningful only
+	// on the usage kind, which carries nothing else.
+	Usage *ACPUsage `json:"usage,omitempty"`
 }
 
 func (ACPEvent) kind() string { return "acp_event" }
@@ -266,6 +269,13 @@ func (e ACPEvent) valid() bool {
 		return e.Preview != nil && e.Preview.Valid() && (e.ToolCallID == "" || validACPID(e.ToolCallID)) && (e.MessageID == "" || validACPID(e.MessageID)) && e.PermissionID == "" && e.QuestionID == "" && e.Question == nil && e.Allow == nil && e.Text == ""
 	}
 	if e.Preview != nil {
+		return false
+	}
+	if e.Kind == "usage" {
+		return e.Usage != nil && e.Usage.valid() && e.MessageID == "" && e.ToolCallID == "" && e.PermissionID == "" && e.QuestionID == "" && e.Question == nil && e.Allow == nil &&
+			e.Title == "" && e.ToolKind == "" && e.Status == "" && e.State == "" && e.Text == "" && e.Command == "" && e.Path == "" && e.Diff == "" && e.Reason == "" && e.Detail == "" && len(e.Locations) == 0
+	}
+	if e.Usage != nil {
 		return false
 	}
 	switch e.Kind {

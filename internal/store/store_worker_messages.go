@@ -280,7 +280,11 @@ func (s *Store) AdmitWorkerMessageFor(uid int64, kind, subject string, m WorkerM
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if kind == "gaffer" {
+		// A message with no turn is not Gaffer's model speaking: it is the
+		// person's own instruction for a pipeline's agent, or the controller
+		// giving a stage its work. It needs the session's grant, checked
+		// above, and no running turn.
+		if kind == "gaffer" && m.TurnID != "" {
 			if m.ID != m.TurnID {
 				return ErrGafferConflict
 			}

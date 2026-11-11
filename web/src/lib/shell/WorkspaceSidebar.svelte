@@ -9,6 +9,7 @@
   } = $props()
   const icons: Record<string, string> = {
     '/': 'M3 11l9-8 9 8v10H3zM9 21v-8h6v8',
+    '/factory': 'M3 21V10l6 4V10l6 4V4h6v17zM7 17h2M12 17h2M17 17h2',
     '/sessions': 'M4 6h16M4 12h16M4 18h10',
     '/machines': 'M3 4h18v13H3zM8 21h8M12 17v4',
     '/skills': 'm12 2 2.5 7.5L22 12l-7.5 2.5L12 22l-2.5-7.5L2 12l7.5-2.5Z',

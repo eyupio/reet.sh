@@ -56,7 +56,7 @@
     <select id="bulk-stage" bind:value={stage} disabled={count === 0 || busy}>
       <option value="use">In use</option>
       <option value="try">To test</option>
-      <option value="shelf">On the shelf</option>
+      <option value="shelf">Parked</option>
     </select>
     <button type="button" class="btn quiet" onclick={() => onstage(stage)} disabled={count === 0 || busy}>Move</button>
     <button type="button" class="btn quiet" onclick={onlike} disabled={count === 0 || busy}>Like</button>

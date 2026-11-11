@@ -156,10 +156,10 @@ export const copy = {
     reet: "Start one from Home when you're ready.",
     surface: 'empty',
   },
-  'empty.skills.title': { standard: 'No skills yet.', reet: 'Nowt on the shelf yet.', surface: 'empty' },
+  'empty.skills.title': { standard: 'No skills yet.', reet: 'Nowt in your library yet.', surface: 'empty' },
   'empty.skills.body': {
     standard: 'Add your first skill to get started.',
-    reet: 'Whack your first skill on the shelf.',
+    reet: 'Whack your first skill in your library.',
     surface: 'empty',
   },
   'empty.notifications.title': {

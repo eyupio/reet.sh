@@ -72,6 +72,18 @@ test('model activity names the tool and never a host or a path', () => {
   assert.equal(eventLabel(event('model-favourite-default', { tool: 'opencode', model: '' })), 'Cleared the default model for OpenCode')
   assert.doesNotMatch(eventLabel(event('machine-models-read', { machine: 'a1', tool: 'opencode', state: 'listed', count: 2 })), /a1|studio/)
 })
+test('YOLO approvals read as one counted line per turn, and Gaffer\'s own actions say what happened and why', () => {
+  assert.equal(eventLabel(event('yolo-allow', { tool: 'opencode', count: 14 })), 'YOLO allowed 14 requests in a OpenCode session')
+  assert.equal(eventLabel(event('yolo-allow', { tool: 'opencode', count: 1 })), 'YOLO allowed a request in a OpenCode session')
+  assert.equal(eventLabel(event('yolo-allow', { tool: 'opencode' })), 'YOLO allowed a request in a OpenCode session')
+  assert.equal(eventLabel(event('gaffer-stage-handed-over', { stage: 'plan', by: 'gaffer' })), "Gaffer handed over a pipeline's plan stage")
+  assert.equal(eventLabel(event('gaffer-stage-handed-over', { stage: 'plan', by: 'person' })), 'You moved a pipeline on from its plan stage')
+  assert.equal(eventLabel(event('gaffer-stage-started', { stage: 'code' })), "A pipeline's code stage started")
+  assert.equal(eventLabel(event('gaffer-goal-needs-you', { stage: 'review', reason: 'Gaffer needs your decision. Read its latest review.' })), 'A goal needs you (review stage): Gaffer needs your decision. Read its latest review.')
+  assert.equal(eventLabel(event('gaffer-goal-held', { stage: 'code' })), 'Gaffer is waiting at the code stage while the agent waits for your answer')
+  assert.equal(eventLabel(event('gaffer-pipeline-waiting-merge', {})), 'A pipeline is ready and waits for your merge decision')
+  for (const action of ['gaffer-stage-handed-over', 'gaffer-pipeline-stopped', 'gaffer-goal-released', 'gaffer-goal-limit']) assert.equal(eventCategory(event(action)), 'agents')
+})
 test('a profile edit that names a default reads as a default change line', () => {
   assert.equal(eventLabel(event('profile', { defaultTool: 'opencode' })), 'Changed the default agent to OpenCode')
   assert.equal(eventLabel(event('profile', { defaultModel: 'opus' })), 'Changed the default model to opus')

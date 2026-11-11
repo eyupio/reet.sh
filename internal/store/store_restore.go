@@ -265,6 +265,12 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 			return out, err
 		}
 	}
+	// An outcome still starting sessions in the copy must not start them again here.
+	if tableExists(ctx, tx, "gaffer_outcomes") {
+		if _, err = exec("gaffer_outcomes", `UPDATE gaffer_outcomes SET data=json_set(data,'$.state','stopped','$.revision',json_extract(data,'$.revision')+1,'$.note','This controller was restored from a copy, so the sessions not yet started were left unstarted.') WHERE json_extract(data,'$.state')='starting'`); err != nil {
+			return out, err
+		}
+	}
 	if opts.DropSessions {
 		if out.SessionsEnded, err = exec("sessions", `DELETE FROM sessions`); err != nil {
 			return out, err

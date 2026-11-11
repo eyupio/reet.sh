@@ -395,8 +395,8 @@ try{
   await expect(card('lathe')).toContainText('Just added')
   // The next step is named, and its button is the card's main action while it is highlighted.
   await expect(card('lathe')).toContainText('choose its skills next')
-  await expect(card('lathe').getByRole('button',{name:'Choose skills',exact:true})).toHaveClass(/primary/)
-  await expect(card('workstation').getByRole('button',{name:'Choose skills',exact:true})).not.toHaveClass(/primary/)
+  await expect(card('lathe').getByRole('button',{name:'Skills on this machine',exact:true})).toHaveClass(/primary/)
+  await expect(card('workstation').getByRole('button',{name:'Skills on this machine',exact:true})).not.toHaveClass(/primary/)
   await expect(card('workstation')).not.toHaveClass(/just-added/)
   expect(await page.evaluate(()=>window.__scrolled)).toContain('machine-lathe')
   await quiet()

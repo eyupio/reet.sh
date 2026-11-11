@@ -443,7 +443,7 @@
 <dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); close() }} aria-labelledby={titleId}>
  <header data-shell-head>
   <div>
-   <p class="eyebrow" data-shell-aside>{environment ? `${groupLabel(environment)}${environment.project ? '' : ' · Home'}` : 'Your private toolkit'}</p>
+   <p class="eyebrow" data-shell-aside>{environment ? `${groupLabel(environment)}${environment.project ? '' : ' · Home'}` : 'Your library'}</p>
    <h2 id={titleId} tabindex="-1" bind:this={titleEl}>Private skills on {environment?.host ?? 'this machine'}</h2>
   </div>
   <button type="button" class="btn" onclick={close} aria-label="Close private skills" data-shell-close>Close ×</button>

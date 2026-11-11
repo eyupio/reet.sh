@@ -131,16 +131,21 @@ html[data-gaffer-anchor]{--gaffer-reserve:112px}
 @media(max-width:767px){html[data-gaffer-anchor]{--gaffer-reserve:calc(60px + max(8px,env(safe-area-inset-bottom,0px)))}}
 html[data-gaffer-anchor][data-gaffer-editing]{--gaffer-reserve:0px}
 /* The workspace keeps its full width: Gaffer floats over its corner rather than
-   reserving a column beside it. On a short landscape phone the corner is given
-   to the worker instead. */
-@media(min-width:768px),(max-height:500px) and (pointer:coarse) and (orientation:landscape){
+   reserving a column beside it. */
+@media(min-width:768px){
   html[data-gaffer-anchor]:has([aria-label="Remote terminal workspace"]){--gaffer-reserve:0px}
 }
 /* With the session workspace open, its own "Ask Gaffer" control is the entry point;
    the floating circle would sit on the panel's footer. */
 html:has(.context-docked) .gaffer-launcher,
 html:has(.context-sheet) .gaffer-launcher{display:none}
-@media(max-width:767px) and (max-height:500px){
+@media(max-width:767px){
+  /* A chat's composer leaves no corner: the floating circle would hover over the conversation. The chat's own
+     status row carries the same entry instead, so the phone keeps one tap to Gaffer and the log stays clear. */
+  html[data-gaffer-anchor]:has(.chat-pane){--gaffer-reserve:0px}
+  html:has(.chat-pane) .gaffer-launcher{display:none}
+}
+@media(max-width:767px) and (max-height:500px) and (pointer:coarse) and (orientation:landscape){
   html[data-gaffer-anchor]:has([aria-label="Remote terminal workspace"]){--gaffer-reserve:0px}
   html:has([aria-label="Remote terminal workspace"]) .gaffer-launcher{display:none}
 }

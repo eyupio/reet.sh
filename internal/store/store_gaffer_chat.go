@@ -55,6 +55,25 @@ type GafferTurn struct {
 	StartedAt           int64       `json:"startedAt"`
 	UpdatedAt           int64       `json:"updatedAt"`
 	FinishedAt          int64       `json:"finishedAt"`
+	// Tools are the reet tools Gaffer used or asked to use in this turn, in
+	// order. One whose mode is "ask" waits as pending for the person.
+	Tools []GafferTurnTool `json:"tools,omitempty"`
+}
+
+// MaxGafferToolResultBytes bounds what a turn keeps of one tool's answer.
+const MaxGafferToolResultBytes = 6 << 10
+
+// GafferTurnTool is one call of a reet tool by Gaffer. Args is the exact
+// JSON the call was made, or will be made, with. State is "ran", "failed",
+// "pending" (waiting for the person), "declined" or "expired".
+type GafferTurnTool struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Args   string `json:"args"`
+	Mode   string `json:"mode"`
+	State  string `json:"state"`
+	Result string `json:"result,omitempty"`
+	At     int64  `json:"at"`
 }
 
 func validGafferID(id string) bool {
@@ -83,12 +102,15 @@ func (s *Store) migrateGafferChats() error {
  usage_reported INTEGER NOT NULL DEFAULT 0,cut INTEGER NOT NULL DEFAULT 0,
  started_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,finished_at INTEGER NOT NULL DEFAULT 0,
  PRIMARY KEY(conversation_id,id));
- CREATE UNIQUE INDEX IF NOT EXISTS gaffer_one_running_turn ON gaffer_turns(conversation_id) WHERE state='running';`)
+ CREATE UNIQUE INDEX IF NOT EXISTS gaffer_one_running_turn ON gaffer_turns(conversation_id) WHERE state='running';
+ CREATE TABLE IF NOT EXISTS gaffer_tool_modes (
+ user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,tool TEXT NOT NULL,mode TEXT NOT NULL,updated_at INTEGER NOT NULL,
+ PRIMARY KEY(user_id,tool));`)
 	return err
 }
 
 const gafferConversationColumns = `id,user_id,session_id,provider_id,model,revision,created_at,updated_at`
-const gafferTurnColumns = `id,conversation_id,request_revision,prompt,answer,state,provider_id,provider_name,model,error,input_tokens,output_tokens,usage_reported,cut,started_at,updated_at,finished_at,context_json,worker_grant_revision,goal_id,goal_revision,goal_needs_user`
+const gafferTurnColumns = `id,conversation_id,request_revision,prompt,answer,state,provider_id,provider_name,model,error,input_tokens,output_tokens,usage_reported,cut,started_at,updated_at,finished_at,context_json,worker_grant_revision,goal_id,goal_revision,goal_needs_user,tools_json`
 
 func scanGafferConversation(row interface{ Scan(...any) error }) (GafferConversation, error) {
 	var c GafferConversation
@@ -100,10 +122,13 @@ func scanGafferConversation(row interface{ Scan(...any) error }) (GafferConversa
 }
 func scanGafferTurn(row interface{ Scan(...any) error }) (GafferTurn, error) {
 	var t GafferTurn
-	var contextJSON string
-	err := row.Scan(&t.ID, &t.ConversationID, &t.RequestRevision, &t.Prompt, &t.Answer, &t.State, &t.ProviderID, &t.ProviderName, &t.Model, &t.Error, &t.InputTokens, &t.OutputTokens, &t.UsageReported, &t.Cut, &t.StartedAt, &t.UpdatedAt, &t.FinishedAt, &contextJSON, &t.WorkerGrantRevision, &t.GoalID, &t.GoalRevision, &t.GoalNeedsUser)
+	var contextJSON, toolsJSON string
+	err := row.Scan(&t.ID, &t.ConversationID, &t.RequestRevision, &t.Prompt, &t.Answer, &t.State, &t.ProviderID, &t.ProviderName, &t.Model, &t.Error, &t.InputTokens, &t.OutputTokens, &t.UsageReported, &t.Cut, &t.StartedAt, &t.UpdatedAt, &t.FinishedAt, &contextJSON, &t.WorkerGrantRevision, &t.GoalID, &t.GoalRevision, &t.GoalNeedsUser, &toolsJSON)
 	if err == nil && contextJSON != "" {
 		err = json.Unmarshal([]byte(contextJSON), &t.Context)
+	}
+	if err == nil && toolsJSON != "" {
+		err = json.Unmarshal([]byte(toolsJSON), &t.Tools)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
@@ -306,7 +331,11 @@ func (s *Store) UpdateGafferTurnFor(uid int64, t GafferTurn) error {
 		if t.State != "running" {
 			finished = at
 		}
-		r, err := tx.Exec(`UPDATE gaffer_turns SET answer=?,state=?,error=?,input_tokens=?,output_tokens=?,usage_reported=?,cut=?,updated_at=?,finished_at=?,goal_needs_user=? WHERE conversation_id=? AND id=? AND state='running'`, t.Answer, t.State, t.Error, t.InputTokens, t.OutputTokens, t.UsageReported, t.Cut, at, finished, t.GoalNeedsUser, t.ConversationID, t.ID)
+		toolsJSON, err := gafferToolsJSON(t.Tools)
+		if err != nil {
+			return err
+		}
+		r, err := tx.Exec(`UPDATE gaffer_turns SET answer=?,state=?,error=?,input_tokens=?,output_tokens=?,usage_reported=?,cut=?,updated_at=?,finished_at=?,goal_needs_user=?,tools_json=? WHERE conversation_id=? AND id=? AND state='running'`, t.Answer, t.State, t.Error, t.InputTokens, t.OutputTokens, t.UsageReported, t.Cut, at, finished, t.GoalNeedsUser, toolsJSON, t.ConversationID, t.ID)
 		if err != nil {
 			return err
 		}
@@ -351,5 +380,108 @@ func (s *Store) RecoverGafferTurns() error {
 		}
 		_, err := tx.Exec(`UPDATE gaffer_turns SET state='interrupted',error='The controller stopped before this answer finished. It was not sent again.',updated_at=?,finished_at=? WHERE state='running'`, at, at)
 		return err
+	})
+}
+
+func gafferToolsJSON(tools []GafferTurnTool) (string, error) {
+	if len(tools) == 0 {
+		return "", nil
+	}
+	if len(tools) > 16 {
+		return "", ErrGafferConflict
+	}
+	for i := range tools {
+		if len(tools[i].Result) > MaxGafferToolResultBytes {
+			tools[i].Result = strings.ToValidUTF8(tools[i].Result[:MaxGafferToolResultBytes], "") + "…"
+		}
+	}
+	raw, err := json.Marshal(tools)
+	return string(raw), err
+}
+
+// PendingGafferTurnToolFor returns the tool call of a finished turn that
+// still waits for the person's answer.
+func (s *Store) PendingGafferTurnToolFor(uid int64, conversation, turn, tool string) (GafferTurnTool, error) {
+	t, err := s.GafferTurnFor(uid, conversation, turn)
+	if err != nil {
+		return GafferTurnTool{}, err
+	}
+	for _, item := range t.Tools {
+		if item.ID == tool && item.State == "pending" && t.State != "running" {
+			return item, nil
+		}
+	}
+	return GafferTurnTool{}, ErrGafferConflict
+}
+
+// ResolveGafferTurnToolFor records what became of a pending tool call: it is
+// taken from pending exactly once, so an approval cannot run a call twice.
+// claim moves it to "approved" before the call is made; the result follows.
+func (s *Store) ResolveGafferTurnToolFor(uid int64, conversation, turn, tool, from, state, result string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := scanGafferConversation(tx.QueryRow(`SELECT `+gafferConversationColumns+` FROM gaffer_conversations WHERE user_id=? AND id=?`, uid, conversation)); err != nil {
+			return err
+		}
+		t, err := scanGafferTurn(tx.QueryRow(`SELECT `+gafferTurnColumns+` FROM gaffer_turns WHERE conversation_id=? AND id=?`, conversation, turn))
+		if err != nil {
+			return err
+		}
+		found := false
+		for i := range t.Tools {
+			if t.Tools[i].ID == tool && t.Tools[i].State == from && t.State != "running" {
+				t.Tools[i].State, t.Tools[i].Result, t.Tools[i].At = state, result, now()
+				found = true
+			}
+		}
+		if !found {
+			return ErrGafferConflict
+		}
+		raw, err := gafferToolsJSON(t.Tools)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`UPDATE gaffer_turns SET tools_json=?,updated_at=? WHERE conversation_id=? AND id=?`, raw, now(), conversation, turn); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`UPDATE gaffer_conversations SET revision=revision+1,updated_at=? WHERE id=?`, now(), conversation)
+		return err
+	})
+}
+
+// GafferToolModesFor returns the reet tools the person let Gaffer use: tool
+// name to "ask" or "allow". A tool that is not listed is off.
+func (s *Store) GafferToolModesFor(uid int64) (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT tool,mode FROM gaffer_tool_modes WHERE user_id=?`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var tool, mode string
+		if err = rows.Scan(&tool, &mode); err != nil {
+			return nil, err
+		}
+		out[tool] = mode
+	}
+	return out, rows.Err()
+}
+
+// SetGafferToolModesFor replaces the person's whole choice. Only "ask" and
+// "allow" are stored; anything else switches the tool off.
+func (s *Store) SetGafferToolModesFor(uid int64, modes map[string]string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM gaffer_tool_modes WHERE user_id=?`, uid); err != nil {
+			return err
+		}
+		for tool, mode := range modes {
+			if mode != "ask" && mode != "allow" || tool == "" || len(tool) > 100 {
+				continue
+			}
+			if _, err := tx.Exec(`INSERT INTO gaffer_tool_modes(user_id,tool,mode,updated_at) VALUES(?,?,?,?)`, uid, tool, mode, now()); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }

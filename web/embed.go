@@ -202,7 +202,7 @@ func legacyRedirect(r *http.Request) (string, bool) {
 func spaRoute(path string) bool {
 	switch path {
 	case "/", "/welcome", "/signin", "/signup", "/setup", "/reset", "/join",
-		"/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/hosting",
+		"/sessions", "/machines", "/skills", "/library", "/activity", "/sync", "/sync/advanced", "/hosting",
 		"/community", "/shared", "/spaces", "/profiles", "/setups", "/notifications", "/support",
 		"/admin", "/account":
 		return true

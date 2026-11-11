@@ -53,7 +53,7 @@
   {/if}
     </details>
   {/if}
-  <div class="preview" aria-live="polite"><strong>Audience preview</strong><p>{visibility === 'personal' ? 'Personal — your list is private to you.' : visibility === 'public' ? 'Public — the list, skills and list notes will be discoverable by anyone.' : visibility === 'team' ? `${group?.name || 'Choose a group'} · ${audience.people.length} additional people · ${audience.excluded.length} exclusions` : visibility === 'private' ? `${audience.people.length} selected people · ${audience.excluded.length} exclusions` : visibility === 'link' ? 'Unlisted — anyone with its link can read it.' : 'Legacy — signed-in accounts on this instance can read it.'}</p><small>Instance administrators retain administrative access. Personal shelf notes, tokens and machine inventories are never published with a list.</small></div>
+  <div class="preview" aria-live="polite"><strong>Audience preview</strong><p>{visibility === 'personal' ? 'Personal — your list is private to you.' : visibility === 'public' ? 'Public — the list, skills and list notes will be discoverable by anyone.' : visibility === 'team' ? `${group?.name || 'Choose a group'} · ${audience.people.length} additional people · ${audience.excluded.length} exclusions` : visibility === 'private' ? `${audience.people.length} selected people · ${audience.excluded.length} exclusions` : visibility === 'link' ? 'Unlisted — anyone with its link can read it.' : 'Legacy — signed-in accounts on this instance can read it.'}</p><small>Instance administrators retain administrative access. Personal library notes, tokens and machine inventories are never published with a list.</small></div>
 </fieldset>
 
 <style>

@@ -41,6 +41,20 @@ type GafferGoal struct {
 	InputTokens      int    `json:"inputTokens"`
 	OutputTokens     int    `json:"outputTokens"`
 	UsageReported    bool   `json:"usageReported"`
+	// WaitingOnWorker marks a goal that needs the person only because the
+	// working model is waiting for their answer or approval. The supervisor
+	// keeps looking at it and resumes it once that wait is over.
+	WaitingOnWorker bool `json:"waitingOnWorker,omitempty"`
+	// ResumedAt is when the person last resumed the goal. An idle working
+	// model is measured from then, not from a review made before the pause.
+	ResumedAt int64 `json:"resumedAt,omitempty"`
+	// ReviewFailed marks a goal that needs the person because Gaffer's own
+	// review did not complete. Resuming it tries the review again.
+	ReviewFailed bool `json:"reviewFailed,omitempty"`
+	// NoStep marks a goal that needs the person only because Gaffer's review
+	// chose no next step: it neither instructed the working model, asked the
+	// person something, nor handed the stage over.
+	NoStep bool `json:"noStep,omitempty"`
 }
 
 func (s *Store) migrateGafferGoals() error {
@@ -201,6 +215,9 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 	g.ActiveTurnID = ""
 	g.PendingID = ""
 	g.Note = ""
+	g.WaitingOnWorker = false
+	g.ReviewFailed = false
+	g.NoStep = false
 	switch action {
 	case "pause":
 		g.State = "paused"
@@ -230,6 +247,7 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 		g.WorkerRevision = pins.WorkerRevision
 		g.LastSeq = pins.LastSeq
 		g.NextAt = now()
+		g.ResumedAt = now()
 		if err = goalAuthority(tx, *g); err != nil {
 			return err
 		}
@@ -239,7 +257,7 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 	return saveGoal(tx, *g)
 }
 func (s *Store) DueGafferGoals(at int64) ([]GafferGoal, error) {
-	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_goals WHERE json_extract(data,'$.state')='active' AND json_extract(data,'$.nextAt')<=? ORDER BY json_extract(data,'$.nextAt'),conversation_id LIMIT 50`, at)
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_goals WHERE (json_extract(data,'$.state')='active' OR (json_extract(data,'$.state')='needs_user' AND json_extract(data,'$.waitingOnWorker'))) AND json_extract(data,'$.nextAt')<=? ORDER BY json_extract(data,'$.nextAt'),conversation_id LIMIT 50`, at)
 	if err != nil {
 		return nil, err
 	}
@@ -275,11 +293,81 @@ func (s *Store) ObserveGafferGoal(g GafferGoal, state, note string, next int64) 
 		cur.State = state
 		cur.Note = note
 		cur.NextAt = next
+		cur.WaitingOnWorker = false
 		if state != "active" {
 			if err = removeGoalQueue(tx, cur); err != nil {
 				return err
 			}
 		}
+		return saveGoal(tx, cur)
+	})
+}
+
+// HoldGafferGoalForWorker records that the working model is waiting for the
+// person. The goal needs them, and stays on the supervisor's list so it can
+// carry on once they have answered.
+func (s *Store) HoldGafferGoalForWorker(g GafferGoal, note string, next int64) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, g.OwnerID); err != nil {
+			return err
+		}
+		cur, err := goalRow(tx, g.OwnerID, g.ConversationID)
+		if err != nil {
+			return err
+		}
+		held := cur.State == "needs_user" && cur.WaitingOnWorker
+		if cur.ID != g.ID || cur.Revision != g.Revision || cur.ActiveTurnID != "" || cur.State != "active" && !held {
+			return ErrGafferConflict
+		}
+		if !held {
+			if err = removeGoalQueue(tx, cur); err != nil {
+				return err
+			}
+		}
+		cur.State, cur.Note, cur.NextAt, cur.WaitingOnWorker = "needs_user", note, next, true
+		return saveGoal(tx, cur)
+	})
+}
+
+// EndGafferGoalHold stops the supervisor looking at a held goal that now needs
+// the person for another reason.
+func (s *Store) EndGafferGoalHold(g GafferGoal, note string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		cur, err := goalRow(tx, g.OwnerID, g.ConversationID)
+		if err != nil {
+			return err
+		}
+		if cur.ID != g.ID || cur.Revision != g.Revision || cur.State != "needs_user" || !cur.WaitingOnWorker {
+			return ErrGafferConflict
+		}
+		cur.Note, cur.WaitingOnWorker = note, false
+		return saveGoal(tx, cur)
+	})
+}
+
+// ReleaseGafferGoalHold makes a goal held for the working model active again,
+// within the account's limit of active goals. Nothing else about it changes:
+// what Gaffer has already reviewed stays reviewed.
+func (s *Store) ReleaseGafferGoalHold(g GafferGoal, note string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE users SET id=id WHERE id=?`, g.OwnerID); err != nil {
+			return err
+		}
+		cur, err := goalRow(tx, g.OwnerID, g.ConversationID)
+		if err != nil {
+			return err
+		}
+		if cur.ID != g.ID || cur.Revision != g.Revision || cur.State != "needs_user" || !cur.WaitingOnWorker {
+			return ErrGafferConflict
+		}
+		var active int
+		if err = tx.QueryRow(`SELECT COUNT(*) FROM gaffer_goals WHERE user_id=? AND conversation_id!=? AND json_extract(data,'$.state')='active'`, g.OwnerID, g.ConversationID).Scan(&active); err != nil {
+			return err
+		}
+		if active >= 10 {
+			return ErrGafferChatBusy
+		}
+		cur.State, cur.Note, cur.NextAt, cur.WaitingOnWorker = "active", note, now(), false
 		return saveGoal(tx, cur)
 	})
 }
@@ -359,7 +447,14 @@ func (s *Store) FinishGafferGoal(uid int64, c, id string, rev int64, turnID stri
 			g.Note = "The follow-up time limit was reached."
 		case t.State != "completed":
 			g.State = "needs_user"
+			g.ReviewFailed = true
 			g.Note = "The Gaffer review was interrupted, cancelled or failed. It will not be repeated automatically."
+			if reason := strings.TrimSpace(t.Error); reason != "" {
+				if len(reason) > 300 {
+					reason = strings.ToValidUTF8(reason[:300], "") + "…"
+				}
+				g.Note = "Gaffer’s review did not complete (" + t.State + "): " + reason + " It will not be repeated automatically; resume the goal to try again."
+			}
 		case t.GoalNeedsUser:
 			g.State = "needs_user"
 			g.Note = "Gaffer needs your decision. Read its latest review."
@@ -439,4 +534,21 @@ func (s *Store) RecoverGafferGoals() error {
 		}
 	}
 	return nil
+}
+
+// MarkGafferGoalNoStep rewords a goal that needs the person because its
+// review ended without a next step. It changes nothing else, and nothing at
+// all when the goal has moved on since.
+func (s *Store) MarkGafferGoalNoStep(uid int64, c, id, note string) error {
+	return s.withTx(func(tx *sql.Tx) error {
+		g, err := goalRow(tx, uid, c)
+		if err != nil {
+			return err
+		}
+		if g.ID != id || g.State != "needs_user" || g.ActiveTurnID != "" || g.WaitingOnWorker || g.ReviewFailed {
+			return ErrGafferConflict
+		}
+		g.NoStep, g.Note = true, note
+		return saveGoal(tx, g)
+	})
 }

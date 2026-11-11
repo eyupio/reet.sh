@@ -22,6 +22,7 @@ func (s *server) registerCanonicalLibrary(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/library", s.privateSkillAccess(s.canonicalLibrary))
 	mux.HandleFunc("GET /api/v2/library/{item}", s.privateSkillAccess(s.canonicalLibraryItem))
 	mux.HandleFunc("PATCH /api/v2/library/{item}", s.privateSkillAccess(s.canonicalLibraryStatus))
+	mux.HandleFunc("POST /api/v2/library/{item}/difference", s.privateSkillAccess(s.canonicalLibraryDifference))
 	mux.HandleFunc("POST /api/v2/library/locations", s.privateSkillAccess(s.canonicalLibraryLocation))
 	mux.HandleFunc("POST /api/v2/library/locations/content", s.privateSkillAccess(s.canonicalLibraryImport))
 }
@@ -163,7 +164,38 @@ func (s *server) canonicalLibrary(w http.ResponseWriter, r *http.Request) {
 		libraryError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"schemaVersion": 1, "items": items})
+	// Which connected machines hold a different version of an item. Reported
+	// beside the items so the library stays readable if this cannot be worked out.
+	differences, err := s.st.LibraryDifferencesFor(s.uid(r), items)
+	if err != nil {
+		differences = nil
+	}
+	writeJSON(w, 200, map[string]any{"schemaVersion": 1, "items": items, "differences": differences})
+}
+
+// canonicalLibraryDifference records which version a person wants reet to
+// hold when a machine's copy of an item differs from the saved one.
+func (s *server) canonicalLibraryDifference(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		EnvironmentID string `json:"environmentId"`
+		Action        string `json:"action"`
+	}
+	if !importDecode(w, r, 4096, &in) {
+		return
+	}
+	s.importMu.Lock()
+	err := s.st.ResolveLibraryDifferenceFor(s.uid(r), r.PathValue("item"), in.EnvironmentID, in.Action)
+	s.importMu.Unlock()
+	if errors.Is(err, store.ErrRemoteImport) {
+		writeErr(w, 409, "That machine cannot send its files right now. Check it is online, then try again.")
+		return
+	}
+	if err != nil {
+		libraryError(w, err)
+		return
+	}
+	s.eventRequest(r, "library-difference-"+in.Action, "", map[string]any{"item": r.PathValue("item"), "environment": in.EnvironmentID})
+	w.WriteHeader(http.StatusNoContent)
 }
 func (s *server) canonicalLibraryItem(w http.ResponseWriter, r *http.Request) {
 	item, err := s.st.LibraryItemFor(s.uid(r), r.PathValue("item"))

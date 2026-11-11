@@ -38,7 +38,11 @@ try {
     // One calm region, not a banner per skill.
     const leftOut = section.locator('.left-out')
     await expect(leftOut).toHaveCount(1)
-    await expect(leftOut).toContainText('9 skills are left out for now. Everything else is syncing.')
+    // How many is part of the page's one status sentence; the note under it is only the reasons.
+    await expect(section.getByRole('status')).toHaveCount(1)
+    await expect(section.getByRole('status')).toContainText('9 skills are left out for now.')
+    await expect(section.getByRole('status')).not.toContainText('Everything else is syncing')
+    await expect(leftOut.locator('summary')).toHaveText('Why they are left out')
     await expect(section.locator('.message.error')).toHaveCount(0)
     // Eight skills share one reason and one has its own, so it is two lines and starts open. Each is said once.
     await expect(leftOut.locator('details')).toHaveAttribute('open', '')
@@ -68,7 +72,7 @@ try {
 
     // Shared names are information, inside the library list.
     await section.locator('summary').filter({ hasText: 'In your library' }).click()
-    await expect(section.getByText('3 names are on your shelf more than once', { exact: false })).toBeVisible()
+    await expect(section.getByText('3 names are in your library more than once', { exact: false })).toBeVisible()
     await expect(section.getByText('improve-animations, improve, setup-matt-pocock-skills')).toBeVisible()
 
     // No page-wide horizontal scroll on a phone.

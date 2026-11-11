@@ -135,6 +135,9 @@ type chatLink struct {
 	// only when it is set: an older controller's strict decoder rejects them.
 	questions bool
 	previews  bool
+	// usage is acp-usage-v1 on this connection: the controller takes the
+	// agent's token and context reports. An older one would refuse the kind.
+	usage bool
 	// catalogue is acp-model-catalogue-v1 on this connection: a model selector
 	// may then carry the agent's whole catalogue instead of 16 values.
 	catalogue bool
@@ -256,7 +259,7 @@ func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalh
 }
 
 func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, flags ...bool) *chatHost {
-	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(flags) > 0 && flags[0], previews: len(flags) > 1 && flags[1], catalogue: len(flags) > 2 && flags[2], provider: len(flags) > 3 && flags[3]}
+	link := &chatLink{generation: generation, send: send, history: history, details: details, questions: len(flags) > 0 && flags[0], previews: len(flags) > 1 && flags[1], catalogue: len(flags) > 2 && flags[2], provider: len(flags) > 3 && flags[3], usage: len(flags) > 4 && flags[4]}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -990,6 +993,21 @@ func (s *chatSupervisor) publish(cs *chatSession, event acpagent.Event) {
 		if skip {
 			return
 		}
+	}
+	if event.Kind == "usage" {
+		// Numbers only, and only for a controller that asked for them. They are
+		// not part of the conversation, so they are never queued or replayed.
+		s.mu.Lock()
+		link := s.link
+		send := link != nil && link.usage && !cs.quiet
+		s.mu.Unlock()
+		if !send || event.Usage == nil {
+			return
+		}
+		u := event.Usage
+		wire := terminalproto.ACPEvent{Kind: "usage", Usage: &terminalproto.ACPUsage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CachedTokens: u.CachedTokens, ContextUsed: u.ContextUsed, ContextSize: u.ContextSize}}
+		_ = link.send(s.ctx, terminalproto.Message{Version: terminalproto.Version, RequestID: newID(), Generation: link.generation, SessionID: cs.id, Body: &wire})
+		return
 	}
 	var wire terminalproto.ACPEvent
 	var ok bool

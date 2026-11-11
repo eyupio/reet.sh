@@ -226,7 +226,7 @@ func (s *server) resolveListSkill(r *http.Request, list store.SharedList, in lis
 		value = strings.TrimSpace(in.Input)
 	}
 	if value == "" {
-		return store.Skill{}, &listResolveError{errInvalidArgument, "id", "choose a skill or paste a reference", "Pass id for a shelf skill or input for owner/repo/skill or a skills.sh URL."}
+		return store.Skill{}, &listResolveError{errInvalidArgument, "id", "choose a skill or paste a reference", "Pass id for a library skill or input for owner/repo/skill or a skills.sh URL."}
 	}
 	sk, matches, err := s.st.MatchShelfSkillFor(s.uid(r), value)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -247,11 +247,11 @@ func (s *server) resolveListSkill(r *http.Request, list store.SharedList, in lis
 	}
 	input := strings.TrimSpace(in.Input)
 	if input == "" || value != input {
-		return store.Skill{}, &listResolveError{errSkillNotFound, "id", "skill not found on this account's shelf", "Use an exact ID from reet_list_skills."}
+		return store.Skill{}, &listResolveError{errSkillNotFound, "id", "skill not found in this account's library", "Use an exact ID from reet_list_skills."}
 	}
 	rf, err := s.parseSkillInput(r, input)
 	if err != nil {
-		return store.Skill{}, &listResolveError{errSkillNotFound, "input", "could not resolve that skill reference", "Use an exact shelf ID, owner/repo/skill, or a skills.sh URL."}
+		return store.Skill{}, &listResolveError{errSkillNotFound, "input", "could not resolve that skill reference", "Use an exact library skill ID, owner/repo/skill, or a skills.sh URL."}
 	}
 	if err := s.st.EnsureSkill(rf); err != nil {
 		return store.Skill{}, &listResolveError{"internal_error", "input", err.Error(), ""}
@@ -262,7 +262,7 @@ func (s *server) resolveListSkill(r *http.Request, list store.SharedList, in lis
 		return store.Skill{}, &listResolveError{"internal_error", "input", err.Error(), ""}
 	}
 	if !ok {
-		return store.Skill{}, &listResolveError{errSkillNotFound, "input", "skill not found", "Use an exact shelf ID or a valid skills.sh reference."}
+		return store.Skill{}, &listResolveError{errSkillNotFound, "input", "skill not found", "Use an exact library skill ID or a valid skills.sh reference."}
 	}
 	return sk, nil
 }

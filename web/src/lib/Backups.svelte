@@ -58,7 +58,7 @@
 
   function reportLines(r: RestoreReport): string[] {
     const roles = Object.entries(r.usersByRole ?? {}).map(([role, n]) => `${n} ${role}`).join(', ')
-    const l = [`${r.users} account(s)${roles ? ` (${roles})` : ''}, ${r.shelves} shelf(s), ${r.skills} skill(s), ${r.lists} list(s), ${r.tags} tag(s), ${r.environments} environment(s), ${r.machines} connected machine(s) and ${r.destinations} backup destination(s) come across.`,
+    const l = [`${r.users} account(s)${roles ? ` (${roles})` : ''}, ${r.shelves} ${r.shelves === 1 ? 'library' : 'libraries'}, ${r.skills} skill(s), ${r.lists} list(s), ${r.tags} tag(s), ${r.environments} environment(s), ${r.machines} connected machine(s) and ${r.destinations} backup destination(s) come across.`,
       r.sessionsEnded ? `${r.sessionsEnded} browser sign-in(s) end.` : `${r.sessionsKept} browser sign-in(s) are kept.`]
     if (r.libraryItems || r.privateBundles) l.splice(1, 0, `${r.libraryItems ?? 0} library item(s) and ${r.privateBundles ?? 0} private content bundle(s) come across.`)
     l.push(r.tokensKept
@@ -155,7 +155,7 @@
 
   const everyBad = $derived(everySeconds(form.every) < 0 || (everySeconds(form.every) > 0 && everySeconds(form.every) < 60))
   const keepBad = $derived(!/^\d+$/.test(form.keep) || Number(form.keep) > 100000)
-  const scopeWord = $derived(admin ? 'the instance' : 'your shelf')
+  const scopeWord = $derived(admin ? 'the instance' : 'your library')
 
   async function saveSettings(e: SubmitEvent) {
     e.preventDefault()
@@ -486,7 +486,7 @@
       <p class="lede">
         {admin
           ? 'Sealed copies of the whole database, kept on this machine and shipped to any S3-compatible destination.'
-          : 'Sealed copies of your own shelf, on this machine and at your own off-site destination.'}
+          : 'Sealed copies of your own library, on this machine and at your own off-site destination.'}
       </p>
     </div>
     <div class="actions">
@@ -669,7 +669,7 @@
       {#if status.remotes.length === 0}
         <p class="empty">
           No destination is configured.
-          {admin ? 'Add one, or set REET_BACKUP_S3_* in the environment.' : 'Add one to copy your shelf off this machine.'}
+          {admin ? 'Add one, or set REET_BACKUP_S3_* in the environment.' : 'Add one to copy your library off this machine.'}
         </p>
       {:else}
         <ul class="remotes">
@@ -903,7 +903,7 @@
             <div class="cmdline"><code>reet backup restore --yes {restoreFor.id}</code><CopyButton text={`reet backup restore --yes ${restoreFor.id}`} compact /></div>
             The database in place is moved aside, not deleted.
           {:else}
-            <strong>Restore {restoreFor.id}?</strong> Matching skills have their saved flags, notes and tags replaced. Skills added since this copy remain on your shelf. Lists, teams and account settings are not restored.
+            <strong>Restore {restoreFor.id}?</strong> Matching skills have their saved flags, notes and tags replaced. Skills added since this copy remain in your library. Lists, teams and account settings are not restored.
             Copies taken since then are not deleted.
             <div class="formacts">
               <button type="button" class="btn" onclick={() => (restoreFor = null)}>Cancel</button>
@@ -917,7 +917,7 @@
                   } catch (e) {
                     const message = e instanceof Error ? e.message : String(e)
                     if (!message.toLowerCase().includes('password')) throw e
-                    const password = prompt('This copy is protected with a password. Enter it to restore your shelf:')
+                    const password = prompt('This copy is protected with a password. Enter it to restore your library:')
                     if (!password) throw e
                     r = await restoreUserBackup(restoreFor!.id, password)
                   }
@@ -930,7 +930,7 @@
                 } finally {
                   busy = ''
                 }
-              }} disabled={busy === 'restore'}>{busy === 'restore' ? 'Restoring…' : 'Restore my shelf'}</button>
+              }} disabled={busy === 'restore'}>{busy === 'restore' ? 'Restoring…' : 'Restore my library'}</button>
             </div>
           {/if}
           {#if admin}<div class="formacts"><button type="button" class="btn" onclick={() => (restoreFor = null)}>Close</button></div>{/if}

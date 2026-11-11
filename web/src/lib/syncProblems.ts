@@ -202,7 +202,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
       commands: [],
       retry: false,
       local: false,
-      href: '/sync#sync-selection',
+      href: '/sync/advanced#sync-selection',
     }
   }
   if (stalePlan.test(text)) {
@@ -237,7 +237,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
       retry: false,
       local: false,
       autoFix,
-      href: /linked|link.*source|saved sync source/.test(text) ? '/skills' : '/sync#sync-selection',
+      href: /linked|link.*source|saved sync source/.test(text) ? '/skills' : '/sync/advanced#sync-selection',
     }
   }
   return {

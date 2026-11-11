@@ -141,7 +141,7 @@
               </div>
               {#if selected.description}<p class="description">{selected.description}</p>{/if}
               {#if suggestion}<p class="suggestion">{suggestion}</p>{/if}
-              {#if selected.body.includes('{{skill:')}<p class="shelf-note">Skill prompts are filled from your shelf as they are now.</p>{/if}
+              {#if selected.body.includes('{{skill:')}<p class="shelf-note">Skill prompts are filled from your library as they are now.</p>{/if}
               <pre class="text">{resolution.text}</pre>
               {#if resolution.unresolved.length}
                 <p class="warn" role="status">{resolution.unresolved.join(', ')} {resolution.unresolved.length === 1 ? 'is' : 'are'} not known here; {resolution.unresolved.length === 1 ? 'it stays' : 'they stay'} as written. You can edit {resolution.unresolved.length === 1 ? 'it' : 'them'} before starting.</p>

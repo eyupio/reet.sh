@@ -816,10 +816,12 @@ func (b *Broker) publishChat(uid int64, session string, event terminalproto.ACPE
 	resolved := event.Kind == "permission_resolved" && event.Allow != nil
 	if resolved && *event.Allow {
 		if s, err := b.st.TerminalSessionFor(uid, session); err == nil && s.Yolo {
-			_ = b.st.AddEventFor(uid, "machine", "yolo-allow", "", map[string]string{
-				"machine": s.AgentID, "tool": s.Tool, "session": session, "permission": event.PermissionID,
-			})
+			b.auditYoloAllow(uid, s, event.PermissionID)
 		}
+	}
+	if event.Kind == "user" || event.Kind == "status" && event.State == "idle" {
+		// The turn is over: the next approval YOLO gives starts a new audit row.
+		b.endYoloRollup(uid, session)
 	}
 	if event.Kind == "permission" && event.PermissionID != "" {
 		// A person can allow one command, file or tool for the rest of the
@@ -911,6 +913,7 @@ func (b *Broker) closeChat(uid int64, session string) {
 	delete(b.approvals, key)
 	st := b.st
 	b.mu.Unlock()
+	b.endYoloRollup(uid, session)
 	if l != nil {
 		l.close()
 	}

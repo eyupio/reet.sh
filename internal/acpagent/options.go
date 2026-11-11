@@ -128,6 +128,8 @@ type Event struct {
 	// Code names a known reason a status carries ("login" today), so the browser
 	// can say what to do instead of showing a generic failure.
 	Code string
+	// Usage is the agent's own report of tokens and context (kind "usage").
+	Usage *Usage
 }
 
 func boolPtr(v bool) *bool { return &v }

@@ -42,7 +42,7 @@ const item=(page,name)=>page.locator('.item',{has:page.getByRole('heading',{name
 const openPicker=async(page,machine)=>{
  await page.goto(`${base}/machines`)
  const card=page.getByRole('article',{name:machine,exact:true})
- await card.getByRole('button',{name:'Choose skills',exact:true}).click()
+ await card.getByRole('button',{name:'Skills on this machine',exact:true}).click()
  const dialog=page.getByRole('dialog',{name:`Skills on ${machine}`,exact:true})
  const panel=dialog.getByRole('region',{name:'Skills to sync'})
  await expect(panel.getByLabel('Machine folder')).not.toHaveValue('')

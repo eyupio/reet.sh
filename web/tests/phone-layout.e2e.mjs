@@ -14,7 +14,7 @@ try {
   const {context,page,errors} = await open({width:375,skills:[skill('code-review')]})
   await page.goto(`${base}/skills`)
   await expect(page.getByRole('group',{name:'Filter and sort'})).toBeVisible()
-  for (const name of ['All','In use','To test','On the shelf','Liked','Select']) {
+  for (const name of ['All','In use','To test','Parked','Liked','Select']) {
    const box = await page.locator('.filters button',{hasText:name}).first().boundingBox()
    expect(box, `${name} filter exists`).not.toBeNull()
    expect(box.x + box.width, `${name} filter right edge`).toBeLessThanOrEqual(375)

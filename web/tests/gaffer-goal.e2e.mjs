@@ -36,7 +36,7 @@ try{
    const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true}),goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
    await expect(chat.getByRole('button',{name:'Look after this session',exact:true})).toBeVisible()
    const openGoal=async()=>{await chat.getByRole('button',{name:'Chat options',exact:true}).click();await w.page.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Look after this session',exact:true}).click()}
-   await openGoal();await expect(goal.getByRole('button',{name:'Start follow-up',exact:true})).toBeDisabled();expect(f.box.starts).toHaveLength(0)
+   await openGoal();await expect(goal.getByRole('button',{name:'Start looking after',exact:true})).toBeDisabled();expect(f.box.starts).toHaveLength(0)
    await w.page.keyboard.press('Escape');await expect(chat.getByRole('button',{name:'Chat options',exact:true})).toBeFocused()
    f.box.allowed=true;await openGoal();await expect(goal.getByLabel('Review budget',{exact:true})).toHaveValue('12');await expect(goal.getByLabel('Follow for (hours)',{exact:true})).toHaveValue('24')
    await goal.getByRole('button',{name:'Use a prompt',exact:true}).click()
@@ -52,8 +52,8 @@ try{
    await w.page.getByRole('button',{name:/^Remove “Ensure a pull request is raised/}).click()
    await expect(w.page.getByRole('option',{name:/^Ensure a pull request is raised/})).toHaveCount(0)
    await w.page.keyboard.press('Escape')
-   await goal.getByLabel('Agreed goal',{exact:true}).fill('🧠'.repeat(600));await expect(goal.getByRole('button',{name:'Start follow-up',exact:true})).toBeDisabled();await expect(goal.getByText('Keep the goal within 2,000 UTF-8 bytes.',{exact:true})).toBeVisible()
-   await goal.getByLabel('Agreed goal',{exact:true}).fill('Ensure a PR is raised and its checks and conflicts are fixed. Bring decisions back to me. Do not merge.');await goal.getByRole('button',{name:'Start follow-up',exact:true}).click()
+   await goal.getByLabel('Agreed goal',{exact:true}).fill('🧠'.repeat(600));await expect(goal.getByRole('button',{name:'Start looking after',exact:true})).toBeDisabled();await expect(goal.getByText('Keep the goal within 2,000 UTF-8 bytes.',{exact:true})).toBeVisible()
+   await goal.getByLabel('Agreed goal',{exact:true}).fill('Ensure a PR is raised and its checks and conflicts are fixed. Bring decisions back to me. Do not merge.');await goal.getByRole('button',{name:'Start looking after',exact:true}).click()
    await expect(goal.getByRole('heading',{name:'Looking after this session',exact:true})).toBeVisible();expect(f.box.starts).toHaveLength(1);expect(f.box.workerWrites).toBe(0)
    await w.page.keyboard.press('Escape');await chat.getByRole('button',{name:'Close Gaffer',exact:true}).click();await w.page.reload();await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
    await expect(chat.getByRole('button',{name:'Gaffer following · 0/12 reviews',exact:true})).toBeVisible();expect(f.box.starts).toHaveLength(1)
@@ -63,11 +63,34 @@ try{
    await expect(goal.getByRole('heading',{name:'Latest Gaffer review',exact:true})).toBeVisible();expect(await w.page.evaluate(()=>window.__goalXss)).toBeUndefined();await expect(goal.locator('img[src="x"]')).toHaveCount(0)
    expect(await goal.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
    if(width===1440||width===390)await goal.screenshot({path:`${shots}/gaffer-goal-${width}-${theme}.png`})
-   await goal.getByRole('button',{name:'Pause follow-up',exact:true}).click();await expect(goal.getByRole('heading',{name:'Paused',exact:true})).toBeVisible()
-   await goal.getByRole('button',{name:'Resume after review',exact:true}).click();const resume=w.page.getByRole('dialog',{name:'Resume after checking the working conversation?',exact:true});expect(f.box.controls).toHaveLength(1);await resume.getByRole('button',{name:'Resume follow-up',exact:true}).click();await expect(goal.getByRole('heading',{name:'Looking after this session',exact:true})).toBeVisible();expect(f.view.goal.usedReviews).toBe(1)
+   await goal.getByRole('button',{name:'Pause goal',exact:true}).click();await expect(goal.getByRole('heading',{name:'Paused',exact:true})).toBeVisible()
+   await goal.getByRole('button',{name:'Resume after review',exact:true}).click();const resume=w.page.getByRole('dialog',{name:'Resume after checking the working conversation?',exact:true});expect(f.box.controls).toHaveLength(1);await resume.getByRole('button',{name:'Resume goal',exact:true}).click();await expect(goal.getByRole('heading',{name:'Looking after this session',exact:true})).toBeVisible();expect(f.view.goal.usedReviews).toBe(1)
    await goal.getByRole('button',{name:'Mark goal complete',exact:true}).click();await w.page.getByRole('dialog',{name:'Mark this goal complete?',exact:true}).getByRole('button',{name:'Mark complete',exact:true}).click();await expect(goal.getByRole('heading',{name:'You marked this complete',exact:true})).toBeVisible();expect(f.box.controls.map(x=>x.action)).toEqual(['pause','resume','complete']);expect(f.box.workerWrites).toBe(0)
    await w.page.keyboard.press('Escape');await expect(chat.getByRole('button',{name:'Chat options',exact:true})).toBeFocused();expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }
- console.log('Gaffer goals: explicit grants and budgets, UTF-8 bounds, durable reopen, automatic review labels, escaped evidence, pause/resume/complete confirmations, focus and eight theme/width views passed.')
+ // Looking after sessions is pre-approved by default, so the composer's own control starts at once with the usual goal
+ // and limits, and the dialog shows what is now running. The review stays under Chat options.
+ {
+  const f=fixture();f.box.allowed=true
+  // The session is one stage of a Factory pipeline, and the Sessions page says so in its list and its header.
+  f.routes['/api/v2/gaffer/outcomes']={outcomes:[{id:'o'.repeat(32),revision:1,objective:'Ship the release.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'reet',dir:'/work',tool:'opencode',providerId:pid,maxReviews:12,hours:24,createdAt:now,updatedAt:now,sessions:[{key:'a',title:'Release prep',prompt:'p',state:'following',note:'',sessionId:sid,updatedAt:now,stage:1,stages:[{kind:'plan',tool:'opencode',state:'done',sessionId:sid},{kind:'code',tool:'opencode',state:'running',sessionId:sid},{kind:'pr',tool:'opencode',state:'pending'}]}]}]}
+  const w=await openWorkspace(browser,{width:1280,height:1000,routes:f.routes})
+  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+  try{
+   await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
+   await expect(w.page.getByRole('link',{name:'Factory · Code 2 of 3',exact:true})).toHaveAttribute('href','/factory')
+   await expect(w.page.getByRole('navigation',{name:'Terminal sessions',exact:true}).getByText('Factory · Code 2 of 3',{exact:true})).toBeVisible()
+   await w.page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS||'.'}/sessions-factory-marker-1280-light.png`})
+   await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
+   const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true}),goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
+   await chat.getByRole('button',{name:'Look after this session',exact:true}).click()
+   await expect(goal.getByRole('heading',{name:'Looking after this session',exact:true})).toBeVisible()
+   expect(f.box.starts).toHaveLength(1)
+   expect(f.box.starts[0]).toMatchObject({maxReviews:12,hours:24})
+   expect(f.box.starts[0].text).toMatch(/^Ensure a pull request is raised.*Do not merge\.$/)
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ console.log('Gaffer goals: explicit grants and budgets, UTF-8 bounds, durable reopen, automatic review labels, escaped evidence, pause/resume/complete confirmations, one-click start when pre-approved, focus and eight theme/width views passed.')
 }finally{await browser.close()}

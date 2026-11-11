@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { factoryBadge, type FactoryMember } from '../gafferOutcome'
   import { gafferSessionContext } from '../gafferContext'
   import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, type Snippet } from 'svelte'
@@ -33,9 +34,11 @@
   // actions. The live terminal is the workspace's (children), and the context panel sits beside it, toggled from the
   // workspace toolbar like the sessions panel. A terminal session shows no steps and no progress bar (R10): only its
   // state word and where that word came from.
-  let { session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy, insightChat, insightProgress,
+  let { factory = undefined, session, sessions, machines, health, projects, now, theatre = false, keyboard = false, busy = false, chatBusy, insightChat, insightProgress,
     onaction, ontheatre, onrefresh, onmode, onsignedout, oncontinue, onterminal, onside, side, showSide = false, contextKey = 'reet-session-context-panel', onresizing, children,
     contextOpen = $bindable(false), contextId, oncontextclosed, contextControls, view, nativeAvailable = false, nativePending = false, nativeReason = '', onview }: {
+    /** Set when this session is part of a Factory pipeline. */
+    factory?: FactoryMember
     view?: 'chat' | 'terminal'; nativeAvailable?: boolean; nativePending?: boolean; nativeReason?: string; onview?: (view: 'chat' | 'terminal') => void
     session: TerminalSession; sessions: TerminalSession[]
     machines: TerminalMachine[]; health: MachineHealth[]; projects: FolderProject[] | undefined; now: number
@@ -403,6 +406,7 @@
       <a class="back" href="/sessions" aria-label="Back to sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg></a>
       <div class="heading">
         <h2 class="title" title={session.title}>{session.title}</h2>
+        {#if factory}<a class="factory-mark" href="/factory" title={`Part of a Factory pipeline: ${factory.pipeline}. Outcome: ${factory.objective}`}>{factoryBadge(factory)}</a>{/if}
         <p class="sub">{headerMeta(view === 'terminal' && chatView ? { ...session, model: '' } : session, session.createdAt, now)}</p>
         <p class="location">{[project, host].filter(Boolean).join(' · ')}</p>
         <p class="where-phone">{[word.word, project, host].filter(Boolean).join(' · ')}</p>
@@ -576,8 +580,8 @@
     .sub, .location, .identity-row > .pill { display: none; }
     .where-phone { display: block; font-size: 14px; }
     .back { display: flex; }
-    .head { padding: 0 6px 6px; }
-    .identity-row { min-height: 52px; gap: 4px; flex-wrap: wrap; padding-bottom: 6px; }
+    .head { padding: 0 6px 4px; }
+    .identity-row { min-height: 44px; gap: 4px; flex-wrap: wrap; padding-bottom: 2px; }
     .header-actions { width: 100%; justify-content: flex-end; }
     .header-actions :global(.view-switch) { margin-right: auto; }
     .header-actions { gap: 2px; }
@@ -604,7 +608,7 @@
      The site chrome and workspace toolbar are hidden through data-session-focus and the workspace's own rule. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .session-screen.focus .head { padding: 0 6px; padding-top: env(safe-area-inset-top, 0px); }
-    .session-screen.focus .identity-row { min-height: 50px; gap: 6px; }
+    .session-screen.focus .identity-row { min-height: 44px; gap: 6px; }
     .session-screen.focus .heading { min-width: 0; max-width: none; flex: 1 1 100px; }
     .session-screen.focus .title { font: 600 16px/1.25 var(--sans); }
     .session-screen.focus .sub, .session-screen.focus .where-phone { display: none; }
@@ -652,4 +656,7 @@
     /* The header keeps its 44 px targets but drops its spare 8 px while typing, so the terminal keeps its keyboard-open rows. */
     .keyboard .head { min-height: 44px; }
   }
+  .factory-mark { justify-self: start; align-self: start; width: fit-content; font-size: 13px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 8px; text-decoration: none; white-space: nowrap; }
+  .factory-mark:hover { background: var(--tint); }
+  .factory-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>

@@ -8,7 +8,7 @@
   function ask(tool: MCPTool, args: Record<string, unknown>): Promise<boolean> {
     if (pending) return Promise.resolve(false)
     return new Promise(resolve => {
-      pending = { title: tool.title ?? tool.name, body: 'Your browser assistant wants to change your shelf. Review the proposed changes before allowing this request.', details: JSON.stringify(args, null, 2), danger: tool.annotations.destructiveHint ?? false, resolve }
+      pending = { title: tool.title ?? tool.name, body: 'Your browser assistant wants to change your library. Review the proposed changes before allowing this request.', details: JSON.stringify(args, null, 2), danger: tool.annotations.destructiveHint ?? false, resolve }
     })
   }
   function answer(allow: boolean) { const current = pending; pending = null; current?.resolve(allow) }

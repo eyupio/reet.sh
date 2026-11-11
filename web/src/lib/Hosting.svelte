@@ -59,7 +59,7 @@
   const nameMismatch = $derived(!!editor && !!editor.slug && contentName !== '' && contentName !== editor.slug)
   let saveError = $state('')
   // Where a saved skill goes next: the Sync page with this skill pre-selected (drafts sync privately from this reet.sh).
-  const syncHref = $derived(originalSlug ? `/sync?skill=${encodeURIComponent(hostedId(originalSlug))}` : '')
+  const syncHref = $derived(originalSlug ? '/sync' : '')
   function hostedId(slug: string) { return `hosted/${location.host.toLowerCase()}/${username}/${slug}` }
   function whereLine(skill: HostedSkill) { return writtenSkillWhere(hostedId(skill.slug), snapshot, reports) }
   function matchContentName() { if (!editor) return; editor.content = renameSkillContent(editor.content, editor.slug); saveError = '' }
@@ -185,8 +185,8 @@
       editor = saved; originalSlug = saved.slug; track(saved)
       skills = [...skills.filter(s => s.slug !== saved.slug), saved].sort((a, b) => a.slug.localeCompare(b.slug))
       notice = didRename
-        ? saved.published ? 'Renamed and published. The public URL and install command changed; existing installs are untouched. It is also on your shelf under To test.' : 'Renamed. Update any private links you shared.'
-        : saved.published ? 'Skill published. It is also on your shelf under To test.' : 'Draft saved. Only you can see it.'
+        ? saved.published ? 'Renamed and published. The public URL and install command changed; existing installs are untouched. It is also in your library under To test.' : 'Renamed. Update any private links you shared.'
+        : saved.published ? 'Skill published. It is also in your library under To test.' : 'Draft saved. Only you can see it.'
     } catch (e) { saveError = e instanceof Error ? e.message : String(e) } finally { busy = false }
   }
   async function upload(event: Event, main = false) {
@@ -473,7 +473,7 @@
             <small id="slug-help">Used in your public URL and the SKILL.md name. Renaming changes the install link; existing installs are untouched.</small>
             {#if prefix}<small>Your profile prefix <code>{prefix}</code> is added automatically. <a href="/account/profile">Change it</a>.</small>{/if}
             {#if prefixMisplaced}<p class="notice warn" role="status">This skill predates your <code>{prefix}</code> prefix. <button type="button" class="btn quiet" onclick={applyPrefix} disabled={busy}>Add prefix</button></p>{/if}
-            {#if renameNeeded}<p class="notice warn" role="status">Renaming <code>{originalSlug}</code> to <code>{editor.slug}</code> changes its public URL and install command. Your shelf, lists and tags move with it.</p>{/if}
+            {#if renameNeeded}<p class="notice warn" role="status">Renaming <code>{originalSlug}</code> to <code>{editor.slug}</code> changes its public URL and install command. Your library, lists and tags move with it.</p>{/if}
           </div>
           <div class="form-block">
             <h3>Instructions</h3>
@@ -500,7 +500,7 @@
           <div class="form-block visibility">
             <h3>Visibility</h3>
             <label class="publish"><input type="checkbox" bind:checked={editor.published} disabled={busy} /> Publish publicly</label>
-            <small>Publishing makes the instructions and supporting files available to everyone, and puts the skill on your shelf under To test. Uncheck and save to unpublish.</small>
+            <small>Publishing makes the instructions and supporting files available to everyone, and adds the skill to your library under To test. Uncheck and save to unpublish.</small>
           </div>
           {#if saveError}<p class="notice bad" role="alert">{saveError}</p>{/if}
           <div class="actions">
@@ -511,7 +511,7 @@
         {#if originalSlug && skills.find(s => s.slug === originalSlug)?.published}
           <div class="install">
             <h3>Share and install</h3>
-            <div class="install-links"><a href={`/${username}/${originalSlug}`} target="_blank" rel="noopener noreferrer">View public skill page ↗</a><a href="/">Open your shelf</a></div>
+            <div class="install-links"><a href={`/${username}/${originalSlug}`} target="_blank" rel="noopener noreferrer">View public skill page ↗</a><a href="/">Open your library</a></div>
             <code>{command}</code>
             <div class="install-actions"><CopyButton text={command} label="Copy install command" /><CopyButton text={prompt} label="Copy prompt" ariaLabel={`Copy prompt for ${originalSlug}`} /></div>
           </div>

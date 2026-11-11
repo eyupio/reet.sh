@@ -181,7 +181,7 @@
     if (scope === 'organisations') return 'Create an organisation to group teams under one name.'
     if (scope === 'teams') return 'Create an independent team, or a team inside one of your organisations.'
     if (scope === 'managed') return 'Groups you own or manage appear here.'
-    return 'Create an organisation or an independent team, then add existing accounts. Group membership does not expose anyone’s personal shelf or machine reports.'
+    return 'Create an organisation or an independent team, then add existing accounts. Group membership does not expose anyone’s library or machine reports.'
   }
 </script>
 

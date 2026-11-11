@@ -132,7 +132,7 @@ Choose **Look after this session** beside the composer, or in **Chat options**,
 in an eligible structured session. One review shows Gaffer's selected provider
 and model, the recent session conversation it may read (including code or logs
 in that conversation), worker messaging, the agreed goal and its limits.
-**Start follow-up** saves those choices together. If needed, it enables the
+**Start looking after** saves those choices together. If needed, it enables the
 provider's session/text permissions; other sessions still need their own
 delegation. Closing this review makes no change. Detailed sharing, worker and
 provider permissions remain optional advanced controls.
@@ -140,7 +140,7 @@ provider permissions remain optional advanced controls.
 Write the agreed goal, or choose **Use a prompt** for a reet-written starting
 point. **Save as prompt** keeps the current goal in this browser, alongside the
 built-in prompts, for reuse in another session. Review the visible default of **12 Gaffer reviews over 24 hours**, or expand
-**Change limits**, then choose **Start follow-up**. You may choose 1–48 reviews over 1–168 hours, with at most ten
+**Change limits**, then choose **Start looking after**. You may choose 1–48 reviews over 1–168 hours, with at most ten
 active session goals per account. Each review uses at most one worker instruction
 and two Gaffer model requests. This budget covers Gaffer's reviews; the working
 model keeps its existing usage and permission controls.
@@ -156,7 +156,7 @@ its feedback as instructions, or to merge it when green.
 
 Picking an item opens **Look after this session** with that goal already in the
 goal field. Nothing starts: review or change the wording, the limits and the
-permissions, then choose **Start follow-up**. Closing it makes no change. The
+permissions, then choose **Start looking after**. Closing it makes no change. The
 working agent still does the work, since Gaffer makes no GitHub request of its
 own. The merge items say exactly when to merge (every check passing, no open
 review thread, no conflicts) and still bring decisions back to you; the others
@@ -185,7 +185,7 @@ is shown as unknown. Observation time is separate from a newer controller status
 update. **Edit goal or start a new budget** opens the editor without crowding the
 normal conversation. Automatic turns are labelled **Goal review**.
 
-**Pause follow-up** or **Stop goal** removes that goal's instructions still queued,
+**Pause goal** or **Stop goal** removes that goal's instructions still queued,
 cancels its current Gaffer review and leaves manual messages and the working model
 alone. Already claimed or accepted work cannot be recalled. Cancelling one Gaffer
 answer leaves its saved outcome and requires review before automatic follow-up
@@ -206,68 +206,320 @@ and omissions described below. It does not poll unchanged evidence or observe
 external PR/check changes on its own: the working model must monitor those and
 report progress. Unsupported channels and providers remain visible limitations.
 
-## Run the factory floor
+## The Factory
 
-The factory floor is one click away: **Factory floor** under Gaffer's name in
-general chat, **Open the factory floor** in an empty general chat, or Home's
-**Gaffer:** line, which appears whenever a goal needs review, is being followed,
-or running chats are not followed yet. **Chat options → Factory floor** opens it
-from a session chat. It is one job sheet for the whole floor: the sessions you
-asked Gaffer to look after, with decisions first, and under **Not followed**
-every running structured chat you have not. The filters **Needs review**,
-**Following**, **Not followed** and **Finished** carry their counts and narrow
-the view. Paused goals remain under **All**. Opening or refreshing this view
-starts no goal, model request or worker instruction.
+**Factory** is its own page, in the main navigation beside Home. It is where you
+hand Gaffer an outcome and watch it run. Home has a **Factory** button, and a line
+with Gaffer's face whenever something there is waiting; an empty Gaffer chat
+offers **Give Gaffer an outcome** and **Open the Factory**. Opening the page starts
+nothing and makes no model request.
+
+The top of the page shows four numbers: pipelines that **need you**, are **ready to
+merge**, are **running** and are **done**. Below, each outcome lists its pipelines.
+A pipeline is one piece of the work, drawn as a production line:
+
+- **Stages.** Plan, design, code, review, test, pull request, babysit and merge, or
+  the ones you chose for it. Done stages are filled, the one in hand is ringed, the
+  rest are to come.
+- **What is happening.** One line from the controller, Gaffer's latest report, and a
+  highlighted line when Gaffer has brought something back to you.
+- **The numbers.** Which agent and model is doing this stage, reviews left of the
+  stage's budget, time left, the last review, what Gaffer's own model has used on
+  the pipeline so far, and how the merge is decided.
+- **Actions.** Open session, Review goal, **Approve merge** when it is ready, and
+  **Try again** for a pipeline that did not start or stopped part-way.
+
+Each outcome also shows its own figures: pipelines, Gaffer's reviews and tokens
+across all of them, and the budget each stage gets.
+
+### Approvals, YOLO and models
+
+When you approve a plan you choose how its agents run:
+
+- **Ask me** (the default). Agents ask before running commands or changing
+  files. While one is asking, its pipeline shows **Needs you** with the reason.
+  Answer it in the session and the pipeline carries on by itself: Gaffer reviews
+  the work already there. Gaffer never answers an approval for you.
+- **YOLO**. Every session of the outcome starts without approvals. It is offered
+  only when your account allows YOLO, the machine accepts it and every agent in
+  the crew has a YOLO option, and only after a confirmation that lists those
+  checks. It is never remembered, no plan and no model can ask for it, and the
+  controller checks again at every start and records each one. On YOLO the agents
+  also act on what Gaffer asks them without waiting for you, so keep the goal and
+  the stages you chose in mind. The outcome shows **Approvals: YOLO**.
+
+The **Model** list beside each agent holds what that agent really offers on the
+project's machine, your favourites and reet's suggestions; **Other…** takes a
+name none of them has. The model beside the main agent applies to every stage
+until you give a crew role its own.
+
+Tick **Have Gaffer report across this outcome by itself** (off unless you tick
+it) and Gaffer makes that report without being asked when a pipeline finishes or
+stops: one request to its model each time, at most six for an outcome and never
+within ten minutes of the last. It only reports and proposes.
+
+**Effort** works the same way, for agents whose machine reports thinking levels: set it for the whole
+outcome beside the main agent, or per crew role, so the thinking stages can run
+at high effort while babysitting and merging run at low. A change of agent,
+model or effort between two stages starts a new session for the later one.
+
+A session that is part of a pipeline is marked **Factory · stage n of m** on
+Home, in Continue working and on the planning board, and on the Sessions page,
+in its list and the session's header, with a link to the Factory.
+
+You run the line. On any pipeline with a stage in hand, **Move to next stage**
+closes that stage as it stands and starts the next, without waiting for Gaffer
+to find it done; Gaffer's last review goes along as the handover. The **Merge**
+line on each pipeline has a switch between merging by itself and waiting for
+you, which you can change at any time before the pipeline is done.
+
+**Tell the agent…** on a pipeline sends your own words to its working agent for
+its next turn, without opening the session. **Send back…** has the stage in hand,
+or an earlier one, done again: you choose the stage and say why, that stage and
+the later ones start over in a fresh agent session in the same folder and branch,
+and the agent is told your reason. Nothing already committed is undone.
+
+In a pipeline session's Gaffer chat you can simply say it: "continue to the next
+stage" moves the pipeline on, and "get it to write the plan" passes that
+instruction to the working agent. Gaffer still cannot merge, run commands or
+answer approvals.
+
+Ask Gaffer in a pipeline session's chat where things stand and it can tell you:
+the chat is given the pipeline's stages, which is in hand, which are done and why
+it is waiting. It still cannot move the pipeline on; it tells you what you can do.
+
+If you resume a pipeline stage's goal by hand (**Review goal → Resume goal**),
+Gaffer reviews the work already there instead of waiting for new progress.
+
+### Tokens and budgets
+
+The Factory counts what **Gaffer's own model** used: every finished stage keeps
+its reviews and tokens, the stage in hand reads its live goal, and a report you
+ask for is added to the outcome's total. Where a provider reports no token count
+the page says so instead of showing a number. It attaches no price to any of it.
+
+**Agent tokens** is what the working agents themselves report. When an agent
+says how many tokens a turn took, reet adds the turns up for the stage that did
+them, the pipeline and the outcome, with cached tokens counted apart and a
+split by agent where more than one worked on it. **Context left** shows, for the
+stage in hand, how much of that agent's context window remains, and turns amber
+at 15% or less. Both read **Not reported** for an agent that says nothing; reet
+never estimates. They need the machine's reet updated as well as the
+controller, and they do not include your plan's or provider's own quota, which
+agents do not tell reet.
+
+Budgets are per stage: each stage gets the outcome's review budget and hours
+afresh, and the page shows what is left of the stage in hand. A stage that uses
+its budget stops and waits for you.
+
+### When a pipeline needs you
+
+A card marked **Needs you** says why in one sentence, shows Gaffer's latest
+review, and asks **What do you want to do?** with a button for each thing you
+can do:
+
+- **Have Gaffer look again** resumes the goal, so Gaffer reviews the work
+  that is there now.
+- **Tell the agent…** sends your own instruction to the working agent.
+- **Move to next stage** (or **Finish this stage**) closes the stage on your
+  word.
+- **Open the session** takes you to the agent, to read or answer it. When the
+  agent is waiting for your approval this is the only choice, and Gaffer
+  carries on by itself once you have answered.
+- **Try the review again** appears when Gaffer's own review failed.
+- **Give it a new budget** appears when the stage ran out of reviews or time.
+
+If Gaffer reviewed the stage and simply chose no next step, the card says that
+rather than asking for a decision. The **Need you** and **Ready to merge**
+numbers at the top of the page go to the first such pipeline, and Home's
+**Factory pipelines** list links to each pipeline's card.
+
+### What the pipeline card tells you
+
+- A pipeline is one line until you open it with **Show details**: its title,
+  stage ("Review · 4 of 8"), status and one line of why. Pipelines that need
+  you, are ready to merge or have stopped start open. **Expand all pipelines**
+  opens every one.
+- On the stage track a **green tick** is a finished stage, a **pulsing green
+  ring** is the stage running now, **amber with "!"** is waiting for you, and
+  **red with "×"** has stopped. Each state also has its own mark and words, so
+  it does not rely on colour alone, and the pulse stops if your system asks
+  for reduced motion.
+
+- **In this stage** is how long the stage in hand has been running.
+- **Agent** is what its session last reported (working, waiting for you, idle)
+  and how long ago it was last active. It turns amber for an idle agent, and
+  for one that says it is working but has shown nothing for fifteen minutes.
+- A stage dot with **»** instead of a tick was moved on by you (the button, or
+  telling Gaffer in the chat), not handed over by Gaffer after a review.
+- **History**, on the outcome, lists what happened to its pipelines, newest
+  first, from the activity log.
+- **Try the review again** appears when Gaffer's own review failed. The card
+  shows the provider's reason; the button resumes the goal, which reviews the
+  work already there.
+
+Gaffer judges a stage from the working agent's latest reply, which it is given
+at length (up to 9 KiB, the end kept when longer), so a plan or design written
+in the session can be read in full enough to hand over.
+
+### YOLO and merging by itself
+
+A pipeline whose agent runs on YOLO acts without asking you. Letting it merge
+by itself as well would leave nothing stopping for you between the code and
+the merge, so it takes a separate confirmation: on the pipeline's card, **Let
+it merge by itself** asks you to confirm for a YOLO pipeline. Until you do,
+the pipeline stops at **Ready to merge** and its Merge line reads "Waits for
+you (YOLO)", whatever was ticked when the outcome was approved.
+
+### When nothing can happen without you
+
+Gaffer waits for the working agent, but not for ever. Two cases turn a goal to
+**Needs you** with the reason, instead of leaving it looking active until its
+time runs out:
+
+- **An instruction that is not delivered.** Gaffer's instruction waits in the
+  session's queue until the agent's turn ends. If it is still there after ten
+  minutes and the agent is not busy, or the session cannot be reached, waiting
+  will not deliver it. The instruction stays queued; check the session, then
+  resume the goal.
+- **An idle agent with nothing to do.** If the agent has been idle for thirty
+  minutes since Gaffer's last review and nothing is queued for it, it has most
+  likely asked you something. Read its last message, then resume the goal or
+  move the pipeline on.
+
+An agent that is still working is waited for however long it takes, and one
+waiting for your approval is held and picked up again once you answer. A resume
+starts the thirty minutes again.
+
+### Why a pipeline moved or stopped
+
+The activity log keeps a history of what happened to a pipeline without you, so
+you can see afterwards why it moved on or why it stopped. These are recorded
+under the source `gaffer`, each with the outcome, the pipeline, the stage and a
+reason in the controller's own words:
+
+| Action | When |
+| --- | --- |
+| `gaffer-stage-handed-over` | A stage ended. `by` is `gaffer` (its review found the stage done), `person` (**Move to next stage**, or MCP) or `chat` (you told Gaffer to continue in the session's chat). |
+| `gaffer-stage-started` | The controller started the next stage, in the same session or a new one. |
+| `gaffer-pipeline-waiting-merge` | Every stage before the merge is done and the merge waits for you. |
+| `gaffer-pipeline-done` | Every stage is done. |
+| `gaffer-pipeline-stopped` | A stage could not be started or followed; the reason says why. |
+| `gaffer-goal-needs-you` | The stage's goal went to **Needs you**: Gaffer's review asked for your decision, a review failed, the session ended, access changed, or an instruction's delivery could not be confirmed. |
+| `gaffer-goal-held` | The working agent is waiting for your answer or approval, so Gaffer waits too. Recorded once, not at every look. |
+| `gaffer-goal-released` | You answered the agent and Gaffer is following again. |
+| `gaffer-goal-limit` | The stage's review budget or time ran out. |
+
+The same goal events are recorded for a session Gaffer looks after outside the
+Factory, without the outcome, pipeline and stage. The reason is never Gaffer's
+or the agent's own text: handover notes and reviews stay on the pipeline, where
+only you and a management MCP connection can read them. What you do yourself
+(approve an outcome, move a pipeline on, approve a merge) is recorded as
+before, under your own name.
+
+On a YOLO outcome the approvals the agent was given automatically are recorded
+as `yolo-allow`: one row for each turn of a session, with the number of
+requests allowed, the first and last request and the time they span. A turn
+longer than ten minutes starts another row. Every approval is counted and saved
+as it happens.
+
+### Ask Gaffer about the whole outcome
+
+**Ask Gaffer for a report** on an outcome is one model request to that outcome's
+own provider. It is sent the outcome, each pipeline's state, the handovers and
+Gaffer's latest saved reviews, nothing newer, and only while that provider is
+still allowed session text. The report says what is done, in hand, stuck or
+waiting on you, and whether the pipelines together will meet the outcome.
+
+Gaffer may also **propose pipelines** to add: work nothing covers, or a
+replacement for one that stopped. Each shows why and the stages it would run.
+Tick the ones you want and choose **Add pipelines**. The approval lists each one
+with its own **Agent**, **Model** and **Effort**, starting from the outcome's:
+change them to put a stronger model on a hard job or a cheaper one on a chore.
+Added pipelines never merge by themselves. Nothing is added or started unless you approve it,
+and an outcome holds at most ten pipelines.
+
+A new installation sees **Set up your factory** instead: connect a machine, add a
+project, choose Gaffer's model. Each step links to where it is done and ticks off.
 
 ### Give Gaffer an outcome
 
-Choose **Give Gaffer an outcome** at the top of the floor when you want a result
-and would sooner not start each session yourself.
+1. Write the outcome and choose the project. Only agents whose chat is available on
+   that project's machine are offered, and the machine must be connected.
+2. Choose the **crew** under **Choose who does what**. Thinking covers plan, design
+   and review; Building covers code and test; Shipping covers the pull request,
+   babysitting and merge. Give each its agent and, if you like, a model: a stronger
+   one for thinking, a cheaper one for building or shipping. Left alone, one agent
+   does every stage.
+3. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you
+   typed and the project's name, nothing else, and proposes the pipelines: a title,
+   a brief and the stages each needs. It cannot choose an agent, a model or whether
+   anything merges. **Write the plan myself** skips this.
+4. Review the plan. Edit any title or brief, add or remove a pipeline, and tick the
+   stages each one runs through. The plan says how many agent sessions a pipeline
+   will use: a new session starts whenever the agent or model changes from one
+   stage to the next, and otherwise the same session carries on.
+5. Decide the merge. **Merge by itself** lets each pipeline's agent merge once every
+   check passes, no review thread is open and there are no conflicts. Left off, a
+   pipeline stops at **Ready to merge** and waits for **Approve merge** on the
+   Factory page. The tick starts from your default in Gaffer settings.
+6. For OpenCode and Google Antigravity, tick **I trust this folder** if the folder's
+   plugins may run.
+7. Choose **Approve and start**. The controller starts each pipeline's first stage as
+   an ordinary chat in the project, with ordinary approvals unless you chose YOLO
+   for the outcome, in its own worktree in a git
+   project.
 
-1. Write the outcome, choose the project its sessions work in, the agent, and how
-   many sessions Gaffer may propose (up to five). Only agents whose chat is
-   available on that project's machine are offered, and the machine must be
-   connected.
-2. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you
-   typed and the project's name, nothing else, and proposes the sessions: a title
-   and a full prompt for each. This is one model request and may use provider
-   credits. It starts nothing.
-3. Review the plan. Every title and prompt is editable; remove a session or **Add
-   a session** of your own. **Write the plan myself** skips Gaffer's proposal,
-   for when the model cannot plan or you already know the split.
-4. Choose **Approve and start**. Each session is then started in turn as an
-   ordinary chat in that project, with the prompt shown and ordinary approvals,
-   never YOLO. In a git project each session gets its own worktree, so they do
-   not edit the same files. As each chat comes up it is put in Gaffer's care with
-   a goal that names the outcome and that session's part, and ends "Do not merge."
+How a pipeline moves on: Gaffer follows the stage in hand like any session it looks
+after. When the working agent's own reports show the stage's deliverable is done,
+Gaffer hands it over with a short summary. The controller then starts the next
+stage you approved, in the first stage's working folder, with that handover. Gaffer
+does not choose the next stage, its agent or its model. Every stage but merge is
+told not to merge.
 
-The results name every session as **Following**, **Started, not followed** (with
-the reason; it then appears under **Not followed**) or **Not started**. Keep the
-dialog open until they settle: your browser starts the sessions, so closing it
-stops the ones still waiting. Sessions already started keep running.
+The controller does the starting and the moving on, so you can close the browser. A
+restart carries on without starting a session twice. **Stop starting sessions**
+leaves what has not started unstarted. Restoring a controller from a copy stops any
+outcome that was still starting. Nothing is retried on its own: a stage that could
+not start says why, and its session is left for you to look after.
 
-On the floor, **Outcomes** lists each outcome with its sessions and how many need
-review, are being followed or have finished. Choose one to see only its sessions.
-Each session keeps its own goal, budget and controls; only you mark a goal
-complete, and no outcome is ever marked done for you.
+### Settings for the whole account
 
-What this does not do yet: Gaffer does not add, replace or retire sessions after
-you approve, sessions do not see each other's work, and nothing merges. An agent
-that asks to trust a folder's plugins first (OpenCode, Google Antigravity) is
-refused here with that reason; start it from the launch bar, then look after it
-from the floor.
+**Account → Gaffer AI → How Gaffer works** has two choices:
+
+- **Look after sessions without asking each time** (on by default). When you tell
+  Gaffer to look after sessions, from the Factory or with **Look after** beside a
+  session's own Gaffer chat box, it starts at once with your usual goal and limits.
+  **Chat options → Look after this session** still opens the review first. Nothing is read or sent until you ask. **Review first** still
+  shows the goal and limits beforehand, and any one session can be reviewed, paused
+  or stopped. Turned off, you are shown the review every time.
+- **Let new pipelines merge by themselves** (off by default). The starting value of
+  the merge tick on each new outcome; you can change it per outcome.
+
+### Other sessions
+
+Under the pipelines the Factory lists the sessions you started yourself: the ones
+Gaffer looks after, and the running chats it does not yet. With two or more
+followed sessions in view, **Pause all following** and **Stop all goals** act on
+every one shown, one goal at a time; stopping asks first, and the working models
+keep running either way. Resuming is done one session at a time.
+
+From a session's own Gaffer chat, **Chat options → Factory floor** shows the same
+list in a dialog, so you can look without leaving the session.
 
 ### Put several sessions in Gaffer's care
 
 Tick the running chats Gaffer should look after, or **Select all**, then choose
-**Look after selected**. Ticking shares nothing and starts nothing. **Open**
+**Look after selected**. With looking-after pre-approved (the default) that starts
+them at once with your usual goal and limits; **Review first** opens the review
+described below instead. Ticking shares nothing and starts nothing. **Open**
 beside a chat shows that session with its own Gaffer conversation instead, which
 also enables nothing. One review
 lists the chosen sessions, Gaffer's default provider and model, what starting
 shares, one goal and one set of limits. Write the goal or pick one with **Use a
 prompt**; expand **Change limits** for the review budget and hours.
 
-**Start follow-up** then sets each session up in turn through the same reviewed
+**Start looking after** then sets each session up in turn through the same reviewed
 setup a single session uses. Each session gets its own Gaffer conversation,
 access, goal and budget, so pausing or changing one leaves the others alone. A
 session that already has a Gaffer chat keeps the provider and model chosen there.
@@ -285,10 +537,14 @@ no shell, GitHub or merge path here.
 
 ### Review followed sessions
 
-Each card shows the agreed work, latest Gaffer report, review budget and deadline.
-Worker evidence observation time and the actual review finish time stay separate
-from the overview read time. Expand **Review & evidence** for the full saved
-report, reported usage and last goal instruction. **Handed to worker** confirms
+The floor reads top to bottom: **Give Gaffer an outcome**, then **Outcomes**,
+then **Sessions** with its filters and the actions for the sessions shown, then
+**Not looked after**. Each card is short on purpose. It shows the session, its state,
+the outcome it serves (or the start of its own goal), anything waiting on you in
+a highlighted line, the latest Gaffer report, and its review budget and deadline.
+Expand **Review & evidence** for the full agreed goal, the full saved report, when
+worker evidence was observed and the review finished, reported usage and the last
+goal instruction. Those times stay separate from when the floor was read. **Handed to worker** confirms
 handoff, not completion. Uncertain or blocked delivery needs your review; a model's
 PR/check report still needs verification in the working conversation.
 
@@ -303,6 +559,52 @@ The view refreshes retained records while open. A failed refresh keeps the last
 successful read visibly labelled; source times are never replaced by refresh time.
 If the running sessions cannot be read, the followed work stays and the floor
 says what is missing.
+
+## Tools Gaffer can use
+
+Gaffer can use reet's own tools in your chats with it: the same tools an MCP
+client gets, run by the controller as your account. **Gaffer settings → Tools
+Gaffer can use** lists each one, grouped, with three choices:
+
+- **Off.** Gaffer is not offered the tool. Every tool starts here.
+- **Ask me.** Gaffer can ask to use it. The exact call, with its arguments,
+  appears in the chat under Gaffer's reply and waits. **Approve** runs exactly
+  that call once; **Decline** runs nothing. Gaffer is told it has not run.
+- **Allow.** Gaffer runs it as soon as it decides your message calls for it.
+
+You can set a whole group at once. The groups are: reading the Factory;
+controlling pipelines (move on, retry, send back, tell the agent, stop, ask for
+a report, make a merge wait); starting agents (a new outcome, added pipelines);
+approving a merge; reading the shelf and the activity log; changing the shelf;
+and reading or changing machines and environments.
+
+What to know before switching things on:
+
+- **Allow means no further click.** With *Approve a pipeline's merge* or
+  *Start an outcome* on Allow, telling Gaffer to do it in a chat is all it
+  takes. The settings page says so when a tool like that is on Allow. Choose
+  Ask me if you want to see each call first.
+- **Only your own chat turn has the tools.** Gaffer's goal reviews, which read
+  what a working agent wrote and run without you, are never offered them.
+- **In a session's chat, changes always ask.** There Gaffer also reads the
+  working agent's text, which you did not write, so any tool that changes
+  something is treated as Ask me even if you chose Allow. Reading tools still
+  run.
+- Gaffer can use up to six tools in one turn, one at a time. A tool that
+  fails is reported as failed.
+- The tools that read or message a session through a per-connection grant
+  (`reet_get_context`, `reet_send_worker_message` and their companions) are
+  not on the list: Gaffer has its own per-session permissions for those.
+- Tools still enforce their own rules. A tool that refuses YOLO, or a merge by
+  itself, for an MCP client refuses it for Gaffer too.
+- Each use is recorded: `gaffer-tool-call` (with whether you approved it),
+  `gaffer-tool-proposed`, `gaffer-tool-declined`, and `gaffer-tools-changed`
+  when you change the settings. A change a tool makes is also recorded as an
+  MCP change by the client "Gaffer".
+
+Gaffer still has no shell and no GitHub access of its own, and never answers
+an agent's approval card. A merge it approves is carried out by the pipeline's
+own agent, only on green checks, as when you approve it yourself.
 
 ## Add a provider
 

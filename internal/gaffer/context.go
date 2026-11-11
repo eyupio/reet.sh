@@ -142,6 +142,89 @@ type ContextHistory struct {
 	Unavailable      bool           `json:"unavailable"`
 	Truncated        bool           `json:"truncated"`
 }
+
+// ContextPipeline tells Gaffer where a session sits in a Factory pipeline: the
+// controller's own record, read from the outcome the person approved. Stage
+// names and states need status sharing; the outcome's words and the handover
+// notes are text and need text sharing.
+type ContextPipeline struct {
+	Outcome      string                 `json:"outcome,omitempty"`
+	Title        string                 `json:"title,omitempty"`
+	State        string                 `json:"state"`
+	Note         string                 `json:"note,omitempty"`
+	StageInHand  string                 `json:"stageInHand,omitempty"`
+	Stages       []ContextPipelineStage `json:"stages"`
+	Merge        string                 `json:"merge,omitempty"`
+	GoalState    string                 `json:"goalState,omitempty"`
+	GoalNote     string                 `json:"goalNote,omitempty"`
+	HowItMovesOn string                 `json:"howItMovesOn"`
+}
+type ContextPipelineStage struct {
+	Kind        string `json:"kind"`
+	State       string `json:"state"`
+	Worker      string `json:"worker,omitempty"`
+	ThisSession bool   `json:"thisSession,omitempty"`
+	Handover    string `json:"handover,omitempty"`
+}
+
+const pipelineMovesOn = "A pipeline goes to its next stage when Gaffer's own goal review finds the stage's deliverable done, or when the person moves it on themselves: with Move to next stage on the Factory page, or by telling Gaffer in this session's chat to continue. If the stage's goal needs the person, they can answer the working model, or use Review goal then Resume goal on the Factory page to have the work already there reviewed. The merge setting applies only at the merge stage and can be changed per pipeline on the Factory page."
+
+// contextPipeline finds the pipeline a session belongs to, if any.
+func (s *Service) contextPipeline(uid int64, session string, flags store.ContextFlags) *ContextPipeline {
+	rows, err := s.store.GafferOutcomesFor(uid)
+	if err != nil {
+		return nil
+	}
+	for _, o := range rows {
+		for _, piece := range o.Sessions {
+			mine := piece.SessionID == session
+			for _, stage := range piece.Stages {
+				mine = mine || stage.SessionID == session
+			}
+			if !mine || len(piece.Stages) == 0 {
+				continue
+			}
+			out := &ContextPipeline{State: piece.State, Stages: []ContextPipelineStage{}, HowItMovesOn: pipelineMovesOn}
+			if piece.Stage < len(piece.Stages) {
+				out.StageInHand = piece.Stages[piece.Stage].Kind
+			}
+			for _, stage := range piece.Stages {
+				if stage.Kind != "merge" {
+					continue
+				}
+				out.Merge = "waits for the person's approval"
+				if MergesByItself(o, piece) {
+					out.Merge = "by itself once checks pass"
+				} else if piece.MergeApproved {
+					out.Merge = "approved by the person"
+				}
+			}
+			if flags.Text {
+				out.Outcome, _ = contextText(o.Objective, 1024)
+				out.Title, _ = contextText(piece.Title, 320)
+				out.Note, _ = contextText(piece.Note, 320)
+			}
+			for _, stage := range piece.Stages {
+				row := ContextPipelineStage{Kind: stage.Kind, State: stage.State, Worker: stage.Tool, ThisSession: stage.SessionID == session}
+				if flags.Text {
+					row.Handover, _ = contextText(stage.Summary, 600)
+				}
+				out.Stages = append(out.Stages, row)
+			}
+			if piece.ConversationID != "" {
+				if g, err := s.store.GafferGoalFor(uid, piece.ConversationID); err == nil {
+					out.GoalState = g.State
+					if flags.Text {
+						out.GoalNote, _ = contextText(g.Note, 320)
+					}
+				}
+			}
+			return out
+		}
+	}
+	return nil
+}
+
 type ContextSnapshot struct {
 	Version   int                 `json:"version"`
 	SessionID string              `json:"sessionId"`
@@ -151,7 +234,49 @@ type ContextSnapshot struct {
 	Fleet     *store.ContextFleet `json:"fleet,omitempty"`
 	Session   *ContextSession     `json:"session,omitempty"`
 	History   *ContextHistory     `json:"history,omitempty"`
-	NotRead   []string            `json:"notRead"`
+	// Pipeline is set when the session is one stage of a Factory pipeline.
+	Pipeline *ContextPipeline `json:"pipeline,omitempty"`
+	// LatestReply is the working model's most recent reply at length, so a
+	// plan, a design or a final report can be judged from more than a fragment.
+	LatestReply *ContextReply `json:"latestReply,omitempty"`
+	NotRead     []string      `json:"notRead"`
+}
+
+// MaxLatestReplyBytes is how much of the working model's latest reply a
+// snapshot carries. History events stay short; this one item is long.
+const MaxLatestReplyBytes = 9 << 10
+
+// ContextReply is everything the working model said since it was last sent a
+// message, joined in order. When it is longer than the limit its end is kept
+// (the closing report) and StartOmitted says the beginning is missing.
+type ContextReply struct {
+	FromSeq      int64  `json:"fromSeq"`
+	ToSeq        int64  `json:"toSeq"`
+	At           int64  `json:"at"`
+	Text         string `json:"text"`
+	StartOmitted bool   `json:"startOmitted,omitempty"`
+}
+
+// latestReply reads the reply. It needs history and text sharing, like the
+// event text it repeats at greater length.
+func (s *Service) latestReply(uid int64, session string) (*ContextReply, error) {
+	parts, first, last, at, err := s.store.ContextLatestReplyFor(uid, session)
+	if err != nil || len(parts) == 0 {
+		return nil, err
+	}
+	text, _ := contextText(strings.TrimSpace(strings.Join(parts, "\n")), 1<<20)
+	if text == "" {
+		return nil, nil
+	}
+	r := &ContextReply{FromSeq: first, ToSeq: last, At: at, Text: text}
+	if len(text) > MaxLatestReplyBytes {
+		text = text[len(text)-MaxLatestReplyBytes:]
+		for !utf8.ValidString(text) {
+			text = text[1:]
+		}
+		r.Text, r.StartOmitted = text, true
+	}
+	return r, nil
 }
 
 var contextKey = regexp.MustCompile(`(?i)\b(?:sk-(?:proj-|ant-)?|github_pat_|gh[pousr]_|xox[baprs]-)[a-z0-9_-]{8,}|\bAKIA[A-Z0-9]{16}\b`)
@@ -210,6 +335,7 @@ func (s *Service) contextSnapshot(uid int64, session string, flags store.Context
 		}
 		x.Session = &ContextSession{ID: row.ID, State: string(row.State), Worker: worker, UpdatedAt: row.UpdatedAt}
 	}
+	x.Pipeline = s.contextPipeline(uid, session, flags)
 	if flags.Text {
 		if x.Session == nil {
 			x.Session = &ContextSession{ID: session}
@@ -278,6 +404,11 @@ func (s *Service) contextSnapshot(uid int64, session string, flags store.Context
 			h.Truncated = true
 		}
 		x.History = h
+		if flags.Text {
+			if x.LatestReply, err = s.latestReply(uid, session); err != nil {
+				return x, err
+			}
+		}
 		for {
 			b, err := json.Marshal(x)
 			if err != nil {

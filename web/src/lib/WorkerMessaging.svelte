@@ -27,7 +27,7 @@
  }
 </script>
 <section class="worker-messaging" aria-label="Worker messaging">
- <p>{gaffer?'Gaffer relays your instructions; the session’s existing model does the work.':'Grant this client permission to queue instructions for one selected session. Shelf and context permissions stay separate.'}</p>
+ <p>{gaffer?'Gaffer relays your instructions; the session’s existing model does the work.':'Grant this client permission to queue instructions for one selected session. Library and context permissions stay separate.'}</p>
  {#if !gaffer}<label>Session<select aria-label="Worker session" value={selected} disabled={busy||loading} onchange={event=>{selected=event.currentTarget.value;notice='';void load(true)}}><option value="">Choose a structured session</option>{#each data?.sessions??[] as session}<option value={session.id}>{session.title||session.id}</option>{/each}{#each data?.scopes?.filter(g=>!data?.sessions?.some(s=>s.id===g.sessionId))??[] as grant}<option value={grant.sessionId}>Session {grant.sessionId}</option>{/each}</select></label>{/if}
  {#if loading}<p role="status">Reading worker permission…</p>{:else if data}
   {#if data.worker.providerId}<p class="hint">Gaffer model: {data.worker.model||'Unavailable'}. A provider/model or policy change needs review.</p>{/if}

@@ -13,20 +13,20 @@ const report = (host, installed, complete = true) => ({ host, installed: new Set
 
 test('a skill in no saved selection is not set to sync anywhere', () => {
   const intent = skillSyncIntent('a', snapshot([target('laptop', 'agents', [sk('b')])]))
-  assert.deepEqual(intent, { set: [], pending: [] })
+  assert.deepEqual(intent, { set: [], pending: [], held: [] })
   assert.equal(skillSyncSummary(intent), 'Not set to sync')
 })
 
 test('a desired skill that the machine already has is set; one still missing is pending', () => {
   const snap = snapshot([target('laptop', 'agents', [sk('a')]), target('box', 'claude', [sk('a')], [sk('a')])])
   const intent = skillSyncIntent('a', snap)
-  assert.deepEqual(intent, { set: ['laptop'], pending: ['box'] })
+  assert.deepEqual(intent, { set: ['laptop'], pending: ['box'], held: [] })
   assert.equal(skillSyncSummary(intent), 'Pending on box · synced to laptop')
 })
 
 test('a host with several scopes counts once and is pending if any scope is', () => {
   const snap = snapshot([target('laptop', 'agents', [sk('a')]), target('laptop', 'claude', [sk('a')], [sk('a')])])
-  assert.deepEqual(skillSyncIntent('a', snap), { set: [], pending: ['laptop'] })
+  assert.deepEqual(skillSyncIntent('a', snap), { set: [], pending: ['laptop'], held: [] })
 })
 
 test('hosts are listed alphabetically and aliases match case-insensitively', () => {
@@ -41,8 +41,8 @@ test('the summary folds long host lists', () => {
 })
 
 test('an empty or missing snapshot is simply not set', () => {
-  assert.deepEqual(skillSyncIntent('a', undefined), { set: [], pending: [] })
-  assert.deepEqual(skillSyncIntent('a', { environments: [], targets: undefined }), { set: [], pending: [] })
+  assert.deepEqual(skillSyncIntent('a', undefined), { set: [], pending: [], held: [] })
+  assert.deepEqual(skillSyncIntent('a', { environments: [], targets: undefined }), { set: [], pending: [], held: [] })
 })
 
 test('sync filters answer where-is-it questions from intent and observed reports', () => {
@@ -88,4 +88,15 @@ test('a written skill reads its saved plan first, then falls back to complete sc
   assert.equal(writtenSkillWhere(id, undefined, [report('laptop', [id]), report('box', [])]), 'On 1 machine · 1 missing')
   assert.equal(writtenSkillWhere(id, snapshot([target('laptop', 'agents', [sk(id)], [sk(id)])]), [report('laptop', [])]), 'Pending on laptop')
   assert.equal(writtenSkillWhere(id, snapshot([target('laptop', 'agents', [sk(id)])]), []), 'Set to sync to laptop')
+})
+
+test('a skill selected in the library but held back is never called not set to sync', () => {
+  const heldTarget = { ...target('laptop', 'claude', []), held: [{ itemId: 'i1', id: 'a', name: 'a', reason: 'content' }] }
+  const intent = skillSyncIntent('a', snapshot([heldTarget]))
+  assert.deepEqual(intent, { set: [], pending: [], held: ['laptop'], heldReason: 'content' })
+  assert.equal(skillSyncSummary(intent), 'Selected for laptop · waiting for a saved copy in reet')
+  assert.equal(matchesSyncFilter('not-set', 'a', snapshot([heldTarget]), []), false)
+  // Installed from one folder of the same machine: that machine is not held.
+  const both = snapshot([heldTarget, target('laptop', 'agents', [sk('a')])])
+  assert.deepEqual(skillSyncIntent('a', both), { set: ['laptop'], pending: [], held: [] })
 })

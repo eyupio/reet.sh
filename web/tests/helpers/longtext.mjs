@@ -120,6 +120,7 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/ignored') return json({ ignored: [{ id: 'x/y/z', name: 'old-skill', reason: 'Not useful', at: now }] })
     if (path === '/api/v2/session-backlog' && method === 'GET') return json({ drafts: [] })
     if (path === '/api/v2/gaffer/goals' && method === 'GET') return json({ goals: [], readAt: Date.now() })
+    if (path === '/api/v2/gaffer/outcomes' && method === 'GET') return json({ outcomes: [] })
     if (path === '/api/v2/folder-projects' && method === 'GET') return json({ projects: folderProjects, savedWaiting: 0 })
     if (path === '/api/v2/project-groups' && method === 'GET') return json({ groups: [] })
     let f = path.match(/^\/api\/v2\/folder-projects\/([^/]+)$/); if (f) return json({ ...(folderProjects.find(p => p.id === f[1]) || folderProjects[0]), starterPrompt: 'Read the README and tidy the tests' })

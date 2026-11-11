@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -169,6 +170,10 @@ type Service struct {
 	goalWake        chan struct{}
 	goalRecoveryErr error
 	worker          WorkerMessenger
+	starter         SessionStarter
+	auditor         atomic.Pointer[AuditFunc]
+	toolHost        atomic.Pointer[ToolHost]
+	outcomeWake     chan struct{}
 	workerEnabled   func() bool
 	workerLimiter   *auth.Limiter
 	store           *store.Store

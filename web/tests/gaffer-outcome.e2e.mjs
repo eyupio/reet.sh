@@ -23,13 +23,15 @@ const proposed={summary:'Two independent halves: the endpoint, then the button.'
   {title:'Export button',prompt:'Add the export button to the billing page. Raise a pull request. Do not merge.'},
 ]}
 const cid=n=>String(n).repeat(32)
+const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0GQAAAAASUVORK5CYII=','base64')
 
 function fixture({planFails=false}={}){
-  const box={writes:[],plans:[],creates:[],setups:[],goalReads:{},sessions:[],goals:[],conversations:new Map(),planFails}
+  const box={writes:[],plans:[],creates:[],setups:[],goalReads:{},sessions:[],goals:[],conversations:new Map(),planFails,uploads:0,uploadFails:false}
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const routes={
     '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
     '/api/v2/folder-projects':{projects,savedWaiting:0},
+    '/api/v2/machines/a1/uploads':request=>{expect(request.method()).toBe('POST');box.uploads++;if(box.uploadFails)return{status:502,json:{error:'The image could not be uploaded.'}};return{status:200,headers:{'X-Reet-Upload-Path':'/home/dev/launch-uploads/outcome.png','X-Reet-Upload-Reference':'/home/dev/launch-uploads/outcome.png'},json:{uploaded:'true'}}},
     '/api/v2/gaffer/goals':()=>({goals:box.goals,readAt:now}),
     [`/api/v2/gaffer/providers/${pid}/plan`]:request=>{
       expect(request.method()).toBe('POST');box.plans.push(request.postDataJSON())
@@ -190,6 +192,47 @@ try {
       await w.page.keyboard.press('Escape');await expect(outcome).toHaveCount(0)
       await expect(w.page.getByRole('dialog',{name:'Factory floor',exact:true}).getByRole('button',{name:'Give Gaffer an outcome',exact:true})).toBeFocused()
       expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`]);expect(f.box.creates).toEqual([]);expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // The optional image on an outcome: validation, removal, the plan staying text-only, one upload at approval,
+  // a failed upload blocking approval until the image is removed, and a clean reopen.
+  {
+    const f=fixture(),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:f.routes})
+    watch(w,f.box)
+    try {
+      let opened=await openOutcome(w)
+      let {outcome}=opened
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      const input=outcome.locator('input[type=file]')
+      await input.setInputFiles({name:'shot.gif',mimeType:'image/gif',buffer:PNG})
+      await expect(outcome.getByText('Attach a PNG, JPEG or WebP image.',{exact:true})).toBeVisible()
+      await input.setInputFiles({name:'huge.png',mimeType:'image/png',buffer:Buffer.alloc((5<<20)+1)})
+      await expect(outcome.getByText('That image is larger than 5 MiB.',{exact:true})).toBeVisible()
+      await input.setInputFiles({name:'outcome.png',mimeType:'image/png',buffer:PNG})
+      await expect(outcome.getByText('outcome.png',{exact:true})).toBeVisible()
+      await outcome.getByRole('button',{name:/^Remove outcome\.png$/}).click()
+      await expect(outcome.getByText('outcome.png',{exact:true})).toHaveCount(0)
+      await input.setInputFiles({name:'outcome.png',mimeType:'image/png',buffer:PNG})
+      expect(f.box.writes).toEqual([])
+      await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+      await expect(outcome.getByText('Two independent halves: the endpoint, then the button.',{exact:true})).toBeVisible()
+      await expect(outcome.getByText('outcome.png',{exact:true})).toBeVisible()
+      expect(f.box.uploads).toBe(0);expect(f.box.plans).toHaveLength(1)
+      f.box.uploadFails=true
+      await outcome.getByRole('button',{name:/^Approve and start/}).click()
+      await expect(outcome.getByRole('alert')).toHaveText('The image could not be uploaded.')
+      expect(f.box.creates).toEqual([])
+      f.box.uploadFails=false
+      await outcome.getByRole('button',{name:/^Approve and start/}).click()
+      await expect(outcome.getByRole('status')).toHaveText('1 started and followed, 1 started but not followed yet.',{timeout:20000})
+      expect(f.box.uploads).toBe(2)
+      for(const sent of f.box.creates) expect(sent.prompt).toMatch(/\n\nImage: \/home\/dev\/launch-uploads\/outcome\.png$/)
+      await outcome.getByRole('button',{name:'Back to the floor',exact:true}).click();await expect(outcome).toHaveCount(0)
+      opened=await openOutcome(w);outcome=opened.outcome
+      await expect(outcome.getByText('outcome.png',{exact:true})).toHaveCount(0)
+      await expect(outcome.locator('.chosen')).toHaveCount(0)
+      expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
   console.log('Gaffer outcome: objective gates, plan from the typed objective only, editable plan, nothing started before approval, ordinary launches without YOLO, waiting for a fresh chat, goals naming the outcome, partial results, outcome grouping on the floor, a model that cannot plan and a hand-written plan passed on desktop and phone.')

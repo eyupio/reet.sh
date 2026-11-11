@@ -4,7 +4,9 @@
   // Nothing here starts on the model's say-so: a proposed session is text until the person presses Approve.
   import { onMount } from 'svelte'
   import { ApiError, createGafferConversation, getGafferConversation, getGafferGoal, getGafferSettings, planGafferOutcome, setupGafferGoal, type GafferProvider } from './api'
-  import { chatToolName, createTerminal, listFolderProjects, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
+  import { chatToolName, createTerminal, launchUpload, listFolderProjects, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
+  import { imagePrompt } from './terminal/upload'
+  import ImageAttachment from './ImageAttachment.svelte'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
@@ -21,8 +23,10 @@
   let planning = $state(false), planError = $state(''), summary = $state(''), sessions = $state<PlanSession[]>([])
   let maxReviews = $state(12), hours = $state(24)
   let busy = $state(false), results = $state<OutcomeResult[]>([])
+  let image = $state<File | null>(null), imageUploading = $state(false), imageError = $state('')
   let counter = 0
   const key = () => `plan-${++counter}`
+  function clearImage() { image = null; imageError = '' }
 
   const project = $derived(projects.find(item => item.id === projectId) ?? null)
   const machine = $derived(project ? machines.find(item => item.agentId === project.host) ?? null : null)
@@ -31,6 +35,7 @@
   const blocker = $derived(loading ? '' : !provider ? 'Choose a default Gaffer provider in Gaffer settings first.' : objectiveBlocker({ objective, project: !!project, machineReady: !!machine?.ready, agent: !!tool && tools.includes(tool), room }))
   const approveBlocker = $derived(planBlocker(sessions, room))
   const done = $derived(results.length > 0 && !busy)
+  $effect(() => { void image; imageError = '' })
 
   $effect(() => { if (tools.length && !tools.includes(tool)) tool = tools[0]; if (!tools.length) tool = '' })
   $effect(() => { if (wanted > cap) wanted = cap })
@@ -88,7 +93,18 @@
 
   async function approve() {
     if (busy || approveBlocker || !provider || !project || !tool) return
-    busy = true; step = 'results'
+    busy = true; imageError = ''
+    let reference = ''
+    if (image) {
+      imageUploading = true
+      try { reference = (await launchUpload(project.host, image, life.signal)).reference }
+      catch (e) {
+        if (!life.signal.aborted) imageError = e instanceof Error ? e.message : 'The image could not be uploaded.'
+        imageUploading = false; busy = false; return
+      }
+      finally { imageUploading = false }
+    }
+    step = 'results'
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     const chosen = sessions.map(item => ({ ...item, title: item.title.trim(), prompt: item.prompt.trim() }))
     results = chosen.map(item => ({ key: item.key, title: item.title, step: 'waiting', note: 'Waiting its turn.' }))
@@ -99,7 +115,8 @@
       mark(item.key, { step: 'starting', note: 'Starting the session…' })
       let sessionId = ''
       try {
-        const created = await createTerminal(project.host, requestId(), item.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(60000)]), { tool, dir: project.dir, projectId: project.id, prompt: item.prompt, structured: true })
+        const prompt = reference ? imagePrompt(item.prompt, [reference]) : item.prompt
+        const created = await createTerminal(project.host, requestId(), item.title, 100, 30, AbortSignal.any([life.signal, AbortSignal.timeout(60000)]), { tool, dir: project.dir, projectId: project.id, prompt, structured: true })
         sessionId = created.id; any = true
         mark(item.key, { note: 'Started. Putting it in Gaffer’s care…', sessionId, agentId: created.agentId })
         await follow(sessionId, item.title)
@@ -110,6 +127,7 @@
         mark(item.key, sessionId ? { step: 'unfollowed', note: `Started, but not followed: ${reason} It is under Not followed on the floor.` } : { step: 'failed', note: `Not started: ${reason}` })
       }
     }
+    clearImage()
     busy = false
     if (any) await onstarted()
   }
@@ -126,8 +144,9 @@
         <form onsubmit={event => { event.preventDefault(); void ask() }}>
           <label for={`${formId}-objective`}>Outcome</label>
           <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning}></textarea>
+          <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
           <div class="pair">
-            <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning}>
+            <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning} onchange={clearImage}>
               <option value="">Choose a project…</option>
               {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
             </select></label>
@@ -151,6 +170,7 @@
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
       {#if summary}<div class="summary"><p class="eyebrow">Gaffer’s plan</p><p>{summary}</p></div>{/if}
       <p class="hint">{project?.name} · {chatToolName(tool)}. Edit anything; each session starts with exactly the prompt shown{project?.isRepo ? ', in its own worktree' : ''}.</p>
+      <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Session {index + 1}</label><button class="link" type="button" aria-label={`Remove session ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>

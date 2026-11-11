@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Gaffer: a goal no longer looks active when nothing can happen without you.
+  If Gaffer's instruction is still undelivered after ten minutes and the
+  working agent is not busy, or the agent has sat idle for thirty minutes after
+  Gaffer's last review with nothing queued for it, the goal goes to **Needs
+  you** and says which. A busy agent is still waited for, and an agent waiting
+  for your approval is held as before. Needs a controller update.
 - Activity log: what Gaffer and the controller do to a Factory pipeline by
   themselves is now recorded, under the source `gaffer`: a stage handed over
   (and whether Gaffer's review, your button or your word in the chat did it), a

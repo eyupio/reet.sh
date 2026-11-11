@@ -312,6 +312,26 @@ Budgets are per stage: each stage gets the outcome's review budget and hours
 afresh, and the page shows what is left of the stage in hand. A stage that uses
 its budget stops and waits for you.
 
+### When nothing can happen without you
+
+Gaffer waits for the working agent, but not for ever. Two cases turn a goal to
+**Needs you** with the reason, instead of leaving it looking active until its
+time runs out:
+
+- **An instruction that is not delivered.** Gaffer's instruction waits in the
+  session's queue until the agent's turn ends. If it is still there after ten
+  minutes and the agent is not busy, or the session cannot be reached, waiting
+  will not deliver it. The instruction stays queued; check the session, then
+  resume the goal.
+- **An idle agent with nothing to do.** If the agent has been idle for thirty
+  minutes since Gaffer's last review and nothing is queued for it, it has most
+  likely asked you something. Read its last message, then resume the goal or
+  move the pipeline on.
+
+An agent that is still working is waited for however long it takes, and one
+waiting for your approval is held and picked up again once you answer. A resume
+starts the thirty minutes again.
+
 ### Why a pipeline moved or stopped
 
 The activity log keeps a history of what happened to a pipeline without you, so

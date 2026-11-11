@@ -856,7 +856,41 @@ seven; a new turn and the window each start a row; a closed chat keeps nothing.
   starts a new row even mid-turn.
 - `scan` still writes two rows a minute; not touched.
 
-## Not done, for the next slice
+## Goals that cannot move say so (11 November 2026, with #734)
+
+The owner chose this as the next improvement from the live read: pipeline
+`358303b0…` showed an `active` goal for hours while the agent sat idle on three
+questions, then "Waiting for the existing instruction's delivery" for a queued
+instruction that never arrived. `reviewGoal` rechecked both every 10 to 15
+seconds with no limit.
+
+- **Undelivered instruction** (`instructionDeliveryWait`, 10 minutes from the
+  receipt's `CreatedAt`). Past it, the worker is probed: waiting on the person
+  → the ordinary hold; working, configuring or compacting → keep waiting; idle
+  → `needs_user` "…without reaching the working model, which is not busy";
+  probe failed → `needs_user` "…the working session could not be reached".
+  Not applied while the controller's worker channel is off. The queued
+  instruction is left alone; a resume clears the goal's pending receipt as it
+  always did.
+- **Idle worker** (`idleWorkerWait`, 30 minutes). Only where there is no
+  unreviewed progress, Gaffer has reviewed at least once, and 30 minutes have
+  passed since the later of `LastReviewedAt` and the new `ResumedAt`
+  (`GafferGoal`, set by a resume; JSON field, no migration). The worker is
+  probed: waiting → hold; busy or unreachable → keep waiting; idle →
+  `needs_user` "The working model has been idle for N minutes since Gaffer
+  last looked, and nothing is queued for it…".
+- No model request is made by either. Both write `gaffer-goal-needs-you`.
+- The two waits are package variables so tests can shorten them; there is no
+  setting. **The values are this agent's choice, not the owner's.**
+
+Tests (`goal_stuck_test.go`): within the wait and with a busy worker the goal
+stays active; an idle worker with a queued instruction, and an idle worker
+after a delivered one, each go to Needs you with the note and the audit row
+and no further review; a resume restarts the idle clock. Synthetic only: what
+a real OpenCode chat reports as busy or idle between turns is not verified, and
+a long silent turn that the agent does not report as working would be called
+idle.
+
 
 - No bulk resume (deliberate), and no per-session goal text in one review.
 - The review uses the default provider's own model; a per-session override is

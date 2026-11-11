@@ -14,10 +14,41 @@ import (
 // page makes, so the same rules hold: nothing here starts an outcome, answers
 // an approval, runs a command or merges anything itself.
 
-var mcpFactoryReads = map[string]bool{"reet_list_factory": true, "reet_get_factory_outcome": true}
+var mcpFactoryReads = map[string]bool{"reet_list_factory": true, "reet_get_factory_outcome": true, "reet_list_factory_projects": true}
 var mcpFactoryWrites = map[string]bool{
 	"reet_move_pipeline_on": true, "reet_retry_pipeline": true, "reet_set_pipeline_merge": true,
 	"reet_approve_pipeline_merge": true, "reet_stop_outcome": true, "reet_report_outcome": true,
+	"reet_start_outcome": true, "reet_add_pipelines": true, "reet_tell_pipeline_agent": true, "reet_send_pipeline_back": true,
+}
+
+// mcpPipelines reads the pipelines an MCP client asks to start: a title, a
+// self-contained brief and optional stage kinds. A client never chooses YOLO,
+// folder trust or a merge that happens by itself; those stay the person's.
+func mcpPipelines(raw any) ([]gaffer.OutcomeSession, error) {
+	list, ok := raw.([]any)
+	if !ok || len(list) == 0 {
+		return nil, errors.New("Give at least one pipeline, each with a title and a prompt.")
+	}
+	out := []gaffer.OutcomeSession{}
+	for _, entry := range list {
+		item, _ := entry.(map[string]any)
+		title, _ := item["title"].(string)
+		prompt, _ := item["prompt"].(string)
+		piece := gaffer.OutcomeSession{Title: title, Prompt: prompt}
+		if kinds, ok := item["stages"].([]any); ok {
+			for _, kind := range kinds {
+				name, _ := kind.(string)
+				piece.Stages = append(piece.Stages, gaffer.OutcomeStageInput{Kind: name})
+			}
+		}
+		if len(piece.Stages) == 0 {
+			for _, kind := range []string{"code", "review", "test", "pr", "babysit", "merge"} {
+				piece.Stages = append(piece.Stages, gaffer.OutcomeStageInput{Kind: kind})
+			}
+		}
+		out = append(out, piece)
+	}
+	return out, nil
 }
 
 func mcpFactoryTool(name string) bool { return mcpFactoryReads[name] || mcpFactoryWrites[name] }
@@ -104,6 +135,17 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 		}
 		return map[string]any{"outcomes": out}, nil
 	}
+	if name == "reet_list_factory_projects" {
+		rows, err := s.st.ListFolderProjectsFor(uid)
+		if err != nil {
+			return nil, err
+		}
+		out := []map[string]any{}
+		for _, row := range rows {
+			out = append(out, map[string]any{"id": row.ID, "name": row.Name, "machine": row.Host, "git": row.IsRepo})
+		}
+		return map[string]any{"projects": out}, nil
+	}
 	id, key := str("outcome_id"), str("pipeline")
 	if name == "reet_get_factory_outcome" {
 		o, err := s.gafferProviders.Outcome(uid, id)
@@ -113,7 +155,7 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 		return map[string]any{"outcome": s.mcpOutcome(uid, o, full)}, nil
 	}
 	confirmed := args["confirm"] == true
-	needsConfirm := name == "reet_move_pipeline_on" || name == "reet_approve_pipeline_merge" || name == "reet_stop_outcome" || name == "reet_set_pipeline_merge" && str("mode") == "by_itself"
+	needsConfirm := name == "reet_start_outcome" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" || name == "reet_move_pipeline_on" || name == "reet_approve_pipeline_merge" || name == "reet_stop_outcome" || name == "reet_set_pipeline_merge" && str("mode") == "by_itself"
 	if needsConfirm && !confirmed {
 		return nil, errors.New("Pass confirm=true only when the user has asked for exactly this. Nothing was changed.")
 	}
@@ -135,9 +177,34 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 			}
 		}
 	}
+	if name == "reet_tell_pipeline_agent" {
+		m, err := s.gafferProviders.TellPipelineAgent(ctx, uid, id, key, str("request_id"), str("text"))
+		if err != nil {
+			return nil, err
+		}
+		s.event(uid, "mcp", "mcp-factory-control", "", map[string]any{"connection": access.Connection.Name, "tool": name, "outcome": id, "pipeline": key, "message": m.ID, "state": m.State})
+		m.Text = ""
+		return map[string]any{"message": m, "applied": true}, nil
+	}
 	var o store.GafferOutcome
 	var err error
 	switch name {
+	case "reet_start_outcome":
+		pipelines, perr := mcpPipelines(args["pipelines"])
+		if perr != nil {
+			return nil, perr
+		}
+		// The person's usual limits; no YOLO, no folder trust and no merge by itself can be asked for here.
+		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Sessions: pipelines, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true})
+		id = o.ID
+	case "reet_add_pipelines":
+		pipelines, perr := mcpPipelines(args["pipelines"])
+		if perr != nil {
+			return nil, perr
+		}
+		o, err = s.gafferProviders.AddPipelines(uid, id, gaffer.AddPipelinesInput{Confirmed: true, Sessions: pipelines})
+	case "reet_send_pipeline_back":
+		o, err = s.gafferProviders.SendPipelineBack(uid, id, key, str("stage"), str("reason"))
 	case "reet_move_pipeline_on":
 		o, err = s.gafferProviders.MovePipelineOn(uid, id, key)
 	case "reet_retry_pipeline":

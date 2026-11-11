@@ -1112,3 +1112,48 @@ func TestGafferChatMovesThePipelineOnWhenThePersonSaysContinue(t *testing.T) {
 		t.Fatalf("tools offered: %v", tools)
 	}
 }
+
+func TestThePersonSendsAPipelineBackAndTheStageIsDoneAgainInTheSameFolder(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint committed.")
+	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
+	for name, bad := range map[string][2]string{"later stage": {"test", "Needs it."}, "no reason": {"code", "  "}, "unknown stage": {"deploy", "Why not."}} {
+		if _, err := r.s.SendPipelineBack(r.p.UserID, created.ID, review.Key, bad[0], bad[1]); err == nil {
+			t.Fatalf("%s was accepted", name)
+		}
+	}
+	before := len(r.starter.asked())
+	if _, err := r.s.SendPipelineBack(r.p.UserID, created.ID, review.Key, "code", "The export leaks other tenants' rows."); err != nil {
+		t.Fatal(err)
+	}
+	again := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool {
+		return p.State == "following" && p.Stage == 0 && p.SessionID != ""
+	})
+	asked := r.starter.asked()
+	if len(asked) != before+1 {
+		t.Fatalf("launches after sending back: %d, was %d", len(asked), before)
+	}
+	last := asked[len(asked)-1]
+	if last.Dir != code.WorkDir || last.ProjectID != "" || last.RequestID == code.Stages[0].RequestID || again.SessionID == code.SessionID || again.SessionID == review.SessionID {
+		t.Fatalf("stage done again: %+v piece %+v", last, again)
+	}
+	if !strings.Contains(last.Prompt, "sent back to it. Why: Sent back from the review stage. The export leaks other tenants' rows.") || !strings.HasPrefix(last.Prompt, "You are doing ONE stage of a staged piece of work: the code stage.") {
+		t.Fatalf("prompt: %q", last.Prompt)
+	}
+	if again.Stages[0].State != "running" || again.Stages[1].State != "pending" || again.Stages[1].Summary != "" || again.Stages[1].RequestID == review.Stages[1].RequestID {
+		t.Fatalf("stages after sending back: %+v", again.Stages)
+	}
+	// The stage it left has its goal closed; the stage done again has its own.
+	if old, err := r.st.GafferGoalFor(r.p.UserID, review.ConversationID); err != nil || old.State != "stopped" {
+		t.Fatalf("left stage goal: %+v %v", old, err)
+	}
+	if g, err := r.st.GafferGoalFor(r.p.UserID, again.ConversationID); err != nil || g.State != "active" || !strings.Contains(g.Text, "\nStage: code\n") {
+		t.Fatalf("goal of the stage done again: %+v %v", g, err)
+	}
+}

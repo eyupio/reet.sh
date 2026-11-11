@@ -148,6 +148,9 @@ func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) 
 			}
 		}
 	}
+	if stage.SentBack != "" {
+		text += "\n\nThis stage is being done again: the work was sent back to it. Why: " + stage.SentBack + " Work in the same folder and branch, keep what is sound, and put right what was sent back."
+	}
 	text += "\n\nThe whole piece of work, for context only. Do not carry out the parts that belong to other stages:\n" + item.Prompt
 	text += "\n\nThis stage is finished when you have left " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
 	if len(later) > 0 {
@@ -787,7 +790,7 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
 		launch.Title = clipBytes(item.Title, 60) + " · " + stage.Kind
 		goal = StageGoal(o.Objective, item.Title, stage.Kind)
-		if item.Stage > 0 && item.WorkDir != "" {
+		if item.WorkDir != "" {
 			// A later stage works where the first one did. It is not a new
 			// project launch, so it gets no worktree of its own.
 			launch.Dir, launch.ProjectID, launch.LinkProjectID = item.WorkDir, "", o.ProjectID

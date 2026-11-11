@@ -173,11 +173,21 @@ Six more are the person's own controls and need management scope:
 | `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true`. |
 | `reet_stop_outcome` | Stops an outcome. Needs `confirm: true`. |
 | `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
+| `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. |
+| `reet_send_pipeline_back` | Has the stage in hand, or an earlier one, done again with your reason. Needs `confirm: true`. |
+| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. |
+| `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. |
+
+`reet_list_factory_projects` (a read) lists the projects an outcome can run in.
+
+An outcome started over MCP always runs with ordinary approvals, never YOLO,
+without folder trust, with your usual limits of 12 reviews over 24 hours, and
+every pipeline stops at Ready to merge. Those choices stay yours on the Factory
+page.
 
 They are the calls the Factory page makes, under the same rules, and each is
-recorded in Activity with the connection's name. No tool starts an outcome,
-approves a plan, answers an approval card, runs a command or merges anything
-itself. A client should pass `confirm: true` only when you asked for exactly
+recorded in Activity with the connection's name. No tool answers an approval
+card, runs a command, turns on YOLO or merges anything itself. A client should pass `confirm: true` only when you asked for exactly
 that change: a merge approval in particular is yours to give, not the client's.
 
 ## OAuth implementation and limits
@@ -195,11 +205,11 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 43 tool definitions are shared with the optional stdio package. For accounts
-with write access, read-only connections discover fifteen tools and management
-connections forty-three, including the two separately granted context reads,
-three management-only worker messaging tools and the eight Factory tools (two
-reads and six management-only controls).
+The 48 tool definitions are shared with the optional stdio package. For accounts
+with write access, read-only connections discover sixteen tools and management
+connections forty-eight, including the two separately granted context reads,
+three management-only worker messaging tools and the thirteen Factory tools
+(three reads and ten management-only controls).
 Viewer accounts retain eleven shelf-read tools.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.

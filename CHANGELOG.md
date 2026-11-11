@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: **Tell the agent…** sends your instruction to a pipeline's working
+  agent, and **Send back…** has a stage done again with your reason. MCP can now
+  also start an outcome, add pipelines, tell a pipeline's agent and send it back
+  (management scope, `confirm: true`; never YOLO). Needs a controller update.
 - MCP: eight Factory tools. Any writer's connection can read outcomes and
   pipelines (`reet_list_factory`, `reet_get_factory_outcome`); a management
   connection can also move a pipeline on, retry it, set or approve its merge,

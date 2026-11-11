@@ -273,6 +273,12 @@ to find it done; Gaffer's last review goes along as the handover. The **Merge**
 line on each pipeline has a switch between merging by itself and waiting for
 you, which you can change at any time before the pipeline is done.
 
+**Tell the agent…** on a pipeline sends your own words to its working agent for
+its next turn, without opening the session. **Send back…** has the stage in hand,
+or an earlier one, done again: you choose the stage and say why, that stage and
+the later ones start over in a fresh agent session in the same folder and branch,
+and the agent is told your reason. Nothing already committed is undone.
+
 In a pipeline session's Gaffer chat you can simply say it: "continue to the next
 stage" moves the pipeline on, and "get it to write the plan" passes that
 instruction to the working agent. Gaffer still cannot merge, run commands or

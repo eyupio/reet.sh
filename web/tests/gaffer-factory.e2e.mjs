@@ -30,6 +30,8 @@ const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'
 const routesFor=box=>({'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/b/advance`]:request=>{box.moved.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[1];piece.stages[piece.stage].state='done';piece.stage++;piece.stages[piece.stage].state='running';piece.note='The review stage is under way.';o.revision++;return o},
+ [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/a/tell`]:request=>{box.told.push(request.postDataJSON());return {message:{id:'m1',state:'queued'}}},
+ [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/a/back`]:request=>{const input=request.postDataJSON();box.back.push(input);const o=outcomes[0],piece=o.sessions[0];piece.note=`Sent back to the ${input.stage} stage. Starting it again.`;o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/a/automerge`]:request=>{const input=request.postDataJSON();box.modes.push(input);const o=outcomes[0];o.sessions[0].autoMerge=input.on;o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/review`]:request=>{box.reviews.push(request.postDataJSON());const o=outcomes[0];o.revision++;o.report={text:'The endpoint is in review and the button is waiting on your answer. Nothing covers the changelog.',at:now,model:'gaffer-model',inputTokens:300,outputTokens:80,usageReported:true,proposals:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',why:'No pipeline covers the changelog.',stages:['code','pr']},{title:'Export metrics',prompt:'Add a counter for exports. Do not merge.',why:'Nice to have.'}]};return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions`]:request=>{const input=request.postDataJSON();box.added.push(input);const o=outcomes[0];o.revision++;o.report.proposals=[];for(const item of input.sessions)o.sessions.push({key:'z',title:item.title,prompt:item.prompt,state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:item.stages.map(x=>st(x.kind,'claude','','pending'))});o.state='starting';return o},
@@ -38,7 +40,7 @@ const routesFor=box=>({'/api/v2/gaffer/providers':{providers:[provider],presets:
 const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 try {
   for(const [width,theme] of [[1440,'light'],[390,'light'],[1440,'dark']]){
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[]}
     // Each run starts from the same record: the third pipeline is waiting for the merge decision.
     Object.assign(outcomes[0],{revision:5,state:'settled'});delete outcomes[0].report;outcomes[0].sessions.length=3;outcomes[1].revision=2;outcomes[1].sessions[1]={key:'b',title:'Importer docs',prompt:'p',state:'failed',note:'Not started: That agent isn’t installed on that machine.',updatedAt:now,stage:0,stages:[st('code','claude','','pending'),st('pr','claude','','pending')]};Object.assign(outcomes[0].sessions[2],{state:'ready_to_merge',mergeApproved:false,note:'Ready to merge. Nothing merges until you approve it.'});outcomes[0].sessions[2].stages[7].state='pending'
     const w=await openWorkspace(browser,{width,height:width<500?844:1100,theme,touch:width<1000,terminalMachines:machines,routes:routesFor(box)})
@@ -149,12 +151,31 @@ try {
       await expect(pipes.nth(0)).toContainText('By itself when green');expect(box.modes).toEqual([{on:true}])
       await pipes.nth(0).getByRole('button',{name:'Make Export API wait for you before merging',exact:true}).click()
       await expect(pipes.nth(0)).toContainText('Waits for you');expect(box.modes).toEqual([{on:true},{on:false}])
+      // They can tell a pipeline's agent what to do next, in their own words…
+      await pipes.nth(0).getByRole('button',{name:'Tell the agent…',exact:true}).click()
+      const tell=page.getByRole('dialog',{name:'Tell the agent of “Export API”',exact:true})
+      await expect(tell.getByRole('button',{name:'Send to the agent',exact:true})).toBeDisabled()
+      await tell.getByRole('textbox',{name:'Instruction',exact:true}).fill('  Add the missing error case test.  ')
+      await tell.getByRole('button',{name:'Send to the agent',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'instruction'})).toHaveText('Your instruction is with the agent of “Export API” for its next turn.')
+      expect(box.told).toHaveLength(1);expect(box.told[0].text).toBe('Add the missing error case test.');expect(box.told[0].requestId).toMatch(/^[a-f0-9]{32}$/)
+      // …and send it back to the stage in hand or an earlier one, with the reason.
+      await pipes.nth(0).getByRole('button',{name:'Send back…',exact:true}).click()
+      const back=page.getByRole('dialog',{name:'Send “Export API” back',exact:true})
+      await expect(back).toContainText('Nothing already committed is undone.')
+      const again=back.getByRole('combobox',{name:'Stage to do again',exact:true})
+      await expect(again.getByRole('option')).toHaveText(['Plan','Design','Code','Review']);await expect(again).toHaveValue('review')
+      await again.selectOption('code');await back.getByRole('textbox',{name:'Why it is going back',exact:true}).fill('The export leaks other tenants’ rows.')
+      expect(await back.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      await back.getByRole('button',{name:'Send back',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'Sent'})).toHaveText('Sent “Export API” back to code. The controller is starting that stage again.')
+      expect(box.back).toEqual([{stage:'code',reason:'The export leaks other tenants’ rows.',confirmed:true}])
       expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
     } finally { await w.context.close() }
   }
   // A new installation is told what Gaffer still needs, each with the place to do it, and has no pipelines yet.
   {
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[]}
     const w=await openWorkspace(browser,{width:1280,height:1000,routes:{'/api/v2/gaffer/providers':{providers:[],presets:[],available:true,canUseLocal:true,maxProviders:12}}})
     watch(w,box)
     try {
@@ -173,7 +194,7 @@ try {
   }
   // How Gaffer works is set once for the account: looking after sessions is pre-approved, and pipelines do not merge by themselves, until changed.
   {
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[]}
     const w=await openWorkspace(browser,{width:1280,height:1000,routes:routesFor(box)})
     try {
       const page=w.page

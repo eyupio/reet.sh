@@ -668,6 +668,39 @@ which forwards to the hosted server) and exported to
 
 Counts: 43 definitions; a read-only writer connection sees 15, a viewer 11.
 
+## Tell the agent, send back, and start over MCP (11 November 2026, after #731)
+
+The owner asked for all three.
+
+- **Tell the agent.** `POST …/sessions/{key}/tell {requestId, text}` →
+  `TellPipelineAgent`: the person's text, unchanged, queued through
+  `WorkerMessage` for the pipeline's working session under the grant given at
+  approval. A button and dialog on the pipeline card.
+- **Send back.** `POST …/sessions/{key}/back {stage, reason, confirmed}` →
+  `SendPipelineBack`. The stage in hand or an earlier one; allowed from
+  following, ready to merge, done and unfollowed. The current goal is stopped
+  (not during a review). The target stage and every later one are reset to
+  pending under **new request IDs**, so each gets a session of its own rather
+  than the old launch being answered again; the piece's session and
+  conversation are cleared so the same-agent shortcut cannot reuse the wrong
+  session; merge approval is cleared. `GafferOutcomeStage.SentBack` carries the
+  reason into `stagePrompt`. A stage is now always launched in the pipeline's
+  work folder once it has one (was: only for stages after the first), so
+  sending back to the first stage does not make a second worktree.
+- **MCP.** Five more tools (48 in all; a read-only writer connection sees 16):
+  `reet_list_factory_projects` (read), `reet_start_outcome`,
+  `reet_add_pipelines`, `reet_tell_pipeline_agent`, `reet_send_pipeline_back`.
+  Starting, adding and sending back need `confirm: true`. An outcome started
+  over MCP cannot ask for YOLO, folder trust, a crew, a model or a merge by
+  itself: one agent, ordinary approvals, 12 reviews over 24 hours.
+  **This reverses the earlier line that starting agents stays a browser
+  action**, at the owner's request.
+
+Tests: sending back (refusals, a new request and session in the same folder,
+the reason in the prompt, later stages reset, goals), the MCP scope and
+confirmation rules for the new tools, the tool contract in the stdio package,
+and the Factory browser suite for both dialogs. Synthetic only.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

@@ -34,10 +34,13 @@ var (
 // A stage is one step of a pipeline, done by the agent and model the person
 // approved for it. Stage states: "pending", "running", "done".
 type GafferOutcomeStage struct {
-	Kind           string `json:"kind"`
-	Tool           string `json:"tool"`
-	Model          string `json:"model,omitempty"`
-	Effort         string `json:"effort,omitempty"`
+	Kind   string `json:"kind"`
+	Tool   string `json:"tool"`
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+	// SentBack is why the person sent the pipeline back to this stage, told
+	// to the agent that does it again.
+	SentBack       string `json:"sentBack,omitempty"`
 	State          string `json:"state"`
 	RequestID      string `json:"requestId"`
 	SessionID      string `json:"sessionId,omitempty"`

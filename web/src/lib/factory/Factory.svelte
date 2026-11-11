@@ -3,7 +3,7 @@
   // which agent and model does the stage in hand, and the numbers that say how it is going. Reading the page starts
   // nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
-  import { addGafferPipelines, approveGafferMerge, moveGafferPipelineOn, setGafferPipelineAutoMerge, getGafferSettings, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
+  import { addGafferPipelines, approveGafferMerge, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, listFolderProjects, terminalMachines } from '../terminal/api'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { DEFAULT_STAGES, factoryTally, outcomeUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
@@ -15,6 +15,7 @@
   import GafferGoal from '../GafferGoal.svelte'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import AddPipelines, { type AddedPipeline } from './AddPipelines.svelte'
+  import PipelineNote from './PipelineNote.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
 
   let { userId = 0, timeZone = '', dateFormat = 'locale' }: { userId?: number; timeZone?: string; dateFormat?: string } = $props()
@@ -97,6 +98,30 @@
     busy = true; notice = ''; moving = null
     try { await moveGafferPipelineOn(record, piece.key); notice = `Moved “${piece.title}” on. The controller is starting its next stage.` }
     catch (e) { notice = e instanceof Error ? e.message : 'That pipeline was not moved on.' }
+    busy = false
+    await load()
+  }
+  // Telling the working agent what to do next, and sending a pipeline back to a stage to be done again.
+  let telling = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null), sending = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null)
+  const requestId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
+  async function tell(text: string) {
+    if (!telling || busy) return
+    const { record, piece } = telling
+    busy = true; notice = ''
+    try {
+      const sent = await tellGafferPipelineAgent(record, piece.key, requestId(), text)
+      notice = sent.message.state === 'sent' || sent.message.state === 'queued' || sent.message.state === 'sending' ? `Your instruction is with the agent of “${piece.title}” for its next turn.` : `The instruction for “${piece.title}” was not delivered: ${sent.message.note || sent.message.state}.`
+      telling = null
+    } catch (e) { notice = e instanceof Error ? e.message : 'The instruction was not sent.' }
+    busy = false
+    await load()
+  }
+  async function sendBack(reason: string, stage: string) {
+    if (!sending || busy) return
+    const { record, piece } = sending
+    busy = true; notice = ''
+    try { await sendGafferPipelineBack(record, piece.key, stage, reason); notice = `Sent “${piece.title}” back to ${stageLabel(stage).toLowerCase()}. The controller is starting that stage again.`; sending = null }
+    catch (e) { notice = e instanceof Error ? e.message : 'That pipeline was not sent back.' }
     busy = false
     await load()
   }
@@ -236,6 +261,8 @@
               {#if piece.sessionId}<a class="btn" href={sessionHref(record, piece.sessionId)}>Open session</a>{/if}
               {#if goal}<button class="btn" class:quiet={status.label !== 'Needs you'} class:primary={status.label === 'Needs you' && !goal.goal.waitingOnWorker} type="button" onclick={() => managing = goal}>Review goal</button>{/if}
               {#if piece.state === 'following' && nodes.length && piece.conversationId}{@const last = (piece.stage ?? 0) >= nodes.length - 1}<button class="btn" type="button" disabled={busy} onclick={() => moving = { record, piece }}>{last ? 'Finish this stage' : 'Move to next stage'}</button>{/if}
+              {#if piece.sessionId && piece.conversationId && ['following', 'unfollowed', 'ready_to_merge'].includes(piece.state)}<button class="btn quiet" type="button" disabled={busy} onclick={() => telling = { record, piece }}>Tell the agent…</button>{/if}
+              {#if nodes.length && ['following', 'ready_to_merge', 'done', 'unfollowed'].includes(piece.state)}<button class="btn quiet" type="button" disabled={busy} onclick={() => sending = { record, piece }}>Send back…</button>{/if}
               {#if ['failed', 'unfollowed', 'cancelled'].includes(piece.state)}<button class="btn" type="button" disabled={busy} onclick={() => void retry(record, piece)}>Try again</button>{/if}
             </div>
           </li>{/each}
@@ -255,6 +282,8 @@
 {#if outcomeOpen}<GafferOutcome room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
 {#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !moving.piece.autoMerge ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}
+{#if telling}<PipelineNote title={`Tell the agent of “${telling.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" placeholder="Write the plan as text now: files, approach, risks. Change no code." confirmLabel="Send to the agent" {busy} oncancel={() => telling = null} onconfirm={text => void tell(text)}/>{/if}
+{#if sending}{@const upTo = Math.min(sending.piece.stage ?? 0, (sending.piece.stages?.length ?? 1) - 1)}<PipelineNote title={`Send “${sending.piece.title}” back`} intro="The stage you choose, and every stage after it, is done again in a fresh agent session in the same folder and branch. The agent is told your reason. Nothing already committed is undone." label="Why it is going back" placeholder="The review found the export leaks other tenants’ rows." confirmLabel="Send back" stages={(sending.piece.stages ?? []).slice(0, upTo + 1).map(item => ({ kind: item.kind, label: stageLabel(item.kind) }))} {busy} oncancel={() => sending = null} onconfirm={(text, stage) => void sendBack(text, stage)}/>{/if}
 {#if merging}<ConfirmDialog title={`Merge “${merging.piece.title}”?`} body="This tells the pipeline’s agent to merge its pull request once every check passes, no review thread is open and there are no conflicts. If any of those is not true it fixes that first or brings it back to you. A merge cannot be undone from here." confirmLabel="Approve merge" oncancel={() => merging = null} onconfirm={() => void approve()}/>{/if}
 {#if managing}<WorkspaceDialog title="Look after this session" onclose={() => { managing = null; void load() }}><GafferGoal id={managing.goal.conversationId} {userId} {timeZone} {dateFormat} onchanged={load}/></WorkspaceDialog>{/if}
 

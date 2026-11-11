@@ -499,7 +499,9 @@ func TestRunHasAtMostTwoInFlightAndOnePerMachine(t *testing.T) {
 // at once, and the other machine works in parallel.
 func TestOneMachineUnderLoadSerialisesAcrossRunsWhileOthersRunInParallel(t *testing.T) {
 	f := newFixture(t)
-	f.broker.delay = 15 * time.Millisecond
+	// Long enough that two machines' creates overlap even on a loaded runner: the assertion below is about
+	// overlap, which a 15 ms window missed when the scheduler stalled for longer than that.
+	f.broker.delay = 100 * time.Millisecond
 	o := f.orchestrator(t)
 	var members [][2]string
 	for i := 0; i < 8; i++ {

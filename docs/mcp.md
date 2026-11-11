@@ -152,6 +152,34 @@ messages; use a scoped MCP connection. No offline Gaffer follow goal is created 
 separately in the signed-in session companion; client credentials cannot start
 background supervision or grant themselves that authority.
 
+## Read and steer the Factory
+
+Two tools read the Factory for any connection on a writer account:
+
+- `reet_list_factory` lists the outcomes with their pipelines: each pipeline's
+  state, the stage in hand, every stage's state and agent, how its merge is
+  decided, and the state of the goal Gaffer follows it with.
+- `reet_get_factory_outcome` reads one outcome. A management connection also
+  receives each finished stage's handover note and Gaffer's latest report, which
+  are derived from session text; a read-only connection receives states only.
+
+Six more are the person's own controls and need management scope:
+
+| Tool | What it does |
+| --- | --- |
+| `reet_move_pipeline_on` | Closes the stage in hand as it stands and starts the next, without waiting for Gaffer's review. Needs `confirm: true`. |
+| `reet_retry_pipeline` | Tries a pipeline that did not start, or stopped, again. |
+| `reet_set_pipeline_merge` | `mode: "wait"` or `"by_itself"` (which needs `confirm: true`). Merges nothing now. |
+| `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true`. |
+| `reet_stop_outcome` | Stops an outcome. Needs `confirm: true`. |
+| `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
+
+They are the calls the Factory page makes, under the same rules, and each is
+recorded in Activity with the connection's name. No tool starts an outcome,
+approves a plan, answers an approval card, runs a command or merges anything
+itself. A client should pass `confirm: true` only when you asked for exactly
+that change: a merge approval in particular is yours to give, not the client's.
+
 ## OAuth implementation and limits
 
 The default flow uses OAuth authorization code with mandatory PKCE S256, public
@@ -167,10 +195,11 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 35 tool definitions are shared with the optional stdio package. For accounts
-with write access, read-only connections discover thirteen tools and management
-connections thirty-five, including the two separately granted context reads and
-three management-only worker messaging tools.
+The 43 tool definitions are shared with the optional stdio package. For accounts
+with write access, read-only connections discover fifteen tools and management
+connections forty-three, including the two separately granted context reads,
+three management-only worker messaging tools and the eight Factory tools (two
+reads and six management-only controls).
 Viewer accounts retain eleven shelf-read tools.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.

@@ -108,25 +108,51 @@ func stageIndex(kind string) int {
 func StageGoal(objective, title, kind string) string {
 	text := "Outcome: " + clipBytes(objective, outcomeLineBytes) + "\nThis session’s part: " + clipBytes(title, 240) + "\nStage: " + kind + "\n" + stageWork[kind] + " Stay inside this stage and this part of the outcome. Bring scope changes and decisions back to me."
 	if kind != "merge" {
-		text += " Do not merge."
+		// Merging is the merge stage's work, decided by the pipeline's own
+		// merge setting when it gets there. Said this way so a review does not
+		// read the setting as a conflict with this stage.
+		text += " Nothing is merged in this stage."
 	}
 	return text
 }
 
-// stagePrompt opens a session that takes over at a later stage.
+// stageDeliverable is what a stage must leave behind before it is done, said
+// to the working agent so it knows when to stop.
+var stageDeliverable = map[string]string{
+	"plan":    "the written plan, as text in this session",
+	"design":  "the design decisions, as text in this session",
+	"code":    "the implementation and its tests, committed on this branch",
+	"review":  "the review's findings, with what you fixed committed",
+	"test":    "the checks and tests run, with their results reported",
+	"pr":      "the pull request raised, with its link",
+	"babysit": "a pull request with passing checks, no open review thread and no conflict",
+	"merge":   "the pull request merged",
+}
+
+// stagePrompt is what the working agent is told at the start of a stage. The
+// stage and its boundary come first and last: an agent given the whole brief
+// first and its stage as a footnote did the whole job in the plan stage.
 func stagePrompt(o store.GafferOutcome, item store.GafferOutcomeSession, n int) string {
 	stage := item.Stages[n]
-	text := item.Prompt
+	var later []string
+	for _, next := range item.Stages[n+1:] {
+		later = append(later, next.Kind)
+	}
+	text := "You are doing ONE stage of a staged piece of work: the " + stage.Kind + " stage. " + stageWork[stage.Kind]
 	if n > 0 {
-		text = "You are taking over one stage of work already under way in this folder and branch.\n\nThe work: " + item.Prompt
+		text += "\n\nThe work is already under way in this folder and branch."
 		for i := n - 1; i >= 0; i-- {
 			if item.Stages[i].Summary != "" {
-				text += "\n\nHandover from the " + item.Stages[i].Kind + " stage: " + item.Stages[i].Summary
+				text += " Handover from the " + item.Stages[i].Kind + " stage: " + item.Stages[i].Summary
 				break
 			}
 		}
 	}
-	text += "\n\nYour stage: " + stage.Kind + ". " + stageWork[stage.Kind]
+	text += "\n\nThe whole piece of work, for context only. Do not carry out the parts that belong to other stages:\n" + item.Prompt
+	text += "\n\nThis stage is finished when you have left " + stageDeliverable[stage.Kind] + ". Then stop and say so in one short message."
+	if len(later) > 0 {
+		text += " The later stages (" + strings.Join(later, ", ") + ") are done separately, after this one is checked: do not start them."
+	}
 	if stage.Kind != "merge" {
 		text += " Do not merge."
 	}

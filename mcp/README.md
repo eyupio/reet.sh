@@ -69,6 +69,8 @@ defaults, mutation hints and return information. Successful calls return
 | Tools | Behavior |
 | --- | --- |
 | `list_worker_access`, `send_worker_message`, `get_worker_message` | Management-only, separately granted instructions to one owned structured session, queued for the next turn with a stable 32-hex request ID. Matching retries read the same delivery receipt; acceptance is not completion. No interrupt, approval or shell operation. Scoped credentials only; legacy API-token/anonymous stdio messaging is unavailable. |
+| `list_factory`, `get_factory_outcome` | Read the Factory's outcomes and pipelines: states, the stage in hand, agents, merge setting and goal state. Handover notes and report text only for a management connection. |
+| `move_pipeline_on`, `retry_pipeline`, `set_pipeline_merge`, `approve_pipeline_merge`, `stop_outcome`, `report_outcome` | Management-only Factory controls, the same calls the Factory page makes. Moving on, approving a merge, stopping and switching a merge to by-itself need `confirm: true`. |
 | `list_context_access`, `get_context` | List only explicitly shared scopes, then read one bounded controller-retained snapshot. Requires a scoped MCP credential and separate per-client grants; legacy API-token/anonymous stdio context reads are unavailable. |
 | `list_skills`, `get_skill` | Search the personal shelf by text, stage, flag, tags, environment or machine. `compact: true` returns a small shape for paging large shelves. |
 | `find_duplicates` | Group skills by normalised name and upstream source, flag local/upstream pairs and suggest a canonical ID. Read-only. |

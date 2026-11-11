@@ -360,3 +360,100 @@ func outcomeReport(raw json.RawMessage, taken map[string]bool) (string, []store.
 	}
 	return summary, out, nil
 }
+
+// MovePipelineOn is the person deciding that the stage in hand is done, or
+// done enough, and that the pipeline goes to its next stage. It needs no
+// judgement from Gaffer's model: the person's word is the authority. The
+// stage's goal is closed and the controller starts the next stage as it would
+// after a hand-over.
+func (s *Service) MovePipelineOn(uid int64, id, key string) (store.GafferOutcome, error) {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return store.GafferOutcome{}, err
+	}
+	if err := s.outcomesReady(); err != nil {
+		return store.GafferOutcome{}, err
+	}
+	o, err := s.store.GafferOutcomeFor(uid, id)
+	if err != nil {
+		return o, err
+	}
+	for _, piece := range o.Sessions {
+		if piece.Key != key {
+			continue
+		}
+		if piece.State != "following" || len(piece.Stages) == 0 || piece.Stage >= len(piece.Stages) || piece.ConversationID == "" {
+			return outcomeView(o), invalid("advance", "That pipeline has no stage in hand to move on from.")
+		}
+		if err := s.movePipelineOn(uid, piece.ConversationID, ""); err != nil {
+			return outcomeView(o), err
+		}
+		o, err = s.store.GafferOutcomeFor(uid, id)
+		return outcomeView(o), err
+	}
+	return outcomeView(o), invalid("advance", "That pipeline is not part of this outcome.")
+}
+
+// movePipelineOn closes the goal of the stage in hand for the pipeline that
+// conversation follows, whatever state the goal is in, and hands the stage
+// over on the person's word. note is what they said, if anything.
+func (s *Service) movePipelineOn(uid int64, conversation, note string) error {
+	if !s.pipelineStage(uid, conversation) {
+		return invalid("advance", "That pipeline has no stage in hand to move on from.")
+	}
+	summary := "The person moved this pipeline on from this stage."
+	if note = strings.TrimSpace(note); note != "" {
+		summary += " They said: " + clipBytes(note, 600)
+	}
+	if g, err := s.store.GafferGoalFor(uid, conversation); err == nil {
+		if g.ActiveTurnID != "" {
+			return invalid("advance", "Gaffer is reviewing this stage right now. Try again in a moment.")
+		}
+		if g.Summary != "" {
+			summary += " Gaffer’s last review of it: " + clipBytes(g.Summary, 900)
+		}
+		// A goal that needs the person, is paused or is out of budget is closed
+		// here; an active one is closed by the hand-over itself.
+		if g.State != "active" && g.State != "stopped" && g.State != "completed" {
+			if _, err := s.store.ControlGafferGoal(uid, conversation, g.Revision, "stop", store.GafferGoal{SessionID: g.SessionID}); err != nil {
+				return err
+			}
+		}
+	}
+	s.stageHandedOver(uid, conversation, summary)
+	if s.pipelineStage(uid, conversation) {
+		// Still on the same stage: the record moved under the hand-over.
+		return store.ErrGafferOutcomeBusy
+	}
+	return nil
+}
+
+// SetPipelineAutoMerge is the person changing whether one pipeline merges by
+// itself at its merge stage or waits for their approval.
+func (s *Service) SetPipelineAutoMerge(uid int64, id, key string, on bool) (store.GafferOutcome, error) {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return store.GafferOutcome{}, err
+	}
+	found := false
+	o, err := s.outcomeStep(uid, id, func(o *store.GafferOutcome) bool {
+		for i := range o.Sessions {
+			row := &o.Sessions[i]
+			if row.Key != key || len(row.Stages) == 0 || row.State == "done" {
+				continue
+			}
+			found = true
+			if row.AutoMerge == on {
+				return false
+			}
+			row.AutoMerge, row.UpdatedAt = on, time.Now().UnixMilli()
+			return true
+		}
+		return false
+	})
+	if err != nil {
+		return outcomeView(o), err
+	}
+	if !found {
+		return outcomeView(o), invalid("merge", "That pipeline has no merge left to decide.")
+	}
+	return outcomeView(o), nil
+}

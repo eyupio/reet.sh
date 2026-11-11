@@ -167,7 +167,7 @@ type ContextPipelineStage struct {
 	Handover    string `json:"handover,omitempty"`
 }
 
-const pipelineMovesOn = "The controller moves a pipeline to its next stage only when Gaffer's own goal review of the stage in hand finds its deliverable done. A chat cannot move it. If the stage's goal needs the person, they answer the working model or use Review goal, then Resume goal, on the Factory page; resuming reviews the work already there."
+const pipelineMovesOn = "A pipeline goes to its next stage when Gaffer's own goal review finds the stage's deliverable done, or when the person moves it on themselves: with Move to next stage on the Factory page, or by telling Gaffer in this session's chat to continue. If the stage's goal needs the person, they can answer the working model, or use Review goal then Resume goal on the Factory page to have the work already there reviewed. The merge setting applies only at the merge stage and can be changed per pipeline on the Factory page."
 
 // contextPipeline finds the pipeline a session belongs to, if any.
 func (s *Service) contextPipeline(uid int64, session string, flags store.ContextFlags) *ContextPipeline {

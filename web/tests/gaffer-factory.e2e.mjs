@@ -29,6 +29,8 @@ const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:tr
 const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',createdAt:now,updatedAt:now}]
 const routesFor=box=>({'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
+ [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/b/advance`]:request=>{box.moved.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[1];piece.stages[piece.stage].state='done';piece.stage++;piece.stages[piece.stage].state='running';piece.note='The review stage is under way.';o.revision++;return o},
+ [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/a/automerge`]:request=>{const input=request.postDataJSON();box.modes.push(input);const o=outcomes[0];o.sessions[0].autoMerge=input.on;o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/review`]:request=>{box.reviews.push(request.postDataJSON());const o=outcomes[0];o.revision++;o.report={text:'The endpoint is in review and the button is waiting on your answer. Nothing covers the changelog.',at:now,model:'gaffer-model',inputTokens:300,outputTokens:80,usageReported:true,proposals:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',why:'No pipeline covers the changelog.',stages:['code','pr']},{title:'Export metrics',prompt:'Add a counter for exports. Do not merge.',why:'Nice to have.'}]};return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions`]:request=>{const input=request.postDataJSON();box.added.push(input);const o=outcomes[0];o.revision++;o.report.proposals=[];for(const item of input.sessions)o.sessions.push({key:'z',title:item.title,prompt:item.prompt,state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:item.stages.map(x=>st(x.kind,'claude','','pending'))});o.state='starting';return o},
  [`/api/v2/gaffer/outcomes/${'d'.repeat(32)}/sessions/b/retry`]:request=>{box.retries.push(request.postDataJSON());const piece=outcomes[1].sessions[1];Object.assign(piece,{state:'waiting',note:'Waiting its turn.'});outcomes[1].revision++;return outcomes[1]}})
@@ -36,7 +38,7 @@ const routesFor=box=>({'/api/v2/gaffer/providers':{providers:[provider],presets:
 const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 try {
   for(const [width,theme] of [[1440,'light'],[390,'light'],[1440,'dark']]){
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[]}
     // Each run starts from the same record: the third pipeline is waiting for the merge decision.
     Object.assign(outcomes[0],{revision:5,state:'settled'});delete outcomes[0].report;outcomes[0].sessions.length=3;outcomes[1].revision=2;outcomes[1].sessions[1]={key:'b',title:'Importer docs',prompt:'p',state:'failed',note:'Not started: That agent isn’t installed on that machine.',updatedAt:now,stage:0,stages:[st('code','claude','','pending'),st('pr','claude','','pending')]};Object.assign(outcomes[0].sessions[2],{state:'ready_to_merge',mergeApproved:false,note:'Ready to merge. Nothing merges until you approve it.'});outcomes[0].sessions[2].stages[7].state='pending'
     const w=await openWorkspace(browser,{width,height:width<500?844:1100,theme,touch:width<1000,terminalMachines:machines,routes:routesFor(box)})
@@ -133,12 +135,26 @@ try {
       await expect(pipes).toHaveCount(4);await expect(report.getByRole('list',{name:'Proposed pipelines',exact:true})).toHaveCount(0)
       await expect(totals).toContainText('Gaffer tokens4,884')
       expect(box.reviews).toEqual([{revision:6}])
+      // The person runs the line: they can move a pipeline on from the stage in hand without waiting for Gaffer…
+      const button=pipes.nth(1)
+      await button.getByRole('button',{name:'Move to next stage',exact:true}).click()
+      const move=page.getByRole('dialog',{name:/^Move “Export button” on to (review|test|pr)\?$/})
+      await expect(move).toContainText('This is your call');await expect(move).toContainText('Nothing is merged by this.')
+      expect(box.moved).toEqual([])
+      await move.getByRole('button',{name:'Move on',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'Moved'})).toHaveText('Moved “Export button” on. The controller is starting its next stage.')
+      expect(box.moved).toEqual([{confirmed:true}])
+      // …and decide, per pipeline and at any time, whether its merge waits for them.
+      await pipes.nth(0).getByRole('button',{name:'Let Export API merge by itself',exact:true}).click()
+      await expect(pipes.nth(0)).toContainText('By itself when green');expect(box.modes).toEqual([{on:true}])
+      await pipes.nth(0).getByRole('button',{name:'Make Export API wait for you before merging',exact:true}).click()
+      await expect(pipes.nth(0)).toContainText('Waits for you');expect(box.modes).toEqual([{on:true},{on:false}])
       expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
     } finally { await w.context.close() }
   }
   // A new installation is told what Gaffer still needs, each with the place to do it, and has no pipelines yet.
   {
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[]}
     const w=await openWorkspace(browser,{width:1280,height:1000,routes:{'/api/v2/gaffer/providers':{providers:[],presets:[],available:true,canUseLocal:true,maxProviders:12}}})
     watch(w,box)
     try {
@@ -157,7 +173,7 @@ try {
   }
   // How Gaffer works is set once for the account: looking after sessions is pre-approved, and pipelines do not merge by themselves, until changed.
   {
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[]}
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[]}
     const w=await openWorkspace(browser,{width:1280,height:1000,routes:routesFor(box)})
     try {
       const page=w.page

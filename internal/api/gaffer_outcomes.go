@@ -28,6 +28,8 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop", access(s.gafferOutcomeStop))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge", access(s.gafferOutcomeMerge))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/retry", access(s.gafferOutcomeRetry))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/advance", access(s.gafferOutcomeAdvance))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/automerge", access(s.gafferOutcomeAutoMerge))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions", access(s.gafferOutcomeAdd))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/review", access(s.gafferOutcomeReview))
 }
@@ -137,6 +139,56 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 }
 
 // gafferOutcomeRetry tries a stopped pipeline again, at the person's request.
+// gafferOutcomeAdvance is the person moving a pipeline on from the stage in
+// hand. It is their decision, so it does not wait for Gaffer's review.
+func (s *server) gafferOutcomeAdvance(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Confirmed bool `json:"confirmed"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That request is invalid.") {
+		return
+	}
+	if !in.Confirmed {
+		writeErr(w, 400, "Confirm moving this pipeline on before it leaves its stage.")
+		return
+	}
+	if !s.terminalEnabled() {
+		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
+		return
+	}
+	o, err := s.gafferProviders.MovePipelineOn(s.uid(r), r.PathValue("id"), r.PathValue("key"))
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-pipeline-moved-on", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key")})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeAutoMerge is the person changing whether one pipeline merges
+// by itself at its merge stage.
+func (s *server) gafferOutcomeAutoMerge(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		On *bool `json:"on"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That request is invalid.") {
+		return
+	}
+	if in.On == nil {
+		writeErr(w, 400, "Say whether this pipeline merges by itself.")
+		return
+	}
+	o, err := s.gafferProviders.SetPipelineAutoMerge(s.uid(r), r.PathValue("id"), r.PathValue("key"), *in.On)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-pipeline-merge-setting", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "autoMerge": *in.On})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
 func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Revision int64 `json:"revision"`

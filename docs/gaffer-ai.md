@@ -267,6 +267,17 @@ A session that is part of a pipeline is marked **Factory · stage n of m** on
 Home, in Continue working and on the planning board, and on the Sessions page,
 in its list and the session's header, with a link to the Factory.
 
+You run the line. On any pipeline with a stage in hand, **Move to next stage**
+closes that stage as it stands and starts the next, without waiting for Gaffer
+to find it done; Gaffer's last review goes along as the handover. The **Merge**
+line on each pipeline has a switch between merging by itself and waiting for
+you, which you can change at any time before the pipeline is done.
+
+In a pipeline session's Gaffer chat you can simply say it: "continue to the next
+stage" moves the pipeline on, and "get it to write the plan" passes that
+instruction to the working agent. Gaffer still cannot merge, run commands or
+answer approvals.
+
 Ask Gaffer in a pipeline session's chat where things stand and it can tell you:
 the chat is given the pipeline's stages, which is in hand, which are done and why
 it is waiting. It still cannot move the pipeline on; it tells you what you can do.

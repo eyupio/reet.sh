@@ -55,6 +55,8 @@ type chatJob struct {
 	// summary such a review gave when it called hand_over.
 	stage    bool
 	handover string
+	// noStep marks a goal review that answered in prose and chose no next step.
+	noStep bool
 	// pipelineChat marks the person's own chat turn in a pipeline's session.
 	pipelineChat   bool
 	goalRevision   int64
@@ -489,6 +491,12 @@ func (s *Service) runTurn(parent context.Context, job *chatJob, c store.GafferCo
 		if s.store.FinishGafferGoal(job.uid, c.ID, job.goalID, job.goalRevision, turn.ID) == nil {
 			// A review that leaves the goal needing the person, or out of time, is why a pipeline stops.
 			if g, err := s.store.GafferGoalFor(job.uid, c.ID); err == nil && g.ID == job.goalID {
+				if job.noStep && turn.State == "completed" && g.State == "needs_user" {
+					// "Needs your decision" would send the person looking for a question Gaffer never asked.
+					if s.store.MarkGafferGoalNoStep(job.uid, c.ID, g.ID, goalNoStepNote) == nil {
+						g.Note, g.NoStep = goalNoStepNote, true
+					}
+				}
 				if action := goalStateAction(g.State); action != "" {
 					s.auditGoal(g, action, g.Note)
 				}

@@ -765,7 +765,17 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 				in.Revision = v.Goal.Revision
 			}
 			if _, err = s.SetupGoal(uid, item.ConversationID, in); err == nil {
-				return set("following", "The "+stage.Kind+" stage is under way in the same session.", func(row *store.GafferOutcomeSession) {
+				// The session carries on, but its agent has only been told about
+				// the stage before. The controller gives it this stage's
+				// instruction itself: left to Gaffer's first review, a review
+				// that only wrote prose left the agent idle with nothing to do.
+				note := "The " + stage.Kind + " stage is under way in the same session."
+				if id, idErr := newChatID(); idErr == nil {
+					if _, sendErr := s.WorkerMessage(ctx, uid, "gaffer", item.ConversationID, item.SessionID, id, "", stagePrompt(o, item, next)); sendErr != nil {
+						note = "The " + stage.Kind + " stage started in the same session, but its instruction did not reach the agent: " + clipBytes(outcomeReason(sendErr), 300) + " Tell the agent what this stage needs."
+					}
+				}
+				return set("following", note, func(row *store.GafferOutcomeSession) {
 					row.Stage = next
 					row.Stages[next].State, row.Stages[next].SessionID, row.Stages[next].ConversationID, row.Stages[next].StartedAt = "running", row.SessionID, row.ConversationID, time.Now().UnixMilli()
 				})

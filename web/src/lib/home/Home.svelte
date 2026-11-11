@@ -3,7 +3,8 @@
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, getSyncState, listGafferGoals, listGafferOutcomes, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
-  import { factoryMembers, type FactoryMember } from '../gafferOutcome'
+  import { factoryMembers, factoryRows, type FactoryMember } from '../gafferOutcome'
+  import FactoryStatus from './FactoryStatus.svelte'
   import { gafferChatEntry, GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { createTerminal, folderProjectList, listProjectGroups, machineHealth, markSessionSeen, readiness, terminalMachines, folderProjectForLegacy, sessionHref, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -89,6 +90,10 @@
   let followupsFailed = $state(false)
   // Which sessions are part of a Factory pipeline. A helper only: a failed read leaves the cards without the marker.
   let factory = $state<Map<string, FactoryMember>>(new Map())
+  // The Factory's pipelines as Home lists them: what each is part of, where it stands, and a link to its card.
+  let factoryRecords = $state<Awaited<ReturnType<typeof listGafferOutcomes>>>([])
+  const factoryStatus = $derived(factoryRows(factoryRecords, new Map((followups?.goals ?? []).map(row => [row.goal.conversationId, row]))))
+  const factoryNeeds = $derived(factoryStatus.filter(row => row.tone === 'you').length)
   const following = $derived(followups?.goals.filter(row => row.goal.state === 'active' && !row.attention).length ?? 0)
   let readOnce = false
   const life = new AbortController()
@@ -185,7 +190,7 @@
         if (accounts) {
           if (f.status === 'fulfilled' && f.value) { followups = f.value; followupsFailed = false }
           else followupsFailed = true
-          void listGafferOutcomes(bounded()).then(found => { if (!stale()) factory = factoryMembers(found) }).catch(() => {})
+          void listGafferOutcomes(bounded()).then(found => { if (!stale()) { factory = factoryMembers(found); factoryRecords = found } }).catch(() => {})
         }
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
         if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }
@@ -454,6 +459,12 @@
     <div class="live" role="status" aria-live="polite">{#if movedShown}<p class="notice">{writer ? (narrow ? 'Projects now live on the Sessions screen.' : 'Projects now live in the rail on Home.') : 'Projects are on Home for accounts that can start sessions.'}</p>{/if}{#if problem}<p class="problem">{problem}</p>{/if}</div>
     {#if writer}
       <div class="live" role="status" aria-live="polite">{#if notice}<p class="notice" class:bad={notice.bad}>{notice.text}{#if notice.href}{' '}<a href={notice.href}>Open it</a>{/if}</p>{/if}{#if waitingNotice}<p class="vh">{waitingNotice}</p>{/if}</div>
+      {#if accounts && factoryStatus.length}
+        <details class="home-detail factory-detail" open><summary>Factory pipelines <span>{factoryStatus.length}</span>{#if factoryNeeds}<span class="factory-needs">{factoryNeeds} {factoryNeeds === 1 ? 'needs' : 'need'} you</span>{/if}</summary>
+          <FactoryStatus rows={factoryStatus}/>
+          <p class="factory-foot"><a href="/factory">Open the Factory</a></p>
+        </details>
+      {/if}
       {#if needs.length}
         <details class="home-detail attention-detail" open><summary>Needs you <span>{needs.length}</span></summary><NeedsYou calm totalCount={attentionCount(needs)} cards={needs.slice(0, attentionLimit)} onseen={markSeen} onanswered={answered} />
           {#if needs.length > 5}<div class="attention-window"><span>Showing {Math.min(attentionLimit, needs.length)} of {needs.length}</span><button type="button" onclick={() => attentionLimit = attentionLimit < needs.length ? attentionLimit + 5 : 5}>{attentionLimit < needs.length ? `Show ${Math.min(5, needs.length - attentionLimit)} more` : 'Show fewer'}</button>{#if attentionLimit < needs.length}<button type="button" onclick={async event => { const panel = event.currentTarget.parentElement; attentionLimit = needs.length; await tick(); panel?.querySelector('button')?.focus() }}>View all {needs.length}</button>{/if}</div>{/if}</details>
@@ -561,6 +572,8 @@
   .home-detail > summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
   .home-detail > summary span { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 14px; font-variant-numeric: tabular-nums; }
   .home-detail[open] > summary { margin-bottom: 12px; }
+  .home-detail > summary .factory-needs { color: var(--accent-text); font-weight: 600; }
+  .factory-foot { margin: 10px 0 0; font-size: 14px; }
   .attention-detail > summary { color: var(--warn); }
   .start-chosen { min-height: 34px; padding: 4px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: var(--accent-ink); font: 600 14px var(--sans); cursor: pointer; }
   /* The live regions are always present, so a sentence put into one is announced; empty, they take no room. */

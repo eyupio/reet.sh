@@ -410,3 +410,39 @@ export function contextLeft(stage: AgentStage | undefined): { text: string; low:
   const left = Math.max(0, size - Math.min(size, stage.contextUsed ?? 0)), percent = Math.round(left / size * 100)
   return { text: `${percent}% · ${compact(left)} of ${compact(size)}`, low: percent <= 15 }
 }
+
+/** The id of a pipeline's card on the Factory page, so Home and other pages can link straight to it. */
+export const pipelineAnchor = (outcomeId: string, key: string): string => `pipeline-${outcomeId}-${key}`
+
+export type FactoryRow = { id: string; href: string; title: string; objective: string; label: string; tone: 'good' | 'busy' | 'you' | 'bad' | 'idle'; stage: string; why: string }
+type RowPiece = { key: string; title: string; state: string; note?: string; conversationId?: string; stage?: number; stages?: { kind: string }[] }
+/** Every pipeline as one line for Home: what it is, where it stands and why, linking to its card on the Factory page.
+ *  Pipelines that need the person come first, then the ones waiting for a merge decision, then the rest; finished ones last. */
+export function factoryRows(records: { id: string; objective: string; sessions: RowPiece[] }[], goals: ReadonlyMap<string, { attention: boolean; reason?: string; goal: { note: string } }>): FactoryRow[] {
+  const order = { you: 0, bad: 1, busy: 2, idle: 3, good: 4 }
+  const rows: FactoryRow[] = []
+  for (const record of records) for (const piece of record.sessions) {
+    const goal = piece.conversationId ? goals.get(piece.conversationId) : undefined
+    const status = pipelineStatus(piece, !!goal?.attention)
+    const stages = piece.stages ?? [], at = Math.min(piece.stage ?? 0, Math.max(0, stages.length - 1))
+    rows.push({
+      id: pipelineAnchor(record.id, piece.key), href: `/factory#${pipelineAnchor(record.id, piece.key)}`, title: piece.title, objective: record.objective,
+      label: status.label, tone: status.tone, stage: stages.length ? `${stageLabel(stages[at].kind)} · ${at + 1} of ${stages.length}` : '',
+      why: status.label === 'Needs you' ? (goal?.reason || goal?.goal.note || '') : (piece.note ?? ''),
+    })
+  }
+  return rows.sort((a, b) => order[a.tone] - order[b.tone])
+}
+
+export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open'; label: string; primary?: boolean }
+type NeedGoal = { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean }
+/** What a pipeline that needs the person is waiting for, in one sentence, and the things they can do about it as
+ *  buttons, the most likely first. `last` is whether the stage in hand is the pipeline's last. */
+export function needsYou(goal: NeedGoal, reason: string | undefined, last: boolean): { why: string; choices: NeedChoice[] } {
+  const move: NeedChoice = { id: 'move', label: last ? 'Finish this stage' : 'Move to next stage' }
+  if (goal.waitingOnWorker) return { why: 'The agent is waiting for your answer or approval. Gaffer carries on by itself once you have answered.', choices: [{ id: 'answer', label: 'Open the session to answer', primary: true }] }
+  if (goal.reviewFailed) return { why: goal.note, choices: [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move] }
+  if (goal.state === 'limit') return { why: goal.note || 'This stage used its review budget or its time.', choices: [{ id: 'budget', label: 'Give it a new budget', primary: true }, move] }
+  if (goal.noStep) return { why: 'Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', choices: [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }] }
+  return { why: reason || goal.note || 'Gaffer brought this back to you.', choices: [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }] }
+}

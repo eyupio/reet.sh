@@ -226,3 +226,30 @@ test('a stage the person moved on is marked, and the agent line says how long it
   assert.deepEqual(o.agentActivity({ agentState: 'idle', agentActiveAt: now - 60_000 }, now), { text: 'Idle · last active 1 min ago', quiet: true })
   assert.deepEqual(o.agentActivity(undefined, now), { text: '', quiet: false })
 })
+
+test('Home lists every pipeline with its outcome, stage and reason, the ones that need the person first', () => {
+  const records = [{ id: 'o1', objective: 'Ship CSV export', sessions: [
+    { key: 'a', title: 'Export API', state: 'following', note: 'The review stage is under way.', conversationId: 'c1', stage: 3, stages: [{ kind: 'plan' }, { kind: 'design' }, { kind: 'code' }, { kind: 'review' }] },
+    { key: 'b', title: 'Export button', state: 'following', note: 'The code stage is under way.', conversationId: 'c2', stage: 0, stages: [{ kind: 'code' }, { kind: 'pr' }] },
+    { key: 'c', title: 'Export docs', state: 'done', note: 'Every stage is done.' },
+  ] }]
+  const goals = new Map([['c2', { attention: true, reason: 'Gaffer brought a question back to you.', goal: { note: 'x' } }], ['c1', { attention: false, goal: { note: 'Waiting' } }]])
+  const rows = o.factoryRows(records, goals)
+  assert.deepEqual(rows.map(row => [row.title, row.label, row.stage]), [['Export button', 'Needs you', 'Code · 1 of 2'], ['Export API', 'Running', 'Review · 4 of 4'], ['Export docs', 'Done', '']])
+  assert.equal(rows[0].href, '/factory#pipeline-o1-b')
+  assert.equal(rows[0].why, 'Gaffer brought a question back to you.')
+  assert.equal(rows[1].why, 'The review stage is under way.')
+  assert.equal(rows[0].objective, 'Ship CSV export')
+})
+test('a pipeline that needs the person says why and offers what they can do, the likeliest first', () => {
+  const ids = need => need.choices.map(choice => choice.id)
+  const waiting = o.needsYou({ state: 'needs_user', note: 'n', waitingOnWorker: true }, undefined, false)
+  assert.deepEqual(ids(waiting), ['answer']); assert.match(waiting.why, /waiting for your answer/)
+  const failed = o.needsYou({ state: 'needs_user', note: 'Gaffer’s review did not complete (failed): overloaded.', reviewFailed: true }, undefined, false)
+  assert.deepEqual(ids(failed), ['retry', 'tell', 'move']); assert.match(failed.why, /overloaded/)
+  assert.deepEqual(ids(o.needsYou({ state: 'limit', note: 'The review budget is used.' }, undefined, false)), ['budget', 'move'])
+  const idle = o.needsYou({ state: 'needs_user', note: 'long note', noStep: true }, undefined, true)
+  assert.deepEqual(ids(idle), ['again', 'tell', 'move', 'open']); assert.equal(idle.choices[2].label, 'Finish this stage'); assert.match(idle.why, /chose no next step/)
+  const asked = o.needsYou({ state: 'needs_user', note: 'Gaffer needs your decision. Read its latest review.' }, 'Gaffer brought a question back to you.', false)
+  assert.equal(asked.why, 'Gaffer brought a question back to you.'); assert.equal(asked.choices[0].primary, true); assert.equal(asked.choices[2].label, 'Move to next stage')
+})

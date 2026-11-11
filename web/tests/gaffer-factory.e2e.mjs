@@ -62,9 +62,25 @@ try {
       await expect(page).toHaveURL(/\/factory$/);await expect(page).toHaveTitle(/Factory/)
       await expect(page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
       await expect(page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Factory',exact:true}).first()).toHaveAttribute('aria-current','page')
+      // A running pipeline is one line until opened; the ones that want the person start open. Then everything is opened for the rest of the run.
+      const lines=page.getByRole('list',{name:'Pipelines of this outcome',exact:true}).first().locator(':scope > li')
+      await expect(lines.nth(0).getByRole('button',{name:'Show details of Export API',exact:true})).toHaveAttribute('aria-expanded','false')
+      await expect(lines.nth(0)).toContainText('Review · 4 of 8');await expect(lines.nth(0).getByRole('list',{name:'Stages of Export API',exact:true})).toHaveCount(0)
+      await expect(lines.nth(1).getByRole('button',{name:'Hide details of Export button',exact:true})).toHaveAttribute('aria-expanded','true')
+      await expect(lines.nth(2).getByRole('button',{name:'Hide details of Export docs',exact:true})).toBeVisible()
+      await lines.nth(0).getByRole('button',{name:'Show details of Export API',exact:true}).click()
+      await expect(lines.nth(0).getByRole('list',{name:'Stages of Export API',exact:true})).toBeVisible()
+      await page.getByRole('button',{name:'Expand all pipelines',exact:true}).click()
+      await expect(page.getByRole('button',{name:'Collapse all pipelines',exact:true})).toHaveAttribute('aria-pressed','true')
       // The headline numbers say who has to act.
       const tiles=page.getByRole('list',{name:'Factory at a glance',exact:true}).getByRole('listitem')
-      await expect(tiles).toHaveText(['1Need you','1Ready to merge','1Running','1Done'])
+      await expect(tiles).toHaveText(['1Need you · show me','1Ready to merge · show me','1Running','1Done'])
+      // A number that wants the person is a button to the first such pipeline, which says what it needs and offers what to do.
+      await page.getByRole('button',{name:'1 need you. Go to the first',exact:true}).click()
+      const needy=page.getByRole('region',{name:'What Export button needs from you',exact:true})
+      await expect(needy).toBeVisible();await expect(needy).toContainText('Gaffer brought a question back to you.');await expect(needy).toContainText('What do you want to do?')
+      await expect(needy.locator('.decide-choices button')).toHaveText(['Have Gaffer look again','Tell the agent…','Move to next stage','Open the session'])
+      await expect(needy).toContainText('Which of the two do you want?')
       // With a machine, a project and a provider in place there is nothing left to set up.
       await expect(page.getByRole('region',{name:'Set up your factory',exact:true})).toHaveCount(0)
       const first=page.getByRole('article',{name:/^Outcome: Ship CSV export for billing/})
@@ -73,7 +89,7 @@ try {
       // A pipeline shows every stage: done, in hand and to come, and who is doing the one in hand.
       const api=pipes.nth(0),stages=api.getByRole('list',{name:'Stages of Export API',exact:true}).getByRole('listitem')
       await expect(stages).toHaveCount(8)
-      await expect(stages.nth(2)).toContainText('done');await expect(stages.nth(3)).toHaveAttribute('aria-current','step');await expect(stages.nth(3)).toContainText('in hand');await expect(stages.nth(4)).toContainText('to come')
+      await expect(stages.nth(2)).toContainText('done');await expect(stages.nth(3)).toHaveAttribute('aria-current','step');await expect(stages.nth(3)).toContainText('running now');await expect(stages.nth(4)).toContainText('to come')
       await expect(api).toContainText('Claude Code · opus');await expect(api).toContainText('Reviews left9 of 12');await expect(api).toContainText(/Time left\d+ h \d+ min/);await expect(api).toContainText('Gaffer tokens2,252');await expect(api).toContainText('Waits for you')
       // What the agents themselves reported: tokens for the pipeline, and how much context the stage in hand has left.
       await expect(api).toContainText('Agent tokens97k · 410k cached');await expect(api).toContainText('Context left12% · 24k of 200k')
@@ -106,7 +122,7 @@ try {
       expect(box.merges).toEqual([{revision:5,confirmed:true}])
       await expect(docs.getByRole('button',{name:'Approve merge',exact:true})).toHaveCount(0)
       await expect(docs).toContainText('You approved it')
-      await expect(tiles).toHaveText(['1Need you','0Ready to merge','2Running','1Done'])
+      await expect(tiles).toHaveText(['1Need you · show me','0Ready to merge','2Running','1Done'])
       // The outcome's own figures: what Gaffer's model has used so far, and the budget each stage gets. No prices.
       const totals=first.getByLabel('This outcome so far',{exact:true})
       await expect(totals).toContainText('Pipelines3');await expect(totals).toContainText('Gaffer reviews6');await expect(totals).toContainText('Gaffer tokens4,504');await expect(totals).toContainText('Budget per stage12 reviews · 24 h');await expect(totals).toContainText('ApprovalsAsk me');await expect(totals).toContainText('Agent tokens97k · 410k cached (Codex 85k, Claude Code 12k)')

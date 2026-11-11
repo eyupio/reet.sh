@@ -98,6 +98,11 @@ try {
   try {
     const page=foldedWorkspace.page
     await page.goto(base+'/')
+    // Home lists the Factory's pipelines with what each is part of and where it stands; a line opens its card on the Factory page.
+    const line=page.getByRole('list',{name:'Factory pipelines',exact:true}).getByRole('link')
+    await expect(line).toHaveCount(1)
+    await expect(line).toContainText('Release review');await expect(line).toContainText('Plan · 1 of 2');await expect(line).toContainText('For: Ship the release.')
+    await expect(line).toHaveAttribute('href','/factory#pipeline-'+'o'.repeat(32)+'-a')
     const needs=page.locator('#needs-you')
     await expect(needs.locator('.card')).toHaveCount(1)
     await expect(page.getByText('Factory · Plan 1 of 2',{exact:true}).first()).toBeVisible()

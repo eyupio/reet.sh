@@ -5,6 +5,28 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: a pipeline that **needs you** now says why in one sentence, shows
+  Gaffer's review, and asks "What do you want to do?" with buttons for the
+  things you can do (have Gaffer look again, tell the agent, move on, open the
+  session, try a failed review again, give it a new budget). Gaffer's review is
+  shown as formatted text, not raw markdown. The numbers at the top that want
+  you are buttons to the first such pipeline, and the usage and budget figures
+  are folded away under the card.
+- Factory: each pipeline is now one line (title, stage, status and why) that
+  opens to its full card; pipelines that need you, are ready to merge or have
+  stopped start open, and **Expand all pipelines** opens the rest. Stage and
+  status colours say more: a green tick is done, a pulsing green ring is
+  running now, amber with "!" is waiting for you, red has stopped. The motion
+  is switched off for anyone who asks their system to reduce it.
+- Home: **Factory pipelines** lists every pipeline with the outcome it belongs
+  to, its stage and why it stands where it does, the ones that need you first.
+  A line opens that pipeline's card on the Factory page.
+- Factory fixes: a stage that carries on in the same session is now given its
+  instruction by the controller (it was left to Gaffer's first review, so an
+  agent could sit idle at a stage nobody had told it to start); **Tell the
+  agent…** was always refused with a misleading "provider changed" error and
+  now works; and a review in which Gaffer chose no next step says so instead
+  of "Gaffer needs your decision". Needs a controller update.
 - Gaffer can use reet's own tools, the same ones an MCP client gets, in your
   chats with it. **Gaffer settings → Tools Gaffer can use** lists every tool
   with three choices: **Off** (the default for all of them), **Ask me** (Gaffer

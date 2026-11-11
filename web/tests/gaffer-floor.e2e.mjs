@@ -15,7 +15,7 @@ const session=(id,title,extra={})=>({id,agentId:'a1',title,state:'running',struc
 const goalFor=(conversationId,sessionId,text,maxReviews,hours)=>({...pins,id:conversationId,conversationId,sessionId,revision:1,text,state:'active',note:'Waiting for new worker progress.',maxReviews,usedReviews:0,expiresAt:now+hours*3600000,createdAt:now,updatedAt:now,nextAt:now,lastSeq:0,summary:'',usageReported:false,inputTokens:0,outputTokens:0})
 
 function fixture({active=1}={}){
-  const box={writes:[],created:[],setups:[],goals:[],conversations:new Map(),sessionsFail:false}
+  const box={writes:[],created:[],setups:[],controls:[],goals:[],conversations:new Map(),sessionsFail:false}
   const sessions=[
     session('floor-ready','Billing export'),
     session('floor-blocked','Flaky importer'),
@@ -27,10 +27,23 @@ function fixture({active=1}={}){
     sessions.push(session(sid,`Followed work ${n+1}`))
     box.goals.push({goal:goalFor(cid,sid,'Raise the release PR. Do not merge.',12,24),session:{id:sid,agentId:'a1',title:`Followed work ${n+1}`,state:'running'},available:true,attention:false})
   }
+  // Each followed goal answers its own fresh read and control, as its card would use.
+  const followedRoutes={}
+  for(const row of box.goals){
+    const path=`/api/v2/gaffer/conversations/${row.goal.conversationId}/goal`
+    followedRoutes[path]=()=>({goal:row.goal,pins,allowed:true,setupAllowed:true})
+    followedRoutes[path+'/control']=request=>{
+      const input=request.postDataJSON();box.controls.push({sid:row.goal.sessionId,...input})
+      if(row.goal.sessionId==='floor-followed-2')return {status:409,json:{error:'That goal changed. Reload it.'}}
+      row.goal.state=input.action==='pause'?'paused':'stopped';row.goal.revision++
+      return {goal:row.goal,pins,allowed:true,setupAllowed:true}
+    }
+  }
   // The blocked session already has a Gaffer chat; the ready one has none until the review creates it.
   box.conversations.set('floor-blocked',{id:'b'.repeat(32),sessionId:'floor-blocked',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now})
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const routes={
+    ...followedRoutes,
     '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
     '/api/v2/terminal/sessions':()=>box.sessionsFail?{status:503,json:{error:'The machines could not be reached.'}}:{sessions},
     '/api/v2/gaffer/goals':request=>{expect(request.method()).toBe('GET');return {goals:box.goals,readAt:now}},
@@ -61,13 +74,11 @@ function fixture({active=1}={}){
   }
   return {box,routes}
 }
+// The floor's sessions are part of the Factory page.
 async function openFloor(w){
-  await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
-  const chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
-  // One click from general chat: the welcome's own button, and the header link beside Gaffer's name.
-  await expect(chat.getByRole('button',{name:'Factory floor',exact:true})).toBeVisible()
-  await chat.getByRole('button',{name:'Open the factory floor',exact:true}).click()
-  return w.page.getByRole('dialog',{name:'Factory floor',exact:true})
+  await w.page.goto(base+'/factory')
+  await expect(w.page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
+  return w.page.locator('[data-floor]')
 }
 const watch=(w,box)=>w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')box.writes.push(`${r.method()} ${new URL(r.url()).pathname}`)})
 
@@ -84,14 +95,14 @@ try {
       await expect(picks.getByText('Plain shell',{exact:true})).toHaveCount(0)
       await expect(picks.getByText('Finished spike',{exact:true})).toHaveCount(0)
       await expect(picks.getByText('Followed work 1',{exact:true})).toHaveCount(0)
-      await expect(floor.getByRole('button',{name:'Not followed 2',exact:true})).toBeVisible()
+      await expect(floor.getByRole('button',{name:'Not looked after 2',exact:true})).toBeVisible()
       await expect(floor.getByRole('button',{name:'Following 1',exact:true})).toBeVisible()
-      await expect(floor.getByRole('button',{name:'Needs review',exact:true})).toBeVisible()
+      await expect(floor.getByRole('button',{name:'Needs you',exact:true})).toBeVisible()
       await expect(picks.getByRole('link',{name:'Open Billing export',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=floor-ready&gaffer=1')
-      const lookAfter=floor.getByRole('button',{name:/^Look after/})
+      const lookAfter=floor.getByRole('button',{name:/^Look after/}),reviewFirst=floor.getByRole('button',{name:'Review first',exact:true})
       await expect(lookAfter).toBeDisabled()
       expect(await floor.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
-      await floor.getByRole('button',{name:/^Not followed/}).click()
+      await floor.getByRole('button',{name:/^Not looked after/}).click()
       await expect(floor.getByRole('listitem')).toHaveCount(0);await expect(picks.getByRole('checkbox')).toHaveCount(2)
       await floor.getByRole('button',{name:/^Following/}).click()
       await expect(floor.getByRole('listitem')).toHaveCount(1);await expect(picks).toHaveCount(0)
@@ -100,7 +111,7 @@ try {
       await expect(lookAfter).toHaveText('Look after 2 selected')
       if(theme==='light'||width===1440)await floor.screenshot({path:`${shots}/gaffer-floor-${width}-${theme}.png`})
       // Ticking and opening the review share nothing and start nothing.
-      await lookAfter.click()
+      await reviewFirst.click()
       const review=w.page.getByRole('dialog',{name:'Look after these sessions',exact:true})
       await expect(review.getByRole('list',{name:'Sessions to look after',exact:true}).getByRole('listitem')).toHaveCount(2)
       await expect(review.getByText('Workshop Gaffer · gaffer-model',{exact:false})).toBeVisible()
@@ -117,17 +128,17 @@ try {
       await review.getByRole('button',{name:'Cancel',exact:true}).click();await expect(review).toHaveCount(0)
       expect(f.box.writes).toEqual([])
       // Cancelling keeps the ticks. An empty goal cannot start.
-      await expect(lookAfter).toHaveText('Look after 2 selected');await expect(lookAfter).toBeFocused()
-      await lookAfter.click()
-      await goal.fill('   ');await expect(review.getByRole('button',{name:'Start follow-up for 2 sessions',exact:true})).toBeDisabled()
+      await expect(lookAfter).toHaveText('Look after 2 selected')
+      await reviewFirst.click()
+      await goal.fill('   ');await expect(review.getByRole('button',{name:'Look after 2 sessions',exact:true})).toBeDisabled()
       await review.getByRole('combobox',{name:'Use a prompt',exact:true}).selectOption({label:'Get the checks green'})
       await review.getByText('Change limits',{exact:true}).click()
       await review.getByRole('spinbutton',{name:'Review budget',exact:true}).fill('6')
       await review.getByRole('spinbutton',{name:'Follow for (hours)',exact:true}).fill('48')
-      await review.getByRole('button',{name:'Start follow-up for 2 sessions',exact:true}).click()
+      await review.getByRole('button',{name:'Look after 2 sessions',exact:true}).click()
       // One started through its own conversation and reviewed setup; the other failed alone and says why.
       await expect(review.getByRole('status')).toHaveText('1 started, 1 not started. The ones not started were left unchanged.')
-      const results=review.getByRole('list',{name:'Follow-up results',exact:true}).getByRole('listitem')
+      const results=review.getByRole('list',{name:'Results',exact:true}).getByRole('listitem')
       await expect(results).toHaveCount(2)
       await expect(results.nth(0)).toContainText('Billing export');await expect(results.nth(0)).toContainText('Following')
       await expect(results.nth(1)).toContainText('Flaky importer');await expect(results.nth(1)).toContainText('Not started · The worker’s message channel is unavailable.')
@@ -145,7 +156,7 @@ try {
       await expect(picks.getByRole('checkbox')).toHaveCount(1);await expect(picks.getByRole('checkbox')).toBeChecked()
       await expect(lookAfter).toHaveText('Look after 1 selected')
       // The goal and limits are this browser's starting point next time.
-      await lookAfter.click()
+      await reviewFirst.click()
       await expect(review.getByRole('textbox',{name:'Goal for this session',exact:true})).toHaveValue(/^Watch the pull request’s checks\./)
       await expect(review.getByText('6 reviews · 48 hours per session',{exact:false})).toBeVisible()
       await w.page.keyboard.press('Escape');await expect(review).toHaveCount(0)
@@ -162,7 +173,7 @@ try {
     watch(w,f.box)
     try {
       const floor=await openFloor(w)
-      await floor.getByRole('button',{name:/^Not followed/}).click()
+      await floor.getByRole('button',{name:/^Not looked after/}).click()
       await floor.getByRole('button',{name:'Select all',exact:true}).click()
       await expect(floor.getByText(warning,{exact:true})).toBeVisible()
       await expect(floor.getByRole('button',{name:'Look after 2 selected',exact:true})).toBeDisabled()
@@ -173,22 +184,66 @@ try {
       expect(f.box.writes).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
+  // One action for the sessions shown: pause every followed one, or stop them all after a confirmation.
+  {
+    const f=fixture({active:3}),w=await openWorkspace(browser,{width:1280,height:1000,routes:f.routes})
+    watch(w,f.box)
+    try {
+      const floor=await openFloor(w)
+      await floor.getByRole('button',{name:/^Following/}).click()
+      await floor.getByRole('button',{name:'Pause all 3 following',exact:true}).click()
+      // Each goal is read afresh and paused on its own; one refusal is named and does not stop the others.
+      await expect(floor.getByRole('status').filter({hasText:'Paused'})).toHaveText('Paused 2 of 3. The working models keep running. Not changed: Followed work 3: That goal changed. Reload it.')
+      expect(f.box.controls.map(c=>[c.sid,c.action,c.revision,c.confirmed])).toEqual([['floor-followed-0','pause',1,false],['floor-followed-1','pause',1,false],['floor-followed-2','pause',1,false]])
+      await floor.getByRole('button',{name:'All',exact:true}).click()
+      await floor.getByRole('button',{name:'Stop all 3 goals',exact:true}).click()
+      const confirm=w.page.getByRole('dialog',{name:'Stop 3 goals?',exact:true})
+      await expect(confirm).toContainText('Resuming is done one session at a time')
+      await confirm.getByRole('button',{name:'Stop goals',exact:true}).click()
+      await expect(floor.getByRole('status').filter({hasText:'Stopped'})).toContainText('Stopped 2 of 3.')
+      expect(f.box.controls.slice(3).map(c=>c.action)).toEqual(['stop','stop','stop'])
+      expect(f.box.writes).toHaveLength(6);expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
   // With nothing followed yet, Home still offers the floor in one click and says how many chats are waiting.
   for(const width of [1280,390]){
     const f=fixture({active:0}),w=await openWorkspace(browser,{width,height:900,touch:width<1000,routes:f.routes})
     watch(w,f.box)
     try {
       await w.page.goto(base+'/')
-      const entry=w.page.getByRole('button',{name:'Gaffer: 2 running chats not followed',exact:true})
+      const entry=w.page.getByRole('link',{name:'Gaffer: 2 running chats not followed',exact:true})
       await expect(entry).toBeVisible()
       expect((await entry.boundingBox()).height).toBeGreaterThanOrEqual(44)
       await entry.click()
-      const floor=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
+      await expect(w.page).toHaveURL(/\/factory$/)
+      const floor=w.page.locator('[data-floor]')
       await expect(floor.getByRole('group',{name:'Running chats not followed',exact:true}).getByRole('checkbox')).toHaveCount(2)
-      await expect(floor.getByRole('listitem')).toHaveCount(0)
-      await w.page.keyboard.press('Escape');await expect(floor).toHaveCount(0);await expect(entry).toBeFocused()
+      await expect(floor.getByRole('list',{name:'Sessions Gaffer looks after',exact:true})).toHaveCount(0)
+      // Looking after sessions is pre-approved by default: one click starts them with the usual goal and limits, and says so.
+      await expect(floor.getByText('You pre-approved this in Gaffer settings.',{exact:false})).toBeVisible()
+      await floor.getByRole('button',{name:'Select all',exact:true}).click()
+      await floor.getByRole('button',{name:'Look after 2 selected',exact:true}).click()
+      const quick=w.page.getByRole('dialog',{name:'Look after these sessions',exact:true})
+      await expect(quick.getByRole('status')).toHaveText('1 started, 1 not started. The ones not started were left unchanged.')
+      await expect(quick.getByRole('textbox')).toHaveCount(0)
+      expect(f.box.setups.map(s=>s.sid)).toEqual(['floor-ready','floor-blocked'])
+      expect(f.box.setups[0]).toMatchObject({confirmed:true,action:'start',maxReviews:12,hours:24})
+      expect(f.box.setups[0].text).toMatch(/^Ensure a pull request is raised.*Do not merge\.$/)
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  // A person who turned pre-approval off is shown the review every time.
+  {
+    const f=fixture({active:0}),w=await openWorkspace(browser,{width:1280,height:900,routes:{...f.routes,'/api/v2/profile':{user:{id:1,name:'Sam',email:'sam@example.test',role:'owner'},sessionCount:1,accounts:true,profile:{theme:'light',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,hostedPrefix:'reet-',gafferStanding:false,updatedAt:now}}}})
+    watch(w,f.box)
+    try {
+      const floor=await openFloor(w)
+      await floor.getByRole('button',{name:'Select all',exact:true}).click()
+      await expect(floor.getByRole('button',{name:'Review first',exact:true})).toHaveCount(0)
+      await floor.getByRole('button',{name:'Look after 2 selected',exact:true}).click()
+      await expect(w.page.getByRole('dialog',{name:'Look after these sessions',exact:true}).getByRole('button',{name:'Look after 2 sessions',exact:true})).toBeVisible()
       expect(f.box.writes).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Factory floor: four theme/width views, running chats beside followed work, filters, multi-select, one combined review with prompt and limits, per-session setup and results, partial failure, saved starting point, failed session read, the ten-goal limit and the one-click Home entry passed. Nothing is written before Start.')
+  console.log('Factory floor: four theme/width views, running chats beside followed work, filters, multi-select, one combined review with prompt and limits, per-session setup and results, partial failure, saved starting point, failed session read, the ten-goal limit, bulk pause and stop, the Home entry to the Factory, one-click look-after when pre-approved and the review when not passed.')
 } finally { await browser.close() }

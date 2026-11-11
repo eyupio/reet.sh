@@ -268,6 +268,9 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				fmt.Fprintf(out, "Already enrolled as %s. Reusing this machine's connection.\n", c.Host)
 				return nil
 			}
+			if c, err := loadAgentConfig(*config); err == nil {
+				return fmt.Errorf("this machine is already connected to %s as %s. Check it with reet agent status. To connect it afresh, remove it under Machines in the web app, delete %s, then run this again", c.Server, c.Host, *config)
+			}
 			return errors.New("configuration already exists; keep it or revoke the enrollment before replacing it")
 		}
 		if *server == "" {
@@ -439,6 +442,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				YoloAllowed:      yoloAllowed(*config, c),
 				TerminalAllowed:  terminalAllowed(*config, c),
 				OnConnection:     state.connected.Store,
+				OnError:          func(message string) { state.note(&state.privateError, message) },
 				ServerURL:        c.Server, Token: c.Token, AgentID: c.ID, Secret: c.Secret,
 				Version: version, InstanceID: instance,
 				TerminalEnabled: c.TerminalEnabled, TerminalReadiness: terminalReadiness(*config, c.ID, c.TerminalEnabled),
@@ -468,12 +472,14 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				return err
 			}
 			fmt.Fprintf(out, "Agent: %v\n", err)
+			state.note(&state.cycleError, err.Error())
 		} else if !*once && !announcedWaiting {
 			fmt.Fprintln(out, "Agent cycle complete. Still running: waiting for updates and the next inventory scan.")
 			announcedWaiting = true
 		}
 		if err == nil {
 			state.lastCycle.Store(time.Now().UnixMilli())
+			state.note(&state.cycleError, "")
 		}
 		if *once {
 			return nil

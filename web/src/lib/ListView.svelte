@@ -177,7 +177,7 @@
     busy = true
     try {
       const r = await addListToShelf(id)
-      say(r.added === 0 ? 'Every skill was already on your shelf. Nothing changed.' : `Added ${r.added} ${r.added === 1 ? 'skill' : 'skills'} to your shelf as To test.`)
+      say(r.added === 0 ? 'Every skill was already in your library. Nothing changed.' : `Added ${r.added} ${r.added === 1 ? 'skill' : 'skills'} to your library as To test.`)
     } catch (e) {
       fail(e)
     } finally {
@@ -309,7 +309,7 @@
     <p class="eyebrow">Shared list</p>
     <h1>That list is not here.</h1>
     <p class="lede">{error || 'It may have been deleted, or it is private.'}</p>
-    <p><a class="back" href="/skills">Back to your shelf</a></p>
+    <p><a class="back" href="/skills">Back to your library</a></p>
   </section>
 {:else}
   <article class="listpage">
@@ -319,7 +319,7 @@
 
     <div class="actions">
       {#if canWrite}
-        <button type="button" class="btn primary" onclick={addAll} disabled={busy || detail.skillCount === 0}>Add all to my shelf</button>
+        <button type="button" class="btn primary" onclick={addAll} disabled={busy || detail.skillCount === 0}>Add all to my library</button>
       {/if}
       <a class="btn" href={`/machines?view=compare&list=${id}`}>Prepare a machine</a>
       <button type="button" class="btn" onclick={copyAll} disabled={!commands.length}>Copy install commands</button>
@@ -422,9 +422,9 @@
       <form class="addskill" onsubmit={add}>
         <div class="addrow">
           {#if available.length}
-            <label class="vh" for="from-shelf">Skill from your shelf</label>
+            <label class="vh" for="from-shelf">Skill from your library</label>
             <select id="from-shelf" bind:value={addID}>
-              <option value="">From your shelf…</option>
+              <option value="">From your library…</option>
               {#each available as skill (skill.id)}<option value={skill.id}>{skill.name}</option>{/each}
             </select>
             <span class="or">or</span>
@@ -505,7 +505,7 @@
 {#if reviewingPublication}
   <ConfirmDialog
     title="Publish this list to everyone?"
-    body="Anyone, including people without an account, will be able to discover and read the content below. Your personal shelf notes, people and machine reports stay private. Copies others make may remain after you unpublish."
+    body="Anyone, including people without an account, will be able to discover and read the content below. Your personal library notes, people and machine reports stay private. Copies others make may remain after you unpublish."
     confirmLabel="Publish to public community"
     onconfirm={persistSettings}
     oncancel={() => (reviewingPublication = false)}

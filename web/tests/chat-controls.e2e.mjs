@@ -80,17 +80,22 @@ try {
    await expect(region).toBeVisible()
    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
    expect(overflow).toBe(false)
-   // The single floating entry stays in its reserved corner, clear of growing
-   // composer docks, the durable queue and live controls.
+   // On a desktop the single floating entry stays in its reserved corner, clear of growing composer docks, the durable
+   // queue and live controls. A phone chat has no such corner, so its status row carries the entry instead.
    await composer.fill('Keep the scope agreed.\n'.repeat(8))
    const entry = page.getByRole('button', { name: 'Ask Gaffer', exact: true })
    await expect(entry).toBeVisible()
-   await expect.poll(() => page.evaluate(() => {
-    const button = document.querySelector('.gaffer-launcher')?.getBoundingClientRect()
-    const docks = [...document.querySelectorAll('[data-floating-clearance]')].map(node => node.getBoundingClientRect()).filter(r => r.width && r.height)
-    return !!button && docks.length > 0 && button.top >= 0 && button.bottom<=innerHeight && docks.every(dock => button.bottom <= dock.top || button.top >= dock.bottom || button.right <= dock.left || button.left >= dock.right)
-   })).toBe(true)
-   await expect(page.locator('.gaffer-launcher')).toHaveCount(1)
+   if (width <= 767) {
+    await expect(page.locator('.gaffer-launcher')).toBeHidden()
+    expect((await entry.boundingBox()).height).toBeGreaterThanOrEqual(36)
+   } else {
+    await expect.poll(() => page.evaluate(() => {
+     const button = document.querySelector('.gaffer-launcher')?.getBoundingClientRect()
+     const docks = [...document.querySelectorAll('[data-floating-clearance]')].map(node => node.getBoundingClientRect()).filter(r => r.width && r.height)
+     return !!button && docks.length > 0 && button.top >= 0 && button.bottom<=innerHeight && docks.every(dock => button.bottom <= dock.top || button.top >= dock.bottom || button.right <= dock.left || button.left >= dock.right)
+    })).toBe(true)
+    await expect(page.locator('.gaffer-launcher')).toHaveCount(1)
+   }
    await composer.fill('')
    await page.screenshot({ path: `${process.env.REET_SCREENSHOT_DIR || "/tmp"}/live-chat-${theme}-${width}.png`, fullPage: true })
   }

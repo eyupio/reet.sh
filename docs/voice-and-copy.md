@@ -6,11 +6,11 @@ The white-rose bookmark, warm colours and bookish typography are part of that id
 
 ## Where the character belongs
 
-Use a little local language at visible, everyday moments: the shelf heading, stage descriptions, welcome, empty searches and completed actions. Vary it instead of prefixing every message with “Reet”. One expression per sentence is plenty.
+Use a little local language at visible, everyday moments: the library heading, stage descriptions, welcome, empty searches and completed actions. Vary it instead of prefixing every message with “Reet”. One expression per sentence is plenty.
 
 | Moment | Example | Meaning remains clear through |
 | --- | --- | --- |
-| Shelf label | Your skill shelf | The plain label names the page; the lede explains what it holds. |
+| Library label | Your library | The plain label names the page; the lede explains what it holds. |
 | Main heading | A reet good toolkit. | The lede explains finding, trying and using skills. |
 | In use | Earning their keep. | The stage label stays In use. |
 | To test | Give these a proper go. | The stage label stays To test. |

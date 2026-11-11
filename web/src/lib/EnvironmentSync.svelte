@@ -19,7 +19,7 @@
   import { agoLabel } from './syncOverview'
   import { formatWhen } from './time'
 
-  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', timeZone = '', dateFormat = 'locale', tokenSetup, view = 'machines', startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; timeZone?: string; dateFormat?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
+  let { canWrite, accounts=false, terminalAccess=false, monitorAccess=false, token = '', timeZone = '', dateFormat = 'locale', tokenSetup, view = 'machines', advanced = false, startConnect = false, onsignedout }: { canWrite: boolean; accounts?: boolean; terminalAccess?:boolean;monitorAccess?:boolean;token?: string; timeZone?: string; dateFormat?: string; tokenSetup?: Snippet; view?: 'machines' | 'compare'; advanced?: boolean; startConnect?: boolean; onsignedout?: (e: unknown) => void } = $props()
 
   let syncState = $state<SyncState>({ environments: [], targets: [] })
   let machines = $derived(inventoryMachines(syncState.machines ?? []))
@@ -124,7 +124,7 @@
     actionError = ''
     try {
       syncState = change.to ? await mergeMachines(change.from, change.to) : await forgetMachine(change.from)
-      notice = change.to ? `Reet, reports now belong to ${change.to}. Old names remain aliases; future scans update this machine.` : `Forgot ${change.from}. Installed files and shelf entries are unchanged; a future scan can report it again.`
+      notice = change.to ? `Reet, reports now belong to ${change.to}. Old names remain aliases; future scans update this machine.` : `Forgot ${change.from}. Installed files and library entries are unchanged; a future scan can report it again.`
       maintenanceFrom = ''
       maintenanceTo = ''
       await tick()
@@ -247,7 +247,7 @@
 
 <section class="sync" class:compare={view === 'compare'} aria-labelledby={view === 'compare' ? undefined : 'sync-title'}>
   {#if view !== 'compare'}
-  <h2 class="vh" id="sync-title">{view === 'machines' ? 'Machines' : 'Compare & sync'}</h2>
+  <h2 class="vh" id="sync-title">{view === 'machines' ? 'Machines' : 'Sync'}</h2>
   <div class="page-tools">
     {#if view === 'machines' && canAdd}<button class="btn primary" type="button" data-add-machine onclick={(event) => openJoin(event.currentTarget)}>Add a machine</button>{/if}
     {#if view === 'machines' && canWrite && !canAdd}<button class="btn" type="button" onclick={() => openSetup()}>Connect a machine</button>{/if}
@@ -256,7 +256,7 @@
     <p class="hint tools-status">{#if loading && !loaded}Reading your machines…{:else if lastRefresh}Status refreshed {agoLabel(lastRefresh)} · updates automatically while this page is open{/if}</p>
   </div>
   {/if}
-  {#if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
+  {#if view === 'compare'}<!-- On the Sync pages `machine` chooses the machine a plan is for, not a machine to show. -->{:else if focusedMachine}<p class="hint machine-focus"><a href="/machines">All machines</a> / <strong>{focusedMachine.host}</strong></p>{:else if focusHost && !loading}<p class="hint">No machine named {focusHost} is connected. <a href="/machines">Show all machines</a>.</p>{/if}
   <div class="banners">
     {#if error}<p class="error" role="alert">{error}</p>{/if}
   </div>
@@ -265,7 +265,7 @@
     {#if loading && !loaded}
       <Skeleton label="Reading your machines…" shape="cards" count={2} height="150px" />
     {:else}
-      <SyncControl snapshot={syncState} {canWrite} {view} onupdate={updateState} />
+      <SyncControl snapshot={syncState} {canWrite} {view} {advanced} onupdate={updateState} />
     {/if}
   {:else}
     {#if loading && !loaded}
@@ -279,7 +279,7 @@
         {#if !canWrite}<p class="hint">Ask an owner or editor to connect the first machine.</p>{/if}
       </section>
     {/if}
-    <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
+    <MachineSetup {terminalAccess} {site} machines={visibleMachines} {profiles} {token} {tokenSetup} {serverBuild} snapshot={syncState} {timeZone} {dateFormat} bind:open={setupOpen} bind:host={setupHost} initialMode={initialSetupMode} onrefresh={() => load()} />
   {/if}
 
   {#if view === 'machines' && canWrite && machines.length}
@@ -332,7 +332,7 @@
 
 {#if machineChange}
   <ConfirmDialog title={machineChange.to ? 'Combine or rename these reports?' : `Forget ${machineChange.from}?`}
-    body={machineChange.to ? `Move ${machineChange.from} into ${machineChange.to}. For matching agent/project groups, the most recent report is kept; distinct groups and saved references are preserved. Old names become aliases. Installed files and shelf entries are unchanged. Conflicting saved references block the whole change.` : 'Remove this machine’s reports and target references. Installed files and shelf entries stay. Snapshots used by other machines remain, and a future scan can report this machine again.'}
+    body={machineChange.to ? `Move ${machineChange.from} into ${machineChange.to}. For matching agent/project groups, the most recent report is kept; distinct groups and saved references are preserved. Old names become aliases. Installed files and library entries are unchanged. Conflicting saved references block the whole change.` : 'Remove this machine’s reports and target references. Installed files and library entries stay. Snapshots used by other machines remain, and a future scan can report this machine again.'}
     confirmLabel={machineChange.to ? 'Save machine identity' : 'Forget machine'} danger={!machineChange.to} onconfirm={changeMachine} oncancel={() => (machineChange = null)} />
 {/if}
 

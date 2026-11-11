@@ -36,10 +36,15 @@ try {
   const detail = await open({ width: 390, height: 844, touch: true, sync })
   await detail.page.goto(`${base}/sync#sync-jobs`)
   await expect(detail.page.locator('.sync-dock')).toHaveCount(0)
-  await expect(detail.page.getByRole('heading', { name: 'Sync needs attention on Elitebook', exact: true }).first()).toBeVisible()
-  await expect(detail.page.locator('#sync-jobs-title')).toHaveText('Sync needs attention on Elitebook')
+  // The Sync page has one status sentence, at its top (a copy button's empty announcer is not one). The activity is a
+  // log with a plain heading, and the failure is
+  // said on the machine it happened on: its row in the summary and its group in the log.
+  await expect(detail.page.locator('#sync-jobs-title')).toHaveText('Recent activity')
   await expect(detail.page.locator('#sync-jobs-title')).toBeInViewport()
-  await expect(detail.page.getByText('2 jobs failed on Elitebook. Open one to see the exact fix.')).toBeVisible()
+  await expect(detail.page.getByRole('heading', { name: 'Sync needs attention on Elitebook', exact: true })).toHaveCount(0)
+  await expect(detail.page.getByText('2 jobs failed on Elitebook. Open one to see the exact fix.')).toHaveCount(0)
+  await expect(detail.page.locator('main [role="status"]:visible').filter({hasText:/\S/})).toHaveCount(1)
+  await expect(detail.page.locator('.activity-host', { hasText: 'Elitebook' }).locator('.host-head')).toContainText('2 failed')
   const failedPreview = detail.page.locator('.activity-hosts .activity-job').filter({ hasText: 'Preview failed' })
   await expect(failedPreview).toHaveCount(1)
   await failedPreview.locator('summary').click()

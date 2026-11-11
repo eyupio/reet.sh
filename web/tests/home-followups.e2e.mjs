@@ -22,6 +22,8 @@ function fixture() {
   }
   return {box,routes}
 }
+// Home's Gaffer entry is the way onto the Factory page: a link that says what is waiting there. Home itself reads the
+// goals and nothing else of Gaffer's; the page it leads to is where goals are reviewed and stopped.
 try {
   for (const theme of ['light','dark']) for (const width of [1440,390,320]) {
     const f=fixture(), w=await openWorkspace(browser,{width,height:900,theme,touch:width<1000,routes:f.routes})
@@ -29,39 +31,24 @@ try {
     w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/'))requests.push({path:new URL(r.url()).pathname,method:r.method()})})
     try {
       await w.page.goto(base+'/')
-      const entry=w.page.getByRole('button',{name:'Gaffer: 1 follow-up needs review',exact:true})
-      await expect(entry).toBeVisible()
+      const entry=w.page.getByRole('link',{name:'Gaffer: 1 goal needs you',exact:true})
+      await expect(entry).toBeVisible();await expect(entry).toHaveAttribute('href','/factory')
       expect(await entry.evaluate(el=>el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
       expect(await w.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
       if(width===1440||width===390)await w.page.screenshot({path:`${shots}/home-followups-${width}-${theme}.png`,fullPage:true})
-      await entry.click()
-      const overview=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
-      await expect(overview.getByRole('listitem')).toHaveCount(2)
-      await expect(w.page.getByRole('dialog',{name:'Gaffer',exact:true})).toHaveCount(0)
-      await expect(overview.getByRole('link',{name:'Open session',exact:true}).first()).toHaveAttribute('href','/sessions?agent=a1&session=worker-1&gaffer=1')
-      await w.page.keyboard.press('Escape');await expect(entry).toBeFocused()
       // Refresh failures retain the last known count and explicitly label it as old.
       f.box.fail=true
       await w.page.evaluate(()=>window.dispatchEvent(new Event('reet:gaffer-goals-changed')))
-      const stale=w.page.getByRole('button',{name:'Gaffer: 1 follow-up needs review · last read',exact:true})
-      await expect(stale).toBeVisible();await stale.click()
-      await expect(overview.getByRole('alert')).toHaveText('Follow-ups temporarily unavailable')
+      await expect(w.page.getByRole('link',{name:'Gaffer: 1 goal needs you · last read',exact:true})).toBeVisible()
       f.box.fail=false
-      await overview.getByRole('button',{name:'Refresh',exact:true}).click()
-      await expect(overview.getByRole('listitem')).toHaveCount(2)
-      await overview.getByRole('button',{name:'Review goal',exact:true}).first().click()
-      const goal=w.page.getByRole('dialog',{name:'Look after this session',exact:true})
-      await goal.getByRole('button',{name:'Stop goal',exact:true}).click()
-      await w.page.getByRole('dialog',{name:'Stop this goal?',exact:true}).getByRole('button',{name:'Stop goal',exact:true}).click()
-      await expect(goal.getByRole('heading',{name:'Stopped',exact:true})).toBeVisible()
-      // The explicit control refreshes Home immediately, without waiting for its poll.
-      const active=w.page.getByRole('button',{name:'Gaffer: following 1 session',exact:true})
-      await expect(active).toBeAttached();expect(f.box.controls).toHaveLength(1)
-      await w.page.keyboard.press('Escape');await w.page.keyboard.press('Escape');await expect(active).toBeFocused()
+      // With nothing followed the line goes; Home's own Factory button is always there.
       f.box.rows=[]
       await w.page.evaluate(()=>window.dispatchEvent(new Event('reet:gaffer-goals-changed')))
       await expect(w.page.locator('.workspace-summary .followups')).toHaveCount(0)
-      expect(requests.filter(r=>r.method!=='GET')).toEqual([{path:`/api/v2/gaffer/conversations/${id}/goal/control`,method:'POST'}])
+      await expect(w.page.locator('a.home-factory')).toHaveAttribute('href','/factory')
+      if(width>=1100)await expect(w.page.locator('a.home-factory')).toBeVisible()
+      // Home read the goals and made no write, and never touched Gaffer's providers or conversations.
+      expect(requests.filter(r=>r.method!=='GET')).toEqual([])
       expect(requests.some(r=>r.path==='/api/v2/gaffer/providers'||r.path==='/api/v2/gaffer/conversations')).toBe(false)
       expect(w.state.unexpected).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
@@ -71,63 +58,65 @@ try {
     try {await w.page.goto(base+'/');await expect(w.page.getByRole('heading',{name:'Home',exact:true})).toBeVisible();await expect(w.page.locator('.workspace-summary .followups')).toHaveCount(0);expect(f.box.reads).toBe(0)}
     finally {await w.context.close()}
   }
-  const f=fixture();f.box.fail=true
-  const w=await openWorkspace(browser,{width:390,routes:f.routes})
+  const failed=fixture();failed.box.fail=true
+  const failedWorkspace=await openWorkspace(browser,{width:390,routes:failed.routes})
   try {
-    await w.page.goto(base+'/');await w.page.getByRole('button',{name:'Gaffer follow-ups unavailable',exact:true}).click()
-    const overview=w.page.getByRole('dialog',{name:'Factory floor',exact:true})
-    await expect(overview.getByRole('alert')).toBeVisible();f.box.fail=false
-    await overview.getByRole('button',{name:'Refresh',exact:true}).click();await expect(overview.getByRole('listitem')).toHaveCount(2)
-  } finally {await w.context.close()}
-  // An unavailable worker can lead to saved history while the chat panel is closed.
-  const saved=fixture();saved.box.rows[0].available=false
-  saved.routes['/api/v2/gaffer/providers']={providers:[],presets:[],available:true}
-  saved.routes['/api/v2/gaffer/conversations']=request=>new URL(request.url()).searchParams.get('all')==='true'?{conversations:[]}:{status:404,json:{error:'No saved general chat'}}
-  const historyWorkspace=await openWorkspace(browser,{width:390,routes:saved.routes})
-  try {
-    const page=historyWorkspace.page
-    await page.goto(base+'/')
-    const entry=page.getByRole('button',{name:'Gaffer: 1 follow-up needs review',exact:true})
-    const showHistory=async()=>{await entry.click();await page.getByRole('dialog',{name:'Factory floor',exact:true}).getByRole('button',{name:'Conversation history',exact:true}).click()}
-    await showHistory();await page.keyboard.press('Escape');await expect(entry).toBeFocused()
-    await showHistory()
-    await page.getByRole('dialog',{name:'Conversation history',exact:true}).getByRole('button',{name:'General Gaffer chat',exact:false}).click()
-    await expect(page.getByRole('dialog',{name:'Gaffer',exact:true})).toBeVisible()
-    expect(historyWorkspace.errors).toEqual([]);expect(historyWorkspace.state.unexpected).toEqual([])
-  } finally {await historyWorkspace.context.close()}
-  const last=fixture();last.box.rows=last.box.rows.slice(0,1)
-  const finalWorkspace=await openWorkspace(browser,{width:390,routes:last.routes})
-  try {
-    const page=finalWorkspace.page
-    await page.goto(base+'/');await page.getByRole('button',{name:'Gaffer: 1 follow-up needs review',exact:true}).click()
-    await page.getByRole('dialog',{name:'Factory floor',exact:true}).getByRole('button',{name:'Review goal',exact:true}).click()
-    await page.getByRole('dialog',{name:'Look after this session',exact:true}).getByRole('button',{name:'Stop goal',exact:true}).click()
-    await page.getByRole('dialog',{name:'Stop this goal?',exact:true}).getByRole('button',{name:'Stop goal',exact:true}).click()
-    await expect(page.locator('.workspace-summary .followups')).toHaveCount(0)
-    await page.keyboard.press('Escape');await page.keyboard.press('Escape')
-    await expect(page.getByRole('button',{name:'Ask Gaffer',exact:true})).toBeFocused()
-  } finally {await finalWorkspace.context.close()}
+    await failedWorkspace.page.goto(base+'/')
+    await expect(failedWorkspace.page.getByRole('link',{name:'Gaffer’s goals unavailable',exact:true})).toHaveAttribute('href','/factory')
+  } finally {await failedWorkspace.context.close()}
+  // The entry leads to the Factory page, where a goal is reviewed and stopped explicitly.
+  for (const width of [1440,390]) {
+    const f=fixture(),w=await openWorkspace(browser,{width,height:900,touch:width<1000,routes:f.routes})
+    const writes=[]
+    w.page.on('request',r=>{if(new URL(r.url()).pathname.startsWith('/api/')&&r.method()!=='GET')writes.push(new URL(r.url()).pathname)})
+    try {
+      const page=w.page
+      await page.goto(base+'/');await page.getByRole('link',{name:'Gaffer: 1 goal needs you',exact:true}).click()
+      await expect(page).toHaveURL(/\/factory$/)
+      await expect(page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
+      const floor=page.locator('[data-floor]')
+      await expect(floor.getByRole('list',{name:'Sessions Gaffer looks after',exact:true}).getByRole('listitem')).toHaveCount(2)
+      await expect(floor.getByRole('link',{name:'Open session',exact:true}).first()).toHaveAttribute('href','/sessions?agent=a1&session=worker-1&gaffer=1')
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+      expect(writes).toEqual([])
+      await floor.getByRole('button',{name:'Review goal',exact:true}).first().click()
+      const goal=page.getByRole('dialog',{name:'Look after this session',exact:true})
+      await goal.getByRole('button',{name:'Stop goal',exact:true}).click()
+      await page.getByRole('dialog',{name:'Stop this goal?',exact:true}).getByRole('button',{name:'Stop goal',exact:true}).click()
+      await expect(goal.getByRole('heading',{name:'Stopped',exact:true})).toBeVisible()
+      expect(f.box.controls).toHaveLength(1);expect(writes).toEqual([`/api/v2/gaffer/conversations/${id}/goal/control`])
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
   // A goal that needs review on a session which already has an approval card is that card's second reason: the card says so
-  // once, the Gaffer button no longer counts it, and the card count (header, bell, title) stays the number of cards.
+  // once, the Gaffer entry no longer counts it, and the card count (header, bell, title) stays the number of cards.
   const folded=fixture()
   folded.routes['/api/v2/terminal/sessions']={sessions:[{id:'worker-1',agentId:'a1',title:'Release review',state:'running',createdAt:now-7200000,updatedAt:now-720000,exitCode:null,structured:true,attention:'waiting',attentionSource:'chat',bellAt:now-60000,changedSinceSeen:true,pendingPermission:{permissionId:'perm-aaaa00000001',title:'go test',command:'go test ./...',queued:0}}]}
+  // The session is one stage of a Factory pipeline, and Home says so wherever it lists the session.
+  folded.routes['/api/v2/gaffer/outcomes']={outcomes:[{id:'o'.repeat(32),revision:1,objective:'Ship the release.',state:'settled',note:'',agentId:'a1',projectId:'p1',projectName:'reet',dir:'/work/reet',tool:'claude',providerId:'p'.repeat(32),maxReviews:12,hours:24,createdAt:now,updatedAt:now,sessions:[{key:'a',title:'Release review',prompt:'p',state:'following',note:'The plan stage is under way.',sessionId:'worker-1',conversationId:'c'.repeat(32),updatedAt:now,stage:0,stages:[{kind:'plan',tool:'claude',state:'running',sessionId:'worker-1'},{kind:'code',tool:'claude',state:'pending'}]}]}]}
   const foldedWorkspace=await openWorkspace(browser,{width:390,terminalStatus:{configured:true,available:true,reason:''},routes:folded.routes})
   try {
     const page=foldedWorkspace.page
     await page.goto(base+'/')
+    // Home lists the Factory's pipelines with what each is part of and where it stands; a line opens its card on the Factory page.
+    const line=page.getByRole('list',{name:'Factory pipelines',exact:true}).getByRole('link')
+    await expect(line).toHaveCount(1)
+    await expect(line).toContainText('Release review');await expect(line).toContainText('Plan · 1 of 2');await expect(line).toContainText('For: Ship the release.')
+    await expect(line).toHaveAttribute('href','/factory#pipeline-'+'o'.repeat(32)+'-a')
     const needs=page.locator('#needs-you')
     await expect(needs.locator('.card')).toHaveCount(1)
+    await expect(page.getByText('Factory · Plan 1 of 2',{exact:true}).first()).toBeVisible()
     const card=needs.locator('.card',{hasText:'Release review'})
-    await expect(card.getByText('Gaffer follow-up also needs review',{exact:true})).toHaveCount(1)
+    await expect(card.getByText('Gaffer’s goal also needs you',{exact:true})).toHaveCount(1)
     await expect(needs.locator('.count')).toHaveText('1')
     await expect(page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
     await expect(page).toHaveTitle(/^\(1\) /)
-    await expect(page.getByRole('button',{name:'Gaffer: following 1 session',exact:true})).toBeVisible()
-    await expect(page.getByRole('button',{name:/follow-ups? needs? review/})).toHaveCount(0)
+    await expect(page.getByRole('link',{name:'Gaffer: following 1 session',exact:true})).toBeVisible()
+    await expect(page.getByRole('link',{name:/goals? needs? you/})).toHaveCount(0)
     expect(foldedWorkspace.errors).toEqual([]);expect(foldedWorkspace.state.unexpected).toEqual([])
   } finally {await foldedWorkspace.context.close()}
   // The only goal that needs review is on a session with an approval card, with nothing else followed: it is folded into
-  // that card, yet Home keeps its direct entry to Followed sessions, now saying where the goal went.
+  // that card, and Home's entry says where the goal went.
   const only=fixture();only.box.rows=only.box.rows.slice(0,1)
   only.routes['/api/v2/terminal/sessions']=folded.routes['/api/v2/terminal/sessions']
   const onlyWorkspace=await openWorkspace(browser,{width:390,terminalStatus:{configured:true,available:true,reason:''},routes:only.routes})
@@ -136,16 +125,13 @@ try {
     await page.goto(base+'/')
     const needs=page.locator('#needs-you')
     await expect(needs.locator('.card')).toHaveCount(1)
-    await expect(needs.locator('.card',{hasText:'Release review'}).getByText('Gaffer follow-up also needs review',{exact:true})).toHaveCount(1)
+    await expect(needs.locator('.card',{hasText:'Release review'}).getByText('Gaffer’s goal also needs you',{exact:true})).toHaveCount(1)
     await expect(needs.locator('.count')).toHaveText('1')
     await expect(page.getByRole('button',{name:'Needs you: 1',exact:true})).toBeVisible()
     await expect(page).toHaveTitle(/^\(1\) /)
-    const entry=page.getByRole('button',{name:'Gaffer: 1 follow-up is in Needs you',exact:true})
-    await expect(entry).toBeVisible()
-    await expect(page.getByRole('button',{name:/follow-ups? needs? review/})).toHaveCount(0)
-    await entry.click()
-    await expect(page.getByRole('dialog',{name:'Factory floor',exact:true}).getByRole('listitem')).toHaveCount(1)
+    await expect(page.getByRole('link',{name:'Gaffer: 1 goal is in Needs you',exact:true})).toHaveAttribute('href','/factory')
+    await expect(page.getByRole('link',{name:/goals? needs? you/})).toHaveCount(0)
     expect(onlyWorkspace.errors).toEqual([]);expect(onlyWorkspace.state.unexpected).toEqual([])
   } finally {await onlyWorkspace.context.close()}
-  console.log('Home follow-ups: six theme/width views, a goal folded into its session card (counted once, entry kept), standalone overview, no implicit writes/provider reads, explicit control refresh, stale read/retry, focus, empty and viewer/open-mode boundaries passed.')
+  console.log('Home follow-ups: six theme/width views, the entry as a link to the Factory with its wording, a goal folded into its session card (counted once, entry kept), no implicit writes or provider reads on Home, stale read, Home’s own Factory button, viewer/open-mode boundaries, and explicit review and stop on the Factory page passed.')
 } finally {await browser.close()}

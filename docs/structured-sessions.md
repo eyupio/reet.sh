@@ -547,7 +547,7 @@ A structured session's header shows **Ask me** and **YOLO** for a live chat on a
 `acp-approval-v1`. Switching to YOLO asks for the same per-session confirmation as a launch and passes the same gates:
 the account's Allow YOLO setting, the machine's `yolo` capability and the agent's reviewed YOLO option. The controller
 then sends `acp_mode`; the connector sets its own auto-answer for this chat and answers any card already waiting (a Codex chat is answered only in "Ask before leaving the sandbox", and a card in "Let Codex decide" is left to you). The
-store's `yolo` flag, the YOLO badge and the audit (`yolo-mode`, then `yolo-allow` for each answer) follow. Switching back
+store's `yolo` flag, the YOLO badge and the audit (`yolo-mode`, then one `yolo-allow` row per turn that counts the answers given in it) follow. Switching back
 to Ask me stops the auto-answer immediately. A connector older than `acp-approval-v1` reports no `acpApproval` capability,
 so the switch is not offered; terminal sessions keep the mode they launched with. A refusal is sentence-shaped and leaves
 the mode as it was.

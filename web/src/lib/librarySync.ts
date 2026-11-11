@@ -88,9 +88,9 @@ function names(list: string[], limit = 4): string {
   return `${list.slice(0, limit).join(', ')} and ${list.length - limit} more`
 }
 
-/** "3 skills are left out for now. Everything else is syncing." */
+/** "3 skills are left out for now." It joins the page's one status sentence, so it claims nothing about the rest. */
 export function leftOutHeadline(count: number): string {
-  return `${count} ${count === 1 ? 'skill is' : 'skills are'} left out for now. Everything else is syncing.`
+  return `${count} ${count === 1 ? 'skill is' : 'skills are'} left out for now.`
 }
 
 /** "Copying seo and 2 more privately from your machines." */
@@ -107,5 +107,5 @@ export function copyingLine(items: Pick<ImportRequest, 'name'>[]): string {
 export function duplicatesNote(groups: SyncDuplicate[]): string {
   if (!groups.length) return ''
   const lead = groups.length === 1 ? 'One name is' : `${groups.length} names are`
-  return `${lead} on your shelf more than once, so Reet syncs one copy of each (${names(groups.map(group => group.slug))}). The other copies stay on your shelf, untouched.`
+  return `${lead} in your library more than once, so Reet syncs one copy of each (${names(groups.map(group => group.slug))}). The other copies stay in your library, untouched.`
 }

@@ -82,10 +82,10 @@
     {/if}
 
     {#if loading}
-      <Skeleton label="Reading the shelf…" shape="lines" count={4} />
+      <Skeleton label="Reading your library…" shape="lines" count={4} />
     {:else if shown.length === 0}
       <div class="empty">
-        <h3>{available.length === 0 ? 'No shelf skill can be installed here yet.' : 'No skill matches that search.'}</h3>
+        <h3>{available.length === 0 ? 'No library skill can be installed here yet.' : 'No skill matches that search.'}</h3>
         <p>{available.length === 0 ? 'A skill needs a linked source before it can be added to a machine.' : 'Try another name or source.'}</p>
       </div>
     {:else}

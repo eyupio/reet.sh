@@ -5,10 +5,13 @@
   import { ApiError, createGafferConversation, getGafferConversation, getGafferGoal, getGafferSettings, setupGafferGoal, type GafferProvider } from './api'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { BUILT_IN_GOAL_PROMPTS, goalPromptTitle, readGoalPrompts, type GoalPrompt } from './gafferPrompts'
+  import { wholeBetween } from './gafferOutcome'
   import { floorBlocker, floorSummary, readFloorDefaults, writeFloorDefaults, MAX_GOAL_BYTES, type FloorOutcome, type FloorSession } from './gafferFloor'
   import { toolName } from './agentLaunch'
 
-  let { sessions, room, userId = 0, onclose, onstarted }: {
+  let { sessions, room, userId = 0, auto = false, onclose, onstarted }: {
+    /** The person has pre-approved looking after sessions: start with their usual goal and limits, with no form to fill. */
+    auto?: boolean;
     sessions: FloorSession[]; room: number; userId?: number; onclose: () => void; onstarted: () => void | Promise<void>
   } = $props()
   const formId = $props.id()
@@ -21,6 +24,7 @@
   const bytes = $derived(new TextEncoder().encode(text).length)
   const blocker = $derived(loading ? '' : floorBlocker({ chosen: sessions.length, room, text, provider: !!provider }))
   const many = $derived(sessions.length !== 1)
+  const limitsOk = $derived(wholeBetween(maxReviews, 1, 48) && wholeBetween(hours, 1, 168))
 
   onMount(() => {
     const saved = readFloorDefaults(userId, starting)
@@ -29,7 +33,7 @@
     void getGafferSettings(life.signal).then(settings => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
     }).catch(e => { if (!life.signal.aborted) error = e instanceof Error ? e.message : 'Gaffer settings could not be read.' })
-      .finally(() => { loading = false })
+      .finally(() => { loading = false; if (auto && provider && !floorBlocker({ chosen: sessions.length, room, text, provider: true }) && limitsOk) void start() })
     return () => life.abort()
   })
 
@@ -46,12 +50,13 @@
     const id = found.conversation.id
     const view = await getGafferGoal(id, life.signal)
     if (view.goal) throw new Error('This session already has a goal. Review it on its card.')
-    if (!(view.setupAllowed ?? view.allowed)) throw new Error(view.reason || 'This session needs an enabled provider and a structured worker with live message controls.')
+    // The goal view's own reason describes missing grants, which this setup grants; what blocks it here is the provider or the chat.
+    if (!(view.setupAllowed ?? view.allowed)) throw new Error('This session needs an enabled provider and a structured worker with live message controls.')
     await setupGafferGoal(id, { ...view.pins, revision: 0, conversationRevision: view.conversationRevision ?? 0, confirmed: true, action: 'start', text: text.trim(), maxReviews, hours }, life.signal)
   }
 
   async function start() {
-    if (busy || blocker || !provider) return
+    if (busy || blocker || !limitsOk || !provider) return
     busy = true; error = ''
     writeFloorDefaults(userId, { text, maxReviews, hours })
     const done: FloorOutcome[] = []
@@ -62,7 +67,7 @@
       try { await startOne(session, provider.id); done.push({ id: session.id, title: session.title, ok: true, note: 'Gaffer waits for new worker progress.' }) }
       catch (e) {
         if (life.signal.aborted) return
-        done.push({ id: session.id, title: session.title, ok: false, note: e instanceof Error ? e.message : 'Follow-up was not started.' })
+        done.push({ id: session.id, title: session.title, ok: false, note: e instanceof Error ? e.message : 'Looking after was not started.' })
       }
     }
     progress = ''; outcomes = done; busy = false
@@ -74,7 +79,7 @@
   <div class="review">
     {#if outcomes}
       <p role="status" class="summary">{floorSummary(outcomes)}</p>
-      <ul class="outcomes" aria-label="Follow-up results">
+      <ul class="outcomes" aria-label="Results">
         {#each outcomes as item (item.id)}<li class:failed={!item.ok}><strong>{item.title}</strong><span>{item.ok ? 'Following' : 'Not started'} · {item.note}</span></li>{/each}
       </ul>
       <p class="hint">Each session has its own goal, budget and conversation. Pause, change or stop any of them from its card.</p>
@@ -102,10 +107,10 @@
         </details>
         <p class="hint">Up to {maxReviews * sessions.length} Gaffer reviews in all, and reviews may use provider credits. This goal and these limits are kept in this browser as your starting point next time.</p>
         {#if bytes > MAX_GOAL_BYTES}<p class="warning">Keep the goal within 2,000 UTF-8 bytes.</p>{/if}
-        {#if blocker}<p class="warning" role="status">{blocker}</p>{/if}
+        {#if blocker}<p class="warning" role="status">{blocker}</p>{:else if !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
         {#if error}<p class="warning" role="alert">{error}</p>{/if}
         {#if progress}<p role="status">{progress}</p>{/if}
-        <div class="actions"><button class="btn primary" type="submit" disabled={busy || loading || !!blocker}>{busy ? 'Starting…' : `Start follow-up for ${sessions.length} ${many ? 'sessions' : 'session'}`}</button><button class="btn quiet" type="button" disabled={busy} onclick={onclose}>Cancel</button></div>
+        <div class="actions"><button class="btn primary" type="submit" disabled={busy || loading || !!blocker || !limitsOk}>{busy ? 'Starting…' : `Look after ${sessions.length} ${many ? 'sessions' : 'session'}`}</button><button class="btn quiet" type="button" disabled={busy} onclick={onclose}>Cancel</button></div>
       </form>
     {/if}
   </div>

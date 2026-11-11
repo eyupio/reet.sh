@@ -109,14 +109,14 @@
   }
 </script>
 
-<section class="tools" class:quiet aria-labelledby={quiet ? undefined : 'tools-title'} aria-label={quiet ? 'Shelf tools' : undefined}>
+<section class="tools" class:quiet aria-labelledby={quiet ? undefined : 'tools-title'} aria-label={quiet ? 'Library tools' : undefined}>
   {#if quiet}
     <button type="button" class="btn quiet" onclick={toggle} aria-expanded={open} aria-controls="tools-panel">
       {open ? 'Hide import and restore' : 'Import or restore a backup'}
     </button>
   {:else}
     <div class="tools-heading">
-      <div><p class="eyebrow">Make it yours</p><h2 id="tools-title">Shelf tools</h2></div>
+      <div><p class="eyebrow">Make it yours</p><h2 id="tools-title">Library tools</h2></div>
       <button type="button" class="btn" onclick={toggle} aria-expanded={open} aria-controls="tools-panel">
         {open ? 'Hide' : 'Show'} {title}
       </button>
@@ -140,12 +140,12 @@
       {/if}
       <section class="tool-card" aria-labelledby="backup-title">
         <h3 id="backup-title">Backup and export</h3>
-        <p>Take your shelf with you. JSON backs up your personal skills, flags, tags, notes and optional history. Markdown and CSV follow your current filters.</p>
+        <p>Take your library with you. JSON backs up your personal skills, flags, tags, notes and optional history. Markdown and CSV follow your current filters.</p>
         <p>Lists, teams, accounts and sync references are not included. For encrypted, scheduled copies, open <a href="/account/backups">Account → Backups</a>. Instance backups are managed in <a href="/admin/backups">Admin → Backups</a>.</p>
         <div class="export-row">
           <label for="export-format">Format</label>
           <select id="export-format" bind:value={format}>
-            <option value="json">JSON (personal shelf backup)</option>
+            <option value="json">JSON (personal library backup)</option>
             <option value="md">Markdown (current filter)</option>
             <option value="csv">CSV (current filter)</option>
           </select>
@@ -162,7 +162,7 @@
       <section class="tool-card organise" aria-labelledby="organise-title">
         <h3 id="organise-title">A little order</h3>
         {#if canManageTags}
-          <p>Rename or merge tags across the whole shelf.</p>
+          <p>Rename or merge tags across your whole library.</p>
           <button type="button" class="btn" onclick={() => (showTags = true)}>Manage tags</button>
         {/if}
         <h4>Ignored skills</h4>
@@ -188,8 +188,8 @@
       title="Restore this backup?"
       body={`Restore ${pending.data.skills.length} ${pending.data.skills.length === 1 ? 'skill' : 'skills'}? ${
         pending.overwrite === 0
-          ? 'Nothing on the shelf will be overwritten.'
-          : `${pending.overwrite} ${pending.overwrite === 1 ? 'skill' : 'skills'} already on the shelf will be overwritten.`
+          ? 'Nothing in your library will be overwritten.'
+          : `${pending.overwrite} ${pending.overwrite === 1 ? 'skill' : 'skills'} already in your library will be overwritten.`
       } The backup's flags and notes replace what is stored here.`}
       confirmLabel="Restore"
       danger

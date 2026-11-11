@@ -119,11 +119,42 @@ remain the delivery gates. No physical-phone or real-provider claim is made.
 ![Floating Gaffer phone light](images/ui/gaffer-widget-390-light.png)
 ![Floating Gaffer phone dark](images/ui/gaffer-widget-390-dark.png)
 
+## The Factory page (10 November 2026)
+
+`/factory` draws each outcome as pipelines: a rail of stages (done, in hand, to
+come, waiting on you), the controller's line, Gaffer's report, and the numbers
+(who is doing the stage, reviews, deadline, tokens, how merge is decided). Four
+tiles lead the page. A new installation sees a three-step setup. Phones compress
+the rail so all eight stages fit. `gaffer-factory.e2e.mjs` passes at 1440 px light
+and dark and 390 px with no sideways scroll; `navigation` and `shell-fidelity`
+pass with the fifth tab.
+
+![Factory desktop light](images/ui/gaffer-factory-1440-light.png)
+![Factory desktop dark](images/ui/gaffer-factory-1440-dark.png)
+![Factory phone](images/ui/gaffer-factory-390-light.png)
+
+## Gaffer alignment and polish (10 November 2026)
+
+One audit across the widget, the factory floor, the outcome dialog and Home, at
+1440 px light and dark and 390 px. The floor is wider on desktop with a hero
+action and headed sections; cards are compact with the full record under **Review
+& evidence**; an empty general chat leads with **Give Gaffer an outcome**; Home's
+Gaffer entry is a pill; the outcome dialog shows its steps and calm guidance.
+`gaffer-floor`, `gaffer-outcome`, `gaffer-followed`, `home-followups`,
+`session-end-gaffer`, `gaffer-widget-ux`, `gaffer-chat`, `gaffer-goal`, `home` and
+`attention-contract` pass; no view scrolls sideways.
+
+![Floor desktop light](images/ui/gaffer-floor-1440-light.png)
+![Floor desktop dark](images/ui/gaffer-floor-1440-dark.png)
+![Floor phone](images/ui/gaffer-floor-390-light.png)
+![Widget and Home entries](images/ui/gaffer-floor-entry-1280-light.png)
+![Outcome steps on a phone](images/ui/gaffer-outcome-objective-390-light.png)
+
 ## Gaffer factory floor (9 November 2026)
 
 **Chat options → Factory floor** replaces the Followed sessions name. The same
 job sheet now also lists running structured chats nobody asked Gaffer to look
-after, under **Not followed**, with checkboxes, **Select all** and **Look after
+after, under **Not looked after**, with checkboxes, **Select all** and **Look after
 selected**. One review (**Look after these sessions**) names the sessions, the
 default provider/model, what starting shares, one goal with **Use a prompt** and
 one set of limits, then reports each session as Following or Not started.
@@ -146,7 +177,15 @@ the objective with project, agent and size; Gaffer's editable plan with the acce
 statement and limits; and per-session results. `web/tests/gaffer-outcome.e2e.mjs`
 passes at 1440 px light and 390 px dark with no sideways scroll at each step.
 
+Later the same day the start moved to the controller: after **Approve and start**
+the dialog reads the outcome record ("Starting session 1 of 3…", **Close and let
+it run**, **Stop starting sessions**) and the floor shows the record's planned
+sessions. The objective gained **Choose a model**, the plan a plugin-trust tick for
+OpenCode and Antigravity, and the floor **Pause all following** / **Stop all
+goals**. `gaffer-outcome.e2e.mjs` and `gaffer-floor.e2e.mjs` cover these.
+
 ![Outcome objective](images/ui/gaffer-outcome-objective-1440-light.png)
+![Outcome results read from the controller](images/ui/gaffer-outcome-results-1440-light.png)
 ![Outcome plan review](images/ui/gaffer-outcome-plan-1440-light.png)
 ![Outcome grouped on the floor, phone dark](images/ui/gaffer-outcome-floor-390-dark.png)
 ![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)
@@ -3508,3 +3547,38 @@ Validation, all against the production build in Chromium with synthetic answers:
 - `npm test`, `svelte-check` (0 errors, 0 warnings) and `npm run build` pass.
 
 **Not checked.** No physical phone or tablet, Safari or Firefox, and no screen reader.
+
+## Sync is one sentence, and Advanced sync is its own page — 10 November 2026
+
+The Sync page printed several status lines at once from separate components ("Syncing your machines…", "No
+skills set to sync", "Sync has unresolved changes", "Nothing needs you", "Update complete · Done") and held the
+whole sync-plan model in a fold, with a second copy of the skills picker under it.
+
+- `/sync` now shows one status sentence (`fleetSyncStatus`, which also carries the library's "copying" and
+  "left out" notes), a row per machine (`machineSyncRow`, sorted the same way as the sentence) and **Recent
+  activity** with a plain heading. A plan waiting for review, a copy waiting for a file review and a finished
+  update are said on the machine's row.
+- The sync-plan controls are unchanged on `/sync/advanced` (**Advanced sync**), linked once from Sync, with
+  **Back to Sync** and the **Sync** label above the title linking back.
+- A Sync address carrying `machine`, `remove`, `list` or `#sync-selection` is sent on to `/sync/advanced` with
+  what it carried (`syncRoutes.ts`); links that need the plan controls point there directly.
+- The controller serves `/sync/advanced` to the interface on a reload (`web/embed.go`, and
+  `WithHostedPages`, since the address has the shape of a public skill address).
+
+Validation, against the production build in Chromium with synthetic answers:
+
+- `skills-sync-simple.e2e.mjs` (extended: one status sentence, no plan controls, the row notes, the link, the
+  advanced page, older links, a viewer and an open instance at both addresses, 390 and 1280 px),
+  `sync-activity`, `sync-in-place`, `sync-left-out`, `sync-remove`, `sync-vocabulary`, `machine-skill-sync`,
+  `first-skills`, `control`, `choose-entry`, `navigation`, `phone-layout`, `machines-fleet`, `skill-card`,
+  `home`, `empty-states`, `supporting-nav`, `phone-zoom`, `selected-library`, `machine-add-skill`,
+  `machine-import`, `machine-item-states`, `machines-search`, `skill-content`, `connect-flow`, `add-machine`
+  and `chat` pass. `stage5-acceptance.e2e.mjs` passes through `TestStage5BrowserAcceptance`, its own harness.
+- `npm run check` (unit tests and `svelte-check`, 0 errors), `go build ./...`, `go vet` and `go test` for
+  `web` and `internal/api` pass.
+- A locally run controller in accounts mode with one enrolled machine: `/sync`, `/sync/advanced` and
+  `/sync?machine=demo` were loaded and reloaded at 1280 px and 390 px, light and dark, with no sideways scroll.
+
+**Not checked.** No physical phone, Safari or Firefox, and no screen reader. On the local controller the
+machine had no plan and the sentence stayed at "Syncing your machines…" for several minutes; how long that
+state should last is decided in `fleetSync.ts` and was not changed here.

@@ -126,7 +126,7 @@ var messages = map[string]func(Data) Content{
 			Heading:   "You are invited",
 			Intro: []string{
 				hello(d),
-				inviter + " invited you to " + or(d.Instance, "a reet.sh instance") + " as " + roleWords(d.Role) + ". Your shelf, shared lists and agent setups are waiting.",
+				inviter + " invited you to " + or(d.Instance, "a reet.sh instance") + " as " + roleWords(d.Role) + ". Your library, shared lists and agent setups are waiting.",
 			},
 			Facts:  []Fact{{"Role", roleWords(d.Role)}, {"Invitation works until", at(d.Expires)}},
 			Button: &Link{Label: "Join reet.sh", URL: d.Link},
@@ -137,13 +137,13 @@ var messages = map[string]func(Data) Content{
 	TplWelcome: func(d Data) Content {
 		return Content{
 			Subject:   "Welcome to " + or(d.Instance, "reet.sh"),
-			Preheader: "Your shelf is ready.",
-			Heading:   "Your shelf is ready",
+			Preheader: "Your library is ready.",
+			Heading:   "Your library is ready",
 			Intro: []string{
 				hello(d),
 				"Your reet.sh account is ready. Save the skills you find, give new ones a go, and keep every agent on every machine in step.",
 			},
-			Button: &Link{Label: "Open your shelf", URL: d.Link},
+			Button: &Link{Label: "Open your library", URL: d.Link},
 			After:  []string{"Your account's password and sessions are on your account page. Your instance administrator can help if you get stuck."},
 			Why:    "You were sent this because an account was created for this address on a reet.sh instance. A welcome notice like this cannot be turned off.",
 		}

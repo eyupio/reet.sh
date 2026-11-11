@@ -48,6 +48,8 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		GafferAnimations      *bool            `json:"gafferAnimations"`
 		GafferCompact         *bool            `json:"gafferCompact"`
+		GafferStanding        *bool            `json:"gafferStanding"`
+		GafferAutoMerge       *bool            `json:"gafferAutoMerge"`
 		Name                  *string          `json:"name"`
 		Theme                 *string          `json:"theme"`
 		Timezone              *string          `json:"timezone"`
@@ -226,6 +228,14 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.GafferCompact != nil {
 		profile.GafferCompact = *in.GafferCompact
 		detail["gafferCompact"] = *in.GafferCompact
+	}
+	if in.GafferStanding != nil {
+		profile.GafferStanding = *in.GafferStanding
+		detail["gafferStanding"] = *in.GafferStanding
+	}
+	if in.GafferAutoMerge != nil {
+		profile.GafferAutoMerge = *in.GafferAutoMerge
+		detail["gafferAutoMerge"] = *in.GafferAutoMerge
 	}
 	if in.TerminalRemoveOnClose != nil {
 		profile.TerminalRemoveOnClose = *in.TerminalRemoveOnClose

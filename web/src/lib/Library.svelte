@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import PageHeader from './PageHeader.svelte'
-  import { getLibrary, getLibraryHistory, getLibrarySelection, getSyncState, setLibraryStatus, type LibraryItem, type LibraryReceipt } from './api'
+  import { getLibrary, getLibraryHistory, getLibrarySelection, getSyncState, resolveLibraryDifference, setLibraryStatus, type LibraryDifference, type LibraryItem, type LibraryReceipt } from './api'
   import { describeError } from './contentReview'
-  import { STATUSES, filterLibrary, itemNotes, machinesByItem, receiptLine, statusCounts, statusLabel, type StatusFilter } from './libraryView'
+  import { STATUSES, differenceFileLine, differenceSummary, filterLibrary, itemNotes, machinesByItem, receiptLine, statusCounts, statusLabel, type StatusFilter } from './libraryView'
 
   let { canWrite = true, timeZone = '', onerror }: { canWrite?: boolean; timeZone?: string; onerror?: (e: unknown) => void } = $props()
 
@@ -17,6 +17,8 @@
   let machinesKnown = $state(false)
   let machinesError = $state(false)
   let busy = $state('')
+  // Machines holding a version of an item that reet has never saved, by item id.
+  let differences = $state<Record<string, LibraryDifference[]>>({})
   let rowError = $state<Record<string, string>>({})
   let open = $state<Record<string, { state: 'loading' | 'ready' | 'error'; receipts: LibraryReceipt[]; error: string }>>({})
   let disposed = false
@@ -52,6 +54,7 @@
       const library = await getLibrary()
       if (disposed) return
       items = library.items
+      differences = library.differences ?? {}
       loading = false
       void loadMachines()
     } catch (e) {
@@ -76,6 +79,43 @@
       if (conflict) { try { items = (await getLibrary()).items } catch { /* the row message already says what happened */ } }
     } finally { busy = '' }
   }
+
+  // The person decides which version reet holds. Taking a machine's version is saved in the background by that machine,
+  // so the row says so and the list is read again a little later; keeping reet's copy is immediate.
+  async function resolve(item: LibraryItem, difference: LibraryDifference, action: 'take' | 'keep' | 'compare') {
+    if (busy) return
+    busy = item.id; rowError = { ...rowError, [item.id]: '' }
+    try {
+      await resolveLibraryDifference(item.id, difference.environmentId, action)
+      if (disposed) return
+      const library = await getLibrary()
+      if (disposed) return
+      items = library.items; differences = library.differences ?? {}
+      if (action === 'take') {
+        setTimeout(() => { if (!disposed) void refresh() }, 15_000)
+      }
+      // The machine answers a comparison on its next check-in, a few seconds away.
+      if (action === 'compare') void watchComparison(item.id, difference.environmentId, 20)
+    } catch (e) {
+      if (!disposed) rowError = { ...rowError, [item.id]: describeError(e) }
+    } finally { busy = '' }
+  }
+  async function watchComparison(itemId: string, environmentId: string, tries: number) {
+    for (let i = 0; i < tries && !disposed; i++) {
+      await new Promise(resolve => setTimeout(resolve, 3_000))
+      if (disposed) return
+      await refresh()
+      const current = (differences[itemId] ?? []).find(entry => entry.environmentId === environmentId)
+      if (!current?.comparing) return
+    }
+  }
+  async function refresh() {
+    try {
+      const library = await getLibrary()
+      if (!disposed) { items = library.items; differences = library.differences ?? {} }
+    } catch { /* the list on screen stays as it was */ }
+  }
+  const folderName: Record<string, string> = { agents: 'shared skills', claude: 'Claude Code', opencode: 'OpenCode', cursor: 'Cursor' }
 
   async function toggleHistory(item: LibraryItem) {
     if (open[item.id]) { const { [item.id]: _closed, ...rest } = open; open = rest; return }
@@ -142,8 +182,34 @@
             <div class="main">
               <h2>{item.name}{#if item.itemType !== 'skill'} <small class="type">{item.itemType}</small>{/if}</h2>
               {#if notes.length}<p class="notes">{notes.join(' · ')}</p>{/if}
-              {#if item.problem || item.contentState !== 'complete'}<p class="wait">Waiting for complete content. It will sync once its content has been captured.</p>{/if}
-              {#if line}<p class="machines">{line} · <a href="/machines">Choose machines</a></p>{/if}
+              {#if item.problem || item.contentState !== 'complete'}<p class="wait">Waiting for complete content. reet saves a copy from the machine that has it when that machine next checks in.</p>{/if}
+              {#if line}<p class="machines">{line} · <a href="/machines">Choose machines on the Machines page</a></p>{/if}
+              {#each differences[item.id] ?? [] as difference (difference.environmentId)}
+                <div class="differs" data-difference={difference.host}>
+                  {#if difference.taking}
+                    <p role="status">Saving {difference.host}’s version as reet’s copy. This finishes by itself while that machine is online.</p>
+                  {:else}
+                    <p><strong>{difference.host} has a different version</strong> in its {folderName[difference.agent] ?? difference.agent} folder. reet is keeping its own copy until you choose.</p>
+                    {#if difference.comparing}
+                      <p role="status">Asking {difference.host} which files it has. Only names and sizes are read; this takes a few seconds while it is online.</p>
+                    {:else if difference.compared}
+                      <div class="files" role="group" aria-label={`What differs on ${difference.host}`}>
+                        <p>{differenceSummary(difference.files ?? [], difference.host)}</p>
+                        {#if difference.files?.length}
+                          <ul>{#each difference.files as file (file.path)}<li><code>{file.path}</code><span>{differenceFileLine(file, difference.host)}</span></li>{/each}</ul>
+                        {/if}
+                      </div>
+                    {/if}
+                    {#if canWrite}
+                      <div class="choose">
+                        {#if !difference.comparing && !difference.compared}<button type="button" class="btn quiet" disabled={busy === item.id} onclick={() => void resolve(item, difference, 'compare')}>See what differs</button>{/if}
+                        <button type="button" class="btn" disabled={busy === item.id} onclick={() => void resolve(item, difference, 'take')}>Use {difference.host}’s version</button>
+                        <button type="button" class="btn quiet" disabled={busy === item.id} onclick={() => void resolve(item, difference, 'keep')}>Keep reet’s copy</button>
+                      </div>
+                    {/if}
+                  {/if}
+                </div>
+              {/each}
               {#if rowError[item.id]}<p class="notice bad" role="alert">{rowError[item.id]}</p>{/if}
             </div>
             <div class="side">
@@ -185,6 +251,14 @@
   .main h2 { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
   .main p { margin: 0; font-size: .88rem; color: var(--muted); overflow-wrap: anywhere; }
   .main .wait { color: var(--warn); }
+  .differs { display: grid; gap: 8px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--warn); border-radius: 8px; }
+  .differs p { margin: 0; }
+  .differs .choose { display: flex; flex-wrap: wrap; gap: 8px; }
+  .differs .btn { min-height: 44px; }
+  .differs .files ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+  .differs .files li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; min-width: 0; }
+  .differs .files code { overflow-wrap: anywhere; }
+  .differs .files span { color: var(--muted); }
   .type { font-weight: 400; color: var(--muted); text-transform: capitalize; }
   .side { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; justify-content: flex-end; }
   .status { display: grid; gap: 4px; font-size: .8rem; color: var(--muted); }

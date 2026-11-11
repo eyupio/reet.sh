@@ -33,9 +33,12 @@ the list and navigation scrolls to keep the selected command visible.
 
 Commands that may prompt, start a server or replace the running binary keep the
 real terminal instead: `configure`, `install`, `upgrade`, `serve`, and the
-interactive Terminal, Setups, Backups, Branches and Agent tasks. Their output
-stays in normal scrollback so passwords, confirmations and child processes work
-as before. Escape or Ctrl+C cancels reporting work before it finishes.
+interactive Terminal, Setups, Backups, Branches and Agent tasks. They run on
+reet's own full screen under a `reet.sh  reet COMMAND` heading, with the result
+and **Enter / Esc home** beneath, so choosing one does not drop you into the
+shell's scrollback. Passwords, confirmations and child processes work as before.
+That screen has no scrollback of its own: run the command directly when you need
+to keep long output. Escape or Ctrl+C cancels reporting work before it finishes.
 
 On a terminal at least 72 columns wide and 16 rows tall, home becomes two panes:
 the grouped list on the left with the selected row as a solid block, and on the

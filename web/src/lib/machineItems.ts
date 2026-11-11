@@ -25,7 +25,7 @@ export function itemMachineState({ item, selected, target, jobs, online }: Input
     return { key: 'inactive', label: 'Kept in the library only', detail: `It is ${plain(item.status)}, so it is not installed here and any copy reet.sh installed is removed. Your selection is kept.`, tone: 'muted' }
   }
   if (item.problem || item.contentState !== 'complete') {
-    return { key: 'waiting_content', label: 'Waiting for complete content', detail: 'It will sync once its content has been captured.', tone: 'wait' }
+    return { key: 'waiting_content', label: 'Waiting for complete content', detail: 'reet saves a copy from the machine that has it when that machine next checks in, then installs it here.', tone: 'wait' }
   }
   const waiting: ItemMachineState = online
     ? { key: 'waiting', label: 'Waiting to sync', tone: 'wait' }

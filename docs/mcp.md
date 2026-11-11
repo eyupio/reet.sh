@@ -152,6 +152,44 @@ messages; use a scoped MCP connection. No offline Gaffer follow goal is created 
 separately in the signed-in session companion; client credentials cannot start
 background supervision or grant themselves that authority.
 
+## Read and steer the Factory
+
+Two tools read the Factory for any connection on a writer account:
+
+- `reet_list_factory` lists the outcomes with their pipelines: each pipeline's
+  state, the stage in hand, every stage's state and agent, how its merge is
+  decided, and the state of the goal Gaffer follows it with.
+- `reet_get_factory_outcome` reads one outcome. A management connection also
+  receives each finished stage's handover note and Gaffer's latest report, which
+  are derived from session text; a read-only connection receives states only.
+
+Six more are the person's own controls and need management scope:
+
+| Tool | What it does |
+| --- | --- |
+| `reet_move_pipeline_on` | Closes the stage in hand as it stands and starts the next, without waiting for Gaffer's review. Needs `confirm: true`. |
+| `reet_retry_pipeline` | Tries a pipeline that did not start, or stopped, again. |
+| `reet_set_pipeline_merge` | Makes a pipeline wait for your approval before merging. It cannot switch one to merge by itself; that is set on the Factory page. |
+| `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true`. |
+| `reet_stop_outcome` | Stops an outcome. Needs `confirm: true`. |
+| `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
+| `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. |
+| `reet_send_pipeline_back` | Has the stage in hand, or an earlier one, done again with your reason. Needs `confirm: true`. |
+| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. |
+| `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. |
+
+`reet_list_factory_projects` (a read) lists the projects an outcome can run in.
+
+An outcome started over MCP always runs with ordinary approvals, never YOLO,
+without folder trust, with your usual limits of 12 reviews over 24 hours, and
+every pipeline stops at Ready to merge. Those choices stay yours on the Factory
+page.
+
+They are the calls the Factory page makes, under the same rules, and each is
+recorded in Activity with the connection's name. No tool answers an approval
+card, runs a command, turns on YOLO or merges anything itself. A client should pass `confirm: true` only when you asked for exactly
+that change: a merge approval in particular is yours to give, not the client's.
+
 ## OAuth implementation and limits
 
 The default flow uses OAuth authorization code with mandatory PKCE S256, public
@@ -167,10 +205,11 @@ already consented OAuth grant. Clients with other OAuth grant types, private
 client secrets or client-ID metadata documents must use the supported public
 dynamic-registration flow or manual bearer authentication.
 
-The 35 tool definitions are shared with the optional stdio package. For accounts
-with write access, read-only connections discover thirteen tools and management
-connections thirty-five, including the two separately granted context reads and
-three management-only worker messaging tools.
+The 48 tool definitions are shared with the optional stdio package. For accounts
+with write access, read-only connections discover sixteen tools and management
+connections forty-eight, including the two separately granted context reads,
+three management-only worker messaging tools and the thirteen Factory tools
+(three reads and ten management-only controls).
 Viewer accounts retain eleven shelf-read tools.
 Collections support bounded pages and filters. Responses are capped at 25,000
 characters; use smaller pages or more specific filters for large shelves.

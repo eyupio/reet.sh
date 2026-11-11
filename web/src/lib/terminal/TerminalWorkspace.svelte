@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { listGafferOutcomes } from '../api'
+  import { factoryMembers, type FactoryMember } from '../gafferOutcome'
+  let factory=$state<Map<string,FactoryMember>>(new Map())
  import { structuredAgent } from './api'
  import type { ChatState } from '../chat'
  import type { ChatProgressState } from '../gafferProgress'
@@ -293,6 +296,8 @@
       const selectionBeforeRefresh=selectedSession
       const removedAfterClose=sessions.find(item=>item.id===selectedSession)?.removeHistory&&!nextSessions.some(item=>item.id===selectedSession)
       machines=nextMachines;sessions=nextSessions;listingLoaded=true;healthIssue=nextHealth.error
+      // Which sessions belong to a Factory pipeline. A helper only: without it the lists simply carry no marker.
+      void listGafferOutcomes().then(found=>{if(!disposed)factory=factoryMembers(found)}).catch(()=>{})
       if(nextProjects.projects)projects=nextProjects.projects
       dismissConfirmedEnds()
       if(removedAfterClose&&selectedSession===selectionBeforeRefresh){selectedSession='';remember()}
@@ -690,7 +695,7 @@
   {#if pendingCreation && !showCreate && session}<p class="workspace-notice" role="status">A creation on this machine is unconfirmed. <button onclick={()=>openTerminalStart()}>Review creation</button></p>{/if}
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
-    {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectnew={newSessionInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
+    {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {factory} {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectnew={newSessionInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->
       <PanelResizer value={shown==='mini'?MINI_WIDTH:panelWidth} min={MINI_WIDTH} max={panelMax} resetValue={PANEL_DEFAULT}
@@ -704,7 +709,7 @@
       {:else if !machines.length}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>Connect your first machine</h2><p>Enroll a machine and enable terminal access locally to open a shell here.</p><a class="btn primary" href="/machines#add-machine">Connect a machine</a></div>
       {:else if session}
         <!-- The session screen hosts the live terminal pane, unchanged: tabs and header above it, the context panel beside it. -->
-        <SessionScreen bind:this={sessionScreen} {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
+        <SessionScreen bind:this={sessionScreen} factory={factory.get(session.id)} {session} {sessions} {machines} health={health.machines} {projects} now={serverNow} {theatre} {keyboard} busy={actionBusy}
           view={presentation} onview={choosePresentation} nativeAvailable={nativeInfo.key === nativeKey && nativeInfo.info.available} nativePending={nativeInfo.pending} nativeReason={nativeInfo.info.reason} contextControls={sessionDetailsControl} contextKey={`${preferenceKey}:context`} contextId="session-details-panel" bind:contextOpen oncontextclosed={() => contextButton?.focus()} onresizing={active => contextResizing = active}
           onaction={kind => openAction(kind)} ontheatre={() => theatre = !theatre} onrefresh={() => void refresh()} onsignedout={() => { accessDenied = true }}
           insightChat={insightChat?.id === session.id ? insightChat.state : undefined}

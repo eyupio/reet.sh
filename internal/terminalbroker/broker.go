@@ -44,6 +44,10 @@ type Broker struct {
 	// approvals holds the permission signatures a person allowed for the rest
 	// of one chat. It is controller state only and never reaches the machine.
 	approvals map[chatKey]map[string]bool
+	// yoloAllows holds the audit row each YOLO chat's approvals are counted on.
+	// It has its own lock because each approval is saved while it is held.
+	yoloMu     sync.Mutex
+	yoloAllows map[chatKey]*yoloRollup
 	// switching holds the sessions a SwitchSessionMode is moving.
 	switching map[chatKey]struct{}
 	// reattaching holds the in-flight ReattachChat of each session and trust;
@@ -504,6 +508,14 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 		return nil
 	}
 	if event, ok := m.Body.(*terminalproto.ACPEvent); ok {
+		if event.Kind == "usage" {
+			// The agent's own numbers. They are kept beside the session, not in
+			// its conversation, and only for a session this account owns.
+			if u := event.Usage; u != nil {
+				_ = p.b.st.AddTerminalSessionUsage(p.key.uid, m.SessionID, u.InputTokens, u.OutputTokens, u.CachedTokens, u.ContextUsed, u.ContextSize)
+			}
+			return nil
+		}
 		if p.b.chatExists(p.key.uid, m.SessionID) {
 			p.b.publishChat(p.key.uid, m.SessionID, *event)
 		}

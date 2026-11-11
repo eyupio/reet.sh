@@ -1,8 +1,8 @@
 import { chromium, expect } from '@playwright/test'
 import { owner, openWorkspace } from './helpers/workspace.mjs'
 
-// Choosing a machine's skills no longer sends a person to a separate sync comparison page. The card's menu opens the machine's
-// skill dialog directly, and a link that says ?choose=skills (Home's Skills & sync) opens it once on arrival and tidies the
+// Choosing a machine's skills has one entry point, with one name: Skills on this machine. The card's button opens the machine's
+// skill dialog directly (the menu no longer repeats it), and a link that says ?choose=skills (Home's Skills on this machine) opens it once on arrival and tidies the
 // address. Anyone who cannot use the dialog (a viewer) is not sent into a dead end: they keep the plain link, or just land on
 // the machine's card. Job review and activity links are diagnostics and are untouched.
 const browser=await chromium.launch({headless:true,executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH||'/usr/bin/chromium',args:['--no-sandbox']})
@@ -18,23 +18,24 @@ const open=(width,{viewer=false}={})=>openWorkspace(browser,{width,touch:width<6
 const card=page=>page.getByRole('article',{name:'new-box',exact:true})
 
 for(const width of [390,1280]){
- { // The card menu opens the dialog itself, on the same page, and focus goes back to the card's own button.
+ { // The card's button opens the dialog itself, on the same page; the menu does not offer a second way in, and focus goes back to the button.
   const {page,context,errors}=await open(width)
   await page.goto(`${base}/machines`)
   await card(page).getByRole('group').or(card(page)).locator('summary[aria-label="More options for new-box"]').click()
-  const item=page.getByRole('menuitem',{name:'Choose skills & locations'})
-  await expect(item).toBeVisible()
-  expect(await item.evaluate(node=>node.tagName)).toBe('BUTTON')
-  await item.click()
+  await expect(page.getByRole('menuitem',{name:'Settings…',exact:true})).toBeVisible()
+  await expect(page.getByRole('menuitem',{name:'Choose skills & locations'})).toHaveCount(0)
+  await expect(page.getByRole('menuitem',{name:'Skills on this machine'})).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await card(page).getByRole('button',{name:'Skills on this machine',exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'Skills on new-box',exact:true})
   await expect(dialog).toBeVisible()
   expect(new URL(page.url()).pathname).toBe('/machines')
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
-  await expect(card(page).getByRole('button',{name:'Choose skills',exact:true})).toBeFocused()
+  await expect(card(page).getByRole('button',{name:'Skills on this machine',exact:true})).toBeFocused()
   expect(errors).toEqual([])
   await context.close()
-  console.log(`PASS menu opens the skill dialog at ${width}px`)
+  console.log(`PASS the card button opens the skill dialog at ${width}px`)
  }
  { // A link with ?choose=skills opens the dialog once on the machine, then the address is tidied and a reload does not reopen it.
   const {page,context,errors}=await open(width)
@@ -63,7 +64,7 @@ for(const width of [390,1280]){
  await card(page).locator('summary[aria-label="More options for new-box"]').click()
  const item=page.getByRole('menuitem',{name:'Choose skills & locations'})
  expect(await item.evaluate(node=>node.tagName)).toBe('A')
- await expect(item).toHaveAttribute('href','/sync?machine=new-box')
+ await expect(item).toHaveAttribute('href','/sync/advanced?machine=new-box')
  expect(errors).toEqual([])
  await context.close()
  console.log('PASS viewer keeps the plain link and no dialog')

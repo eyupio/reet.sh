@@ -56,7 +56,7 @@ func (s *Service) Goals(uid int64) (GoalOverviewView, error) {
 			row.Available = !archived
 		}
 		if !row.Available {
-			row.Reason = "This session is archived or unavailable. Its retained goal can be reviewed here; use Conversation history to remove the saved chat."
+			row.Reason = "This session is archived or unavailable. Its retained goal can be reviewed here; use Remove to delete the saved chat and this goal."
 			row.Attention = row.Attention || g.State == "active"
 		} else {
 			if g.State == "active" {

@@ -572,7 +572,7 @@ func TestFilteredMarkdownAndCSV(t *testing.T) {
 	do(t, srv, "POST", "/api/skill/tags", `{"id":"a/b/one","add":["bulk"],"remove":[]}`)
 	do(t, srv, "POST", "/api/import", `{"items":[{"name":"one","source":"a/b","host":"laptop","agent":"claude"}]}`)
 	code, md := do(t, srv, "GET", "/api/export?format=md&q=one", "")
-	if code != 200 || !strings.Contains(md, "## On the shelf") || !strings.Contains(md, "npx skills add https://github.com/a/b --skill one") {
+	if code != 200 || !strings.Contains(md, "## Parked") || !strings.Contains(md, "npx skills add https://github.com/a/b --skill one") {
 		t.Fatalf("markdown: %d %s", code, md)
 	}
 	code, csvOut := do(t, srv, "GET", "/api/export?format=csv&q=tag%3Abulk", "")

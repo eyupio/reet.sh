@@ -47,7 +47,7 @@ try {
   await page.goto(`${base}/skills`)
   const card = id => page.locator(`[data-skill="${id}"]`)
   await expect(card(a.id).locator('.sync-intent')).toHaveText(/Set to sync to dev-laptop/)
-  await expect(card(a.id).getByRole('link',{name:`Remove code-review from dev-laptop in Sync`})).toHaveAttribute('href',`/sync?machine=dev-laptop&remove=${encodeURIComponent(a.id)}`)
+  await expect(card(a.id).getByRole('link',{name:`Remove code-review from dev-laptop in Advanced sync`})).toHaveAttribute('href',`/sync/advanced?machine=dev-laptop&remove=${encodeURIComponent(a.id)}`)
   await expect(card(b.id).locator('.sync-intent')).toHaveText(/Pending on dev-laptop/)
   // The filters narrow the shelf by intent and by observation.
   await page.locator('.shelf-filters summary').click()
@@ -72,7 +72,7 @@ try {
   await page.goto(`${base}/skills`)
   const line = page.locator(`[data-skill="${mine.id}"] .sync-intent`)
   await expect(line).toHaveText(/Not set to sync/)
-  await expect(line.getByRole('link',{name:'Sync to machines…'})).toHaveAttribute('href',`/sync?skill=${encodeURIComponent(mine.id)}`)
+  await expect(line.getByRole('link',{name:'Choose machines'})).toHaveAttribute('href','/machines')
   await context.close()
   const silent = await open({width:1440,skills:[mine],inventory:machineWith('dev-laptop',[mine]),routes:{'/api/v2/sync':{status:500,json:{error:'down'}}}})
   await silent.page.goto(`${base}/skills`)

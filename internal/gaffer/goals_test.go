@@ -655,3 +655,74 @@ func TestAFencedControllerReviewsNoGoalUntilTheLift(t *testing.T) {
 		t.Fatalf("after the lift the goal was reviewed with %d provider calls, want 2", calls.Load())
 	}
 }
+
+func TestAGoalHeldForAnApprovalCarriesOnOnceThePersonHasAnswered(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := advancingGoalProvider(&calls)
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 4)
+	workerProgress(t, st, g, 1)
+	worker.waiting.Store(true)
+	s.reviewDueGoals(context.Background())
+	held, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if held.State != "needs_user" || !held.WaitingOnWorker || calls.Load() != 0 {
+		t.Fatalf("held: %+v calls=%d", held, calls.Load())
+	}
+	// Still waiting: it stays with the person, and no model request is made.
+	makeDue := func() {
+		t.Helper()
+		row, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+		if row.WaitingOnWorker {
+			if err := st.HoldGafferGoalForWorker(row, row.Note, 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	makeDue()
+	s.reviewDueGoals(context.Background())
+	if again, _ := st.GafferGoalFor(p.UserID, g.ConversationID); again.State != "needs_user" || !again.WaitingOnWorker || calls.Load() != 0 {
+		t.Fatalf("still waiting: %+v", again)
+	}
+	// The person answers. The goal is active again and the work already there is reviewed.
+	worker.waiting.Store(false)
+	makeDue()
+	s.reviewDueGoals(context.Background())
+	resumed, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if resumed.State != "active" || resumed.WaitingOnWorker || resumed.Revision != held.Revision {
+		t.Fatalf("resumed: %+v", resumed)
+	}
+	s.reviewDueGoals(context.Background())
+	deadline := time.Now().Add(5 * time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if calls.Load() == 0 {
+		t.Fatal("the finished work was not reviewed after the person answered")
+	}
+}
+
+func TestAHeldGoalWhoseSessionEndedStaysWithThePerson(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := fakeGoalProvider(&calls)
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 4)
+	workerProgress(t, st, g, 1)
+	worker.waiting.Store(true)
+	s.reviewDueGoals(context.Background())
+	held, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	// A pause is the person's own choice and ends the hold.
+	if _, err := st.ControlGafferGoal(p.UserID, g.ConversationID, held.Revision, "pause", store.GafferGoal{SessionID: g.SessionID}); err != nil {
+		t.Fatal(err)
+	}
+	worker.waiting.Store(false)
+	s.reviewDueGoals(context.Background())
+	if paused, _ := st.GafferGoalFor(p.UserID, g.ConversationID); paused.State != "paused" || paused.WaitingOnWorker || calls.Load() != 0 {
+		t.Fatalf("paused: %+v", paused)
+	}
+}

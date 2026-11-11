@@ -752,6 +752,18 @@ Tests: parsing (`acpagent/usage_test.go`), event validity
 (`terminalproto/acp_test.go`), the store, stage attribution across a shared
 session, the unit helpers and the Factory browser suite.
 
+## Removing a goal whose session is gone (11 November 2026)
+
+Reported by the owner with a screenshot: an old goal for an archived session
+sat under Other sessions as "Needs you" and could not be cleared. Its card's
+only action, **Conversation history**, was passed an empty handler by the
+Factory page (`onhistory={() => {}}`), so it did nothing. The card now has
+**Remove**, which, after a confirmation, deletes Gaffer's saved conversation for
+that session (`DELETE /api/v2/gaffer/conversations/{id}`); the goal goes with
+it by the table's cascade. The floor's own dialog keeps Conversation history
+beside it; the Factory page shows Remove only. The controller's reason text
+now says "use Remove". Covered in `gaffer-followed.e2e.mjs` for both places.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

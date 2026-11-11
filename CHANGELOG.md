@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: a goal whose session is archived or no longer available can now be
+  removed from the page. The "Conversation history" button shown there did
+  nothing on the Factory page.
 - Factory: **Agent tokens** shows what the working agents themselves report
   using, per pipeline and per outcome with a split by agent, and **Context
   left** shows how much of the stage in hand's context window remains. Agents

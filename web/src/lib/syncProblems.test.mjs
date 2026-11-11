@@ -9,7 +9,7 @@ const transpile = (file) => ts.transpileModule(readFileSync(new URL(file, import
 const dataURL = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
 const machinesURL = dataURL(transpile('./machines.ts'))
 const setupURL = dataURL(transpile('./machineSetup.ts').replace("from './machines'", `from '${machinesURL}'`))
-const { explainSyncFailure, offersDedupe, offersSourceFix } = await import(dataURL(transpile('./syncProblems.ts').replace("from './machineSetup'", `from '${setupURL}'`)))
+const { explainSyncFailure, offersDedupe, offersSourceFix } = await import(dataURL(transpile('./syncProblems.ts').replace("from './machineSetup'", `from '${setupURL}'`).replace("from './syncOverview'", `from '${dataURL(transpile('./syncOverview.ts'))}'`)))
 
 const context = { host: 'studio', site: 'https://reet.example' }
 

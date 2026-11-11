@@ -1,4 +1,5 @@
 import { enrollCommands, scanCommand, shellQuote } from './machineSetup'
+import { sourceConflictSentence } from './syncOverview'
 
 export type SyncProblemKind =
   | 'skills-folder'
@@ -76,20 +77,6 @@ function agentCommand(context: SyncProblemContext): string {
 /** True when a name conflict can be fixed by removing the extra shelf copy. */
 export function offersDedupe(message: string): boolean {
   return duplicateName.test(message ?? '')
-}
-
-const sharedWith = /^(.+?) is shared with (.+?) from a different source/i
-const folderOwner: Record<string, string> = { agents: 'the shared skills folder', claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' }
-
-/**
- * The machine's own words for this are "X is shared with agents from a different source; resolve it before syncing",
- * which names an internal folder and gives an order with no way to follow it. Say what is there instead.
- */
-function sourceConflictSentence(text: string, host: string): string {
-  const found = sharedWith.exec(text)
-  if (!found) return /[.!?]$/.test(text) ? text : `${text}.`
-  const where = folderOwner[found[2].trim().toLowerCase()] ?? found[2].trim()
-  return `${host === 'the machine' ? 'The machine' : host} already has a copy of ${found[1].trim()} that came from somewhere else, in ${where}, so reet did not overwrite it.`
 }
 
 /** True when Reet can follow the source already installed on the machine. */

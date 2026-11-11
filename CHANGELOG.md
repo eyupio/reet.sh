@@ -5,14 +5,19 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
-- When a sync stops because a machine already has a skill from somewhere else,
-  the Sync activity panel that slides up now offers **Auto fix** itself. It
-  used to describe the fix and offer only a link to another page. The first
-  press shows what would change; **Auto fix & sync** then keeps the copy on the
-  machine, points the sync plan at it and syncs again, changing no files on the
-  machine. The message is in plain words: which skill, which machine, and that
-  reet did not overwrite the copy there. Browser-only.
-
+- Sync no longer stops a whole machine folder over one skill. When another app
+  on the machine already has a skill of the same name from a different source,
+  reet now leaves that one skill alone, says so with the reason, and syncs
+  everything else. It used to fail the folder with "… is shared with agents
+  from a different source; resolve it before syncing", and **Auto fix** then
+  answered "No installed source conflict left to fix" for any skill reet holds
+  as its own copy, so nothing could clear it. A machine needs the new reet
+  build for this; until it has it, the failure is described in plain words, and
+  **Auto fix** is offered where the failure is shown: the Sync activity panel,
+  the machine's row on Sync and the machine card. When Auto fix cannot settle
+  it, it now says why and what to do instead. A finished sync lists any skill
+  it left alone, and the machine shows "1 skill left alone" in place of
+  "Everything in sync".
 - Factory: a pipeline that **needs you** now says why in one sentence, shows
   Gaffer's review, and asks "What do you want to do?" with buttons for the
   things you can do (have Gaffer look again, tell the agent, move on, open the

@@ -323,7 +323,7 @@
     try {
       const preview = await resolveSyncSourceConflicts(ids, false)
       if (!preview.changes.length) {
-        onnotice('No installed source conflict left to fix. Try a fresh preview.')
+        onnotice('Auto fix cannot settle this one: reet holds this skill as its own copy, so there is no other source to follow. Update reet on the machine and sync again (it then skips only this skill), or remove the copy on the machine to use reet’s.')
         return
       }
       const details = preview.changes.map(change => [
@@ -530,7 +530,7 @@
             {#if accounts && canWrite && enrolled}<button class="btn" class:primary={highlight === machine.host} type="button" data-choose-skills={machine.host} onclick={(event) => (libraryFor = { host: machine.host, opener: event.currentTarget })}>Skills on this machine</button>{/if}
             {#if offersDedupe(sync.detail)}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); void dedupe(machine) }}>{busy === `dedupe-${machine.host}` ? 'Checking…' : 'Dedupe skills'}</button>
-            {:else if offersSourceFix(sync.detail)}
+            {:else if sync.fix}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void autoFix(machine, enrolled) }}>{busy === `fix-${machine.host}` ? 'Checking…' : 'Auto fix'}</button>
             {:else if sync.canSync}
               <button class="btn primary sync-now" type="button" disabled={!!busy || !!enrolled?.paused} onclick={(event) => { closeMenu(event); if (enrolled) void syncNow(machine, enrolled) }}>{busy === `sync-${enrolled?.id}` ? 'Starting…' : 'Sync now'}</button>

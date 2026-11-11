@@ -178,7 +178,7 @@
     try {
       const preview = await resolveSyncSourceConflicts([job.targetId], false)
       if (preview.changes.length) fixPlan = { jobId: job.id, changes: preview.changes }
-      else fixNote = { ...fixNote, [job.id]: 'There is nothing left to fix here. Sync again to check.' }
+      else fixNote = { ...fixNote, [job.id]: 'Auto fix cannot settle this one: reet holds this skill as its own copy, so there is no other source to follow. Update reet on the machine and sync again (it then skips only this skill), or remove the copy on the machine to use reet’s.' }
     } catch (e) {
       fixNote = { ...fixNote, [job.id]: e instanceof Error ? e.message : String(e) }
     } finally { fixing = '' }
@@ -313,7 +313,13 @@
                 {#if (job.plan.actions?.length ?? 0) > 5}<li class="more">+{(job.plan.actions?.length ?? 0) - 5} more</li>{/if}
               </ul>
             {:else if job.status === 'succeeded'}
-              <p class="plan-count">{doneCounts.total ? '' : 'Everything already matches. No files needed changing.'}</p>
+              <p class="plan-count">{doneCounts.total || Object.keys(job.plan.problems ?? {}).length ? '' : 'Everything already matches. No files needed changing.'}</p>
+            {/if}
+            <!-- A skill sync left alone is said here with its reason, so a finished sync never hides what it skipped. -->
+            {#if Object.keys(job.plan.problems ?? {}).length}
+              <ul class="left-alone" aria-label="Skills left alone">
+                {#each Object.entries(job.plan.problems ?? {}) as [slug, reason] (slug)}<li><strong>{slug}</strong> was left alone. {reason}</li>{/each}
+              </ul>
             {/if}
             {#if job.message}
               {#if job.status === 'failed' || job.status === 'rolled_back'}
@@ -454,4 +460,5 @@
   .fix-confirm p { margin: 0; }
   .fix-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .fix-actions .btn { min-height: 44px; }
+  .left-alone { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; color: var(--warn); }
 </style>

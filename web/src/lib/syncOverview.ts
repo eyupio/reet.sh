@@ -73,6 +73,8 @@ export type MachineSyncOverview = {
   run?: SyncRun
   job?: SyncJob
   progress?: { done: number; total: number }
+  /** Set when Auto fix can settle what stopped this machine: the folder to fix and the machine's agent. */
+  fix?: { targetId: string; agentId: string }
 }
 
 function envLabel(env?: { host: string; agent: string; project?: string }): string {
@@ -95,6 +97,28 @@ function jobLabel(job: SyncJob): string {
     cancelled: 'Cancelled',
   }
   return state[job.status] ?? job.status.replaceAll('-', ' ')
+}
+
+const sharedWith = /^(.+?) is shared with (.+?) from a different source/i
+const folderOwner: Record<string, string> = { agents: 'the shared skills folder', claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' }
+
+/** The skill and folder named by "X is shared with agents from a different source", or null for any other message. */
+export function sourceConflict(message: string): { name: string; where: string } | null {
+  const found = sharedWith.exec((message ?? '').trim())
+  if (!found) return null
+  const owner = found[2].trim()
+  return { name: found[1].trim(), where: folderOwner[owner.toLowerCase()] ?? owner }
+}
+
+/**
+ * The machine's own words for this name an internal folder and give an order with no way to follow it ("resolve it
+ * before syncing"). Say what is there instead. A message that is not this conflict is returned as a finished sentence.
+ */
+export function sourceConflictSentence(message: string, host: string): string {
+  const text = (message ?? '').trim()
+  const found = sourceConflict(text)
+  if (!found) return /[.!?]$/.test(text) ? text : `${text}.`
+  return `${!host || host === 'the machine' ? 'The machine' : host} already has a copy of ${found.name} that came from somewhere else, in ${found.where}, so reet did not overwrite it.`
 }
 
 export function machineSyncOverview(machine: Machine, snapshot: SyncState, now = Date.now()): MachineSyncOverview {
@@ -168,7 +192,21 @@ export function machineSyncOverview(machine: Machine, snapshot: SyncState, now =
     return !!target && job.revision === target.revision
   })
   if (problem || failure?.status === 'failed') {
-    return { ...base, tone: 'attention', label: 'Sync needs attention', detail: problem || failure?.message || 'Open Sync activity to retry.', canSync: true }
+    const message = problem || failure?.message || ''
+    // The machine already has the skill from somewhere else. That has a one-press fix, so say it plainly and carry
+    // what the fix needs to wherever this is shown.
+    if (sourceConflict(message)) {
+      const targetId = problem ? targets.find(target => target.problem)?.target.id : failure?.targetId
+      return { ...base, tone: 'attention', label: 'A skill is already there from another source', detail: sourceConflictSentence(message, machine.host), canSync: true, ...(targetId ? { fix: { targetId, agentId: agent.id } } : {}) }
+    }
+    return { ...base, tone: 'attention', label: 'Sync needs attention', detail: message || 'Open Sync activity to retry.', canSync: true }
+  }
+  // The last sync of the current plan finished but left a skill alone. That is not "in sync", and not a skill
+  // still to install either: say which, and why, in the machine's own words for it.
+  const leftAlone = Object.entries(failure?.plan?.problems ?? {})
+  if (leftAlone.length) {
+    const [slug, reason] = leftAlone[0]
+    return { ...base, tone: 'attention', label: `${leftAlone.length} skill${leftAlone.length === 1 ? '' : 's'} left alone`, detail: `${slug}: ${reason}${leftAlone.length > 1 ? ` And ${leftAlone.length - 1} more.` : ''}`, canSync: false }
   }
   if (missing > 0) {
     return { ...base, tone: 'action', label: `${missing} skill${missing === 1 ? '' : 's'} to install`, detail: detailFor('Ready to apply'), canSync: true }

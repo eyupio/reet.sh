@@ -600,13 +600,15 @@ func (s *Service) answer(ctx context.Context, job *chatJob, c store.GafferConver
 			trimmed = true
 			continue
 		}
-		n := len(old.Prompt) + len(old.Answer)
+		// What reet tools did in that turn is part of what Gaffer said and did.
+		said := old.Answer + toolHistory(old.Tools)
+		n := len(old.Prompt) + len(said)
 		if bytes+n > historyBudget {
 			trimmed = true
 			break
 		}
 		bytes += n
-		messages = append([]elicore.Message{{Role: elicore.RoleUser, Content: old.Prompt}, {Role: elicore.RoleAssistant, Content: old.Answer}}, messages...)
+		messages = append([]elicore.Message{{Role: elicore.RoleUser, Content: old.Prompt}, {Role: elicore.RoleAssistant, Content: said}}, messages...)
 	}
 	system := gafferSystem
 	if job.context != nil {

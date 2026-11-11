@@ -132,6 +132,7 @@ func (s *server) registerMCPRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/mcp/connections/{id}", s.mcpManagement(s.mcpRevoke))
 	mux.HandleFunc("POST /api/v2/mcp/connections/{id}/rotate", s.mcpManagement(s.mcpRotate))
 	mux.HandleFunc("DELETE /api/v2/mcp/connections", s.mcpManagement(s.mcpRevokeAll))
+	s.mcpAPI = mux
 	mux.Handle("/mcp", s.hostedMCP(mux))
 	mux.HandleFunc("GET /api/v2/mcp/browser/tools", s.mcpManagement(s.mcpBrowserTools))
 	mux.HandleFunc("POST /api/v2/mcp/browser/call", s.mcpManagement(func(w http.ResponseWriter, r *http.Request) { s.mcpBrowserCall(w, r, mux) }))

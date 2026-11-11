@@ -528,6 +528,52 @@ successful read visibly labelled; source times are never replaced by refresh tim
 If the running sessions cannot be read, the followed work stays and the floor
 says what is missing.
 
+## Tools Gaffer can use
+
+Gaffer can use reet's own tools in your chats with it: the same tools an MCP
+client gets, run by the controller as your account. **Gaffer settings → Tools
+Gaffer can use** lists each one, grouped, with three choices:
+
+- **Off.** Gaffer is not offered the tool. Every tool starts here.
+- **Ask me.** Gaffer can ask to use it. The exact call, with its arguments,
+  appears in the chat under Gaffer's reply and waits. **Approve** runs exactly
+  that call once; **Decline** runs nothing. Gaffer is told it has not run.
+- **Allow.** Gaffer runs it as soon as it decides your message calls for it.
+
+You can set a whole group at once. The groups are: reading the Factory;
+controlling pipelines (move on, retry, send back, tell the agent, stop, ask for
+a report, make a merge wait); starting agents (a new outcome, added pipelines);
+approving a merge; reading the shelf and the activity log; changing the shelf;
+and reading or changing machines and environments.
+
+What to know before switching things on:
+
+- **Allow means no further click.** With *Approve a pipeline's merge* or
+  *Start an outcome* on Allow, telling Gaffer to do it in a chat is all it
+  takes. The settings page says so when a tool like that is on Allow. Choose
+  Ask me if you want to see each call first.
+- **Only your own chat turn has the tools.** Gaffer's goal reviews, which read
+  what a working agent wrote and run without you, are never offered them.
+- **In a session's chat, changes always ask.** There Gaffer also reads the
+  working agent's text, which you did not write, so any tool that changes
+  something is treated as Ask me even if you chose Allow. Reading tools still
+  run.
+- Gaffer can use up to six tools in one turn, one at a time. A tool that
+  fails is reported as failed.
+- The tools that read or message a session through a per-connection grant
+  (`reet_get_context`, `reet_send_worker_message` and their companions) are
+  not on the list: Gaffer has its own per-session permissions for those.
+- Tools still enforce their own rules. A tool that refuses YOLO, or a merge by
+  itself, for an MCP client refuses it for Gaffer too.
+- Each use is recorded: `gaffer-tool-call` (with whether you approved it),
+  `gaffer-tool-proposed`, `gaffer-tool-declined`, and `gaffer-tools-changed`
+  when you change the settings. A change a tool makes is also recorded as an
+  MCP change by the client "Gaffer".
+
+Gaffer still has no shell and no GitHub access of its own, and never answers
+an agent's approval card. A merge it approves is carried out by the pipeline's
+own agent, only on green checks, as when you approve it yourself.
+
 ## Add a provider
 
 1. Choose **Add provider**, then a preset: OpenAI, Anthropic, Ollama Cloud,

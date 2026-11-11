@@ -944,6 +944,79 @@ MCP tool, controllable in Gaffer settings with a per-tool selection. That
 removes the "only the person approves a merge or starts an outcome" boundary
 wherever the person switches those tools on. Not built yet.
 
+## Gaffer uses reet's own tools, per tool (11 November 2026, after #736)
+
+**The owner's decision, reversing earlier lines:** Gaffer is given every reet
+MCP tool, "controllable in the Gaffer settings, including granular MCP tool
+selection", with three states per tool (Off / Ask me / Allow), chosen over
+plain switches. Where the person sets a tool to Allow, Gaffer can now start an
+outcome or approve a merge on their word in a chat. "Only the person in the
+browser approves a merge" therefore holds only while that tool is Off or Ask
+me. Unchanged: no shell, no GitHub path, never answers an approval card, and
+only the person marks work complete.
+
+### Contract
+
+- **Choice.** Table `gaffer_tool_modes(user_id, tool, mode)`; a tool not
+  listed is off. `GET/PUT /api/v2/gaffer/tools` (writer browser account,
+  canonical origin; `PUT` replaces the whole choice and refuses unknown tools
+  and modes). Activity: `gaffer-tools-changed {ask, allow, allowed[]}`.
+- **Host.** `gaffer.ToolHost` (`internal/gaffer/host_tools.go`), installed by
+  the API as `gafferToolHost` (`internal/api/gaffer_tools.go`). Tools are the
+  embedded MCP definitions; a call applies schema defaults, validates, and
+  runs `executeMCP` in-process as the account with a synthetic connection
+  `{Name:"Gaffer", Scope:"write", Kind:"gaffer"}`. So every rule a management
+  MCP client is under applies (fence, viewer, Factory confirmations, no YOLO
+  or merge-by-itself from a tool). Not offered: the worker and context tools,
+  which need a per-connection grant.
+- **When.** Only the person's own chat turn (`chatJob.goalID == ""`), in any
+  conversation. Goal reviews get none. `hostTools` downgrades every
+  non-read-only tool to `ask` when the conversation belongs to a session,
+  because that turn's context contains the working model's text.
+- **Loop.** In `answerRounds` a call to a host tool is handled before the
+  worker-tool rules and does not use up the single worker-instruction round.
+  One call per model round, at most six per turn (`maxHostToolRounds`). Allow:
+  run, feed the result back (12 KiB), keep it on the turn (6 KiB). Ask: record
+  it `pending`, tell the model it was not run, offer no more tools.
+- **Record.** `GafferTurn.Tools` (`gaffer_turns.tools_json`): id, name, exact
+  canonical args, mode, state (`ran`, `failed`, `pending`, `approved`,
+  `declined`), result. Later turns' history carries a short summary of them.
+- **Approval.** `POST …/conversations/{id}/turns/{turnId}/tools/{toolId}
+  {approve}` → `AnswerTool`. The call is taken from `pending` to `approved` in
+  one transaction before it runs, so two approvals cannot run it twice; the
+  saved args are what runs; the tool must still be switched on. There is no
+  expiry on a pending call.
+- **Audit.** `gaffer-tool-call {tool, mode, ok}`, `gaffer-tool-proposed`,
+  `gaffer-tool-declined`, source `gaffer`; the tool's own events carry source
+  `mcp` and client "Gaffer".
+
+### Validation
+
+`host_tools_test.go` (fake host and provider): an allowed tool runs with the
+model's exact args, the result reaches the model, off tools are not offered,
+history carries it; an asking tool is not run, approve runs the saved call
+once, a second approval, an unknown id and a tool since switched off are
+refused, decline runs nothing; a failed tool is reported and a turn stops at
+six; the session-chat downgrade and no tools for a goal review.
+`gaffer_tools_test.go` (real API): refusals, all tools start off, the groups,
+strict save, a Factory read and a shelf write actually run as the account, a
+tool left out of a new choice stops running, schema checked.
+`gaffer-tools.e2e.mjs` (added to the Gaffer browser workflow): the settings
+choice and the approve and decline card, desktop light and phone dark.
+Synthetic only: no real provider has driven these tools.
+
+### Limits
+
+- A model can be talked into a call by text it reads. In general chat the
+  only untrusted text is tool results; that is why session chats force Ask for
+  changes and why the guidance tells the model results are data. It is a
+  mitigation, not a guarantee: Allow on a destructive tool is the person
+  accepting that risk.
+- After an approval the model is not asked again; the result shows in the
+  chat and is in the next turn's history.
+- Six tools per turn, one per model round, no parallel calls.
+- No per-conversation or per-project override: the choice is per account.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

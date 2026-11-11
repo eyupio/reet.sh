@@ -43,12 +43,14 @@ import (
 )
 
 type server struct {
-	importMu       sync.Mutex
-	st             *store.Store
-	f              meta.Fetcher
-	token          string
-	version        string
-	commit         string
+	importMu sync.Mutex
+	st       *store.Store
+	f        meta.Fetcher
+	token    string
+	version  string
+	commit   string
+	// mcpAPI is the API handler reet's own tools are run against, for Gaffer.
+	mcpAPI         http.Handler
 	debug          bool
 	topics         bool
 	refreshJob     bool
@@ -364,6 +366,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s.gafferProviders.SetWorker(s.terminals, s.terminalEnabled)
 	s.gafferProviders.SetSessionStarter(outcomeStarter{s})
 	// What Gaffer and the controller do by themselves is in the activity log too, under its own source.
+	s.gafferProviders.SetToolHost(gafferToolHost{s})
 	s.gafferProviders.SetAudit(func(uid int64, action string, detail map[string]any) {
 		s.event(uid, "gaffer", action, "", detail)
 	})
@@ -482,6 +485,7 @@ func (s *server) routes() http.Handler {
 	s.registerProfileRoutes(mux)
 	s.registerGafferRoutes(mux)
 	s.registerGafferOutcomeRoutes(mux)
+	s.registerGafferToolRoutes(mux)
 	s.registerGafferChatRoutes(mux)
 	s.registerModelFavouriteRoutes(mux)
 	s.registerMCPRoutes(mux)

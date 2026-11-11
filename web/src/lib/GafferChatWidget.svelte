@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, UnauthorizedError, cancelGafferAnswer, configureGafferConversation, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,getGafferGoal,
+  import { ApiError, UnauthorizedError, answerGafferTool, cancelGafferAnswer, configureGafferConversation, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,getGafferGoal,
     type GafferConversationView, type GafferSettings, type GafferTurn } from './api'
   import { gafferSessionContext, gafferChatEntry, GAFFER_GOALS_CHANGED } from './gafferContext'
   import { gafferMessageBytes, gafferMessageId, gafferSendKey, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt, type PendingGafferSend } from './gafferChat'
@@ -57,6 +57,19 @@
   const scopeTitle = $derived(scope ? $gafferSessionContext?.title || 'This session' : 'General Gaffer chat')
   const unavailable = $derived(!!scope && !$gafferSessionContext?.structured)
   const current = $derived(loadedScope === scope ? view : null)
+  // A reet tool Gaffer asked to use waits on its turn for the person's answer.
+  let answering = $state('')
+  const toolArgs = (raw: string) => { try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return raw } }
+  async function answerTool(turn: string, tool: string, approve: boolean) {
+    if (!view || answering) return
+    const conversation = view.conversation.id
+    answering = tool; error = ''
+    try {
+      const next = await answerGafferTool(conversation, turn, tool, approve)
+      if (view?.conversation.id === conversation) view = { ...view, turns: view.turns.map(t => t.id === next.id ? next : t) }
+    } catch (e) { error = e instanceof Error ? e.message : 'That answer was not saved.' }
+    answering = ''
+  }
   const running = $derived(current?.turns.find(t => t.state === 'running'))
   const provider = $derived(settings?.providers.find(p => p.id === providerId))
   const dirty = $derived(!!current && (current.conversation.providerId !== providerId || current.conversation.model !== model))
@@ -367,6 +380,13 @@
               {#if turn.answer}<GafferProse text={turn.answer} />{:else if turn.state === 'running'}<p class="thinking" role="status">Putting the thinking cap on…</p>{/if}
               {#if turn.error}<p class="turn-error" role="status">{turn.error}</p>{/if}
               {#if turn.cut}<p class="turn-error">This reply reached its output limit and may be incomplete.</p>{/if}
+              {#each turn.tools ?? [] as tool (tool.id)}<div class="tool-call" class:pending={tool.state === 'pending'}>
+                <p class="tool-head"><strong>{tool.state === 'pending' ? 'Gaffer asks to use' : tool.state === 'declined' ? 'You declined' : tool.state === 'failed' ? 'Tool failed' : tool.state === 'approved' ? 'Running' : 'Gaffer used'}</strong> <code>{tool.name}</code></p>
+                {#if tool.args && tool.args !== '{}'}<pre class="tool-args" aria-label={`Arguments for ${tool.name}`}>{toolArgs(tool.args)}</pre>{/if}
+                {#if tool.state === 'pending'}<p class="note">Nothing has run. Approve runs exactly this call once.</p>
+                  <div class="tool-actions"><button class="primary" type="button" disabled={!!answering} onclick={() => void answerTool(turn.id, tool.id, true)}>{answering === tool.id ? 'Running…' : 'Approve'}</button><button class="quiet" type="button" disabled={!!answering} onclick={() => void answerTool(turn.id, tool.id, false)}>Decline</button></div>
+                {:else if tool.result}<details class="tool-result"><summary>{tool.state === 'failed' ? 'Why it failed' : 'Result'}</summary><pre>{tool.result}</pre></details>{/if}
+              </div>{/each}
               {#if turn.workerGrantRevision&&turn.state!=='running'&&!updating&&!loading&&!streamError&&!current?.messages?.some(m=>m.turnId===turn.id)}<p class="note">No worker instruction was queued for this request.</p>{/if}
               {#each current?.messages?.filter(m=>m.turnId===turn.id)??[] as instruction (instruction.id)}<details class="worker-receipt"><summary>Worker instruction · {instruction.state==='sent'?'accepted':instruction.state}</summary><p class="message-text">{instruction.text}</p><p class="note">{instruction.note||'Acceptance is not completion. Read Worker messages for the current delivery state.'}</p><button class="quiet" type="button" onclick={()=>void workerChoices()}>Worker messages</button></details>{/each}
               <div class="reply-foot">{#if turn.answer}<CopyButton text={turn.answer} label="Copy Gaffer reply" />{/if}
@@ -513,6 +533,8 @@
   .reply-details { min-width:0;flex:1; }
   .reply-details summary { cursor:pointer;min-height:32px;align-content:center; }
   .reply-details p { overflow-wrap:anywhere;line-height:1.5;margin:4px 0; }
+  .tool-call { margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:8px;display:grid;gap:8px;min-width:0; }.tool-call.pending { border-color:var(--accent); }.tool-head { margin:0;font-size:14px; }.tool-head code { font:13px var(--mono);overflow-wrap:anywhere; }
+  .tool-args,.tool-result pre { margin:0;padding:8px;border-radius:6px;background:var(--bg);font:12.5px/1.45 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto; }.tool-actions { display:flex;gap:8px;flex-wrap:wrap; }.tool-actions button { min-height:44px; }.tool-result summary { cursor:pointer;font-size:14px;min-height:32px; }
   .turn-error { border-left:2px solid var(--accent);padding-left:10px;font-size:14px;color:var(--muted);line-height:1.5; }
   .thinking { font-size:14px;color:var(--muted); }
   .feedback { flex:none;margin:8px 16px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg-sunk);font-size:14px;overflow-wrap:anywhere; }

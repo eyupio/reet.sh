@@ -336,6 +336,16 @@ numbers at the top of the page go to the first such pipeline, and Home's
 
 ### What the pipeline card tells you
 
+- A pipeline is one line until you open it with **Show details**: its title,
+  stage ("Review · 4 of 8"), status and one line of why. Pipelines that need
+  you, are ready to merge or have stopped start open. **Expand all pipelines**
+  opens every one.
+- On the stage track a **green tick** is a finished stage, a **pulsing green
+  ring** is the stage running now, **amber with "!"** is waiting for you, and
+  **red with "×"** has stopped. Each state also has its own mark and words, so
+  it does not rely on colour alone, and the pulse stops if your system asks
+  for reduced motion.
+
 - **In this stage** is how long the stage in hand has been running.
 - **Agent** is what its session last reported (working, waiting for you, idle)
   and how long ago it was last active. It turns amber for an idle agent, and

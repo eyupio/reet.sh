@@ -113,6 +113,10 @@
     try { timeline = { ...timeline, [record.id]: { events: await listGafferOutcomeHistory(record.id), error: '', loading: false } } }
     catch (e) { timeline = { ...timeline, [record.id]: { events: [], error: e instanceof Error ? e.message : 'The history could not be read.', loading: false } } }
   }
+  // A pipeline is one line until it is opened. The ones that want the person, or have stopped, start open; the person's
+  // own choice for a pipeline, or for all of them, wins after that.
+  let folds = $state<Record<string, boolean>>({}), allOpen = $state<boolean | null>(null)
+  const shown = (id: string, tone: string) => folds[id] ?? allOpen ?? (tone === 'you' || tone === 'bad' || arrived === id)
   // One choice from a card that needs the person. Each does what its button says and nothing else.
   let expanded = $state<Record<string, boolean>>({})
   function choose(choice: NeedChoice, record: Outcome, piece: GafferOutcomeSession, goal: GafferGoalOverview) {
@@ -249,6 +253,7 @@
     <li><strong>{tally.done}</strong><span>Done</span></li>
   </ul>
 
+  {#if records.length}<div class="fold-all"><button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {} }}>{allOpen === true ? 'Collapse all pipelines' : 'Expand all pipelines'}</button></div>{/if}
   {#if notice}<p role="status" class="notice">{notice}</p>{/if}
   {#if error}<p role="alert" class="warning">{error}{#if records.length}{' '}Showing the last successful read.{/if}</p>{/if}
 
@@ -306,21 +311,23 @@
           {/if}
         </section>{/if}
         <ul class="pipes" aria-label="Pipelines of this outcome">
-          {#each record.sessions as piece (piece.key)}{@const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined}{@const status = pipelineStatus(piece, !!goal?.attention)}{@const nodes = track(piece)}<li class="pipe" id={pipelineAnchor(record.id, piece.key)} tabindex="-1" class:arrived={arrived === pipelineAnchor(record.id, piece.key)} class:you={status.tone === 'you'} class:bad={status.tone === 'bad'}>
-            <div class="pipe-head"><h3>{piece.title}</h3><span class="badge {status.tone}">{status.label}</span></div>
+          {#each record.sessions as piece (piece.key)}{@const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined}{@const status = pipelineStatus(piece, !!goal?.attention)}{@const nodes = track(piece)}{@const id = pipelineAnchor(record.id, piece.key)}{@const open = shown(id, status.tone)}<li class="pipe" id={pipelineAnchor(record.id, piece.key)} tabindex="-1" class:arrived={arrived === pipelineAnchor(record.id, piece.key)} class:you={status.tone === 'you'} class:bad={status.tone === 'bad'}>
+            <div class="pipe-head"><h3>{piece.title}</h3>{#if nodes.length}<span class="where">{stageLabel(nodes[Math.min(piece.stage ?? 0, nodes.length - 1)].kind)} · {Math.min((piece.stage ?? 0) + 1, nodes.length)} of {nodes.length}</span>{/if}<span class="badge {status.tone}">{status.label}</span>
+              <button class="fold" type="button" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} details of ${piece.title}`} onclick={() => folds = { ...folds, [id]: !open }}>{open ? 'Hide details' : 'Show details'}</button></div>
+            {#if !open}<p class="now brief">{status.label === 'Needs you' && goal ? (goal.reason || goal.goal.note) : piece.note}</p>{:else}
             {#if nodes.length}<ol class="track" aria-label={`Stages of ${piece.title}`}>
-              {#each nodes as node, index (node.kind)}<li class={node.state} aria-current={node.state === 'running' || node.state === 'waiting' ? 'step' : undefined} title={`${node.label}: ${chatToolName(node.tool)}${node.model ? ` · ${node.model}` : ''}${node.moved ? ' · moved on by you' : ''}${node.summary ? ` — ${node.summary}` : ''}`}>
-                <span class="dot" class:moved={node.moved} aria-hidden="true">{node.moved ? '»' : node.state === 'done' ? '✓' : node.state === 'waiting' ? '!' : node.state === 'failed' ? '×' : index + 1}</span><span class="name">{node.label}</span><span class="sr-only">{node.moved ? 'moved on by you, not handed over by Gaffer' : node.state === 'done' ? 'done' : node.state === 'running' ? 'in hand' : node.state === 'waiting' ? 'waiting for you' : node.state === 'failed' ? 'stopped' : 'to come'}</span>
+              {#each nodes as node, index (node.kind)}{@const look = node.state === 'running' && status.label === 'Needs you' ? 'waiting' : node.state}<li class={look} aria-current={look === 'running' || look === 'waiting' ? 'step' : undefined} title={`${node.label}: ${chatToolName(node.tool)}${node.model ? ` · ${node.model}` : ''}${node.moved ? ' · moved on by you' : ''}${node.summary ? ` — ${node.summary}` : ''}`}>
+                <span class="dot" class:moved={node.moved} aria-hidden="true">{node.moved ? '»' : look === 'done' ? '✓' : look === 'waiting' ? '!' : look === 'failed' ? '×' : index + 1}</span><span class="name">{node.label}</span><span class="sr-only">{node.moved ? 'moved on by you, not handed over by Gaffer' : look === 'done' ? 'done' : look === 'running' ? 'running now' : look === 'waiting' ? 'waiting for you' : look === 'failed' ? 'stopped' : 'to come'}</span>
               </li>{/each}
             </ol>{/if}
             {#if status.label === 'Needs you' && goal}{@const need = needsYou(goal.goal, goal.reason, (piece.stage ?? 0) >= nodes.length - 1)}<section class="decide" aria-label={`What ${piece.title} needs from you`}>
               <p class="decide-why">{need.why}</p>
-              {#if goal.goal.summary}{@const open = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!open} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !open }}>{open ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
+              {#if goal.goal.summary}{@const whole = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open={whole}><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!whole} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !whole }}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
               <p class="decide-ask">What do you want to do?</p>
               <div class="decide-choices">{#each need.choices.filter(choice => (choice.id !== 'move' || (piece.state === 'following' && nodes.length && piece.conversationId)) && (choice.id !== 'tell' || (piece.sessionId && piece.conversationId)) && ((choice.id !== 'open' && choice.id !== 'answer') || piece.sessionId)) as choice (choice.id)}<button class="btn" class:primary={choice.primary} type="button" disabled={busy} onclick={() => choose(choice, record, piece, goal)}>{choice.label}</button>{/each}</div>
             </section>
             {:else}<p class="now">{piece.note}</p>{/if}
-            {#if goal?.goal.summary && status.label !== 'Needs you'}{@const open = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!open} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !open }}>{open ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
+            {#if goal?.goal.summary && status.label !== 'Needs you'}{@const whole = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open={whole}><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!whole} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !whole }}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
             <dl class="facts">
               <div><dt>Doing this stage</dt><dd>{crew(piece, record)}</dd></div>
               {#if piece.state === 'following'}{@const stage = piece.stages?.[piece.stage ?? 0]}{@const activity = agentActivity(stage, clock)}
@@ -350,6 +357,7 @@
               {#if nodes.length && ['following', 'ready_to_merge', 'done', 'unfollowed'].includes(piece.state)}<button class="btn quiet" type="button" disabled={busy} onclick={() => sending = { record, piece }}>Send back…</button>{/if}
               {#if ['failed', 'unfollowed', 'cancelled'].includes(piece.state)}<button class="btn" type="button" disabled={busy} onclick={() => void retry(record, piece)}>Try again</button>{/if}
             </div>
+            {/if}
           </li>{/each}
         </ul>
       </article>{/each}
@@ -392,17 +400,25 @@
   .track{list-style:none;margin:0;padding:2px 0 0;display:flex;gap:0;min-width:0;overflow-x:auto;scrollbar-width:thin}
   .track li{position:relative;flex:1 1 0;min-width:64px;display:grid;justify-items:center;gap:4px;padding:0 4px 2px;color:var(--muted);font-size:0.8125rem;text-align:center}
   .track li+li::before{content:"";position:absolute;top:13px;right:50%;width:100%;height:2px;background:var(--line);z-index:0}
-  .track li.done+li::before{background:var(--accent)}
+  .track li.done+li::before{background:var(--good)}
   .dot{position:relative;z-index:1;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;border:2px solid var(--line-strong);background:var(--card);font-size:0.8125rem;font-weight:600;font-variant-numeric:tabular-nums}
-  .track li.done{color:var(--ink)}.track li.done .dot{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.track li.done .dot.moved{background:var(--card);color:var(--accent-text)}
+  .track li.done{color:var(--ink)}.track li.done .dot{background:var(--good);border-color:var(--good);color:var(--bg)}.track li.done .dot.moved{background:var(--card);color:var(--good)}
   .outcome-history{padding:12px 16px;border-top:1px solid var(--line)}.history{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px;max-height:320px;overflow:auto}.history li{display:grid;grid-template-columns:minmax(0,11rem) minmax(0,1fr);gap:12px;font-size:.9375rem}.history time{color:var(--muted)}@media(max-width:560px){.history li{grid-template-columns:minmax(0,1fr);gap:0}}
-  .track li.running{color:var(--ink);font-weight:600}.track li.running .dot{border-color:var(--accent);color:var(--accent-text);box-shadow:0 0 0 4px var(--tint)}
-  .track li.waiting{color:var(--accent-text);font-weight:600}.track li.waiting .dot{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}
+  /* Status reads by colour and shape together: a green tick is done, a pulsing green ring is running now, amber with "!" waits for the person, red has stopped. */
+  .track li.running{color:var(--ink);font-weight:600}.track li.running .dot{border-color:var(--good);color:var(--good)}
+  .track li.running .dot::after{content:"";position:absolute;inset:-2px;border-radius:50%;border:2px solid var(--good);animation:factory-pulse 1.8s ease-out infinite;pointer-events:none}
+  .track li.waiting{color:var(--warn);font-weight:600}.track li.waiting .dot{border-color:var(--warn);background:var(--warn);color:var(--bg)}
+  @keyframes factory-pulse{0%{transform:scale(1);opacity:.75}70%,100%{transform:scale(1.9);opacity:0}}
+  .badge.busy{border-color:var(--good);color:var(--good)}.badge.busy::before{content:"";display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--good);animation:factory-blink 1.8s ease-in-out infinite}
+  .badge.good{border-color:var(--good);color:var(--good)}.badge.good::before{content:"✓";margin-right:5px}
+  @keyframes factory-blink{0%,100%{opacity:1}50%{opacity:.35}}
+  @media(prefers-reduced-motion:reduce){.track li.running .dot::after{animation:none;transform:scale(1.35);opacity:.45}.badge.busy::before{animation:none}}
   .track li.failed{color:var(--bad)}.track li.failed .dot{border-color:var(--bad);color:var(--bad)}
   @media(prefers-reduced-motion:no-preference){.track li.running .dot{animation:pulse 2s ease-in-out infinite}}@keyframes pulse{50%{box-shadow:0 0 0 7px transparent}}
   .now{color:var(--ink)}.pipe.bad .now{color:var(--bad)}.callout{padding:8px 12px;border-radius:8px;background:var(--card);border:1px solid var(--accent)}.report{border-left:2px solid var(--line-strong);padding-left:12px;display:grid;gap:4px;justify-items:start}.prose-clamp{max-height:6.2em;overflow:hidden;min-width:0;max-width:100%}.prose-clamp.open{max-height:none}
   .tile-jump{display:grid;gap:2px;width:100%;min-height:44px;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}.tile-jump:focus-visible{outline:2px solid var(--accent);outline-offset:4px}.tile-jump span{text-decoration:underline}
   .more-facts summary{cursor:pointer;min-height:32px;color:var(--muted);font-size:.875rem}.more-facts[open] summary{margin-bottom:8px}.more-facts summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .pipe-head .where{color:var(--muted);font-size:.875rem;white-space:nowrap}.fold{margin-left:auto;min-height:44px;padding:0 10px;border:0;background:none;color:var(--accent-text);font:inherit;font-size:.875rem;text-decoration:underline;cursor:pointer}.fold:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.pipe-head .badge{margin-left:0}.now.brief{margin:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}.fold-all{display:flex;justify-content:flex-end}
   .decide{display:grid;gap:8px;padding:12px 14px;border-radius:10px;background:var(--card);border:1px solid var(--accent)}.decide-why{margin:0;color:var(--ink)}.decide-ask{margin:0;font-weight:600}.decide-choices{display:flex;flex-wrap:wrap;gap:8px}.decide-choices .btn{min-height:44px}@media(max-width:560px){.decide-choices .btn{flex:1 1 100%}}
   .pipe.arrived{outline:2px solid var(--accent);outline-offset:3px}.pipe:focus{outline:2px solid var(--accent);outline-offset:3px}.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}

@@ -1059,9 +1059,28 @@ resume), `gafferOutcome.test.mjs` (rows and choices),
 `gaffer-factory.e2e.mjs` (tile jump, the decide region and its buttons),
 `home-followups.e2e.mjs` (the Home line and its link). Synthetic only.
 
-**Still open, the owner's words: "the UX is dreadful on the factory page".**
-This slice restructured the card that needs you and folded the figures away;
-it did not redesign the page. What else is wrong was not specified.
+**Asked what bothered them most about the Factory page, the owner chose "too
+much on each card"**, and then asked for professional polish: animation and
+better status colours (a pulsing green circle for running, a green tick for
+complete). In the same PR:
+
+- **Compact rows.** `shown(id, tone)`: a pipeline's card body is rendered only
+  when open. Default open for tone `you` or `bad` and for a card reached by a
+  `#pipeline-…` link; the person's per-card toggle (`folds`) wins, then
+  **Expand/Collapse all pipelines** (`allOpen`). The head always shows the
+  title, "Stage · n of m", the badge and the toggle; a closed row adds one or
+  two lines of why. State is per page visit, not saved.
+- **Colours and motion.** Done stages and their rail use `--good` with a
+  tick; the running stage has a `--good` ring with a pulsing halo
+  (`factory-pulse`); a stage whose pipeline needs the person is drawn as
+  waiting (`--warn`, "!") rather than running; failed stays `--bad`. The
+  Running badge is green with a blinking dot and Done is green with a tick,
+  on the Factory page and in Home's list. `prefers-reduced-motion` stops both
+  animations. Needs you keeps the brand accent. Screen-reader text for the
+  stage in hand changed from "in hand" to "running now".
+
+Not done: the outcome header, totals and report layout are unchanged; the
+open/closed choice is not remembered between visits.
 
 ## Not done, for the next slice
 

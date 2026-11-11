@@ -22,7 +22,11 @@
   a{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:12px;row-gap:2px;align-items:center;padding:10px 12px;min-height:44px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);text-decoration:none}
   a:hover{border-color:var(--line-strong)}a:focus-visible,.more:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .badge{grid-row:1;align-self:start;padding:2px 10px;border-radius:999px;border:1px solid var(--line-strong);font-size:.8125rem;font-weight:600;white-space:nowrap}
-  .badge.you{border-color:var(--accent);color:var(--accent-text)}.badge.bad{border-color:var(--bad);color:var(--bad)}.badge.good{color:var(--muted)}
+  .badge.you{border-color:var(--accent);color:var(--accent-text)}.badge.bad{border-color:var(--bad);color:var(--bad)}
+  .badge.busy{border-color:var(--good);color:var(--good)}.badge.busy::before{content:"";display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--good);animation:factory-row-blink 1.8s ease-in-out infinite}
+  .badge.good{border-color:var(--good);color:var(--good)}.badge.good::before{content:"✓";margin-right:5px}
+  @keyframes factory-row-blink{0%,100%{opacity:1}50%{opacity:.35}}
+  @media(prefers-reduced-motion:reduce){.badge.busy::before{animation:none}}
   .what{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;min-width:0}.what strong{overflow-wrap:anywhere}.stage{color:var(--muted);font-size:.875rem;white-space:nowrap}
   .for,.why{grid-column:2;color:var(--muted);font-size:.875rem;line-height:1.4;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;line-clamp:1;overflow:hidden;min-width:0}
   .why{color:var(--ink);-webkit-line-clamp:2;line-clamp:2}

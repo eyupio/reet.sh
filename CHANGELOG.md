@@ -12,6 +12,12 @@ this file existed releases were described on their GitHub release pages.
   shown as formatted text, not raw markdown. The numbers at the top that want
   you are buttons to the first such pipeline, and the usage and budget figures
   are folded away under the card.
+- Factory: each pipeline is now one line (title, stage, status and why) that
+  opens to its full card; pipelines that need you, are ready to merge or have
+  stopped start open, and **Expand all pipelines** opens the rest. Stage and
+  status colours say more: a green tick is done, a pulsing green ring is
+  running now, amber with "!" is waiting for you, red has stopped. The motion
+  is switched off for anyone who asks their system to reduce it.
 - Home: **Factory pipelines** lists every pipeline with the outcome it belongs
   to, its stage and why it stands where it does, the ones that need you first.
   A line opens that pipeline's card on the Factory page.

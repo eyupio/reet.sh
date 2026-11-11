@@ -56,12 +56,20 @@ jobs:
         run: CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/terminalhost.test" ./internal/terminalhost
       - name: Run tests against tmux 3.2
         run: |
-          docker run --rm \
+          # The host network, because the container's own resolver could not look up the Ubuntu mirrors on
+          # 11 November ("Could not resolve archive.ubuntu.com") while the runner itself could. The install
+          # is retried: it is the only step here that depends on the network, and a failure of it says nothing
+          # about tmux or the tests.
+          docker run --rm --network host \
             -v "$RUNNER_TEMP/terminalhost.test:/terminalhost.test:ro" \
             ubuntu:22.04 \
             bash -ec '
-              apt-get update -qq
-              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux git >/dev/null
+              for attempt in 1 2 3 4 5; do
+                if apt-get update -qq -o Acquire::Retries=3 && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Acquire::Retries=3 tmux git >/dev/null; then break; fi
+                if [ "$attempt" = 5 ]; then echo "::error::could not install tmux and git after $attempt attempts"; exit 1; fi
+                echo "package install failed (attempt $attempt); retrying in $((attempt * 15))s"
+                sleep $((attempt * 15))
+              done
               tmux -V
               tmux -V | grep -Eq "^tmux 3\.2"
               /terminalhost.test -test.timeout=3m

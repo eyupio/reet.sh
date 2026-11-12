@@ -155,7 +155,10 @@ func (s *server) terminalSessionSkills(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, buildSessionSkills(session.Tool, "", session.Dir, nil, hosted))
 		return
 	}
-	skills, _, err := s.st.ListFor(uid, store.Filter{})
+	// The machine inventory is the one source of truth for what is installed.
+	// ListFor would also hide a private draft's installed copy (shelf visibility),
+	// so the picker would keep reporting it as not on the machine.
+	skills, err := s.st.InstalledSkillsFor(uid, host)
 	if err != nil {
 		terminalError(w, err)
 		return

@@ -84,17 +84,22 @@ test('thinking shows only for an agent that takes effort', () => {
   assert.ok(!slots(sentence(choice({ agent: 'opencode', effort: 'high' }), projects, machines)).includes('effort'))
 })
 
-test('a Gaffer chat drops a thinking default its own descriptor does not offer', () => {
+test('a Gaffer chat keeps a thinking level the machine can start, even when the descriptor omits it', () => {
   const clineChat = machine('m-studio', 'studio', { tools: ['cline'], acp: true, acpStartOptions: true,
     acpAgents: [{ tool: 'cline', adapter: 'cline', state: 'available', modes: ['act', 'plan'] }] })
-  // Cline's own CLI takes --thinking, but its ACP session has no thought-level option, so the chat opens on the agent default.
+  // The descriptor lists no thought-level option, but the machine can carry one at start, so the chat keeps the
+  // level the live session may report instead of silently dropping it.
   const opened = initialChoice([{ ...reet, defaultTool: 'cline', defaultEffort: 'high' }], profile, { machines: [clineChat] })
   assert.equal(opened.chat, true)
-  assert.equal(opened.effort, '')
+  assert.equal(opened.effort, 'high')
   // Without Gaffer the same default is the terminal's own choice and is kept.
   assert.equal(initialChoice([{ ...reet, defaultTool: 'cline', defaultEffort: 'high' }], profile, { machines: [] }).effort, 'high')
   assert.equal(chatEffort(choice({ agent: 'cline', chat: false, effort: 'high' }), 'm-studio', [clineChat]), 'high')
-  assert.equal(chatEffort(choice({ agent: 'cline', chat: true, effort: 'high' }), 'm-studio', [clineChat]), '')
+  assert.equal(chatEffort(choice({ agent: 'cline', chat: true, effort: 'high' }), 'm-studio', [clineChat]), 'high')
+  // A level outside the start levels is dropped, and so is any level on a machine without start options.
+  assert.equal(chatEffort(choice({ agent: 'cline', chat: true, effort: 'max' }), 'm-studio', [clineChat]), '')
+  const noStart = { ...clineChat, capabilities: { ...clineChat.capabilities, acpStartOptions: false } }
+  assert.equal(chatEffort(choice({ agent: 'cline', chat: true, effort: 'high' }), 'm-studio', [noStart]), '')
   // A descriptor that does offer the value keeps it, and still refuses one it does not offer.
   const codexChat = machine('m-studio', 'studio', { tools: ['codex'], acp: true, acpStartOptions: true,
     acpAgents: [{ tool: 'codex', adapter: 'codex-acp', state: 'available', options: [{ id: 'reasoning_effort', category: 'thought_level', values: ['low', 'high'] }] }] })

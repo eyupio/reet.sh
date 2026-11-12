@@ -37,6 +37,21 @@ test('Gaffer launch effort follows the selected machine and agent, while termina
  assert.match(launchOptions.effortHelp('codex', caps, true), /chosen model/)
 })
 
+test('a chat whose descriptor omits effort still offers the start levels a live session can report', () => {
+ // OpenCode's live session can expose a thought-level control, but its measured descriptor lists no
+ // options. The start dialog must not read that silence as "no effort": the machine's start-options
+ // capability, which is also what the live control needs, decides.
+ const caps = { acp: true, acpLiveControls: true, acpStartOptions: true, acpAgents: [{ tool: 'opencode', adapter: 'opencode', state: 'available' }] }
+ assert.deepEqual(launchOptions.launchEfforts('opencode', caps, true), ['', 'low','medium','high'])
+ assert.match(launchOptions.effortHelp('opencode', caps, true), /chosen model/)
+ // Without that capability there is no start effort to carry, so the selector stays closed.
+ assert.deepEqual(launchOptions.launchEfforts('opencode', { ...caps, acpStartOptions: false }, true), [''])
+ assert.match(launchOptions.effortHelp('opencode', { ...caps, acpStartOptions: false }, true), /Update reet/)
+ // A descriptor that names only its default is an explicit answer, not a missing list.
+ const defaultOnly = { ...caps, acpAgents: [{ tool: 'opencode', adapter: 'opencode', state: 'available', options: [{ id: 'effort', category: 'thought_level', values: ['default'] }] }] }
+ assert.deepEqual(launchOptions.launchEfforts('opencode', defaultOnly, true), [''])
+})
+
 test('a terminal launch of Claude Code offers the three thinking levels a start carries', () => {
  assert.deepEqual(effortChoices('claude'), ['', 'low', 'medium', 'high'])
 })

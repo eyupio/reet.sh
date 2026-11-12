@@ -1,14 +1,24 @@
 import { effortChoices } from '../models'
 import { structuredAgent, type Capabilities } from './api'
 
+/** The levels a chat may pick when its descriptor has no thought-level list. A descriptor is
+ * measured against its default model and may omit a level the live session reports, so its
+ * silence is not proof that the agent has none; the agent still confirms the choice before
+ * any prompt. These are the start levels the connector already maps, not a new vocabulary. */
+const START_EFFORTS = ['low', 'medium', 'high']
+
 /** Launch suggestions are installation evidence. The running agent must still
  * confirm that the chosen model accepts an effort before any prompt is sent.
- * The values are the agent's own thinking levels, read from its descriptor, not a list of ours. */
+ * The values are the agent's own thinking levels, read from its descriptor, not a list of ours.
+ * A descriptor that names no thought level falls back to the start levels, because the live
+ * session can still report them; whether the agent can use effort at all is the machine's
+ * start-options capability, the same one a running session's live controls rely on. */
 export function launchEfforts(tool: string, caps: Capabilities | undefined, chat: boolean): string[] {
  if (!chat) return effortChoices(tool)
- if (!caps?.acpStartOptions) return ['']
+ if (!caps?.acpStartOptions || !structuredAgent(caps, tool)) return ['']
  const selector = structuredAgent(caps, tool)?.options?.find(option => option.category === 'thought_level')
- return ['', ...new Set(selector?.values.filter(value => value && value !== 'default') ?? [])]
+ if (selector) return ['', ...new Set(selector.values.filter(value => value && value !== 'default'))]
+ return ['', ...START_EFFORTS]
 }
 
 export function effortHelp(tool: string, caps: Capabilities | undefined, chat: boolean): string {

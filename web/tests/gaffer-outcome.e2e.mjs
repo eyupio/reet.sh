@@ -240,6 +240,11 @@ try {
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
       // OpenCode runs a folder's plugins, so the person's own trust is asked for and sent; it is off until ticked.
       await outcome.getByRole('combobox',{name:'Agent',exact:true}).selectOption('opencode')
+      // OpenCode's descriptor names no thought levels, but the machine can start it with an effort, so the
+      // selector is usable and the chosen level travels with every stage.
+      const effort=outcome.getByRole('combobox',{name:'Effort',exact:true})
+      await expect(effort).toBeEnabled()
+      await effort.selectOption('high')
       await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
       const trust=outcome.getByRole('checkbox',{name:/^I trust this folder: OpenCode may run the plugins/})
       await expect(trust).not.toBeChecked();await trust.check()
@@ -249,7 +254,6 @@ try {
       // Reporting by itself spends Gaffer tokens unasked, so it is off until ticked.
       const reports=outcome.getByRole('checkbox',{name:/^Have Gaffer report across this outcome by itself/})
       await expect(reports).not.toBeChecked();await reports.check()
-      // OpenCode reports no effort levels on this machine, so none is offered for it.
       // YOLO is off until confirmed, and is this outcome's choice only.
       const approvals=outcome.getByRole('radiogroup',{name:'Approvals',exact:true})
       await expect(approvals.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
@@ -262,7 +266,7 @@ try {
       await outcome.screenshot({path:`${shots}/gaffer-outcome-yolo-1280-light.png`})
       await outcome.getByRole('button',{name:'Approve and start 2 sessions',exact:true}).click()
       expect(f.box.approved[0]).toMatchObject({tool:'opencode',trust:true,yolo:true,autoReport:true,model:'',autoMerge:true})
-      expect(f.box.approved[0].sessions[0].stages.every(stage=>stage.tool==='opencode')).toBe(true)
+      expect(f.box.approved[0].sessions[0].stages.every(stage=>stage.tool==='opencode'&&stage.effort==='high')).toBe(true)
       await expect(outcome.getByRole('status')).toHaveText('Starting session 1 of 2. The controller carries on if you close this.')
       await outcome.getByRole('button',{name:'Close and let it run',exact:true}).click();await expect(outcome).toHaveCount(0)
       const article=w.page.getByRole('article',{name:'Outcome: Ship CSV export for billing.',exact:true})

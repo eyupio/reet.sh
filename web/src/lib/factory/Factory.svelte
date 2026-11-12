@@ -258,7 +258,9 @@
   const when = (at: number) => formatWhen(at, timeZone, dateFormat)
   const crew = (piece: GafferOutcomeSession, record: Outcome) => {
     const stage = piece.stages?.[piece.stage ?? 0]
-    const tool = stage?.tool ?? record.tool, model = stage?.model ?? record.model ?? '', source = stage?.provider ?? record.provider ?? ''
+    const tool = stage?.tool ?? record.tool, model = stage?.model ?? record.model ?? ''
+    // A stage's own empty source is Cline's own choice; the outcome's source is only the fallback when a piece has no stage.
+    const source = stage ? stage.provider ?? '' : record.provider ?? ''
     return `${chatToolName(tool)}${model ? ` · ${model}` : ''}${source ? ` · ${sourceLabel(source)}` : ''}${stage?.effort ? ` · ${stage.effort} effort` : ''}`
   }
 </script>

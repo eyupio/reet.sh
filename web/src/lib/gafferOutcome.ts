@@ -226,11 +226,11 @@ export function orderStages(kinds: Iterable<string>): StageKind[] {
 }
 
 /** What is sent for one pipeline: each chosen stage with the agent and model of the crew role that does it. A Cline
- *  stage carries its chosen billing source; empty is Cline's own choice and is left out. */
-export function stagePlan(kinds: Iterable<string>, crew: Crew): { kind: string; tool: string; model: string; effort?: string; provider?: string }[] {
+ *  stage carries its chosen billing source when the machine takes one; empty is Cline's own choice and is left out. */
+export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true): { kind: string; tool: string; model: string; effort?: string; provider?: string }[] {
   return orderStages(kinds).map(kind => {
     const role = STAGES.find(stage => stage.kind === kind)!.role
-    const source = crew[role].tool === 'cline' ? (crew[role].source ?? '').trim() : ''
+    const source = sourceSupported && crew[role].tool === 'cline' ? (crew[role].source ?? '').trim() : ''
     return { kind, tool: crew[role].tool, model: crew[role].model.trim(), ...(crew[role].effort ? { effort: crew[role].effort } : {}), ...(source ? { provider: source } : {}) }
   })
 }

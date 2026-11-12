@@ -195,6 +195,8 @@ test('a Cline crew role carries its billing source and a source change starts a 
     { kind: 'code', tool: 'cline', model: '' }, { kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4', provider: 'cline-pass' }, { kind: 'pr', tool: 'codex', model: '' },
   ])
   assert.equal(o.sessionCount(o.stagePlan(['plan', 'review'], crew)), 1)
+  // A machine that did not negotiate a Cline source setting never has one sent for it.
+  assert.deepEqual(o.stagePlan(['review'], crew, false), [{ kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4' }])
   const switched = { think: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, build: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline' }, ship: { tool: 'codex', model: '' } }
   assert.equal(o.sessionCount(o.stagePlan(['review', 'test'], switched)), 2)
 })

@@ -203,8 +203,8 @@
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
-        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: tool === 'cline' ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew) })),
+        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew, machine?.capabilities?.acpProvider === true) })),
       }, life.signal)
       step = 'results'; clearImage()
       watch(record.id)
@@ -287,7 +287,7 @@
           <div class="stage-pick" role="group" aria-label={`Session ${index + 1} stages`}>
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
           </div>
-          <p class="hint">{sessionCount(stagePlan(item.stages ?? [], crew))} agent {sessionCount(stagePlan(item.stages ?? [], crew)) === 1 ? 'session' : 'sessions'} for {item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}.</p>
+          <p class="hint">{sessionCount(stagePlan(item.stages ?? [], crew, machine?.capabilities?.acpProvider === true))} agent {sessionCount(stagePlan(item.stages ?? [], crew, machine?.capabilities?.acpProvider === true)) === 1 ? 'session' : 'sessions'} for {item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}.</p>
         </li>{/each}
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a session</button>{/if}

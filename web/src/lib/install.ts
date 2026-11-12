@@ -46,5 +46,23 @@ export function useSkillPrompt(skill: Skill): string | null {
   const url = sourceURL(skill)
   if (url) return installPrompt(skill)
   const name = (skill.name || skill.slug || '').trim()
-  return name ? `Use the ${name} skill.` : null
+  if (!name) return null
+  const blurb = skillBlurb(skill.description)
+  return blurb ? `Use the ${name} skill: ${blurb}` : `Use the ${name} skill.`
+}
+
+const MAX_BLURB = 280
+
+/** A skill's own description as one line: whitespace collapsed, cut at a word with an ellipsis when long, ending in
+ *  punctuation. Mirrors skillBlurb in internal/api/terminal_skills.go. */
+function skillBlurb(description: string | undefined): string {
+  const text = (description || '').replace(/\s+/g, ' ').trim()
+  const runes = Array.from(text)
+  if (runes.length > MAX_BLURB) {
+    let cut = runes.slice(0, MAX_BLURB).join('')
+    const i = cut.lastIndexOf(' ')
+    if (i > MAX_BLURB / 2) cut = cut.slice(0, i)
+    return cut.replace(/[ ,;:.]+$/, '') + '…'
+  }
+  return text && !/[.!?…]$/.test(text) ? text + '.' : text
 }

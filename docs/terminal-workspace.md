@@ -364,8 +364,11 @@ reet refuses the install, and says why, when:
 - the machine's skills follow another machine;
 - another install or sync job is waiting on that machine;
 - the skill is already installed there;
-- a different skill with the same name is already in the machine's saved list;
 - the skill is not published.
+
+A stale saved entry with the same name, for a skill that is not on the machine, does not block an install: the chosen skill takes its place in the saved list, the plan is still shown for approval, and Cancel puts the old entry back.
+
+The text a picker inserts is `Use the <name> skill: <its description>.`, with the description cut to one line of at most 280 characters, so the agent gets the skill's own context.
 
 ## Actions and keyboard
 

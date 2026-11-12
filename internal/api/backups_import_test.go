@@ -176,6 +176,7 @@ func (tg target) untouched(t *testing.T) {
 }
 
 func TestAnImportIsStagedNotAppliedAndCanBeCancelled(t *testing.T) {
+	t.Parallel()
 	raw := source(t, "")
 	tg := newTarget(t, false)
 	if r := tg.call(t, "GET", "owner-token"); r.code != 200 || r.v["pending"] != nil {
@@ -207,6 +208,7 @@ func TestAnImportIsStagedNotAppliedAndCanBeCancelled(t *testing.T) {
 // The password travels in the body, so it can be any text at all, spaces and
 // accents included, and no header or address ever holds it.
 func TestAnImportOpensACopyWhosePasswordIsAnyText(t *testing.T) {
+	t.Parallel()
 	password := "  pässwörd ✓ with edges  "
 	raw := source(t, password)
 	tg := newTarget(t, false)
@@ -223,6 +225,7 @@ func TestAnImportOpensACopyWhosePasswordIsAnyText(t *testing.T) {
 }
 
 func TestAnImportNeverEchoesOrLogsThePassword(t *testing.T) {
+	t.Parallel()
 	const password = "a password nobody should ever read back"
 	raw := source(t, password)
 	tg := newTarget(t, false)
@@ -257,6 +260,7 @@ func TestAnImportNeverEchoesOrLogsThePassword(t *testing.T) {
 }
 
 func TestAnImportIntoAControllerThatHoldsDataIsRefusedUnlessToldToReplace(t *testing.T) {
+	t.Parallel()
 	raw := source(t, "")
 	tg := newTarget(t, true)
 	if _, err := tg.st.CreateTag("existing"); err != nil {
@@ -274,6 +278,7 @@ func TestAnImportIntoAControllerThatHoldsDataIsRefusedUnlessToldToReplace(t *tes
 }
 
 func TestTheLiveDatabaseIsCopiedAsideBeforeAnImportIsStaged(t *testing.T) {
+	t.Parallel()
 	raw := source(t, "")
 	tg := newTarget(t, true)
 	if _, err := tg.st.CreateTag("kept-in-the-safety-copy"); err != nil {
@@ -301,6 +306,7 @@ func TestTheLiveDatabaseIsCopiedAsideBeforeAnImportIsStaged(t *testing.T) {
 }
 
 func TestADamagedCopyChangesNothing(t *testing.T) {
+	t.Parallel()
 	raw := source(t, "")
 	tg := newTarget(t, false)
 	damaged := append([]byte(nil), raw...)
@@ -312,6 +318,7 @@ func TestADamagedCopyChangesNothing(t *testing.T) {
 }
 
 func TestOnlyAnOwnerMayImport(t *testing.T) {
+	t.Parallel()
 	raw := source(t, "")
 	tg := newTarget(t, true)
 	for name, token := range map[string]string{"a member": "member-token", "nobody": ""} {
@@ -325,6 +332,7 @@ func TestOnlyAnOwnerMayImport(t *testing.T) {
 // A form can be posted from any website, but it cannot add a header, so an
 // upload without the marker is treated as the forgery it may be.
 func TestAnImportFormWithoutTheMarkerHeaderIsRefused(t *testing.T) {
+	t.Parallel()
 	raw := source(t, "")
 	tg := newTarget(t, false)
 	body, ctype := form(t, nil, raw)
@@ -360,6 +368,7 @@ func TestACopyAfterTheOptionsIsRequired(t *testing.T) {
 // A copy of a controller that was not fenced is refused at the API with a 409
 // that says why, and is accepted when the owner says the source is gone.
 func TestAnImportOfAnUnfencedCopyIsRefusedUnlessTheOwnerAllowsALiveSource(t *testing.T) {
+	t.Parallel()
 	raw := source(t, "")
 	tg := newTarget(t, false)
 	r := tg.post(t, "owner-token", [][2]string{{"allowLiveSource", "0"}}, raw)
@@ -374,6 +383,7 @@ func TestAnImportOfAnUnfencedCopyIsRefusedUnlessTheOwnerAllowsALiveSource(t *tes
 
 // publicUrl is validated before anything is staged and, when good, is reported.
 func TestAnImportTakesAPublicURLAndRefusesABadOne(t *testing.T) {
+	t.Parallel()
 	raw := source(t, "")
 	tg := newTarget(t, false)
 	if r := tg.post(t, "owner-token", [][2]string{{"publicUrl", "https://new.example.com/path"}}, raw); r.code != 400 || !strings.Contains(r.text, "plain http or https origin") {

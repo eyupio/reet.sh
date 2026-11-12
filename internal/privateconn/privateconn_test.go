@@ -231,6 +231,7 @@ func TestEncryptedRelayHTTPAndWebSocket(t *testing.T) {
 }
 
 func TestNewConnectionRecoversAfterSealedIdentityRestart(t *testing.T) {
+	t.Parallel()
 	identity := testIdentity(t)
 	sealer := testSealer(t, "a")
 	ciphertext, err := identity.Seal(sealer)
@@ -341,6 +342,7 @@ func TestCancelledSetupDoesNotStartListener(t *testing.T) {
 }
 
 func TestListenerCloseUnblocksAcceptAndStream(t *testing.T) {
+	t.Parallel()
 	stopped := make(chan struct{})
 	handler := agentFixture("")
 	l := serve(t, testIdentity(t), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

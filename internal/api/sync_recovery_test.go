@@ -14,6 +14,7 @@ import (
 // Promoted from the Stage 0 opt-in contract now that automatic library captures
 // can recover without accepting stale process-bound previews or uploads.
 func TestSimpleSyncContractImportRecoversAfterConnectorRestart(t *testing.T) {
+	t.Parallel()
 	h := newLegacySyncContractHarness(t)
 	a, b := h.machine("restart-source"), h.machine("restart-destination")
 	a.localSkill("restart-import", "must survive a connector restart")
@@ -109,6 +110,7 @@ func TestSimpleSyncRecoveryControllerAndConnectorRestart(t *testing.T) {
 }
 
 func TestSimpleSyncRecoveryRevokedCredentialPreservesOtherMachine(t *testing.T) {
+	t.Parallel()
 	h := newLegacySyncContractHarness(t)
 	h.hosted("credential", "before revocation", false, true)
 	a, b := h.machine("revoked-a"), h.machine("healthy-b")
@@ -154,6 +156,7 @@ func syncRecoveryEventually(t *testing.T, timeout time.Duration, description str
 }
 
 func TestSimpleSyncRecoveryForegroundSurvivesUnavailablePrivateConnection(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("Stage 1 foreground service contract targets Linux")
 	}

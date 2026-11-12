@@ -163,6 +163,16 @@ review thread, no conflicts) and still bring decisions back to you; the others
 say not to merge. A terminal session has no follow-up, so there the menu copies
 the same words for you to give the agent.
 
+While a goal is running, the session shows which choice is active. The stage it
+came from carries a small dot, the item is ticked in its menu, and a **Following
+… Stop** strip sits under Progress; the Gaffer chat names the same goal above the
+conversation. The tick means the saved goal's wording still matches that item; a
+goal you rewrote by hand is shown by its first line instead. **Stop** is the same
+act as the goal editor's Stop: it removes goal instructions still queued and
+leaves the working agent running. To add or change what Gaffer follows, pick
+another item from a stage menu; starting it replaces the goal through the usual
+review.
+
 Closing chat or the browser leaves an explicitly active goal running on the
 controller, in both native and Docker deployments. Each selected session has its
 own goal, conversation and budget. Gaffer waits for new retained worker progress
@@ -298,6 +308,12 @@ its reviews and tokens, the stage in hand reads its live goal, and a report you
 ask for is added to the outcome's total. Where a provider reports no token count
 the page says so instead of showing a number. It attaches no price to any of it.
 
+Gaffer asks providers to cache the repeated part of a conversation by default:
+the Anthropic adapter marks the system prompt, the tool list and the newest turn
+as cache breakpoints, and the OpenAI adapter sends the conversation's stable
+prompt cache key. Nothing is turned on per account, and a provider below its
+minimum cacheable size simply answers without a cache hit.
+
 **Agent tokens** is what the working agents themselves report. When an agent
 says how many tokens a turn took, reet adds the turns up for the stage that did
 them, the pipeline and the outcome, with cached tokens counted apart and a
@@ -338,8 +354,11 @@ numbers at the top of the page go to the first such pipeline, and Home's
 
 - A pipeline is one line until you open it with **Show details**: its title,
   stage ("Review · 4 of 8"), status and one line of why. Pipelines that need
-  you, are ready to merge or have stopped start open. **Expand all pipelines**
-  opens every one.
+  you, are ready to merge or have stopped start open. **Expand all** opens
+  every one.
+- An outcome itself folds with **Hide details** / **Show details**, even while
+  it is still moving. Folded, its line says how many pipelines it has and
+  whether they are in progress, finished or all done.
 - On the stage track a **green tick** is a finished stage, a **pulsing green
   ring** is the stage running now, **amber with "!"** is waiting for you, and
   **red with "×"** has stopped. Each state also has its own mark and words, so

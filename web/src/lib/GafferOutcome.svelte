@@ -5,8 +5,9 @@
   import { onMount } from 'svelte'
   import { createGafferOutcome, getGafferOutcome, getGafferSettings, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
-  import { imagePrompt } from './terminal/upload'
+  import { imageFiles, imagePrompt } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
+  import { attachmentFromPaste, attachmentMessage } from './imageAttachment'
   import GafferModelSelect from './GafferModelSelect.svelte'
   import YoloDialog from './launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from './launchBar'
@@ -47,6 +48,18 @@
   const key = () => `plan-${++counter}`
   function clearImage() { image = null; imageError = '' }
   $effect(() => { void image; imageError = '' })
+  // A pasted screenshot becomes the outcome's image, exactly as if it had been picked. Text pastes are left alone.
+  function pasted(event: ClipboardEvent) {
+    if (planning || busy) return
+    const data = event.clipboardData
+    const files = data?.files.length ? data.files : imageFiles(data?.items)
+    const found = attachmentFromPaste(files)
+    if (!found) return
+    event.preventDefault()
+    if (!found.ok) { imageError = attachmentMessage(found.reason); return }
+    image = found.file
+    imageError = ''
+  }
 
   const project = $derived(projects.find(item => item.id === projectId) ?? null)
   const machine = $derived(project ? machines.find(item => item.agentId === project.host) ?? null : null)
@@ -185,7 +198,7 @@
       {:else}
         <form onsubmit={event => { event.preventDefault(); void ask() }}>
           <label for={`${formId}-objective`}>Outcome</label>
-          <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning}></textarea>
+          <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning} onpaste={pasted}></textarea>
           <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
           <div class="pair">
             <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning}>
@@ -232,7 +245,7 @@
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Session {index + 1}</label><button class="link" type="button" aria-label={`Remove session ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
           <input id={`${formId}-${item.key}-title`} aria-label={`Session ${index + 1} title`} bind:value={item.title} maxlength="80" placeholder="Short title"/>
-          <textarea aria-label={`Session ${index + 1} prompt`} bind:value={item.prompt} rows="5" placeholder="What this session should build, how to check it, and to raise a pull request. Do not merge."></textarea>
+          <textarea aria-label={`Session ${index + 1} prompt`} bind:value={item.prompt} rows="5" placeholder="What this session should build, how to check it, and to raise a pull request. Do not merge." onpaste={pasted}></textarea>
           <div class="stage-pick" role="group" aria-label={`Session ${index + 1} stages`}>
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
           </div>

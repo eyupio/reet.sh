@@ -23,7 +23,7 @@ skill row carries its saved sync intent, and choosing it brings that card into v
 | Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU, memory in use and disk space free from a fresh report (or **No reading** for each, with a meter), the worktrees live sessions there are in ("3 worktrees in use"; no record says which other worktrees were removed), and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. **Add a machine** opens the existing dialog on Machines. | OS version: PR C |
 | In flight | Live sessions, and finished ones for a day, grouped by project, Machine or State. A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from terminal activity", "from the session's state" or "from the exit code"). There is no step or progress bar. A row opens the session; a right-click (or Shift+F10 / the menu key) opens the same actions menu as the Sessions page: Rename, Open in theatre, Copy branch, End session or Remove from history (each confirmed), and Check and remove worktree. | |
 | Needs you | Sessions that are waiting for you (a terminal bell or a pending Gaffer permission since you last opened or marked the session seen), finished cleanly ("Ready to review", with changed-file count when the session ran in a worktree) or exited with an error, newest first, with **Open** and **Mark seen** (`POST /api/v2/terminal/sessions/{id}/seen`). Empty state: "Nothing needs you." | Inline Allow once / Deny cards on Home: a later slice |
-| Project rail | Your folder projects ([Projects](projects.md)), inside the left workspace panel under the navigation on a desktop, so Home keeps one content column; the panel starts at 300 px and the project section folds from its own heading. Each card shows its colour, machine, base branch, state in words and worktrees in use; choosing one sets the launch bar's project, while its **+** (and New session here in its menu) starts a session there at once; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. Folding the whole navigation leaves the list in Home's own column, where under 1240 px it is a 56 px strip that shows how many are chosen. On a tablet or phone it is on the **Sessions** screen instead (see [The Sessions page](#the-sessions-page)); Home there keeps the launch sentence's project slot and its Add a project. | |
+| Project rail | Your folder projects ([Projects](projects.md)), Home's own resizable left column on a desktop (301 px by default, 240–460 px, or a 56 px strip when folded; from 1100 to 1239 px it is always the strip). The primary tabs live in the top bar, not in this panel. Each compact card has two lines: its repository diamond or folder icon and name, then its machine, base branch, state in words and worktrees in use; choosing one sets the launch bar's project, while its **+** (and New session here in its menu) starts a session there at once; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. On a tablet or phone it is on the **Sessions** screen instead (see [The Sessions page](#the-sessions-page)); Home there keeps the launch sentence's project slot and its Add a project. | |
 | Launch bar | Opens in a modal from Home's Select and from an address that hands over projects: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. OpenCode, Cline or AGY on a machine offering its Gaffer integration reads "Run \<agent\> in Gaffer…" by default; the **Gaffer** word switches it to **\<agent\> TUI**. A project's **+** opens the Start an agent dialog, as it does on Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | **YOLO** needs the account setting, the machine's acceptance and a per-session confirmation. A live structured chat can switch Ask me ↔ YOLO from its header under the same gates. |
 | Bell | The Needs you count across your machines, with a popover listing the same cards as Needs you. The page title prefixes `(N)` when `N > 0`, and a polite live region announces transitions into Waiting at most once per session per minute. | |
 
@@ -364,8 +364,11 @@ reet refuses the install, and says why, when:
 - the machine's skills follow another machine;
 - another install or sync job is waiting on that machine;
 - the skill is already installed there;
-- a different skill with the same name is already in the machine's saved list;
 - the skill is not published.
+
+A stale saved entry with the same name, for a skill that is not on the machine, does not block an install: the chosen skill takes its place in the saved list, the plan is still shown for approval, and Cancel puts the old entry back.
+
+The text a picker inserts is `Use the <name> skill: <its description>.`, with the description cut to one line of at most 280 characters, so the agent gets the skill's own context.
 
 ## Actions and keyboard
 
@@ -463,8 +466,10 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
   focus and extra keys. `screen-frame` owns visual padding; the immediate xterm
   fitting parent `screen` has no padding. FitAddon reads that parent's dimensions
   without subtracting parent padding. Keep this split to prevent an oversized
-  grid clipping its final row. `keyboard.ts` classifies terminal-only shortcuts.
-  `connection.ts` retains lease, recovery, generation and input-replay boundaries.
+  grid clipping its final row. `keyboard.ts` classifies terminal-only shortcuts;
+  `virtualKeys.ts` holds the extra-key rows and how a selected modifier joins the next
+  key, covered by `web/tests/terminal-keys.test.mjs`. `connection.ts` retains lease,
+  recovery, generation and input-replay boundaries.
   The pane requests a full xterm refresh after each parsed batch and fit, keeping
   accessibility rows current through full redraws and resize. xterm coalesces these
   requests in its rendering frame. Terminal modes and screen-reader announcements
@@ -637,8 +642,12 @@ header's controls and the footer's Focus terminal (a touch tablet makes all but 
 toolbar and extra keys 44 px). The screen frame padding is 4 px. The toolbar and key row
 scroll sideways; the end that hides more controls fades. The key row is focusable, so
 arrow keys scroll it; that tab stop also appears in mouse windows narrower than 650 px,
-where the key row shows too. The Alt+Shift+M advice is hidden on touch screens (no
-hover, coarse pointer); Restore size stays.
+where the key row shows too. The key row carries Ctrl, Alt and Shift toggles, Esc, Tab,
+Backspace, Enter and the four arrows; a keyboard button opens an expanded pad over the
+terminal with common Ctrl combinations, Home/End/PgUp/PgDn/Ins/Del, F1–F12 and symbols,
+without taking a row from the shell. A selected modifier joins the next key as xterm
+sends it (Ctrl with Up is `CSI 1;5A`). The Alt+Shift+M advice is hidden on touch screens
+(no hover, coarse pointer); Restore size stays.
 
 **Sideways phones.** The toolbar and the extra keys share one row, each scrolling with
 its own fade, and the pane footer is hidden (the state stays in the header). At 844 ×

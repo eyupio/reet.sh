@@ -5,11 +5,12 @@
  import ConfirmDialog from './ConfirmDialog.svelte'
  import GafferProse from './GafferProse.svelte'
  import ImageAttachment from './ImageAttachment.svelte'
+ import {attachmentFromPaste,attachmentMessage} from './imageAttachment'
  import SlotPicker,{type SlotOption} from './launch/SlotPicker.svelte'
  import {BUILT_IN_GOAL_PROMPTS,MAX_GOAL_PROMPT_BYTES,addGoalPrompt,goalPromptTitle,readGoalPrompts,removeGoalPrompt,writeGoalPrompts,type GoalPrompt} from './gafferPrompts'
  import {insertSkillPrompt} from './skillPrompt'
  import {terminalUpload} from './terminal/api'
- import {imagePrompt} from './terminal/upload'
+ import {imageFiles,imagePrompt} from './terminal/upload'
  import {readFloorDefaults} from './gafferFloor'
  let {id,sessionId,userId=0,timeZone='',dateFormat='locale',draft='',quick=false,onchanged}:{
   /** Looking after sessions is pre-approved: a session with no goal starts at once with the person's usual goal and limits. */
@@ -65,6 +66,7 @@
  }
  const promptId=()=>globalThis.crypto?.randomUUID?.()??`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
  function clearImage(){image=null;imageError=''}
+ function pasted(event:ClipboardEvent){if(busy)return;const data=event.clipboardData;const found=attachmentFromPaste(data?.files.length?data.files:imageFiles(data?.items));if(!found)return;event.preventDefault();if(!found.ok){imageError=attachmentMessage(found.reason);return}image=found.file;imageError=''}
  function toggleEdit(){editOpen=!editOpen;clearImage()}
  async function save(){if(!view||busy||!text.trim()||bytes>2000)return;busy=true;error='';imageError='';controller?.abort();controller=new AbortController();const mine=++epoch
   try{
@@ -103,7 +105,7 @@
   {/if}
   {#if view.goal}<button class="edit-goal btn quiet" type="button" aria-expanded={editOpen} onclick={toggleEdit}>{editOpen?'Close goal editor':'Edit goal or start a new budget'}</button>{/if}
   {#if !view.goal||editOpen}<form onsubmit={event=>{event.preventDefault();if(view?.goal)confirming='replace';else void save()}}>
-   <div class="goal-field"><div class="goal-head"><label for={`${goalId}-goal`}>Agreed goal</label><div class="goal-tools"><button type="button" class="prompt-add" bind:this={promptButton} aria-haspopup="listbox" aria-expanded={promptOpen} disabled={busy} onclick={()=>promptOpen=!promptOpen}>Use a prompt</button><button type="button" class="prompt-add" disabled={busy||!text.trim()||bytes>MAX_GOAL_PROMPT_BYTES} onclick={savePrompt}>Save as prompt</button></div></div><textarea id={`${goalId}-goal`} bind:this={goalInput} aria-label="Agreed goal" bind:value={text} maxlength="2000" rows="3" placeholder="Ensure a PR is raised and its checks and conflicts are addressed. Bring decisions back to me. Do not merge." disabled={busy}></textarea></div>
+   <div class="goal-field"><div class="goal-head"><label for={`${goalId}-goal`}>Agreed goal</label><div class="goal-tools"><button type="button" class="prompt-add" bind:this={promptButton} aria-haspopup="listbox" aria-expanded={promptOpen} disabled={busy} onclick={()=>promptOpen=!promptOpen}>Use a prompt</button><button type="button" class="prompt-add" disabled={busy||!text.trim()||bytes>MAX_GOAL_PROMPT_BYTES} onclick={savePrompt}>Save as prompt</button></div></div><textarea id={`${goalId}-goal`} bind:this={goalInput} aria-label="Agreed goal" bind:value={text} maxlength="2000" rows="3" placeholder="Ensure a PR is raised and its checks and conflicts are addressed. Bring decisions back to me. Do not merge." disabled={busy} onpaste={pasted}></textarea></div>
    <ImageAttachment bind:file={image} label="Attach an image to the goal" disabled={busy} busy={imageUploading} error={imageError} />
    <details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours <span>Change limits</span></summary><div class="limits"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews} required disabled={busy}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours} required disabled={busy}/></label></div></details>
    <p class="hint">Gaffer keeps going with new progress while you’re offline, and pauses for decisions or limits. Reviews may use provider credits.</p>

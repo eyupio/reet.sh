@@ -3,14 +3,15 @@
   import type { FixKind } from './fixMessages'
   import type { Stages, StepState } from './overviewStages'
   import { fixButtonText } from './fixDelivery'
-  import { stageItems, type FollowItem } from './stageActions'
+  import { stageItems, type ActiveFollow, type FollowItem } from './stageActions'
   import { tick } from 'svelte'
   import InsightIcon from './InsightIcon.svelte'
 
   // `terminal` is a session with no composer to fill, so the button copies; `note` is what the last click did, said politely and in words.
   // `stale` is the "Last known" marker when the GitHub read behind the Next line can no longer be vouched for; empty when it is current.
   // `onfollow` is told which follow-up item a person picked from a stage's menu; what it does with it is the caller's business.
-  let { id, stages, now, onsession, onfix, onfollow, terminal = false, note = '', stale = '' }: { id: string; stages: Stages; now: number; onsession: () => void; onfix: (kind: FixKind) => void; onfollow?: (item: FollowItem) => void; terminal?: boolean; note?: string; stale?: string } = $props()
+  // `following` is the goal Gaffer is looking after this session with, when there is one; `onunfollow` stops it.
+  let { id, stages, now, onsession, onfix, onfollow, following = null, onunfollow, unfollowBusy = false, terminal = false, note = '', stale = '' }: { id: string; stages: Stages; now: number; onsession: () => void; onfix: (kind: FixKind) => void; onfollow?: (item: FollowItem) => void; following?: ActiveFollow | null; onunfollow?: () => void; unfollowBusy?: boolean; terminal?: boolean; note?: string; stale?: string } = $props()
 
   // Every state has a word as well as an icon and a colour: colour is never the only signal.
   const WORDS: Record<StepState, string> = { done: 'Done', current: 'Now', attention: 'Needs you', upcoming: 'Not yet', unknown: 'Not read' }
@@ -55,6 +56,12 @@
     closeMenu(true)
     onfollow?.(item)
   }
+  function stop() {
+    closeMenu(true)
+    onunfollow?.()
+  }
+  // A goal whose state needs a word beside "Following", so a paused or stuck goal never reads as running.
+  const followWord = $derived(following && following.state !== 'active' ? (following.state === 'needs_user' ? 'needs you' : following.state === 'limit' ? 'limit reached' : following.state) : '')
   function menuKey(event: KeyboardEvent) {
     const all = [...(menuEl?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
     const at = all.indexOf(document.activeElement as HTMLElement)
@@ -90,7 +97,8 @@
   {:else}
     <ol>
       {#each stages.steps as step, i (step.key)}
-        <li data-step={step.key} data-state={step.state} aria-current={i === here ? 'step' : undefined} title={step.detail}>
+        <li data-step={step.key} data-state={step.state} data-following={following?.stage === step.key ? 'true' : undefined} aria-current={i === here ? 'step' : undefined} title={following?.stage === step.key ? `${step.detail} Gaffer is following this stage.` : step.detail}>
+          {#if following?.stage === step.key}<span class="follow-dot" aria-hidden="true"></span>{/if}
           <span class="bar" aria-hidden="true"></span>
           <span class="icon" aria-hidden="true">
             {#if step.state === 'done'}<InsightIcon name="check" />
@@ -102,7 +110,7 @@
           <span class="word">{WORDS[step.state]}</span>
           <span class="sr">{step.detail}</span>
           <button type="button" class="hit" aria-haspopup="menu" aria-expanded={menuFor === step.key} aria-controls={menuFor === step.key ? `${id}-menu` : undefined}
-            aria-label={`${step.label}: goal options`} onclick={(event) => openMenu(event, step.key, step.label)} oncontextmenu={(event) => openMenu(event, step.key, step.label)}></button>
+            aria-label={`${step.label}: goal options${following?.stage === step.key ? ', Gaffer is following' : ''}`} onclick={(event) => openMenu(event, step.key, step.label)} oncontextmenu={(event) => openMenu(event, step.key, step.label)}></button>
         </li>
       {/each}
     </ol>
@@ -113,12 +121,26 @@
           <p class="menu-head" id={`${id}-menu-head`}>{terminal ? 'Copy a message for the agent' : 'Ask Gaffer to look after this'}</p>
           <div class="menu-list" id={`${id}-menu`} role="menu" aria-label={`${menuLabel}: goal options`} aria-describedby={`${id}-menu-head`}>
             {#each items as item (item.id)}
-              <button type="button" role="menuitem" class="menu-item" aria-label={terminal ? `Copy message for the agent: ${item.label}` : item.label} onclick={() => pick(item)}>{item.label}</button>
+              {@const active = following?.itemId === item.id}
+              <button type="button" role="menuitem" class="menu-item" class:active aria-current={active ? 'true' : undefined} aria-label={terminal ? `Copy message for the agent: ${item.label}` : `${item.label}${active ? ', following' : ''}`} onclick={() => pick(item)}>
+                {#if active}<span class="tick" aria-hidden="true"><InsightIcon name="check" /></span>{/if}<span>{item.label}</span>{#if active}<span class="sr">, following</span>{/if}
+              </button>
             {/each}
+            {#if following?.stage === menuFor && onunfollow}
+              <button type="button" role="menuitem" class="menu-item stop" disabled={unfollowBusy} onclick={stop}>{unfollowBusy ? 'Stopping…' : `Stop following: ${following.label}`}</button>
+            {/if}
           </div>
         </div>
       {/if}
     </div>
+    <!-- What Gaffer is looking after, when a goal is running: the same item a person picked from a stage, with a way to stop it. -->
+    {#if following}
+      <div class="following" role="status" data-state={following.state}>
+        <span class="follow-icon" aria-hidden="true"><InsightIcon name="check" /></span>
+        <p class="follow-text"><span class="follow-verb">Following{followWord ? ` · ${followWord}` : ''}</span> <strong title={following.label}>{following.label}</strong></p>
+        {#if onunfollow}<button type="button" class="follow-stop" disabled={unfollowBusy} title="Stop Gaffer looking after this session. Queued goal instructions are removed; the working agent keeps running." onclick={() => onunfollow?.()}>{unfollowBusy ? 'Stopping…' : 'Stop'}</button>{/if}
+      </div>
+    {/if}
     <!-- The Next slot has one height whatever it says: the sentence, one row for its buttons, and the line for what the last fix click did,
          held empty when there is nothing to ask or say, so a pull request that changes does not move the blocks below. -->
     <div class="next" data-tone={next.tone}>
@@ -163,6 +185,8 @@
   li[data-state='attention'] { --tone: var(--bad); }
   li[data-state='attention'] .bar { background: var(--bad); }
   li[data-state='unknown'] .bar { background: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 7px); }
+  /* A stage Gaffer is following keeps its state word and gains a dot: the dot never replaces the word or the colour. */
+  .follow-dot { position: absolute; top: 1px; right: 1px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); z-index: 1; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* The whole cell is the target; the cell's own text stays as it was. */
   .hit { position: absolute; inset: 0; width: 100%; padding: 0; border: 0; border-radius: 6px; background: none; cursor: pointer; }
@@ -172,8 +196,21 @@
   .menu { position: absolute; top: 0; left: 0; right: 0; box-sizing: border-box; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card, var(--bg)); box-shadow: var(--shadow); }
   .menu-list { display: grid; gap: 2px; }
   .menu-head { margin: 0; padding: 4px 8px 6px; font-size: 14px; color: var(--muted); }
-  .menu-item { font: inherit; font-size: 14px; text-align: left; min-height: 36px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); cursor: pointer; overflow-wrap: anywhere; }
+  .menu-item { display: flex; align-items: center; gap: 6px; font: inherit; font-size: 14px; text-align: left; min-height: 36px; padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); cursor: pointer; overflow-wrap: anywhere; }
   .menu-item:hover, .menu-item:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .menu-item.active { color: var(--accent-text); font-weight: 600; }
+  .menu-item .tick { display: inline-flex; flex: none; color: var(--accent-text); }
+  .menu-item.stop { margin-top: 2px; border-top: 1px solid var(--line-soft); border-radius: 0 0 6px 6px; color: var(--bad); }
+  .menu-item.stop:disabled { opacity: .6; cursor: default; }
+  /* The following strip is only as tall as its words; it appears when a goal starts and goes when it stops. */
+  .following { box-sizing: border-box; display: flex; align-items: center; gap: 8px; min-height: 36px; margin-bottom: var(--gap); padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 7%, transparent); color: var(--ink-soft); font-size: 14px; line-height: 20px; }
+  .follow-icon { display: inline-flex; flex: none; color: var(--accent-text); }
+  .follow-text { flex: 1; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .follow-verb { color: var(--muted); }
+  .follow-text strong { color: var(--ink); }
+  .follow-stop { flex: none; min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card, var(--bg)); color: var(--bad); font: inherit; font-size: 14px; cursor: pointer; }
+  .follow-stop:hover { background: color-mix(in srgb, var(--bad) 8%, transparent); }
+  .follow-stop:disabled { opacity: .6; cursor: default; }
 
   /* One grid for the sentence, the buttons and the note. The tinted box is drawn behind the sentence and the buttons only and stops
      above the note's line, so an empty note leaves no empty band inside the box. Absent buttons leave their places empty. */
@@ -236,5 +273,5 @@
     .long { display: inline; } .short { display: none; }
   }
   :is(button, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  @media (pointer: coarse) { .tracker { --btn: 44px; } .primary, .merged a { min-height: 44px; min-width: 44px; } .fix { min-height: 44px; min-width: 44px; } .menu-item { min-height: 44px; } }
+  @media (pointer: coarse) { .tracker { --btn: 44px; } .primary, .merged a { min-height: 44px; min-width: 44px; } .fix { min-height: 44px; min-width: 44px; } .menu-item { min-height: 44px; } .follow-stop { min-height: 40px; min-width: 44px; } }
 </style>

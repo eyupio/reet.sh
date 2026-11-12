@@ -132,21 +132,9 @@ try {
   // The URL changes before the dialog has finished closing, and while it is a modal the page behind it is inert: focus() on the
   // button would do nothing and no tooltip would open. Wait for it to go, then check the button really took the focus.
   await expect(dialog).toBeHidden()
-  // A live chat offers New chat in its status strip (not only once it has ended), and it opens the start dialog for this machine.
-  const newChat = page.locator('.chat-status').getByRole('button', { name: 'New chat', exact: true })
-  await expect(newChat).toBeVisible()
-  await expect(newChat).toBeEnabled()
+  // A live chat offers no New chat in its status strip: a new session is started from the left panel instead.
+  await expect(page.locator('.chat-status').getByRole('button', { name: 'New chat', exact: true })).toHaveCount(0)
   await expect(page.locator('.ended-note')).toHaveCount(0)
-  await newChat.click()
-  await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(dialog).toBeHidden()
-  // On a phone it stays inside the viewport.
-  await page.setViewportSize({ width: 320, height: 700 })
-  const newChatBox = await newChat.boundingBox()
-  expect(newChatBox.x).toBeGreaterThanOrEqual(0)
-  expect(newChatBox.x + newChatBox.width).toBeLessThanOrEqual(320)
-  await page.setViewportSize({ width: 1360, height: 900 })
   // The interface control names Gaffer. This machine has not negotiated session-mode-v1, so it offers no switch.
   await page.getByRole('button', {name:'Session actions',exact:true}).click()
   const tui = page.locator('.session-screen .tui-pill')

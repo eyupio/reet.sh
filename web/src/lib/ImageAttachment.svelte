@@ -5,7 +5,7 @@
   import { ATTACHMENT_ACCEPT, attachmentMessage, validateAttachment } from './imageAttachment'
   import { formatImageSize } from './terminal/upload'
 
-  let { label, hint = 'PNG, JPEG or WebP · up to 5 MiB', disabled = false, busy = false, error = '', file = $bindable<File | null>(null) }: {
+  let { label, hint = 'Paste, or choose a PNG, JPEG or WebP · up to 5 MiB', disabled = false, busy = false, error = '', file = $bindable<File | null>(null) }: {
     label: string
     hint?: string
     disabled?: boolean

@@ -260,6 +260,7 @@
     ...(canWrite ? [{ href: '/hosting', label: 'Write a skill', group: 'Skills & distribution', current: isHosting }] : []),
     { href: '/community', label: 'Community', group: 'Help & community', current: isCommunity },
     ...(supportDesk ? [{ href: '/support', label: 'Support', group: 'Help & community', current: isSupport || isTicket }] : []),
+    { href: DOCS_URL, label: 'Documentation', group: 'Help & community', current: false },
     { href: '/spaces', label: 'Teams & organisations', group: 'Workspace', current: isSpaces },
     ...(isAdminUser ? [{ href: '/admin/overview', label: 'Instance administration', group: 'Workspace', current: isAdmin }] : []),
   ])
@@ -902,7 +903,9 @@
     const key = settledJobsKey(next)
     if (key === settledJobs) return
     settledJobs = key
-    void loadMeta()
+    // The agent scans after applying, so this settle already holds the new inventory. Read the
+    // shelf too, because a card's "In use" and source line come from the skills list itself.
+    void reloadAll()
   }
 
   // The whole job in one press. When work starts, the activity dock follows it live; when there is nothing to start, one
@@ -1023,7 +1026,9 @@
   // once on a public route that never depended on it. There is no half-drawn screen behind the fade either way.
   $effect(() => {
     if (authChecked || authIndependent) document.documentElement.dataset.ready = '1'
-    if (authChecked && (!authenticated || needsAuth || isPublicList || isJoin)) document.documentElement.removeAttribute('data-workspace-shell')
+    // The boot shell reserves the signed-in workspace's full width. A signed-out or auth answer gives the page back its
+    // reading measure, including a static preview that guessed "app" before the auth answer arrived.
+    if (authChecked && (!authenticated || needsAuth || isPublicList || isJoin)) document.documentElement.removeAttribute('data-app-shell')
   })
 
   // A link to a section (/welcome#self-host) lands before the app has drawn that section, so the browser has nowhere to
@@ -1047,7 +1052,7 @@
 <ProgressBar />
 <header class="site-header" class:terminal-chrome={terminalLayout}>
   {#if authenticated && !needsAuth && !isPublicList && !isJoin}
-    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive} home={isHome}>
+    <AppShell {tabs} bar={barTabs} {more} {attention} {needsCards} onseen={onMarkSeen} onanswered={onAnswered} compact={terminalLayout} bell={sessionsAccess} jump={jumpItems} jumpLive={jumpLive}>
       {#snippet account()}
         {#if authMode !== 'none'}
           <AccountMenu

@@ -36,6 +36,7 @@
   import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN } from './sizing'
   import { chromeFocus } from '../shell/chrome.svelte'
   import { ALWAYS_DOCKED, MINI_WIDTH, PANEL_MIN, SNAP_TO_MINI, keepOpen, PANEL_DEFAULT, changeMode, chevronNext, clampPanelWidth, defaultLayout, defaultPanelWidth, isPhone, layoutRecord, panelDocks, panelMode, readLayout, screenShortSide, widestPanel, type PanelMode } from './panelLayout'
+  import { clearOpenTerminalRequestId, openTerminalRequestId, reusableSessionFor, wantsOpenTerminal } from './openTerminal'
 
   let {userId=0,ontitle}:{userId?:number;ontitle?:(title:string)=>void}=$props()
   // svelte-ignore state_referenced_locally
@@ -103,6 +104,10 @@
   let projects = $state<FolderProject[] | undefined>()
   let selectedAgent = $state(new URLSearchParams(location.search).get('agent') || '')
   let selectedSession = $state(new URLSearchParams(location.search).get('session') || '')
+  // The machine card's Open terminal action (?open=1) is read before remember() rewrites the address, and acted on once.
+  const openTerminalIntent = wantsOpenTerminal(location.search)
+  const openTerminalLinkedSession = new URLSearchParams(location.search).has('session')
+  let openTerminalAttempted = false
   let sideSession = $state<TerminalSession | null>(null)
   // The open chat's word on whether it is busy, for the header's TUI switch; kept with the session it is about. Undefined
   // until its stream has replayed, so the header keeps to the row's word meanwhile.
@@ -258,7 +263,7 @@
     }
   }
 
-  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
+  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');url.searchParams.delete('open');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
   function chooseMachine(id: string) {
     if(selectedAgent && selectedSession)rememberedSessions.set(selectedAgent,selectedSession)
     selectedAgent=id
@@ -277,6 +282,31 @@
     return()=>window.removeEventListener('reet:show-session',showSession)
   })
   function chooseSession(item: TerminalSession) { if(selectedAgent&&selectedSession)rememberedSessions.set(selectedAgent,selectedSession);selectedAgent=item.agentId;selectedSession=item.id;title=creations[selectedAgent]?.title||'Shell';error='';remember();closeDrawer() }
+  // Open terminal on a machine (?open=1) is one action: join a usable session, or start one plain shell. It runs once,
+  // after the first listing read, and never on a deep link that already names a session.
+  function openTerminalFromCard(){
+    if(openTerminalAttempted)return
+    openTerminalAttempted=true
+    if(!openTerminalIntent||!selectedAgent||openTerminalLinkedSession)return
+    const agent=selectedAgent
+    const current=machines.find(item=>item.agentId===agent)
+    if(selectedSession){
+      // firstLoad already joined a running session (or the address named one): attach, but say when its machine is away.
+      if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
+      return
+    }
+    const target=reusableSessionFor(sessions,agent)
+    if(target){
+      chooseSession(target)
+      if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
+      return
+    }
+    if(!current||current.serverEnabled===false||!current.ready||readiness(current)){error=`Open terminal needs ${current?.host||'that machine'} to be online. ${readiness(current)||'It is reconnecting. Try again when it is ready.'}`;return}
+    if(!canCreateFor(agent)){error=accountActive>=32?'Open terminal could not start a shell: your account already has 32 active sessions. End one and try again.':'Open terminal could not start a shell on this machine. Try again in a moment.';return}
+    selectTerminalMachine(agent)
+    creations={...creations,[agent]:{requestId:openTerminalRequestId(agent),title:autoName,dir:'',projectId:undefined,error:''}}
+    void create()
+  }
   async function refresh(signal?: AbortSignal) {
     if(disposed)return
     if(refreshing){refreshAgain=true;return}
@@ -304,6 +334,7 @@
       if(nextHealth.data){health=nextHealth.data;receivedAt=performance.now();elapsed=0}
       if(firstLoad&&!selectedSession)selectedSession=sessions.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
       remember()
+      if(firstLoad)openTerminalFromCard()
     } catch(e){
       if(!signal?.aborted&&!disposed){
         statusError=request.signal.aborted?'Status refresh timed out. Your existing shell is preserved.':e instanceof Error?e.message:'Could not refresh machines.'
@@ -369,11 +400,12 @@
       // determine visibility instead of reintroducing an archived session locally.
       if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
       if(creations[agent]?.requestId===operation.requestId){const next={...creations};delete next[agent];creations=next}
+      clearOpenTerminalRequestId(agent)
       if(selectedAgent===originAgent&&selectedSession===originSession){showCreate=false;chooseSession(created)}
       await refresh()
     } catch(e){
       if(disposed)return
-      if(e instanceof TerminalError&&[400,422].includes(e.status)){const next={...creations};delete next[agent];creations=next;if(e.status===422)terminalProjectId='';if(terminalAgent===agent)error=e.message}
+      if(e instanceof TerminalError&&[400,422].includes(e.status)){const next={...creations};delete next[agent];creations=next;clearOpenTerminalRequestId(agent);if(e.status===422)terminalProjectId='';if(terminalAgent===agent)error=e.message}
       else creations={...creations,[agent]:{...operation,error:e instanceof Error?e.message:'Creation could not be confirmed. Retry the same operation.'}}
     } finally{clearTimeout(timeout);busy=false}
   }

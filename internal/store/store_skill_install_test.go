@@ -594,7 +594,7 @@ func TestInstallOfAnAlreadySelectedSkillDoesNotTouchTheSavedSet(t *testing.T) {
 	}
 }
 
-func TestInstallRefusesASameSlugFromAnotherSource(t *testing.T) {
+func TestInstallReplacesAStaleSameSlugAndCancelRestoresIt(t *testing.T) {
 	for name, other := range map[string]SyncSkill{
 		"another source":      {ID: "x/y/pdf", Name: "pdf", Slug: "pdf", Source: "x/y", SourceType: "github"},
 		"another source type": {ID: "hosted/reet.example/publisher/pdf", Name: "pdf", Slug: "pdf", Source: "reet.example/publisher/pdf", SourceType: "git"},
@@ -609,11 +609,20 @@ func TestInstallRefusesASameSlugFromAnotherSource(t *testing.T) {
 			e.s.db.Exec(`INSERT INTO sync_targets(user_id,target_id,source_id,source_name,desired,revision,updated_at) VALUES(?,?,?,?,?,?,1)`, e.uid, e.env, "shelf", "Shelf", string(data), "rev1")
 			e.s.db.Exec(`INSERT INTO sync_policies(target_id,follow_source) VALUES(?,0)`, e.env)
 			e.s.db.Exec(`INSERT INTO sync_options(target_id,mode) VALUES(?,'mirror')`, e.env)
-			before := e.dump(t)
-			_, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
-			wantInstallError(t, err, "slug-conflict", "A different skill named pdf is already in laptop's saved list. Remove it on the Sync page first.")
-			if e.dump(t) != before {
-				t.Fatal("refusal wrote")
+			res, err := e.s.InstallHostedSkillFor(e.uid, e.req("pdf"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			targets, _ := e.s.SyncTargetsFor(e.uid)
+			if len(targets) != 1 || len(targets[0].Desired) != 1 || targets[0].Desired[0].Source != mine.Source || targets[0].Desired[0].ID != mine.ID {
+				t.Fatalf("not replaced: %+v", targets)
+			}
+			if _, err := e.s.CancelInstallFor(e.uid, res.JobID); err != nil {
+				t.Fatal(err)
+			}
+			targets, _ = e.s.SyncTargetsFor(e.uid)
+			if len(targets) != 1 || len(targets[0].Desired) != 1 || targets[0].Desired[0].ID != other.ID || targets[0].Revision != "rev1" {
+				t.Fatalf("cancel did not restore: %+v", targets)
 			}
 		})
 	}

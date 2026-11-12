@@ -415,9 +415,9 @@
         <span class="name">{p.name}</span>
       </span>
       <span class="meta">
+        <span class="tag">{machineTag(p)}</span>
         {#if p.baseBranch}<span class="branch">{p.baseBranch}</span>{/if}
         {#if state}<span class="state {state.tone}">{state.text}</span>{/if}
-        <span class="tag">{machineTag(p)}</span>
         {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
       </span>
     </button>
@@ -654,10 +654,11 @@
   .rail-fold { display: grid; place-items: center; width: 24px; height: 24px; margin: 0 6px 0 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; flex: none; }
   .rail-fold:hover { background: var(--card); color: var(--ink); }
   .rail-fold svg { width: 15px; height: 15px; }
-  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-  .items { gap: 8px; }
-  .groups { display: flex; flex-direction: column; gap: 12px; }
-  .group-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; border-radius: 8px; }
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  /* Compact rows: a project is two short lines, not a card with a boxed machine tag. */
+  .items { gap: 4px; }
+  .groups { display: flex; flex-direction: column; gap: 8px; }
+  .group-block { display: flex; flex-direction: column; gap: 4px; min-width: 0; border-radius: 8px; }
   .group-block.captioned { gap: 6px; }
   .group-caption { margin: 0 4px; font: 600 14px/1.3 var(--sans); letter-spacing: 0.01em; color: var(--muted); }
   .group-head { display: flex; align-items: center; gap: 2px; padding: 3px 3px 3px 1px; border-radius: 8px; transition: background .15s; }
@@ -687,8 +688,8 @@
   .item.dragging { opacity: .45; }
   .card[draggable='true'] { cursor: grab; }
   .item.dragging .card { cursor: grabbing; }
-  .item { position: relative; display: flex; flex-direction: column; gap: 6px; }
-  .card { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+  .item { position: relative; display: flex; flex-direction: column; gap: 3px; }
+  .card { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
   .card:hover { border-color: var(--line-strong); }
   .card.chosen, .card.scoped { border-color: var(--accent); }
   .card.scoped { box-shadow: inset 0 0 0 1px var(--accent); }
@@ -700,9 +701,10 @@
   .icon.repo { fill: var(--repo); }
   .icon.folder { color: var(--muted); }
   /* A project's name is shown in full, over as many lines as it needs: two names that start the same must stay apart. */
-  .name { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
-  .tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); border: 1px solid var(--line-mid); border-radius: 6px; padding: 1px 8px; }
-  .meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; color: var(--muted); }
+  .name { flex: 1 1 auto; min-width: 0; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+  /* No pill around the machine: the compact row reads as one muted meta line. */
+  .tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); }
+  .meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 14px; color: var(--muted); }
   .branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
   .state { flex: none; }
   .state.good { color: var(--good); }

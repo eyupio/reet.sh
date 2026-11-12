@@ -496,6 +496,7 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 	if s.store.Fenced() {
 		return
 	}
+	s.releaseGoneSessions()
 	s.autoReports(ctx)
 	rows, err := s.store.StartingGafferOutcomes()
 	// The controller's settings are read only when there is an outcome to

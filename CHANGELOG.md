@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A Factory outcome can no longer get stuck on a session that is gone. When a
+  followed session is removed (for example ended with its history removed), the
+  controller now notices within seconds, stops following that pipeline and
+  closes its goal, so the outcome can be archived or deleted and the pipeline
+  retried. An outcome that is still moving also has **Stop following**, which
+  ends every unfinished pipeline without touching sessions that still exist,
+  so any stuck outcome can be put away.
 - The Factory can now put finished work away. A finished outcome (nothing
   moving) has **Archive**, which hides it from the page and the headline
   numbers but keeps the record, its report and its history, and **Delete**,

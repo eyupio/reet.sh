@@ -28,6 +28,7 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcome))
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}/history", access(s.gafferOutcomeHistory))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop", access(s.gafferOutcomeStop))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop-following", access(s.gafferOutcomeStopFollowing))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/archive", access(s.gafferOutcomeArchive(true)))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/restore", access(s.gafferOutcomeArchive(false)))
 	mux.HandleFunc("DELETE /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcomeDelete))
@@ -134,6 +135,30 @@ func (s *server) gafferOutcomeStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.eventRequest(r, "gaffer-outcome-stopped", "", map[string]any{"outcome": o.ID})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeStopFollowing is the person ending an outcome that is stuck or
+// no longer wanted: no pipeline is followed any more, so it can be archived or
+// deleted. Sessions that still exist keep running.
+func (s *server) gafferOutcomeStopFollowing(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision int64 `json:"revision"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That outcome request is invalid.") {
+		return
+	}
+	if in.Revision < 1 {
+		writeErr(w, 400, "Reload this outcome before stopping it.")
+		return
+	}
+	o, err := s.gafferProviders.StopFollowingOutcome(s.uid(r), r.PathValue("id"), in.Revision)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-outcome-following-stopped", "", map[string]any{"outcome": o.ID})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }

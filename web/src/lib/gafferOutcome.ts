@@ -105,6 +105,33 @@ export function wholeBetween(value: unknown, low: number, high: number): boolean
   return typeof value === 'number' && Number.isInteger(value) && value >= low && value <= high
 }
 
+export const MAX_OUTCOME_REPLY_BYTES = 2000
+// Tabs and newlines are ordinary typing; other controls are not sent to a provider.
+const REPLY_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
+/** Why a reply to Gaffer cannot be sent, or ''. The provider checks the same limit again. */
+export function replyBlocker(reply: string): string {
+  const text = reply.trim()
+  if (!text) return 'Write a reply to Gaffer first.'
+  if (bytes(text) > MAX_OUTCOME_REPLY_BYTES) return `Keep the reply within ${MAX_OUTCOME_REPLY_BYTES.toLocaleString('en-GB')} bytes.`
+  if (REPLY_CONTROL.test(text)) return 'The reply has a character that cannot be sent. Retype that part.'
+  return ''
+}
+
+/** One message in the plan review: the person's reply, or the proposal Gaffer returned. */
+export type PlanTurn = { from: 'you' | 'gaffer'; text: string }
+export type PlanPrevious = { summary: string; sessions: { title: string; stages: string[] }[] }
+/** The compact proposal a reply answers. A broken or half-edited title is replaced, never sent as an invalid one. */
+export function previousPlan(summary: string, sessions: PlanSession[]): PlanPrevious {
+  return {
+    summary: summary.trim(),
+    sessions: sessions.map((item, index) => {
+      const title = item.title.trim()
+      const keeps = title && [...title].length <= MAX_PLAN_TITLE && !/[\u0000-\u001F\u007F]/.test(title) && !/\p{Cf}/u.test(title)
+      return { title: keeps ? title : `Session ${index + 1}`, stages: [...(item.stages ?? [])] }
+    }),
+  }
+}
+
 /** Why the plan cannot be approved yet, or ''. */
 export function planBlocker(sessions: PlanSession[], room: number): string {
   if (!sessions.length) return 'Add at least one session.'

@@ -31,3 +31,12 @@ test('every refusal has a clear sentence', () => {
   assert.equal(a.attachmentMessage('empty'), 'That image is empty.')
   assert.equal(a.attachmentMessage('read'), 'That image could not be read.')
 })
+
+test('a paste takes its first image and leaves a text-only paste alone', () => {
+  const png = { type: 'image/png', size: 512, name: 'shot.png' }
+  assert.equal(a.attachmentFromPaste([{ type: 'text/plain', size: 8 }]), null, 'no image means the field keeps the paste')
+  assert.deepEqual(a.attachmentFromPaste([{ type: 'text/plain', size: 8 }, png]), { ok: true, file: png })
+  assert.deepEqual(a.attachmentFromPaste([{ type: 'image/gif', size: 512 }, png]), { ok: false, reason: 'type' })
+  assert.deepEqual(a.attachmentFromPaste([{ type: 'image/png', size: LIMIT + 1 }]), { ok: false, reason: 'size' })
+  assert.deepEqual(a.attachmentFromPaste([{ type: 'image/png', size: 0 }]), { ok: false, reason: 'empty' })
+})

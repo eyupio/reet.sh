@@ -902,7 +902,9 @@
     const key = settledJobsKey(next)
     if (key === settledJobs) return
     settledJobs = key
-    void loadMeta()
+    // The agent scans after applying, so this settle already holds the new inventory. Read the
+    // shelf too, because a card's "In use" and source line come from the skills list itself.
+    void reloadAll()
   }
 
   // The whole job in one press. When work starts, the activity dock follows it live; when there is nothing to start, one

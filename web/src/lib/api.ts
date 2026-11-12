@@ -258,7 +258,7 @@ export type GafferOutcomeStage = { kind: string; tool: string; model?: string; e
 export type GafferOutcomeReport = { text: string; at: number; model: string; inputTokens: number; outputTokens: number; usageReported: boolean; auto?: boolean; proposals?: { title: string; prompt: string; stages?: string[]; why?: string }[] }
 export type GafferOutcomeSession = { key: string; title: string; prompt: string; state: 'waiting' | 'starting' | 'following' | 'advancing' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'; note: string; sessionId?: string; conversationId?: string; updatedAt: number; stages?: GafferOutcomeStage[]; stage?: number; workDir?: string; autoMerge?: boolean; yoloMergeOk?: boolean; mergeApproved?: boolean }
 /** An approved plan the controller starts and follows. `state` is "starting" while it still has sessions to start. */
-export type GafferOutcome = { id: string; revision: number; objective: string; state: 'starting' | 'settled' | 'stopped'; note: string; agentId: string; projectId: string; projectName: string; dir: string; tool: string; model?: string; trust?: boolean; yolo?: boolean; autoReport?: boolean; providerId: string; maxReviews: number; hours: number; sessions: GafferOutcomeSession[]; report?: GafferOutcomeReport; createdAt: number; updatedAt: number }
+export type GafferOutcome = { id: string; revision: number; objective: string; state: 'starting' | 'settled' | 'stopped'; note: string; agentId: string; projectId: string; projectName: string; dir: string; tool: string; model?: string; trust?: boolean; yolo?: boolean; autoReport?: boolean; providerId: string; maxReviews: number; hours: number; sessions: GafferOutcomeSession[]; report?: GafferOutcomeReport; archivedAt?: number; createdAt: number; updatedAt: number }
 export type GafferOutcomeInput = { objective: string; projectId: string; tool: string; model: string; trust: boolean; yolo?: boolean; autoReport?: boolean; autoMerge: boolean; sessions: { title: string; prompt: string; stages?: { kind: string; tool: string; model: string; effort?: string }[] }[]; maxReviews: number; hours: number; confirmed: true }
 const outcomePath = (id: string) => `/api/v2/gaffer/outcomes/${encodeURIComponent(id)}`
 /** Tries a stopped pipeline again. A step that never started is asked for afresh; a session that did start is kept. */
@@ -284,6 +284,11 @@ export async function getGafferOutcome(id: string, signal?: AbortSignal): Promis
 /** Saves the approved plan; the controller then starts and follows each session, with or without this browser. */
 export async function createGafferOutcome(input: GafferOutcomeInput, signal?: AbortSignal): Promise<GafferOutcome> { return (await req('/api/v2/gaffer/outcomes', { method: 'POST', body: json(input), signal })).json() }
 export async function stopGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/stop`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
+/** Puts a finished outcome away. Its record and report are kept, and it can be restored. */
+export async function archiveGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/archive`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
+export async function restoreGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/restore`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
+/** Erases a finished outcome's record for good. Its sessions and pull requests are left alone. */
+export async function deleteGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<void> { await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}?revision=${o.revision}`, { method: 'DELETE', signal }) }
 export type GafferConversation = { id: string; sessionId: string; providerId: string; model: string; revision: number; createdAt: number; updatedAt: number }
 /** One call of a reet tool by Gaffer in a chat turn. `pending` waits for the person's approval. */
 export type GafferTurnTool = { id: string; name: string; args: string; mode: 'ask' | 'allow'; state: 'ran' | 'failed' | 'pending' | 'approved' | 'declined'; result?: string; at: number }
@@ -1094,7 +1099,7 @@ export function backupDownloadUrl(admin: boolean, id: string): string {
 
 // --- profile ---------------------------------------------------------------
 
-export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix: string; updatedAt: number
+export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; dateFormat: string; shelfView: 'list' | 'board'; cardsExpanded: boolean; terminalRemoveOnClose?: boolean; factoryRemoveMode?: 'archive' | 'delete'; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix: string; updatedAt: number
   /** Launch defaults: the base branch for fresh worktrees ('' for none) and whether sessions get a worktree by default. */
   defaultBaseBranch?: string; worktreesByDefault?: boolean
   /** New sessions without a project: the agent, its model and its thinking level; '' is the agent's own default. */
@@ -1154,7 +1159,7 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean> }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; factoryRemoveMode?: 'archive' | 'delete'; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean> }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 

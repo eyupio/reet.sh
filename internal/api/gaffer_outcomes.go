@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -27,6 +28,9 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcome))
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}/history", access(s.gafferOutcomeHistory))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop", access(s.gafferOutcomeStop))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/archive", access(s.gafferOutcomeArchive(true)))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/restore", access(s.gafferOutcomeArchive(false)))
+	mux.HandleFunc("DELETE /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcomeDelete))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge", access(s.gafferOutcomeMerge))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/retry", access(s.gafferOutcomeRetry))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/advance", access(s.gafferOutcomeAdvance))
@@ -39,7 +43,7 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 
 func gafferOutcomeError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, store.ErrGafferOutcomeLimit), errors.Is(err, store.ErrGafferOutcomeBusy):
+	case errors.Is(err, store.ErrGafferOutcomeLimit), errors.Is(err, store.ErrGafferOutcomeBusy), errors.Is(err, store.ErrGafferOutcomeActive):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, 404, "That outcome is not available.")
@@ -132,6 +136,51 @@ func (s *server) gafferOutcomeStop(w http.ResponseWriter, r *http.Request) {
 	s.eventRequest(r, "gaffer-outcome-stopped", "", map[string]any{"outcome": o.ID})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeArchive puts a finished outcome away, or brings it back.
+func (s *server) gafferOutcomeArchive(archive bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Revision int64 `json:"revision"`
+		}
+		if !decodeStrictJSON(w, r, 1024, &in, "That outcome request is invalid.") {
+			return
+		}
+		if in.Revision < 1 {
+			writeErr(w, 400, "Reload this outcome before changing it.")
+			return
+		}
+		o, err := s.gafferProviders.ArchiveOutcome(s.uid(r), r.PathValue("id"), in.Revision, archive)
+		if err != nil {
+			gafferOutcomeError(w, err)
+			return
+		}
+		name := "gaffer-outcome-archived"
+		if !archive {
+			name = "gaffer-outcome-restored"
+		}
+		s.eventRequest(r, name, "", map[string]any{"outcome": o.ID})
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, 200, o)
+	}
+}
+
+// gafferOutcomeDelete removes a finished outcome's record for good. Its
+// sessions and pull requests are left alone.
+func (s *server) gafferOutcomeDelete(w http.ResponseWriter, r *http.Request) {
+	revision, _ := strconv.ParseInt(r.URL.Query().Get("revision"), 10, 64)
+	if revision < 1 {
+		writeErr(w, 400, "Reload this outcome before deleting it.")
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.gafferProviders.DeleteOutcome(s.uid(r), id, revision); err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-outcome-deleted", "", map[string]any{"outcome": id})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // gafferOutcomeMerge is the person approving the merge of a pipeline that is

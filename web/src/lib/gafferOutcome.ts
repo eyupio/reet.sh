@@ -266,6 +266,11 @@ export function pipelineStatus(piece: { state: string }, attention: boolean): { 
   return { label: 'Running', tone: 'busy' }
 }
 
+/** An outcome is finished when it is not starting sessions and no pipeline is moving. Only a finished one can be put away. */
+export function outcomeFinished(record: { state: string; sessions: { state: string }[] }): boolean {
+  return record.state !== 'starting' && !record.sessions.some(piece => ['following', 'starting', 'advancing', 'waiting', 'ready_to_merge'].includes(piece.state))
+}
+
 /** The page's headline numbers across every outcome. */
 export function factoryTally(records: { sessions: { state: string; conversationId?: string }[] }[], attention: ReadonlySet<string>): { running: number; needYou: number; ready: number; done: number } {
   const out = { running: 0, needYou: 0, ready: 0, done: 0 }

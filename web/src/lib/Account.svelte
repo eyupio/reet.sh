@@ -67,7 +67,7 @@
   let busy = $state('')
 
   // svelte-ignore state_referenced_locally
-  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false, gafferAnimations: true, gafferCompact: true })
+  let profileForm = $state({ name: user.name, theme: 'system', timezone: '', dateFormat: 'locale', shelfView: 'list' as 'list' | 'board', cardsExpanded: false, terminalRemoveOnClose: false, factoryRemoveMode: 'archive' as 'archive' | 'delete', gafferAnimations: true, gafferCompact: true })
   let prefixEnabled = $state(true)
   let prefixValue = $state('reet-')
   let passwordForm = $state({ current: '', password: '', confirm: '' })
@@ -128,7 +128,7 @@
       const r = await getProfile()
       who = r.user
       profile = r.profile
-      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false, gafferAnimations: r.profile.gafferAnimations ?? true, gafferCompact: r.profile.gafferCompact ?? true }
+      profileForm = { name: r.user.name, theme: r.profile.theme, timezone: r.profile.timezone, dateFormat: r.profile.dateFormat || 'locale', shelfView: r.profile.shelfView, cardsExpanded: r.profile.cardsExpanded, terminalRemoveOnClose: r.profile.terminalRemoveOnClose??false, factoryRemoveMode: r.profile.factoryRemoveMode === 'delete' ? 'delete' : 'archive', gafferAnimations: r.profile.gafferAnimations ?? true, gafferCompact: r.profile.gafferCompact ?? true }
       prefixEnabled = r.profile.hostedPrefix !== ''
       prefixValue = r.profile.hostedPrefix || 'reet-'
       applyTheme(r.profile.theme)
@@ -385,7 +385,7 @@
   {#if notice}<p class="notice good" role="status">{notice}</p>{/if}
 
   {#if section === 'profile'}
-    <CollectionPanel label="Your preferences" count="10 preferences">
+    <CollectionPanel label="Your preferences" count="11 preferences">
       {#snippet actions()}
         <button type="submit" form="profile-form" class="btn primary" disabled={busy === 'profile'}>{busy === 'profile' ? 'Saving…' : 'Save profile'}</button>
       {/snippet}
@@ -447,6 +447,10 @@
             <label class="wide"><span>When stopping a terminal session</span>
               <select aria-label="Terminal history default" bind:value={profileForm.terminalRemoveOnClose}><option value={false}>Keep the closed session in history</option><option value={true}>Remove from history after it ends</option></select>
               <small>This sets the confirmation’s default. You can change it for each session. Running or pending sessions remain visible until the machine confirms closure.</small>
+            </label>
+            <label class="wide"><span>When removing a finished Factory outcome</span>
+              <select aria-label="Factory removal default" bind:value={profileForm.factoryRemoveMode}><option value="archive">Archive it (keep the record, hide it)</option><option value="delete">Delete it for good</option></select>
+              <small>Both buttons are always on a finished outcome; this picks the one that stands out. Archived outcomes can be shown and restored. Deleting asks you to confirm and cannot be undone.</small>
             </label>
             <label><span>Default library layout</span>
               <select bind:value={profileForm.shelfView}><option value="list">List</option><option value="board">Board</option></select>

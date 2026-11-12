@@ -108,4 +108,23 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes/"+strings.Repeat("a", 32)+"/stop", `{}`); code != 400 {
 		t.Fatalf("stop without a revision: %d", code)
 	}
+	// Archiving, restoring and deleting are the owning browser's requests, and name the revision they mean.
+	for _, action := range []string{"archive", "restore"} {
+		path := base + "/" + action
+		if code, _ := doClient(t, owner, srv, "POST", path, `{"revision":1}`, "Origin", "https://different.example"); code != 403 {
+			t.Fatalf("foreign origin %s: %d", action, code)
+		}
+		if code, _ := gafferClient(t, owner, srv, "POST", path, `{}`); code != 400 {
+			t.Fatalf("%s without a revision: %d", action, code)
+		}
+		if code, _ := gafferClient(t, owner, srv, "POST", path, `{"revision":1}`); code != 404 {
+			t.Fatalf("%s of an unknown outcome: %d", action, code)
+		}
+	}
+	if code, _ := gafferClient(t, owner, srv, "DELETE", base, ""); code != 400 {
+		t.Fatalf("delete without a revision: %d", code)
+	}
+	if code, _ := gafferClient(t, owner, srv, "DELETE", base+"?revision=1", ""); code != 404 {
+		t.Fatalf("delete of an unknown outcome: %d", code)
+	}
 }

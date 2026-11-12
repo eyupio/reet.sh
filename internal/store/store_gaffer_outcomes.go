@@ -18,8 +18,9 @@ const (
 )
 
 var (
-	ErrGafferOutcomeLimit = errors.New("Gaffer is still starting three outcomes for this account. Wait for one to settle, or stop it.")
-	ErrGafferOutcomeBusy  = errors.New("That outcome changed. Reload it before trying again.")
+	ErrGafferOutcomeLimit  = errors.New("Gaffer is still starting three outcomes for this account. Wait for one to settle, or stop it.")
+	ErrGafferOutcomeBusy   = errors.New("That outcome changed. Reload it before trying again.")
+	ErrGafferOutcomeActive = errors.New("That outcome is still moving. Stop it or let it finish first.")
 )
 
 // Outcome states: "starting" while the controller still has sessions to
@@ -146,8 +147,27 @@ type GafferOutcome struct {
 	AutoReport      bool   `json:"autoReport,omitempty"`
 	AutoReportedFor string `json:"autoReportedFor,omitempty"`
 	AutoReports     int    `json:"autoReports,omitempty"`
-	CreatedAt       int64  `json:"createdAt"`
-	UpdatedAt       int64  `json:"updatedAt"`
+	// ArchivedAt is when the person put this finished outcome away; zero means
+	// it is on the Factory floor. The record and its report are kept.
+	ArchivedAt int64 `json:"archivedAt,omitempty"`
+	CreatedAt  int64 `json:"createdAt"`
+	UpdatedAt  int64 `json:"updatedAt"`
+}
+
+// Finished reports whether nothing in the outcome is still moving: it is not
+// starting sessions and no pipeline is following, waiting, advancing or
+// ready to merge. Only a finished outcome may be archived or deleted.
+func (o GafferOutcome) Finished() bool {
+	if o.State == "starting" {
+		return false
+	}
+	for _, item := range o.Sessions {
+		switch item.State {
+		case "following", "starting", "advancing", "waiting", "ready_to_merge":
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) migrateGafferOutcomes() error {
@@ -237,6 +257,38 @@ func (s *Store) GafferOutcomesFor(uid int64) ([]GafferOutcome, error) {
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+// DeleteGafferOutcomeFor removes one outcome record when it is still at
+// revision and finished. Its sessions and pull requests are not touched.
+func (s *Store) DeleteGafferOutcomeFor(uid int64, id string, revision int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var raw string
+	err = tx.QueryRow(`SELECT data FROM gaffer_outcomes WHERE user_id=? AND id=?`, uid, id).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	o, err := scanOutcome(uid, raw)
+	if err != nil {
+		return err
+	}
+	if o.Revision != revision {
+		return ErrGafferOutcomeBusy
+	}
+	if !o.Finished() {
+		return ErrGafferOutcomeActive
+	}
+	if _, err = tx.Exec(`DELETE FROM gaffer_outcomes WHERE user_id=? AND id=?`, uid, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // StartingGafferOutcomes lists every account's outcomes the controller still

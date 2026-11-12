@@ -83,7 +83,7 @@ type agentSwitch struct {
 // the same session runs. A new process that fails to start is followed by one
 // attempt to restore the previous mode; the original error is returned either
 // way. The old entry is gone before the new one is opened, so the session is
-// never counted twice against MaxSessionsPerAgent.
+// never counted twice against the chat quota.
 func (a *agentSwitch) swap(ctx context.Context, requestID, sessionID string, in terminalproto.SessionMode) (terminalproto.SessionChanged, error) {
 	if !terminalproto.ValidID(requestID) || !terminalproto.ValidID(sessionID) {
 		return terminalproto.SessionChanged{}, terminalproto.ErrInvalid

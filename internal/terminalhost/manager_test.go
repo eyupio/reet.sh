@@ -109,7 +109,7 @@ func TestManagerProcessDeathRecoversSameShell(t *testing.T) {
 	}
 }
 
-func TestConcurrentManagersReserveOneQuotaAndPreserveReceipts(t *testing.T) {
+func TestConcurrentManagersPreserveReceipts(t *testing.T) {
 	m, opts := managerFixture(t)
 	second, err := NewManager(context.Background(), opts)
 	if err != nil {
@@ -134,17 +134,16 @@ func TestConcurrentManagersReserveOneQuotaAndPreserveReceipts(t *testing.T) {
 	close(results)
 	accepted := 0
 	for err := range results {
-		if err == nil {
-			accepted++
-		} else if !errors.Is(err, ErrSessionCapacity) {
+		if err != nil {
 			t.Fatal(err)
 		}
+		accepted++
 	}
-	if accepted != 8 {
-		t.Fatal("concurrent quota reservation", accepted)
+	if accepted != 12 {
+		t.Fatal("concurrent reservations", accepted)
 	}
 	sessions, err := m.List(context.Background())
-	if err != nil || len(sessions) != 8 {
+	if err != nil || len(sessions) != 12 {
 		t.Fatal("registry lost a concurrent writer", len(sessions), err)
 	}
 }
@@ -277,13 +276,13 @@ func TestManagerUncertainCreationReconcilesWithoutRecreating(t *testing.T) {
 	}
 }
 
-func TestManagerConsentQuotaAndEnrollmentIsolation(t *testing.T) {
+func TestManagerConsentAndEnrollmentIsolation(t *testing.T) {
 	m, opts := managerFixture(t)
 	for i := 1; i <= 8; i++ {
 		createManaged(t, m, i)
 	}
-	if _, err := m.Create(context.Background(), testRequestID(9), testSessionID(9), terminalproto.Create{Title: "Over quota", Cols: 80, Rows: 24}); !errors.Is(err, ErrSessionCapacity) {
-		t.Fatal("quota exceeded", err)
+	if _, err := m.Create(context.Background(), testRequestID(9), testSessionID(9), terminalproto.Create{Title: "Ninth", Cols: 80, Rows: 24}); err != nil {
+		t.Fatalf("a session cap still applies: %v", err)
 	}
 	m.Close()
 	opts.Consent = func() error { return ErrTerminalDisabled }

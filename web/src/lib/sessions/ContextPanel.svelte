@@ -5,6 +5,7 @@
   import type { ChatState } from '../chat'
   import type { WorktreeStatus } from '../projects'
   import { changedList, worktreeTargetOf } from '../sessions'
+  import { controlGafferGoal, getGafferConversation, type GafferConversationView } from '../api'
   import { inspectSession, worktreeStatus, type TerminalSession } from '../terminal/api'
   import { elapsedWord, insightReason, type InsightFile, type InsightView, type SessionInsight } from '../sessionInsights'
   import { insightsAuto, pullReadAge, pullReadBusy, pullReadingIds, rememberInsight, sessionInsights, trackPullRead } from './insightStore'
@@ -18,9 +19,10 @@
   import TerminalIcon from '../terminal/TerminalIcon.svelte'
   import GafferProgress from '../terminal/GafferProgress.svelte'
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
-  import { gafferChatEntry } from '../gafferContext'
+  import { GAFFER_GOALS_CHANGED, gafferChatEntry } from '../gafferContext'
   import { chatToolName, terminalClosed } from '../terminal/api'
   import type { ChatProgressState } from '../gafferProgress'
+  import { activeFollow } from './stageActions'
 
   let { session, host, status, project, skills, now, chat, chatProgress, supported = false, docked = false, onterminal, onkeydown, onclose, id }: {
     session: TerminalSession; host: string; status: FleetCard['status'] | undefined
@@ -40,6 +42,29 @@
   let pending = $state<Record<string, boolean>>({}), errors = $state<Record<string, string>>({})
   const requests = new Map<string, AbortController>()
   let alive = true, lastLocal = 0, lastGitHub = 0
+  // Gaffer's goal for this session is a separate read from the workspace snapshot. It needs a writer account and a
+  // conversation Gaffer already has, so an error here is silence rather than a message: there is simply nothing to show.
+  let followView = $state<GafferConversationView | null>(null), unfollowBusy = $state(false)
+  let followReading = false, lastFollow = 0
+  const following = $derived(activeFollow(followView))
+  async function readFollow() {
+    if (!alive || followReading) return
+    followReading = true
+    try { const next = await getGafferConversation(session.id); if (alive) followView = next } catch { /* no goal to show */ }
+    finally { followReading = false; lastFollow = Date.now() }
+  }
+  // Stop reads the goal's own revision and pins first, so a stale panel cannot stop a goal the person has since replaced.
+  async function unfollow() {
+    const active = following
+    if (!active || unfollowBusy) return
+    unfollowBusy = true
+    try {
+      const { providerId, providerRevision, model, contextRevision, workerRevision } = active.goal
+      await controlGafferGoal(active.conversationId, active.goal.revision, 'stop', { providerId, providerRevision, model, contextRevision, workerRevision }, true)
+      window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))
+    } catch { /* the read below shows the goal that is actually there */ }
+    finally { if (alive) { unfollowBusy = false; await readFollow() } }
+  }
   const canRead = $derived(supported && status !== 'offline' && status !== 'paused')
   const view = $derived(tab === 'github' ? 'github' : tab === 'files' ? 'files' : 'status')
   const current = $derived(tab === 'github' ? github : tab === 'files' ? listing : workspace)
@@ -129,17 +154,22 @@
     const cached = get(sessionInsights)[session.id]; workspace = cached?.status ?? null; github = cached?.github ?? null
     if (supported) void read('status'); else if (target) void readLegacy()
     if (tab === 'files') void read('files', '')
+    void readFollow()
+    const goalsChanged = () => void readFollow()
+    window.addEventListener(GAFFER_GOALS_CHANGED, goalsChanged)
     const visibility = () => {
       if (document.hidden) return
       if (auto && canRead) { void read('status'); if (tab === 'github' || tab === 'overview') backgroundGitHub() }
+      void readFollow()
     }
     const timer = setInterval(() => {
       if (!auto || document.hidden || !canRead) return
       if (!pending.status && Date.now() - lastLocal >= (session.attention === 'working' ? 15_000 : 60_000)) void read('status')
       if (tab === 'github' || tab === 'overview') backgroundGitHub()
+      if (following && Date.now() - lastFollow >= 15_000) void readFollow()
     }, 5000)
     document.addEventListener('visibilitychange', visibility)
-    return () => { alive = false; clearInterval(timer); document.removeEventListener('visibilitychange', visibility); requests.forEach(r => r.abort()) }
+    return () => { alive = false; clearInterval(timer); document.removeEventListener('visibilitychange', visibility); window.removeEventListener(GAFFER_GOALS_CHANGED, goalsChanged); requests.forEach(r => r.abort()) }
   })
 </script>
 
@@ -164,7 +194,7 @@
           {#if !chat || (chat.connection === 'connecting' && !chatProgress?.ended)}<p class="gaffer-loading">Loading session updates…</p>{/if}
         </div>
       {/if}
-      <OverviewTab {id} {session} {host} {status} {project} {skills} {now} {chat} {supported} {workspace} {github} checking={!!pending.github || !!$pullReadingIds[session.id]} base={github?.pull?.base} remote={workspace?.remote || github?.remote} {pending} {errors} {docked} {onterminal} onpick={pick} onfull={() => pick('github')} />
+      <OverviewTab {id} {session} {host} {status} {project} {skills} {now} {chat} {supported} {workspace} {github} checking={!!pending.github || !!$pullReadingIds[session.id]} base={github?.pull?.base} remote={workspace?.remote || github?.remote} {pending} {errors} {docked} following={following} {unfollowBusy} onunfollow={unfollow} {onterminal} onpick={pick} onfull={() => pick('github')} />
     {:else if !supported}
       {#if tab === 'changes'}<section aria-label="Changed files"><h3>Changed files</h3>{#if !session.worktreePath}<p class="empty">Update reet on this machine to inspect changes in the checkout.</p>{:else if !target}<p class="empty">reet can't name this worktree, so its changes aren't listed here.</p>{:else if legacyList}<p><span class="total">{legacyList.total}</span> changed files</p><ul class="legacy-files">{#each legacyList.shown as path}<li>{path}</li>{/each}</ul>{#if legacyList.more}<p class="quiet">and {legacyList.more} more not listed.</p>{/if}{:else}<p class="empty">{legacyFailed ? "Couldn't read the changed files just now." : 'Checking…'}</p>{/if}{#if target}<button class="secondary" disabled={legacyBusy} aria-busy={legacyBusy} onclick={() => void readLegacy()}>Refresh changed files</button>{/if}</section>{:else}<p class="empty">Update reet on this machine to use {tab === 'github' ? 'GitHub status' : 'read-only file browsing'}.</p>{/if}
     {:else}

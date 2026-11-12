@@ -110,6 +110,35 @@ try{
   }finally{release();await w.context.close()}
  }
  {
+  // A running goal is shown where the person picked it: on the stage, in the menu and in a strip with a Stop control. Stopping
+  // is the Goal editor's Stop, and the strip goes once the goal is no longer being followed.
+  const f=fixture(),itemText='Look after the pull request: ensure failing checks are fixed, review comments are addressed and merge conflicts are resolved, and keep it that way until I say otherwise. Bring decisions back to me. Do not merge.'
+  f.view.goal={id:'b'.repeat(32),conversationId:cid,sessionId:sid,revision:3,text:itemText,state:'active',note:'Waiting for new worker progress.',maxReviews:12,usedReviews:2,createdAt:now,updatedAt:now,expiresAt:now+86400000,nextAt:now,lastSeq:-1,inputTokens:0,outputTokens:0,usageReported:true,providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1}
+  const w=await openWorkspace(browser,{width:1600,height:1000,theme:'dark',routes:f.routes})
+  await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
+  try{
+   await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
+   const tracker=await overview(w.page)
+   const cell=name=>tracker.getByRole('button',{name:`${name}: goal options`,exact:true})
+   await expect(tracker.getByRole('button',{name:'PR: goal options, Gaffer is following',exact:true})).toBeVisible()
+   const strip=tracker.getByRole('status').filter({hasText:'Following'})
+   await expect(strip).toContainText('Babysit the pull request')
+   await cell('PR').click()
+   const menu=w.page.getByRole('menu',{name:'PR: goal options',exact:true})
+   await expect(menu.getByRole('menuitem',{name:'Babysit the pull request, following',exact:true})).toHaveAttribute('aria-current','true')
+   const stop=menu.getByRole('menuitem',{name:'Stop following: Babysit the pull request',exact:true})
+   await expect(stop).toBeVisible()
+   await stop.click()
+   await expect(tracker.getByRole('status').filter({hasText:'Following'})).toHaveCount(0)
+   await expect(f.box.controls).toContainEqual(expect.objectContaining({action:'stop',revision:3}))
+   // The chat names the same goal while it runs, so the selection is visible there too.
+   f.view.goal.state='active'
+   await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
+   await expect(w.page.getByRole('dialog',{name:'Gaffer',exact:true}).getByText(/Following/)).toBeVisible()
+   expect(w.errors).toEqual([])
+  }finally{await w.context.close()}
+ }
+ {
   // A terminal session has no follow-up: the same words are copied for the agent, and the menu says so.
   const f=fixture(false),w=await openWorkspace(browser,{width:1600,height:1000,theme:'dark',routes:f.routes})
   try{

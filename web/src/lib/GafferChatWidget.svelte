@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, UnauthorizedError, answerGafferTool, cancelGafferAnswer, configureGafferConversation, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,getGafferGoal,
+  import { ApiError, UnauthorizedError, answerGafferTool, cancelGafferAnswer, configureGafferConversation, controlGafferGoal, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,getGafferGoal,
     type GafferConversationView, type GafferSettings, type GafferTurn } from './api'
   import { gafferSessionContext, gafferChatEntry, GAFFER_GOALS_CHANGED } from './gafferContext'
   import { gafferMessageBytes, gafferMessageId, gafferSendKey, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt, type PendingGafferSend } from './gafferChat'
@@ -12,6 +12,7 @@
   import GafferProse from './GafferProse.svelte'
   import WorkerMessaging from './WorkerMessaging.svelte'
  import GafferGoal from './GafferGoal.svelte'
+ import { activeFollow } from './sessions/stageActions'
  import { goalPrefill } from './sessions/goalPrefill'
  import { copyText } from './clipboard'
   import GafferFollowedSessions from './GafferFollowedSessions.svelte'
@@ -57,6 +58,8 @@
   const scopeTitle = $derived(scope ? $gafferSessionContext?.title || 'This session' : 'General Gaffer chat')
   const unavailable = $derived(!!scope && !$gafferSessionContext?.structured)
   const current = $derived(loadedScope === scope ? view : null)
+  // Which stage follow-up the running goal came from, if any: the chat names it so the person can see what Gaffer is doing.
+  const following = $derived(activeFollow(current))
   // A reet tool Gaffer asked to use waits on its turn for the person's answer.
   let answering = $state('')
   const toolArgs = (raw: string) => { try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return raw } }
@@ -281,6 +284,13 @@
   const wish=wantedDraft;wantedDraft=null
   if(wish.id===scope)void untrack(()=>goalChoices(wish.text))
  })
+ // Stopping the goal from the chat is the same act as the Goal editor's Stop: it removes queued instructions and leaves the worker running.
+ async function stopFollowing(){
+ const goal=current?.goal
+ if(!goal||updating)return
+ updating=true;error='';notice=''
+ try{const {providerId:p,providerRevision:pr,model:m,contextRevision:cr,workerRevision:wr}=goal;const next=await controlGafferGoal(goal.conversationId,goal.revision,'stop',{providerId:p,providerRevision:pr,model:m,contextRevision:cr,workerRevision:wr},true);if(view)view={...view,goal:next.goal??undefined};notice='Stopped following this session. The working agent keeps running.';await goalChanged()}catch(e){error=message(e)}finally{updating=false}
+ }
  async function goalChanged(){
  window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))
  const mine=epoch,key=scope;updating=true
@@ -369,6 +379,13 @@
       <div class="unavailable" data-shell-body><h3>This session uses a terminal.</h3><p>A session companion needs a supported structured chat. You can still talk to Gaffer in General chat.</p><button class="btn" onclick={() => mode = 'general'}>Open general chat</button></div>
     {:else}
       <div class="conversation-body" data-shell-body>
+      {#if following}
+        <div class="follow-bar" role="status" data-state={following.state}>
+          <span class="follow-dot" aria-hidden="true"></span>
+          <p>Following <strong title={following.label}>{following.label}</strong>{#if following.state === 'paused'} · paused{:else if following.state === 'needs_user'} · needs you{:else if following.state === 'limit'} · limit reached{/if}</p>
+          <button type="button" class="quiet" disabled={updating} title="Stop Gaffer looking after this session. Queued goal instructions are removed; the working agent keeps running." onclick={() => void stopFollowing()}>{updating ? 'Stopping…' : 'Stop'}</button>
+        </div>
+      {/if}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrolling history must be reachable with a keyboard.) -->
       <div class="transcript" bind:this={transcript} data-shell-body onscroll={() => {if (transcript) stickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 90}} tabindex="0" role="region" aria-label="Gaffer conversation messages">
         {#if loading}<p class="empty" role="status">Finding our place…</p>
@@ -540,6 +557,12 @@
   .feedback p { margin:0 0 6px;line-height:1.4; }
   .bad,.attention { color:var(--bad); }
   .notice { font-size:14px;margin:6px 16px;color:var(--accent-text); }
+  .follow-bar { flex:none;display:flex;align-items:center;gap:8px;margin:10px 14px 0;padding:6px 10px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-radius:8px;background:color-mix(in srgb,var(--accent) 8%,transparent);font-size:14px;line-height:1.4; }
+  .follow-bar p { flex:1;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-soft); }
+  .follow-bar strong { color:var(--ink); }
+  .follow-dot { flex:none;width:7px;height:7px;border-radius:50%;background:var(--accent); }
+  .follow-bar .quiet { flex:none;min-height:30px;padding:0 8px;color:var(--bad); }
+  @media (pointer:coarse) { .follow-bar .quiet { min-height:40px;min-width:44px; } }
   .setup,.unavailable { padding:16px;font-size:14px;line-height:1.5; }
   .unavailable { flex:1;overflow:auto; }
   .composer { padding:10px 14px 12px;border-top:1px solid var(--line);flex:none;background:var(--card); }

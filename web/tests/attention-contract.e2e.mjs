@@ -141,7 +141,10 @@ try{
  await showSidebar(page)
  await sidebarCount(page,2)
  await surfaces(page,2,'Fix the build · studio')
- await expect(sidebar(page).locator('li.needs')).toHaveCount(1)
+ await expect(sidebar(page).locator('li.needs')).toHaveCount(2)
+ await expect(sidebar(page).locator('li.needs',{hasText:'Fix the build'})).toHaveCount(1)
+ await expect(sidebar(page).locator('li.needs',{hasText:'Docs pass'})).toHaveCount(1)
+ await expect(sidebar(page).locator('li.needs',{hasText:'Old release notes'})).toHaveCount(0)
  await expect.poll(()=>box.seen.filter(id=>id==='contract-chat-0001').length).toBeGreaterThan(1)
  await poll(page)
  await page.waitForTimeout(300)
@@ -190,8 +193,9 @@ try{
  await expect(bellButton(page,1)).toBeVisible({timeout:2000})
  await expect.poll(()=>page.title(),{timeout:2000}).toBe('(1) Tail the logs · studio · reet.sh')
  await sidebarCount(page,1)
- // What is left is the failed session, which has no row to answer.
- await expect(sidebar(page).locator('li.needs')).toHaveCount(0)
+ // What is left is the failed session: it is the one marked row, and it has no row to answer.
+ await expect(sidebar(page).locator('li.needs')).toHaveCount(1)
+ await expect(sidebar(page).locator('li.needs',{hasText:'Docs pass'})).toHaveCount(1)
  // A busy shell is unseen again whenever its terminal moves, but it is never counted: opening it marks it seen once and
  // signals nothing, so the refresh does not re-mark it in a loop.
  box.busy=true

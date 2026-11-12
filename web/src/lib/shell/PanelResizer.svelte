@@ -111,18 +111,23 @@
 </div>
 
 <style>
-  /* The handle reaches over the panel's scrollbar and the neighbour's edge, so the rule stays grabbable where they meet. */
+  /* The handle reaches over the neighbour's edge, so the rule stays grabbable where they meet, but never over the panel's
+     own scrollbar: that sits flush against the track and must keep answering the pointer. */
   .panel-resizer { position: fixed; top: 0; bottom: 0; width: 9px; z-index: 25; cursor: col-resize; touch-action: none; background: transparent; }
   .panel-resizer.absolute { position: absolute; }
-  /* In a grid track the margins widen the hit area over both sides while the grid keeps its 8 px column. */
-  .panel-resizer.inline { position: relative; top: auto; bottom: auto; width: auto; margin: 0 -8px; z-index: 3; }
+  /* In a grid track the margin widens the hit area over the neighbour's edge while the grid keeps its 8 px column. */
+  .panel-resizer.inline { position: relative; top: auto; bottom: auto; width: auto; margin: 0 -8px 0 0; z-index: 3; }
   .grip { position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: transparent; transition: background .15s; pointer-events: none; }
-  .panel-resizer.inline .grip { left: 50%; transform: translateX(-50%); }
+  /* Inline, the element starts at the track's left edge, so the rule stays at the middle of the 8 px track. */
+  .panel-resizer.inline .grip { left: 4px; transform: none; }
   .panel-resizer:hover .grip, .panel-resizer:focus-visible .grip, .panel-resizer.dragging .grip { background: var(--accent); }
   .panel-resizer:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
   .panel-resizer:focus-visible .grip { background: var(--accent); width: 2px; }
-  /* A touch tablet gets a 44 × 88 px grip on the panel side; the mini rail keeps only its 24 px track so it covers no button. */
+  /* A touch tablet gets a 44 × 88 px grip on the panel side; the mini rail keeps only its 24 px track so it covers no button.
+     Touch has no scrollbar to protect, so the grip reaches back over the panel's padding. */
   @media (pointer: coarse) {
+    .panel-resizer.inline { margin: 0 -8px; }
+    .panel-resizer.inline .grip { left: 50%; transform: translateX(-50%); }
     .panel-resizer.inline:not(.at-min)::before { content: ''; position: absolute; top: 50%; right: calc(50% - 4px); width: 44px; height: 88px; transform: translateY(-50%); }
     .panel-resizer.inline.right:not(.at-min)::before { right: auto; left: calc(50% - 4px); }
   }

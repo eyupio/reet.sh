@@ -392,7 +392,7 @@ func (s *Service) startTurn(uid int64, id string, in TurnInput, goal *store.Gaff
 	}
 	// Resolve/decrypt configuration before reserving a receipt; no network call
 	// happens until the transaction has durably admitted the request below.
-	backend, client, err := s.open(p, input, row)
+	backend, client, err := s.open(p, input, row, c.ID)
 	if err != nil {
 		return store.GafferTurn{}, err
 	}

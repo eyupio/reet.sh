@@ -308,6 +308,12 @@ its reviews and tokens, the stage in hand reads its live goal, and a report you
 ask for is added to the outcome's total. Where a provider reports no token count
 the page says so instead of showing a number. It attaches no price to any of it.
 
+Gaffer asks providers to cache the repeated part of a conversation by default:
+the Anthropic adapter marks the system prompt, the tool list and the newest turn
+as cache breakpoints, and the OpenAI adapter sends the conversation's stable
+prompt cache key. Nothing is turned on per account, and a provider below its
+minimum cacheable size simply answers without a cache hit.
+
 **Agent tokens** is what the working agents themselves report. When an agent
 says how many tokens a turn took, reet adds the turns up for the stage that did
 them, the pipeline and the outcome, with cached tokens counted apart and a

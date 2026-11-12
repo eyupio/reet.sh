@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -244,10 +245,22 @@ type chatHost struct {
 	link *chatLink
 }
 
+// chatFeatures is one control connection's negotiated chat delivery. Named
+// fields keep a new feature from silently shifting the ones after it.
+type chatFeatures struct {
+	history   bool
+	details   bool
+	questions bool
+	previews  bool
+	catalogue bool
+	provider  bool
+	usage     bool
+}
+
 // attachChats attaches a control connection to a supervisor. A nil supervisor
 // creates a connection-scoped one, which keeps unit tests and any caller that
 // does not own a process yet isolated.
-func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, flags ...bool) *chatHost {
+func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalhost.ManagerOptions, generation int64, send func(context.Context, terminalproto.Message) error, f chatFeatures) *chatHost {
 	var s *chatSupervisor
 	if supervisor != nil {
 		s = supervisor.s
@@ -255,7 +268,7 @@ func attachChats(supervisor *ChatSupervisor, ctx context.Context, opts terminalh
 		s = newChatSupervisor(ctx, opts)
 		s.startResume()
 	}
-	return s.attach(ctx, generation, send, history, details, flags...)
+	return s.attach(ctx, generation, send, f.history, f.details, f.questions, f.previews, f.catalogue, f.provider, f.usage)
 }
 
 func (s *chatSupervisor) attach(ctx context.Context, generation int64, send func(context.Context, terminalproto.Message) error, history, details bool, flags ...bool) *chatHost {
@@ -603,13 +616,9 @@ func (h *chatHost) snapshots() []terminalproto.SessionSnapshot {
 	// The controller only needs live sessions to avoid marking them lost; keep
 	// ended receipts too, but never let history push a live one out.
 	if len(out) > 32 {
-		for i := range out {
-			for j := i + 1; j < len(out); j++ {
-				if out[j].State.ReservesQuota() && !out[i].State.ReservesQuota() {
-					out[i], out[j] = out[j], out[i]
-				}
-			}
-		}
+		sort.SliceStable(out, func(i, j int) bool {
+			return out[i].State.ReservesQuota() && !out[j].State.ReservesQuota()
+		})
 		out = out[:32]
 	}
 	return out

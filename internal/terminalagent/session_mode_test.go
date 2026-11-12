@@ -558,3 +558,18 @@ func TestChatReattachRefusedWithoutFeature(t *testing.T) {
 		})
 	}
 }
+
+// hold and unhold are strictly paired; an unmatched release must surface as a
+// programming error rather than silently corrupting the count.
+func TestUnholdWithoutAHoldPanics(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	sup := newChatSupervisor(ctx, terminalhost.ManagerOptions{})
+	defer sup.Close()
+	defer cancel()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("unmatched unhold did not panic")
+		}
+	}()
+	sup.unhold("session-0123456789")
+}

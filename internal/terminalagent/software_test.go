@@ -5,6 +5,7 @@ package terminalagent
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -119,4 +120,48 @@ func waitSoftwareIdle(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+// A lost control connection must not abort an apply the controller already
+// started: the install continues so a later reconcile sees the version it left.
+func TestSoftwareApplyOutlivesTheConnection(t *testing.T) {
+	original := applySoftware
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	release := make(chan struct{})
+	applySoftware = func(ctx context.Context, _ string, _ terminalproto.SoftwareApply, _ func(string) (string, error), _ ...terminalhost.SoftwareSource) terminalproto.SoftwareApplyResult {
+		close(started)
+		select {
+		case <-ctx.Done():
+			close(cancelled)
+			return terminalproto.SoftwareApplyResult{Tool: "opencode", Action: terminalproto.SoftwareActionUpdate, State: terminalproto.SoftwareApplyFailed}
+		case <-release:
+			return appliedSoftwareResult(t)
+		}
+	}
+	t.Cleanup(func() { applySoftware = original })
+	waitSoftwareIdle(t)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	got := make(replies, 4)
+	h := http.Header{}
+	h.Set(terminalproto.FeatureHeader, terminalproto.SoftwareApplyFeature)
+	handle, cleanup := Factory(terminalhost.ManagerOptions{Home: t.TempDir(), Consent: func() error { return nil }})(ctx, http.DefaultClient, h, 1, got.send)
+	defer cleanup()
+	if err := handle(ctx, message("software-apply-00004", softwareApplyRequest())); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("apply did not start")
+	}
+	cancel()
+	select {
+	case <-cancelled:
+		t.Fatal("connection loss cancelled the apply")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	waitSoftwareIdle(t)
 }

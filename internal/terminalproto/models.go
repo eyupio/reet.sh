@@ -9,6 +9,12 @@ import (
 // controller-supplied argument or a launch.
 const ModelsFeature = "models-v1"
 
+// ModelsRefreshFeature lets a person-pressed refresh ask the connector to run
+// a fresh listing instead of answering its short cache. The field is sent only
+// to a connector that negotiated it: an older connector's strict decoder would
+// refuse the request.
+const ModelsRefreshFeature = "models-refresh-v1"
+
 const (
 	// MaxModels bounds one machine's listed models.
 	MaxModels = 500
@@ -27,9 +33,24 @@ func SupportsModels(features string) bool {
 	return false
 }
 
-// Models asks the connector to run its own listing for one tool.
+// SupportsModelsRefresh reports whether the peer advertised models-refresh-v1.
+func SupportsModelsRefresh(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ModelsRefreshFeature {
+			return true
+		}
+	}
+	return false
+}
+
+// Models asks the connector to run its own listing for one tool. Refresh asks
+// for a fresh listing even when the connector's short cache would answer the
+// last result; it is sent only to a connector that negotiated
+// models-refresh-v1, because an older connector's strict decoder would refuse
+// the field.
 type Models struct {
-	Tool string `json:"tool"`
+	Tool    string `json:"tool"`
+	Refresh bool   `json:"refresh,omitempty"`
 }
 
 func (Models) kind() string { return "models" }

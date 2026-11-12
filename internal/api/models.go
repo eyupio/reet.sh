@@ -198,10 +198,16 @@ func machineModelsRow(tool string, result terminalproto.ModelsResult, now int64)
 // readMachineModels makes one bounded read and records its outcome. A listed
 // answer replaces the cache; any other answer keeps the last good list. The
 // row is read back so the caller reports what was actually stored.
-func (s *server) readMachineModels(ctx context.Context, uid int64, agent, tool string) (store.MachineModels, error) {
+func (s *server) readMachineModels(ctx context.Context, uid int64, agent, tool string, refresh bool) (store.MachineModels, error) {
 	callCtx, cancel := context.WithTimeout(ctx, terminalbroker.ModelsCallTimeout)
 	defer cancel()
-	result, err := s.terminals.Models(callCtx, uid, agent, tool)
+	var result terminalproto.ModelsResult
+	var err error
+	if refresh {
+		result, err = s.terminals.ModelsRefresh(callCtx, uid, agent, tool)
+	} else {
+		result, err = s.terminals.Models(callCtx, uid, agent, tool)
+	}
 	now := time.Now().UnixMilli()
 	var row store.MachineModels
 	if errors.Is(err, context.Canceled) {
@@ -285,7 +291,7 @@ func (s *server) machineModels(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, machineModelsStatus(tool, "offline", "", host))
 		return
 	}
-	row, err = s.readMachineModels(r.Context(), uid, agent, tool)
+	row, err = s.readMachineModels(r.Context(), uid, agent, tool, false)
 	switch {
 	case errors.Is(err, errModelsUpdate):
 		writeJSON(w, http.StatusOK, machineModelsStatus(tool, "update", "", host))
@@ -342,7 +348,7 @@ func (s *server) machineModelsRefresh(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusTooManyRequests, "models_rate_limited", "", sentenceSlowDown, "")
 		return
 	}
-	row, err := s.readMachineModels(r.Context(), uid, agent, in.Tool)
+	row, err := s.readMachineModels(r.Context(), uid, agent, in.Tool, true)
 	switch {
 	case errors.Is(err, errModelsUpdate):
 		writeJSON(w, http.StatusOK, machineModelsStatus(in.Tool, "update", "", host))

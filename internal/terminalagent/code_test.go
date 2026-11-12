@@ -4,6 +4,7 @@ package terminalagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -135,5 +136,44 @@ func TestCreateWithProviderNeedsTheNegotiatedFeature(t *testing.T) {
 		if refused := ok && r.Code == terminalproto.LaunchOptionUnsupported; refused != tc.refused {
 			t.Fatalf("features %q: refused=%v body=%+v", tc.features, refused, body)
 		}
+	}
+}
+
+// A chat sub-feature without acp-v1 is an inconsistent header; the handler must
+// not assume a live chat the peer never negotiated.
+func TestChatSubFeaturesRequireACP(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		features string
+		body     terminalproto.Body
+	}{
+		{"model", terminalproto.ACPModelFeature, &terminalproto.ACPModel{Model: "anthropic/claude-sonnet-4-5"}},
+		{"control", terminalproto.ACPLiveControlsFeature, &terminalproto.ACPControl{}},
+		{"preview", terminalproto.ACPPreviewsFeature, &terminalproto.ACPPreview{}},
+		{"approval", terminalproto.ACPApprovalFeature, &terminalproto.ACPMode{}},
+		{"reattach", terminalproto.ChatReattachFeature, &terminalproto.ChatReattach{Tool: "opencode", Dir: "/tmp", ACPSessionID: "ses_0123456789abcdef0123456789abcdef", Title: "Chat"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := http.Header{}
+			headers.Set(terminalproto.FeatureHeader, tc.features)
+			handle, cleanup := Factory(terminalhost.ManagerOptions{})(t.Context(), http.DefaultClient, headers, 1, func(context.Context, terminalproto.Message) error { return nil })
+			defer cleanup()
+			msg := terminalproto.Message{Version: terminalproto.Version, Generation: 1, RequestID: "request-0123456789", SessionID: "session-0123456789", Body: tc.body}
+			if err := handle(t.Context(), msg); !errors.Is(err, terminalproto.ErrInvalid) {
+				t.Fatalf("features %q: error = %v", tc.features, err)
+			}
+		})
+	}
+}
+
+// Command history is a negotiated message: without command-history-v1 it is a
+// protocol error, not a switched-off terminal.
+func TestCommandHistoryNeedsItsFeature(t *testing.T) {
+	handle, cleanup := Factory(terminalhost.ManagerOptions{})(t.Context(), http.DefaultClient, http.Header{}, 1, func(context.Context, terminalproto.Message) error { return nil })
+	defer cleanup()
+	msg := terminalproto.Message{Version: terminalproto.Version, Generation: 1, RequestID: "request-0123456789", SessionID: "session-0123456789",
+		Body: &terminalproto.CommandHistory{StreamToken: "stream-0123456789"}}
+	if err := handle(t.Context(), msg); !errors.Is(err, terminalproto.ErrInvalid) {
+		t.Fatalf("error = %v", err)
 	}
 }

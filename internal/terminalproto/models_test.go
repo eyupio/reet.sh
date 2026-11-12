@@ -28,7 +28,7 @@ func TestModelsFeatureToken(t *testing.T) {
 }
 
 func TestModelsRequestRoundTrip(t *testing.T) {
-	m := testMessage(Models{Tool: "opencode"})
+	m := testMessage(Models{Tool: "opencode", Refresh: true})
 	encoded, err := Encode(m)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestModelsRequestRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, ok := decoded.Body.(*Models)
-	if !ok || got.Tool != "opencode" {
+	if !ok || got.Tool != "opencode" || !got.Refresh {
 		t.Fatalf("body %#v", decoded.Body)
 	}
 	again, err := Encode(decoded)
@@ -136,8 +136,22 @@ func TestModelsCapabilities(t *testing.T) {
 		t.Fatal("modelsOff without terminal control accepted")
 	}
 	legacy, _ := json.Marshal(Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "u", TerminalEnabled: true, HealthEnabled: true, Readiness: Ready})
-	if bytes.Contains(legacy, []byte(`"models"`)) || bytes.Contains(legacy, []byte(`"modelsOff"`)) {
+	if bytes.Contains(legacy, []byte(`"models"`)) || bytes.Contains(legacy, []byte(`"modelsOff"`)) || bytes.Contains(legacy, []byte(`"modelsRefresh"`)) {
 		t.Fatal("models fields in legacy JSON", string(legacy))
+	}
+	refresh := Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "u", TerminalEnabled: true, HealthEnabled: true, Readiness: Ready, TerminalControl: true, Models: true, ModelsRefresh: true}
+	if err := refresh.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	refresh.Models = false
+	if err := refresh.Validate(); err == nil {
+		t.Fatal("modelsRefresh without models accepted")
+	}
+}
+
+func TestModelsRefreshFeatureToken(t *testing.T) {
+	if SupportsModelsRefresh(ModelsFeature) || !SupportsModelsRefresh("models-v1, models-refresh-v1") {
+		t.Fatal("models-refresh-v1 token was not read")
 	}
 }
 

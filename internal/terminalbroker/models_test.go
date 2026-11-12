@@ -32,6 +32,12 @@ func modelsCapabilities() terminalproto.Capabilities {
 	return caps
 }
 
+func modelsRefreshCapabilities() terminalproto.Capabilities {
+	caps := modelsCapabilities()
+	caps.ModelsRefresh = true
+	return caps
+}
+
 func modelsFixture(t *testing.T, caps terminalproto.Capabilities) *modelsPeer {
 	t.Helper()
 	st, err := storetest.Open(t)
@@ -196,6 +202,33 @@ func TestModelsSendsTheExactRequestAndReturnsOneAnswer(t *testing.T) {
 	}
 	if sent[0] != (terminalproto.Models{Tool: "opencode"}) {
 		t.Fatal("request changed", sent[0])
+	}
+}
+
+func TestModelsRefreshAsksForAFreshList(t *testing.T) {
+	f := modelsFixture(t, modelsRefreshCapabilities())
+	f.answering(func(terminalproto.Body) terminalproto.Body { return listedModels() })
+	if _, err := f.b.ModelsRefresh(t.Context(), f.uid, f.agent, "opencode"); err != nil {
+		t.Fatal(err)
+	}
+	sent := f.sentRequests()
+	if len(sent) != 1 {
+		t.Fatal("one request", sent)
+	}
+	if sent[0] != (terminalproto.Models{Tool: "opencode", Refresh: true}) {
+		t.Fatal("request did not ask for a refresh", sent[0])
+	}
+}
+
+func TestModelsRefreshFallsBackForAnOlderMachine(t *testing.T) {
+	f := modelsFixture(t, modelsCapabilities())
+	f.answering(func(terminalproto.Body) terminalproto.Body { return listedModels() })
+	if _, err := f.b.ModelsRefresh(t.Context(), f.uid, f.agent, "opencode"); err != nil {
+		t.Fatal(err)
+	}
+	sent := f.sentRequests()
+	if len(sent) != 1 || sent[0] != (terminalproto.Models{Tool: "opencode"}) {
+		t.Fatal("refresh field sent to a machine that did not negotiate it", sent)
 	}
 }
 

@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A person-pressed model refresh asks an up-to-date machine for a fresh
+  listing instead of accepting its short cache, so the list a person sees after
+  Refresh is the list the agent reports now.
+- An agent software install started from the Software page keeps running if
+  the controller's private connection drops; a later reconcile observes the
+  version it left.
 - Sync no longer stops a whole machine folder over one skill. When another app
   on the machine already has a skill of the same name from a different source,
   reet now leaves that one skill alone, says so with the reason, and syncs

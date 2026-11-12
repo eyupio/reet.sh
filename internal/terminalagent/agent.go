@@ -7,11 +7,13 @@ package terminalagent
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"sort"
 	"sync"
@@ -133,12 +135,19 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 	return func(ctx context.Context, client *http.Client, headers http.Header, generation int64, send agenthealth.Sender) (func(context.Context, terminalproto.Message) error, func()) {
 		ctx, cancel := context.WithCancel(ctx)
 		var wg sync.WaitGroup
+		featureHeader := headers.Get(terminalproto.FeatureHeader)
+		features := terminalproto.ParseFeatures(featureHeader)
 		// The chats attach first: the terminal state observer below hides a
 		// session while a mode swap moves it between the two.
-		chats := attachChats(supervisor, ctx, opts, generation, send, terminalproto.SupportsACPHistory(headers.Get(terminalproto.FeatureHeader)),
-			terminalproto.SupportsACPToolDetails(headers.Get(terminalproto.FeatureHeader)),
-			terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)), terminalproto.SupportsACPPreviews(headers.Get(terminalproto.FeatureHeader)),
-			terminalproto.SupportsACPModelCatalogue(headers.Get(terminalproto.FeatureHeader)), terminalproto.SupportsACPProvider(headers.Get(terminalproto.FeatureHeader)), terminalproto.SupportsACPUsage(headers.Get(terminalproto.FeatureHeader)))
+		chats := attachChats(supervisor, ctx, opts, generation, send, chatFeatures{
+			history:   features.Has(terminalproto.ACPHistoryFeature),
+			details:   features.Has(terminalproto.ACPToolDetailsFeature),
+			questions: features.Has(terminalproto.ACPQuestionFeature),
+			previews:  features.Has(terminalproto.ACPPreviewsFeature),
+			catalogue: features.Has(terminalproto.ACPModelCatalogueFeature),
+			provider:  features.Has(terminalproto.ACPProviderFeature),
+			usage:     features.Has(terminalproto.ACPUsageFeature),
+		})
 		m, managerErr := terminalhost.NewManager(ctx, opts)
 		switcher := &agentSwitch{chats: chats, shells: swapShells(m)}
 		// swaps tracks the mode swaps in flight. A swap outlives a lost
@@ -157,19 +166,23 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				for {
 					changed := m.Changed()
 					// A session a swap is moving is left out: its terminal
-					// ending is a hand-off, not the end of the row.
-					sessions, err := observedShells(ctx, m, chats.sup)
+					// ending is a hand-off, not the end of the row. The hidden
+					// set also keeps a swapping id from being pruned, so it is
+					// reported again only when it really returns.
+					sessions, hidden, err := listShells(ctx, m, chats.sup)
 					if err != nil {
 						return
 					}
+					seen := make(map[string]struct{}, len(sessions))
 					for _, s := range sessions {
+						seen[s.ID] = struct{}{}
 						state := terminalproto.SessionChanged{
 							State:      s.State,
 							ExitCode:   s.ExitCode,
 							ActivityAt: s.ActivityAt,
 							BellAt:     s.BellAt,
 							ExitStatus: s.ExitCode,
-						}.ForFeatures(headers.Get(terminalproto.FeatureHeader))
+						}.ForFeatures(featureHeader)
 						old, known := observed[s.ID]
 						sameCode := old.ExitCode == nil && state.ExitCode == nil || old.ExitCode != nil && state.ExitCode != nil && *old.ExitCode == *state.ExitCode
 						changed := !known || old.State != state.State || !sameCode
@@ -181,6 +194,17 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 							}
 						}
 						observed[s.ID] = state
+					}
+					// Forget sessions that left the listing, so a reused id is
+					// reported as new rather than compared with a stale state.
+					for id := range observed {
+						if _, still := seen[id]; still {
+							continue
+						}
+						if _, moving := hidden[id]; moving {
+							continue
+						}
+						delete(observed, id)
 					}
 					initial = false
 					select {
@@ -235,14 +259,25 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				timer := time.NewTimer(after)
-				defer timer.Stop()
+				// Prefer a result that was ready before the timer: a select with
+				// both ready picks at random, which would report a completed
+				// request as timed out.
 				var body terminalproto.Body
 				select {
 				case body = <-done:
-				case <-timer.C:
-					body = late
-				case <-callCtx.Done():
+				default:
+					timer := time.NewTimer(after)
+					defer timer.Stop()
+					select {
+					case body = <-done:
+					case <-timer.C:
+						select {
+						case body = <-done:
+						default:
+							body = late
+						}
+					case <-callCtx.Done():
+					}
 				}
 				// Free the slot before answering, so a request the controller
 				// sends once it has this answer is not busy.
@@ -273,14 +308,14 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			// launch-v1; a plain shell is never substituted for them.
 			launchCreate, launchOK := msg.Body.(*terminalproto.Create)
 			launchNeeded := launchOK && launchCreate.Tool != ""
-			if launchNeeded && !terminalproto.SupportsLaunch(headers.Get(terminalproto.FeatureHeader)) {
+			if launchNeeded && !features.Has(terminalproto.LaunchFeature) {
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
 			// A resume is accepted only on a generation that negotiated
 			// resume-v1; an older controller never sends it.
 			resumeCreate, resumeOK := msg.Body.(*terminalproto.Create)
 			resumeNeeded := resumeOK && resumeCreate.Resume
-			if resumeNeeded && !terminalproto.SupportsResume(headers.Get(terminalproto.FeatureHeader)) {
+			if resumeNeeded && !features.Has(terminalproto.ResumeFeature) {
 				reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 				return send(callCtx, reply)
 			}
@@ -288,105 +323,53 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			// worktree-v1; without it the agent is never started in the folder.
 			worktreeCreate, worktreeOK := msg.Body.(*terminalproto.Create)
 			worktreeNeeded := worktreeOK && worktreeCreate.Worktree != ""
-			if worktreeNeeded && !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
+			if worktreeNeeded && !features.Has(terminalproto.WorktreeFeature) {
 				return respond(terminalhost.ErrLaunchUnavailable)
 			}
 			if create, ok := msg.Body.(*terminalproto.Create); ok {
-				if create.Structured && create.Worktree != "" && !terminalproto.SupportsACPWorktree(headers.Get(terminalproto.FeatureHeader)) {
+				if create.Structured && create.Worktree != "" && !features.Has(terminalproto.ACPWorktreeFeature) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
-				if create.Tool == "antigravity" && !terminalproto.SupportsAntigravity(headers.Get(terminalproto.FeatureHeader)) {
+				if create.Tool == "antigravity" && !features.Has(terminalproto.AntigravityFeature) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
-				if create.Tool == "antigravity" && create.Structured && !terminalproto.SupportsAntigravityACP(headers.Get(terminalproto.FeatureHeader)) {
+				if create.Tool == "antigravity" && create.Structured && !features.Has(terminalproto.AntigravityACPFeature) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
 				needsStartOptions := create.Structured && create.Effort != ""
-				if needsStartOptions && !terminalproto.SupportsACPStartOptions(headers.Get(terminalproto.FeatureHeader)) {
+				if needsStartOptions && !features.Has(terminalproto.ACPStartOptionsFeature) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
-				if create.Provider != "" && !terminalproto.SupportsACPProvider(headers.Get(terminalproto.FeatureHeader)) {
+				if create.Provider != "" && !features.Has(terminalproto.ACPProviderFeature) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
 				needsAgents := create.Base != "" || (!create.Structured && create.Effort != "") ||
 					create.Yolo || (create.Tool != "" && !terminalproto.ValidTool(create.Tool))
-				if needsAgents && !terminalproto.SupportsAgents(headers.Get(terminalproto.FeatureHeader)) {
+				if needsAgents && !features.Has(terminalproto.AgentsFeature) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
 			}
-			switch body := msg.Body.(type) {
-			case *terminalproto.ACPPreview:
-				if !terminalproto.SupportsACPPreviews(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.ACPControl:
-				if !terminalproto.SupportsACPLiveControls(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-				if len(body.Images) > 0 && !terminalproto.SupportsACPImages(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.ACPPrompt:
-				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-				if len(body.Images) > 0 && !terminalproto.SupportsACPImages(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.ACPModel, *terminalproto.ACPCancel, *terminalproto.ACPPermission:
-				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.ACPMode:
-				if !terminalproto.SupportsACPApproval(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.ACPAgentMode:
-				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) || !terminalproto.SupportsACPAgentMode(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.NativeView:
-				if !terminalproto.SupportsNativeView(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.Attach:
-				if body.NativeView && !terminalproto.SupportsNativeView(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.SessionMode:
-				if !terminalproto.SupportsSessionMode(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.ChatReattach:
-				if body.Effort != "" && !terminalproto.SupportsACPLiveControls(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-				if !terminalproto.SupportsChatReattach(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
-			case *terminalproto.ACPQuestionAnswer:
-				if !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) || !terminalproto.SupportsACPQuestion(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
+			if err := bodyFeatureError(msg.Body, features); err != nil {
+				return err
 			}
 			create, ok := msg.Body.(*terminalproto.Create)
 			if ok {
 				needsShellDir := create.Tool == "" && create.Dir != ""
-				if needsShellDir && !terminalproto.SupportsShellDir(headers.Get(terminalproto.FeatureHeader)) {
+				if needsShellDir && !features.Has(terminalproto.ShellDirFeature) {
 					reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 					return send(callCtx, reply)
 				}
 			}
 			acpCreate, acpOK := msg.Body.(*terminalproto.Create)
 			needsACP := acpOK && acpCreate.Structured
-			if needsACP && !terminalproto.SupportsACP(headers.Get(terminalproto.FeatureHeader)) {
-				reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable, Detail: "Update reet on this machine to use Gaffer chats."}
+			if needsACP && !features.Has(terminalproto.ACPFeature) {
+				reply.Body = terminalproto.Result{Code: terminalproto.ACPUnavailable}
 				return send(callCtx, reply)
 			}
 			// Worktree status and remove are served only on a generation that
@@ -395,7 +378,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			switch msg.Body.(type) {
 			case *terminalproto.WorktreeStatus, *terminalproto.WorktreeRemove:
 				reply.Body = terminalproto.WorktreeResult{Code: terminalproto.Denied}
-				if !terminalproto.SupportsWorktree(headers.Get(terminalproto.FeatureHeader)) {
+				if !features.Has(terminalproto.WorktreeFeature) {
 					return send(callCtx, reply)
 				}
 				if managerErr != nil {
@@ -432,9 +415,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			// needs the manager (tmux).
 			switch op := msg.Body.(type) {
 			case *terminalproto.Inspect:
-				if !terminalproto.SupportsInspect(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				browseView := op.View == "files" || op.View == "file"
 				denied := !allowed(opts.Consent)
 				browseDenied := browseView && !allowed(opts.BrowseConsent)
@@ -452,9 +432,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.InspectResult{Reason: "busy"}, terminalproto.InspectResult{Reason: "timed_out"},
 					func(ctx context.Context) terminalproto.Body { return inspect(ctx, opts.Home, req) })
 			case *terminalproto.Browse:
-				if !terminalproto.SupportsBrowse(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				if !allowed(opts.Consent) || !allowed(opts.BrowseConsent) {
 					reply.Body = terminalproto.BrowseResult{Reason: terminalproto.BrowseOff}
 					return send(callCtx, reply)
@@ -466,9 +443,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return fn(ctx, home, req, terminalhost.OSFS, time.Now)
 					})
 			case *terminalproto.Branches:
-				if !terminalproto.SupportsBranches(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				if !allowed(opts.Consent) {
 					reply.Body = terminalproto.BranchesResult{Reason: terminalproto.BranchesDenied}
 					return send(callCtx, reply)
@@ -483,9 +457,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return terminalhost.ListBranches(ctx, home, req, git)
 					})
 			case *terminalproto.BranchPrunePlan:
-				if !terminalproto.SupportsBranchPrune(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				if !allowed(opts.Consent) {
 					reply.Body = terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesDenied}
 					return send(callCtx, reply)
@@ -500,9 +471,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return terminalhost.PlanBranchPrune(ctx, home, req, git)
 					})
 			case *terminalproto.BranchPrune:
-				if !terminalproto.SupportsBranchPrune(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				if !allowed(opts.Consent) {
 					reply.Body = terminalproto.BranchPruneResult{Reason: terminalproto.BranchesDenied}
 					return send(callCtx, reply)
@@ -517,9 +485,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return terminalhost.PruneBranches(ctx, home, req, git)
 					})
 			case *terminalproto.BranchSync:
-				if !terminalproto.SupportsBranchSync(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				if !allowed(opts.Consent) {
 					reply.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesDenied}
 					return send(callCtx, reply)
@@ -534,12 +499,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return terminalhost.SyncBranch(ctx, home, req, git)
 					})
 			case *terminalproto.Models:
-				// Models are served only on a generation that negotiated
-				// models-v1, and only for a tool the connector can list. A
-				// tool without a listing answers unsupported without exec.
-				if !terminalproto.SupportsModels(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				if !terminalproto.ValidToolV2(op.Tool) {
 					return terminalproto.ErrInvalid
 				}
@@ -562,8 +521,9 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				cached, seen := modelsLast[op.Tool]
 				modelsMu.Unlock()
 				// The floor answers the previous result instead of running the
-				// listing again, whether that result was a list or a failure.
-				if seen && time.Since(cached.at) < modelListFloor {
+				// listing again, whether that result was a list or a failure. A
+				// refresh is a person asking now, so it always runs.
+				if !op.Refresh && seen && time.Since(cached.at) < modelListFloor {
 					reply.Body = cached.result
 					return send(callCtx, reply)
 				}
@@ -579,12 +539,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return r
 					})
 			case *terminalproto.SoftwareApply:
-				// An apply is served only on software-apply-v1, and only while the
-				// local terminal access consent is on. The connector owns the
-				// artifact and the command; the request only names them.
-				if !terminalproto.SupportsSoftwareApply(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				if op.Tool != "opencode" || !terminalproto.ValidToolV2(op.Tool) {
 					return terminalproto.ErrInvalid
 				}
@@ -597,7 +551,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplyBusy},
 					terminalproto.SoftwareApplyResult{Tool: req.Tool, Action: req.Action, State: terminalproto.SoftwareApplyFailed, Reason: terminalproto.SoftwareApplyTimedOut},
 					func(ctx context.Context) terminalproto.Body {
-						workCtx, cancel := context.WithTimeout(ctx, softwareApplyWorkTimeout)
+						// The apply outlives the control connection it arrived on:
+						// a lost connection must not leave a half-applied update,
+						// and a later reconcile observes the version it left.
+						workCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), softwareApplyWorkTimeout)
 						defer cancel()
 						release, err := lockSoftwareWrite(workCtx)
 						if err != nil {
@@ -630,12 +587,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						})
 					})
 			case *terminalproto.Upload:
-				// Uploads are served only on a generation that negotiated
-				// upload-v1. Without it the message is a protocol error and
-				// nothing is sent back, as for browse and branches.
-				if !terminalproto.SupportsUpload(headers.Get(terminalproto.FeatureHeader)) {
-					return terminalproto.ErrInvalid
-				}
 				// The local switches are checked before the manager: a machine
 				// that turned uploads or terminal access off answers at once,
 				// without opening a stream.
@@ -647,50 +598,50 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					reply.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 					return send(callCtx, reply)
 				}
-				if !op.Launch {
-					sessions, err := m.List(callCtx)
-					if err != nil {
-						return respond(err)
-					}
-					running := false
-					for _, s := range sessions {
-						if s.ID == msg.SessionID && s.State == terminalproto.Running {
-							running = true
-							break
-						}
-					}
-					if !running {
-						reply.Body = terminalproto.Result{Code: terminalproto.NotFound}
-						return send(callCtx, reply)
-					}
-				}
 				if !uploads.acquire() {
 					reply.Body = terminalproto.Result{Code: terminalproto.UploadBusy}
 					return send(callCtx, reply)
 				}
-				released := false
-				defer func() {
-					if !released {
-						uploads.release()
-					}
-				}()
-				c, err := dialUploadStream(callCtx, client, headers, msg, op.StreamToken, terminalproto.UploadOperation)
-				if err != nil {
-					return respond(terminalhost.ErrNotRunning)
-				}
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				if err := send(callCtx, reply); err != nil {
-					c.CloseNow()
-					return err
-				}
+				// The running check and the stream dial touch tmux and the
+				// network; keep them off the dispatcher so another request is
+				// not held behind them.
 				wg.Add(1)
-				go func() {
+				go func(in terminalproto.Upload) {
 					defer wg.Done()
 					defer uploads.release()
+					if !in.Launch {
+						sessions, err := m.List(callCtx)
+						if err != nil {
+							reply.Body = result(err)
+							_ = send(callCtx, reply)
+							return
+						}
+						running := false
+						for _, s := range sessions {
+							if s.ID == msg.SessionID && s.State == terminalproto.Running {
+								running = true
+								break
+							}
+						}
+						if !running {
+							reply.Body = terminalproto.Result{Code: terminalproto.NotFound}
+							_ = send(callCtx, reply)
+							return
+						}
+					}
+					c, err := dialUploadStream(callCtx, client, headers, msg, in.StreamToken, terminalproto.UploadOperation)
+					if err != nil {
+						reply.Body = result(terminalhost.ErrNotRunning)
+						_ = send(callCtx, reply)
+						return
+					}
 					defer c.CloseNow()
-					serveUpload(callCtx, c, m, msg.SessionID, *op)
-				}()
-				released = true
+					reply.Body = terminalproto.Result{Code: terminalproto.OK}
+					if err := send(callCtx, reply); err != nil {
+						return
+					}
+					serveUpload(callCtx, c, m, msg.SessionID, in)
+				}(*op)
 				return nil
 			}
 			// A create or end of a session a swap is moving is busy: it would
@@ -755,7 +706,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					if err != nil {
 						reply.Body = chatResult(err)
 					} else {
-						reply.Body = changed.ForFeatures(headers.Get(terminalproto.FeatureHeader))
+						reply.Body = changed.ForFeatures(featureHeader)
 					}
 					_ = send(callCtx, reply)
 				}(*op)
@@ -780,10 +731,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					if err != nil {
 						reply.Body = chatResult(err)
 						if errors.Is(err, errReattachStarting) {
-							reply.Body = resultFor(err, headers.Get(terminalproto.FeatureHeader))
+							reply.Body = resultFor(err, featureHeader)
 						}
 					} else {
-						reply.Body = changed.ForFeatures(headers.Get(terminalproto.FeatureHeader))
+						reply.Body = changed.ForFeatures(featureHeader)
 					}
 					_ = send(callCtx, reply)
 				}(*op)
@@ -815,11 +766,9 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			case *terminalproto.NativeView:
 				_, available := chats.nativeTerminal(msg.SessionID)
 				available = available && m != nil
-				answer := terminalproto.NativeViewResult{Available: available}
-				if !available {
-					answer.Reason = "This running agent has no shared native terminal. Start a supported OpenCode chat on an updated machine."
-				}
-				reply.Body = answer
+				// The controller words the refusal; the machine only reports
+				// whether it has a native view to offer.
+				reply.Body = terminalproto.NativeViewResult{Available: available}
 				return send(callCtx, reply)
 			case *terminalproto.ACPPrompt:
 				if err := chats.prompt(msg.SessionID, op.Text, op.Images); err != nil {
@@ -864,9 +813,6 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}()
 				return nil
 			case *terminalproto.ACPModel:
-				if !terminalproto.SupportsACPModel(headers.Get(terminalproto.FeatureHeader)) {
-					return respond(terminalhost.ErrOperationConflict)
-				}
 				if err := chats.setModel(callCtx, msg.SessionID, op.Model); err != nil {
 					return respond(err)
 				}
@@ -912,7 +858,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						return respond(err)
 					}
 				}
-				snapshot, err := switcher.reconcile(callCtx, headers.Get(terminalproto.FeatureHeader))
+				snapshot, err := switcher.reconcile(callCtx, featureHeader)
 				if err != nil {
 					return respond(err)
 				}
@@ -924,39 +870,54 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			}
 			switch op := msg.Body.(type) {
 			case *terminalproto.Create:
-				createCtx := callCtx
-				if terminalproto.SupportsProgress(headers.Get(terminalproto.FeatureHeader)) {
-					// Each stage is told to the controller as it begins, before this create's one answer.
-					createCtx = terminalhost.WithProgress(callCtx, func(stage terminalproto.LaunchStage) {
-						note := msg
-						note.Body = terminalproto.LaunchProgress{Stage: stage}
-						noteCtx, cancel := context.WithTimeout(callCtx, time.Second)
-						defer cancel()
-						_ = send(noteCtx, note)
-					})
-				}
-				if op.Tool == agentsoftware.OpenCodeTool {
-					release, err := lockSoftwareRead(createCtx)
-					if err != nil {
-						return respond(err)
+				// Starting tmux can wait; answer from its own goroutine so the
+				// dispatcher keeps serving other requests meanwhile.
+				wg.Add(1)
+				held = false
+				go func(in terminalproto.Create) {
+					defer wg.Done()
+					defer chats.sup.unhold(msg.SessionID)
+					createCtx := callCtx
+					if features.Has(terminalproto.ProgressFeature) {
+						// Each stage is told to the controller as it begins, before this create's one answer.
+						createCtx = terminalhost.WithProgress(callCtx, func(stage terminalproto.LaunchStage) {
+							note := msg
+							note.Body = terminalproto.LaunchProgress{Stage: stage}
+							noteCtx, cancel := context.WithTimeout(callCtx, time.Second)
+							defer cancel()
+							_ = send(noteCtx, note)
+						})
 					}
-					defer release()
-				}
-				s, err := m.Create(createCtx, msg.RequestID, msg.SessionID, *op)
-				if err != nil {
-					return respond(err)
-				}
-				// Only a worktree create's session has a worktree to report.
-				reply.Body = terminalproto.SessionChanged{
-					State:        s.State,
-					ExitCode:     s.ExitCode,
-					ActivityAt:   s.ActivityAt,
-					BellAt:       s.BellAt,
-					ExitStatus:   s.ExitCode,
-					WorktreePath: s.WorktreePath,
-					WorktreeRepo: s.WorktreeRepo,
-				}.ForFeatures(headers.Get(terminalproto.FeatureHeader))
-				return respond(nil)
+					if in.Tool == agentsoftware.OpenCodeTool {
+						release, err := lockSoftwareRead(createCtx)
+						if err != nil {
+							reply.Body = result(err)
+							_ = send(callCtx, reply)
+							return
+						}
+						defer release()
+					}
+					s, err := m.Create(createCtx, msg.RequestID, msg.SessionID, in)
+					if callCtx.Err() != nil {
+						return
+					}
+					if err != nil {
+						reply.Body = result(err)
+					} else {
+						// Only a worktree create's session has a worktree to report.
+						reply.Body = terminalproto.SessionChanged{
+							State:        s.State,
+							ExitCode:     s.ExitCode,
+							ActivityAt:   s.ActivityAt,
+							BellAt:       s.BellAt,
+							ExitStatus:   s.ExitCode,
+							WorktreePath: s.WorktreePath,
+							WorktreeRepo: s.WorktreeRepo,
+						}.ForFeatures(featureHeader)
+					}
+					_ = send(callCtx, reply)
+				}(*op)
+				return nil
 			case *terminalproto.End:
 				s, err := m.End(callCtx, msg.RequestID, msg.SessionID)
 				if err != nil {
@@ -968,7 +929,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					ActivityAt: s.ActivityAt,
 					BellAt:     s.BellAt,
 					ExitStatus: s.ExitCode,
-				}.ForFeatures(headers.Get(terminalproto.FeatureHeader))
+				}.ForFeatures(featureHeader)
 				return respond(nil)
 			case *terminalproto.Attach:
 				if !terminalproto.ValidID(op.StreamToken) {
@@ -1037,45 +998,56 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				reply.Body = terminalproto.Result{Code: terminalproto.OK}
 				return respond(nil)
 			case *terminalproto.History, *terminalproto.CommandHistory:
-				var data []byte
-				var err error
 				var token string
 				switch request := op.(type) {
 				case *terminalproto.History:
 					token = request.StreamToken
-					data, err = m.History(callCtx, msg.SessionID, request.Lines)
 				case *terminalproto.CommandHistory:
-					if !terminalproto.SupportsCommandHistory(headers.Get(terminalproto.FeatureHeader)) {
-						return respond(terminalhost.ErrTerminalDisabled)
-					}
 					token = request.StreamToken
-					data, err = m.CommandHistory(callCtx, msg.SessionID)
 				}
 				if !terminalproto.ValidID(token) {
 					return terminalproto.ErrInvalid
 				}
-				if err != nil {
-					return respond(err)
-				}
-				c, err := stream(callCtx, client, headers, msg, token, "history")
-				if err != nil {
-					return respond(terminalhost.ErrNotRunning)
-				}
+				// Reading the terminal and dialing the stream can wait on tmux
+				// or the network; do both off the dispatcher. The answer is sent
+				// before the bytes so the controller is already reading.
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
+					var data []byte
+					var err error
+					switch request := op.(type) {
+					case *terminalproto.History:
+						data, err = m.History(callCtx, msg.SessionID, request.Lines)
+					case *terminalproto.CommandHistory:
+						data, err = m.CommandHistory(callCtx, msg.SessionID)
+					}
+					if err != nil {
+						reply.Body = result(err)
+						_ = send(callCtx, reply)
+						return
+					}
+					c, err := stream(callCtx, client, headers, msg, token, "history")
+					if err != nil {
+						reply.Body = result(terminalhost.ErrNotRunning)
+						_ = send(callCtx, reply)
+						return
+					}
 					defer c.CloseNow()
+					reply.Body = terminalproto.Result{Code: terminalproto.OK}
+					if err := send(callCtx, reply); err != nil {
+						return
+					}
 					for len(data) > 0 {
 						n := min(len(data), terminalproto.MaxBinaryBytes)
-						if write(ctx, c, data[:n]) != nil {
+						if write(callCtx, c, data[:n]) != nil {
 							return
 						}
 						data = data[n:]
 					}
 					_ = c.Close(websocket.StatusNormalClosure, "")
 				}()
-				reply.Body = terminalproto.Result{Code: terminalproto.OK}
-				return respond(nil)
+				return nil
 			default:
 				return terminalproto.ErrInvalid
 			}
@@ -1091,6 +1063,108 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			wg.Wait()
 		}
 	}
+}
+
+// bodyFeatureError is the protocol gate every message kind passes before it is
+// served. It answers ErrInvalid for a kind the connection did not negotiate,
+// so a peer that never agreed to a message never receives its typed answer.
+// Chat sub-features require acp-v1 as well: a connection with an inconsistent
+// header must not reach a handler that assumes a live chat.
+func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet) error {
+	has := features.Has
+	acp := func(feature string) bool { return has(terminalproto.ACPFeature) && has(feature) }
+	switch b := body.(type) {
+	case *terminalproto.ACPPreview:
+		if !acp(terminalproto.ACPPreviewsFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.ACPControl:
+		if !acp(terminalproto.ACPLiveControlsFeature) {
+			return terminalproto.ErrInvalid
+		}
+		if len(b.Images) > 0 && !has(terminalproto.ACPImageFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.ACPPrompt:
+		if !has(terminalproto.ACPFeature) {
+			return terminalproto.ErrInvalid
+		}
+		if len(b.Images) > 0 && !has(terminalproto.ACPImageFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.ACPModel, *terminalproto.ACPCancel, *terminalproto.ACPPermission:
+		if !has(terminalproto.ACPFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.ACPMode:
+		if !acp(terminalproto.ACPApprovalFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.ACPAgentMode:
+		if !acp(terminalproto.ACPAgentModeFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.ACPQuestionAnswer:
+		if !acp(terminalproto.ACPQuestionFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.NativeView:
+		if !has(terminalproto.NativeViewFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.Attach:
+		if b.NativeView && !has(terminalproto.NativeViewFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.SessionMode:
+		if !has(terminalproto.SessionModeFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.ChatReattach:
+		if !acp(terminalproto.ChatReattachFeature) {
+			return terminalproto.ErrInvalid
+		}
+		if b.Effort != "" && !has(terminalproto.ACPLiveControlsFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.CommandHistory:
+		if !has(terminalproto.CommandHistoryFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.Inspect:
+		if !has(terminalproto.InspectFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.Browse:
+		if !has(terminalproto.BrowseFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.Branches:
+		if !has(terminalproto.BranchesFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.BranchPrunePlan, *terminalproto.BranchPrune:
+		if !has(terminalproto.BranchPruneFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.BranchSync:
+		if !has(terminalproto.BranchSyncFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.Models:
+		if !has(terminalproto.ModelsFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.SoftwareApply:
+		if !has(terminalproto.SoftwareApplyFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.Upload:
+		if !has(terminalproto.UploadFeature) {
+			return terminalproto.ErrInvalid
+		}
+	}
+	return nil
 }
 
 // dialUploadStream is the production reverse-stream dialer; tests replace it
@@ -1401,11 +1475,20 @@ var _ io.ReadWriteCloser = (*terminalhost.Attachment)(nil)
 
 func newID() string {
 	var b [24]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic("secure randomness unavailable")
+	if _, err := rand.Read(b[:]); err == nil {
+		return hex.EncodeToString(b[:])
 	}
+	// A request id is not a secret, so a failed entropy read must not take the
+	// connector and every session down with it. Time, pid and a counter keep
+	// ids distinct within and across processes.
+	binary.BigEndian.PutUint64(b[0:8], uint64(time.Now().UnixNano()))
+	binary.BigEndian.PutUint64(b[8:16], idFallback.Add(1))
+	binary.BigEndian.PutUint64(b[16:24], uint64(os.Getpid()))
 	return hex.EncodeToString(b[:])
 }
+
+// idFallback disambiguates ids made after crypto/rand failed.
+var idFallback atomic.Uint64
 
 // reconcileSnapshot merges terminal and chat receipts without letting history
 // push a live session out of the complete 32-entry snapshot. The controller

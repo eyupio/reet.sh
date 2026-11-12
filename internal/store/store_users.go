@@ -418,19 +418,21 @@ func (s *Store) InstalledSkillsFor(userID int64, host string) ([]Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := []Skill{}
 	reader := newSkillRowScanner(false)
 	for rows.Next() {
 		skill, err := reader.scan(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, skill)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, err
 	}
+	rows.Close()
 	if err := s.attachMetaForMode(userID, out, attachMode{}); err != nil {
 		return nil, err
 	}

@@ -5,7 +5,10 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -211,6 +214,173 @@ func TestRepeatedDisconnectsJoinWorkersBeforeTheNextGeneration(t *testing.T) {
 			t.Fatalf("generation %d did not release its workers after a drop", generation)
 		}
 		sequence++
+	}
+}
+
+// After a string of failures the delay has climbed to its ceiling. A session
+// that then stays up must reset it, or every later drop would be retried at the
+// slowest interval: the machine would recover sluggishly for the rest of its
+// life because of a burst of failures that is long over.
+func TestAStableSessionResetsADelayThatHadClimbed(t *testing.T) {
+	const retryMin = 50 * time.Millisecond
+	cfg := AgentConfig{BackoffMin: retryMin, BackoffMax: 400 * time.Millisecond, StableSession: 20 * time.Millisecond, Logf: func(string, ...any) {}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var count atomic.Int64
+	var endedAt atomic.Int64
+	waits := make(chan time.Duration, 16)
+	session := func(ctx context.Context, _ *int64) (bool, error) {
+		now := time.Now().UnixNano()
+		if ended := endedAt.Load(); ended != 0 {
+			waits <- time.Duration(now - ended)
+		}
+		n := count.Add(1)
+		switch {
+		case n <= 6:
+			// Six instantly-dying sessions: the delay climbs to its ceiling.
+			endedAt.Store(time.Now().UnixNano())
+			return true, errors.New("private control connection lost")
+		case n == 7:
+			// One healthy session, well past the stable window.
+			select {
+			case <-time.After(60 * time.Millisecond):
+			case <-ctx.Done():
+			}
+			endedAt.Store(time.Now().UnixNano())
+			return true, nil
+		default:
+			cancel()
+			return true, errors.New("private control connection lost")
+		}
+	}
+	_ = reconnectLoop(ctx, cfg, session)
+	close(waits)
+	var all []time.Duration
+	for w := range waits {
+		all = append(all, w)
+	}
+	if len(all) < 7 {
+		// Six waits follow the six dying sessions; the seventh follows the
+		// healthy one. The final session is cancelled, so it adds no wait.
+		t.Fatalf("only %d waits recorded", len(all))
+	}
+	// The waits before the healthy session must have climbed well past base.
+	if all[5] < 2*retryMin {
+		t.Fatalf("the delay did not climb during the failures: %v", all[5])
+	}
+	// The wait after the healthy session must be back at the base interval, not
+	// still at the ceiling. Jitter is ±10%, so the ceiling is unmistakable.
+	if after := all[6]; after > 2*retryMin {
+		t.Fatalf("a healthy session did not reset a climbed delay: waited %v (base %v, ceiling %v)", after, retryMin, cfg.BackoffMax)
+	}
+}
+
+// Exactly one connection attempt may be in flight at a time, however often the
+// session fails or however fast it returns. Overlapping attempts would give the
+// controller two live connections for one machine, and the second would fence
+// the first and detach whatever it had attached. The peak assertion catches
+// attempts that genuinely overlap; -race is what catches an attempt started in
+// a goroutine and not joined, which is the realistic way this regresses.
+func TestReconnectLoopNeverRunsTwoAttemptsAtOnce(t *testing.T) {
+	cfg := AgentConfig{BackoffMin: time.Millisecond, BackoffMax: 2 * time.Millisecond, StableSession: 20 * time.Millisecond, Logf: func(string, ...any) {}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var inFlight, peak atomic.Int64
+	var count atomic.Int64
+	session := func(context.Context, *int64) (bool, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			high := peak.Load()
+			if n <= high || peak.CompareAndSwap(high, n) {
+				break
+			}
+		}
+		if count.Add(1) >= 40 {
+			cancel()
+		}
+		return true, errors.New("private control connection lost")
+	}
+	started := time.Now()
+	_ = reconnectLoop(ctx, cfg, session)
+	if got := peak.Load(); got != 1 {
+		t.Fatalf("%d connection attempts ran at once; the controller would hold duplicate connections", got)
+	}
+	if inFlight.Load() != 0 {
+		t.Fatalf("an attempt was still in flight after the loop returned")
+	}
+	if count.Load() < 40 {
+		t.Fatalf("loop stopped early after %d attempts in %v", count.Load(), time.Since(started))
+	}
+}
+
+// A revoked or expired enrollment must not be retried at the base interval and
+// must not be reported as a generic refusal. It is a permanent condition: the
+// retry goes straight to the ceiling and the reason says re-enrolling is the
+// fix, so an operator is not left watching an agent that never connects.
+func TestRefusedEnrollmentBacksOffToTheCeilingAndSaysWhy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "machine enrollment is missing or revoked", http.StatusForbidden)
+	}))
+	defer server.Close()
+	cfg := AgentConfig{
+		ServerURL: server.URL, Token: "token", AgentID: "agent0123456789abcdef",
+		Secret: "secret", Version: "test", HTTPClient: server.Client(),
+		BackoffMin: 5 * time.Millisecond, BackoffMax: 2 * time.Second,
+		StableSession: 10 * time.Millisecond, Logf: func(string, ...any) {},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var count atomic.Int64
+	var endedAt atomic.Int64
+	waits := make(chan time.Duration, 8)
+	var seen []string
+	var mu sync.Mutex
+	cfg.OnError = func(message string) {
+		mu.Lock()
+		seen = append(seen, message)
+		mu.Unlock()
+	}
+	session := func(ctx context.Context, sequence *int64) (bool, error) {
+		if ended := endedAt.Load(); ended != 0 {
+			waits <- time.Duration(time.Now().UnixNano() - ended)
+		}
+		if count.Add(1) >= 3 {
+			cancel()
+		}
+		connected, err := runPrivateSession(ctx, cfg, sequence)
+		endedAt.Store(time.Now().UnixNano())
+		return connected, err
+	}
+	_ = reconnectLoop(ctx, cfg, session)
+	close(waits)
+	var all []time.Duration
+	for w := range waits {
+		all = append(all, w)
+	}
+	if len(all) < 2 {
+		t.Fatalf("only %d waits recorded", len(all))
+	}
+	// A permanent refusal must go to the ceiling on the first retry, not climb
+	// from the base interval. Jitter is ±10%, so base and ceiling are
+	// unmistakable here.
+	if all[0] < cfg.BackoffMax/2 {
+		t.Fatalf("a refused enrollment was retried after %v, not at the ceiling %v", all[0], cfg.BackoffMax)
+	}
+	if all[len(all)-1] < cfg.BackoffMax/2 {
+		t.Fatalf("the refused retry did not stay at the ceiling: %v", all[len(all)-1])
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) == 0 {
+		t.Fatal("the refusal was never surfaced through OnError")
+	}
+	joined := strings.Join(seen, "\n")
+	if !strings.Contains(joined, "re-enroll") {
+		t.Fatalf("the surfaced reason does not say retrying cannot fix it: %q", joined)
+	}
+	if strings.Contains(joined, "private bootstrap was refused") && !strings.Contains(joined, "re-enroll") {
+		t.Fatalf("the refusal was reported generically: %q", joined)
 	}
 }
 

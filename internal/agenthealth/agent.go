@@ -230,6 +230,14 @@ func reconnectLoop(ctx context.Context, cfg AgentConfig, session func(context.Co
 			backoff = cfg.BackoffMin
 			lastError = ""
 		}
+		// A permanent rejection is not going to start working on the fourth try.
+		// Jump straight to the ceiling so the agent is not dialing a controller
+		// that will keep refusing it, while still retrying in case it is
+		// re-enrolled while the service runs.
+		var refused *enrollmentRefusedError
+		if errors.As(err, &refused) {
+			backoff = cfg.BackoffMax
+		}
 		if cfg.OnError != nil && err != nil {
 			cfg.OnError(err.Error())
 		}
@@ -858,6 +866,14 @@ func bootstrap(ctx context.Context, cfg AgentConfig) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			// A revoked or expired enrollment cannot be fixed by retrying, and
+			// retrying it at full speed hides the problem: the machine simply
+			// never appears connected and the agent log fills with identical
+			// lines. This is surfaced as a distinct, permanent cause so the loop
+			// backs off to its ceiling and the reason is named for the operator.
+			return "", &enrollmentRefusedError{status: resp.StatusCode}
+		}
 		return "", fmt.Errorf("private bootstrap was refused (HTTP %d)", resp.StatusCode)
 	}
 	var reply struct {
@@ -870,6 +886,19 @@ func bootstrap(ctx context.Context, cfg AgentConfig) (string, error) {
 		return "", errors.New("private bootstrap reply is invalid")
 	}
 	return reply.Address, nil
+}
+
+// enrollmentRefusedError is a bootstrap rejection retrying cannot fix. It is a
+// distinct type so the retry policy can treat it differently from a transport
+// failure, and so the operator is told the truth: re-enrolling is the remedy.
+type enrollmentRefusedError struct{ status int }
+
+func (e *enrollmentRefusedError) Error() string {
+	reason := "was refused"
+	if e.status == http.StatusUnauthorized {
+		reason = "was not accepted"
+	}
+	return fmt.Sprintf("this machine's enrollment %s (HTTP %d); re-enroll this machine, retrying cannot fix it", reason, e.status)
 }
 
 func authHeaders(cfg AgentConfig) http.Header {

@@ -65,6 +65,12 @@ before the next begins, so a reconnect never leaves two readers or duplicate
 timers behind. Both the 90-second liveness window and the 30-second stability
 period are configurable on `AgentConfig`; the defaults are the ones above.
 
+A revoked or expired enrollment (the bootstrap answering 401 or 403) is a
+permanent condition, so the agent retries it at the 15-second ceiling rather
+than climbing there, and reports that re-enrolling is the fix rather than a bare
+HTTP status. It keeps retrying so a machine re-enrolled while the service runs
+recovers without a restart.
+
 HTTP is accepted only for localhost/loopback development. Health and sync
 work independently of this flag. Configure and retain the existing private-
 connection sealing key (`REET_BACKUP_KEY`, or the instance's protected

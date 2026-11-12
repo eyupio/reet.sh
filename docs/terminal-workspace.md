@@ -466,8 +466,10 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
   focus and extra keys. `screen-frame` owns visual padding; the immediate xterm
   fitting parent `screen` has no padding. FitAddon reads that parent's dimensions
   without subtracting parent padding. Keep this split to prevent an oversized
-  grid clipping its final row. `keyboard.ts` classifies terminal-only shortcuts.
-  `connection.ts` retains lease, recovery, generation and input-replay boundaries.
+  grid clipping its final row. `keyboard.ts` classifies terminal-only shortcuts;
+  `virtualKeys.ts` holds the extra-key rows and how a selected modifier joins the next
+  key, covered by `web/tests/terminal-keys.test.mjs`. `connection.ts` retains lease,
+  recovery, generation and input-replay boundaries.
   The pane requests a full xterm refresh after each parsed batch and fit, keeping
   accessibility rows current through full redraws and resize. xterm coalesces these
   requests in its rendering frame. Terminal modes and screen-reader announcements
@@ -640,8 +642,12 @@ header's controls and the footer's Focus terminal (a touch tablet makes all but 
 toolbar and extra keys 44 px). The screen frame padding is 4 px. The toolbar and key row
 scroll sideways; the end that hides more controls fades. The key row is focusable, so
 arrow keys scroll it; that tab stop also appears in mouse windows narrower than 650 px,
-where the key row shows too. The Alt+Shift+M advice is hidden on touch screens (no
-hover, coarse pointer); Restore size stays.
+where the key row shows too. The key row carries Ctrl, Alt and Shift toggles, Esc, Tab,
+Backspace, Enter and the four arrows; a keyboard button opens an expanded pad over the
+terminal with common Ctrl combinations, Home/End/PgUp/PgDn/Ins/Del, F1–F12 and symbols,
+without taking a row from the shell. A selected modifier joins the next key as xterm
+sends it (Ctrl with Up is `CSI 1;5A`). The Alt+Shift+M advice is hidden on touch screens
+(no hover, coarse pointer); Restore size stays.
 
 **Sideways phones.** The toolbar and the extra keys share one row, each scrolling with
 its own fade, and the pane footer is hidden (the state stays in the header). At 844 ×

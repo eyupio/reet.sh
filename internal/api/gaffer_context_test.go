@@ -51,6 +51,7 @@ func contextAPISession(t *testing.T, st *store.Store, uid int64) store.TerminalS
 }
 
 func TestContextMCPAndBrowserGrantsRemainSeparateAndRecheckAccess(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

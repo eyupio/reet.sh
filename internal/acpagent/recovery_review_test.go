@@ -41,6 +41,7 @@ func TestAgentExitDrainsFinalFrames(t *testing.T) {
 }
 
 func TestAgentExitBoundsBlockedOutputDelivery(t *testing.T) {
+	t.Parallel()
 	opts, _ := options(t, "exit-final-frames", testVersion)
 	opts.TurnTimeout = time.Minute
 	release := make(chan struct{})
@@ -93,6 +94,7 @@ func TestBrokenOutputStreamEndsChat(t *testing.T) {
 }
 
 func TestLeaderExitWithInheritedOutputEndsChat(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"leader-exit-open-stdout", "leader-exit-open-stderr"} {
 		t.Run(scenario, func(t *testing.T) {
 			opts, _ := options(t, scenario, testVersion)

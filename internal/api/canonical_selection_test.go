@@ -16,6 +16,7 @@ import (
 )
 
 func TestCanonicalSelectionOfflineRenameAndNewMachine(t *testing.T) {
+	t.Parallel()
 	h := newSyncContractHarness(t)
 	h.hosted("canonical", "first content", false, true)
 	items, err := h.st.LibraryFor(h.uid)
@@ -196,6 +197,7 @@ func TestCanonicalSelectedMachineEditsAndOfflineOrdering(t *testing.T) {
 }
 
 func TestCanonicalImportedSourceEditsAndBlockedItemIsolation(t *testing.T) {
+	t.Parallel()
 	h := newSyncContractHarness(t)
 	source, destination := h.machine("root-source"), h.machine("root-destination")
 	source.localSkill("imported", "original imported bytes")
@@ -333,6 +335,7 @@ func TestCanonicalEditReceiptsClockFallbackAndEnrollmentFence(t *testing.T) {
 }
 
 func TestCanonicalSelectionsAcrossSupportedPrivateAdapters(t *testing.T) {
+	t.Parallel()
 	h := newSyncContractHarness(t)
 	h.hosted("adapters", "exact bytes", false, true)
 	items, err := h.st.LibraryFor(h.uid)
@@ -360,6 +363,7 @@ func TestCanonicalSelectionsAcrossSupportedPrivateAdapters(t *testing.T) {
 }
 
 func TestCanonicalForegroundNormalAndReconnectLatency(t *testing.T) {
+	t.Parallel()
 	h := newSyncContractHarness(t)
 	h.hosted("latency", "original", false, true)
 	items, err := h.st.LibraryFor(h.uid)
@@ -434,6 +438,7 @@ waiting:
 }
 
 func TestSimpleSyncContractSelectedItemsOnly(t *testing.T) {
+	t.Parallel()
 	h := newSyncContractHarness(t)
 	wanted := h.hosted("selected", "wanted", false, true)
 	h.hosted("unselected", "must stay off machines", false, true)
@@ -574,6 +579,7 @@ func TestCanonicalExistingCopiesAdoptWithoutLosingEdits(t *testing.T) {
 }
 
 func TestCanonicalUnknownLocalCopyIsPreservedWhileHealthyItemsSync(t *testing.T) {
+	t.Parallel()
 	h := newSyncContractHarness(t)
 	h.hosted("unknown", "central bytes", false, true)
 	h.hosted("healthy", "healthy bytes", false, true)

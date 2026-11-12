@@ -96,6 +96,7 @@ func TestBoundedCollectorDoesNotAccumulateCallsOrReuseLateSample(t *testing.T) {
 }
 
 func TestDisconnectedSessionJoinsWorkersWhileCollectorIsStalled(t *testing.T) {
+	t.Parallel()
 	peers := make(chan *websocket.Conn, 1)
 	finish := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -54,6 +54,7 @@ func openedWith(t *testing.T, tg target, r reply, password string) (backup.Manif
 }
 
 func TestTheRunRouteSealsOneCopyWithAPasswordOnTheRequest(t *testing.T) {
+	t.Parallel()
 	tg := newTarget(t, false)
 	pw := "a password for the team's copy"
 	r := runRequest(t, tg, "owner-token", str(`{"password":"`+pw+`"}`))
@@ -71,6 +72,7 @@ func TestTheRunRouteSealsOneCopyWithAPasswordOnTheRequest(t *testing.T) {
 
 // No body, an empty object and a null password all behave as the route did.
 func TestTheRunRouteWithNoPasswordBehavesAsBefore(t *testing.T) {
+	t.Parallel()
 	for name, body := range map[string]*string{"no body": nil, "empty object": str(`{}`), "null password": str(`{"password":null}`)} {
 		t.Run(name, func(t *testing.T) {
 			tg := newTarget(t, false)

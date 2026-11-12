@@ -125,7 +125,7 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 	for _, row := range current.Sessions {
 		taken[row.Title] = true
 	}
-	pieces, err := outcomePieces(in.Sessions, current.Tool, current.Model, false, taken, len(current.Sessions))
+	pieces, err := outcomePieces(in.Sessions, current.Tool, current.Model, current.Provider, false, taken, len(current.Sessions))
 	if err != nil {
 		return current, err
 	}

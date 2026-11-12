@@ -7,7 +7,9 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
-const source = compile('./agentLaunch.ts').replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`)
+const source = compile('./agentLaunch.ts')
+  .replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`)
+  .replace("from './clineSource'", `from '${asURL(compile('./clineSource.ts'))}'`)
 const m = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 const { cleanModel, validateDir, TOOLS, MAX_PROMPT_BYTES, modelSuggestions, validateModel, validatePrompt, folderChoices, launchSentence, refusalText, titleFor, promptTitle, titleOriginFor, notStartedText } = m
 // The controller's cases (internal/terminalproto/testdata/autotitle.json): the same file drives its Go tests, so the
@@ -134,6 +136,9 @@ test('launch sentence follows the spec', () => {
   assert.equal(launchSentence('claude', '', 'studio', false), 'Starts Claude Code in the home folder on studio. ' + nothing)
   assert.equal(launchSentence('codex', '/work/app', 'studio', false), 'Starts Codex in /work/app on studio. ' + nothing)
   assert.equal(launchSentence('codex', '/work/app', 'studio', true), 'Starts Codex in /work/app on studio. ' + nothing + ' ' + kept)
+  // A Cline chat names the billing source it starts on, and says nothing when Cline's own is chosen.
+  assert.match(launchSentence('cline', '/work/app', 'studio', false, true, 'cline-pass'), /^Starts Cline in Gaffer using ClinePass in \/work\/app on studio\./)
+  assert.equal(launchSentence('cline', '/work/app', 'studio', false, true), launchSentence('cline', '/work/app', 'studio', false, true, ''))
 })
 
 test('titles', () => {

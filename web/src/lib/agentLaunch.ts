@@ -1,5 +1,6 @@
 import type { Machine } from './api'
 import { CATALOGUE, agentChoices, agentDisplayName } from './catalogue'
+import { sourceLabel } from './clineSource'
 import type { TerminalMachine } from './terminal/api'
 
 // What the "Start an agent" dialog checks before it asks a machine to start an agent CLI, and the exact sentences it
@@ -103,14 +104,16 @@ export function folderChoices(machine: { host: string } | undefined, snapshot: M
   return out
 }
 
-/** One text for the dialog: what will start, that nothing runs until Start, and (with a prompt) where the prompt can be seen. */
-export function launchSentence(tool: string, dir: string, machine: string, hasPrompt: boolean, structured = false): string {
+/** One text for the dialog: what will start, on which billing source when one is chosen, that nothing runs until
+ *  Start, and (with a prompt) where the prompt can be seen. */
+export function launchSentence(tool: string, dir: string, machine: string, hasPrompt: boolean, structured = false, source = ''): string {
+  const onSource = source ? ` using ${sourceLabel(source)}` : ''
   if (structured) {
     const permissions = tool === 'antigravity' ? 'AGY’s configured permission rules apply and approval requests appear here.' : `${nameOf(tool)} asks before it edits a file or runs a command.`
-    const start = `Starts ${nameOf(tool)} in Gaffer in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start; ${permissions}`
+    const start = `Starts ${nameOf(tool)} in Gaffer${onSource} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start; ${permissions}`
     return hasPrompt ? `${start} The opening prompt is the first message. Its transcript is kept with the session.` : start
   }
-  const start = `Starts ${nameOf(tool)} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start.`
+  const start = `Starts ${nameOf(tool)}${onSource} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start.`
   return hasPrompt ? `${start} The prompt is kept with the session record and is visible to other users of that machine in its process list.` : start
 }
 

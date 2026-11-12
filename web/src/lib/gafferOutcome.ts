@@ -209,7 +209,7 @@ export const STAGES = [
 ] as const
 export type StageKind = typeof STAGES[number]['kind']
 export type CrewRole = 'think' | 'build' | 'ship'
-export type Crew = Record<CrewRole, { tool: string; model: string; effort?: string }>
+export type Crew = Record<CrewRole, { tool: string; model: string; effort?: string; source?: string }>
 export const CREW_ROLES: { role: CrewRole; label: string; does: string }[] = [
   { role: 'think', label: 'Thinking', does: 'Plan, design and review. Worth a stronger model.' },
   { role: 'build', label: 'Building', does: 'Code and test. Most of the tokens go here.' },
@@ -225,21 +225,23 @@ export function orderStages(kinds: Iterable<string>): StageKind[] {
   return STAGES.filter(stage => chosen.has(stage.kind)).map(stage => stage.kind)
 }
 
-/** What is sent for one pipeline: each chosen stage with the agent and model of the crew role that does it. */
-export function stagePlan(kinds: Iterable<string>, crew: Crew): { kind: string; tool: string; model: string; effort?: string }[] {
+/** What is sent for one pipeline: each chosen stage with the agent and model of the crew role that does it. A Cline
+ *  stage carries its chosen billing source; empty is Cline's own choice and is left out. */
+export function stagePlan(kinds: Iterable<string>, crew: Crew): { kind: string; tool: string; model: string; effort?: string; provider?: string }[] {
   return orderStages(kinds).map(kind => {
     const role = STAGES.find(stage => stage.kind === kind)!.role
-    return { kind, tool: crew[role].tool, model: crew[role].model.trim(), ...(crew[role].effort ? { effort: crew[role].effort } : {}) }
+    const source = crew[role].tool === 'cline' ? (crew[role].source ?? '').trim() : ''
+    return { kind, tool: crew[role].tool, model: crew[role].model.trim(), ...(crew[role].effort ? { effort: crew[role].effort } : {}), ...(source ? { provider: source } : {}) }
   })
 }
 
-/** How many separate agent sessions a pipeline will use: a new one each time the agent, model or effort changes. */
-export function sessionCount(plan: { tool: string; model: string; effort?: string }[]): number {
-  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') ? 1 : 0), 0)
+/** How many separate agent sessions a pipeline will use: a new one each time the agent, model, effort or source changes. */
+export function sessionCount(plan: { tool: string; model: string; effort?: string; provider?: string }[]): number {
+  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') || (stage.provider ?? '') !== (plan[index - 1].provider ?? '') ? 1 : 0), 0)
 }
 
-export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; summary: string; moved: boolean }
-type PipelinePiece = { state: string; stage?: number; stages?: { kind: string; tool: string; model?: string; state: string; summary?: string; closedBy?: string }[] }
+export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; source?: string; summary: string; moved: boolean }
+type PipelinePiece = { state: string; stage?: number; stages?: { kind: string; tool: string; model?: string; provider?: string; state: string; summary?: string; closedBy?: string }[] }
 /** A pipeline's stages as the page draws them. The stage in hand shows the pipeline's own state: running, waiting on the person, or failed. */
 export function track(piece: PipelinePiece): TrackNode[] {
   const at = piece.stage ?? 0
@@ -251,7 +253,7 @@ export function track(piece: PipelinePiece): TrackNode[] {
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
     // A stage the person moved on was closed on their word, not on Gaffer's review of it.
-    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat') }
+    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', source: stage.provider, summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat') }
   })
 }
 

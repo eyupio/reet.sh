@@ -15,7 +15,12 @@ type Config struct {
 	// request when set, the check included, so a model that does not take it
 	// says so under Test and not in the middle of a conversation.
 	ReasoningEffort string
-	Client          *http.Client
+	// PromptCacheKey is sent as prompt_cache_key on chat-completion requests
+	// when set, for servers that route cached prompts by a stable key. Leave it
+	// empty for servers that may refuse the field. Anthropic takes cache
+	// breakpoints instead and ignores it.
+	PromptCacheKey string
+	Client         *http.Client
 }
 
 func (c Config) client() *http.Client {

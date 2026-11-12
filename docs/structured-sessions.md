@@ -262,7 +262,7 @@ interface keeps its existing effort mappings. Backlog save, edit, reload and Sta
 
 In **Start an agent**, choose OpenCode on a machine that advertises `acp`. The **Session** choice is **Gaffer** by
 default; choose **OpenCode TUI** for the terminal UI. The **Model** control chooses the model for the chat; leave it at
-**Agent default** to use the model configured in OpenCode. Effort stays at Agent default unless this connector advertises a choice and you select one. The opening prompt becomes the
+**Agent default** to use the model configured in OpenCode. Effort stays at Agent default unless this connector advertises a choice and you select one. A chosen model also turns on OpenCode's prompt cache key for its provider, so the repeated part of a chat is billed at the cached rate; the other agents cache by their own default, and reet removes no environment variable that would disable theirs. The opening prompt becomes the
 first message. The dialog states that the folder's `.opencode` plugins run when it starts, and that a chat can be
 restored after reet restarts on the machine.
 

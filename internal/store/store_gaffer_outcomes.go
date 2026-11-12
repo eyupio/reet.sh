@@ -20,7 +20,7 @@ const (
 var (
 	ErrGafferOutcomeLimit  = errors.New("Gaffer is still starting three outcomes for this account. Wait for one to settle, or stop it.")
 	ErrGafferOutcomeBusy   = errors.New("That outcome changed. Reload it before trying again.")
-	ErrGafferOutcomeActive = errors.New("That outcome is still moving. Stop it or let it finish first.")
+	ErrGafferOutcomeActive = errors.New("That outcome is still moving. Stop following it or let it finish first.")
 )
 
 // Outcome states: "starting" while the controller still has sessions to
@@ -295,6 +295,31 @@ func (s *Store) DeleteGafferOutcomeFor(uid int64, id string, revision int64) err
 // has work for, oldest first.
 func (s *Store) StartingGafferOutcomes() ([]GafferOutcome, error) {
 	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE json_extract(data,'$.state')='starting' ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GafferOutcome
+	for rows.Next() {
+		var uid int64
+		var raw string
+		if err = rows.Scan(&uid, &raw); err != nil {
+			return nil, err
+		}
+		o, err := scanOutcome(uid, raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// FollowedGafferOutcomes lists every account's outcomes that have a pipeline
+// following a session, oldest first. The controller checks each such session
+// still exists.
+func (s *Store) FollowedGafferOutcomes() ([]GafferOutcome, error) {
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state')='following' AND json_extract(value,'$.sessionId')<>'') ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}

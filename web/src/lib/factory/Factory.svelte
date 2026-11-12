@@ -3,7 +3,7 @@
   // which agent and model does the stage in hand, and the numbers that say how it is going. Reading the page starts
   // nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
-  import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
+  import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, stopFollowingGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, listFolderProjects, terminalMachines } from '../terminal/api'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { DEFAULT_STAGES, agentActivity, ago, needsYou, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
@@ -35,7 +35,7 @@
   // Outcomes put away leave the floor and the tallies; they stay in the record and can be shown and restored.
   const floor = $derived(records.filter(record => !record.archivedAt))
   const shelved = $derived(records.filter(record => record.archivedAt))
-  let showArchived = $state(false), removeMode = $state<'archive' | 'delete'>('archive'), deleting = $state<Outcome | null>(null)
+  let showArchived = $state(false), removeMode = $state<'archive' | 'delete'>('archive'), deleting = $state<Outcome | null>(null), releasing = $state<Outcome | null>(null)
   const listed = $derived(showArchived ? records : floor)
   const tally = $derived(factoryTally(floor, attention))
   // Goals the page draws inside a pipeline are left out of the list of other sessions below.
@@ -92,6 +92,15 @@
     if (busy) return
     busy = true; notice = ''
     try { await stopGafferOutcome(record); notice = 'Stopped. Sessions not yet started stay unstarted; the ones already started keep running.' }
+    catch (e) { notice = e instanceof Error ? e.message : 'The outcome was not stopped.' }
+    busy = false
+    await load()
+  }
+  // Ends an outcome that is not finished (a session was lost or removed, or the work is no longer wanted) so it can be archived or deleted.
+  async function stopFollowing(record: Outcome) {
+    if (busy) return
+    busy = true; notice = ''; releasing = null
+    try { await stopFollowingGafferOutcome(record); notice = `Stopped following “${record.objective}”. Sessions that still exist keep running. You can now archive or delete it.` }
     catch (e) { notice = e instanceof Error ? e.message : 'The outcome was not stopped.' }
     busy = false
     await load()
@@ -312,6 +321,7 @@
               <button class="btn quiet" type="button" aria-expanded={!!timeline[record.id]} onclick={() => void toggleHistory(record)}>{timeline[record.id] ? 'Hide history' : 'History'}</button>
             {/if}
             {#if record.state === 'starting'}<button class="btn quiet" type="button" disabled={busy} onclick={() => void stop(record)}>Stop starting sessions</button>{/if}
+            {#if !finished}<button class="btn quiet" type="button" disabled={busy} onclick={() => releasing = record}>Stop following</button>{/if}
             {#if finished}
               {#if record.archivedAt}<button class="btn quiet" type="button" disabled={busy} onclick={() => void putAway(record, 'restore')}>Restore</button>{:else}<button class={removeMode === 'archive' ? 'btn' : 'btn quiet'} type="button" disabled={busy} onclick={() => void putAway(record, 'archive')}>Archive</button>{/if}
               <button class={removeMode === 'delete' && !record.archivedAt ? 'btn danger' : 'btn quiet'} type="button" disabled={busy} onclick={() => deleting = record}>Delete</button>
@@ -411,6 +421,7 @@
 </div>
 
 {#if outcomeOpen}<GafferOutcome room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
+{#if releasing}<ConfirmDialog title={`Stop following “${releasing.objective}”?`} body="Gaffer and the controller stop looking after every unfinished pipeline in this outcome and start nothing more for it. Sessions that still exist keep running, and nothing is merged or closed. Use this when a session was lost or removed, or the work is no longer wanted; you can then archive or delete the outcome." confirmLabel="Stop following" oncancel={() => releasing = null} onconfirm={() => releasing && void stopFollowing(releasing)}/>{/if}
 {#if deleting}<ConfirmDialog title={`Delete “${deleting.objective}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
 {#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !mergesByItself(moving.record, moving.piece) ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}

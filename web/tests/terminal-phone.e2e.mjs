@@ -175,6 +175,27 @@ try{
  await toolbar.evaluate(e=>e.scrollTo({left:e.scrollWidth}))
  await expect(toolbar).toHaveClass(/more-start/);await expect(toolbar).not.toHaveClass(/more-end/)
  await toolbar.evaluate(e=>e.scrollTo({left:0}))
+ // The expanded key pad sends the exact bytes a shell expects, takes no row from the screen,
+ // and lets a selected modifier join the next key (Ctrl with Up is xterm's CSI 1;5A).
+ await settle(page,frames)
+ const framesBeforePad=frames.length
+ await page.getByRole('button',{name:'More terminal keys',exact:true}).click()
+ const pad=page.getByRole('group',{name:'More terminal keys',exact:true})
+ await expect(pad).toBeVisible()
+ const lastInput=()=>phone.inputs.at(-1)
+ await pad.getByRole('button',{name:'Send Ctrl+L',exact:true}).click()
+ await expect.poll(lastInput).toBe('\x0c')
+ await pad.getByRole('button',{name:'Send Page Down',exact:true}).click()
+ await expect.poll(lastInput).toBe('\x1b[6~')
+ await pad.getByRole('button',{name:'Send F5',exact:true}).click()
+ await expect.poll(lastInput).toBe('\x1b[15~')
+ await page.getByRole('button',{name:'Ctrl for the next key',exact:true}).click()
+ await page.getByRole('button',{name:'Send Up arrow',exact:true}).click()
+ await expect.poll(lastInput).toBe('\x1b[1;5A')
+ await page.getByRole('button',{name:'Close extra keys',exact:true}).click()
+ await expect(pad).toHaveCount(0)
+ await settle(page,frames)
+ expect(frames.length).toBe(framesBeforePad)
  // The Alt+Shift+M advice is for hardware keyboards; it is not shown on touch screens.
  await page.getByRole('button',{name:'Maximise',exact:true}).click()
  await expect(pane).toHaveClass(/maximised/)

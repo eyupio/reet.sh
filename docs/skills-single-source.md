@@ -57,8 +57,8 @@ After it:
 1. Host or link a skill, for example `reet-babysit`, and note that its Library
    entry is the linked one.
 2. On a machine with a local copy of the same name, scan or connect. The
-   Library still shows one entry for the name. The machine's copy is not
-   deleted, and the Skills page still lists it.
+   Library still shows one entry for the name, and the Skills page shows one
+   card. The machine's copy is not deleted.
 3. Select it for a machine in **Sync**. The plan names the linked source, not a
    second shelf copy.
 4. Import a skill that exists only on a machine. It is kept as its own library
@@ -70,10 +70,14 @@ After it:
   an unlinked machine copy of the same name.
 - The library entry is displayed once; the machine's files are not rewritten by
   this view.
-- The Library view folds the duplicate; it does not merge the machine copy's
-  notes, tags, machine observations or selection into the linked item. Those
-  stay with the machine's own entry.
-- The fold applies to the Library view. The Skills page keeps its own listing
-  until it reads the same view.
+- The fold is a view. On the Library it carries the machine copy's observed
+  folders onto the linked entry, so the machine is still visible. It does not
+  merge notes, tags or selections, and it never rewrites files. Those stay with
+  the machine's own entry in the store.
+- On the Skills page the fold applies to the unfiltered shelf. A machine, stage,
+  tag or search filter shows the copy that matches it, because that copy may be
+  the only one on the machine or at that stage.
+- Linking a source means linking a shelf or hosted entry. A skill imported
+  directly from a machine, with no shelf entry, cannot be linked yet.
 - If you want to keep a machine-only skill separate, import it and do not link
   it to the same source as an existing item.

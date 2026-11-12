@@ -207,4 +207,24 @@ func TestEnrolledAgentAutoSyncAppliesAdditivePlan(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(project, ".claude", "skills", "beta", "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
+	// The apply refreshed the inventory before reporting, so a page that reloads when the job
+	// settles already sees the skill rather than waiting for the next minute's scan.
+	envs, err := st.SyncEnvironmentsFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reported := false
+	for _, env := range envs {
+		if env.ID != target {
+			continue
+		}
+		for _, skill := range env.Skills {
+			if skill.Slug == "beta" {
+				reported = true
+			}
+		}
+	}
+	if !reported {
+		t.Fatalf("apply left the inventory stale: %+v", envs)
+	}
 }

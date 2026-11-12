@@ -676,7 +676,16 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				}, version, opts)
 				cancel()
 				if operationErr == nil && (j.Kind == "apply" || len(result.Plan.Actions) == 0) {
-					operationErr = reportContentObservations(ctx, c, version)
+					if j.Kind == "apply" {
+						// Applying files changes what this machine reports. Scan before the result
+						// leaves, so the inventory every page reads is the one the apply left behind.
+						*lastScan = time.Now()
+						if scanErr := scanAll(); scanErr != nil {
+							result.Message = "Applied, but the machine's inventory will refresh on its next scan."
+						}
+					} else {
+						operationErr = reportContentObservations(ctx, c, version)
+					}
 				}
 				kindOK := j.Kind == "preview" || j.Kind == "auto"
 				if operationErr == nil && kindOK {

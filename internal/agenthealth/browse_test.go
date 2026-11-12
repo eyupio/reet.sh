@@ -166,7 +166,7 @@ func TestFullTerminalQueueAnswersBrowseOnlyWhenNegotiated(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			readControlWithTerminal(ctx, client, 1, clientSender(client), errorsSeen, tc.features, func(ctx context.Context, m terminalproto.Message) error {
+			readControlWithTerminal(ctx, client, 1, clientSender(client), errorsSeen, tc.features, 0, func(ctx context.Context, m terminalproto.Message) error {
 				if handled.Add(1) == 1 {
 					select {
 					case <-release:

@@ -85,7 +85,15 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      # The two platforms' Go builds each compile modernc.org/libc, which takes over a gigabyte, and
+      # BuildKit ran them side by side: on a runner with about 3 GB between the job and its Docker
+      # daemon the compiler was killed ("cannot allocate memory"). One build step at a time keeps the
+      # peak to a single compile; the cost is a minute or two of wall-clock.
       - uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 1
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io

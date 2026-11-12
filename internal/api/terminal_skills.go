@@ -38,7 +38,7 @@ type SessionSkills struct {
 
 // skillInvocation returns the single line of text that asks an agent to
 // use a skill, or "" when the name cannot be typed safely.
-func skillInvocation(agent, name string) string {
+func skillInvocation(agent, name, description string) string {
 	if name == "" || utf8.RuneCountInString(name) > maxSkillInvocationName {
 		return ""
 	}
@@ -47,7 +47,46 @@ func skillInvocation(agent, name string) string {
 			return ""
 		}
 	}
-	return "Use the " + name + " skill."
+	desc := skillBlurb(description)
+	if desc == "" {
+		return "Use the " + name + " skill."
+	}
+	return "Use the " + name + " skill: " + desc
+}
+
+// maxSkillBlurb is the longest description, in runes, added to an invocation.
+const maxSkillBlurb = 280
+
+// skillBlurb makes a skill's own description safe to type on one line: runs of
+// whitespace become one space, unprintable runes are dropped, and a long one is
+// cut at a word with an ellipsis. It ends in punctuation.
+func skillBlurb(description string) string {
+	var b strings.Builder
+	space := false
+	for _, r := range description {
+		switch {
+		case unicode.IsSpace(r):
+			space = true
+		case unicode.IsPrint(r):
+			if space && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			space = false
+			b.WriteRune(r)
+		}
+	}
+	out := b.String()
+	if r := []rune(out); len(r) > maxSkillBlurb {
+		out = string(r[:maxSkillBlurb])
+		if i := strings.LastIndexByte(out, ' '); i > maxSkillBlurb/2 {
+			out = out[:i]
+		}
+		return strings.TrimRight(out, " ,;:.") + "…"
+	}
+	if out != "" && !strings.ContainsAny(out[len(out)-1:], ".!?…") {
+		out += "."
+	}
+	return out
 }
 
 // inProject reports whether dir is the project folder or inside it. Both are
@@ -108,7 +147,7 @@ func buildSessionSkills(tool, host, dir string, skills []store.Skill, hosted []s
 			Source: "machine", Agent: agent, Native: hasNative, OnMachine: true, Published: true,
 		}
 		if hasNative {
-			entry.Invocation = skillInvocation(tool, sk.Name)
+			entry.Invocation = skillInvocation(tool, sk.Name, sk.Description)
 			native = append(native, entry)
 		} else {
 			other = append(other, entry)

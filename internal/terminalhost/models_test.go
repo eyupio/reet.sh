@@ -91,6 +91,13 @@ func TestListModelsRejectsEscAndControlOutput(t *testing.T) {
 }
 
 func TestListModelsTooLarge(t *testing.T) {
+	// `yes` never stops, and the listing keeps draining an overflowing child
+	// until its deadline kills it, so the deadline is what this test costs. The
+	// output cap fills in milliseconds and the overflow is checked before the
+	// timeout, so a short deadline still reports "too large".
+	original := modelListTimeout
+	modelListTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { modelListTimeout = original })
 	r := listModelsForTest(t, "yes aaaa\n")
 	if r.Reason != terminalproto.ModelsTooLarge {
 		t.Fatalf("result: %+v", r)

@@ -31,6 +31,7 @@ func (f *workerAPIFake) ReconcileWorkerQueue(uid int64, session string) error {
 	return f.st.RecoverTerminalQueueFor(uid, session, "api-worker")
 }
 func TestWorkerMessagingHTTPAndMCPRequireSeparateGrants(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

@@ -232,6 +232,7 @@ func TestSoftwareBatchStopsThenSkipContinues(t *testing.T) {
 }
 
 func TestSoftwareBatchRetryAndAbandon(t *testing.T) {
+	t.Parallel()
 	f := softwareBatchAPIFixture(t, 1)
 	var mu sync.Mutex
 	failedOnce := false

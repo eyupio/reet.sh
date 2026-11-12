@@ -107,6 +107,7 @@ func TestGafferConversationPersistsAnswersAndDeduplicatesRequests(t *testing.T) 
 	}
 }
 func TestGafferTurnCancellationPolicyChangeAndShutdownPreservePartialAnswers(t *testing.T) {
+	t.Parallel()
 	for _, action := range []string{"cancel", "pause", "shutdown", "demote"} {
 		t.Run(action, func(t *testing.T) {
 			s, st, p := settingsFixture(t)
@@ -225,6 +226,7 @@ func TestGafferSessionConversationsNeverReadWorkerHistory(t *testing.T) {
 	}
 }
 func TestGafferRejectsUnsolicitedToolsAndIncompleteStreams(t *testing.T) {
+	t.Parallel()
 	for _, answer := range []string{
 		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"a\",\"function\":{\"name\":\"run_shell\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n",
 		"data: {\"choices\":[{\"delta\":{\"content\":\"incomplete\"}}]}\n\n",
@@ -258,5 +260,41 @@ func TestGafferReplyLimitPreservesValidTextAndReportsTruncation(t *testing.T) {
 	turn := waitTurn(t, s, p.UserID, v.Conversation.ID, id)
 	if turn.State != "completed" || !turn.Cut || len(turn.Answer) > store.MaxGafferAnswerBytes || !utf8.ValidString(turn.Answer) {
 		t.Fatalf("bad bounded reply state=%s cut=%v bytes=%d", turn.State, turn.Cut, len(turn.Answer))
+	}
+}
+
+// The OpenAI adapter's prefix cache is routed by prompt_cache_key, so each
+// Gaffer conversation sends its own durable id and repeated turns land on the
+// same cache shard.
+func TestGafferChatSendsTheConversationAsPromptCacheKey(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	requests := make(chan string, 1)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			t.Error(err)
+		}
+		raw, _ := json.Marshal(in)
+		requests <- string(raw)
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Ey up.\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer func() { s.Close(); fake.Close() }()
+	row, err := s.Save(p, Input{Name: "OpenAI chat", Kind: "openai", BaseURL: fake.URL, LocalOnly: true, Enabled: true, Model: "fake-model", MakeDefault: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.CreateConversation(p.UserID, ConversationInput{ProviderID: row.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.Repeat("b", 32)
+	if _, err := s.StartTurn(p.UserID, v.Conversation.ID, TurnInput{ID: id, Revision: v.Conversation.Revision, Text: "Hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if turn := waitTurn(t, s, p.UserID, v.Conversation.ID, id); turn.State != "completed" {
+		t.Fatalf("turn %+v", turn)
+	}
+	if req := <-requests; !strings.Contains(req, `"prompt_cache_key":"`+v.Conversation.ID+`"`) {
+		t.Fatalf("request %s", req)
 	}
 }

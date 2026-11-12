@@ -42,6 +42,7 @@ func wantFence(t *testing.T, r reply, fenced bool, movedTo string) {
 }
 
 func TestTheFenceRoutesRaiseReadAndLiftTheState(t *testing.T) {
+	t.Parallel()
 	tg := newTarget(t, false)
 	wantFence(t, tg.fenceCall(t, "GET", fencePath, "owner-token", ""), false, "")
 	raised := tg.fenceCall(t, "POST", fencePath, "owner-token", `{"movedTo":"https://new.example.com"}`)
@@ -74,6 +75,7 @@ func TestTheAddressIsOptionalAndMustBeHTTPOrHTTPS(t *testing.T) {
 }
 
 func TestTheFenceRoutesRefuseANonOwner(t *testing.T) {
+	t.Parallel()
 	tg := newTarget(t, true)
 	for _, m := range []string{"GET", "POST", "DELETE"} {
 		if r := tg.fenceCall(t, m, fencePath, "member-token", ""); r.code != 403 {
@@ -122,6 +124,7 @@ func TestAFencedControllerRefusesWritesWith423AndKeepsReading(t *testing.T) {
 }
 
 func TestTheOwnersBackupRoutesAndTheLiftStillWorkWhileFenced(t *testing.T) {
+	t.Parallel()
 	tg := newTarget(t, false)
 	tg.fenceCall(t, "POST", fencePath, "owner-token", "")
 	for _, c := range [][3]string{

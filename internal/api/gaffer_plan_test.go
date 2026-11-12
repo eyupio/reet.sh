@@ -17,6 +17,7 @@ import (
 // Planning an outcome is a signed-in writer's browser request. It returns a
 // plan to review and starts, saves and grants nothing.
 func TestGafferOutcomePlanNeedsTheOwningBrowserAndStartsNothing(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

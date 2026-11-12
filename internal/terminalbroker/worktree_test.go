@@ -436,6 +436,7 @@ func TestWorktreeCallTimeoutCoversACreateThenARemove(t *testing.T) {
 // A remove's ok answer that arrives after the call gave up is still
 // reported, so the removal can be audited; nothing else is.
 func TestLateRemoveAnswerIsReported(t *testing.T) {
+	t.Parallel()
 	ordinary := WorktreeCallTimeout
 	WorktreeCallTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { WorktreeCallTimeout = ordinary })

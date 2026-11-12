@@ -48,7 +48,7 @@
         var bootPath = location.pathname
         if (/^\/projects(?:\/[^/]+)?\/?$/.test(bootPath) || /^\/control\/?$/.test(bootPath)) bootPath = '/'
         if (/^\/(sessions|terminals)\/?$/.test(bootPath)) bootPath = '/sessions'
-        // Home's project list lives inside the workspace panel, so there is no separate boot rail to reserve.
+        // Home draws its project rail as the page's own left column; the boot shell reserves that width below.
         document.documentElement.dataset.bootLayout = bootPath === '/' ? 'home'
           : ((bootPath === '/sessions' || bootPath === '/terminals') && bootQuery.get('view') !== 'list')
             || (['/machines', '/account/machines', '/account/sync'].indexOf(bootPath) !== -1 && bootQuery.get('view') === 'terminal') ? 'workspace'
@@ -89,11 +89,22 @@
           document.documentElement.style.setProperty('--boot-ws-context', bootContextWidth + 'px')
           if (bootContext.open === false || bootQuery.get('theatre') === '1' || (!bootQuery.get('session') && !bootQuery.get('agent'))) document.documentElement.setAttribute('data-boot-context', 'off')
         } catch (e) { /* first visit or storage blocked: the defaults below hold */ }
-        // Reserve the installed app's navigation rail before its bundle or account response arrives.
-        // This selects layout only; authentication still comes from the server.
-        var phoneLayout = matchMedia('(max-width:650px), (max-height:500px) and (pointer:coarse) and (orientation:landscape)').matches
-        var publicLayout = bootPath === '/community' || bootPath.indexOf('/l/') === 0
-        if (document.documentElement.dataset.boot === 'app' && document.documentElement.dataset.bootLayout !== 'workspace' && !phoneLayout && !publicLayout) document.documentElement.dataset.workspaceShell = ''
+        // The signed-in workspace draws its pages full width while the bundle and the auth answer arrive, so the first paint
+        // never jumps when the shell mounts. This is layout only; authentication still comes from the server.
+        var bootPublic = bootPath === '/community' || bootPath.indexOf('/l/') === 0
+        if (document.documentElement.dataset.boot === 'app' && !bootPublic) document.documentElement.dataset.appShell = ''
+        // Home's project rail is the page's left column on a desktop; reserve the width it will take before the bundle or
+        // account response arrives. Layout only; authentication still comes from the server. 1100-1239 px draws the
+        // 56 px strip, and the rail is not on Home below 1100 px.
+        var bootRail = 301
+        try {
+          var bootStoredRail = parseInt(localStorage.getItem('reet.rail.width') || '', 10)
+          if (isFinite(bootStoredRail)) bootRail = Math.min(460, Math.max(240, Math.round(bootStoredRail)))
+          if (localStorage.getItem('reet.rail.collapsed') === '1') bootRail = 56
+        } catch (e) { /* storage blocked: the 301 px default holds */ }
+        if (innerWidth >= 1100 && innerWidth < 1240) bootRail = 56
+        if (innerWidth < 1100) bootRail = 0
+        document.documentElement.style.setProperty('--boot-home-rail', bootRail + 'px')
         // A bundle that never arrives must not leave a silent skeleton. The recovery line lives outside the decorative
         // shell and starts empty, so putting words into its live region both shows it and announces it.
         window.setTimeout(function () {
@@ -278,7 +289,8 @@
          with its own padding. */
       html[data-boot='app'][data-boot-layout='workspace'] .boot-bar-inner { height: 56px; padding: 0 16px; }
       html[data-boot='app'][data-boot-layout='workspace'] .boot-brand { width: 120px; }
-      html[data-boot='app'][data-boot-layout='home'] .boot-main { max-width: none; padding: 20px 24px; margin-left: 300px; }
+      html[data-boot='app'][data-boot-layout='home'] .boot-main { max-width: none; padding: 20px 24px; margin-left: var(--boot-home-rail, 301px); width: calc(100% - var(--boot-home-rail, 301px)); }
+      html[data-boot='app'][data-boot-layout='content'] .boot-main { max-width: none; margin: 0; width: auto; }
       html[data-boot='app'][data-boot-layout='workspace'] .boot-main { max-width: none; padding: 8px 12px; }
       @media (min-width: 651px) and (max-width: 799px) {
         html[data-boot='app']:not([data-boot-layout='workspace']) .boot-bar-inner { padding-inline: 16px; }
@@ -289,7 +301,6 @@
       }
       @media (max-width: 1099px) {
         html[data-boot='app'] .boot-bar-inner { height: 64px; }
-        html[data-boot='app'][data-boot-layout='home'] .boot-main { margin-left: 0; }
       }
       @media (max-width: 700px) {
         html[data-boot='app'][data-boot-layout='workspace'] .boot-main { padding: 4px 6px; }
@@ -314,20 +325,9 @@
         .boot-nav .boot-pill:not(.wide) { display: none; }
         .boot-preview .terminal { height: 120px; }
       }
-      /* Keep the first paint aligned with the desktop workspace and its project rail. */
-      .boot-workspace-sidebar { display: none; }
+      /* Every desktop page draws the same 134 px logo in the bar, the session's slim bar included. */
       @media (min-width: 1100px) {
-        html[data-workspace-shell] #boot .boot-workspace-sidebar { display: block; position: absolute; inset: 0 auto 0 0; width: 228px; border-right: 1px solid var(--boot-line); background: var(--boot-bg); }
-        .boot-workspace-sidebar .links { display: grid; gap: 22px; position: absolute; top: 123px; left: 30px; width: 166px; }
-        .boot-workspace-sidebar .links i { display: block; height: 15px; border-radius: 4px; background: var(--boot-line); }
-        html[data-workspace-shell] #boot .boot-bar-inner { padding-left: 264px; }
-        html[data-workspace-shell] #boot .boot-brand { position: fixed; top: 24px; left: 28px; width: 134px; z-index: 1; }
-        html[data-workspace-shell] #boot .boot-main { max-width: none; margin-left: 228px; margin-right: 0; width: calc(100% - 228px); }
-        /* Home's panel also holds the project list, so it is 300 px wide and there is no second rail column. */
-        html[data-workspace-shell][data-boot-layout='home'] #boot .boot-workspace-sidebar { width: 300px; }
-        html[data-workspace-shell][data-boot-layout='home'] #boot .boot-bar-inner { padding-left: 336px; }
-        html[data-workspace-shell][data-boot-layout='home'] #boot .boot-main { margin-left: 300px; width: calc(100% - 300px); }
-        /* The session's slim bar draws the same 134 px logo as the sidebar on every other desktop page. */
+        html[data-boot='app'] .boot-brand,
         html[data-boot='app'][data-boot-layout='workspace'] .boot-brand { width: 134px; }
       }
 
@@ -441,7 +441,7 @@
   </head>
   <body>
     <!-- The boot shell holds the page's shape while the bundle loads; the server keeps only the variant for this route. -->
-    <div id="boot" aria-hidden="true"><div class="boot-workspace-sidebar"><div class="links"><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div id="boot" aria-hidden="true">
       <div class="boot-bar">
         <div class="boot-bar-inner">
           <span class="boot-brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 372 100">

@@ -36,7 +36,8 @@
         <section aria-label={group.label}>
           <h3>{group.label}</h3>
           {#each group.items as item (item.href)}
-            <a href={item.href} aria-current={item.current ? 'page' : undefined}>{item.label}</a>
+            <a href={item.href} aria-current={item.current ? 'page' : undefined}
+              target={item.href.startsWith('http') ? '_blank' : undefined} rel={item.href.startsWith('http') ? 'noopener noreferrer' : undefined}>{item.label}</a>
           {/each}
         </section>
       {/each}

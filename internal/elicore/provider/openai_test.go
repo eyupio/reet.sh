@@ -276,3 +276,19 @@ func TestOpenAICompatibleSendsTheReasoningEffortItWasGiven(t *testing.T) {
 		t.Errorf("an effort nobody set was sent: %v", chats[2]["reasoning_effort"])
 	}
 }
+
+// A stable prompt cache key keeps one conversation on one cache shard; it is
+// sent only when the caller configured it, because a server that does not know
+// the field may refuse the whole request.
+func TestOpenAICompatibleSendsThePromptCacheKeyOnlyWhenConfigured(t *testing.T) {
+	srv := newOpenAIServer(t)
+	drain(t, NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m"}), hello())
+	drain(t, NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m", PromptCacheKey: "conversation-1"}), hello())
+	reqs := srv.Requests()
+	if _, ok := reqs[0].Body["prompt_cache_key"]; ok {
+		t.Errorf("without a key, prompt_cache_key %v", reqs[0].Body["prompt_cache_key"])
+	}
+	if got := reqs[1].Body["prompt_cache_key"]; got != "conversation-1" {
+		t.Errorf("with a key, prompt_cache_key %v", got)
+	}
+}

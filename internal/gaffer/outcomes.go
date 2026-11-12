@@ -96,7 +96,7 @@ func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in
 	if err = s.current(p, old); err != nil {
 		return plan, err
 	}
-	backend, client, err := s.open(p, cfg, old)
+	backend, client, err := s.open(p, cfg, old, "")
 	if err != nil {
 		return plan, err
 	}

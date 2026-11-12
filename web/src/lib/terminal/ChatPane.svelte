@@ -740,7 +740,6 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  </div>
  <div class="chat-actions">
   {#if $gafferChatEntry && !ended}<button type="button" class="gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={24} /></button>{/if}
-  {#if onnewchat && !ended}<button type="button" class="btn new-chat" disabled={newChatOff} title="Start a new chat on this machine" onclick={event => onnewchat(event.currentTarget)}>New chat</button>{/if}
  </div>
  </div>
  {#if reattaching}
@@ -1153,7 +1152,6 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  .chat-live { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
  .chat-status strong { font-weight: 500; color: var(--ink); }
  .chat-actions { display: flex; align-items: center; gap: 6px; flex: none; }
- .chat-status .new-chat { flex: none; padding: 2px 10px; font-size: 13px; }
  /* On a phone the companion has no clear floating corner over a chat; its entry sits in the status row instead. */
  .gaffer-entry { display: none; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 50%; background: none; cursor: pointer; }
  .gaffer-entry:hover { background: var(--tint); }

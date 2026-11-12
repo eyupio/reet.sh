@@ -10,6 +10,7 @@ import (
 // Create settles who owns the title before the session is reserved, so a
 // generic fallback name can later be replaced once and a typed name never is.
 func TestCreateStoresResolvedTitleOrigin(t *testing.T) {
+	t.Parallel()
 	const task = "Please fix the flaky login test and explain why"
 	const taskTitle = "Fix the flaky login test and explain why"
 	for _, c := range []struct {

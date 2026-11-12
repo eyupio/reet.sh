@@ -158,6 +158,7 @@ func TestNewAccountNotificationsAndCount(t *testing.T) {
 }
 
 func TestPasswordChangeCreatesALockedNotification(t *testing.T) {
+	t.Parallel()
 	m := newMailSrv(t)
 	setupMailOwner(t, m.srv)
 	hash, _ := auth.HashPassword("long-enough-password")

@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A Factory outcome can no longer get stuck on a session that is gone. When a
+  followed session is removed (for example ended with its history removed), the
+  controller now notices within seconds, stops following that pipeline and
+  closes its goal, so the outcome can be archived or deleted and the pipeline
+  retried. An outcome that is still moving also has **Stop following**, which
+  ends every unfinished pipeline without touching sessions that still exist,
+  so any stuck outcome can be put away.
 - The Factory can now put finished work away. A finished outcome (nothing
   moving) has **Archive**, which hides it from the page and the headline
   numbers but keeps the record, its report and its history, and **Delete**,
@@ -15,6 +22,11 @@ this file existed releases were described on their GitHub release pages.
 - A finished outcome is one line on the Factory until opened, and its long
   report is clamped with **Read all of it**, so old work no longer fills the
   screen. Outcomes still moving, or with a pipeline to try again, stay open.
+- Every outcome on the Factory can now be folded and reopened with **Hide
+  details** / **Show details**, including one still moving, and the folded line
+  says how many pipelines it has and whether they are in progress, finished or
+  all done. **Expand all** and **Collapse all** now cover outcomes as well as
+  their pipelines.
 - **Open session** on a Factory pipeline, and in the outcome dialog, now opens
   the session itself rather than opening Gaffer's panel beside it.
 - A person-pressed model refresh asks an up-to-date machine for a fresh
@@ -50,7 +62,7 @@ this file existed releases were described on their GitHub release pages.
   are folded away under the card.
 - Factory: each pipeline is now one line (title, stage, status and why) that
   opens to its full card; pipelines that need you, are ready to merge or have
-  stopped start open, and **Expand all pipelines** opens the rest. Stage and
+  stopped start open, and **Expand all** opens the rest. Stage and
   status colours say more: a green tick is done, a pulsing green ring is
   running now, amber with "!" is waiting for you, red has stopped. The motion
   is switched off for anyone who asks their system to reduce it.

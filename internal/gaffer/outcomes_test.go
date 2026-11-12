@@ -130,6 +130,7 @@ func planProvider2(t *testing.T, s *Service, p Principal, url string) store.Gaff
 }
 
 func TestPlanOutcomeRejectsAnythingThatIsNotOneCompletePlan(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("p", MaxOutcomePromptBytes+1)
 	replies := map[string]string{
 		"prose only":       "data: {\"choices\":[{\"delta\":{\"content\":\"I would split it in two.\"}}]}\n\ndata: [DONE]\n\n",

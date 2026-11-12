@@ -498,6 +498,7 @@ func TestRunHasAtMostTwoInFlightAndOnePerMachine(t *testing.T) {
 // first machine: all start, none fails, the slow machine never has two creates
 // at once, and the other machine works in parallel.
 func TestOneMachineUnderLoadSerialisesAcrossRunsWhileOthersRunInParallel(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	// Long enough that two machines' creates overlap even on a loaded runner: the assertion below is about
 	// overlap, which a 15 ms window missed when the scheduler stalled for longer than that.
@@ -963,6 +964,7 @@ func TestShutdownLeavesMembersPendingAndResumeStartsOnlyThoseWithTheSameRequestI
 }
 
 func TestResumeWaitsForAMachineWithoutBlockingTheOthers(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	r := f.run(t, f.project(t, true, [2]string{f.server, "/a/0"}, [2]string{f.desk, "/a/1"}, [2]string{f.laptop, "/a/2"}, [2]string{f.laptop, "/a/3"}, [2]string{f.laptop, "/a/4"}))
 	f.broker.setReady(f.server, false)

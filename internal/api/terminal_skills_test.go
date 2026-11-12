@@ -24,19 +24,22 @@ func tsEnv(host, agent string, seen int64) store.Environment {
 
 func TestSkillInvocationIsASingleSafeLine(t *testing.T) {
 	cases := []struct {
-		name, in, want string
+		name, in, desc, want string
 	}{
-		{"plain", "pdf", "Use the pdf skill."},
-		{"empty", "", ""},
-		{"newline", "a\nb", ""},
-		{"tab", "a\tb", ""},
-		{"escape", "a\x1b[2Jb", ""},
-		{"81 runes", strings.Repeat("é", 81), ""},
-		{"80 runes", strings.Repeat("é", 80), "Use the " + strings.Repeat("é", 80) + " skill."},
+		{"plain", "pdf", "", "Use the pdf skill."},
+		{"with description", "pdf", "Fill\n  and merge   PDFs", "Use the pdf skill: Fill and merge PDFs."},
+		{"keeps punctuation", "pdf", "Fill forms!", "Use the pdf skill: Fill forms!"},
+		{"long description is cut", "pdf", strings.Repeat("word ", 100), "Use the pdf skill: " + strings.TrimSpace(strings.Repeat("word ", 56)) + "…"},
+		{"empty", "", "", ""},
+		{"newline", "a\nb", "", ""},
+		{"tab", "a\tb", "", ""},
+		{"escape", "a\x1b[2Jb", "", ""},
+		{"81 runes", strings.Repeat("é", 81), "", ""},
+		{"80 runes", strings.Repeat("é", 80), "", "Use the " + strings.Repeat("é", 80) + " skill."},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := skillInvocation("claude", c.in); got != c.want {
+			if got := skillInvocation("claude", c.in, c.desc); got != c.want {
 				t.Fatalf("skillInvocation(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
@@ -60,10 +63,10 @@ func TestBuildSessionSkillsSplitsNativeOtherAndReet(t *testing.T) {
 			t.Fatalf("position %d = %q, want %q", i, got.Skills[i].ID, id)
 		}
 	}
-	if s := got.Skills[0]; !s.Native || !s.OnMachine || s.Source != "machine" || s.Agent != "agents" || s.Invocation != "Use the alpha skill." {
+	if s := got.Skills[0]; !s.Native || !s.OnMachine || s.Source != "machine" || s.Agent != "agents" || s.Invocation != "Use the alpha skill: alpha desc." {
 		t.Fatalf("agents skill wrong: %+v", s)
 	}
-	if s := got.Skills[1]; !s.Native || s.Agent != "claude" || s.Invocation != "Use the Zeta skill." {
+	if s := got.Skills[1]; !s.Native || s.Agent != "claude" || s.Invocation != "Use the Zeta skill: Zeta desc." {
 		t.Fatalf("claude skill wrong: %+v", s)
 	}
 	if s := got.Skills[2]; s.Native || !s.OnMachine || s.Agent != "codex" || s.Invocation != "" {

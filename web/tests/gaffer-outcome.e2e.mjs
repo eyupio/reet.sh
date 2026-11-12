@@ -210,7 +210,7 @@ try {
       await expect(pipes).toHaveCount(3)
       await expect(pipes.nth(0)).toContainText('Running')
       // A running pipeline is one line until it is opened.
-      await w.page.getByRole('button',{name:'Expand all pipelines',exact:true}).click()
+      await w.page.getByRole('button',{name:'Expand all',exact:true}).click()
       const stages=pipes.nth(0).getByRole('list',{name:'Stages of Export API',exact:true}).getByRole('listitem')
       await expect(stages).toHaveText([/Code/,/Review/,/Test/,/PR/,/Babysit/,/Merge/])
       await expect(stages.first()).toHaveAttribute('aria-current','step')

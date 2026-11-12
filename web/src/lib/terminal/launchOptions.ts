@@ -10,13 +10,14 @@ const START_EFFORTS = ['low', 'medium', 'high']
 /** Launch suggestions are installation evidence. The running agent must still
  * confirm that the chosen model accepts an effort before any prompt is sent.
  * The values are the agent's own thinking levels, read from its descriptor, not a list of ours.
- * A descriptor that names no thought level falls back to the start levels, because the live
- * session can still report them; whether the agent can use effort at all is the machine's
- * start-options capability, the same one a running session's live controls rely on. */
+ * A descriptor that names no thought level falls back to the start levels, because a live
+ * session can still report them; the machine's start-options capability decides whether an
+ * effort can be carried at all, and the agent refuses one it does not offer. */
 export function launchEfforts(tool: string, caps: Capabilities | undefined, chat: boolean): string[] {
  if (!chat) return effortChoices(tool)
- if (!caps?.acpStartOptions || !structuredAgent(caps, tool)) return ['']
- const selector = structuredAgent(caps, tool)?.options?.find(option => option.category === 'thought_level')
+ const agent = structuredAgent(caps, tool)
+ if (!caps?.acpStartOptions || !agent) return ['']
+ const selector = agent.options?.find(option => option.category === 'thought_level')
  if (selector) return ['', ...new Set(selector.values.filter(value => value && value !== 'default'))]
  return ['', ...START_EFFORTS]
 }

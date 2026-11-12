@@ -1,5 +1,6 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
+  import Icon from './Icon.svelte'
   import { onMount } from 'svelte'
   import { getSoftwareMirror, type SoftwareMirrorStatus } from './api'
   import { shell } from './dialogShell'
@@ -264,7 +265,7 @@
         <p class="lede" data-shell-aside>Keep OpenCode up to date on every machine. Rollback and remove stay in a machine's Settings.</p>
         {#if mirror}<p class="hint mirror-line">Artifact mirror: {mirror.enabled ? `on${mirror.cached ? ', cached' : ', not cached yet'}` : 'off'}. Owners and admins change it in Admin.</p>{/if}
       </div>
-      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close fleet software" data-shell-close>×</button>
+      <button class="icon" type="button" onclick={() => dialog?.close()} aria-label="Close fleet software" data-shell-close><Icon name="x" size={18} /></button>
     </header>
 
     {#if loading}

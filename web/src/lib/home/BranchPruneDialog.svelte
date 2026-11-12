@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import Icon from '../Icon.svelte'
   import { shell } from '../dialogShell'
   import { UnauthorizedError } from '../api'
   import { branchPrunePlan, pruneBranches, refusalSentence, TerminalError, type BranchPrunePlan, type BranchPruneResult, type FolderProject } from '../terminal/api'
@@ -89,7 +90,7 @@
       <h2 id={`${id}-title`}>Prune merged branches in {project.name}</h2>
       <p class="lede" data-shell-aside>Local branches in <span class="mono">{project.dir}</span> whose work is already in <strong>{base}</strong>. Remote branches are not touched.</p>
     </div>
-    <button type="button" class="btn" bind:this={closeButton} onclick={close} aria-label="Close" data-shell-close>Close ×</button>
+    <button type="button" class="btn" bind:this={closeButton} onclick={close} aria-label="Close" data-shell-close>Close <Icon name="x" size={14} /></button>
   </header>
   <div data-shell-body>
     {#if result}

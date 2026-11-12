@@ -5,6 +5,7 @@
 
 <script lang="ts">
  import { onMount, untrack } from 'svelte'
+ import Icon from './Icon.svelte'
  import { shell } from './dialogShell'
  import type { Snippet } from 'svelte'
  import { UnauthorizedError, type Machine, type SyncState } from './api'
@@ -223,7 +224,7 @@
    <h2 id={titleId}>Add a machine</h2>
    <p class="lede" data-shell-aside>Connect once. Reet brings your skill library to this machine and keeps it up to date.</p>
   </div>
-  <button type="button" class="btn" onclick={close} aria-label="Close" data-shell-close>Close ×</button>
+  <button type="button" class="btn" onclick={close} aria-label="Close" data-shell-close>Close <Icon name="x" size={14} /></button>
  </header>
  <div class="body" data-shell-body>
   <section aria-labelledby={`${titleId}-name`}>

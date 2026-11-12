@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte'
+  import Icon from '../Icon.svelte'
   import { shell } from '../dialogShell'
   let { title, onclose, children, placement='center', wide=false }: { placement?:'center'|'drawer';wide?:boolean;title: string; onclose: () => void; children: Snippet } = $props()
   let dialog = $state<HTMLDialogElement>()
@@ -7,7 +8,7 @@
   onMount(() => { dialog?.showModal(); return () => dialog?.close() })
 </script>
 <dialog class:drawer={placement==='drawer'} class:wide bind:this={dialog} use:shell aria-labelledby={id} oncancel={event => { event.preventDefault(); onclose() }}>
-  <header data-shell-head><h2 id={id}>{title}</h2><button class="btn quiet" onclick={onclose} aria-label={`Close ${title}`} data-shell-close>Close ×</button></header>
+  <header data-shell-head><h2 id={id}>{title}</h2><button class="btn quiet" onclick={onclose} aria-label={`Close ${title}`} data-shell-close>Close <Icon name="x" size={14} /></button></header>
   <div class="content" data-shell-body>{@render children()}</div>
 </dialog>
 <style>

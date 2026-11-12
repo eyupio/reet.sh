@@ -1,5 +1,6 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
+ import Icon from './Icon.svelte'
  import { onMount, tick, untrack } from 'svelte'
  import { shell } from './dialogShell'
  import { ApiError, UnauthorizedError, adoptContent, getContentPins, getContentPreview, getContentPreviews, getContentReceipts, releaseContentReceipt, getPrivateBundles, getPrivateRevisions, removeContentPin, saveContentPin, type ContentPin, type ContentPreview, type ContentPreviewCapability, type ContentReceipt, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
@@ -446,7 +447,7 @@
    <p class="eyebrow" data-shell-aside>{environment ? `${groupLabel(environment)}${environment.project ? '' : ' · Home'}` : 'Your library'}</p>
    <h2 id={titleId} tabindex="-1" bind:this={titleEl}>Private skills on {environment?.host ?? 'this machine'}</h2>
   </div>
-  <button type="button" class="btn" onclick={close} aria-label="Close private skills" data-shell-close>Close ×</button>
+  <button type="button" class="btn" onclick={close} aria-label="Close private skills" data-shell-close>Close <Icon name="x" size={14} /></button>
  </header>
  <div class="body" data-shell-body>
   <p class="intro">{step === 'check' ? 'Ask this machine what it holds for the pinned skill. Nothing on it is changed.' : 'Choose which private library revision this folder should have.'}</p>

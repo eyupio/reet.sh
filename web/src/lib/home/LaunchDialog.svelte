@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import Icon from '../Icon.svelte'
   import { shell } from '../dialogShell'
   import LaunchBar from '../launch/LaunchBar.svelte'
   import type { LaunchDefaults } from '../launchBar'
@@ -53,7 +54,7 @@
         <p class="eyebrow" data-shell-aside>New session</p>
         <h2 id={`${id}-title`}>Start a session</h2>
       </div>
-      <button type="button" class="close" data-shell-close aria-label="Close" disabled={working} onclick={close}>×</button>
+      <button type="button" class="close" data-shell-close aria-label="Close" disabled={working} onclick={close}><Icon name="x" size={18} /></button>
     </header>
     <div class="body" data-shell-body>
       <LaunchBar {projects} {projectsFailed} {machines} {sessions} {profile} {ready} {initialProject} {selection} {onproject} {onstarted} {onleavefailed} {onsignedout}

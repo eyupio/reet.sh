@@ -11,7 +11,7 @@
 </div>
 <style>
  .view-switch{display:inline-flex;align-items:center;flex:none;gap:2px;padding:3px;background:var(--line-soft);border-radius:9px}
- button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:4px 10px;border:1px solid transparent;border-radius:6px;background:none;color:var(--muted);font:500 13px var(--sans);white-space:nowrap;cursor:pointer}
+ button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:4px 10px;border:1px solid transparent;border-radius:6px;background:none;color:var(--muted);font:500 14px var(--sans);white-space:nowrap;cursor:pointer}
  button[aria-pressed=true]{background:var(--bg);border-color:var(--line);color:var(--ink)}
  button:hover:not([aria-disabled=true]){color:var(--ink);background:var(--card-raised,var(--card))}
  button[aria-disabled=true]{cursor:default;color:var(--muted);opacity:.65}

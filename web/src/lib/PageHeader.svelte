@@ -42,7 +42,7 @@
   .page-head { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line-soft); }
   .page-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 24px; }
   .copy { min-width: 0; }
-  .group { margin: 0; color: var(--muted); font: 400 0.8125rem/1.4 var(--mono); letter-spacing: 0.01em; overflow-wrap: anywhere; }
+  .group { margin: 0; color: var(--muted); font: 400 0.875rem/1.4 var(--mono); letter-spacing: 0.01em; overflow-wrap: anywhere; }
   /* The parent link is a 44px target: padding gives the height and width, and the negative margin hands it back so the label does not move. */
   .group a { position: relative; display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px; margin: -13px -8px; border-radius: 6px; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 55%, transparent); text-underline-offset: 3px; }
   .group a:hover { color: var(--ink); text-decoration-color: currentColor; }

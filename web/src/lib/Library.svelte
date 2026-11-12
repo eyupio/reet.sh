@@ -261,7 +261,7 @@
   .differs .files span { color: var(--muted); }
   .type { font-weight: 400; color: var(--muted); text-transform: capitalize; }
   .side { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; justify-content: flex-end; }
-  .status { display: grid; gap: 4px; font-size: .8rem; color: var(--muted); }
+  .status { display: grid; gap: 4px; font-size: .875rem; color: var(--muted); }
   .status select { min-height: 44px; padding: 8px; max-width: 100%; color: var(--ink); }
   .side .btn { min-height: 44px; }
   .history { grid-column: 1 / -1; border-top: 1px solid var(--line); padding-top: 10px; font-size: .9rem; }

@@ -78,18 +78,18 @@
   .menu { position: absolute; z-index: 30; left: 10px; right: 10px; bottom: calc(100% + 8px); display: flex; flex-direction: column; gap: 6px; max-height: min(360px, 48vh); padding: 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card-raised); box-shadow: 0 16px 40px -18px var(--scrim); overflow: hidden; }
   .menu.inline { position: static; left: auto; right: auto; bottom: auto; max-height: 260px; margin-top: 6px; box-shadow: none; }
   .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 4px; }
-  .title { color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: .01em; }
-  .head a { color: var(--accent-text); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+  .title { color: var(--muted); font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+  .head a { color: var(--accent-text); font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
   .list { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: auto; }
   .option { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 7px 9px; border: 0; border-radius: 7px; background: none; color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
   .option:hover, .option[aria-selected='true'] { background: var(--tint); }
   .option-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
-  .option-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; color: var(--muted); font-size: 13px; line-height: 1.4; }
-  .option-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; color: var(--muted); font-size: 12px; }
+  .option-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: hidden; color: var(--muted); font-size: 14px; line-height: 1.4; }
+  .option-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; color: var(--muted); font-size: 14px; }
   .chip { padding: 1px 6px; border-radius: 4px; background: var(--tint); }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; padding: 2px 4px 0; border-top: 1px solid var(--line-soft); color: var(--faint); font-size: 12px; }
-  .note { margin: 0; padding: 6px 4px; color: var(--muted); font-size: 13px; }
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; padding: 2px 4px 0; border-top: 1px solid var(--line-soft); color: var(--faint); font-size: 14px; }
+  .note { margin: 0; padding: 6px 4px; color: var(--muted); font-size: 14px; }
   .note.bad { color: var(--bad); }
   .note a { color: var(--accent-text); text-decoration: underline; text-underline-offset: 3px; }
   @media (max-width: 650px) { .menu { left: 4px; right: 4px; max-height: 42vh; } .option { min-height: 44px; padding: 8px 10px; } }

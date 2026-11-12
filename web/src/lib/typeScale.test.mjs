@@ -1,13 +1,15 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-// app.css sets the product's floor: no copy or chrome below 14px. Home is the first screen a person sees, so its own
-// components keep that floor too, whatever the surface (a compact card, a summary line, a group heading).
+// app.css sets the product's floor: no copy or chrome below 14px. A component may be quiet in colour and weight, never
+// in size. The terminal draws its own type from --terminal-font-size, which a person chooses, and workspace.css carries
+// the session board's own scale alongside it, so both are outside this check.
 const FLOOR = 14
 const LENGTH = /(\d*\.?\d+)(px|rem|em)\b/i
+const src = fileURLToPath(new URL('../', import.meta.url))
 
 // Only the style block is type; a script may hold any string. Scan for </script>, never parse HTML with a regexp.
 const styleText = text => {
@@ -45,6 +47,18 @@ export function sizesIn(text) {
   return sizes
 }
 
+const files = (dir, found = []) => {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name !== 'terminal') files(path, found)
+    } else if (entry.name.endsWith('.svelte') || (entry.name.endsWith('.css') && entry.name !== 'workspace.css')) {
+      found.push(path)
+    }
+  }
+  return found
+}
+
 test('a font size reads px and rem, and ignores the line height of a font shorthand', () => {
   assert.deepEqual(sizesIn('.a { font-size: 13px; }').map(s => s.size), [13])
   assert.deepEqual(sizesIn('.a { font-size: .8125rem; }').map(s => s.size), [13])
@@ -53,13 +67,12 @@ test('a font size reads px and rem, and ignores the line height of a font shorth
   assert.deepEqual(sizesIn('<script>const x = "font-size: 12px"</script><style>.a { font-size: 15px; }</style>').map(s => s.size), [15])
 })
 
-test('every Home surface keeps the 14px type floor', () => {
-  const dir = fileURLToPath(new URL('.', import.meta.url))
+test('every product surface keeps the 14px type floor', () => {
   const offences = []
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith('.svelte')) continue
-    for (const { line, size, declaration } of sizesIn(readFileSync(join(dir, entry.name), 'utf8'))) {
-      if (size < FLOOR) offences.push(`${entry.name}:${line}: ${declaration} (${size}px)`)
+  for (const file of files(src)) {
+    const name = relative(src, file)
+    for (const { line, size, declaration } of sizesIn(readFileSync(file, 'utf8'))) {
+      if (size < FLOOR) offences.push(`${name}:${line}: ${declaration} (${size}px)`)
     }
   }
   assert.deepEqual(offences, [])

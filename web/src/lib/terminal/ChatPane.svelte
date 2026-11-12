@@ -1153,7 +1153,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  .chat-live { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
  .chat-status strong { font-weight: 500; color: var(--ink); }
  .chat-actions { display: flex; align-items: center; gap: 6px; flex: none; }
- .chat-status .new-chat { flex: none; padding: 2px 10px; font-size: 13px; }
+ .chat-status .new-chat { flex: none; padding: 2px 10px; font-size: 14px; }
  /* On a phone the companion has no clear floating corner over a chat; its entry sits in the status row instead. */
  .gaffer-entry { display: none; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: 50%; background: none; cursor: pointer; }
  .gaffer-entry:hover { background: var(--tint); }
@@ -1390,7 +1390,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   .hint { display: none; }
   .composer { margin: 0 8px 8px; padding: 8px; }
   .model-controls label { display: none; }
-  .effort-controls label { font-size: 12px; }
+  .effort-controls label { font-size: 14px; }
   .star-word { display: none; }
   .think-preview { font-size: 14px; }
  }

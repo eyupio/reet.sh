@@ -5,8 +5,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 // app.css sets the product's floor: no copy or chrome below 14px. A component may be quiet in colour and weight, never
-// in size. The terminal draws its own type from --terminal-font-size, which a person chooses, and workspace.css carries
-// the session board's own scale alongside it, so both are outside this check.
+// in size. The terminal canvas draws from --terminal-font-size, which a person chooses, but the chrome around it is
+// product copy like anywhere else and is checked here too.
 const FLOOR = 14
 const LENGTH = /(\d*\.?\d+)(px|rem|em)\b/i
 const src = fileURLToPath(new URL('../', import.meta.url))
@@ -50,11 +50,8 @@ export function sizesIn(text) {
 const files = (dir, found = []) => {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      if (entry.name !== 'terminal') files(path, found)
-    } else if (entry.name.endsWith('.svelte') || (entry.name.endsWith('.css') && entry.name !== 'workspace.css')) {
-      found.push(path)
-    }
+    if (entry.isDirectory()) files(path, found)
+    else if (entry.name.endsWith('.svelte') || entry.name.endsWith('.css')) found.push(path)
   }
   return found
 }

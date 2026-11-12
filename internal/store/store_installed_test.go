@@ -40,6 +40,31 @@ func TestInstalledSkillsForIncludesAHiddenInstalledSkill(t *testing.T) {
 		t.Fatalf("environments = %+v", got[0].Environments)
 	}
 
+	// A project-scoped install on the same host is part of the machine
+	// inventory too; the session catalogue applies the folder rule afterwards.
+	project, err := e.s.UpsertLocalFor(e.uid, "proj", Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.RecordEnvironmentFor(e.uid, project.ID, "laptop", "claude", "/work/app", "/work/app/.claude/skills", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err = e.s.InstalledSkillsFor(e.uid, "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundProject := false
+	for _, skill := range got {
+		for _, env := range skill.Environments {
+			if skill.ID == project.ID && env.Project == "/work/app" {
+				foundProject = true
+			}
+		}
+	}
+	if !foundProject {
+		t.Fatalf("project-scoped install missing from %+v", got)
+	}
+
 	// The library view is unchanged: a private draft stays hidden there.
 	visible, _, err := e.s.ListFor(e.uid, Filter{})
 	if err != nil {

@@ -502,10 +502,10 @@
   .home-projects { display: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
   @media (min-width: 1100px) { .home-projects { display: inline-flex; align-items: center; } }
   .home-start { min-height: 44px; padding: 8px 14px; border-radius: 8px; font: 500 14px var(--sans); white-space: nowrap; }
-  .attention-window { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 13px; color: var(--muted); }
+  .attention-window { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 14px; color: var(--muted); }
   .attention-window button { min-height: 44px; padding: 4px 0; background: transparent; border: 0; color: var(--ink); font: inherit; text-decoration: underline; cursor: pointer; }
   .attention-window button:focus-visible { outline: 2px solid var(--accent); }
-  .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
   .workspace-summary:has(.followups) { align-items: center; gap: 0 18px; }
   /* Gaffer's line on Home is the way onto the factory floor, so it reads as a control and carries his face. */
   .followups { min-height: 44px; padding: 0 14px 0 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }

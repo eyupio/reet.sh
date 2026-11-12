@@ -158,7 +158,7 @@
   .none { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--card); color: var(--muted); }
   .list { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; }
   .group + .group { border-top: 1px solid var(--line); }
-  h3 { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 14px 12px 6px; font-size: 13px; font-weight: 500; color: var(--muted); }
+  h3 { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 14px 12px 6px; font-size: 14px; font-weight: 500; color: var(--muted); }
   .count { font-weight: 400; font-variant-numeric: tabular-nums; }
   ul { list-style: none; margin: 0; padding: 0; }
   li { display: block; border-top: 1px solid var(--line-soft); }
@@ -171,7 +171,7 @@
   .item-details { padding: 0 14px 12px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
   .item-details p { margin: 6px 0; }
   .item-details a { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink); }
-  .list-window { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 13px; color: var(--muted); }
+  .list-window { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 14px; color: var(--muted); }
   .list-window button, .list-window a { min-height: 44px; align-content: center; border: 0; padding: 4px 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; text-decoration: underline; }
   .list-window button:focus-visible, .item-details a:focus-visible { outline: 2px solid var(--accent); }
   .row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 10px 16px; color: var(--ink); text-decoration: none; }
@@ -179,7 +179,7 @@
   li[data-status='waiting'], li[data-status='failed'] { box-shadow: inset 2px 0 var(--status); }
   .main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
   .title { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .badge.factory { margin-left: 4px; padding: 0 5px; border: 1px solid var(--accent); border-radius: 5px; color: var(--accent-text); font-size: 13px; font-weight: 600; vertical-align: 1px; }
+  .badge.factory { margin-left: 4px; padding: 0 5px; border: 1px solid var(--accent); border-radius: 5px; color: var(--accent-text); font-size: 14px; font-weight: 600; vertical-align: 1px; }
   .badge.yolo { margin-left: 4px; padding: 0 5px; border: 1px solid var(--warn); border-radius: 5px; color: var(--warn); font-size: 14px; font-weight: 600; vertical-align: 1px; }
   .where { font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .item-details code { font-family: var(--mono); font-size: 14px; }

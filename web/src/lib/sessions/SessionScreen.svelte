@@ -525,7 +525,7 @@
   .header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
   .session-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
   .legacy-label { flex-basis: 100%; margin: 0; font-size: 14px; font-weight: 600; }
-  .legacy-note { flex-basis: 100%; margin: -4px 0 4px; font-size: 13px; line-height: 1.6; color: var(--muted); }
+  .legacy-note { flex-basis: 100%; margin: -4px 0 4px; font-size: 14px; line-height: 1.6; color: var(--muted); }
   .actions-context { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
   .actions-button { display: inline-grid; place-items: center; min-width: 36px; min-height: 36px; border: 1px solid transparent; border-radius: 7px; background: none; color: var(--muted); font: 600 20px/1 var(--sans); cursor: pointer; }
   @media (pointer: coarse) { .header-actions :global(button) { min-width: 44px; min-height: 44px; } }
@@ -546,11 +546,11 @@
   .back svg { width: 22px; height: 22px; }
   .back:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
   .title { margin: 0; font: 500 20px/1.3 var(--sans); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .location { margin: 3px 0 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .location { margin: 3px 0 0; color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sub, .where-phone { margin: 0; font-size: 14px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .where-phone { display: none; }
   .pill { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 6px; box-sizing: border-box;
-    background: none; border: 0; color: var(--muted); font-size: 13px; font-weight: 400; white-space: nowrap; }
+    background: none; border: 0; color: var(--muted); font-size: 14px; font-weight: 400; white-space: nowrap; }
   .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status); }
   .badge { flex: none; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 14px; line-height: 22px; color: var(--muted); }
   .badge.yolo { border-color: var(--warn); color: var(--warn); font-weight: 600; }
@@ -656,7 +656,7 @@
     /* The header keeps its 44 px targets but drops its spare 8 px while typing, so the terminal keeps its keyboard-open rows. */
     .keyboard .head { min-height: 44px; }
   }
-  .factory-mark { justify-self: start; align-self: start; width: fit-content; font-size: 13px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 8px; text-decoration: none; white-space: nowrap; }
+  .factory-mark { justify-self: start; align-self: start; width: fit-content; font-size: 14px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 8px; text-decoration: none; white-space: nowrap; }
   .factory-mark:hover { background: var(--tint); }
   .factory-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>

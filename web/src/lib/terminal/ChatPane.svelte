@@ -1388,7 +1388,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   .hint { display: none; }
   .composer { margin: 0 8px 8px; padding: 8px; }
   .model-controls label { display: none; }
-  .effort-controls label { font-size: 12px; }
+  .effort-controls label { font-size: 14px; }
   .star-word { display: none; }
   .think-preview { font-size: 14px; }
  }

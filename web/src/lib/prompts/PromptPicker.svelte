@@ -188,14 +188,14 @@
   .option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .option-title { font-weight: 600; overflow-wrap: anywhere; }
   .option-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--muted); font-size: 14px; line-height: 1.4; }
-  .option-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--muted); font-size: 13px; }
-  .chip { display: inline-flex; align-items: center; max-width: 100%; padding: 2px 7px; border-radius: 5px; background: var(--tint); color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .option-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--muted); font-size: 14px; }
+  .chip { display: inline-flex; align-items: center; max-width: 100%; padding: 2px 7px; border-radius: 5px; background: var(--tint); color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
   .preview { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .preview-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   h3 { margin: 0; font: 600 1.05rem/1.3 var(--sans); overflow-wrap: anywhere; }
   .description { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
   .suggestion { margin: 0; color: var(--accent-text); font-size: 14px; }
-  .shelf-note { margin: 0; color: var(--muted); font-size: 13px; }
+  .shelf-note { margin: 0; color: var(--muted); font-size: 14px; }
   .text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 var(--sans); color: var(--ink); }
   .warn { margin: 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); font-size: 14px; line-height: 1.45; }
   .note, .empty p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }

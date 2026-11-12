@@ -790,3 +790,30 @@ func TestListCanonicalMatchesTheExactName(t *testing.T) {
 		t.Fatalf("case difference was folded: %+v %v", all, err)
 	}
 }
+
+// Hiding the second card must not hide the machine that reported the copy: the
+// view carries the observed folders onto the linked item.
+func TestCanonicalLibraryViewMergesTheFoldedMachineObservation(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	linked, _ := ref.Parse("owner/repo/demo")
+	if _, err := s.UpsertFor(uid, linked, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLocalFor(uid, "demo", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordEnvironmentFor(uid, "local/demo", "laptop", "claude", "", "/home/me/.claude/skills", "/home/me/.claude/skills/demo"); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.LibraryViewFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view) != 1 || view[0].Metadata == nil {
+		t.Fatalf("view = %+v", view)
+	}
+	if len(view[0].Metadata.Environments) != 1 || view[0].Metadata.Environments[0].Host != "laptop" || view[0].Metadata.EnvironmentCount != 1 {
+		t.Fatalf("machine observation was not carried onto the linked item: %+v", view[0].Metadata)
+	}
+}

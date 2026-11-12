@@ -504,14 +504,66 @@ func oneCanonicalCopyPerName(items []LibraryItem) []LibraryItem {
 	if len(linked) == 0 {
 		return items
 	}
-	out := items[:0]
+	out := make([]LibraryItem, 0, len(items))
+	dropped := map[string][]LibraryItem{}
 	for _, item := range items {
 		if linked[item.Name] && !linkedLibraryItem(item) {
+			dropped[item.Name] = append(dropped[item.Name], item)
 			continue
 		}
 		out = append(out, item)
 	}
+	for name, copies := range dropped {
+		kept := -1
+		for i := range out {
+			if out[i].Name != name || !linkedLibraryItem(out[i]) {
+				continue
+			}
+			if kept >= 0 {
+				// More than one linked source of this name: the sync library
+				// decides which copy a machine receives, so there is no single
+				// entry to put the observation on.
+				kept = -1
+				break
+			}
+			kept = i
+		}
+		if kept < 0 {
+			continue
+		}
+		for _, copy := range copies {
+			mergeLibraryObservations(&out[kept], copy)
+		}
+	}
 	return out
+}
+
+// mergeLibraryObservations carries a machine copy's observed folders onto the
+// linked entry it was folded into, so hiding the second card does not hide the
+// machine that reported it. It changes the returned view only, never the store.
+func mergeLibraryObservations(into *LibraryItem, from LibraryItem) {
+	if into.Metadata == nil || from.Metadata == nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, e := range into.Metadata.Environments {
+		seen[environmentKey(e)] = true
+	}
+	for _, e := range from.Metadata.Environments {
+		if seen[environmentKey(e)] {
+			continue
+		}
+		into.Metadata.Environments = append(into.Metadata.Environments, e)
+		seen[environmentKey(e)] = true
+	}
+	into.Metadata.EnvironmentCount = len(into.Metadata.Environments)
+}
+
+func environmentKey(e Environment) string {
+	if e.ID != "" {
+		return e.ID
+	}
+	return e.Host + "\x00" + e.Agent + "\x00" + e.Project + "\x00" + e.Path
 }
 
 func (s *Store) materializeLibraryHosted(uid int64) error {

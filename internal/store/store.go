@@ -148,6 +148,10 @@ type Filter struct {
 	// Compact asks for tags and an environment count only, not full
 	// environment rows or shared-list labels.
 	Compact bool
+	// Canonical shows one card per name: an unlinked machine copy folds into a
+	// linked skill of the same name. The full rows stay in the store for
+	// selections and history.
+	Canonical bool
 }
 
 type Counts struct {

@@ -1154,3 +1154,29 @@ func TestSignupOptInContactAndMemberRole(t *testing.T) {
 		t.Fatalf("invalid signup email: %d", code)
 	}
 }
+
+func TestCanonicalShelfListingOnlyForTheUnfilteredShelf(t *testing.T) {
+	cases := []struct {
+		name string
+		in   store.Filter
+		want bool
+	}{
+		{"default", store.Filter{}, true},
+		{"all tab", store.Filter{Tab: "all"}, true},
+		{"liked tab", store.Filter{Tab: "liked"}, false},
+		{"machine", store.Filter{Machine: "laptop"}, false},
+		{"environment", store.Filter{Env: "e1"}, false},
+		{"stage", store.Filter{Stage: "use"}, false},
+		{"query", store.Filter{Query: "demo"}, false},
+		{"tag", store.Filter{Tags: []int64{1}}, false},
+		{"source type", store.Filter{SourceType: "github"}, false},
+		{"untagged", store.Filter{Untagged: true}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := canonicalShelfListing(c.in); got != c.want {
+				t.Fatalf("canonicalShelfListing(%+v) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}

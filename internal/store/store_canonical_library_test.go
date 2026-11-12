@@ -716,3 +716,77 @@ func TestLinkedLibraryItemTreatsALegacySourceAsLinked(t *testing.T) {
 		})
 	}
 }
+
+// The Skills page asks for one card per name. It must not need a second copy
+// of a skill the account already has from a known source.
+func TestListCanonicalFoldsAnUnlinkedCopyOfALinkedSkill(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	yes := true
+	linked, err := ref.Parse("owner/repo/demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertFor(uid, linked, Patch{Used: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLocalFor(uid, "demo", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	all, counts, err := s.ListFor(uid, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 || counts.All != 2 {
+		t.Fatalf("fixture has %d skills, counts %+v", len(all), counts)
+	}
+	one, canonical, err := s.ListFor(uid, Filter{Canonical: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(one) != 1 || one[0].SourceType == "local" || canonical.All != 1 || canonical.Used != 1 {
+		t.Fatalf("canonical list = %+v, counts %+v", one, canonical)
+	}
+}
+
+func TestListCanonicalKeepsAManualCopyAndTwoLinkedSources(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if _, err := s.UpsertLocalFor(uid, "solo", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	one, _, err := s.ListFor(uid, Filter{Canonical: true})
+	if err != nil || len(one) != 1 || one[0].SourceType != "local" {
+		t.Fatalf("manual copy = %+v %v", one, err)
+	}
+	first, _ := ref.Parse("owner/repo/demo")
+	second, _ := ref.Parse("other/repo/demo")
+	if _, err := s.UpsertFor(uid, first, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertFor(uid, second, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	both, counts, err := s.ListFor(uid, Filter{Canonical: true})
+	if err != nil || len(both) != 3 || counts.All != 3 {
+		t.Fatalf("two linked sources were folded: %+v %+v %v", both, counts, err)
+	}
+}
+
+// Identity is the exact name, as the sync library uses it. A case difference
+// is not silently merged on the shelf.
+func TestListCanonicalMatchesTheExactName(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	linked, _ := ref.Parse("owner/repo/demo")
+	if _, err := s.UpsertFor(uid, linked, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLocalFor(uid, "Demo", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	all, _, err := s.ListFor(uid, Filter{Canonical: true})
+	if err != nil || len(all) != 2 {
+		t.Fatalf("case difference was folded: %+v %v", all, err)
+	}
+}

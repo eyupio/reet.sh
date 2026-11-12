@@ -459,7 +459,45 @@ func (s *Store) LibraryFor(uid int64) ([]LibraryItem, error) {
 		}
 		return items[i].ID < items[j].ID
 	})
-	return items, nil
+	return oneCanonicalCopyPerName(items), nil
+}
+
+// linkedLibraryItem reports whether an item has a known source: an authored or
+// hosted alias, or a shelf skill linked to an install source. An unlinked
+// machine capture is only an observation of a skill, not a source of its own.
+func linkedLibraryItem(item LibraryItem) bool {
+	for _, alias := range item.Aliases {
+		if alias.Kind == "hosted" {
+			return true
+		}
+	}
+	return item.Metadata != nil && item.Metadata.SourceType != "" && item.Metadata.SourceType != "local"
+}
+
+// oneCanonicalCopyPerName drops unlinked machine captures when the account
+// already holds a linked library item of the same name. The linked item is the
+// single source: automatic sync maintains it, and manually importing or linking
+// an unlinked copy is how that copy becomes a source of its own. Distinct
+// same-name items that each have a known source are left alone, because the
+// sync library settles which copy one machine receives.
+func oneCanonicalCopyPerName(items []LibraryItem) []LibraryItem {
+	linked := map[string]bool{}
+	for _, item := range items {
+		if linkedLibraryItem(item) {
+			linked[item.Name] = true
+		}
+	}
+	if len(linked) == 0 {
+		return items
+	}
+	out := items[:0]
+	for _, item := range items {
+		if linked[item.Name] && !linkedLibraryItem(item) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func (s *Store) materializeLibraryHosted(uid int64) error {

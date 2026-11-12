@@ -459,19 +459,33 @@ func (s *Store) LibraryFor(uid int64) ([]LibraryItem, error) {
 		}
 		return items[i].ID < items[j].ID
 	})
+	return items, nil
+}
+
+// LibraryViewFor is LibraryFor as a person reads it: one canonical copy per
+// name. Selection and scheduler code must keep using LibraryFor, which returns
+// every item, so a saved selection is never dropped merely because a linked
+// copy of the same name exists elsewhere in the library.
+func (s *Store) LibraryViewFor(uid int64) ([]LibraryItem, error) {
+	items, err := s.LibraryFor(uid)
+	if err != nil {
+		return nil, err
+	}
 	return oneCanonicalCopyPerName(items), nil
 }
 
 // linkedLibraryItem reports whether an item has a known source: an authored or
 // hosted alias, or a shelf skill linked to an install source. An unlinked
 // machine capture is only an observation of a skill, not a source of its own.
+// Source alone also counts, matching the sync library, so rows saved before
+// source types were recorded stay linked.
 func linkedLibraryItem(item LibraryItem) bool {
 	for _, alias := range item.Aliases {
 		if alias.Kind == "hosted" {
 			return true
 		}
 	}
-	return item.Metadata != nil && item.Metadata.SourceType != "" && item.Metadata.SourceType != "local"
+	return item.Metadata != nil && item.Metadata.Source != "" && item.Metadata.SourceType != "local"
 }
 
 // oneCanonicalCopyPerName drops unlinked machine captures when the account

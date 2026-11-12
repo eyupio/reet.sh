@@ -14,6 +14,7 @@ function fixture(structured=true){
  const routes={
   '/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},
   '/api/v2/gaffer/conversations':()=>view,
+  '/api/v2/gaffer/goals':()=>({goals:view.goal?[{goal:view.goal,session:{id:sid,agentId:'a1',title:session.title,state:session.state},available:true,attention:false}]:[],readAt:now}),
   [`/api/v2/gaffer/conversations/${cid}/goal`]:()=>goalView(),
   [`/api/v2/gaffer/conversations/${cid}/goal/setup`]:request=>{const in_=request.postDataJSON();expect(in_.confirmed).toBe(true);expect(in_.conversationRevision).toBe(view.conversation.revision);if(in_.action==='resume'){box.controls.push(in_);view.goal.state='active';view.goal.revision++;return goalView()}if(in_.action==='start'){expect(in_.revision).toBe(view.goal?.revision??0);for(const [key,value]of Object.entries(pins))expect(in_[key]).toBe(value);box.starts.push(in_);view.goal={...pins,id:'b'.repeat(32),conversationId:cid,sessionId:sid,revision:(view.goal?.revision??0)+1,text:in_.text,state:'active',note:'Waiting for new worker progress. No model request was made.',maxReviews:in_.maxReviews,usedReviews:0,createdAt:now,updatedAt:now,expiresAt:now+in_.hours*3600000,nextAt:now,lastSeq:-1,inputTokens:0,outputTokens:0,usageReported:true}}return goalView()},
   [`/api/v2/gaffer/conversations/${cid}/goal/control`]:request=>{const in_=request.postDataJSON();expect(in_.revision).toBe(view.goal.revision);if(in_.action==='resume')expect(in_.confirmed).toBe(true);box.controls.push(in_);view.goal.state={pause:'paused',resume:'active',complete:'completed',stop:'stopped'}[in_.action];view.goal.revision++;view.goal.note=in_.action==='complete'?'You marked this goal complete.':'Goal updated.';return goalView()},
@@ -119,11 +120,11 @@ try{
   try{
    await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
    const tracker=await overview(w.page)
-   const cell=name=>tracker.getByRole('button',{name:`${name}: goal options`,exact:true})
-   await expect(tracker.getByRole('button',{name:'PR: goal options, Gaffer is following',exact:true})).toBeVisible()
+   const followingCell=tracker.getByRole('button',{name:'PR: goal options, Gaffer is following',exact:true})
+   await expect(followingCell).toBeVisible()
    const strip=tracker.getByRole('status').filter({hasText:'Following'})
    await expect(strip).toContainText('Babysit the pull request')
-   await cell('PR').click()
+   await followingCell.click()
    const menu=w.page.getByRole('menu',{name:'PR: goal options',exact:true})
    await expect(menu.getByRole('menuitem',{name:'Babysit the pull request, following',exact:true})).toHaveAttribute('aria-current','true')
    const stop=menu.getByRole('menuitem',{name:'Stop following: Babysit the pull request',exact:true})
@@ -134,7 +135,7 @@ try{
    // The chat names the same goal while it runs, so the selection is visible there too.
    f.view.goal.state='active'
    await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
-   await expect(w.page.getByRole('dialog',{name:'Gaffer',exact:true}).getByText(/Following/)).toBeVisible()
+   await expect(w.page.getByRole('dialog',{name:'Gaffer',exact:true}).locator('.follow-bar')).toContainText('Following Babysit the pull request')
    expect(w.errors).toEqual([])
   }finally{await w.context.close()}
  }

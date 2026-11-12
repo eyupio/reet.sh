@@ -5,7 +5,7 @@
   import type { ChatState } from '../chat'
   import type { WorktreeStatus } from '../projects'
   import { changedList, worktreeTargetOf } from '../sessions'
-  import { controlGafferGoal, getGafferConversation, type GafferConversationView } from '../api'
+  import { controlGafferGoal, listGafferGoals, type GafferGoal } from '../api'
   import { inspectSession, worktreeStatus, type TerminalSession } from '../terminal/api'
   import { elapsedWord, insightReason, type InsightFile, type InsightView, type SessionInsight } from '../sessionInsights'
   import { insightsAuto, pullReadAge, pullReadBusy, pullReadingIds, rememberInsight, sessionInsights, trackPullRead } from './insightStore'
@@ -22,7 +22,7 @@
   import { GAFFER_GOALS_CHANGED, gafferChatEntry } from '../gafferContext'
   import { chatToolName, terminalClosed } from '../terminal/api'
   import type { ChatProgressState } from '../gafferProgress'
-  import { activeFollow } from './stageActions'
+  import { activeFollowGoal } from './stageActions'
 
   let { session, host, status, project, skills, now, chat, chatProgress, supported = false, docked = false, onterminal, onkeydown, onclose, id }: {
     session: TerminalSession; host: string; status: FleetCard['status'] | undefined
@@ -43,14 +43,18 @@
   const requests = new Map<string, AbortController>()
   let alive = true, lastLocal = 0, lastGitHub = 0
   // Gaffer's goal for this session is a separate read from the workspace snapshot. It needs a writer account and a
-  // conversation Gaffer already has, so an error here is silence rather than a message: there is simply nothing to show.
-  let followView = $state<GafferConversationView | null>(null), unfollowBusy = $state(false)
+  // structured session, so an error here is silence rather than a message: there is simply nothing to show.
+  let followGoal = $state<GafferGoal | undefined>(undefined), unfollowBusy = $state(false)
   let followReading = false, lastFollow = 0
-  const following = $derived(activeFollow(followView))
+  const following = $derived(activeFollowGoal(followGoal))
   async function readFollow() {
-    if (!alive || followReading) return
+    // A terminal session has no Gaffer goal, and looking for one would be a wasted request.
+    if (!alive || followReading || !session.structured) return
     followReading = true
-    try { const next = await getGafferConversation(session.id); if (alive) followView = next } catch { /* no goal to show */ }
+    try {
+      const { goals } = await listGafferGoals()
+      if (alive) followGoal = goals.find(entry => entry.session?.id === session.id)?.goal
+    } catch { /* no goal to show */ }
     finally { followReading = false; lastFollow = Date.now() }
   }
   // Stop reads the goal's own revision and pins first, so a stale panel cannot stop a goal the person has since replaced.

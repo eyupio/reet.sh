@@ -63,11 +63,15 @@ export function matchFollowText(text: string): FollowMatch | undefined {
 }
 
 /** A goal is being followed until the person marks it complete or stops it. */
-export function activeFollow(view: GafferConversationView | null | undefined): ActiveFollow | undefined {
-  const goal = view?.goal
+export function activeFollowGoal(goal: GafferGoal | null | undefined): ActiveFollow | undefined {
   if (!goal?.conversationId || goal.state === 'completed' || goal.state === 'stopped') return undefined
   const match = matchFollowText(goal.text)
   const first = goal.text.trim().split(/\r?\n/)[0].trim()
   const label = match?.item.label || (first.length > 80 ? `${first.slice(0, 77)}…` : first) || 'A goal you wrote'
   return { stage: match?.stage, itemId: match?.item.id, label, text: goal.text, state: goal.state, goal, conversationId: goal.conversationId }
+}
+
+/** The active follow for a conversation view, as the Gaffer chat holds it. */
+export function activeFollow(view: GafferConversationView | null | undefined): ActiveFollow | undefined {
+  return activeFollowGoal(view?.goal)
 }

@@ -3,10 +3,10 @@
   // which agent and model does the stage in hand, and the numbers that say how it is going. Reading the page starts
   // nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
-  import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
+  import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, listFolderProjects, terminalMachines } from '../terminal/api'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
-  import { DEFAULT_STAGES, agentActivity, ago, needsYou, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
+  import { DEFAULT_STAGES, agentActivity, ago, needsYou, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
   import { eventLabel } from '../events'
   import GafferProse from '../GafferProse.svelte'
   import { formatWhen } from '../time'
@@ -32,7 +32,12 @@
 
   const byConversation = $derived(new Map(goals.map(row => [row.goal.conversationId, row])))
   const attention = $derived(new Set(goals.filter(row => row.attention).map(row => row.goal.conversationId)))
-  const tally = $derived(factoryTally(records, attention))
+  // Outcomes put away leave the floor and the tallies; they stay in the record and can be shown and restored.
+  const floor = $derived(records.filter(record => !record.archivedAt))
+  const shelved = $derived(records.filter(record => record.archivedAt))
+  let showArchived = $state(false), removeMode = $state<'archive' | 'delete'>('archive'), deleting = $state<Outcome | null>(null)
+  const listed = $derived(showArchived ? records : floor)
+  const tally = $derived(factoryTally(floor, attention))
   // Goals the page draws inside a pipeline are left out of the list of other sessions below.
   const drawn = $derived(records.flatMap(record => record.sessions.flatMap(piece => [piece.conversationId, ...(piece.stages ?? []).map(stage => stage.conversationId)])).filter((id): id is string => !!id))
   // A pipeline's own sessions are not offered again below, except one that was started and is not followed.
@@ -58,6 +63,7 @@
   }
   onMount(() => {
     void load(); void loadSetup()
+    void getProfile().then(p => { removeMode = p.profile.factoryRemoveMode === 'delete' ? 'delete' : 'archive' }).catch(() => { /* archiving is the safe default */ })
     // A page opened to give Gaffer an outcome (from Home or the chat) starts with that dialog up.
     if (new URLSearchParams(location.search).get('outcome') === '1') outcomeOpen = true
     const timer = setInterval(() => { clock = Date.now(); if (!document.hidden && !outcomeOpen && !managing && !merging && !adding && !reporting) void load() }, 5000)
@@ -87,6 +93,22 @@
     busy = true; notice = ''
     try { await stopGafferOutcome(record); notice = 'Stopped. Sessions not yet started stay unstarted; the ones already started keep running.' }
     catch (e) { notice = e instanceof Error ? e.message : 'The outcome was not stopped.' }
+    busy = false
+    await load()
+  }
+  // A finished outcome is one line until it is opened, so a long list of old work does not fill the screen. The person's own
+  // choice for an outcome, or for all of them, wins; one that is still moving, or has a pipeline to try again, starts open.
+  let outcomeFolds = $state<Record<string, boolean>>({})
+  const outcomeShown = (record: Outcome) => !outcomeFinished(record) || record.sessions.some(piece => ['failed', 'unfollowed'].includes(piece.state)) || (outcomeFolds[record.id] ?? allOpen ?? false)
+  async function putAway(record: Outcome, mode: 'archive' | 'delete' | 'restore') {
+    if (busy) return
+    busy = true; notice = ''; deleting = null
+    try {
+      const current = latest(record)
+      if (mode === 'delete') { await deleteGafferOutcome(current); notice = `Deleted “${record.objective}”. Its sessions and pull requests were not touched.` }
+      else if (mode === 'archive') { await archiveGafferOutcome(current); notice = `Archived “${record.objective}”. Show archived outcomes to bring it back.` }
+      else { await restoreGafferOutcome(current); notice = `Restored “${record.objective}”.` }
+    } catch (e) { notice = e instanceof Error ? e.message : 'That outcome was not changed.' }
     busy = false
     await load()
   }
@@ -231,7 +253,7 @@
     busy = false
     await load()
   }
-  const sessionHref = (record: Outcome, id: string) => `/sessions?agent=${encodeURIComponent(record.agentId)}&session=${encodeURIComponent(id)}&gaffer=1`
+  const sessionHref = (record: Outcome, id: string) => `/sessions?agent=${encodeURIComponent(record.agentId)}&session=${encodeURIComponent(id)}`
   const when = (at: number) => formatWhen(at, timeZone, dateFormat)
   const crew = (piece: GafferOutcomeSession, record: Outcome) => {
     const stage = piece.stages?.[piece.stage ?? 0]
@@ -253,7 +275,7 @@
     <li><strong>{tally.done}</strong><span>Done</span></li>
   </ul>
 
-  {#if records.length}<div class="fold-all"><button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {} }}>{allOpen === true ? 'Collapse all pipelines' : 'Expand all pipelines'}</button></div>{/if}
+  {#if records.length}<div class="fold-all">{#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}<button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {} }}>{allOpen === true ? 'Collapse all pipelines' : 'Expand all pipelines'}</button></div>{/if}
   {#if notice}<p role="status" class="notice">{notice}</p>{/if}
   {#if error}<p role="alert" class="warning">{error}{#if records.length}{' '}Showing the last successful read.{/if}</p>{/if}
 
@@ -272,17 +294,26 @@
 
   <section class="lines" aria-label="Pipelines">
     {#if loading}<p role="status">Reading the factory…</p>
+    {:else if !listed.length && shelved.length}<div class="empty"><h2>Nothing on the floor.</h2><p>Every outcome is archived. Show archived to look at them or bring one back.</p></div>
     {:else if !records.length}<div class="empty"><h2>No pipelines yet.</h2><p>Give Gaffer an outcome and its pipelines appear here, each moving through plan, design, code, review, test, pull request, babysitting and merge.</p></div>
     {:else}
-      {#each records as record (record.id)}{@const usage = outcomeUsage(record.sessions.map(piece => pipelineUsage(piece, piece.conversationId ? byConversation.get(piece.conversationId)?.goal : undefined)), record.report)}<article class="outcome" aria-label={`Outcome: ${record.objective}`}>
+      {#each listed as record (record.id)}{@const open_ = outcomeShown(record)}{@const finished = outcomeFinished(record)}{@const usage = outcomeUsage(record.sessions.map(piece => pipelineUsage(piece, piece.conversationId ? byConversation.get(piece.conversationId)?.goal : undefined)), record.report)}<article class="outcome" class:shelved={!!record.archivedAt} aria-label={`Outcome: ${record.objective}`}>
         <header class="outcome-head">
-          <div class="outcome-title"><p class="eyebrow">Outcome</p><h2>{record.objective}</h2><p class="meta">{record.projectName || 'Project'} · started {when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}</p></div>
+          <div class="outcome-title"><p class="eyebrow">Outcome</p><h2>{record.objective}</h2><p class="meta">{record.projectName || 'Project'} · started {when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {when(record.archivedAt)}{/if}{#if !open_} · {record.sessions.length} {record.sessions.length === 1 ? 'pipeline' : 'pipelines'}, {record.sessions.every(piece => piece.state === 'done') ? 'all done' : 'finished'}{/if}</p></div>
           <div class="outcome-actions">
-            <button class="btn quiet" type="button" disabled={busy || !!reporting} onclick={() => void report(record)}>{reporting === record.id ? 'Gaffer is reporting…' : record.report ? 'Ask Gaffer again' : 'Ask Gaffer for a report'}</button>
-            <button class="btn quiet" type="button" aria-expanded={!!timeline[record.id]} onclick={() => void toggleHistory(record)}>{timeline[record.id] ? 'Hide history' : 'History'}</button>
+            {#if finished}<button class="btn quiet" type="button" aria-expanded={open_} onclick={() => outcomeFolds = { ...outcomeFolds, [record.id]: !open_ }}>{open_ ? 'Hide details' : 'Show details'}</button>{/if}
+            {#if open_}
+              <button class="btn quiet" type="button" disabled={busy || !!reporting} onclick={() => void report(record)}>{reporting === record.id ? 'Gaffer is reporting…' : record.report ? 'Ask Gaffer again' : 'Ask Gaffer for a report'}</button>
+              <button class="btn quiet" type="button" aria-expanded={!!timeline[record.id]} onclick={() => void toggleHistory(record)}>{timeline[record.id] ? 'Hide history' : 'History'}</button>
+            {/if}
             {#if record.state === 'starting'}<button class="btn quiet" type="button" disabled={busy} onclick={() => void stop(record)}>Stop starting sessions</button>{/if}
+            {#if finished}
+              {#if record.archivedAt}<button class="btn quiet" type="button" disabled={busy} onclick={() => void putAway(record, 'restore')}>Restore</button>{:else}<button class={removeMode === 'archive' ? 'btn' : 'btn quiet'} type="button" disabled={busy} onclick={() => void putAway(record, 'archive')}>Archive</button>{/if}
+              <button class={removeMode === 'delete' && !record.archivedAt ? 'btn danger' : 'btn quiet'} type="button" disabled={busy} onclick={() => deleting = record}>Delete</button>
+            {/if}
           </div>
         </header>
+        {#if open_}
         <dl class="facts totals" aria-label="This outcome so far">
           <div><dt>Pipelines</dt><dd>{record.sessions.length}</dd></div>
           <div><dt>Gaffer reviews</dt><dd>{usage.reviews}</dd></div>
@@ -301,7 +332,8 @@
         </section>{/if}
         {#if record.report}<section class="outcome-report" aria-label="Gaffer’s report on this outcome">
           <p class="eyebrow">Gaffer’s report · {when(record.report.at)}{record.report.auto ? ' · made by itself when a pipeline finished or stopped' : ''}</p>
-          <GafferProse text={record.report.text}/>
+          <div class="prose-clamp report-clamp" class:open={expanded[`report-${record.id}`]}><GafferProse text={record.report.text}/></div>
+          {#if record.report.text.length > 400}<button class="inline" type="button" aria-expanded={!!expanded[`report-${record.id}`]} onclick={() => expanded = { ...expanded, [`report-${record.id}`]: !expanded[`report-${record.id}`] }}>{expanded[`report-${record.id}`] ? 'Show less' : 'Read all of it'}</button>{/if}
           {#if record.report.proposals?.length}
             <p class="hint">Gaffer suggests adding {record.report.proposals.length === 1 ? 'this pipeline' : 'these pipelines'}. Nothing is added or started unless you approve it, and you choose each one’s agent, model and effort then.</p>
             <ul class="proposals" aria-label="Proposed pipelines">
@@ -360,6 +392,7 @@
             {/if}
           </li>{/each}
         </ul>
+        {/if}
       </article>{/each}
     {/if}
   </section>
@@ -373,6 +406,7 @@
 </div>
 
 {#if outcomeOpen}<GafferOutcome room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
+{#if deleting}<ConfirmDialog title={`Delete “${deleting.objective}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
 {#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !mergesByItself(moving.record, moving.piece) ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}
 {#if telling}<PipelineNote title={`Tell the agent of “${telling.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" placeholder="Write the plan as text now: files, approach, risks. Change no code." confirmLabel="Send to the agent" {busy} oncancel={() => telling = null} onconfirm={text => void tell(text)}/>{/if}
@@ -415,7 +449,7 @@
   @media(prefers-reduced-motion:reduce){.track li.running .dot::after{animation:none;transform:scale(1.35);opacity:.45}.badge.busy::before{animation:none}}
   .track li.failed{color:var(--bad)}.track li.failed .dot{border-color:var(--bad);color:var(--bad)}
   @media(prefers-reduced-motion:no-preference){.track li.running .dot{animation:pulse 2s ease-in-out infinite}}@keyframes pulse{50%{box-shadow:0 0 0 7px transparent}}
-  .now{color:var(--ink)}.pipe.bad .now{color:var(--bad)}.callout{padding:8px 12px;border-radius:8px;background:var(--card);border:1px solid var(--accent)}.report{border-left:2px solid var(--line-strong);padding-left:12px;display:grid;gap:4px;justify-items:start}.prose-clamp{max-height:6.2em;overflow:hidden;min-width:0;max-width:100%}.prose-clamp.open{max-height:none}
+  .now{color:var(--ink)}.pipe.bad .now{color:var(--bad)}.callout{padding:8px 12px;border-radius:8px;background:var(--card);border:1px solid var(--accent)}.report{border-left:2px solid var(--line-strong);padding-left:12px;display:grid;gap:4px;justify-items:start}.prose-clamp{max-height:6.2em;overflow:hidden;min-width:0;max-width:100%}.prose-clamp.open{max-height:none}.report-clamp{max-height:9em}.outcome.shelved{opacity:0.8}.btn.danger{border-color:var(--bad);color:var(--bad)}
   .tile-jump{display:grid;gap:2px;width:100%;min-height:44px;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}.tile-jump:focus-visible{outline:2px solid var(--accent);outline-offset:4px}.tile-jump span{text-decoration:underline}
   .more-facts summary{cursor:pointer;min-height:32px;color:var(--muted);font-size:.875rem}.more-facts[open] summary{margin-bottom:8px}.more-facts summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .pipe-head .where{color:var(--muted);font-size:.875rem;white-space:nowrap}.fold{margin-left:auto;min-height:44px;padding:0 10px;border:0;background:none;color:var(--accent-text);font:inherit;font-size:.875rem;text-decoration:underline;cursor:pointer}.fold:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.pipe-head .badge{margin-left:0}.now.brief{margin:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}.fold-all{display:flex;justify-content:flex-end}

@@ -266,7 +266,7 @@
       <ul class="results" aria-label="Outcome sessions">
         {#each record.sessions as item (item.key)}<li class:failed={item.state === 'failed' || item.state === 'unfollowed' || item.state === 'cancelled'}>
           <strong>{item.title}</strong><span>{item.note}</span>
-          {#if item.sessionId}<a href={`/sessions?agent=${encodeURIComponent(record.agentId)}&session=${encodeURIComponent(item.sessionId)}&gaffer=1`}>Open session</a>{/if}
+          {#if item.sessionId}<a href={`/sessions?agent=${encodeURIComponent(record.agentId)}&session=${encodeURIComponent(item.sessionId)}`}>Open session</a>{/if}
         </li>{/each}
       </ul>
       {#if done}<p class="hint">Each session has its own goal naming this outcome, and its own budget. The floor groups them under the outcome; only you mark a goal complete.</p>

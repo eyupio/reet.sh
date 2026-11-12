@@ -5,6 +5,18 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The Factory can now put finished work away. A finished outcome (nothing
+  moving) has **Archive**, which hides it from the page and the headline
+  numbers but keeps the record, its report and its history, and **Delete**,
+  which asks first and erases the record for good. **Show archived** brings
+  archived outcomes back, with **Restore**. Which of the two stands out is
+  your choice under Account → Profile; it defaults to archive. Neither touches
+  the sessions or pull requests an outcome started.
+- A finished outcome is one line on the Factory until opened, and its long
+  report is clamped with **Read all of it**, so old work no longer fills the
+  screen. Outcomes still moving, or with a pipeline to try again, stay open.
+- **Open session** on a Factory pipeline, and in the outcome dialog, now opens
+  the session itself rather than opening Gaffer's panel beside it.
 - A person-pressed model refresh asks an up-to-date machine for a fresh
   listing instead of accepting its short cache, so the list a person sees after
   Refresh is the list the agent reports now.

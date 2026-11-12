@@ -1209,3 +1209,50 @@ func TestAStageKeepsWhatItsAgentReportedUsing(t *testing.T) {
 		t.Fatalf("first stage changed after its hand-over: %+v", s)
 	}
 }
+
+func TestAFinishedOutcomeCanBeArchivedRestoredAndDeletedButARunningOneCannot(t *testing.T) {
+	r := outcomeFixture(t)
+	uid := r.p.UserID
+	create := func(id string, state string) store.GafferOutcome {
+		o, err := r.st.CreateGafferOutcomeFor(uid, store.GafferOutcome{ID: strings.Repeat(id, 32), Objective: "Ship it.", Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it. Do not merge.", RequestID: strings.Repeat("8", 32)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err = r.st.UpdateGafferOutcomeFor(uid, o.ID, o.Revision, func(o *store.GafferOutcome) bool {
+			o.State, o.Sessions[0].State = "settled", state
+			return true
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return o
+	}
+	running := create("1", "following")
+	if _, err := r.s.ArchiveOutcome(uid, running.ID, running.Revision, true); !errors.Is(err, store.ErrGafferOutcomeActive) {
+		t.Fatalf("archive of a running outcome: %v", err)
+	}
+	if err := r.s.DeleteOutcome(uid, running.ID, running.Revision); !errors.Is(err, store.ErrGafferOutcomeActive) {
+		t.Fatalf("delete of a running outcome: %v", err)
+	}
+	done := create("2", "done")
+	if _, err := r.s.ArchiveOutcome(uid, done.ID, done.Revision-1, true); !errors.Is(err, store.ErrGafferOutcomeBusy) {
+		t.Fatalf("archive from a stale revision: %v", err)
+	}
+	archived, err := r.s.ArchiveOutcome(uid, done.ID, done.Revision, true)
+	if err != nil || archived.ArchivedAt == 0 || archived.Report != done.Report {
+		t.Fatalf("archive: %+v %v", archived, err)
+	}
+	restored, err := r.s.ArchiveOutcome(uid, done.ID, archived.Revision, false)
+	if err != nil || restored.ArchivedAt != 0 {
+		t.Fatalf("restore: %+v %v", restored, err)
+	}
+	if err := r.s.DeleteOutcome(uid, done.ID, restored.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.s.Outcome(uid, done.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleted outcome still readable: %v", err)
+	}
+	if _, err := r.s.Outcome(uid, running.ID); err != nil {
+		t.Fatalf("the running outcome was lost: %v", err)
+	}
+}

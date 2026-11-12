@@ -422,6 +422,42 @@ func (s *Service) StopOutcome(uid int64, id string, revision int64) (store.Gaffe
 	return outcomeView(o), err
 }
 
+// ArchiveOutcome puts a finished outcome away, or brings it back. The record
+// and its report are kept either way.
+func (s *Service) ArchiveOutcome(uid int64, id string, revision int64, archive bool) (store.GafferOutcome, error) {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return store.GafferOutcome{}, err
+	}
+	var active bool
+	o, err := s.store.UpdateGafferOutcomeFor(uid, id, revision, func(o *store.GafferOutcome) bool {
+		if archive && !o.Finished() {
+			active = true
+			return false
+		}
+		if archive == (o.ArchivedAt > 0) {
+			return false
+		}
+		if archive {
+			o.ArchivedAt = time.Now().UnixMilli()
+		} else {
+			o.ArchivedAt = 0
+		}
+		return true
+	})
+	if err == nil && active {
+		err = store.ErrGafferOutcomeActive
+	}
+	return outcomeView(o), err
+}
+
+// DeleteOutcome removes a finished outcome's record for good.
+func (s *Service) DeleteOutcome(uid int64, id string, revision int64) error {
+	if _, err := s.chatPrincipal(uid); err != nil {
+		return err
+	}
+	return s.store.DeleteGafferOutcomeFor(uid, id, revision)
+}
+
 func (s *Service) wakeOutcomes() {
 	if s.outcomeWake != nil {
 		select {

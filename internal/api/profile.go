@@ -57,6 +57,7 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		ShelfView             *string          `json:"shelfView"`
 		CardsExpanded         *bool            `json:"cardsExpanded"`
 		TerminalRemoveOnClose *bool            `json:"terminalRemoveOnClose"`
+		FactoryRemoveMode     *string          `json:"factoryRemoveMode"`
 		HostedPrefix          *string          `json:"hostedPrefix"`
 		DefaultBaseBranch     *string          `json:"defaultBaseBranch"`
 		WorktreesByDefault    *bool            `json:"worktreesByDefault"`
@@ -240,6 +241,14 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 	if in.TerminalRemoveOnClose != nil {
 		profile.TerminalRemoveOnClose = *in.TerminalRemoveOnClose
 		detail["terminalRemoveOnClose"] = *in.TerminalRemoveOnClose
+	}
+	if in.FactoryRemoveMode != nil {
+		if *in.FactoryRemoveMode != "archive" && *in.FactoryRemoveMode != "delete" {
+			writeErr(w, 400, "Choose archive or delete for finished outcomes.")
+			return
+		}
+		profile.FactoryRemoveMode = *in.FactoryRemoveMode
+		detail["factoryRemoveMode"] = *in.FactoryRemoveMode
 	}
 	if in.HostedPrefix != nil {
 		profile.HostedPrefix = hostedPrefix

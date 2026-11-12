@@ -210,6 +210,57 @@ try {
       expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
     } finally { await w.context.close() }
   }
+  // A finished outcome is one line, and can be archived (kept, hidden, restorable) or deleted (after a confirmation); the account's default only picks which button stands out.
+  for(const [width,mode] of [[1280,'archive'],[390,'delete']]){
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[]}
+    const finished={...structuredClone(outcomes[1]),id:'c'.repeat(32),revision:3,objective:'Tidy the importer logs.',report:{text:'Everything is merged. '.repeat(60),at:now,proposals:[],inputTokens:1,outputTokens:1,usageReported:true},sessions:[{key:'a',title:'Importer logs',prompt:'p',state:'done',note:'Every stage is done.',sessionId:'s9',conversationId:'9'.repeat(32),updatedAt:now,stage:7,stages:line(7,false)}]}
+    const list=[finished]
+    const routes={...routesFor(box),'/api/v2/gaffer/outcomes':()=>({outcomes:list}),
+      '/api/v2/profile':request=>{if(request.method()==='PATCH')return {user:{},profile:{}};return {user:{id:1,name:'Owner',email:'o@example.test',role:'owner'},sessionCount:1,accounts:true,profile:{theme:'system',timezone:'Europe/London',dateFormat:'',shelfView:'list',cardsExpanded:false,factoryRemoveMode:mode,hostedPrefix:'reet-',updatedAt:now}}},
+      [`/api/v2/gaffer/outcomes/${'c'.repeat(32)}/archive`]:request=>{box.writes.push('archive');box.archived=request.postDataJSON();finished.archivedAt=now;finished.revision++;return finished},
+      [`/api/v2/gaffer/outcomes/${'c'.repeat(32)}/restore`]:request=>{box.writes.push('restore');delete finished.archivedAt;finished.revision++;return finished},
+      [`/api/v2/gaffer/outcomes/${'c'.repeat(32)}`]:request=>{if(request.method()!=='DELETE')return finished;box.deleted=new URL(request.url()).search;list.length=0;return {}}}
+    const w=await openWorkspace(browser,{width,height:width<500?844:1100,terminalMachines:machines,routes})
+    try {
+      const page=w.page
+      await page.goto(base+'/factory')
+      const card=page.getByRole('article',{name:'Outcome: Tidy the importer logs.',exact:true})
+      // Collapsed: no report, totals or pipelines, only the line and what can be done with it.
+      await expect(card).toContainText('1 pipeline, all done')
+      await expect(card.getByText('Gaffer’s report')).toHaveCount(0);await expect(card.getByRole('list',{name:'Pipelines of this outcome'})).toHaveCount(0)
+      expect(await card.evaluate(el=>el.getBoundingClientRect().height)).toBeLessThan(width<500?260:150)
+      // Opened, the long report is clamped until it is read in full.
+      await card.getByRole('button',{name:'Show details',exact:true}).click()
+      await expect(card.getByRole('region',{name:'Gaffer’s report on this outcome'})).toBeVisible()
+      expect(await card.locator('.report-clamp').evaluate(el=>el.getBoundingClientRect().height)).toBeLessThan(180)
+      await card.getByRole('button',{name:'Read all of it',exact:true}).click()
+      await expect(card.getByRole('button',{name:'Show less',exact:true})).toBeVisible()
+      await card.getByRole('button',{name:'Hide details',exact:true}).click()
+      // The default decides which button stands out; both are always there.
+      await expect(card.getByRole('button',{name:'Archive',exact:true})).toHaveClass(mode==='archive'?/(^|\s)btn(\s|$)(?!.*quiet)/:/quiet/)
+      await expect(card.getByRole('button',{name:'Delete',exact:true})).toBeVisible()
+      // Archive keeps the record: it leaves the floor and the tallies, comes back on request, and can be restored.
+      await card.getByRole('button',{name:'Archive',exact:true}).click()
+      expect(box.archived).toEqual({revision:3})
+      await expect(page.getByRole('status').filter({hasText:'Archived'})).toContainText('Show archived outcomes to bring it back.')
+      await expect(page.getByRole('heading',{name:'Nothing on the floor.',exact:true})).toBeVisible()
+      await page.getByRole('button',{name:'Show archived (1)',exact:true}).click()
+      await expect(card).toContainText('archived');await card.getByRole('button',{name:'Restore',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'Restored'})).toBeVisible()
+      await expect(page.getByRole('button',{name:/archived/})).toHaveCount(0)
+      // Delete asks first, says what it does not touch, and names the revision it means.
+      await card.getByRole('button',{name:'Delete',exact:true}).click()
+      const ask=page.getByRole('dialog',{name:'Delete “Tidy the importer logs.”?',exact:true})
+      await expect(ask).toContainText('not touched');await ask.getByRole('button',{name:'Cancel',exact:true}).click()
+      expect(box.deleted).toBeUndefined()
+      await card.getByRole('button',{name:'Delete',exact:true}).click()
+      await page.getByRole('dialog',{name:'Delete “Tidy the importer logs.”?',exact:true}).getByRole('button',{name:'Delete outcome',exact:true}).click()
+      await expect(page.getByRole('status').filter({hasText:'Deleted'})).toBeVisible()
+      expect(box.deleted).toBe('?revision=5')
+      await expect(page.getByRole('heading',{name:'No pipelines yet.',exact:true})).toBeVisible()
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
   // A new installation is told what Gaffer still needs, each with the place to do it, and has no pipelines yet.
   {
     const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[]}

@@ -80,3 +80,33 @@ func TestDefaultClineSourceMigratesAndSurvivesReopen(t *testing.T) {
 		t.Fatalf("the default source did not survive reopen: %+v %v", p, err)
 	}
 }
+
+func TestFactoryRemoveModeDefaultsToArchiveAndOnlyKeepsKnownValues(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	user, err := st.EnsureLocalOwner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.ProfileFor(user.ID)
+	if err != nil || p.FactoryRemoveMode != "archive" {
+		t.Fatalf("default: %+v %v", p, err)
+	}
+	p.FactoryRemoveMode = "delete"
+	if err := st.SaveProfileFor(user.ID, p); err != nil {
+		t.Fatal(err)
+	}
+	if p, err = st.ProfileFor(user.ID); err != nil || p.FactoryRemoveMode != "delete" {
+		t.Fatalf("saved: %+v %v", p, err)
+	}
+	p.FactoryRemoveMode = "anything else"
+	if err := st.SaveProfileFor(user.ID, p); err != nil {
+		t.Fatal(err)
+	}
+	if p, err = st.ProfileFor(user.ID); err != nil || p.FactoryRemoveMode != "archive" {
+		t.Fatalf("unknown value: %+v %v", p, err)
+	}
+}

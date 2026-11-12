@@ -10,8 +10,8 @@ const make=(id,title,over={})=>({id,agentId:'a1',title,structured:true,tool:'ope
 // (internal/terminalhost/manager.go End and reconcile), and AttentionState gives an ended session no attention word
 // (internal/store/store_attention.go), though updated_at moves past the seen time. It must raise no card.
 const ended=item=>{item.state='ended';item.exitCode=null;delete item.attention;item.changedSinceSeen=true;item.updatedAt=Date.now()}
-async function fixture(width,crossMachine=false,plain=false){
- const box={sessions:[make('regression-session-001','First worker'),make('regression-session-002','Second worker')],writes:[],pending:false,refuse:false,reads:0}
+async function fixture(width,crossMachine=false,plain=false,withFollowed=false){
+ const box={sessions:[make('regression-session-001','First worker'),make('regression-session-002','Second worker'),...(withFollowed?[make('regression-session-005','Followed worker')]:[])],writes:[],pending:false,refuse:false,reads:0}
  if(crossMachine){box.sessions[1].agentId='a2';box.sessions.push(make('regression-session-003','Workshop survivor'))}
  if(plain)box.sessions.unshift(make('regression-session-004','Plain shell',{structured:false,attentionSource:'terminal',activityAt:now-60_000}))
  const provider={id:pid,revision:1,name:'Gaffer fixture',kind:'openai_compatible',baseUrl:'https://example.test/v1',model:'gaffer-model',enabled:true,isDefault:true,localOnly:false,allowSessions:true,hasKey:true,createdAt:now,updatedAt:now}
@@ -22,6 +22,7 @@ async function fixture(width,crossMachine=false,plain=false){
   '/api/v2/gaffer/providers':{providers:[provider],available:true,canUseLocal:true,presets:[]},
   '/api/v2/gaffer/conversations':request=>({conversation:{id:cid,sessionId:new URL(request.url()).searchParams.get('sessionId')||'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}),
   [`/api/v2/gaffer/conversations/${cid}/goal`]:{goal:null,pins:{providerId:pid,providerRevision:1,model:'gaffer-model',contextRevision:1,workerRevision:1},allowed:true},
+  '/api/v2/gaffer/goals':{goals:withFollowed?[{goal:{id:cid,conversationId:cid,sessionId:'regression-session-005',revision:1,text:'Watch the release and report back.',state:'active',note:'Waiting for new worker progress.',maxReviews:12,usedReviews:1,expiresAt:now+3600000,createdAt:now,updatedAt:now,nextAt:now,lastSeq:1,lastReviewedAt:now,summary:'',usageReported:false,inputTokens:0,outputTokens:0},session:{id:'regression-session-005',agentId:'a1',title:'Followed worker',state:'running'},available:true,attention:false}]:[],readAt:now},
  }
  for(const item of box.sessions){
   const path=`/api/v2/terminal/sessions/${item.id}`
@@ -59,22 +60,37 @@ async function stop(page){
 }
 try{
  for(const width of [1440,390]){
-  const w=await fixture(width),p=w.page
+  const w=await fixture(width,false,false,true),p=w.page
   await p.goto(base+'/')
   await p.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
   const chat=p.getByRole('dialog',{name:'Gaffer',exact:true})
   await expect(chat).toContainText('General Gaffer chat')
-  // General chat leads to the Factory page, whose list of running chats opens one with its own Gaffer conversation.
+  // General chat leads to the Factory page. Both Open actions land on the session itself: no Gaffer panel opens.
   await chat.getByRole('link',{name:'Factory',exact:true}).click()
   await expect(p).toHaveURL(/\/factory$/)
   const picker=p.locator('[data-floor]')
   await expect(picker).toContainText('Ticking shares nothing and starts nothing')
-  await picker.getByRole('link',{name:'Open First worker',exact:true}).click()
+  const followed=picker.getByRole('link',{name:'Open session',exact:true})
+  await expect(followed).toHaveAttribute('href','/sessions?agent=a1&session=regression-session-005')
+  await followed.click()
+  await expect(p).toHaveURL(/\/sessions\?agent=a1&session=regression-session-005(?:&|$)/)
+  await expect(p.locator('.session-screen .title')).toHaveText('Followed worker')
+  await expect(p.getByRole('dialog',{name:'Gaffer',exact:true})).toHaveCount(0)
+  // The not-looked-after list opens its session the same way.
+  await p.goto(base+'/factory')
+  const open=picker.getByRole('link',{name:'Open First worker',exact:true})
+  await expect(open).toHaveAttribute('href','/sessions?agent=a1&session=regression-session-001')
+  await open.click()
+  await expect(p).toHaveURL(/\/sessions\?agent=a1&session=regression-session-001(?:&|$)/)
   await expect(p.locator('.session-screen .title')).toHaveText('First worker')
-  await expect(chat).toContainText('First worker')
+  await expect(p.getByRole('dialog',{name:'Gaffer',exact:true})).toHaveCount(0)
+  // Gaffer's own launcher still opens the chat, and its options still reach the review.
+  await p.getByRole('button',{name:'Ask Gaffer',exact:true}).click()
+  const chatAgain=p.getByRole('dialog',{name:'Gaffer',exact:true})
+  await expect(chatAgain).toBeVisible()
   // Arriving and looking at the review share and start nothing. The review is under Chat options; the composer's own
   // control is the one-click start, which a person has pre-approved in Gaffer settings.
-  await chat.getByRole('button',{name:'Chat options',exact:true}).click()
+  await chatAgain.getByRole('button',{name:'Chat options',exact:true}).click()
   await p.getByRole('dialog',{name:'Chat options',exact:true}).getByRole('button',{name:'Look after this session',exact:true}).click()
   await expect(p.getByRole('dialog',{name:'Look after this session',exact:true})).toContainText('Give Gaffer a goal')
   expect(w.box.writes.filter(x=>!x.path.endsWith('/seen'))).toEqual([])

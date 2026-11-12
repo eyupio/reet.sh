@@ -7,10 +7,35 @@ import (
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/auth"
+	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalbroker"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
+
+// The effort chosen for an outcome stage is carried through the controller's
+// launch path into the structured create the machine receives, even when the
+// agent's descriptor names no thought levels.
+func TestOutcomeStartCarriesTheSelectedEffortToTheMachine(t *testing.T) {
+	caps := chatCaps()
+	caps.AgentsV2, caps.ACPLiveControls, caps.ACPStartOptions = true, true, true
+	caps.Tools = []string{"opencode"}
+	entries := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5"}}
+	caps.ACPAgents = &entries
+	f := launchAPIFixture(t, caps)
+	_, _, err := outcomeStarter{f.srv.s}.StartOutcomeSession(t.Context(), f.uid, gaffer.OutcomeLaunch{
+		AgentID: f.agent.ID, RequestID: terminalbroker.ID(), Title: "Export API", Tool: "opencode",
+		Effort: "medium", Dir: "/tmp", Trust: true, Prompt: "Add the CSV export endpoint with tests.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent := f.sent(); len(sent) != 1 || !sent[0].Structured || sent[0].Effort != "medium" || !sent[0].Trust {
+		t.Fatalf("sent: %+v", sent)
+	}
+}
 
 // Approving an outcome starts agents on a machine, so it needs the owning
 // writer's browser, the canonical origin and remote sessions switched on.

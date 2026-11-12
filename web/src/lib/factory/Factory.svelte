@@ -99,7 +99,7 @@
   // A finished outcome is one line until it is opened, so a long list of old work does not fill the screen. The person's own
   // choice for an outcome, or for all of them, wins; one that is still moving, or has a pipeline to try again, starts open.
   let outcomeFolds = $state<Record<string, boolean>>({})
-  const outcomeShown = (record: Outcome) => !outcomeFinished(record) || record.sessions.some(piece => ['failed', 'unfollowed'].includes(piece.state)) || (outcomeFolds[record.id] ?? allOpen ?? false)
+  const outcomeShown = (record: Outcome) => outcomeFolds[record.id] ?? allOpen ?? (!outcomeFinished(record) || record.sessions.some(piece => ['failed', 'unfollowed'].includes(piece.state)))
   async function putAway(record: Outcome, mode: 'archive' | 'delete' | 'restore') {
     if (busy) return
     busy = true; notice = ''; deleting = null
@@ -155,7 +155,8 @@
     sought = true
     const id = decodeURIComponent(location.hash.slice(1))
     if (!id.startsWith('pipeline-')) return
-    void tick().then(() => { const card = document.getElementById(id); if (card) { arrived = id; card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }) } })
+    const record = records.find(item => id.startsWith(`pipeline-${item.id}-`))
+    if (record) reveal(record, id)
   })
   // The headline numbers that want the person are buttons: they go to the first card of that kind.
   function jump(kind: 'you' | 'ready') {
@@ -163,11 +164,15 @@
       const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined
       const label = pipelineStatus(piece, !!goal?.attention).label
       if ((kind === 'you' && label === 'Needs you') || (kind === 'ready' && label === 'Ready to merge')) {
-        const id = pipelineAnchor(record.id, piece.key), card = document.getElementById(id)
-        if (card) { arrived = id; card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }) }
+        reveal(record, pipelineAnchor(record.id, piece.key))
         return
       }
     }
+  }
+  // A link or a number names one pipeline: open its outcome if it is folded, then bring it into view and mark it.
+  function reveal(record: Outcome, id: string) {
+    outcomeFolds = { ...outcomeFolds, [record.id]: true }
+    void tick().then(() => { const card = document.getElementById(id); if (card) { arrived = id; card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }) } })
   }
   const pipelineOf = (event: ActivityEvent) => { try { return String(JSON.parse(event.detail || '{}').pipeline ?? '') } catch { return '' } }
   // The person's own controls over a pipeline: move it on from the stage in hand, and how its merge is decided.
@@ -275,7 +280,7 @@
     <li><strong>{tally.done}</strong><span>Done</span></li>
   </ul>
 
-  {#if records.length}<div class="fold-all">{#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}<button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {} }}>{allOpen === true ? 'Collapse all pipelines' : 'Expand all pipelines'}</button></div>{/if}
+  {#if records.length}<div class="fold-all">{#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}<button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {}; outcomeFolds = {} }}>{allOpen === true ? 'Collapse all' : 'Expand all'}</button></div>{/if}
   {#if notice}<p role="status" class="notice">{notice}</p>{/if}
   {#if error}<p role="alert" class="warning">{error}{#if records.length}{' '}Showing the last successful read.{/if}</p>{/if}
 
@@ -299,9 +304,9 @@
     {:else}
       {#each listed as record (record.id)}{@const open_ = outcomeShown(record)}{@const finished = outcomeFinished(record)}{@const usage = outcomeUsage(record.sessions.map(piece => pipelineUsage(piece, piece.conversationId ? byConversation.get(piece.conversationId)?.goal : undefined)), record.report)}<article class="outcome" class:shelved={!!record.archivedAt} aria-label={`Outcome: ${record.objective}`}>
         <header class="outcome-head">
-          <div class="outcome-title"><p class="eyebrow">Outcome</p><h2>{record.objective}</h2><p class="meta">{record.projectName || 'Project'} · started {when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {when(record.archivedAt)}{/if}{#if !open_} · {record.sessions.length} {record.sessions.length === 1 ? 'pipeline' : 'pipelines'}, {record.sessions.every(piece => piece.state === 'done') ? 'all done' : 'finished'}{/if}</p></div>
+          <div class="outcome-title"><p class="eyebrow">Outcome</p><h2>{record.objective}</h2><p class="meta">{record.projectName || 'Project'} · started {when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {when(record.archivedAt)}{/if}{#if !open_} · {record.sessions.length} {record.sessions.length === 1 ? 'pipeline' : 'pipelines'}, {record.sessions.every(piece => piece.state === 'done') ? 'all done' : finished ? 'finished' : 'in progress'}{/if}</p></div>
           <div class="outcome-actions">
-            {#if finished}<button class="btn quiet" type="button" aria-expanded={open_} onclick={() => outcomeFolds = { ...outcomeFolds, [record.id]: !open_ }}>{open_ ? 'Hide details' : 'Show details'}</button>{/if}
+            <button class="btn quiet" type="button" aria-expanded={open_} onclick={() => outcomeFolds = { ...outcomeFolds, [record.id]: !open_ }}>{open_ ? 'Hide details' : 'Show details'}</button>
             {#if open_}
               <button class="btn quiet" type="button" disabled={busy || !!reporting} onclick={() => void report(record)}>{reporting === record.id ? 'Gaffer is reporting…' : record.report ? 'Ask Gaffer again' : 'Ask Gaffer for a report'}</button>
               <button class="btn quiet" type="button" aria-expanded={!!timeline[record.id]} onclick={() => void toggleHistory(record)}>{timeline[record.id] ? 'Hide history' : 'History'}</button>

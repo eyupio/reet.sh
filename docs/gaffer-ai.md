@@ -338,8 +338,11 @@ numbers at the top of the page go to the first such pipeline, and Home's
 
 - A pipeline is one line until you open it with **Show details**: its title,
   stage ("Review · 4 of 8"), status and one line of why. Pipelines that need
-  you, are ready to merge or have stopped start open. **Expand all pipelines**
-  opens every one.
+  you, are ready to merge or have stopped start open. **Expand all** opens
+  every one.
+- An outcome itself folds with **Hide details** / **Show details**, even while
+  it is still moving. Folded, its line says how many pipelines it has and
+  whether they are in progress, finished or all done.
 - On the stage track a **green tick** is a finished stage, a **pulsing green
   ring** is the stage running now, **amber with "!"** is waiting for you, and
   **red with "×"** has stopped. Each state also has its own mark and words, so

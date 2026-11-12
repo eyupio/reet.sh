@@ -15,6 +15,11 @@ this file existed releases were described on their GitHub release pages.
 - A finished outcome is one line on the Factory until opened, and its long
   report is clamped with **Read all of it**, so old work no longer fills the
   screen. Outcomes still moving, or with a pipeline to try again, stay open.
+- Every outcome on the Factory can now be folded and reopened with **Hide
+  details** / **Show details**, including one still moving, and the folded line
+  says how many pipelines it has and whether they are in progress, finished or
+  all done. **Expand all** and **Collapse all** now cover outcomes as well as
+  their pipelines.
 - **Open session** on a Factory pipeline, and in the outcome dialog, now opens
   the session itself rather than opening Gaffer's panel beside it.
 - A person-pressed model refresh asks an up-to-date machine for a fresh
@@ -50,7 +55,7 @@ this file existed releases were described on their GitHub release pages.
   are folded away under the card.
 - Factory: each pipeline is now one line (title, stage, status and why) that
   opens to its full card; pipelines that need you, are ready to merge or have
-  stopped start open, and **Expand all pipelines** opens the rest. Stage and
+  stopped start open, and **Expand all** opens the rest. Stage and
   status colours say more: a green tick is done, a pulsing green ring is
   running now, amber with "!" is waiting for you, red has stopped. The motion
   is switched off for anyone who asks their system to reduce it.

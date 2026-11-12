@@ -70,8 +70,8 @@ try {
       await expect(lines.nth(2).getByRole('button',{name:'Hide details of Export docs',exact:true})).toBeVisible()
       await lines.nth(0).getByRole('button',{name:'Show details of Export API',exact:true}).click()
       await expect(lines.nth(0).getByRole('list',{name:'Stages of Export API',exact:true})).toBeVisible()
-      await page.getByRole('button',{name:'Expand all pipelines',exact:true}).click()
-      await expect(page.getByRole('button',{name:'Collapse all pipelines',exact:true})).toHaveAttribute('aria-pressed','true')
+      await page.getByRole('button',{name:'Expand all',exact:true}).click()
+      await expect(page.getByRole('button',{name:'Collapse all',exact:true})).toHaveAttribute('aria-pressed','true')
       // The headline numbers say who has to act.
       const tiles=page.getByRole('list',{name:'Factory at a glance',exact:true}).getByRole('listitem')
       await expect(tiles).toHaveText(['1Need you · show me','1Ready to merge · show me','1Running','1Done'])
@@ -97,6 +97,12 @@ try {
       await expect(api).toContainText('The review found one missing error case')
       // A pipeline waiting on the person says so and why.
       await expect(pipes.nth(1)).toContainText('Needs you');await expect(pipes.nth(1)).toContainText('Gaffer brought a question back to you.')
+      // Every outcome folds, including one still moving, and opening it brings its pipelines back.
+      await first.getByRole('button',{name:'Hide details',exact:true}).click()
+      await expect(first.getByRole('list',{name:'Pipelines of this outcome'})).toHaveCount(0)
+      await expect(first).toContainText('3 pipelines, in progress')
+      await first.getByRole('button',{name:'Show details',exact:true}).click()
+      await expect(first.getByRole('list',{name:'Pipelines of this outcome'})).toHaveCount(1)
       // A finished pipeline that was allowed to merge says so.
       const done=page.getByRole('article',{name:/^Outcome: Fix the flaky importer test/})
       await expect(done).toContainText('Done');await expect(done).toContainText('By itself when green')

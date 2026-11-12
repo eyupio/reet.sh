@@ -163,6 +163,16 @@ review thread, no conflicts) and still bring decisions back to you; the others
 say not to merge. A terminal session has no follow-up, so there the menu copies
 the same words for you to give the agent.
 
+While a goal is running, the session shows which choice is active. The stage it
+came from carries a small dot, the item is ticked in its menu, and a **Following
+… Stop** strip sits under Progress; the Gaffer chat names the same goal above the
+conversation. The tick means the saved goal's wording still matches that item; a
+goal you rewrote by hand is shown by its first line instead. **Stop** is the same
+act as the goal editor's Stop: it removes goal instructions still queued and
+leaves the working agent running. To add or change what Gaffer follows, pick
+another item from a stage menu; starting it replaces the goal through the usual
+review.
+
 Closing chat or the browser leaves an explicitly active goal running on the
 controller, in both native and Docker deployments. Each selected session has its
 own goal, conversation and budget. Gaffer waits for new retained worker progress

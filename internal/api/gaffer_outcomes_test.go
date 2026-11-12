@@ -15,6 +15,7 @@ import (
 // Approving an outcome starts agents on a machine, so it needs the owning
 // writer's browser, the canonical origin and remote sessions switched on.
 func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

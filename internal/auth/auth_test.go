@@ -6,6 +6,7 @@ import (
 )
 
 func TestHashAndVerifyPassword(t *testing.T) {
+	t.Parallel()
 	hash, err := HashPassword("correct horse battery staple")
 	if err != nil {
 		t.Fatal(err)

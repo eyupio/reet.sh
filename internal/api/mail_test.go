@@ -148,6 +148,7 @@ func TestMailSettingsOutboxAndInvite(t *testing.T) {
 }
 
 func TestForgotAndResetPassword(t *testing.T) {
+	t.Parallel()
 	m := newMailSrv(t)
 	setupMailOwner(t, m.srv)
 	hash, _ := auth.HashPassword("old-enough-password")

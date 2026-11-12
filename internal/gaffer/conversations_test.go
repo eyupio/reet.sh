@@ -107,6 +107,7 @@ func TestGafferConversationPersistsAnswersAndDeduplicatesRequests(t *testing.T) 
 	}
 }
 func TestGafferTurnCancellationPolicyChangeAndShutdownPreservePartialAnswers(t *testing.T) {
+	t.Parallel()
 	for _, action := range []string{"cancel", "pause", "shutdown", "demote"} {
 		t.Run(action, func(t *testing.T) {
 			s, st, p := settingsFixture(t)
@@ -225,6 +226,7 @@ func TestGafferSessionConversationsNeverReadWorkerHistory(t *testing.T) {
 	}
 }
 func TestGafferRejectsUnsolicitedToolsAndIncompleteStreams(t *testing.T) {
+	t.Parallel()
 	for _, answer := range []string{
 		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"a\",\"function\":{\"name\":\"run_shell\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n",
 		"data: {\"choices\":[{\"delta\":{\"content\":\"incomplete\"}}]}\n\n",

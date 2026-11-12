@@ -17,6 +17,7 @@ import (
 // The Factory's MCP tools read for any writer's connection and control only
 // for one with management scope; a read-only account gets neither.
 func TestFactoryMCPToolsReadForWritersAndControlOnlyWithManagementScope(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

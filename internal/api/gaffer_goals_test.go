@@ -16,6 +16,7 @@ import (
 )
 
 func TestGoalHTTPNeedsOwningBrowserExplicitPinsAndBothGrants(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

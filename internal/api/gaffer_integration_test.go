@@ -484,6 +484,7 @@ func (h *gm6Harness) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestGafferOfflinePrivateIntegration(t *testing.T) {
+	t.Parallel()
 	h := newGM6Harness(t)
 	client := &http.Client{Jar: mustJar(t)}
 	contextAPIJSON(t, client, h.public, "POST", "/api/v2/auth/sign-in", map[string]string{"email": "gm6@example.test", "password": gm6Password}, 200)
@@ -568,6 +569,7 @@ func TestGafferOfflineBrowserHarness(t *testing.T) {
 // a closed socket under load). A connector dials again, so the fixture must too: the next worker message arrives
 // and the test log says why the link ended.
 func TestGafferWorkerLinkRedialsAfterItIsLost(t *testing.T) {
+	t.Parallel()
 	h := newGM6Harness(t)
 	h.linkMu.Lock()
 	lost, done := h.conn, h.workerDone

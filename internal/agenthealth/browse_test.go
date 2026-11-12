@@ -144,6 +144,7 @@ func TestBrowseSwitchChangeSendsCapabilities(t *testing.T) {
 // negotiated: otherwise it is a protocol error and nothing is sent back, as
 // the dispatcher itself would treat it.
 func TestFullTerminalQueueAnswersBrowseOnlyWhenNegotiated(t *testing.T) {
+	t.Parallel()
 	branches := &terminalproto.Branches{Dir: "/home/someone/site"}
 	for _, tc := range []struct {
 		features         string

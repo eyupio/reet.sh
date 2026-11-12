@@ -359,6 +359,7 @@ func TestMCPExistingClientsFollowRoleChangesDisablingAndAdminRevocation(t *testi
 }
 
 func TestMCPHostedSkillReferences(t *testing.T) {
+	t.Parallel()
 	for _, transport := range []string{"hosted", "browser"} {
 		t.Run(transport, func(t *testing.T) {
 			ts, _, browser, _ := mcpAccounts(t)
@@ -382,6 +383,7 @@ func TestMCPHostedSkillReferences(t *testing.T) {
 }
 
 func TestMCPWriteResponseLimits(t *testing.T) {
+	t.Parallel()
 	for _, transport := range []string{"hosted", "browser"} {
 		t.Run(transport, func(t *testing.T) {
 			ts, st, browser, uid := mcpAccounts(t)
@@ -439,6 +441,7 @@ func mcpToolCaller(t *testing.T, ts *httptest.Server, browser *http.Client, tran
 }
 
 func TestMCPLocalSkillsAndMachineCleanup(t *testing.T) {
+	t.Parallel()
 	for _, transport := range []string{"hosted", "browser"} {
 		t.Run(transport, func(t *testing.T) {
 			ts, _, browser, _ := mcpAccounts(t)

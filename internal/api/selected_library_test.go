@@ -8,6 +8,7 @@ import (
 )
 
 func TestSelectedLibraryExplicitSelection(t *testing.T) {
+	t.Parallel()
 	h := newLegacySyncContractHarness(t)
 	wanted := h.hosted("selected", "wanted", false, true)
 	h.hosted("unselected", "must stay off machines", false, true)

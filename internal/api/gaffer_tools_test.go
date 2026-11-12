@@ -19,6 +19,7 @@ import (
 // MCP client uses. The session tools that need a per-connection grant are
 // never offered.
 func TestGafferToolsAreOffUntilChosenAndRunAsTheAccount(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

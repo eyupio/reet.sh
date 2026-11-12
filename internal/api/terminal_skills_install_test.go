@@ -181,6 +181,7 @@ func TestTerminalSkillInstallDraftQueuesAPrivatePreview(t *testing.T) {
 }
 
 func TestTerminalSkillInstallErrorCodesAndStatuses(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		code   string

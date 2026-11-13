@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The **+** beside the session tabs now asks what to start, the same agent-or-
+  terminal choice as **New session**, instead of assuming an agent session and
+  sending you to the launch bar.
 - The Factory can now put finished work away. A finished outcome (nothing
   moving) has **Archive**, which hides it from the page and the headline
   numbers but keeps the record, its report and its history, and **Delete**,

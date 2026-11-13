@@ -399,7 +399,7 @@
       railCollapsed = localStorage.getItem('reet.rail.collapsed') === '1'
       if (localStorage.getItem(`reet.home.view.${userId}`) === 'continue') homeView = 'continue'
     } catch { /* Keep projects compact when storage is unavailable. */ }
-    // The session screen's + and the Sessions page's New session arrive at /#launch: the bar opens in its modal.
+    // The Sessions page's New session (and a project card's New session here) arrive at /#launch: the bar opens in its modal.
     const launchAtHash = () => { if (location.hash === '#launch') launchOpen = true }
     launchAtHash()
     window.addEventListener('hashchange', launchAtHash)

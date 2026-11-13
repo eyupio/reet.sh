@@ -7,10 +7,12 @@
 
   // The strip of open sessions (R20): the sessions opened in this browser tab since it loaded, at most eight, in the order
   // they were opened. Each tab is a link to its session with its own close button; middle-click closes it too. Closing a tab
-  // closes the view, never the session. + goes to Home with the launch bar focused.
-  let { tabs, current, onselect, onclose }: {
+  // closes the view, never the session. + asks what to start (agent or terminal) in the same dialog the New session
+  // button uses; without `onnew` it falls back to Home with the launch bar focused.
+  let { tabs, current, onselect, onclose, onnew }: {
     tabs: TerminalSession[]; current: string
     onselect: (s: TerminalSession) => void; onclose: (s: TerminalSession) => void
+    onnew?: (opener: HTMLElement) => void
   } = $props()
 
   let strip = $state<HTMLElement>()
@@ -39,7 +41,7 @@
     await tick()
     // Focus stays in the strip: on the tab now in the closed one's place, else the one before, else +.
     const links = [...(strip?.querySelectorAll<HTMLElement>('a.tab') ?? [])]
-    ;(links[Math.min(at, links.length - 1)] ?? strip?.querySelector<HTMLElement>('a.new'))?.focus()
+    ;(links[Math.min(at, links.length - 1)] ?? strip?.querySelector<HTMLElement>('.new'))?.focus()
   }
 </script>
 
@@ -61,9 +63,15 @@
       </li>
     {/each}
   </ul>
-  <a class="new" href="/#launch" aria-label="New session" title="New session">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-  </a>
+  {#if onnew}
+    <button type="button" class="new" aria-label="New session" title="New session" onclick={event => onnew?.(event.currentTarget)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+    </button>
+  {:else}
+    <a class="new" href="/#launch" aria-label="New session" title="New session">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+    </a>
+  {/if}
 </nav>
 
 <style>
@@ -90,7 +98,7 @@
   li.current .close, li:hover .close, .close:focus-visible { opacity: 1; }
   .close:hover { background: var(--tint); color: var(--ink); }
   .close svg { width: 14px; height: 14px; }
-  .new { flex: none; display: grid; place-items: center; width: 40px; height: 36px; color: var(--muted); }
+  .new { flex: none; display: grid; place-items: center; width: 40px; height: 36px; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
   .new:hover { color: var(--ink); }
   .new svg { width: 16px; height: 16px; }
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

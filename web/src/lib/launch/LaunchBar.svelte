@@ -175,7 +175,7 @@
     if (!trigger) { promptSuppressed = false; promptMenu = null; return }
     if (!promptSuppressed) openPromptMenu(trigger)
   }
-  // The session screen's + arrives at /#launch: the prompt takes focus once the bar is ready, and the address forgets it.
+  // The Sessions page's New session arrives at /#launch: the prompt takes focus once the bar is ready, and the address forgets it.
   let launchFocus = location.hash === '#launch'
   $effect(() => {
     if (!launchFocus || !choice || !field) return

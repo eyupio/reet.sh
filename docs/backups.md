@@ -379,8 +379,8 @@ is the one meant to be live, so a restore clears it.
 
 ### Moving a controller from the web page
 
-The same move needs no terminal on either controller. Everything below is under
-**Admin → Backups**, for the owner only, and each piece is offered only when the
+The same move needs no terminal on either controller. Everything below is in the
+**Move** section of **Admin → Backups**, for the owner only, and each piece is offered only when the
 controller lists it in `GET /api/version` (see
 [asking a controller what it can do](#asking-a-controller-what-it-can-do)).
 

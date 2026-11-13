@@ -45,8 +45,8 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 ## MOVE-UI-1: moving a controller from the Backups page (13 November 2026)
 
 The move was complete on the command line and the API (fence, a copy with its own password, `import` with `publicUrl`
-and `allowLiveSource`, `reet agent set-server`) and absent from the web UI. It is now under **Admin → Backups**, owner
-only.
+and `allowLiveSource`, `reet agent set-server`) and absent from the web UI. It is now in the **Move** section of **Admin → Backups**
+(the section main called Import, renamed when the two were merged), owner only.
 
 - **Old controller, Move this controller away** (`web/src/lib/MoveAway.svelte`): fence with an optional address and a
   confirm dialog; the final copy step is shut until the fence is up, takes a password for that one copy, and shows
@@ -117,6 +117,13 @@ A fifth PR followed #719: one-click look-after inside a session's chat, later-st
 and time left; tokens only, no prices), a **report across an outcome** on request with **proposed pipelines** that wait for
 approval, and one vocabulary (look after / goal / following / needs you). See "Owed items, smarter outcomes, usage and
 wording" in the handoff.
+
+On 13 November the owner asked for a review of the whole Factory. It found and fixed, each with a failing test first, a
+pipeline that could not be recovered once its session was closed, a stopped outcome that restarted pipelines nobody asked
+for, and MCP writes that skipped the fence and reached YOLO agents; the End dialogs now name the pipeline a session is
+working for, the card of an ended session offers choices that work, and the controller ends sessions a pipeline has
+finished with. Read "Review of the Factory, and sessions that end under a pipeline" in the handoff, including its list of
+what was found and not fixed.
 
 ## OVERVIEW-4: the Overview leads with what matters (8 November 2026)
 

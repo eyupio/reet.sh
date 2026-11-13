@@ -30,6 +30,29 @@ type ToolHost interface {
 	CallGafferTool(ctx context.Context, uid int64, name string, args json.RawMessage) (string, error)
 }
 
+type sessionTextKey struct{}
+
+// SessionTextAllowed reports whether what a tool returns may include text
+// taken from sessions (handover notes, Gaffer's reports). It is false only
+// for a call Gaffer makes for a chat whose provider is not allowed session
+// text: the result of that call goes to that provider.
+func SessionTextAllowed(ctx context.Context) bool {
+	allowed, set := ctx.Value(sessionTextKey{}).(bool)
+	return !set || allowed
+}
+
+// forProvider marks a tool call with whether its result may carry session
+// text to the provider that will read it.
+func (s *Service) forProvider(ctx context.Context, uid int64, provider string) context.Context {
+	row, err := s.store.GafferProviderFor(uid, provider)
+	return context.WithValue(ctx, sessionTextKey{}, err == nil && row.AllowSessions && row.AllowCode)
+}
+
+// pendingToolLife is how long a call Gaffer asked for waits for the person.
+// After it, what the call would act on may have moved on: a merge approval
+// asked for yesterday is not an approval of today's work.
+var pendingToolLife = 24 * time.Hour
+
 // SetToolHost installs the controller's tools. Without one Gaffer has none.
 func (s *Service) SetToolHost(host ToolHost) {
 	if host == nil {
@@ -126,7 +149,7 @@ func (s *Service) runHostTool(ctx context.Context, job *chatJob, c store.GafferC
 	if host == nil {
 		return "", false, errors.New("reet's tools are not available just now. Nothing was run.")
 	}
-	result, callErr := (*host).CallGafferTool(ctx, job.uid, tool.Name, json.RawMessage(args))
+	result, callErr := (*host).CallGafferTool(s.forProvider(ctx, job.uid, job.provider), job.uid, tool.Name, json.RawMessage(args))
 	if ctx.Err() != nil {
 		return "", false, ctx.Err()
 	}
@@ -163,6 +186,15 @@ func (s *Service) AnswerTool(ctx context.Context, uid int64, conversation, turn,
 		s.audit(uid, "gaffer-tool-declined", map[string]any{"tool": pending.Name, "conversation": conversation, "turn": turn})
 		return s.store.GafferTurnFor(uid, conversation, turn)
 	}
+	asked, err := s.store.GafferTurnFor(uid, conversation, turn)
+	if err != nil {
+		return store.GafferTurn{}, err
+	}
+	if since := max(asked.FinishedAt, asked.StartedAt); since > 0 && time.Since(time.UnixMilli(since)) > pendingToolLife {
+		_ = s.store.ResolveGafferTurnToolFor(uid, conversation, turn, tool, "pending", "declined", "Not run: this request waited more than a day for an answer. Ask Gaffer again.")
+		s.audit(uid, "gaffer-tool-declined", map[string]any{"tool": pending.Name, "conversation": conversation, "turn": turn, "expired": true})
+		return store.GafferTurn{}, invalid("tool", "That request waited more than a day, so it was not run: what it would act on may have changed. Ask Gaffer again.")
+	}
 	host := s.toolHost.Load()
 	on := false
 	if host != nil {
@@ -177,7 +209,7 @@ func (s *Service) AnswerTool(ctx context.Context, uid int64, conversation, turn,
 	if err = s.store.ResolveGafferTurnToolFor(uid, conversation, turn, tool, "pending", "approved", ""); err != nil {
 		return store.GafferTurn{}, invalid("tool", "That request is not waiting for an answer any more.")
 	}
-	result, callErr := (*host).CallGafferTool(ctx, uid, pending.Name, json.RawMessage(pending.Args))
+	result, callErr := (*host).CallGafferTool(s.forProvider(ctx, uid, asked.ProviderID), uid, pending.Name, json.RawMessage(pending.Args))
 	state := "ran"
 	if callErr != nil {
 		state, result = "failed", callErr.Error()

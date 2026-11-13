@@ -160,9 +160,9 @@ func (s *server) sessionBacklogSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chatTool := d.Chat && !terminalproto.ReviewedChatTool(d.Tool)
-	trustWithoutChat := d.Trust && (!d.Chat || d.Tool != "opencode")
+	trustWithoutChat := d.Trust && (!d.Chat || d.Tool != "opencode" && d.Tool != "antigravity")
 	if chatTool || trustWithoutChat {
-		bad("Choose an agent with Gaffer support. Plugin trust applies only to an OpenCode chat.")
+		bad("Choose an agent with Gaffer support. Folder trust applies only to an OpenCode or Google Antigravity chat.")
 		return
 	}
 	if len(d.Images) > 4 {

@@ -134,6 +134,31 @@ func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) 
 	if code, _ := gafferClient(t, owner, srv, "POST", "/api/v2/gaffer/outcomes/"+strings.Repeat("a", 32)+"/stop", `{}`); code != 400 {
 		t.Fatalf("stop without a revision: %d", code)
 	}
+	// Moving on, sending back, the merge setting, telling the agent and stopping following are the owning browser's too.
+	for path, body := range map[string]string{
+		base + "/sessions/a/advance":   `{"confirmed":true,"stage":"code"}`,
+		base + "/sessions/a/back":      `{"stage":"code","reason":"Again.","confirmed":true}`,
+		base + "/sessions/a/automerge": `{"on":false}`,
+		base + "/sessions/a/tell":      `{"requestId":"` + strings.Repeat("c", 32) + `","text":"Carry on."}`,
+		base + "/stop-following":       `{"revision":1}`,
+	} {
+		if code, _ := doClient(t, owner, srv, "POST", path, body, "Origin", "https://different.example"); code != 403 {
+			t.Fatalf("foreign origin %s: %d", path, code)
+		}
+		if code, _ := gafferClient(t, &http.Client{}, srv, "POST", path, body, "Authorization", "Bearer synthetic-api-token"); code != 403 {
+			t.Fatalf("API token %s: %d", path, code)
+		}
+		if code, _ := gafferClient(t, &http.Client{}, srv, "POST", path, body); code != 401 {
+			t.Fatalf("signed out %s: %d", path, code)
+		}
+		if code, _ := gafferClient(t, owner, srv, "POST", path, strings.Replace(body, "{", `{"yolo":true,`, 1)); code != 400 {
+			t.Fatalf("unknown field %s: %d", path, code)
+		}
+		// With everything in order, an outcome that is not this account's changes nothing.
+		if code, text := gafferClient(t, owner, srv, "POST", path, body); code != 404 && code != 403 {
+			t.Fatalf("unknown outcome %s: %d %s", path, code, text)
+		}
+	}
 	// Archiving, restoring and deleting are the owning browser's requests, and name the revision they mean.
 	for _, action := range []string{"archive", "restore"} {
 		path := base + "/" + action

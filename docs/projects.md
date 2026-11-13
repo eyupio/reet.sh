@@ -390,7 +390,7 @@ can be kept unchanged in an edit; moving it to a new folder on that machine is r
 
 ### Check and remove a run's worktree
 
-reet never removes a worktree by itself, apart from undoing its own failed create: when a create
+reet removes a clean worktree when its session is removed from history and in the scheduled clean-up ([machine maintenance](machine-maintenance.md)). It also undoes its own failed create: when a create
 fails part-way, the machine removes the worktree and deletes the branch that same call had just made,
 and nothing else (see [Worktrees](terminal-worktrees.md)). *Remove worktree* is offered only for a member that started
 with a worktree and whose session the page has read as ended:

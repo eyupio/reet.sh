@@ -18,7 +18,7 @@ Only sessions reet has a record of are listed. A worktree the controller never r
 
 ## Scheduled clean-up
 
-Off until an owner or admin turns it on. On a schedule (every 6 hours, day or week) it does a scan for every account and removes only the **safe** group, for sessions finished longer ago than the age you pick. The rest is left for you. Each removal is in Activity, marked automatic, and the page shows the last run's counts.
+On unless an owner or admin turns it off. On a schedule (every 6 hours, day or week) it does a scan for every account and removes only the **safe** group, for sessions finished longer ago than the age you pick (1 day unless changed). The rest is left for you. Each removal is in Activity, marked automatic, and the page shows the last run's counts.
 
 `REET_MAINTENANCE=off` stops the scheduler from starting at all.
 

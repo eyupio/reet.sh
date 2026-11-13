@@ -46,6 +46,8 @@ const routes = () => ({
   '/api/v2/admin/backups': backup,
   '/api/v2/admin/backups/import': { pending: null },
   '/api/v2/admin/backups/items/b1/verify': { ok: false, problems: ['The checksum does not match.'] },
+  // What an older controller answered when nothing was removed: null lists.
+  '/api/v2/admin/backups/prune': { removed: null, remotes: [{ name: 's3-eu', removed: null }] },
 })
 const open = options => openWorkspace(browser, { width: 1440, routes: routes(), ...options })
 
@@ -105,12 +107,15 @@ const report = {
 const copies = page => page.getByRole('region', { name: 'Backup copies' })
 const runs = page => page.getByRole('region', { name: 'Recent runs' })
 const count = panel => panel.getByRole('status').first()
+const tab = (page, name) => page.getByRole('tablist', { name: 'Backup sections' }).getByRole('tab', { name })
+const openTab = async (page, name) => { await tab(page, name).click(); await expect(tab(page, name)).toHaveAttribute('aria-selected', 'true') }
 const scope = (page, group, name) => page.getByRole('group', { name: group }).getByRole('button', { name })
 
 try {
   if (run('copies')) {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Copies/)
     await expect(count(copies(page))).toHaveText('3 copies')
     for (const [name, figure] of [['All', 3], ['This machine', 2], ['Off-site', 2], ['Damaged', 0]]) {
       await expect(scope(page, 'Show copies', new RegExp(`^${name}`))).toHaveText(new RegExp(`${name}\\s*${figure}`))
@@ -142,6 +147,7 @@ try {
   if (run('verify')) {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Copies/)
     const row = copies(page).getByRole('listitem').filter({ hasText: 'b1' })
     await row.getByRole('button', { name: 'Verify' }).click()
     await expect(row.getByText('The checksum does not match.', { exact: true })).toBeVisible()
@@ -156,6 +162,7 @@ try {
   if (run('runs')) {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Runs/)
     await expect(count(runs(page))).toHaveText('3 runs')
     for (const [name, figure] of [['All', 3], ['Succeeded', 1], ['Failed', 1], ['Running', 1]]) {
       await expect(scope(page, 'Show runs', new RegExp(`^${name}`))).toHaveText(new RegExp(`${name}\\s*${figure}`))
@@ -179,6 +186,7 @@ try {
     const { seen, routes: moved } = moving()
     const { context, page, errors } = await open({ routes: moved })
     await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Move/)
     const card = moveAway(page)
     await expect(card.getByRole('heading', { name: 'Fence this controller' })).toBeVisible()
     await expect(card.getByText('Available once the controller is fenced', { exact: false })).toBeVisible()
@@ -225,10 +233,13 @@ try {
     // The password is not left in the page once the copy exists.
     await card.getByRole('button', { name: 'Take another' }).click()
     await expect(card.getByLabel('Copy password')).toHaveValue('')
+    await openTab(page, /^Copies/)
     await expect(copies(page).getByRole('listitem').filter({ hasText: 'instance-final' }).getByText('taken fenced')).toBeVisible()
+    await openTab(page, /^Move/)
 
     // The fence is in place after a reload, read from the controller, and the final copy is found again from the list.
     await page.reload()
+    await openTab(page, /^Move/)
     await expect(page.getByText('This controller is fenced.')).toBeVisible()
     await expect(moveAway(page).getByRole('link', { name: 'Download the final copy' })).toBeVisible()
 
@@ -244,12 +255,35 @@ try {
     await context.close()
   }
 
+  if (run('tabs')) {
+    const { context, page, errors } = await open({})
+    await page.goto(`${base}/admin/backups`)
+    await expect(tab(page, /^Overview/)).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible()
+    await expect(copies(page)).toHaveCount(0)
+    await expect(runs(page)).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Schedule and retention' })).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight * 2), 'overview fits in two screens').toBe(true)
+    await tab(page, /^Overview/).focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(tab(page, /^Copies/)).toHaveAttribute('aria-selected', 'true')
+    await expect(copies(page)).toBeVisible()
+    await page.keyboard.press('End')
+    await expect(tab(page, /^Move/)).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByText('Move a controller in')).toBeVisible()
+    await openTab(page, /^Schedule/)
+    await expect(page.getByRole('heading', { name: 'Schedule and retention' })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
   // A copy the fence did not hold for is said to be so, not handed over as the final one.
   if (run('move-away-unfenced-copy')) {
     const { routes: moved } = moving({ fenced: true })
     moved['/api/v2/admin/backups/run'] = () => ({ id: 'instance-raced', kind: 'instance', target: 'instance', takenAt: now + 1000, bytes: 4096, local: true, remotes: [], protection: 'password', fenced: false })
     const { context, page, errors } = await open({ routes: moved })
     await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Move/)
     const card = moveAway(page)
     await card.getByLabel('Copy password').fill('a password for the move')
     await card.getByRole('button', { name: 'Take the final copy' }).click()
@@ -261,12 +295,25 @@ try {
     await context.close()
   }
 
+  if (run('prune')) {
+    const { context, page, errors } = await open({})
+    page.on('dialog', dialog => dialog.accept())
+    await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Destinations/)
+    await page.getByRole('button', { name: 'Apply retention now' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Removed 0 copies.' })).toBeVisible()
+    await expect(page.getByRole('alert').filter({ hasText: 'Cannot read properties' })).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
   // The page offers only what the controller says it holds, and only the owner may fence.
   if (run('move-honest')) {
     {
       const { seen, routes: older } = moving({ features: null })
       const { context, page, errors } = await open({ routes: older })
       await page.goto(`${base}/admin/backups`)
+      await openTab(page, /^Move/)
       await expect(moveIn(page)).toBeVisible()
       await expect(moveAway(page)).toHaveCount(0)
       await expect(moveIn(page).getByLabel("This controller's address (optional)")).toHaveCount(0)
@@ -278,6 +325,7 @@ try {
       const { seen, routes: partial } = moving({ features: ['fence'], fenced: true })
       const { context, page, errors } = await open({ routes: partial })
       await page.goto(`${base}/admin/backups`)
+      await openTab(page, /^Move/)
       const card = moveAway(page)
       // No password of its own for this copy, so none is asked for and none is sent.
       await expect(card.getByLabel('Copy password')).toHaveCount(0)
@@ -292,6 +340,8 @@ try {
       const { routes: fencedRoutes } = moving({ fenced: true, movedTo: 'https://reet.new.example' })
       const { context, page, errors } = await open({ routes: fencedRoutes, status: { user: { id: 2, name: 'Ada', email: 'ada@example.test', role: 'admin' } } })
       await page.goto(`${base}/admin/backups`)
+      // An admin has no Move section at all; the banner still tells them.
+      await expect(tab(page, /^Move/)).toHaveCount(0)
       await expect(page.getByText('This controller is fenced.')).toBeVisible()
       await expect(page.getByText('Only the owner can lift the fence.', { exact: false })).toBeVisible()
       await expect(moveAway(page)).toHaveCount(0)
@@ -312,6 +362,7 @@ try {
     })
     const { context, page, errors } = await open({ routes: incoming })
     await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Move/)
     const card = moveIn(page)
     const address = card.getByLabel("This controller's address (optional)")
     await expect(address).toHaveValue(base)
@@ -395,6 +446,7 @@ try {
         const { routes: fencedRoutes } = moving({ fenced: true, movedTo: 'https://reet-controller.new-machine.example.com', final, pending: { ...report, publicUrl: 'https://reet-controller.new-machine.example.com' } })
         const { context, page, errors } = await open({ width, height: 812, touch: true, theme, routes: fencedRoutes })
         await page.goto(`${base}/admin/backups`)
+      await openTab(page, /^Move/)
         await expect(moveAway(page).getByRole('link', { name: 'Download the final copy' })).toBeVisible()
         await moveIn(page).getByText('Not in the copy: set these by hand on this machine').click()
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px, ${theme}`).toBe(true)
@@ -417,10 +469,13 @@ try {
       const { context, page, errors } = await open({ width, height: 812, touch: true })
       await page.goto(`${base}/admin/backups`)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px`).toBe(true)
-      for (const label of ['Search copies', 'Search runs']) {
+      for (const [name, label] of [[/^Copies/, 'Search copies'], [/^Runs/, 'Search runs']]) {
+        await openTab(page, name)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${name} width at ${width}px`).toBe(true)
         const box = await page.getByLabel(label).boundingBox()
         expect(box.height, `${label} height at ${width}px`).toBeGreaterThanOrEqual(44)
       }
+      await openTab(page, /^Copies/)
       for (const name of [/^All/, /^This machine/, /^Off-site/, /^Damaged/]) {
         const box = await scope(page, 'Show copies', name).boundingBox()
         expect(box.height, `copy chip height at ${width}px`).toBeGreaterThanOrEqual(44)
@@ -432,4 +487,4 @@ try {
 } finally {
   await browser.close()
 }
-console.log('Admin backups: copies and runs in one grammar, honest chips, search, verify and a phone layout; a move away (fence, final copy, lift), a move in (address, live-source tick), honest offers and the shell line.')
+console.log('Admin backups: sectioned tabs, copies and runs in one grammar, honest chips, search, verify, a null-safe prune and a phone layout; a move away (fence, final copy, lift), a move in (address, live-source tick), honest offers and the shell line.')

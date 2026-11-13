@@ -31,7 +31,7 @@ const (
 	maintWorktreeByKey       = "maintenance_worktrees_changed_by"
 
 	maintDefaultIntervalHours = 24
-	maintDefaultMinAgeDays    = 7
+	maintDefaultMinAgeDays    = 1
 	maintMaxCandidates        = 100
 	maintMaxClean             = 50
 	maintSweepTimeout         = 10 * time.Minute
@@ -55,9 +55,11 @@ type worktreeSweepSummary struct {
 }
 
 func (s *server) worktreeMaintenanceSettings() worktreeMaintenanceSettings {
-	out := worktreeMaintenanceSettings{IntervalHours: maintDefaultIntervalHours, MinAgeDays: maintDefaultMinAgeDays}
-	if v, _ := s.st.GetSetting(maintWorktreeEnabledKey); v == "1" {
-		out.Enabled = true
+	// On unless an admin turned it off: a finished session's clean worktree
+	// must not be left behind for want of a setting nobody saved.
+	out := worktreeMaintenanceSettings{Enabled: true, IntervalHours: maintDefaultIntervalHours, MinAgeDays: maintDefaultMinAgeDays}
+	if v, _ := s.st.GetSetting(maintWorktreeEnabledKey); v == "0" {
+		out.Enabled = false
 	}
 	if n, err := strconv.Atoi(settingOr(s, maintWorktreeIntervalKey)); err == nil && n >= 1 && n <= 24*30 {
 		out.IntervalHours = n

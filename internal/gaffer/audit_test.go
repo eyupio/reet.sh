@@ -89,9 +89,9 @@ func TestAPipelinesMovesAreRecordedWithTheirReason(t *testing.T) {
 	log.wait(t, "gaffer-stage-started code")
 	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Endpoint and tests are committed. secret-handover-words", "gaffer")
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
-	log.wait(t, "gaffer-stage-started code", "gaffer-stage-handed-over code gaffer", "gaffer-stage-started review")
+	log.wait(t, "gaffer-stage-started code", "gaffer-stage-handed-over code gaffer", "gaffer-stage-started review", "gaffer-session-ended")
 	// The person moves review on; test is handed over by Gaffer and the pipeline stops for the merge decision.
-	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, review.Key); err != nil {
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, review.Key, ""); err != nil {
 		t.Fatal(err)
 	}
 	test := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
@@ -99,7 +99,7 @@ func TestAPipelinesMovesAreRecordedWithTheirReason(t *testing.T) {
 	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
 	log.wait(t,
 		"gaffer-stage-started code", "gaffer-stage-handed-over code gaffer",
-		"gaffer-stage-started review", "gaffer-stage-handed-over review person",
+		"gaffer-stage-started review", "gaffer-session-ended", "gaffer-stage-handed-over review person",
 		"gaffer-stage-started test", "gaffer-stage-handed-over test gaffer",
 		"gaffer-pipeline-waiting-merge merge")
 	for _, row := range log.all() {
@@ -115,7 +115,7 @@ func TestAPipelinesMovesAreRecordedWithTheirReason(t *testing.T) {
 	if final[0].ClosedBy != "gaffer" || final[1].ClosedBy != "person" || final[2].ClosedBy != "gaffer" || final[3].ClosedBy != "" {
 		t.Fatalf("closed by: %q %q %q %q", final[0].ClosedBy, final[1].ClosedBy, final[2].ClosedBy, final[3].ClosedBy)
 	}
-	last := log.all()[6]
+	last := log.all()[7]
 	if last.detail["state"] != "ready_to_merge" || !strings.Contains(fmt.Sprint(last.detail["reason"]), "Nothing merges until you approve it") {
 		t.Fatalf("merge wait: %+v", last)
 	}

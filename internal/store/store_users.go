@@ -1554,13 +1554,17 @@ func (s *Store) DeleteUser(id int64) error {
 // OutcomeEventsFor returns the activity recorded for one Factory outcome,
 // newest first: every event of the account whose action starts "gaffer-" and
 // whose detail names that outcome.
-func (s *Store) OutcomeEventsFor(userID int64, outcome string, limit int) ([]Event, error) {
+//
+// since is when the outcome was approved: nothing about it is older, so the
+// read looks no further back. What was done to it over MCP, or by Gaffer's
+// own tools, is part of its history too.
+func (s *Store) OutcomeEventsFor(userID int64, outcome string, since int64, limit int) ([]Event, error) {
 	if limit < 1 || limit > 200 {
 		limit = 200
 	}
 	rows, err := s.db.Query(`SELECT id,at,source,action,detail FROM events
- WHERE user_id=? AND action LIKE 'gaffer-%' AND json_valid(detail) AND json_extract(detail,'$.outcome')=?
- ORDER BY id DESC LIMIT ?`, userID, outcome, limit)
+ WHERE user_id=? AND at>=? AND (action LIKE 'gaffer-%' OR action='mcp-factory-control') AND json_valid(detail) AND json_extract(detail,'$.outcome')=?
+ ORDER BY id DESC LIMIT ?`, userID, since, outcome, limit)
 	if err != nil {
 		return nil, err
 	}

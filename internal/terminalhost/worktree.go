@@ -294,7 +294,10 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 //     is resolved with ResolveBase, which fetches it from a github.com origin
 //     and starts from GitHub's commit unless the repository's own branch is
 //     ahead of it; with no github.com origin it is the local branch, then the
-//     remote-tracking branch, as it has always been. What it chose is Base.
+//     remote-tracking branch, as it has always been. A base naming GitHub's
+//     own branch, origin/<name>, is fetched and started from whatever the
+//     local <name> holds, and any other remote's branch (upstream/main) still
+//     resolves to refs/remotes/<base>. What it chose is Base.
 //     With no base named, ResolveBase takes the repository's default branch
 //     (origin/HEAD, then a local main or master), so the run starts from
 //     GitHub's default branch, or, when the fetch failed, from the last known

@@ -317,3 +317,73 @@ func TestBaseFetchArgvIsHardened(t *testing.T) {
 		}
 	}
 }
+
+// A base spelled origin/<name> names GitHub's own branch: it is fetched and
+// started from, whatever the repository's own <name> holds.
+func TestBaseOriginPrefixedStartsFromGitHub(t *testing.T) {
+	f := newBaseFixture(t)
+	onGitHub := commitOf(t, f.remote, "refs/heads/main")
+	ahead := commitIn(t, f.repo, "local-only")
+	state := f.resolve(t, "origin/main", true)
+	wantBase(t, state, terminalproto.BaseSame, onGitHub)
+	if state.Start == ahead {
+		t.Fatalf("state = %+v, want GitHub's branch, not the local one", state)
+	}
+	if state.Local != "" || state.Remote != onGitHub {
+		t.Fatalf("state = %+v, want GitHub's commit alone", state)
+	}
+	if args := f.fetchArgs(); !slices.Contains(args, "+refs/heads/main:refs/remotes/origin/main") {
+		t.Fatalf("fetch %q did not fetch main from origin", args)
+	}
+}
+
+// A GitHub that cannot be reached leaves the last fetched origin/<name>.
+func TestBaseOriginPrefixedFetchFailedUsesLastFetched(t *testing.T) {
+	f := newBaseFixture(t)
+	tracking := commitOf(t, f.repo, "refs/remotes/origin/main")
+	if err := os.RemoveAll(f.remote); err != nil {
+		t.Fatal(err)
+	}
+	state := f.resolve(t, "origin/main", true)
+	wantBase(t, state, terminalproto.BaseFetchFailed, tracking)
+}
+
+// A branch GitHub does not have is missing, whether or not an older fetch
+// left a remote-tracking branch behind: the person asked for GitHub's branch.
+func TestBaseOriginPrefixedMissingIsRefused(t *testing.T) {
+	f := newBaseFixture(t)
+	_, err := ResolveBase(context.Background(), f.repo, "origin/nope", true, f.git)
+	refusedWith(t, err, terminalproto.WorktreeBaseMissing)
+
+	testGit(t, f.remote, "branch", "feature")
+	f.resolve(t, "origin/feature", true) // leaves refs/remotes/origin/feature behind
+	testGit(t, f.remote, "branch", "-D", "feature")
+	_, err = ResolveBase(context.Background(), f.repo, "origin/feature", true, f.git)
+	refusedWith(t, err, terminalproto.WorktreeBaseMissing)
+}
+
+// A local branch literally named origin/<name> is what the base means, as it
+// always has, and is resolved by the ordinary rule.
+func TestBaseLocalBranchNamedLikeARemoteWins(t *testing.T) {
+	f := newBaseFixture(t)
+	testGit(t, f.repo, "branch", "origin/x")
+	local := commitOf(t, f.repo, "refs/heads/origin/x")
+	state := f.resolve(t, "origin/x", true)
+	wantBase(t, state, terminalproto.BaseAhead, local)
+	if state.Local != local {
+		t.Fatalf("state = %+v, want the local branch %s", state, local)
+	}
+}
+
+// Another remote's tracking branch still resolves on a github.com repository:
+// GitHub has no such branch, and the fetch spent on finding that out must not
+// turn the base into a refusal.
+func TestBaseOtherRemoteStillResolves(t *testing.T) {
+	f := newBaseFixture(t)
+	upstream := newRepo(t, f.home, "upstream")
+	testGit(t, f.repo, "remote", "add", "upstream", upstream)
+	testGit(t, f.repo, "fetch", "-q", "upstream")
+	want := commitOf(t, upstream, "refs/heads/main")
+	state := f.resolve(t, "upstream/main", true)
+	wantBase(t, state, terminalproto.BaseNoRemote, want)
+}

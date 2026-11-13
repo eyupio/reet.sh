@@ -36,6 +36,21 @@ const baseFetchTimeout = 30 * time.Second
 //     refs/heads/<base> and then refs/remotes/<base>; with one that has no
 //     such branch, only refs/heads/<base>.
 //
+// Two bases naming a remote-tracking branch are resolved on their own terms,
+// and only when the repository has no local branch of that whole name (one
+// literally named origin/x is what the base means, as it always has been):
+//
+//   - origin/<name> on a github.com repository is GitHub's own branch, chosen
+//     by the person: <name> is fetched and its refs/remotes/origin/<name> is
+//     the start whatever the local <name> holds, reported as same with no
+//     Local. A GitHub that could not be reached leaves the last fetched one
+//     (fetch_failed); one that answered that it has no such branch is
+//     base_missing, a remote-tracking branch left by an older fetch being
+//     stale;
+//   - any other remote's branch (upstream/main) is refs/remotes/<base>, as it
+//     was before any of this, reported as no_remote: nothing the fetch found
+//     applies to it. This is the last thing the base can be.
+//
 // Neither side having the branch is refuseWorktree(WorktreeBaseMissing, "").
 func ResolveBase(ctx context.Context, repo, base string, fetch bool, git GitRunner) (terminalproto.BaseState, error) {
 	if git == nil || (base != "" && !terminalproto.ValidRefName(base)) {
@@ -71,6 +86,12 @@ func ResolveBase(ctx context.Context, repo, base string, fetch bool, git GitRunn
 			}
 		}
 		return resolvedBase(state)
+	}
+
+	// origin/<name>, with no local branch of that name, is the person naming
+	// GitHub's own branch: it is fetched and started from on its own terms.
+	if name, ok := strings.CutPrefix(base, "origin/"); ok && local == "" && terminalproto.ValidRefName(name) {
+		return originBase(ctx, git, repo, base, name, fetch)
 	}
 
 	found := baseFetched
@@ -118,6 +139,45 @@ func ResolveBase(ctx context.Context, repo, base string, fetch bool, git GitRunn
 	default:
 		state.Relation = terminalproto.BaseDiverged
 		state.Start = local
+	}
+	if state.Start == "" {
+		// Neither a local branch nor one of GitHub's: another remote's
+		// tracking branch (upstream/main) is the last thing the base can be,
+		// exactly as it was before anything was fetched. Nothing the fetch
+		// found applies to it.
+		other, err := gitCommit(ctx, git, repo, "refs/remotes/"+base)
+		if err != nil {
+			return terminalproto.BaseState{}, err
+		}
+		state.Relation, state.Start = terminalproto.BaseNoRemote, other
+	}
+	return resolvedBase(state)
+}
+
+// originBase resolves a base spelled origin/<name> on a github.com
+// repository, where the repository has no local branch of that whole name:
+// the person named GitHub's branch, so it is fetched and the fetched
+// refs/remotes/origin/<name> is the start whatever the local <name> holds.
+// Local stays empty, because there is nothing to tell them about: they chose
+// GitHub's side themselves. A GitHub that could not be reached leaves the
+// last fetched remote-tracking branch (fetch_failed); a branch GitHub
+// answered that it does not have is base_missing, since a remote-tracking
+// branch an older fetch left behind is stale.
+func originBase(ctx context.Context, git GitRunner, repo, base, name string, fetch bool) (terminalproto.BaseState, error) {
+	found := baseFetched
+	if fetch {
+		found = fetchBase(ctx, git, repo, name)
+	}
+	if found == baseAbsent {
+		return terminalproto.BaseState{}, refuseWorktree(terminalproto.WorktreeBaseMissing, "")
+	}
+	remote, err := gitCommit(ctx, git, repo, "refs/remotes/origin/"+name)
+	if err != nil {
+		return terminalproto.BaseState{}, err
+	}
+	state := terminalproto.BaseState{Base: base, Relation: terminalproto.BaseSame, Remote: remote, Start: remote}
+	if found == baseUnreachable {
+		state.Relation = terminalproto.BaseFetchFailed
 	}
 	return resolvedBase(state)
 }

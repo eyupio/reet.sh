@@ -1367,3 +1367,22 @@ func TestPrepareWorktreeEmptyBaseWithoutAGitHubOriginStartsFromHead(t *testing.T
 		t.Fatalf("base = %+v, want no_remote starting from %s", w.Base, head)
 	}
 }
+
+// A base naming GitHub's own branch starts the worktree from GitHub's commit,
+// even where the repository's own branch has gone its own way.
+func TestPrepareWorktreeOriginPrefixedBaseOnAGitHubRepository(t *testing.T) {
+	f := newBaseFixture(t)
+	onGitHub := commitIn(t, f.remote, "on-github")
+	diverged := commitIn(t, f.repo, "local-only")
+	w, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "origin/main", f.git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := testGit(t, w.Path, "rev-parse", "HEAD")
+	if got == diverged {
+		t.Fatalf("the worktree started from the local branch %s", diverged)
+	}
+	if got != onGitHub || w.Base.Relation != terminalproto.BaseSame || w.Base.Start != onGitHub {
+		t.Fatalf("worktree at %s, base %+v, want GitHub's %s", got, w.Base, onGitHub)
+	}
+}

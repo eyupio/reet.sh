@@ -248,15 +248,21 @@ func sshRefused(out []byte) bool {
 //  5. it is not a clone reet made under that name: its marker does not name
 //     <owner>/<its own name>;
 //  6. its origin says it is a leftover of this repository: it has no .git
-//     at all; or its .git has no remote.origin.url set (`git config --get`
-//     exits 1: a clone cut off before git wrote the remote); or that origin
-//     parses with GitHubRemote to <owner>/<repo>, the repository being
-//     cloned, ignoring case. The origin is read as adoptClone reads it,
-//     pinned to the folder, with no rewrites, through the ordinary per-call
-//     git bound. An origin that cannot be read (git fails otherwise, times
-//     out, the config is unreadable) keeps the folder, and so does an origin
-//     that names anything else: the folder's own name, another repository,
-//     another host, or something GitHubRemote cannot parse.
+//     entry at all; or its .git is a real directory (not a file, not a
+//     symlink) that git accepts as a repository, and either its own config
+//     has no remote.origin.url (`git config --local --get` exits 1: a clone
+//     cut off before git wrote the remote) or that origin parses with
+//     GitHubRemote to <owner>/<repo>, the repository being cloned, ignoring
+//     case. The origin is read from the candidate's own config only
+//     (--local: the person's global and system config never answer for
+//     it), as adoptClone reads it, pinned to the folder, with no rewrites,
+//     through the ordinary per-call git bound. Every other outcome keeps the
+//     folder: a .git file or symlink; a .git git does not accept (`--local`
+//     outside a repository exits 128); git failing otherwise or timing out;
+//     an origin that names anything else (the folder's own name, another
+//     repository, another host, something GitHubRemote cannot parse). So a
+//     clone cut off between `git init` and a valid .git is kept for good:
+//     that is the safe side.
 //
 // Only that folder is removed, and a failure to remove it is ignored.
 func removeLeftovers(ctx context.Context, ownerDir string, req terminalproto.RepoClone) {
@@ -290,18 +296,21 @@ func removeLeftovers(ctx context.Context, ownerDir string, req terminalproto.Rep
 }
 
 // originIsLeftover reports whether the folder at path is, by its origin, a
-// leftover of req's repository: it has no .git, or its .git has no origin
-// set, or its origin names req's repository on github.com. Anything else,
-// including an origin that cannot be read, is not.
+// leftover of req's repository: it has no .git, or its .git is a real
+// directory git accepts whose own config has no origin, or whose origin names
+// req's repository on github.com. Anything else, including an origin that
+// cannot be read, is not.
 func originIsLeftover(ctx context.Context, path string, req terminalproto.RepoClone) bool {
-	if _, err := os.Lstat(filepath.Join(path, ".git")); os.IsNotExist(err) {
+	gitDir := filepath.Join(path, ".git")
+	if _, err := os.Lstat(gitDir); os.IsNotExist(err) {
 		return true
-	} else if err != nil {
+	} else if err != nil || !realDir(gitDir) {
 		return false
 	}
-	// `git config --get` applies no url.<base>.insteadOf rewrite: this is the
-	// origin as configured.
-	out, err := leftoverGit(pinGitDir(ctx, path), path, "config", "--get", "remote.origin.url")
+	// `git config --local --get` reads the candidate's own config only and
+	// fails (128) outside a repository git accepts; it applies no
+	// url.<base>.insteadOf rewrite: this is the origin as configured.
+	out, err := leftoverGit(pinGitDir(ctx, path), path, "config", "--local", "--get", "remote.origin.url")
 	if err != nil {
 		// Exit status 1 is git's own answer for a key that is not set; any
 		// other failure means the origin could not be read.
@@ -350,9 +359,11 @@ func adoptClone(ctx context.Context, dest string, req terminalproto.RepoClone, g
 	if !realDir(dest) || !realDir(filepath.Join(dest, ".git")) {
 		return exists
 	}
-	// `git config --get` applies no url.<base>.insteadOf rewrite: this is
-	// the origin as configured.
-	out, err := git(pinGitDir(ctx, dest), dest, "config", "--get", "remote.origin.url")
+	// `git config --local --get` reads the folder's own config only (never
+	// the person's global or system config) and fails outside a repository
+	// git accepts; it applies no url.<base>.insteadOf rewrite: this is the
+	// origin as configured.
+	out, err := git(pinGitDir(ctx, dest), dest, "config", "--local", "--get", "remote.origin.url")
 	if err != nil {
 		return exists
 	}

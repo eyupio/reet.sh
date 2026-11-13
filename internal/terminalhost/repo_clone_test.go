@@ -1133,7 +1133,161 @@ func TestCloneRepoKeepsALeftoverWhoseOriginGitCannotRead(t *testing.T) {
 	if after := snapshot(t, stale); !slices.Equal(before, after) {
 		t.Fatalf("leftover changed:\n%q\n%q", before, after)
 	}
-	if len(asked) != 1 || !slices.Equal(asked[0], []string{stale, "config", "--get", "remote.origin.url"}) {
+	if len(asked) != 1 || !slices.Equal(asked[0], []string{stale, "config", "--local", "--get", "remote.origin.url"}) {
 		t.Fatalf("asked %q", asked)
+	}
+}
+
+// The origin is read from the candidate's own config, and only from a .git
+// that is a real directory git accepts: a .git it does not accept (refs or
+// HEAD gone, empty), a .git file or a symlink keeps the folder, and an
+// origin in the person's global config never answers for the candidate.
+func TestCloneRepoLeftoverOriginIsItsOwn(t *testing.T) {
+	const name = ".x.cloning-0123456789abcdef"
+	for _, tc := range []struct {
+		test   string
+		global string
+		// make builds the candidate at path; it answers other paths that must
+		// be left untouched too.
+		make func(t *testing.T, f *cloneFixture, path string) []string
+		kept bool
+	}{
+		{"refs removed", "", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "https://github.com/o/other", time.Hour)
+			if err := os.RemoveAll(filepath.Join(path, ".git", "refs")); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		}, true},
+		{"HEAD removed", "", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "https://github.com/o/other", time.Hour)
+			if err := os.Remove(filepath.Join(path, ".git", "HEAD")); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		}, true},
+		{"an empty .git", "", func(t *testing.T, f *cloneFixture, path string) []string {
+			if err := os.MkdirAll(filepath.Join(path, ".git"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		}, true},
+		{"a .git file", "", func(t *testing.T, f *cloneFixture, path string) []string {
+			target := filepath.Join(f.home, "elsewhere")
+			f.handClone(t, target, "https://github.com/o/x.git")
+			if err := os.MkdirAll(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(path, ".git"), "gitdir: "+filepath.Join(target, ".git")+"\n")
+			return []string{target}
+		}, true},
+		{"a .git symlink", "", func(t *testing.T, f *cloneFixture, path string) []string {
+			target := filepath.Join(f.home, "elsewhere")
+			f.handClone(t, target, "https://github.com/o/x.git")
+			if err := os.MkdirAll(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(target, ".git"), filepath.Join(path, ".git")); err != nil {
+				t.Fatal(err)
+			}
+			return []string{target}
+		}, true},
+		{"no origin of its own, another one globally", "https://github.com/o/other", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "", time.Hour)
+			testGit(t, path, "init", "-q")
+			return nil
+		}, false},
+		{"no origin of its own, this one globally", "https://github.com/o/x", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "", time.Hour)
+			testGit(t, path, "init", "-q")
+			return nil
+		}, false},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			f.name = "x"
+			owner := filepath.Join(f.repos(), "o")
+			path := filepath.Join(owner, name)
+			others := tc.make(t, f, path)
+			agePath(t, path, time.Hour)
+			if tc.global != "" {
+				// Set while the leftovers are judged; the clone itself, which
+				// comes after, runs without it, as a global origin would send
+				// the stand-in's fetch elsewhere.
+				global := filepath.Join(f.home, ".gitconfig")
+				writeFile(t, global, "[remote \"origin\"]\n\turl = "+tc.global+"\n")
+				f.onClone = func(ctx context.Context, dir string, args []string, real GitRunner) ([]byte, error) {
+					if err := os.Remove(global); err != nil {
+						return nil, err
+					}
+					return real(ctx, dir, args...)
+				}
+			}
+			var asked [][]string
+			leftoverGit = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+				asked = append(asked, slices.Clone(args))
+				return ExecGit(ctx, dir, args...)
+			}
+			t.Cleanup(func() { leftoverGit = ExecGit })
+			var before [][]string
+			for _, p := range append([]string{path}, others...) {
+				before = append(before, snapshot(t, p))
+			}
+			r := f.clone(t, "o", "x")
+			if r != (terminalproto.RepoCloneResult{Dir: filepath.Join(owner, "x"), DefaultBranch: "main", Marked: true}) {
+				t.Fatalf("result = %+v", r)
+			}
+			for i, p := range append([]string{path}, others...) {
+				if i == 0 && !tc.kept {
+					wantMissing(t, path)
+					continue
+				}
+				if after := snapshot(t, p); !slices.Equal(before[i], after) {
+					t.Fatalf("%s changed:\n%q\n%q", p, before[i], after)
+				}
+			}
+			for _, args := range asked {
+				if !slices.Equal(args, []string{"config", "--local", "--get", "remote.origin.url"}) {
+					t.Fatalf("asked %q", args)
+				}
+			}
+			if !tc.kept && len(asked) != 1 {
+				t.Fatalf("asked %q", asked)
+			}
+		})
+	}
+}
+
+// Adoption reads the destination's own origin: an origin in the person's
+// global config never makes a folder a clone of the repository.
+func TestCloneRepoAdoptsOnlyItsOwnOrigin(t *testing.T) {
+	f := newCloneFixture(t)
+	dest := filepath.Join(f.repos(), "o", "r")
+	if err := os.MkdirAll(filepath.Join(dest, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(f.home, ".gitconfig"), "[remote \"origin\"]\n\turl = https://github.com/o/r\n")
+	before := snapshot(t, dest)
+	wantReason(t, f.clone(t, "o", "r"), terminalproto.RepoCloneExists)
+	if after := snapshot(t, dest); !slices.Equal(before, after) {
+		t.Fatalf("destination changed:\n%q\n%q", before, after)
+	}
+
+	// A real clone there is still adopted, with the global origin set too.
+	if err := os.RemoveAll(dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(f.home, ".gitconfig")); err != nil {
+		t.Fatal(err)
+	}
+	f.handClone(t, dest, "https://github.com/o/r.git")
+	writeFile(t, filepath.Join(f.home, ".gitconfig"), "[remote \"origin\"]\n\turl = https://github.com/o/r\n")
+	if r := f.clone(t, "o", "r"); r != (terminalproto.RepoCloneResult{Dir: dest, DefaultBranch: "main", Adopted: true}) {
+		t.Fatalf("result = %+v", r)
+	}
+	for _, args := range f.calls {
+		if slices.Contains(args, "remote.origin.url") && !slices.Equal(args[len(args)-4:], []string{"config", "--local", "--get", "remote.origin.url"}) {
+			t.Fatalf("origin read %q", args)
+		}
 	}
 }

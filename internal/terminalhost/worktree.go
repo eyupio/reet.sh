@@ -295,8 +295,11 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 //     and starts from GitHub's commit unless the repository's own branch is
 //     ahead of it; with no github.com origin it is the local branch, then the
 //     remote-tracking branch, as it has always been. What it chose is Base.
-//     With no base named, the run still starts at HEAD unless GitHub answered
-//     about the repository's default branch.
+//     With no base named, ResolveBase takes the repository's default branch
+//     (origin/HEAD, then a local main or master), so the run starts from
+//     GitHub's default branch, or, when the fetch failed, from the last known
+//     one; only a repository with no github.com origin, or none with a default
+//     branch at all, starts at HEAD, as it always has.
 //  2. The destination is <home>/.reet/worktrees/<project slug>/<repo slug>/<run>
 //     and the branch reet/<project slug>-<run>. Every folder up to the
 //     destination's parent must be a real directory owned by this user (new
@@ -306,7 +309,7 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 //     false); anything else is refused.
 //  4. Otherwise it runs exactly
 //     `git -C <repo> -c core.hooksPath=/dev/null worktree add -b <branch> <destination> <commit>`
-//     (the literal HEAD when no base was named and GitHub answered nothing).
+//     (the literal HEAD when no base was named and no default branch is known).
 //
 // Refusals are *WorktreeError (errors.Is ErrWorktreeRefused); a folder that
 // ResolveDir refuses keeps its ErrLaunchUnavailable error.
@@ -415,12 +418,11 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 		return Worktree{}, err
 	}
 	start := state.Start
-	// With no base named, only GitHub's own answer about the repository's
-	// default branch moves the start: a repository with no github.com origin,
-	// or one GitHub could not be reached for, begins where it stands, exactly
-	// as it always has.
-	unanswered := state.Relation == terminalproto.BaseNoRemote || state.Relation == terminalproto.BaseFetchFailed
-	if base == "" && unanswered {
+	// With no base named and no default branch to go by — no github.com
+	// origin, or none known — the run begins where the repository stands,
+	// exactly as it always has. A fetch that failed still leaves the last
+	// known default branch, which ResolveBase has already chosen.
+	if base == "" && state.Relation == terminalproto.BaseNoRemote {
 		state = terminalproto.BaseState{Relation: terminalproto.BaseNoRemote, Start: head}
 		start = "HEAD"
 	}

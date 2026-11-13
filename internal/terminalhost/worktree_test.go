@@ -1317,3 +1317,53 @@ func exitStatus(t *testing.T, code int) error {
 	}
 	return err
 }
+
+// With no base named and a github.com origin GitHub did not answer for, the
+// run starts from the last known default branch, not from wherever the folder
+// happens to be checked out.
+func TestPrepareWorktreeEmptyBaseFetchFailedStartsFromTheLastKnownDefault(t *testing.T) {
+	f := newBaseFixture(t)
+	lastKnown := commitOf(t, f.repo, "refs/heads/main")
+	testGit(t, f.repo, "checkout", "-q", "-b", "feature")
+	elsewhere := commitIn(t, f.repo, "on-feature")
+	signedOut := exitStatus(t, 128)
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if slices.Contains(args, "fetch") || slices.Contains(args, "ls-remote") {
+			return []byte("fatal: could not read Username for 'https://github.com'\n"), signedOut
+		}
+		return f.git(ctx, dir, args...)
+	}
+	w, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "", git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := testGit(t, w.Path, "rev-parse", "HEAD")
+	if head == elsewhere {
+		t.Fatalf("the worktree started from the checked-out branch %s", elsewhere)
+	}
+	if head != lastKnown {
+		t.Fatalf("worktree starts at %s, want the last known default %s", head, lastKnown)
+	}
+	if w.Base.Relation != terminalproto.BaseFetchFailed || w.Base.Start != head {
+		t.Fatalf("base = %+v, want fetch_failed starting from %s", w.Base, head)
+	}
+}
+
+// With no base named and no github.com origin, the run still starts where the
+// folder stands, whatever branch that is.
+func TestPrepareWorktreeEmptyBaseWithoutAGitHubOriginStartsFromHead(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "no-origin")
+	testGit(t, repo, "checkout", "-q", "-b", "feature")
+	head := commitIn(t, repo, "on-feature")
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("worktree starts at %s, want the folder's HEAD %s", got, head)
+	}
+	if w.Base.Relation != terminalproto.BaseNoRemote || w.Base.Start != head {
+		t.Fatalf("base = %+v, want no_remote starting from %s", w.Base, head)
+	}
+}

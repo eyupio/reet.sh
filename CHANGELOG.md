@@ -11,6 +11,11 @@ this file existed releases were described on their GitHub release pages.
   session finishes is now 1 day, down from 7. A controller where it was
   switched off stays off, and a saved wait is kept; one that never saved these
   settings starts sweeping, with the 1-day wait, after this update.
+- **Apply retention now** on Admin, Backups no longer fails with "Cannot read
+  properties of null (reading 'length')" when there is nothing to remove. The
+  controller now always answers with empty lists, and the page copes with the
+  old answer too. The page is also split into Overview, Copies, Destinations,
+  Schedule, Runs and Import sections, so it no longer runs to several screens.
 - A Factory outcome can no longer get stuck on a session that is gone. When a
   followed session is removed (for example ended with its history removed), the
   controller now notices within seconds, stops following that pipeline and

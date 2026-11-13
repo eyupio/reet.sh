@@ -1037,10 +1037,11 @@ func TestCloneRepoIgnoresALeftoverItCannotRemove(t *testing.T) {
 	}
 }
 
-// A folder named like a leftover of o/x that adoption would take as a clone
-// of the repository of that very name is a person's clone, not a leftover,
-// and is kept; so is one whose origin cannot be read. A real leftover names
-// o/x as its origin, or never got as far as .git, and is still removed.
+// A folder named like a leftover of o/x is removed only when its origin
+// names o/x, or it has a .git with no origin set, or no .git at all. An
+// origin that names anything else (the folder's own name, another
+// repository, another host, something unreadable as a GitHub remote) and an
+// origin that cannot be read keep it.
 func TestCloneRepoLeftoverOrigin(t *testing.T) {
 	const name = ".x.cloning-0123456789abcdef"
 	for _, tc := range []struct {
@@ -1061,10 +1062,22 @@ func TestCloneRepoLeftoverOrigin(t *testing.T) {
 			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
 			writeFile(t, filepath.Join(path, ".git", "config"), "[remote \"origin\"\n\turl = = =\n")
 		}, true},
+		{"another repository", func(t *testing.T, f *cloneFixture, path string) {
+			makeLeftoverOf(t, path, "https://github.com/o/other.git", time.Hour)
+		}, true},
+		{"another host", func(t *testing.T, f *cloneFixture, path string) {
+			makeLeftoverOf(t, path, "https://gitlab.com/o/x.git", time.Hour)
+		}, true},
+		{"an origin that is not a GitHub remote", func(t *testing.T, f *cloneFixture, path string) {
+			makeLeftoverOf(t, path, "not a remote at all", time.Hour)
+		}, true},
 		{"a .git without an origin", func(t *testing.T, f *cloneFixture, path string) {
 			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
 			testGit(t, path, "config", "--unset", "remote.origin.url")
-		}, true},
+		}, false},
+		{"an origin naming x in another case", func(t *testing.T, f *cloneFixture, path string) {
+			makeLeftoverOf(t, path, "https://github.com/O/X", time.Hour)
+		}, false},
 		{"a leftover with a marker", func(t *testing.T, f *cloneFixture, path string) {
 			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
 			writeFile(t, filepath.Join(path, ".git", cloneMarker), "o/x\n")

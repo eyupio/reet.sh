@@ -247,16 +247,18 @@ func sshRefused(out []byte) bool {
 //  4. it last changed more than leftoverAge ago;
 //  5. it is not a clone reet made under that name: its marker does not name
 //     <owner>/<its own name>;
-//  6. it is not a clone of the repository named like it: when it has a .git,
-//     its configured remote.origin.url (read as adoptClone reads it, pinned
-//     to the folder, no rewrites, with the ordinary per-call bound) is read
-//     and does not name github.com/<owner>/<its own name>, ignoring case. A
-//     .git whose origin cannot be read (git fails, times out, the config is
-//     unreadable or has no origin) keeps the folder.
+//  6. its origin says it is a leftover of this repository: it has no .git
+//     at all; or its .git has no remote.origin.url set (`git config --get`
+//     exits 1: a clone cut off before git wrote the remote); or that origin
+//     parses with GitHubRemote to <owner>/<repo>, the repository being
+//     cloned, ignoring case. The origin is read as adoptClone reads it,
+//     pinned to the folder, with no rewrites, through the ordinary per-call
+//     git bound. An origin that cannot be read (git fails otherwise, times
+//     out, the config is unreadable) keeps the folder, and so does an origin
+//     that names anything else: the folder's own name, another repository,
+//     another host, or something GitHubRemote cannot parse.
 //
-// A real leftover of <owner>/<repo> names <owner>/<repo> as its origin, or
-// has no .git yet. Only that folder is removed, and a failure to remove it is
-// ignored.
+// Only that folder is removed, and a failure to remove it is ignored.
 func removeLeftovers(ctx context.Context, ownerDir string, req terminalproto.RepoClone) {
 	list, err := os.ReadDir(ownerDir)
 	if err != nil {
@@ -280,30 +282,34 @@ func removeLeftovers(ctx context.Context, ownerDir string, req terminalproto.Rep
 		if origin, marked := cloneMarked(path); marked && strings.EqualFold(origin, req.Owner+"/"+name) {
 			continue
 		}
-		if clonedAs(ctx, path, req.Owner+"/"+name) {
+		if !originIsLeftover(ctx, path, req) {
 			continue
 		}
 		_ = removeLeftover(path)
 	}
 }
 
-// clonedAs reports whether the folder at path may be a clone of repo
-// ("owner/name"): it has a .git and its configured origin names repo on
-// github.com, or its origin cannot be read. A folder without .git is not.
-func clonedAs(ctx context.Context, path, repo string) bool {
+// originIsLeftover reports whether the folder at path is, by its origin, a
+// leftover of req's repository: it has no .git, or its .git has no origin
+// set, or its origin names req's repository on github.com. Anything else,
+// including an origin that cannot be read, is not.
+func originIsLeftover(ctx context.Context, path string, req terminalproto.RepoClone) bool {
 	if _, err := os.Lstat(filepath.Join(path, ".git")); os.IsNotExist(err) {
-		return false
-	} else if err != nil {
 		return true
+	} else if err != nil {
+		return false
 	}
 	// `git config --get` applies no url.<base>.insteadOf rewrite: this is the
 	// origin as configured.
 	out, err := leftoverGit(pinGitDir(ctx, path), path, "config", "--get", "remote.origin.url")
 	if err != nil {
-		return true
+		// Exit status 1 is git's own answer for a key that is not set; any
+		// other failure means the origin could not be read.
+		var exit *exec.ExitError
+		return errors.As(err, &exit) && exit.ExitCode() == 1
 	}
-	owner, name, ok := GitHubRemote(strings.TrimSuffix(string(out), "\n"))
-	return ok && strings.EqualFold(owner+"/"+name, repo)
+	owner, repo, ok := GitHubRemote(strings.TrimSuffix(string(out), "\n"))
+	return ok && sameRepo(owner+"/"+repo, req)
 }
 
 // lowerHex16 reports whether s is exactly 16 lower-case hex characters, the

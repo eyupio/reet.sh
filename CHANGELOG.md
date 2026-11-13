@@ -12,6 +12,11 @@ this file existed releases were described on their GitHub release pages.
 - A project's **+** on Home now asks what to start, as the Sessions page does:
   an agent session, a terminal session in the project's folder, or a **Factory
   outcome**. The Sessions page's chooser offers the Factory outcome too.
+- **Apply retention now** on Admin, Backups no longer fails with "Cannot read
+  properties of null (reading 'length')" when there is nothing to remove. The
+  controller now always answers with empty lists, and the page copes with the
+  old answer too. The page is also split into Overview, Copies, Destinations,
+  Schedule, Runs and Import sections, so it no longer runs to several screens.
 - A Factory outcome can no longer get stuck on a session that is gone. When a
   followed session is removed (for example ended with its history removed), the
   controller now notices within seconds, stops following that pipeline and

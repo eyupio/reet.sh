@@ -7,7 +7,10 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
-RUN npm run build
+# The CI runner shares about 3 GB between the job and its Docker daemon, and an uncapped build (a thread
+# per core plus Node's default heap) peaked near 1 GB and was killed ("cannot allocate memory"). One
+# thread and a bounded heap keep the peak around 750 MB for a few seconds more.
+RUN RAYON_NUM_THREADS=1 NODE_OPTIONS=--max-old-space-size=1024 npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
 ARG TARGETOS

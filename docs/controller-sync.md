@@ -102,7 +102,19 @@ The machine keeps its identity, secret and settings, and only its saved address 
 
 If a check fails, the command says which one and why (for example that the controller has no record of this machine, has itself moved, or does not support the proof request yet), and the enrollment file is left exactly as it was. If the address is saved but the agent cannot be restarted, it says so and tells you to run `reet agent restart`.
 
-The fence records the address it was given (`--moved-to`) so a later release can let machines learn it on their own; machines do not read it yet, so run this command on each one.
+### A running machine follows on its own
+
+When the old controller was fenced with an address (`reet backup fence --moved-to NEW`), a machine whose agent is running does not need the command. The fenced controller refuses the agent's next request and names the address; the agent then runs the same two checks against that address, in the same order, and when both pass it saves the new address and restarts itself. It says what it did in its log.
+
+The address the old controller names is treated as a hint and nothing more. A place that cannot prove it holds this machine's record is sent no credential, and the enrollment is left as it was. That is the normal state for a while: the fence goes up before the new controller has the copy, so the agent asks again once a minute until the new controller answers. An address that is not an HTTPS origin (one with a path, or plain HTTP anywhere but this machine itself) is not followed on its own; use `set-server` once the address is right.
+
+A machine that is switched off catches up when its agent next starts. One fenced with no address, or one that should not move by itself, is moved with `set-server`. To stop a machine following on its own:
+
+```sh
+reet agent follow-moves off      # on | off | status; on by default
+```
+
+Like `allow-apply`, this can only be changed by a command on the machine. Restart a running agent for it to take effect.
 
 ## Controls and recovery
 

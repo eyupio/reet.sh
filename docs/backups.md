@@ -346,7 +346,7 @@ is the one meant to be live, so a restore clears it.
 1. On the old controller, fence it (`reet backup fence --moved-to NEW`) so it stops acting.
 2. Take the final copy (`reet backup run`); it is marked fenced.
 3. On the new controller, restore or import it with `--public-url NEW`, and set what the report's checklist lists by hand.
-4. On each machine, `reet agent set-server NEW` (see [following a moved controller](controller-sync.md#follow-a-controller-that-has-moved)). The machine proves the new controller holds its record before it sends any credential.
+4. Machines whose agents are running follow on their own once the new controller answers, because the fence named its address; on any other machine run `reet agent set-server NEW` (see [following a moved controller](controller-sync.md#follow-a-controller-that-has-moved)). Either way the machine has the new controller prove it holds its record before it sends any credential.
 5. Resume the work the restore held back.
 6. When everything is working, the old controller can stay fenced or be retired.
 

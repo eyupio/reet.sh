@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Machines follow a controller that has moved. When the old controller is
+  fenced with the new address (`reet backup fence --moved-to NEW`), each
+  running agent learns the address from the refusal, has the new controller
+  prove it holds the machine's record, checks its credentials are accepted
+  there, and only then saves the address and restarts. A place that cannot
+  prove the record is sent no credential. `reet agent follow-moves off` keeps
+  a machine where it is until `reet agent set-server` is run on it.
 - A Factory outcome can no longer get stuck on a session that is gone. When a
   followed session is removed (for example ended with its history removed), the
   controller now notices within seconds, stops following that pipeline and

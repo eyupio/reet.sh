@@ -118,6 +118,11 @@ func (p *OpenAICompatible) body(req elicore.Request, maxTokens int) ([]byte, err
 	if p.cfg.ReasoningEffort != "" {
 		out["reasoning_effort"] = p.cfg.ReasoningEffort
 	}
+	// A stable key keeps one conversation on one cache shard, which is what
+	// makes the provider's automatic prefix caching hit from turn to turn.
+	if p.cfg.PromptCacheKey != "" {
+		out["prompt_cache_key"] = p.cfg.PromptCacheKey
+	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, 0, len(req.Tools))
 		for _, t := range req.Tools {

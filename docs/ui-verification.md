@@ -3582,3 +3582,32 @@ Validation, against the production build in Chromium with synthetic answers:
 **Not checked.** No physical phone, Safari or Firefox, and no screen reader. On the local controller the
 machine had no plan and the sentence stayed at "Syncing your machines…" for several minutes; how long that
 state should last is decided in `fleetSync.ts` and was not changed here.
+
+## Navigation in the top bar, and one project rail — 12 November 2026
+
+The signed-in desktop shell had two navigation patterns: normal pages put the primary tabs in a fixed left
+workspace sidebar, while the session screen put them in the top bar. Home additionally merged its project
+list into that sidebar under the tabs, so the page had one panel doing two jobs with one width and two fold
+behaviours.
+
+- The primary tabs now sit in the top bar on every signed-in page, at every width (the tablet bar and phone
+  bottom bar are unchanged), matching the session screen and the approved information architecture.
+- The workspace sidebar is retired (`WorkspaceSidebar.svelte` removed). Supporting pages use the full width
+  again, and the logo is 134 px on every desktop bar, the session's slim bar included.
+- Home's project list is its own resizable, independently collapsible left column: 301 px by default,
+  240–460 px, or its 56 px strip when folded (1100–1239 px is always the strip). It no longer shares a panel
+  with navigation, so there is no second drag axis.
+- Project rows are compact by default: two lines, a repository diamond or folder icon and name above, then a
+  muted machine, base branch, state and worktree line. The boxed machine pill is gone; the full detail stays
+  in each row's accessible name.
+- The boot shell reserves the Home rail's width before the bundle arrives (`--boot-home-rail`) and the
+  signed-in workspace is full width from first paint (`data-app-shell`), so the HTML shell, auth wait, lazy
+  route and loaded page agree.
+
+Validation, against the production build in Chromium with synthetic answers:
+
+- `home.e2e.mjs`, `compact-work-items.e2e.mjs`, `shell-fidelity.e2e.mjs`, `loading-width.e2e.mjs`,
+  `navigation.e2e.mjs` and `supporting-nav.e2e.mjs` pass.
+- `npm run check` (unit tests and `svelte-check`, 0 errors) and `npm run build` pass.
+
+**Not checked.** No physical phone, Safari or Firefox, and no screen reader.

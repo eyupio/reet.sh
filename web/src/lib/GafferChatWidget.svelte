@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { ApiError, UnauthorizedError, answerGafferTool, cancelGafferAnswer, configureGafferConversation, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,getGafferGoal,
+  import { ApiError, UnauthorizedError, answerGafferTool, cancelGafferAnswer, configureGafferConversation, controlGafferGoal, createGafferConversation, gafferTurnEventsURL, getGafferConversation, getGafferModels, getGafferSettings, removeGafferConversation, sendGafferMessage,getWorkerSettings,getGafferGoal,
     type GafferConversationView, type GafferSettings, type GafferTurn } from './api'
   import { gafferSessionContext, gafferChatEntry, GAFFER_GOALS_CHANGED } from './gafferContext'
   import { gafferMessageBytes, gafferMessageId, gafferSendKey, gafferTurnLabel, newerGafferTurn, parseGafferTurn, readGafferReceipt, writeGafferReceipt, type PendingGafferSend } from './gafferChat'
@@ -12,6 +12,7 @@
   import GafferProse from './GafferProse.svelte'
   import WorkerMessaging from './WorkerMessaging.svelte'
  import GafferGoal from './GafferGoal.svelte'
+ import { activeFollow } from './sessions/stageActions'
  import { goalPrefill } from './sessions/goalPrefill'
  import { copyText } from './clipboard'
   import GafferFollowedSessions from './GafferFollowedSessions.svelte'
@@ -57,6 +58,8 @@
   const scopeTitle = $derived(scope ? $gafferSessionContext?.title || 'This session' : 'General Gaffer chat')
   const unavailable = $derived(!!scope && !$gafferSessionContext?.structured)
   const current = $derived(loadedScope === scope ? view : null)
+  // Which stage follow-up the running goal came from, if any: the chat names it so the person can see what Gaffer is doing.
+  const following = $derived(activeFollow(current))
   // A reet tool Gaffer asked to use waits on its turn for the person's answer.
   let answering = $state('')
   const toolArgs = (raw: string) => { try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return raw } }
@@ -281,6 +284,13 @@
   const wish=wantedDraft;wantedDraft=null
   if(wish.id===scope)void untrack(()=>goalChoices(wish.text))
  })
+ // Stopping the goal from the chat is the same act as the Goal editor's Stop: it removes queued instructions and leaves the worker running.
+ async function stopFollowing(){
+ const goal=current?.goal
+ if(!goal||updating)return
+ updating=true;error='';notice=''
+ try{const {providerId:p,providerRevision:pr,model:m,contextRevision:cr,workerRevision:wr}=goal;const next=await controlGafferGoal(goal.conversationId,goal.revision,'stop',{providerId:p,providerRevision:pr,model:m,contextRevision:cr,workerRevision:wr},true);if(view)view={...view,goal:next.goal??undefined};notice='Stopped following this session. The working agent keeps running.';await goalChanged()}catch(e){error=message(e)}finally{updating=false}
+ }
  async function goalChanged(){
  window.dispatchEvent(new Event(GAFFER_GOALS_CHANGED))
  const mine=epoch,key=scope;updating=true
@@ -369,6 +379,13 @@
       <div class="unavailable" data-shell-body><h3>This session uses a terminal.</h3><p>A session companion needs a supported structured chat. You can still talk to Gaffer in General chat.</p><button class="btn" onclick={() => mode = 'general'}>Open general chat</button></div>
     {:else}
       <div class="conversation-body" data-shell-body>
+      {#if following}
+        <div class="follow-bar" role="status" data-state={following.state}>
+          <span class="follow-dot" aria-hidden="true"></span>
+          <p>Following <strong title={following.label}>{following.label}</strong>{#if following.state === 'paused'} · paused{:else if following.state === 'needs_user'} · needs you{:else if following.state === 'limit'} · limit reached{/if}</p>
+          <button type="button" class="quiet" disabled={updating} title="Stop Gaffer looking after this session. Queued goal instructions are removed; the working agent keeps running." onclick={() => void stopFollowing()}>{updating ? 'Stopping…' : 'Stop'}</button>
+        </div>
+      {/if}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrolling history must be reachable with a keyboard.) -->
       <div class="transcript" bind:this={transcript} data-shell-body onscroll={() => {if (transcript) stickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 90}} tabindex="0" role="region" aria-label="Gaffer conversation messages">
         {#if loading}<p class="empty" role="status">Finding our place…</p>
@@ -483,7 +500,7 @@
   .identity:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .panel-layout{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 10px;border-bottom:1px solid var(--line);background:var(--card);flex:none}
   .panel-sizes,.panel-position{display:flex;align-items:center;gap:3px}
-  .panel-layout button{display:grid;place-items:center;min-height:32px;padding:5px 10px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font:500 12.5px var(--sans);cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease}
+  .panel-layout button{display:grid;place-items:center;min-height:32px;padding:5px 10px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font:500 14px var(--sans);cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease}
   .panel-layout button:hover:not(:disabled){background:var(--tint);color:var(--ink)}
   .panel-layout button[aria-pressed=true]{color:var(--accent-text);background:var(--tint);border-color:var(--accent)}
   .panel-layout button:disabled{opacity:.45;cursor:default}
@@ -497,7 +514,7 @@
   .scope-title.follow-scope-label{color:var(--accent-text)}
   h2{font:600 18px/1.15 var(--serif);margin:0;letter-spacing:-.01em}
   h3{font:600 23px/1.25 var(--serif);margin:0 0 10px}
-  .scope-title{margin:3px 0 0;font-size:13px;line-height:1.3;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .scope-title{margin:3px 0 0;font-size:14px;line-height:1.3;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .head-actions{display:flex;align-items:center;gap:2px;flex:none}
   .icon{display:grid;place-items:center;width:36px;height:36px;min-height:36px;padding:0;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--muted);cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease}
   .icon:hover:not(:disabled){background:var(--tint);color:var(--ink)}
@@ -532,14 +549,20 @@
   .reply-details { min-width:0;flex:1; }
   .reply-details summary { cursor:pointer;min-height:32px;align-content:center; }
   .reply-details p { overflow-wrap:anywhere;line-height:1.5;margin:4px 0; }
-  .tool-call { margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:8px;display:grid;gap:8px;min-width:0; }.tool-call.pending { border-color:var(--accent); }.tool-head { margin:0;font-size:14px; }.tool-head code { font:13px var(--mono);overflow-wrap:anywhere; }
-  .tool-args,.tool-result pre { margin:0;padding:8px;border-radius:6px;background:var(--bg);font:12.5px/1.45 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto; }.tool-actions { display:flex;gap:8px;flex-wrap:wrap; }.tool-actions button { min-height:44px; }.tool-result summary { cursor:pointer;font-size:14px;min-height:32px; }
+  .tool-call { margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:8px;display:grid;gap:8px;min-width:0; }.tool-call.pending { border-color:var(--accent); }.tool-head { margin:0;font-size:14px; }.tool-head code { font:14px var(--mono);overflow-wrap:anywhere; }
+  .tool-args,.tool-result pre { margin:0;padding:8px;border-radius:6px;background:var(--bg);font:14px/1.45 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto; }.tool-actions { display:flex;gap:8px;flex-wrap:wrap; }.tool-actions button { min-height:44px; }.tool-result summary { cursor:pointer;font-size:14px;min-height:32px; }
   .turn-error { border-left:2px solid var(--accent);padding-left:10px;font-size:14px;color:var(--muted);line-height:1.5; }
   .thinking { font-size:14px;color:var(--muted); }
   .feedback { flex:none;margin:8px 16px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg-sunk);font-size:14px;overflow-wrap:anywhere; }
   .feedback p { margin:0 0 6px;line-height:1.4; }
   .bad,.attention { color:var(--bad); }
   .notice { font-size:14px;margin:6px 16px;color:var(--accent-text); }
+  .follow-bar { flex:none;display:flex;align-items:center;gap:8px;margin:10px 14px 0;padding:6px 10px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-radius:8px;background:color-mix(in srgb,var(--accent) 8%,transparent);font-size:14px;line-height:1.4; }
+  .follow-bar p { flex:1;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-soft); }
+  .follow-bar strong { color:var(--ink); }
+  .follow-dot { flex:none;width:7px;height:7px;border-radius:50%;background:var(--accent); }
+  .follow-bar .quiet { flex:none;min-height:30px;padding:0 8px;color:var(--bad); }
+  @media (pointer:coarse) { .follow-bar .quiet { min-height:40px;min-width:44px; } }
   .setup,.unavailable { padding:16px;font-size:14px;line-height:1.5; }
   .unavailable { flex:1;overflow:auto; }
   .composer { padding:10px 14px 12px;border-top:1px solid var(--line);flex:none;background:var(--card); }
@@ -568,7 +591,7 @@
     .chat-head { padding:8px 10px;gap:8px; }.icon { width:40px;height:44px;min-height:44px; }.identity { width:44px;height:44px; }.transcript { padding:20px 16px; }.composer { padding:8px 12px; }
     .btn,.quiet,select,input { min-height:44px; }.model-control,.context-control { min-height:44px; }.send-control { width:44px;min-height:44px; }textarea { font-size:16px; }
   }
-  @media (max-width:380px) { .chat-head { padding:8px;gap:6px; }.head-actions { gap:0; }.scope-title { font-size:12px; } }
+  @media (max-width:380px) { .chat-head { padding:8px;gap:6px; }.head-actions { gap:0; }.scope-title { font-size:14px; } }
   @media (max-height:600px) { .chat-head { padding-block:4px; }.composer { padding-block:6px; }textarea { height:48px;min-height:44px;max-height:90px; } }
   :global(.gaffer-chat[data-shell-short]) .composer { margin-top:0;padding:6px 12px; }
   :global(.gaffer-chat[data-shell-short]) textarea { height:44px;min-height:44px;max-height:60px; }

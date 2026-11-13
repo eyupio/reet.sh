@@ -118,3 +118,25 @@ func TestOpenCodeConfigCarriesTheChosenModel(t *testing.T) {
 		}
 	}
 }
+
+// A chosen model opts its provider into prompt caching, so a native chat's
+// repeated prefix is billed at the provider's cached rate. A model without a
+// provider prefix leaves the provider settings alone.
+func TestOpenCodeConfigEnablesPromptCachingForTheChosenProvider(t *testing.T) {
+	var config map[string]any
+	if err := json.Unmarshal([]byte(openCodeConfigContent("ollama-cloud/deepseek-v4.1-flash:1017")), &config); err != nil {
+		t.Fatal(err)
+	}
+	providers, _ := config["provider"].(map[string]any)
+	options, _ := providers["ollama-cloud"].(map[string]any)["options"].(map[string]any)
+	if options["setCacheKey"] != true {
+		t.Fatalf("provider options %v", config["provider"])
+	}
+	config = nil
+	if err := json.Unmarshal([]byte(openCodeConfigContent("unqualified")), &config); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := config["provider"]; ok {
+		t.Fatalf("an unqualified model configured a provider: %v", config["provider"])
+	}
+}

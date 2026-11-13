@@ -509,6 +509,7 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 	if s.store.Fenced() {
 		return
 	}
+	s.releaseGoneSessions()
 	s.autoReports(ctx)
 	rows, err := s.store.StartingGafferOutcomes()
 	// The controller's settings are read only when there is an outcome to
@@ -568,13 +569,17 @@ func (s *Service) autoReports(ctx context.Context) {
 			continue
 		}
 		// Recorded before the request, so a failed or slow one is not asked for again and again.
+		// Only the call that recorded the event asks: one that finds it already recorded
+		// (another look at the same outcome got there first) must not ask a second time.
+		recorded := false
 		if _, err = s.outcomeStep(o.OwnerID, o.ID, func(o *store.GafferOutcome) bool {
 			if o.AutoReportedFor == event {
 				return false
 			}
 			o.AutoReportedFor, o.AutoReports = event, o.AutoReports+1
+			recorded = true
 			return true
-		}); err != nil {
+		}); err != nil || !recorded {
 			continue
 		}
 		s.wg.Add(1)

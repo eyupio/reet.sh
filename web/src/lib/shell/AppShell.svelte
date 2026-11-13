@@ -1,9 +1,6 @@
 <script lang="ts">
   import { onMount, tick, type Snippet } from 'svelte'
   import Logo from '../Logo.svelte'
-  import WorkspaceSidebar from './WorkspaceSidebar.svelte'
-  import PanelResizer from './PanelResizer.svelte'
-  import { clampSidebarWidth, HOME_SIDEBAR_DEFAULT, HOME_SIDEBAR_MAX, HOME_SIDEBAR_MIN, readCollapsed, readWidth, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN } from './workspaceLayout'
   import { browserViewport, keyboardChrome, keyboardLikelyOpen, PHONE_SCREEN, ViewportTracker } from '../terminal/sizing'
   import Bell from './Bell.svelte'
   import BottomTabs from './BottomTabs.svelte'
@@ -15,13 +12,13 @@
   import type { NeedCard } from '../home'
 
   // The signed-in top bar and, on a phone, the bottom tab bar (spec: Information architecture and navigation, R13).
-  // Desktop (1100 px and wider): a workspace sidebar, with Jump, the bell and the account menu in the bar.
-  // Tablet (651-1099 px): logo, the bar's tabs and More, a search button, the bell, the account menu.
-  // Phone (PHONE_SCREEN): a slim bar with logo, search button, bell and account; the bar's tabs and More along the bottom.
+  // Every width keeps the primary tabs in the bar: the page's own left panel (Home's projects, the session rail) is
+  // content, not navigation. Desktop adds Jump beside the tabs; a tablet moves Jump behind its search button; a phone
+  // moves the tabs to the bottom bar.
   // `compact` is the terminal workspace's slim header: no bottom bar (the terminal keeps its own height rule), and on a
   // phone a More button in the top bar reaches every page instead.
   let {
-    tabs, attention, needsCards = [], onseen, onanswered, compact, bar, more, bell = false, jump, jumpLive = [], account, home = false,
+    tabs, attention, needsCards = [], onseen, onanswered, compact, bar, more, bell = false, jump, jumpLive = [], account,
   }: {
     tabs: Tab[]
     attention: number
@@ -40,49 +37,11 @@
     /** Jump rows the page already holds (skills, shelf machines), passed through to the search as they change. */
     jumpLive?: JumpItem[]
     account?: Snippet
-    /** Home's panel also holds the project list, so it has its own wider range and remembered width. */
-    home?: boolean
   } = $props()
-
-  // The workspace sidebar's width and fold, remembered in this browser. A missing or unreadable value falls back.
-  // Home's panel is a different size from the navigation-only one, so each keeps its own width.
-  // svelte-ignore state_referenced_locally
-  const limits = home
-    ? { min: HOME_SIDEBAR_MIN, max: HOME_SIDEBAR_MAX, fallback: HOME_SIDEBAR_DEFAULT, key: 'reet.sidebar.home.width' }
-    : { min: SIDEBAR_MIN, max: SIDEBAR_MAX, fallback: SIDEBAR_DEFAULT, key: 'reet.sidebar.width' }
-  const clamp = (width: number) => clampSidebarWidth(width, limits.min, limits.max, limits.fallback)
-  const savedSidebar = (() => {
-    try {
-      return {
-        width: readWidth(localStorage.getItem(limits.key), limits.fallback, clamp),
-        collapsed: readCollapsed(localStorage.getItem('reet.sidebar.collapsed')),
-      }
-    } catch { return { width: limits.fallback, collapsed: false } }
-  })()
-  let sidebarWidth = $state(savedSidebar.width)
-  let sidebarCollapsed = $state(savedSidebar.collapsed)
-  let sidebarToggle = $state<HTMLButtonElement>()
-  function setSidebarWidth(width: number) { sidebarWidth = clamp(width) }
-  function commitSidebarWidth(width: number) {
-    sidebarWidth = clamp(width)
-    try { localStorage.setItem(limits.key, String(sidebarWidth)) } catch { /* The sidebar keeps its width for this page. */ }
-  }
-  function setSidebarCollapsed(collapsed: boolean) {
-    sidebarCollapsed = collapsed
-    try { localStorage.setItem('reet.sidebar.collapsed', collapsed ? '1' : '0') } catch { /* The sidebar still folds. */ }
-    // The fold button leaves with the sidebar, so the control that shows it again takes the focus.
-    if (collapsed) void tick().then(() => sidebarToggle?.focus())
-  }
-  // The page's content, the top bar and the sidebar itself all read this width.
-  $effect(() => {
-    document.documentElement.style.setProperty('--workspace-sidebar-width', `${sidebarCollapsed ? 0 : clamp(sidebarWidth)}px`)
-    return () => { document.documentElement.style.removeProperty('--workspace-sidebar-width') }
-  })
 
   const overflow = $derived(tabs.filter(tab => !bar.some(b => b.href === tab.href)))
   let viewportWidth = $state(window.innerWidth)
   let phoneLayout = $state(matchMedia(PHONE_SCREEN).matches)
-  const showSidebar = $derived(!compact && viewportWidth >= 1100 && !phoneLayout)
   const visibleOverflow = $derived(viewportWidth < 1100 || phoneLayout ? overflow : [])
   const moreCurrent = $derived([...visibleOverflow, ...more].some(tab => tab.current))
 
@@ -157,46 +116,25 @@
   // Jump's focus change is.
   $effect(() => { void chromeFocus.launch; void chromeFocus.session; measureKeyboard() })
 
-  $effect(() => {
-    document.documentElement.toggleAttribute('data-workspace-shell', showSidebar)
-    return () => { document.documentElement.removeAttribute('data-workspace-shell') }
-  })
-
   // The page keeps room at its foot for the phone's tab bar (app.css reads this attribute under the phone rule).
   $effect(() => {
     const root = document.documentElement
+    // The signed-in workspace draws its pages full width; the public pages keep their reading measure.
+    root.toggleAttribute('data-app-shell', true)
     // Off while the bar steps aside for the keyboard, so the page does not keep an empty band above it.
     root.toggleAttribute('data-bottom-tabs', !compact && !barHidden)
     // The launch prompt or the session's terminal with the keyboard up takes the top bar's room too (the spec's keyboard-open
     // rule); Jump lives in it, so it stays for Jump.
     root.toggleAttribute('data-chrome-aside', barHidden && !searchFocused && (chromeFocus.launch || chromeFocus.session))
-    return () => { root.removeAttribute('data-bottom-tabs'); root.removeAttribute('data-chrome-aside') }
+    return () => { root.removeAttribute('data-app-shell'); root.removeAttribute('data-bottom-tabs'); root.removeAttribute('data-chrome-aside') }
   })
 </script>
 
 <svelte:window onkeydown={shortcut} bind:innerWidth={viewportWidth} />
 
-{#if showSidebar && !sidebarCollapsed}<WorkspaceSidebar {tabs} {moreCurrent} {moreOpen} onmore={openMore} oncollapsed={() => setSidebarCollapsed(true)} />{/if}
-{#if showSidebar && !sidebarCollapsed}
-  <PanelResizer value={sidebarWidth} min={limits.min} max={limits.max} resetValue={limits.fallback} label="Resize the navigation"
-    position="left: calc(var(--workspace-sidebar-width, 228px) - 4px)" onchange={setSidebarWidth} oncommit={commitSidebarWidth} />
-{/if}
-<div class="shell-bar" class:compact class:workspace={showSidebar}>
-  {#if showSidebar}
-    <button type="button" class="sidebar-toggle" bind:this={sidebarToggle} aria-label={sidebarCollapsed ? 'Show the navigation' : 'Hide the navigation'}
-      title={sidebarCollapsed ? 'Show the navigation' : 'Hide the navigation'} aria-expanded={!sidebarCollapsed}
-      onclick={() => setSidebarCollapsed(!sidebarCollapsed)}>
-      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h11M3 18h18" /></svg>
-    </button>
-    {#if sidebarCollapsed}
-      <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
-    {:else}
-      <div class="workspace-label"><span>{location.host}</span><span aria-hidden="true">›</span><strong>{tabs.find(tab => tab.current)?.label ?? more.find(tab => tab.current)?.label ?? 'Workspace'}</strong></div>
-    {/if}
-  {:else}
-    <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
-    <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
-  {/if}
+<div class="shell-bar" class:compact>
+  <a class="home" href="/" aria-label="reet.sh home"><Logo /></a>
+  <TopTabs {tabs} {bar} {moreCurrent} {moreOpen} onmore={openMore} />
   <span class="grow"></span>
   <JumpSearch load={jump} live={jumpLive} open={searchOpen} bind:input onclose={closeSearch}
     onfocuschange={(focused) => { searchFocused = focused; measureKeyboard() }} />
@@ -217,22 +155,15 @@
 {#if moreOpen}<MoreSheet items={sheetItems} opener={moreOpener} onclose={() => (moreOpen = false)} />{/if}
 
 <style>
-  .workspace-label { display: none; }
-  @media (min-width: 1100px) {
-    /* The session route's slim bar keeps the sidebar's logo size, so moving between pages never resizes it. */
-    .shell-bar.compact .home :global(.logo) { width: 134px; }
-    .shell-bar.workspace { padding-left: calc(var(--workspace-sidebar-width, 228px) + 36px); gap: 20px; }
-    .sidebar-toggle { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
-    .sidebar-toggle:hover { background: var(--card); color: var(--ink); }
-    .sidebar-toggle svg { width: 18px; height: 18px; }
-    .workspace-label { display: flex; align-items: center; gap: 13px; font-size: 14px; color: var(--muted); min-width: 0; }
-    .workspace-label strong { color: var(--ink); font-weight: 500; white-space: nowrap; }
-    .workspace-label > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
-  }
   .shell-bar { position: relative; display: flex; align-items: center; gap: 28px; height: 60px; line-height: 1.3; padding: 0 24px; }
   .shell-bar > :global(.top-tabs) { margin-left: 0; }
   .home { display: flex; align-items: center; flex: none; color: inherit; text-decoration: none; }
   .home :global(.logo) { width: 120px; }
+  /* One logo size on every desktop bar, so moving between Home, a supporting page and a session never resizes it. */
+  @media (min-width: 1100px) {
+    .shell-bar { gap: 20px; }
+    .home :global(.logo) { width: 134px; }
+  }
   /* A finger-sized target on touch screens; the bar is taller than this at every width. */
   @media (pointer: coarse) { .home { min-height: 44px; } }
   .grow { flex: 1; min-width: 0; }

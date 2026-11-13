@@ -8,6 +8,7 @@
   import { TerminalConnection, type ConnectionState } from './connection'
   import { terminalArchivable, terminalClosed, terminalUpload, refusalSentence, getSessionSkills, type TerminalSession } from './api'
   import { terminalShortcut } from './keyboard'
+  import { modifiers, stripKeys, comboKeys, navigationKeys, functionKeys, symbolKeys, withModifier, type Modifier } from './virtualKeys'
   import { terminalScrolling } from './scrolling'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalAppearance from './TerminalAppearance.svelte'
@@ -57,7 +58,7 @@
   let landscape=$state(false)
   let touch=$state(false)
   function toggleSessions(){if(maximised){maximised=false;if(!sessionsVisible)onsessions?.()}else onsessions?.()}
-  function openScrollback(){historyOpen=false;scrollbackOpen=true}
+  function openScrollback(){historyOpen=false;keysOpen=false;scrollbackOpen=true}
   async function closeScrollback(){scrollbackOpen=false;await tick();terminal?.focus()}
   function openSelect(){
     if(scrollbackOpen){feedback='Return to live output before copying.';return}
@@ -68,7 +69,8 @@
   }
   async function closeSelect(){selectOpen=false;selectModel='';await tick();restoreFocus()}
   let applyTheme:(()=>void)|undefined
-  let modifier = $state<'Ctrl'|'Alt'|null>(null)
+  let modifier = $state<Modifier|null>(null)
+  let keysOpen = $state(false)
   export function disconnect(){connection?.detach()}
   function choosePalette(id:string){palette=id;try{localStorage.setItem('reet-terminal-palette',id)}catch{/* optional preference */}applyTheme?.()}
   function chooseCursor(shape:CursorShape){cursor=shape;if(terminal)terminal.options.cursorStyle=shape;try{localStorage.setItem('reet-terminal-cursor',shape)}catch{/* optional preference */}}
@@ -317,7 +319,13 @@
       if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'
     } finally {restoreFocus()}
   }
-  function key(value:string) {modifier=null;if(live&&!scrollbackOpen){connection?.text(value);terminal?.focus()} }
+  // A key from the on-screen keyboard: the compact row takes the selected modifier
+  // with it; a combination or symbol is already the exact bytes the shell expects.
+  function key(value:string) { if(!live||scrollbackOpen)return; modifier=null; connection?.text(value); terminal?.focus() }
+  function modifiedKey(value:string) { if(!live||scrollbackOpen)return; const text=withModifier(value,modifier); modifier=null; connection?.text(text); terminal?.focus() }
+  function toggleModifier(next:Modifier) { modifier=modifier===next?null:next; terminal?.focus() }
+  function toggleKeys() { keysOpen=!keysOpen; terminal?.focus() }
+  function keyPadKeys(event:KeyboardEvent) { if(event.key==='Escape'){event.preventDefault();event.stopPropagation();keysOpen=false;terminal?.focus()} }
   $effect(()=>{const query=matchMedia(LANDSCAPE_PHONE),update=()=>landscape=query.matches;update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update)})
   $effect(()=>{if(searching)searchInput?.focus()})
   $effect(()=>{if(contextMenu)menu?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()})
@@ -435,9 +443,9 @@
     const sizes = new ResizeObserver(resize); sizes.observe(element);fit.fit()
     fitTerminal=resize
     // Refresh after parsing and fitting so accessibility rows match full redraws.
-    connection = new TerminalConnection({nativeView,session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size=grid();clip();sender.known(size);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;modifier=null;if(next==='access_denied'){historyOpen=false;scrollbackOpen=false;selectOpen=false;selectModel='';pendingCopy=null};connectionState=next;if(next==='live'){if(attached)redraw();attached=true}message=detail;term.options.disableStdin=next!=='live';if(visible&&next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())term.focus()}})
+    connection = new TerminalConnection({nativeView,session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size=grid();clip();sender.known(size);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;modifier=null;if(next!=='live')keysOpen=false;if(next==='access_denied'){historyOpen=false;scrollbackOpen=false;selectOpen=false;selectModel='';pendingCopy=null};connectionState=next;if(next==='live'){if(attached)redraw();attached=true}message=detail;term.options.disableStdin=next!=='live';if(visible&&next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())term.focus()}})
     term.options.disableStdin=true
-    const input=term.onData((text)=>{if(scrollbackOpen)return;let value=text;if(modifier==='Ctrl'&&/^[a-zA-Z@\[\]\\^_]$/.test(text))value=String.fromCharCode(text.toUpperCase().charCodeAt(0)&31);else if(modifier==='Alt')value='\x1b'+text;modifier=null;connection?.text(value)})
+    const input=term.onData((text)=>{if(scrollbackOpen)return;const value=withModifier(text,modifier);modifier=null;connection?.text(value)})
     const binary=term.onBinary((data)=>!scrollbackOpen&&connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))
     const online=()=>connection?.recover(),pageVisible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',pageVisible)
@@ -474,8 +482,29 @@
     </div>
   {/snippet}
   {#snippet keys()}
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex (a row that scrolls sideways must be reachable by keyboard, even while its keys are disabled) -->
-    <div class="tools mobile-keys" data-floating-clearance={landscape ? undefined : ''} role="group" aria-label="Terminal extra keys" tabindex="0" use:edges>{#each [['Esc','\x1b'],['Tab','\t'],['↑','\x1b[A'],['↓','\x1b[B'],['←','\x1b[D'],['→','\x1b[C'],['Ctrl+C','\x03'],['Enter','\r']] as [label,value]}<button disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} onclick={()=>key(value)} aria-label={`Send ${label}`}>{label}</button>{/each}{#each ['Ctrl','Alt'] as mod}<button disabled={!live||scrollbackOpen} aria-pressed={modifier===mod} onpointerdown={e=>e.preventDefault()} onclick={()=>{modifier=modifier===mod?null:mod as 'Ctrl'|'Alt';terminal?.focus()}}>{mod}</button>{/each}</div>
+    <div class="key-tray" data-floating-clearance={landscape ? undefined : ''}>
+      {#if keysOpen}
+        <!-- The expanded pad sits over the terminal so the row itself never costs the shell another line. -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape closes the pad; its keys keep terminal focus) -->
+        <div class="key-pad" id="terminal-extra-keys" role="group" aria-label="More terminal keys" onkeydown={keyPadKeys}>
+          <div class="key-pad-head"><strong>Extra keys</strong><button type="button" onclick={()=>{keysOpen=false;terminal?.focus()}} aria-label="Close extra keys">Close</button></div>
+          {#each [{title:'Combinations',keys:comboKeys},{title:'Navigation',keys:navigationKeys},{title:'Function keys',keys:functionKeys},{title:'Symbols',keys:symbolKeys}] as group}
+            <section class="key-group" aria-label={group.title}>
+              <h3>{group.title}</h3>
+              <div class="key-grid">{#each group.keys as item}<button type="button" disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} onclick={()=>key(item.value)} aria-label={item.aria??`Send ${item.label}`} title={item.title}>{#if item.icon}<TerminalIcon name={item.icon}/>{/if}{#if item.caption}<span class="key-caption">{item.label}</span>{:else if !item.icon}{item.label}{/if}</button>{/each}</div>
+            </section>
+          {/each}
+        </div>
+      {/if}
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex (a row that scrolls sideways must be reachable by keyboard, even while its keys are disabled) -->
+      <div class="tools mobile-keys" role="group" aria-label="Terminal extra keys" tabindex="0" use:edges>
+        {#each modifiers as mod}<button class="keycap key-modifier" type="button" disabled={!live||scrollbackOpen} aria-pressed={modifier===mod.name} onpointerdown={e=>e.preventDefault()} onclick={()=>toggleModifier(mod.name)} aria-label={`${mod.name} for the next key`} title={mod.title}><TerminalIcon name={mod.icon}/><span class="key-caption">{mod.name}</span></button>{/each}
+        <span class="key-divider" aria-hidden="true"></span>
+        {#each stripKeys as item}<button class="keycap" type="button" disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} onclick={()=>modifiedKey(item.value)} aria-label={item.aria??`Send ${item.label}`} title={item.title}>{#if item.icon}<TerminalIcon name={item.icon}/>{/if}{#if item.caption}<span class="key-caption">{item.label}</span>{/if}</button>{/each}
+        <button class="keycap key-interrupt" type="button" disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} onclick={()=>key('\x03')} aria-label="Send Ctrl+C" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="key-caption">Ctrl+C</span></button>
+        <button class="keycap key-more" type="button" disabled={!live||scrollbackOpen} aria-pressed={keysOpen} aria-expanded={keysOpen} aria-controls="terminal-extra-keys" onpointerdown={e=>e.preventDefault()} onclick={toggleKeys} aria-label={keysOpen?'Hide extra keys':'More terminal keys'} title="Home, End, F1–F12, symbols and common combinations"><TerminalIcon name="keyboard"/></button>
+      </div>
+    </div>
   {/snippet}
   <!-- A phone held sideways puts the tools and the extra keys side by side, so the screen keeps the rows. -->
   {#if landscape}<div class="tool-rows">{@render toolbar()}{@render keys()}</div>{:else}{@render toolbar()}{/if}
@@ -500,7 +529,7 @@
 
 <style>
   .pane {display:flex;flex-direction:column;position:relative;min-height:0;min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:12px;background:var(--card)}
-  .pane>header,.pane>.tools,.pane>footer,.pane>.connection-message {flex-shrink:0}
+  .pane>header,.pane>.tools,.pane>.key-tray,.pane>footer,.pane>.connection-message {flex-shrink:0}
   header {display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;background:var(--bg);border-bottom:1px solid var(--line)}
   .identity,.controls {display:flex;align-items:center;gap:8px;min-width:0}
   .identity {flex:1;flex-wrap:wrap;column-gap:6px;row-gap:1px}
@@ -522,6 +551,26 @@
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
   .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent-text)}
   .tools.mobile-keys {display:none;border-top:1px solid var(--line);border-bottom:0}
+  /* The virtual keyboard: a compact key row with the expanded pad above it. The
+     pad is absolute so opening it never takes a row from the shell. */
+  .key-tray {position:relative;min-width:0;flex-shrink:0}
+  .key-tray>.mobile-keys {min-width:0}
+  .keycap {display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 6px!important;font:600 .8125rem var(--mono);line-height:1}
+  .key-caption {font-size:.5625rem;line-height:1;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .key-divider {flex:none;width:1px;height:18px;background:var(--line);margin:0 2px}
+  .key-modifier[aria-pressed=true] {background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .key-modifier[aria-pressed=true] .key-caption {color:inherit}
+  .key-interrupt {color:var(--bad)}
+  .key-pad {position:absolute;left:8px;right:8px;bottom:calc(100% + 6px);z-index:30;display:grid;gap:10px;max-height:min(60vh,360px);overflow:auto;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);box-shadow:var(--shadow)}
+  .key-pad-head {display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .key-pad-head strong {font-size:.875rem}
+  .key-pad-head button {min-height:32px}
+  .key-group {display:grid;gap:5px}
+  .key-group h3 {margin:0;font-size:.6875rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .key-grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:5px}
+  .key-grid button {min-height:40px;padding:5px 6px;font:600 .75rem var(--mono);border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);display:inline-flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap}
+  .key-grid button:hover:not(:disabled),.key-grid button:focus-visible {border-color:var(--accent);background:var(--tint)}
+  .key-grid button .key-caption {font-size:inherit;color:inherit}
   .upload-input {display:none}
   .screen-frame {position:relative;flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 12px 8px 16px}
   .screen {height:100%;min-height:0;min-width:0;overflow:hidden;padding:0}
@@ -566,6 +615,8 @@
     .terminal-toolbar .tool-label{display:none}.terminal-toolbar{padding:2px 4px}.terminal-toolbar button{padding:6px;min-width:30px}.terminal-toolbar .tool-divider{margin:0 2px}.terminal-toolbar .tool-space{display:none}
     .tools.mobile-keys {display:flex}
     .mobile-keys button {min-width:34px;min-height:32px}
+    .key-pad {left:4px;right:4px;padding:10px}
+    .key-grid {grid-template-columns:repeat(auto-fill,minmax(48px,1fr))}
     /* Rows that scroll sideways fade at the end that hides more controls. */
     .tools:global(.more-end) {-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent)}
     .tools:global(.more-start) {-webkit-mask-image:linear-gradient(to left,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to left,#000 calc(100% - 36px),transparent)}
@@ -581,14 +632,15 @@
     .pane.maximised {inset:0;top:var(--terminal-top,0px);height:var(--terminal-viewport,100dvh);border-radius:0}
     .pane.maximised footer {padding-bottom:max(2px,env(safe-area-inset-bottom))}
   }
-  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary,.clipboard-menu button {min-width:40px;min-height:40px}}
+  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary,.clipboard-menu button {min-width:40px;min-height:40px}.key-pad-head button,.key-grid button{min-width:44px;min-height:44px}}
   /* Touch targets keep a 40 × 40 px hit area; on phones the rows lose their padding instead. */
   @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.terminal-toolbar button,.mobile-keys button {min-width:40px}.controls>button,.session-menu>summary,footer button {min-width:40px;min-height:40px}footer {padding-top:0;padding-bottom:0}}
   /* Sideways: tools and extra keys share one row, and the footer gives its line to the screen (the state stays in the header). */
   @media(max-height:500px) and (pointer:coarse) and (orientation:landscape) {
     .tool-rows {display:flex;flex-shrink:0;min-width:0;border-bottom:1px solid var(--line)}
     .tool-rows>.tools {flex:1 1 50%;min-width:0;border-bottom:0}
-    .tool-rows>.mobile-keys {border-top:0;border-left:1px solid var(--line)}
+    .tool-rows>.key-tray {flex:1 1 50%;min-width:0}
+    .tool-rows .mobile-keys {border-top:0;border-left:1px solid var(--line)}
     .pane>footer {display:none}
     /* With the keyboard open there are too few rows for the header; it returns when the keyboard closes. */
     .pane.keyboard>header {display:none}

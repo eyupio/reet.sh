@@ -270,6 +270,7 @@ func TestGafferWorkerToolRequiresOptInAndKeepsReceiptAfterReplyFailure(t *testin
 	}
 }
 func TestGafferRejectsInvalidOrIncompleteWorkerToolsBeforeQueue(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"unknown", "extra", "multiple", "cut", "incomplete"} {
 		t.Run(kind, func(t *testing.T) {
 			s, st, p := settingsFixture(t)
@@ -314,6 +315,7 @@ func TestWorkerGrantRevocationCancelsBeforeAdmission(t *testing.T) {
 }
 
 func TestQueuedGafferInstructionCannotOutliveItsProviderModelOrAccountPermission(t *testing.T) {
+	t.Parallel()
 	for _, change := range []string{"provider_revision", "conversation_model", "provider_policy", "account_role", "session_archive"} {
 		t.Run(change, func(t *testing.T) {
 			s, st, p := settingsFixture(t)

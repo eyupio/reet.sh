@@ -100,7 +100,8 @@ async function dockedPanel(){
  // drag the separator resizes and the terminal refits once
  await quiet();const before=resizes.length,colsBefore=resizes.at(-1)?.cols??ticketSizes.at(-1).cols
  const start=await panel.boundingBox(),grip=await separator.boundingBox()
- expect(grip.width).toBeGreaterThanOrEqual(24)
+ // The 8 px track plus 8 px into the terminal: it stops at the panel's edge so the panel's scrollbar keeps the pointer.
+ expect(grip.width).toBeGreaterThanOrEqual(16)
  await page.mouse.move(grip.x+grip.width/2,grip.y+200);await page.mouse.down()
  // The pointer leaves the handle (over the terminal) and the drag keeps going: the handle holds the pointer. Three pauses
  // longer than the 150 ms debounce still send the host one size, once the drag ends.

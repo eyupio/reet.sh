@@ -57,6 +57,12 @@ test('a skill with no source is used by name, with reet as its source', () => {
   assert.equal(useSkillPrompt(skill({ name: '', slug: 'from-the-slug' })), 'Use the from-the-slug skill.')
 })
 
+test('a skill with a description carries it, on one line, so the agent gets its context', () => {
+  assert.equal(useSkillPrompt(skill({ description: 'Manage the\n  full PR lifecycle' })), 'Use the unslop skill: Manage the full PR lifecycle.')
+  assert.equal(useSkillPrompt(skill({ description: 'Already ends.' })), 'Use the unslop skill: Already ends.')
+  assert.ok(useSkillPrompt(skill({ description: 'word '.repeat(100) })).endsWith('…'))
+})
+
 test('a skill with an install source keeps the fetch-and-run prompt', () => {
   assert.match(useSkillPrompt(skill({ source: 'demo/toolkit', sourceType: 'github' })), /^Run `npx skills use "https:\/\/github\.com\/demo\/toolkit" --skill "unslop"`/)
   assert.match(useSkillPrompt(skill({ source: '', sourceType: 'hosted', url: 'https://reet.test/demo' })), /^Run `npx skills use "https:\/\/reet\.test\/demo"/)

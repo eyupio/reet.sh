@@ -251,29 +251,6 @@
 
   // The rail and what its cards do (ProjectRailHost); the launch bar's project slot opens its Add project too.
   let host = $state<ProjectRailHost>()
-  // On a desktop the project list is moved into the workspace navigation panel, so Home keeps one left column. Where that
-  // panel is not on screen (a tablet, a phone, or folded navigation) the rail stays in Home's own column.
-  const RAIL_TARGET = '[data-workspace-rail]'
-  let railInSidebar = $state(false)
-  function railPortal(node: HTMLElement) {
-    const parent = node.parentNode as HTMLElement | null
-    const anchor = node.nextSibling
-    let target: Element | null | undefined
-    let queued = false
-    const place = () => {
-      queued = false
-      const next = document.querySelector(RAIL_TARGET)
-      if (next === target) return
-      target = next
-      if (next) { next.appendChild(node); railInSidebar = true }
-      else if (parent && node.parentNode !== parent) { parent.insertBefore(node, anchor); railInSidebar = false }
-    }
-    const schedule = () => { if (!queued) { queued = true; requestAnimationFrame(place) } }
-    place()
-    const observer = new MutationObserver(schedule)
-    observer.observe(document.body, { childList: true, subtree: true })
-    return { destroy() { observer.disconnect(); node.remove() } }
-  }
   function openAdd(opener: HTMLElement) { void host?.openAdd(opener) }
   // Choosing a card marks it as the project the board's Start a session dialog starts in too.
   let launchProject = $state<string | null>(null)
@@ -427,13 +404,12 @@
   })
 </script>
 
-<div class="home" class:writer class:rail-collapsed={railCollapsed} class:rail-embedded={railInSidebar && !narrow} style:--rail-width={`${railWidth}px`}>
+<div class="home" class:writer class:rail-collapsed={railCollapsed} style:--rail-width={`${railWidth}px`}>
 
-  <!-- On a desktop the project list is moved into the workspace navigation panel (use:railPortal); on a tablet or phone it
-       lives on the Sessions screen, and Home keeps only what adds a project from the launch sentence. -->
+  <!-- On a desktop the project list is Home's left column. On a tablet or phone it lives on the Sessions screen, and Home
+       keeps only what adds a project from the launch sentence. -->
   {#if writer}
-    <div class="rail-portal" use:railPortal>
-    <ProjectRailHost bind:this={host} rail={!narrow} embedded={railInSidebar && !narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
+    <ProjectRailHost bind:this={host} rail={!narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
       chosen={launchProject ?? chosen} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected} onchoose={(project) => chooseProject(project)}
       {scope} onscope={(next) => (scope = next)} collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId}
       width={railWidth} onwidth={setRailWidth} onwidthcommit={commitRailWidth}
@@ -444,7 +420,6 @@
         {#if selected.length >= 2}<button type="button" class="start-chosen" onclick={() => (launchOpen = true)}>Start in these projects</button>{/if}
       {/snippet}
     </ProjectRailHost>
-    </div>
   {/if}
   <div class="column">
     <header class="workspace-heading">
@@ -527,10 +502,10 @@
   .home-projects { display: none; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink-soft); font: 500 14px var(--sans); cursor: pointer; }
   @media (min-width: 1100px) { .home-projects { display: inline-flex; align-items: center; } }
   .home-start { min-height: 44px; padding: 8px 14px; border-radius: 8px; font: 500 14px var(--sans); white-space: nowrap; }
-  .attention-window { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 13px; color: var(--muted); }
+  .attention-window { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: 14px; color: var(--muted); }
   .attention-window button { min-height: 44px; padding: 4px 0; background: transparent; border: 0; color: var(--ink); font: inherit; text-decoration: underline; cursor: pointer; }
   .attention-window button:focus-visible { outline: 2px solid var(--accent); }
-  .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
   .workspace-summary:has(.followups) { align-items: center; gap: 0 18px; }
   /* Gaffer's line on Home is the way onto the factory floor, so it reads as a control and carries his face. */
   .followups { min-height: 44px; padding: 0 14px 0 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
@@ -541,20 +516,18 @@
      column's minimum height; if the header changes, the cost is a small gap or a little extra scroll, never an overlap. */
   .home { line-height: 1.3; --top: 61px; display: grid; grid-template-columns: minmax(0, 1fr); }
   .home :global(p) { line-height: 1.55; }
-  /* On a wide desktop the project list lives in the workspace panel (rail-embedded), so Home is one column. Where the panel
-     is not on screen the rail returns to Home's own column: 301 px by default, as wide as the person drags it, or its
-     56 px strip while folded. */
-  .home.writer:not(.rail-embedded) { grid-template-columns: var(--rail-width, 301px) minmax(0, 1fr); }
-  .home.writer:not(.rail-embedded).rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
+  /* On a wide desktop the project rail is Home's left column: 301 px by default, as wide as the person drags it, or its
+     56 px strip while folded. The rail and the board are independent: either folds without narrowing the other. */
+  .home.writer { grid-template-columns: var(--rail-width, 301px) minmax(0, 1fr); }
+  .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
   /* Name the two columns explicitly: the rail and the board are the page's two grid items, and an absolute heading
      must never leave either of them waiting for the next row. */
   .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked)) { border-color: transparent; border-radius: 8px; background: transparent; }
   .home.writer :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked):hover) { background: var(--line-soft); }
   .home.writer :global(aside.rail .strip) { height: calc(100dvh - var(--top)); min-height: 0; overflow-y: auto; scrollbar-width: thin; }
   .home.writer :global(aside.rail .strip > button) { flex-shrink: 0; }
-  .home.writer > .rail-portal { grid-column: 1; grid-row: 1; min-width: 0; }
+  .home.writer > :global(aside.rail) { grid-column: 1; grid-row: 1; min-width: 0; }
   .home.writer > .column { grid-column: 2; grid-row: 1; }
-  .home.writer.rail-embedded > .column { grid-column: 1; grid-row: 1; }
   .home:not(.writer) > .column { grid-column: 1; grid-row: 1; }
   .column { min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
   .home:not(.writer) .column { padding-bottom: 36px; }
@@ -580,7 +553,7 @@
   .live:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 
   @media (max-width: 1239px) {
-    .home.writer:not(.rail-embedded) { grid-template-columns: 56px minmax(0, 1fr); }
+    .home.writer, .home.writer.rail-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
   }
   @media (max-width: 1099px) {
     .home.writer > .column { grid-column: 1; }
@@ -588,7 +561,7 @@
   /* Tablet: machines, Needs you, then In flight, one column; the project rail is on the Sessions screen. */
   @media (max-width: 1099px) {
     .home { font-size: 15px; --top: 65px; }
-    .home.writer, .home.writer:not(.rail-embedded), .home.writer.rail-collapsed:not(.rail-embedded), .home.writer.rail-embedded { grid-template-columns: minmax(0, 1fr); }
+    .home.writer, .home.writer.rail-collapsed { grid-template-columns: minmax(0, 1fr); }
   }
   /* Phone: one column with 16 px gutters; the launch bar sits above the tab bar. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {

@@ -678,6 +678,7 @@ func TestSimpleSyncConnectorProcess(t *testing.T) {
 // A passing baseline for the harness, not an assertion that the current
 // whole-library policy satisfies the new selected-only contract.
 func TestSimpleSyncHarnessOfflineRecovery(t *testing.T) {
+	t.Parallel()
 	h := newLegacySyncContractHarness(t)
 	h.hosted("fixture", "first", false, true)
 	a, b := h.machine("fixture-a"), h.machine("fixture-b")
@@ -707,6 +708,7 @@ func TestSimpleSyncHarnessOfflineRecovery(t *testing.T) {
 }
 
 func TestSimpleSyncHarnessLostAcknowledgement(t *testing.T) {
+	t.Parallel()
 	h := newLegacySyncContractHarness(t)
 	h.hosted("receipt", "first", false, true)
 	m := h.machine("receipt-machine")
@@ -741,6 +743,7 @@ func TestSimpleSyncHarnessLostAcknowledgement(t *testing.T) {
 }
 
 func TestSimpleSyncHarnessLocalContentImport(t *testing.T) {
+	t.Parallel()
 	h := newLegacySyncContractHarness(t)
 	a, b := h.machine("import-source"), h.machine("import-destination")
 	name := "machine-only"

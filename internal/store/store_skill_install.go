@@ -82,6 +82,24 @@ func desiredStatus(existing []SyncSkill, add SyncSkill) (present, conflict bool)
 	return present, conflict
 }
 
+// ReplaceDesired returns existing with every entry of add's slug swapped for
+// add, in the first such entry's place. The result is never nil.
+func ReplaceDesired(existing []SyncSkill, add SyncSkill) []SyncSkill {
+	out := make([]SyncSkill, 0, len(existing)+1)
+	done := false
+	for _, sk := range existing {
+		if sk.Slug != add.Slug {
+			out = append(out, sk)
+		} else if !done {
+			out, done = append(out, add), true
+		}
+	}
+	if !done {
+		out = append(out, add)
+	}
+	return out
+}
+
 // RemoveDesired returns existing without the slug, keeping order. The result
 // is never nil.
 func RemoveDesired(existing []SyncSkill, slug string) []SyncSkill {
@@ -189,9 +207,20 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if err = json.Unmarshal([]byte(data), &existing); err != nil {
 			return err
 		}
+		// The skill is not on the machine (checked above), so a saved entry
+		// with its slug but another identity is a stale leftover. The person
+		// asked for this skill: it takes that entry's place. The plan is
+		// still previewed and approved, and Cancel puts the old entry back.
 		present, conflict := desiredStatus(existing, skill)
+		replaced := ""
 		if conflict {
-			return installRefused("slug-conflict", "A different skill named "+in.Slug+" is already in "+host+"'s saved list. Remove it on the Sync page first.")
+			for _, sk := range existing {
+				if sk.Slug == in.Slug {
+					old, _ := json.Marshal(sk)
+					replaced = string(old)
+					break
+				}
+			}
 		}
 		rows, err := tx.Query(`SELECT j.id,COALESCE(i.slug,'') FROM sync_jobs j LEFT JOIN skill_installs i ON i.job_id=j.id WHERE j.user_id=? AND j.target_id=? AND j.status IN ('queued','running','awaiting-approval') ORDER BY j.created_at,j.id`, uid, envID)
 		if err != nil {
@@ -232,7 +261,11 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		}
 		revision, at := oldRevision, now()
 		if !present {
-			merged, _ := json.Marshal(MergeDesired(existing, skill))
+			next := MergeDesired(existing, skill)
+			if conflict {
+				next = ReplaceDesired(existing, skill)
+			}
+			merged, _ := json.Marshal(next)
 			revision = syncID()
 			if created {
 				baseline, _ := json.Marshal(actual)
@@ -253,7 +286,7 @@ func (s *Store) InstallHostedSkillFor(uid int64, in InstallRequest) (InstallResu
 		if _, err = tx.Exec(`INSERT INTO sync_jobs(id,user_id,agent_id,target_id,kind,status,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, jobID, uid, in.AgentID, envID, "preview", "queued", revision, at, at); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(`INSERT INTO skill_installs(job_id,user_id,target_id,slug,created_target,added,revision,prev_revision) VALUES(?,?,?,?,?,?,?,?)`, jobID, uid, envID, in.Slug, created, !present, revision, oldRevision); err != nil {
+		if _, err = tx.Exec(`INSERT INTO skill_installs(job_id,user_id,target_id,slug,created_target,added,revision,prev_revision,replaced) VALUES(?,?,?,?,?,?,?,?,?)`, jobID, uid, envID, in.Slug, created, !present, revision, oldRevision, replaced); err != nil {
 			return err
 		}
 		res = InstallResult{JobID: jobID, Directory: dir, Host: host}
@@ -308,11 +341,11 @@ func (s *Store) CancelInstallFor(uid int64, jobID string) (reverted bool, err er
 // the earlier jobs still count for Keep synced.
 func revertInstallTx(tx *sql.Tx, jobID string) (bool, error) {
 	var uid int64
-	var target, slug, revision, prev string
+	var target, slug, revision, prev, replaced string
 	var created, added bool
 	// Only an install whose job has ended without applying is reverted, so a
 	// later call can never undo an applied install, wherever its set was copied.
-	err := tx.QueryRow(`SELECT i.user_id,i.target_id,i.slug,i.created_target,i.added,i.revision,i.prev_revision FROM skill_installs i JOIN sync_jobs j ON j.id=i.job_id AND j.target_id=i.target_id WHERE i.job_id=? AND j.status NOT IN ('queued','running','awaiting-approval') AND NOT (j.kind='apply' AND j.status='succeeded')`, jobID).Scan(&uid, &target, &slug, &created, &added, &revision, &prev)
+	err := tx.QueryRow(`SELECT i.user_id,i.target_id,i.slug,i.created_target,i.added,i.revision,i.prev_revision,i.replaced FROM skill_installs i JOIN sync_jobs j ON j.id=i.job_id AND j.target_id=i.target_id WHERE i.job_id=? AND j.status NOT IN ('queued','running','awaiting-approval') AND NOT (j.kind='apply' AND j.status='succeeded')`, jobID).Scan(&uid, &target, &slug, &created, &added, &revision, &prev, &replaced)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -348,7 +381,16 @@ func revertInstallTx(tx *sql.Tx, jobID string) (bool, error) {
 		// An install recorded before prev_revision existed.
 		prev = syncID()
 	}
-	out, _ := json.Marshal(RemoveDesired(existing, slug))
+	restored := RemoveDesired(existing, slug)
+	if replaced != "" {
+		// The install took a stale entry's place: put that entry back.
+		var old SyncSkill
+		if err := json.Unmarshal([]byte(replaced), &old); err != nil {
+			return false, err
+		}
+		restored = ReplaceDesired(existing, old)
+	}
+	out, _ := json.Marshal(restored)
 	if _, err := tx.Exec(`UPDATE sync_targets SET desired=?,revision=?,updated_at=? WHERE user_id=? AND target_id=?`, string(out), prev, now(), uid, target); err != nil {
 		return false, err
 	}
@@ -405,10 +447,17 @@ func reapStaleSyncJobsTx(tx *sql.Tx, where string, args ...any) error {
 }
 
 func (s *Store) migrateSkillInstalls() error {
-	ok, err := hasColumn(s.db, "skill_installs", "prev_revision")
-	if err != nil || ok {
-		return err
+	for _, col := range []string{"prev_revision", "replaced"} {
+		ok, err := hasColumn(s.db, "skill_installs", col)
+		if err != nil {
+			return err
+		}
+		if ok {
+			continue
+		}
+		if _, err = s.db.Exec(`ALTER TABLE skill_installs ADD COLUMN ` + col + ` TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
 	}
-	_, err = s.db.Exec(`ALTER TABLE skill_installs ADD COLUMN prev_revision TEXT NOT NULL DEFAULT ''`)
-	return err
+	return nil
 }

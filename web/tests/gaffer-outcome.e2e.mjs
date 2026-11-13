@@ -22,13 +22,16 @@ const proposed={summary:'Two independent halves: the endpoint, then the button.'
   {title:'Export API',prompt:'Add the CSV export endpoint with tests. Raise a pull request. Do not merge.'},
   {title:'Export button',prompt:'Add the export button to the billing page. Raise a pull request. Do not merge.'},
 ]}
+const revised={summary:'One session, end to end: the endpoint, its tests and the button together.',model:'gaffer-model',usageReported:true,inputTokens:25,outputTokens:35,sessions:[
+  {title:'Export, end to end',prompt:'Build the CSV export API and its button with tests. Raise a pull request. Do not merge.',stages:['plan','code','review','test','pr','babysit'].map(kind=>({kind}))},
+]}
 const cid=n=>String(n).repeat(32)
 const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0GQAAAAASUVORK5CYII=','base64')
 
 const oid='e'.repeat(32)
 // `settles` is how the controller's record moves on each read; false keeps it starting until it is stopped.
 function fixture({planFails=false,settles=true}={}){
-  const box={writes:[],plans:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false}
+  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false}
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const item=(n,title,prompt,stages=[])=>({key:'abcde'[n],title,prompt,requestId:String(n).repeat(32),state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:stages.map(stage=>({...stage,state:'pending',requestId:'r'}))})
   // What the controller does between reads: start one session, follow it, refuse the second, start the third unfollowed.
@@ -61,8 +64,9 @@ function fixture({planFails=false,settles=true}={}){
     '/api/v2/gaffer/conversations':request=>new URL(request.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
     '/api/v2/terminal/sessions':request=>{expect(request.method()).toBe('GET');return {sessions:(box.record?.sessions??[]).filter(s=>s.sessionId).map(s=>({id:s.sessionId,agentId:'a1',title:s.title,state:'running',structured:true,tool:'claude',dir:'/work/billing',createdAt:now,updatedAt:now,exitCode:null}))}},
     [`/api/v2/gaffer/providers/${pid}/plan`]:request=>{
-      expect(request.method()).toBe('POST');box.plans.push(request.postDataJSON())
-      return box.planFails?{status:502,json:{error:'This model did not return a plan. Choose a model that supports tools, or write the plan yourself.'}}:proposed
+      expect(request.method()).toBe('POST');const input=request.postDataJSON();box.plans.push(input)
+      if(input.reply)box.replies.push(input)
+      return box.planFails?{status:502,json:{error:'This model did not return a plan. Choose a model that supports tools, or write the plan yourself.'}}:input.reply?revised:proposed
     },
     '/api/v2/gaffer/outcomes':request=>{
       if(request.method()!=='POST')return {outcomes:box.record?[box.record]:[]}
@@ -210,7 +214,7 @@ try {
       await expect(pipes).toHaveCount(3)
       await expect(pipes.nth(0)).toContainText('Running')
       // A running pipeline is one line until it is opened.
-      await w.page.getByRole('button',{name:'Expand all pipelines',exact:true}).click()
+      await w.page.getByRole('button',{name:'Expand all',exact:true}).click()
       const stages=pipes.nth(0).getByRole('list',{name:'Stages of Export API',exact:true}).getByRole('listitem')
       await expect(stages).toHaveText([/Code/,/Review/,/Test/,/PR/,/Babysit/,/Merge/])
       await expect(stages.first()).toHaveAttribute('aria-current','step')
@@ -349,5 +353,45 @@ try {
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, and the optional image attach/remove/upload, passed on desktop and phone.')
+  // A proposal can be answered back, and turned down on purpose, without starting anything.
+  {
+    const f=fixture(),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:f.routes})
+    watch(w,f.box)
+    try {
+      const {outcome}=await openOutcome(w)
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+      await expect(outcome.getByRole('list',{name:'Planned sessions',exact:true}).getByRole('listitem')).toHaveCount(2)
+      const replyText='Not that: keep the export in one session and put its tests with it.'
+      const replyBox=outcome.getByRole('textbox',{name:'Reply to Gaffer',exact:true})
+      await expect(replyBox).toBeVisible()
+      await expect(outcome.getByRole('button',{name:'Send reply',exact:true})).toBeDisabled()
+      await replyBox.fill(replyText)
+      await outcome.getByRole('button',{name:'Send reply',exact:true}).click()
+      // The reply is in the conversation, and Gaffer's revised proposal replaces the rows.
+      const talk=outcome.getByRole('region',{name:'Conversation with Gaffer',exact:true})
+      await expect(talk).toContainText(replyText)
+      await expect(talk).toContainText('One session, end to end: the endpoint, its tests and the button together.')
+      await expect(outcome.getByRole('textbox',{name:'Session 1 title',exact:true})).toHaveValue('Export, end to end')
+      await expect(outcome.getByRole('list',{name:'Planned sessions',exact:true}).getByRole('listitem')).toHaveCount(1)
+      const stages=['code','review','test','pr','babysit','merge']
+      expect(f.box.replies).toEqual([{revision:4,objective,project:'billing',sessions:3,reply:replyText,previous:{summary:proposed.summary,sessions:[{title:'Export API',stages},{title:'Export button',stages}]}}])
+      // Declining is explicit, and nothing is started or sent.
+      await outcome.getByRole('button',{name:'Decline proposal',exact:true}).click()
+      const confirm=w.page.getByRole('dialog',{name:'Decline this proposal?',exact:true})
+      await expect(confirm).toContainText('Nothing has started.')
+      await confirm.getByRole('button',{name:'Decline proposal',exact:true}).click()
+      await expect(outcome.getByText('Proposal declined. Nothing was started.',{exact:false})).toBeVisible()
+      await expect(outcome.getByRole('list',{name:'Planned sessions',exact:true})).toHaveCount(0)
+      await expect(outcome.getByRole('button',{name:/^Approve and start/})).toHaveCount(0)
+      await expect(outcome.getByRole('textbox',{name:'Reply to Gaffer',exact:true})).toBeVisible()
+      expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,`POST /api/v2/gaffer/providers/${pid}/plan`])
+      expect(f.box.approved).toEqual([])
+      await outcome.getByRole('button',{name:'Back to the outcome',exact:true}).click()
+      await expect(outcome.getByRole('textbox',{name:'Outcome',exact:true})).toHaveValue(objective)
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, and replying to or declining a proposal, passed on desktop and phone.')
 } finally { await browser.close() }

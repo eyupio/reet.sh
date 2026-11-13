@@ -31,7 +31,8 @@ func TestAnthropicSendsTheMessagesRequestWithItsHeaders(t *testing.T) {
 	if rec.Path != "/v1/messages" || rec.Header.Get("x-api-key") != "sk-ant" || rec.Header.Get("anthropic-version") != "2023-06-01" {
 		t.Errorf("request %s %v", rec.Path, rec.Header)
 	}
-	if rec.Body["system"] != "Be brief." || rec.Body["stream"] != true || rec.Body["model"] != "m" {
+	system, _ := rec.Body["system"].([]any)
+	if len(system) != 1 || system[0].(map[string]any)["text"] != "Be brief." || rec.Body["stream"] != true || rec.Body["model"] != "m" {
 		t.Errorf("body %v", rec.Body)
 	}
 	tools, _ := rec.Body["tools"].([]any)
@@ -155,5 +156,39 @@ func TestAnthropicSaysWhenTheProviderCutTheAnswer(t *testing.T) {
 	}
 	if done == nil || !done.Cut {
 		t.Errorf("the end of a cut answer does not say it was cut: %+v", done)
+	}
+}
+
+// The prefix every turn repeats is the system prompt, the tool list and the
+// conversation so far. Marking those three breakpoints by default is what
+// turns repeated input into cached input; the next request can then reuse
+// everything up to the newest turn.
+func TestAnthropicMarksCacheBreakpointsByDefault(t *testing.T) {
+	srv := newAnthropicServer(t)
+	p := NewAnthropic(Config{BaseURL: srv.URL, APIKey: "k", Model: "m"})
+	tool := elicore.Tool{Name: "echo", Description: "Echo", Parameters: json.RawMessage(`{"type":"object"}`)}
+	drain(t, p, elicore.Request{
+		System: "Be brief.",
+		Messages: []elicore.Message{
+			{Role: elicore.RoleUser, Content: "hi"},
+			{Role: elicore.RoleAssistant, Content: "hello"},
+			{Role: elicore.RoleUser, Content: "Say hello"},
+		},
+		Tools: []elicore.Tool{tool},
+	})
+	body := srv.Requests()[0].Body
+	system, _ := body["system"].([]any)
+	if len(system) != 1 || system[0].(map[string]any)["cache_control"] == nil {
+		t.Errorf("system is not a cached block: %v", body["system"])
+	}
+	tools, _ := body["tools"].([]any)
+	if len(tools) != 1 || tools[0].(map[string]any)["cache_control"] == nil {
+		t.Errorf("the last tool is not cached: %v", body["tools"])
+	}
+	msgs, _ := body["messages"].([]any)
+	last, _ := msgs[len(msgs)-1].(map[string]any)
+	blocks, _ := last["content"].([]any)
+	if len(blocks) != 1 || blocks[0].(map[string]any)["cache_control"] == nil || blocks[0].(map[string]any)["text"] != "Say hello" {
+		t.Errorf("the newest turn is not a cached block: %v", last["content"])
 	}
 }

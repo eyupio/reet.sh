@@ -426,9 +426,13 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		}
 		f.Machine = host
 	}
+	canonical := ""
+	if f.Canonical {
+		canonical = ` AND NOT ((s.source='' OR s.source_type='local') AND EXISTS (SELECT 1 FROM skills linked JOIN shelf ls ON ls.skill_id=linked.id AND ls.user_id=sh.user_id WHERE linked.slug=s.slug AND linked.source<>'' AND linked.source_type<>'local' AND linked.hidden=0))`
+	}
 	var c Counts
 	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.bookmarked),0),COALESCE(SUM(sh.used),0)
-		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
+		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`+canonical, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
 		return nil, c, err
 	}
 	// An unpaged list attaches the canonical item and status after its rows are
@@ -436,7 +440,7 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	// a join is evaluated for every matching row and costs more than one range
 	// read. A page selects its rows first and joins the metadata for those only.
 	paged := f.Limit > 0 || f.Offset > 0
-	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=? AND s.hidden=0`
+	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=? AND s.hidden=0` + canonical
 	args := []any{userID}
 	tabWhere := map[string]string{
 		"liked":      ` AND sh.liked=1`,

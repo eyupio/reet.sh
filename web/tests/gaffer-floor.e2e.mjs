@@ -98,7 +98,7 @@ try {
       await expect(floor.getByRole('button',{name:'Not looked after 2',exact:true})).toBeVisible()
       await expect(floor.getByRole('button',{name:'Following 1',exact:true})).toBeVisible()
       await expect(floor.getByRole('button',{name:'Needs you',exact:true})).toBeVisible()
-      await expect(picks.getByRole('link',{name:'Open Billing export',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=floor-ready&gaffer=1')
+      await expect(picks.getByRole('link',{name:'Open Billing export',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=floor-ready')
       const lookAfter=floor.getByRole('button',{name:/^Look after/}),reviewFirst=floor.getByRole('button',{name:'Review first',exact:true})
       await expect(lookAfter).toBeDisabled()
       expect(await floor.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)

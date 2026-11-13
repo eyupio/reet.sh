@@ -265,3 +265,25 @@ test('a pipeline that needs the person says why and offers what they can do, the
   const asked = o.needsYou({ state: 'needs_user', note: 'Gaffer needs your decision. Read its latest review.' }, 'Gaffer brought a question back to you.', false)
   assert.equal(asked.why, 'Gaffer brought a question back to you.'); assert.equal(asked.choices[0].primary, true); assert.equal(asked.choices[2].label, 'Move to next stage')
 })
+test('a reply to Gaffer is plain text within the byte limit', () => {
+  assert.match(o.replyBlocker(''), /Write a reply/)
+  assert.match(o.replyBlocker('   '), /Write a reply/)
+  assert.equal(o.replyBlocker('Keep the export in one session.'), '')
+  assert.equal(o.replyBlocker('Line one\n\tLine two'), '')
+  assert.match(o.replyBlocker('é'.repeat(1001)), /within 2,000 bytes/)
+  assert.match(o.replyBlocker('Do it\u0000now'), /cannot be sent/)
+})
+
+test('a reply carries only the summary, titles and stages of the proposal it answers', () => {
+  const previous = o.previousPlan('  Two independent halves.  ', [
+    { key: 'a', title: ' Export API ', prompt: 'Build it.', stages: ['code', 'pr'] },
+    { key: 'b', title: ' ', prompt: 'Build the button.', stages: [] },
+    { key: 'c', title: 'x'.repeat(81), prompt: 'Too long.', stages: ['test'] },
+  ])
+  assert.equal(previous.summary, 'Two independent halves.')
+  assert.deepEqual(previous.sessions, [
+    { title: 'Export API', stages: ['code', 'pr'] },
+    { title: 'Session 2', stages: [] },
+    { title: 'Session 3', stages: ['test'] },
+  ])
+})

@@ -75,6 +75,7 @@ func importFixture(t *testing.T) (url, copyFile, tokenFile, passwordFile, dir st
 }
 
 func TestTheImportCommandSendsACopyAndSaysWhenItTakesEffect(t *testing.T) {
+	t.Parallel()
 	url, copyFile, tokenFile, passwordFile, dir, _ := importFixture(t)
 	var out bytes.Buffer
 	if err := backupImport([]string{"--server", url, "--token-file", tokenFile, "--password-file", passwordFile, "--drop-tokens", "--allow-live-source", copyFile}, &out); err != nil {
@@ -94,6 +95,7 @@ func TestTheImportCommandSendsACopyAndSaysWhenItTakesEffect(t *testing.T) {
 }
 
 func TestTheImportCommandNeverTakesASecretAsAnArgument(t *testing.T) {
+	t.Parallel()
 	url, copyFile, _, _, _, _ := importFixture(t)
 	for _, flagName := range []string{"--token", "--password"} {
 		if err := backupImport([]string{"--server", url, flagName, "secret", copyFile}, &bytes.Buffer{}); err == nil {
@@ -109,6 +111,7 @@ func TestTheImportCommandNeverTakesASecretAsAnArgument(t *testing.T) {
 }
 
 func TestTheImportCommandSaysHowToReplaceWhenTheControllerHoldsData(t *testing.T) {
+	t.Parallel()
 	url, copyFile, tokenFile, passwordFile, dir, st := importFixture(t)
 	if _, err := st.CreateTag("already-here"); err != nil {
 		t.Fatal(err)

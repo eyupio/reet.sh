@@ -196,6 +196,7 @@ func TestAGoodIDTokenSignsAPersonInAndTheSecretTravelsInTheBasicHeader(t *testin
 }
 
 func TestEveryWayAnIDTokenCanBeWrongIsRefused(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		alg, kid string
 		mutate   func(map[string]any, time.Time)
@@ -374,6 +375,7 @@ func TestALogoutTokenEndsASubjectsOrASessionsAccessOnceOnly(t *testing.T) {
 }
 
 func TestEveryWayALogoutTokenCanBeWrongIsRefused(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		mutate func(map[string]any, time.Time)
 		want   string

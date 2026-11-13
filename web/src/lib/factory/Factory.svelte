@@ -3,7 +3,7 @@
   // which agent and model does the stage in hand, and the numbers that say how it is going. Reading the page starts
   // nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
-  import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
+  import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, stopFollowingGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
   import { chatToolName, listFolderProjects, terminalMachines } from '../terminal/api'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { DEFAULT_STAGES, agentActivity, ago, needsYou, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
@@ -36,7 +36,7 @@
   // Outcomes put away leave the floor and the tallies; they stay in the record and can be shown and restored.
   const floor = $derived(records.filter(record => !record.archivedAt))
   const shelved = $derived(records.filter(record => record.archivedAt))
-  let showArchived = $state(false), removeMode = $state<'archive' | 'delete'>('archive'), deleting = $state<Outcome | null>(null)
+  let showArchived = $state(false), removeMode = $state<'archive' | 'delete'>('archive'), deleting = $state<Outcome | null>(null), releasing = $state<Outcome | null>(null)
   const listed = $derived(showArchived ? records : floor)
   const tally = $derived(factoryTally(floor, attention))
   // Goals the page draws inside a pipeline are left out of the list of other sessions below.
@@ -97,10 +97,19 @@
     busy = false
     await load()
   }
+  // Ends an outcome that is not finished (a session was lost or removed, or the work is no longer wanted) so it can be archived or deleted.
+  async function stopFollowing(record: Outcome) {
+    if (busy) return
+    busy = true; notice = ''; releasing = null
+    try { await stopFollowingGafferOutcome(record); notice = `Stopped following “${record.objective}”. Sessions that still exist keep running. You can now archive or delete it.` }
+    catch (e) { notice = e instanceof Error ? e.message : 'The outcome was not stopped.' }
+    busy = false
+    await load()
+  }
   // A finished outcome is one line until it is opened, so a long list of old work does not fill the screen. The person's own
   // choice for an outcome, or for all of them, wins; one that is still moving, or has a pipeline to try again, starts open.
   let outcomeFolds = $state<Record<string, boolean>>({})
-  const outcomeShown = (record: Outcome) => !outcomeFinished(record) || record.sessions.some(piece => ['failed', 'unfollowed'].includes(piece.state)) || (outcomeFolds[record.id] ?? allOpen ?? false)
+  const outcomeShown = (record: Outcome) => outcomeFolds[record.id] ?? allOpen ?? (!outcomeFinished(record) || record.sessions.some(piece => ['failed', 'unfollowed'].includes(piece.state)))
   async function putAway(record: Outcome, mode: 'archive' | 'delete' | 'restore') {
     if (busy) return
     busy = true; notice = ''; deleting = null
@@ -156,7 +165,8 @@
     sought = true
     const id = decodeURIComponent(location.hash.slice(1))
     if (!id.startsWith('pipeline-')) return
-    void tick().then(() => { const card = document.getElementById(id); if (card) { arrived = id; card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }) } })
+    const record = records.find(item => id.startsWith(`pipeline-${item.id}-`))
+    if (record) reveal(record, id)
   })
   // The headline numbers that want the person are buttons: they go to the first card of that kind.
   function jump(kind: 'you' | 'ready') {
@@ -164,11 +174,15 @@
       const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined
       const label = pipelineStatus(piece, !!goal?.attention).label
       if ((kind === 'you' && label === 'Needs you') || (kind === 'ready' && label === 'Ready to merge')) {
-        const id = pipelineAnchor(record.id, piece.key), card = document.getElementById(id)
-        if (card) { arrived = id; card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }) }
+        reveal(record, pipelineAnchor(record.id, piece.key))
         return
       }
     }
+  }
+  // A link or a number names one pipeline: open its outcome if it is folded, then bring it into view and mark it.
+  function reveal(record: Outcome, id: string) {
+    outcomeFolds = { ...outcomeFolds, [record.id]: true }
+    void tick().then(() => { const card = document.getElementById(id); if (card) { arrived = id; card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }) } })
   }
   const pipelineOf = (event: ActivityEvent) => { try { return String(JSON.parse(event.detail || '{}').pipeline ?? '') } catch { return '' } }
   // The person's own controls over a pipeline: move it on from the stage in hand, and how its merge is decided.
@@ -278,7 +292,7 @@
     <li><strong>{tally.done}</strong><span>Done</span></li>
   </ul>
 
-  {#if records.length}<div class="fold-all">{#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}<button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {} }}>{allOpen === true ? 'Collapse all pipelines' : 'Expand all pipelines'}</button></div>{/if}
+  {#if records.length}<div class="fold-all">{#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}<button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {}; outcomeFolds = {} }}>{allOpen === true ? 'Collapse all' : 'Expand all'}</button></div>{/if}
   {#if notice}<p role="status" class="notice">{notice}</p>{/if}
   {#if error}<p role="alert" class="warning">{error}{#if records.length}{' '}Showing the last successful read.{/if}</p>{/if}
 
@@ -302,14 +316,15 @@
     {:else}
       {#each listed as record (record.id)}{@const open_ = outcomeShown(record)}{@const finished = outcomeFinished(record)}{@const usage = outcomeUsage(record.sessions.map(piece => pipelineUsage(piece, piece.conversationId ? byConversation.get(piece.conversationId)?.goal : undefined)), record.report)}<article class="outcome" class:shelved={!!record.archivedAt} aria-label={`Outcome: ${record.objective}`}>
         <header class="outcome-head">
-          <div class="outcome-title"><p class="eyebrow">Outcome</p><h2>{record.objective}</h2><p class="meta">{record.projectName || 'Project'} · started {when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {when(record.archivedAt)}{/if}{#if !open_} · {record.sessions.length} {record.sessions.length === 1 ? 'pipeline' : 'pipelines'}, {record.sessions.every(piece => piece.state === 'done') ? 'all done' : 'finished'}{/if}</p></div>
+          <div class="outcome-title"><p class="eyebrow">Outcome</p><h2>{record.objective}</h2><p class="meta">{record.projectName || 'Project'} · started {when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {when(record.archivedAt)}{/if}{#if !open_} · {record.sessions.length} {record.sessions.length === 1 ? 'pipeline' : 'pipelines'}, {record.sessions.every(piece => piece.state === 'done') ? 'all done' : finished ? 'finished' : 'in progress'}{/if}</p></div>
           <div class="outcome-actions">
-            {#if finished}<button class="btn quiet" type="button" aria-expanded={open_} onclick={() => outcomeFolds = { ...outcomeFolds, [record.id]: !open_ }}>{open_ ? 'Hide details' : 'Show details'}</button>{/if}
+            <button class="btn quiet" type="button" aria-expanded={open_} onclick={() => outcomeFolds = { ...outcomeFolds, [record.id]: !open_ }}>{open_ ? 'Hide details' : 'Show details'}</button>
             {#if open_}
               <button class="btn quiet" type="button" disabled={busy || !!reporting} onclick={() => void report(record)}>{reporting === record.id ? 'Gaffer is reporting…' : record.report ? 'Ask Gaffer again' : 'Ask Gaffer for a report'}</button>
               <button class="btn quiet" type="button" aria-expanded={!!timeline[record.id]} onclick={() => void toggleHistory(record)}>{timeline[record.id] ? 'Hide history' : 'History'}</button>
             {/if}
             {#if record.state === 'starting'}<button class="btn quiet" type="button" disabled={busy} onclick={() => void stop(record)}>Stop starting sessions</button>{/if}
+            {#if !finished}<button class="btn quiet" type="button" disabled={busy} onclick={() => releasing = record}>Stop following</button>{/if}
             {#if finished}
               {#if record.archivedAt}<button class="btn quiet" type="button" disabled={busy} onclick={() => void putAway(record, 'restore')}>Restore</button>{:else}<button class={removeMode === 'archive' ? 'btn' : 'btn quiet'} type="button" disabled={busy} onclick={() => void putAway(record, 'archive')}>Archive</button>{/if}
               <button class={removeMode === 'delete' && !record.archivedAt ? 'btn danger' : 'btn quiet'} type="button" disabled={busy} onclick={() => deleting = record}>Delete</button>
@@ -409,6 +424,7 @@
 </div>
 
 {#if outcomeOpen}<GafferOutcome room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
+{#if releasing}<ConfirmDialog title={`Stop following “${releasing.objective}”?`} body="Gaffer and the controller stop looking after every unfinished pipeline in this outcome and start nothing more for it. Sessions that still exist keep running, and nothing is merged or closed. Use this when a session was lost or removed, or the work is no longer wanted; you can then archive or delete the outcome." confirmLabel="Stop following" oncancel={() => releasing = null} onconfirm={() => releasing && void stopFollowing(releasing)}/>{/if}
 {#if deleting}<ConfirmDialog title={`Delete “${deleting.objective}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
 {#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !mergesByItself(moving.record, moving.piece) ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}
@@ -421,24 +437,24 @@
 <style>
   .factory{display:grid;gap:20px;min-width:0;max-width:1100px;margin:0 auto;padding:4px 0 40px;font-size:14px;line-height:1.5}
   p{margin:0;overflow-wrap:anywhere}h1{font:500 2rem var(--serif);margin:0}h2{font:500 1.35rem var(--serif);margin:0;overflow-wrap:anywhere}h3{font:600 1.05rem var(--sans);margin:0;overflow-wrap:anywhere;min-width:0}
-  .sub,.hint,.meta,.foot{color:var(--muted)}.warning{color:var(--bad)}.eyebrow{font-size:0.8125rem;color:var(--muted);letter-spacing:.02em}
+  .sub,.hint,.meta,.foot{color:var(--muted)}.warning{color:var(--bad)}.eyebrow{font-size:0.875rem;color:var(--muted);letter-spacing:.02em}
   .top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}.identity{display:grid;gap:4px;min-width:0;flex:1 1 320px}.top-actions{display:flex;gap:8px;flex-wrap:wrap}.top-actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center}
-  .tiles{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.tiles li{display:grid;gap:2px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);min-width:0}.tiles strong{font:500 1.6rem var(--serif);font-variant-numeric:tabular-nums;line-height:1.1}.tiles span{font-size:0.8125rem;color:var(--muted)}.tiles li.you{border-color:var(--accent);background:var(--tint)}
+  .tiles{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.tiles li{display:grid;gap:2px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);min-width:0}.tiles strong{font:500 1.6rem var(--serif);font-variant-numeric:tabular-nums;line-height:1.1}.tiles span{font-size:0.875rem;color:var(--muted)}.tiles li.you{border-color:var(--accent);background:var(--tint)}
   .notice{padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
-  .setup{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--tint)}.setup-body{display:grid;gap:12px;min-width:0}.setup ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.setup li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}.setup li p{color:var(--muted)}.tick{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);font-size:0.8125rem;font-variant-numeric:tabular-nums}.setup li.done .tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.setup a{color:var(--accent-text);font-weight:600}
+  .setup{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--tint)}.setup-body{display:grid;gap:12px;min-width:0}.setup ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.setup li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}.setup li p{color:var(--muted)}.tick{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);font-size:0.875rem;font-variant-numeric:tabular-nums}.setup li.done .tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.setup a{color:var(--accent-text);font-weight:600}
   .lines{display:grid;gap:16px;min-width:0}.empty{padding:28px 20px;border:1px dashed var(--line-strong);border-radius:14px;display:grid;gap:8px;text-align:center;justify-items:center}.empty p{color:var(--muted);max-width:56ch}
   .outcome{border:1px solid var(--line);border-radius:14px;background:var(--card);min-width:0;overflow:hidden}.outcome-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line)}.outcome-title{display:grid;gap:2px;min-width:0;flex:1 1 280px}.live{color:var(--accent-text);font-weight:600}
   .outcome-actions{display:flex;gap:8px;flex-wrap:wrap}.outcome-actions .btn{min-height:44px}.totals{padding:12px 18px;border-bottom:1px solid var(--line);background:var(--bg)}
   .outcome-report{display:grid;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}.proposals{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.proposals li+li{border-top:1px solid var(--line)}.proposals label{display:flex;align-items:flex-start;gap:12px;padding:10px 14px;min-height:44px;cursor:pointer}.proposals input{width:20px;height:20px;margin:2px 0 0;flex:none;accent-color:var(--accent)}.proposals label>span{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}.why{font-size:0.875rem;color:var(--muted)}
   .pipes{list-style:none;margin:0;padding:0}.pipe{display:grid;gap:10px;padding:16px 18px;min-width:0}.pipe+.pipe{border-top:1px solid var(--line)}.pipe.you{background:var(--tint)}
   .pipe-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-  .badge{font-size:0.8125rem;font-weight:600;border-radius:999px;padding:2px 10px;border:1px solid var(--line);white-space:nowrap}.badge.you{border-color:var(--accent);color:var(--accent-text);background:var(--card)}.badge.busy{color:var(--ink)}.badge.good{border-color:var(--good,var(--line-strong));color:var(--good,var(--ink))}.badge.bad{border-color:var(--bad);color:var(--bad)}.badge.idle{color:var(--muted)}
+  .badge{font-size:0.875rem;font-weight:600;border-radius:999px;padding:2px 10px;border:1px solid var(--line);white-space:nowrap}.badge.you{border-color:var(--accent);color:var(--accent-text);background:var(--card)}.badge.busy{color:var(--ink)}.badge.good{border-color:var(--good,var(--line-strong));color:var(--good,var(--ink))}.badge.bad{border-color:var(--bad);color:var(--bad)}.badge.idle{color:var(--muted)}
   /* The production line: stages joined by a rail. Done stages are filled, the one in hand is ringed, the rest are to come. */
   .track{list-style:none;margin:0;padding:2px 0 0;display:flex;gap:0;min-width:0;overflow-x:auto;scrollbar-width:thin}
-  .track li{position:relative;flex:1 1 0;min-width:64px;display:grid;justify-items:center;gap:4px;padding:0 4px 2px;color:var(--muted);font-size:0.8125rem;text-align:center}
+  .track li{position:relative;flex:1 1 0;min-width:64px;display:grid;justify-items:center;gap:4px;padding:0 4px 2px;color:var(--muted);font-size:0.875rem;text-align:center}
   .track li+li::before{content:"";position:absolute;top:13px;right:50%;width:100%;height:2px;background:var(--line);z-index:0}
   .track li.done+li::before{background:var(--good)}
-  .dot{position:relative;z-index:1;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;border:2px solid var(--line-strong);background:var(--card);font-size:0.8125rem;font-weight:600;font-variant-numeric:tabular-nums}
+  .dot{position:relative;z-index:1;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;border:2px solid var(--line-strong);background:var(--card);font-size:0.875rem;font-weight:600;font-variant-numeric:tabular-nums}
   .track li.done{color:var(--ink)}.track li.done .dot{background:var(--good);border-color:var(--good);color:var(--bg)}.track li.done .dot.moved{background:var(--card);color:var(--good)}
   .outcome-history{padding:12px 16px;border-top:1px solid var(--line)}.history{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px;max-height:320px;overflow:auto}.history li{display:grid;grid-template-columns:minmax(0,11rem) minmax(0,1fr);gap:12px;font-size:.9375rem}.history time{color:var(--muted)}@media(max-width:560px){.history li{grid-template-columns:minmax(0,1fr);gap:0}}
   /* Status reads by colour and shape together: a green tick is done, a pulsing green ring is running now, amber with "!" waits for the person, red has stopped. */
@@ -461,10 +477,10 @@
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
   .facts dd.low{color:var(--warn);font-weight:600}.split{color:var(--muted)}
   .facts dd.yolo{color:var(--warn);font-weight:600}
-  .facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}.facts div{display:grid;gap:0;min-width:0}.facts dt{font-size:0.75rem;color:var(--muted)}.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+  .facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}.facts div{display:grid;gap:0;min-width:0}.facts dt{font-size:0.875rem;color:var(--muted)}.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center;box-sizing:border-box}
   .floor{display:grid;gap:10px;min-width:0;border-top:1px solid var(--line);padding-top:20px}.foot{font-size:0.875rem}
   .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  @media(max-width:640px){.track{overflow:visible}.track li{min-width:0;padding:0 1px 2px;font-size:0.6875rem}.dot{width:24px;height:24px;font-size:0.75rem}.track li+li::before{top:11px}.pipe,.outcome-head{padding:14px 12px}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.setup{grid-template-columns:1fr}.top-actions{width:100%}.top-actions .btn{flex:1 1 auto;justify-content:center}}
+  @media(max-width:640px){.track{overflow:visible}.track li{min-width:0;padding:0 1px 2px;font-size:0.875rem}.dot{width:24px;height:24px;font-size:0.875rem}.track li+li::before{top:11px}.pipe,.outcome-head{padding:14px 12px}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.setup{grid-template-columns:1fr}.top-actions{width:100%}.top-actions .btn{flex:1 1 auto;justify-content:center}}
 </style>

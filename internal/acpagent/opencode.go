@@ -53,6 +53,11 @@ var agents = map[string]Spec{OpenCode.Key: OpenCode, Cline.Key: Cline, Antigravi
 
 const openCodeConfigTemplate = `{"$schema":"https://opencode.ai/config.json","autoupdate":false,"share":"disabled","default_agent":"build","permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"},"agent":{"build":{"permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"}},"plan":{"permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"}},"general":{"permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"}},"explore":{"permission":{"edit":"ask","bash":"ask","external_directory":"ask","task":"deny","webfetch":"deny"}}}}`
 
+// openCodeConfigContent is the reet-owned config. A chosen model also opts its
+// provider into prompt caching: OpenCode then sends a stable prompt cache key
+// with each request, so a conversation's repeated prefix is billed at the
+// provider's cached rate. Anthropic already takes cache breakpoints, and the
+// option is ignored by providers that have no such concept.
 func openCodeConfigContent(model string) string {
 	if model == "" {
 		return openCodeConfigTemplate
@@ -62,6 +67,11 @@ func openCodeConfigContent(model string) string {
 		return openCodeConfigTemplate
 	}
 	object["model"] = model
+	if provider, _, ok := strings.Cut(model, "/"); ok && provider != "" {
+		object["provider"] = map[string]any{
+			provider: map[string]any{"options": map[string]any{"setCacheKey": true}},
+		}
+	}
 	data, err := json.Marshal(object)
 	if err != nil {
 		return openCodeConfigTemplate

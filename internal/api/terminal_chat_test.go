@@ -410,6 +410,7 @@ func TestSessionModeEndpointRejectsBadMode(t *testing.T) {
 }
 
 func TestSessionModeEndpointMapsRefusals(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		caps   func(*terminalproto.Capabilities)
@@ -697,6 +698,7 @@ func TestReattachRouteSuccess204(t *testing.T) {
 }
 
 func TestReattachRouteErrorCodes(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		caps   func(*terminalproto.Capabilities)
@@ -772,6 +774,7 @@ func TestReattachRouteErrorCodes(t *testing.T) {
 // row that cannot be reconnected, YOLO the account or the machine refuses, a
 // full machine, a chat still starting, and a folder with plugins.
 func TestReattachRouteRefusalSentences(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		setup  func(t *testing.T, f *launchAPI) string
@@ -896,6 +899,7 @@ func TestReattachRouteRequiresSession(t *testing.T) {
 // trust, as before; {"trust":true} passes trust to the machine; anything
 // else is refused with 400 before the machine is asked.
 func TestReattachRouteOptionalTrustBody(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		body   string

@@ -28,7 +28,7 @@
  h4 { font:600 18px/1.4 var(--sans);margin:18px 0 10px; }h4:first-child { margin-top:0; }
  ul,ol { margin:10px 0 16px;padding-left:22px; }li { margin:6px 0;white-space:pre-wrap; }
  blockquote { margin:14px 0;padding:0 0 0 14px;border-left:2px solid var(--accent);color:var(--muted);white-space:pre-wrap; }
- code { font:13px/1.6 var(--mono);padding:2px 4px;border-radius:4px;background:var(--bg-sunk); }
+ code { font:14px/1.6 var(--mono);padding:2px 4px;border-radius:4px;background:var(--bg-sunk); }
  pre { max-width:100%;overflow:auto;margin:14px 0;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--bg-sunk); }pre code { padding:0;white-space:pre;overflow-wrap:normal; }
  a { color:var(--accent-text);text-decoration:underline;text-underline-offset:3px; }
 </style>

@@ -418,6 +418,7 @@ func TestNobodyIsSignedInBeforeSetupAndNeverBecomesTheOwner(t *testing.T) {
 }
 
 func TestStatusStaysASupersetOfWhatItWasAndSaysWhatSingleSignOnOffers(t *testing.T) {
+	t.Parallel()
 	off := newSSOEnv(t, ssoOpts{noSSO: true})
 	_, body := off.body(off.client(), "GET", "/api/v2/auth/status", "")
 	var before map[string]any
@@ -466,6 +467,7 @@ func TestWithPasswordSignInOffTheOwnerCanStillComeInWithAPassword(t *testing.T) 
 // must look the same, or the sign-in form tells anyone who guesses whether a
 // leaked password is still good.
 func TestWithPasswordSignInOffARightPasswordAndAWrongOneLookTheSame(t *testing.T) {
+	t.Parallel()
 	e := newSSOEnv(t, ssoOpts{env: map[string]string{"REET_OIDC_PASSWORD_LOGIN": "off"}})
 	hash, _ := auth.HashPassword("member password 123")
 	e.st.CreateUser("member@example.com", "", "member", hash)
@@ -684,6 +686,7 @@ func (e *ssoEnv) memberWithPassword(email, role, pw string) store.User {
 }
 
 func TestSomebodySignedInCanLinkTheirProviderIdentity(t *testing.T) {
+	t.Parallel()
 	e := newSSOEnv(t, ssoOpts{})
 	u := e.memberWithPassword("ada@example.com", "member", "ada password 123")
 	c := e.client()
@@ -716,6 +719,7 @@ func TestSomebodySignedInCanLinkTheirProviderIdentity(t *testing.T) {
 }
 
 func TestALinkOnlyCompletesForTheSessionThatBeganIt(t *testing.T) {
+	t.Parallel()
 	e := newSSOEnv(t, ssoOpts{})
 	e.memberWithPassword("ada@example.com", "member", "ada password 123")
 	e.memberWithPassword("bob@example.com", "member", "bob password 1234")
@@ -734,6 +738,7 @@ func TestALinkOnlyCompletesForTheSessionThatBeganIt(t *testing.T) {
 }
 
 func TestUnlinkingIsRefusedWhenItWouldLeaveNoWayIn(t *testing.T) {
+	t.Parallel()
 	e := newSSOEnv(t, ssoOpts{})
 	// No password: single sign-on is the only way in.
 	u, err := e.st.CreateSSOUser(e.idp.Issuer, "sub-nopw", "nopw@example.com", "", "member")
@@ -785,6 +790,7 @@ func mustUser(t *testing.T, e *ssoEnv, email string) store.User {
 }
 
 func TestAnAdminSeesHowSingleSignOnIsSetUpAndNeverItsSecret(t *testing.T) {
+	t.Parallel()
 	e := newSSOEnv(t, ssoOpts{env: map[string]string{"REET_OIDC_ADMIN_GROUPS": "ops", "REET_OIDC_AUTO_CREATE": "on"}})
 	m := e.memberWithPassword("member@example.com", "member", "member password 123")
 	_ = e.st.LinkSSOIdentity(e.idp.Issuer, "sub-m", m.ID)
@@ -819,6 +825,7 @@ func TestAnAdminSeesHowSingleSignOnIsSetUpAndNeverItsSecret(t *testing.T) {
 }
 
 func TestWhereGroupsAreMappedTheProviderDecidesTheRoleAtEachSignIn(t *testing.T) {
+	t.Parallel()
 	e := newSSOEnv(t, ssoOpts{env: map[string]string{"REET_OIDC_ADMIN_GROUPS": "ops", "REET_OIDC_MEMBER_GROUPS": "staff"}})
 	u := e.member("ada@example.com", "member")
 	_ = e.st.LinkSSOIdentity(e.idp.Issuer, "sub-ada", u.ID)
@@ -859,6 +866,7 @@ func TestWhereGroupsAreMappedTheProviderDecidesTheRoleAtEachSignIn(t *testing.T)
 // is still the provider's session, or a later sign-out at the provider would
 // miss it and the browser would stay signed in.
 func TestChangingAPasswordKeepsTheSessionAProvidersLogoutCanEnd(t *testing.T) {
+	t.Parallel()
 	e := newSSOEnv(t, ssoOpts{})
 	hash, _ := auth.HashPassword("ada old password 1")
 	u, err := e.st.CreateUser("ada@example.com", "Ada", "member", hash)
@@ -889,6 +897,7 @@ func TestChangingAPasswordKeepsTheSessionAProvidersLogoutCanEnd(t *testing.T) {
 // cannot link an identity, and a link that already exists for the owner (made
 // directly in the store, or by an earlier version) makes no session.
 func TestTheOwnerNeverSignsInOrLinksThroughTheProvider(t *testing.T) {
+	t.Parallel()
 	e := newSSOEnv(t, ssoOpts{})
 	c := e.client()
 	e.signIn(c, "owner@example.com", ownerPassword)

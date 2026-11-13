@@ -91,6 +91,7 @@ func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {
 }
 
 func TestRuntimeLazilyStartsAndRestoresIdentity(t *testing.T) {
+	t.Parallel()
 	store := &memIdentityStore{}
 	sealer := testSealer(t, "a")
 	discovered := 0
@@ -238,6 +239,7 @@ func TestRuntimeRestartsListenerWithSameIdentity(t *testing.T) {
 }
 
 func TestRuntimeBoundsRetries(t *testing.T) {
+	t.Parallel()
 	store := &memIdentityStore{}
 	sealer := testSealer(t, "a")
 	var mu sync.Mutex
@@ -276,6 +278,7 @@ func TestRuntimeBoundsRetries(t *testing.T) {
 }
 
 func TestRuntimeCloseStopsListenerAndRejectsFurtherStarts(t *testing.T) {
+	t.Parallel()
 	store := &memIdentityStore{}
 	sealer := testSealer(t, "a")
 	runtime := testRuntime(t, store, sealer, func(context.Context, string) (*Identity, error) {

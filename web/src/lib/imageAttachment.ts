@@ -26,3 +26,13 @@ export function attachmentMessage(reason: AttachmentReason): string {
   if (reason === 'read') return 'That image could not be read.'
   return 'Attach a PNG, JPEG or WebP image.'
 }
+
+export type PastedAttachment = { ok: true; file: File } | { ok: false; reason: AttachmentReason } | null
+
+/** The first image in a paste, if any. A paste without an image is left to the field itself. */
+export function attachmentFromPaste(files: ArrayLike<File> | null | undefined): PastedAttachment {
+  const image = Array.from(files ?? []).find(file => file.type.startsWith('image/'))
+  if (!image) return null
+  const check = validateAttachment({ type: image.type, size: image.size })
+  return check.ok ? { ok: true, file: image } : { ok: false, reason: check.reason }
+}

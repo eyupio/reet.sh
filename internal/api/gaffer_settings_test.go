@@ -15,6 +15,7 @@ import (
 )
 
 func TestGafferSettingsKeepCredentialsPrivateAndRequireTheOwningBrowserAccount(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +103,7 @@ func TestGafferSettingsKeepCredentialsPrivateAndRequireTheOwningBrowserAccount(t
 }
 
 func TestGafferModelsReadUnsavedConfigurationWithoutPersistingOrSpendingALiveRequest(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

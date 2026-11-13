@@ -477,7 +477,7 @@
   .card-actions button { font: 500 14px var(--sans); padding: 4px 0; background: none; border: 0; color: var(--muted); cursor: pointer; }.card-actions .delete { font-size: 14px; }.card-actions .delete:hover { color: var(--bad); }.card-actions .start { display: flex; align-items: center; gap: 6px; background: var(--accent-wash); color: var(--accent-text); border-radius: 6px; padding: 4px 8px; }.card-actions .start:disabled { color: var(--muted); background: var(--bg-sunk); cursor: default; }.card-actions .start:not(:disabled):hover { background: var(--tint); }
   .status { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 6px; padding: 2px 8px; }.status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
   .open-session { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; text-decoration: none; color: var(--muted); }.open-session:hover { color: var(--accent-text); }
-  .factory-badge { font-size: 13px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 8px; text-decoration: none; white-space: nowrap; }
+  .factory-badge { font-size: 14px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 8px; text-decoration: none; white-space: nowrap; }
   .factory-badge:hover { background: var(--tint); }
   .factory-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .idea-badge { font-size: 14px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--line-strong); border-radius: 6px; padding: 1px 8px; }
@@ -499,7 +499,7 @@
   .compact .session-card.expanded { border: 1px solid var(--line); border-radius: 6px; margin-block: 4px; }
   .compact .session-card:not(.expanded):has(.card-actions) .card-top { padding-right: 0; }
   .session-age { white-space: nowrap; }
-  .list-window { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 4px 0; font-size: 13px; color: var(--muted); }
+  .list-window { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 4px 0; font-size: 14px; color: var(--muted); }
   .list-window button { min-height: 44px; padding: 4px 0; border: 0; background: transparent; color: var(--ink); text-decoration: underline; cursor: pointer; font: inherit; }
   .list-window button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .compact .card-actions button { min-height: 44px; }
@@ -510,8 +510,8 @@
   .compact .session-card:not(.expanded) .more { display: none; }
   .compact .session-card.expanded .card-top { padding-right: 88px; }
   .compact .session-card.expanded .card-tools { top: 4px; right: 4px; }
-  .compact .session-card:not(.expanded) .status { font-size: 12px; }
-  .compact .session-card:not(.expanded) .session-age { font-size: 12px; }
+  .compact .session-card:not(.expanded) .status { font-size: 14px; }
+  .compact .session-card:not(.expanded) .session-age { font-size: 14px; }
   .empty { text-align: center; padding: 36px 12px; color: var(--muted); grid-column: 1/-1; }.empty-icon { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin: 0 auto 16px; }.empty strong { font-size: 14px; color: var(--ink-soft); font-weight: 550; display: block; }.empty p { font-size: 14px; margin: 8px auto 16px; max-width: 240px; }.empty button { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-text); font-size: 14px; border: 0; background: transparent; cursor: pointer; }
   .board-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px; font-size: 14px; color: var(--muted); }.board-foot span, .board-foot a { display: flex; gap: 6px; align-items: center; }.board-foot a { text-decoration: none; color: var(--muted); }.board-foot a:hover { color: var(--accent-text); }
   .live:empty { display: none; }.notice, .problem { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); margin: 0 0 16px; font-size: 14px; }.problem { border-color: var(--warn); }.problem button { border: 0; background: none; color: var(--accent-text); cursor: pointer; text-decoration: underline; }.no-options { font-size: 14px; color: var(--muted); }

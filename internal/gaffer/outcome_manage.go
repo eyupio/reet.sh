@@ -200,7 +200,7 @@ func (s *Service) reviewOutcome(parent context.Context, p Principal, id string, 
 		return outcomeView(o), err
 	}
 	defer done()
-	backend, client, err := s.open(p, cfg, old)
+	backend, client, err := s.open(p, cfg, old, "")
 	if err != nil {
 		return outcomeView(o), err
 	}

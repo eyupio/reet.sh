@@ -101,7 +101,8 @@
   function tick_(id:string,on:boolean){const next=new Set(ticked);if(on)next.add(id);else next.delete(id);ticked=next}
   function tickAll(){ticked=chosen.length===candidates.length?new Set():new Set(candidates.map(item=>item.id))}
   async function closeReview(){reviewing=false;await load(true);await tick();(lookAfterButton?.isConnected?lookAfterButton:refreshButton)?.focus({preventScroll:true})}
-  // Opening a running chat from the floor shows it with its own Gaffer conversation. It enables and sends nothing.
+  // Opening a running chat from the floor shows the session itself. It enables and sends nothing, and Gaffer's chat
+  // stays closed unless the person opens it from its own controls.
   function openCandidate(event:MouseEvent,item:TerminalSession) {
     if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return
     const request=new CustomEvent('reet:show-session',{detail:item.id,cancelable:true})
@@ -180,7 +181,7 @@
           {#if row.session}<p class="muted">Retained session state: {row.session.state}. Worker availability is checked when dispatching.</p>{/if}
         </div></details>
         <div class="actions">
-          {#if row.available&&row.session}<a class="btn" href={`/sessions?agent=${encodeURIComponent(row.session.agentId)}&session=${encodeURIComponent(row.session.id)}&gaffer=1`} onclick={event=>openSession(event,row)}>Open session</a><button class="btn quiet" onclick={event=>{returnFocus=event.currentTarget;managing=row}}>Review goal</button>
+          {#if row.available&&row.session}<a class="btn" href={sessionHref(row.session)} onclick={event=>openSession(event,row)}>Open session</a><button class="btn quiet" onclick={event=>{returnFocus=event.currentTarget;managing=row}}>Review goal</button>
           {:else}<button class="btn quiet" disabled={bulkBusy} onclick={()=>removing=row}>Remove</button>{#if !inline}<button class="btn quiet" onclick={onhistory}>Conversation history</button>{/if}{/if}
         </div>
       </li>{/each}
@@ -192,7 +193,7 @@
       {#if candidates.length}
         <p class="muted">Tick the running chats Gaffer should look after. Ticking shares nothing and starts nothing; one review follows.</p>
         <div class="picks" role="group" aria-label="Running chats not followed">
-          {#each candidates as item (item.id)}<div class="pick-row"><label class="pick"><input type="checkbox" checked={ticked.has(item.id)} onchange={event=>tick_(item.id,event.currentTarget.checked)}/><span class="pick-text"><strong>{item.title}</strong><span>{toolName(item.tool??'')||'Agent'} · {item.dir||'Directory not reported'}</span></span></label><a class="pick-open" href={`${sessionHref(item)}&gaffer=1`} aria-label={`Open ${item.title}`} onclick={event=>openCandidate(event,item)}>Open</a></div>{/each}
+          {#each candidates as item (item.id)}<div class="pick-row"><label class="pick"><input type="checkbox" checked={ticked.has(item.id)} onchange={event=>tick_(item.id,event.currentTarget.checked)}/><span class="pick-text"><strong>{item.title}</strong><span>{toolName(item.tool??'')||'Agent'} · {item.dir||'Directory not reported'}</span></span></label><a class="pick-open" href={sessionHref(item)} aria-label={`Open ${item.title}`} onclick={event=>openCandidate(event,item)}>Open</a></div>{/each}
         </div>
         {#if chosen.length>room}<p class="warning" role="status">{room?`Gaffer has room for ${room} more active ${room===1?'goal':'goals'}. Untick ${chosen.length-room}.`:'Gaffer is already following ten sessions. Pause or stop one first.'}</p>{/if}
         <div class="actions"><button class="btn primary" type="button" bind:this={lookAfterButton} disabled={!chosen.length||chosen.length>room} onclick={()=>{quick=$gafferStanding;reviewing=true}}>{chosen.length?`Look after ${chosen.length} selected`:'Look after selected'}</button>{#if $gafferStanding}<button class="btn quiet" type="button" disabled={!chosen.length||chosen.length>room} onclick={()=>{quick=false;reviewing=true}}>Review first</button>{/if}</div>
@@ -240,7 +241,7 @@
   .filters{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;padding-bottom:2px}.filter{flex:none;white-space:nowrap}
   .outcome-list>li{border:1px solid var(--line);border-radius:12px;background:var(--bg);overflow:hidden}.outcome-list>li.open{border-color:var(--accent)}
   .outcome{border:0;border-radius:0}.outcome-detail{display:grid;gap:10px;padding:0 14px 12px}.plan-state{background:var(--card)}.plan-state li.bad span{color:var(--bad)}
-  .belongs{color:var(--ink)}.eyebrow-inline{font-size:0.8125rem;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-right:4px}.part{color:var(--muted)}
+  .belongs{color:var(--ink)}.eyebrow-inline{font-size:0.875rem;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-right:4px}.part{color:var(--muted)}
   .clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
   .callout{padding:8px 12px;border-radius:8px;background:var(--tint);border:1px solid var(--accent);color:var(--ink)}
   .goals>li{gap:8px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.foot{border-top:1px solid var(--line);padding-top:12px}

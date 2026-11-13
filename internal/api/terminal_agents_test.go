@@ -144,6 +144,7 @@ func TestMachineYoloGate(t *testing.T) {
 // TestCreateUnsupportedAgentOptionsRefusedBeforeReserving checks every refusal
 // leaves no session, no create operation and nothing sent to the machine.
 func TestCreateUnsupportedAgentOptionsRefusedBeforeReserving(t *testing.T) {
+	t.Parallel()
 	const updateSentence = "Update reet on that machine to use that option."
 	const optionSentence = "That agent doesn't take that option."
 	const disabledSentence = "reet doesn't start this agent yet."

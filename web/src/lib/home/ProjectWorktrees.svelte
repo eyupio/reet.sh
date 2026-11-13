@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import Icon from '../Icon.svelte'
   import { shell } from '../dialogShell'
   import { UnauthorizedError } from '../api'
   import { listProjects, projectRuns, sessionHref, TerminalError, type FolderProject, type TerminalSession } from '../terminal/api'
@@ -76,7 +77,7 @@
       <h2 id={`${id}-title`}>Worktrees for {project.name}</h2>
       <p class="lede" data-shell-aside>The worktrees reet has a record of in <span class="mono">{project.dir}</span>: those live sessions are in, and those made by the newest 20 runs of each saved Project.</p>
     </div>
-    <button type="button" class="btn" bind:this={closeButton} onclick={close} aria-label="Close" data-shell-close>Close ×</button>
+    <button type="button" class="btn" bind:this={closeButton} onclick={close} aria-label="Close" data-shell-close>Close <Icon name="x" size={14} /></button>
   </header>
   <div class="body" data-shell-body>
     {#if failed}<p class="bad" role="alert">{failed}</p>{/if}

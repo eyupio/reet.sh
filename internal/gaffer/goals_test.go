@@ -241,6 +241,7 @@ func TestGoalPauseFencesItsQueueAndResumeWaitsForProgress(t *testing.T) {
 	}
 }
 func TestGoalApprovalWaitAndProviderRevocationDoNotCallModel(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"approval", "revoked"} {
 		t.Run(mode, func(t *testing.T) {
 			s, st, p := settingsFixture(t)
@@ -504,6 +505,7 @@ func TestGoalCanAskUserButCannotDeclareItselfComplete(t *testing.T) {
 }
 
 func TestExpiredGoalDoesNotProbeWorkerOrUseProvider(t *testing.T) {
+	t.Parallel()
 	s, st, p := settingsFixture(t)
 	worker := &goalWorker{fakeWorker: fakeWorker{st: st}}
 	s.SetWorker(worker)

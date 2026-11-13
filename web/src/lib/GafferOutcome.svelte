@@ -5,11 +5,14 @@
   import { onMount, untrack } from 'svelte'
   import { createGafferOutcome, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
-  import { imagePrompt } from './terminal/upload'
+  import { imageFiles, imagePrompt } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
+  import { attachmentFromPaste, attachmentMessage } from './imageAttachment'
   import GafferModelSelect from './GafferModelSelect.svelte'
   import ClineSourceSelect from './ClineSourceSelect.svelte'
   import { KNOWN_SOURCES, resolveStartSource } from './clineSource'
+  import GafferProse from './GafferProse.svelte'
+  import ConfirmDialog from './ConfirmDialog.svelte'
   import YoloDialog from './launch/YoloDialog.svelte'
   import { yoloCanStart, type YoloGate } from './launchBar'
   import { CATALOGUE } from './catalogue'
@@ -18,7 +21,7 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_ROLES, DEFAULT_STAGES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, sessionCount, stagePlan, startingProgress, wholeBetween, type Crew, type PlanSession } from './gafferOutcome'
+  import { CREW_ROLES, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, sessionCount, stagePlan, startingProgress, wholeBetween, type Crew, type PlanSession, type PlanTurn } from './gafferOutcome'
   import { gafferAutoMerge } from './gafferMotion'
 
   let { room, userId = 0, onclose, onstarted }: { room: number; userId?: number; onclose: () => void; onstarted: () => void | Promise<void> } = $props()
@@ -30,6 +33,9 @@
   let provider = $state<GafferProvider | null>(null), projects = $state<FolderProject[]>([]), machines = $state<TerminalMachine[]>([])
   let objective = $state(''), projectId = $state(''), tool = $state(''), wanted = $state(3)
   let planning = $state(false), planError = $state(''), summary = $state(''), sessions = $state<PlanSession[]>([])
+  // The reply a person sends to a proposal, and the exchange it belongs to. A declined proposal starts nothing.
+  let reply = $state(''), planThread = $state<PlanTurn[]>([]), declined = $state(false), declining = $state(false)
+  const replyProblem = $derived(replyBlocker(reply))
   let maxReviews = $state(12), hours = $state(24)
   let trust = $state(false)
   // The model every stage uses unless a crew role is given its own. Empty is the agent's default.
@@ -52,6 +58,18 @@
   const key = () => `plan-${++counter}`
   function clearImage() { image = null; imageError = '' }
   $effect(() => { void image; imageError = '' })
+  // A pasted screenshot becomes the outcome's image, exactly as if it had been picked. Text pastes are left alone.
+  function pasted(event: ClipboardEvent) {
+    if (planning || busy) return
+    const data = event.clipboardData
+    const files = data?.files.length ? data.files : imageFiles(data?.items)
+    const found = attachmentFromPaste(files)
+    if (!found) return
+    event.preventDefault()
+    if (!found.ok) { imageError = attachmentMessage(found.reason); return }
+    image = found.file
+    imageError = ''
+  }
 
   const project = $derived(projects.find(item => item.id === projectId) ?? null)
   const machine = $derived(project ? machines.find(item => item.agentId === project.host) ?? null : null)
@@ -157,7 +175,7 @@
 
   async function ask() {
     if (planning || blocker || !provider || !project) return
-    planning = true; planError = ''
+    planning = true; planError = ''; reply = ''; planThread = []; declined = false
     try {
       const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted }, life.signal)
       summary = plan.summary
@@ -169,7 +187,27 @@
   // Without a tool-capable model, or by choice, the person writes the plan; the rest of the flow is the same.
   function writeOwn() {
     if (blocker) return
-    summary = ''; sessions = [{ key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }]; planError = ''; step = 'plan'
+    summary = ''; sessions = [{ key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }]; planError = ''; reply = ''; planThread = []; declined = false; step = 'plan'
+  }
+  // A reply is sent back to Gaffer with the proposal it answers, and the revised plan replaces the rows. The person's
+  // words stay in the review as part of the exchange; nothing is saved or started until the existing approve action.
+  async function sendReply() {
+    if (planning || !provider || !project || replyBlocker(reply)) return
+    const text = reply.trim()
+    const thread: PlanTurn[] = planThread.length ? planThread : summary ? [{ from: 'gaffer', text: summary }] : []
+    planThread = [...thread, { from: 'you', text }]
+    planning = true; planError = ''; reply = ''
+    try {
+      const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted, reply: text, previous: previousPlan(summary, sessions) }, life.signal)
+      summary = plan.summary
+      sessions = plan.sessions.map(item => ({ key: key(), title: item.title, prompt: item.prompt, stages: item.stages?.length ? orderStages(item.stages.map(stage => stage.kind)) : [...DEFAULT_STAGES] }))
+      planThread = [...planThread, { from: 'gaffer', text: plan.summary }]
+      declined = false
+    } catch (e) {
+      planThread = planThread.slice(0, -1)
+      reply = text
+      if (!life.signal.aborted) planError = e instanceof Error ? e.message : 'Gaffer could not answer your reply.'
+    } finally { planning = false }
   }
   const addSession = () => { sessions = [...sessions, { key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }] }
   const toggleStage = (item: PlanSession, kind: string) => { const now = item.stages ?? []; item.stages = now.includes(kind) ? now.filter(k => k !== kind) : orderStages([...now, kind]) }
@@ -234,7 +272,7 @@
       {:else}
         <form onsubmit={event => { event.preventDefault(); void ask() }}>
           <label for={`${formId}-objective`}>Outcome</label>
-          <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning}></textarea>
+          <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning} onpaste={pasted}></textarea>
           <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
           <div class="pair">
             <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning}>
@@ -276,14 +314,23 @@
       {/if}
     {:else if step === 'plan'}
       <p class="objective"><span class="eyebrow">Outcome</span>{objective.trim()}</p>
-      {#if summary}<div class="summary"><p class="eyebrow">Gaffer’s plan</p><p>{summary}</p></div>{/if}
+      {#if planThread.length}
+        <section class="talk" aria-label="Conversation with Gaffer">
+          {#each planThread as turn, index (index)}
+            <div class="said {turn.from}"><p class="eyebrow">{turn.from === 'you' ? 'You' : 'Gaffer'}</p>{#if turn.from === 'you'}<p>{turn.text}</p>{:else}<GafferProse text={turn.text}/>{/if}</div>
+          {/each}
+        </section>
+      {:else if summary}<div class="summary"><p class="eyebrow">Gaffer’s plan</p><p>{summary}</p></div>{/if}
+      {#if declined}
+        <p class="declined" role="status">Proposal declined. Nothing was started. Reply below to tell Gaffer what you want instead, or go back to the outcome.</p>
+      {:else}
       <p class="hint">{project?.name}. Each row below is a pipeline: edit its brief, and tick the stages it runs through. The first stage starts with the prompt shown{project?.isRepo ? ', in its own worktree' : ''}; later stages take over in the same folder.</p>
       <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
           <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Session {index + 1}</label><button class="link" type="button" aria-label={`Remove session ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
           <input id={`${formId}-${item.key}-title`} aria-label={`Session ${index + 1} title`} bind:value={item.title} maxlength="80" placeholder="Short title"/>
-          <textarea aria-label={`Session ${index + 1} prompt`} bind:value={item.prompt} rows="5" placeholder="What this session should build, how to check it, and to raise a pull request. Do not merge."></textarea>
+          <textarea aria-label={`Session ${index + 1} prompt`} bind:value={item.prompt} rows="5" placeholder="What this session should build, how to check it, and to raise a pull request. Do not merge." onpaste={pasted}></textarea>
           <div class="stage-pick" role="group" aria-label={`Session ${index + 1} stages`}>
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
           </div>
@@ -308,7 +355,19 @@
       {#if approveBlocker}<p class="warning" role="status">{approveBlocker}</p>
       {:else if !limitsOk}<p class="warning" role="status">Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.</p>{/if}
       {#if startError}<p class="warning" role="alert">{startError}</p>{/if}
-      <div class="actions"><button class="btn primary" type="button" disabled={busy || !!approveBlocker || !limitsOk} onclick={() => void approve()}>{busy ? 'Saving the plan…' : `Approve and start ${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}`}</button><button class="btn quiet" type="button" disabled={busy} onclick={() => step = 'objective'}>Back</button></div>
+      {/if}
+      <section class="reply" aria-label="Reply to Gaffer">
+        <label for={`${formId}-reply`}>Reply to Gaffer</label>
+        <textarea id={`${formId}-reply`} aria-label="Reply to Gaffer" bind:value={reply} rows="3" placeholder="Not that — keep the export in one session and put its tests with it." disabled={planning}></textarea>
+        <p class="hint">Gaffer reads this as an answer to the proposal above. Use it when the split or the scope is wrong; the rows are still yours to edit. Up to {MAX_OUTCOME_REPLY_BYTES.toLocaleString('en-GB')} bytes, sent only when you choose.</p>
+        {#if replyProblem && reply.trim()}<p class="warning" role="status">{replyProblem}</p>{/if}
+        <div class="actions"><button class="btn" type="button" disabled={planning || !!replyProblem} onclick={() => void sendReply()}>{planning ? 'Gaffer is reading your reply…' : 'Send reply'}</button></div>
+        {#if planError}<p class="warning" role="alert">{planError}</p>{/if}
+      </section>
+      <div class="actions">
+        {#if declined}<button class="btn" type="button" onclick={() => step = 'objective'}>Back to the outcome</button>
+        {:else}<button class="btn primary" type="button" disabled={busy || planning || !!approveBlocker || !limitsOk} onclick={() => void approve()}>{busy ? 'Saving the plan…' : `Approve and start ${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}`}</button><button class="btn quiet" type="button" disabled={busy || planning} onclick={() => declining = true}>Decline proposal</button><button class="btn quiet" type="button" disabled={busy || planning} onclick={() => step = 'objective'}>Back</button>{/if}
+      </div>
     {:else if record}
       <p class="objective"><span class="eyebrow">Outcome</span>{record.objective}</p>
       <p role="status" class="result-line">{done ? outcomeSummary(record.sessions) : startingProgress(record.sessions)}</p>
@@ -327,6 +386,7 @@
   </div>
 </WorkspaceDialog>
 {#if yoloOpen && machine}<YoloDialog gates={yoloGates} tool={tool} structured machine={machine.host} enabling oncancel={() => { yoloOpen = false }} onstart={() => { if (yoloCanStart(yoloGates)) yolo = true; yoloOpen = false }}/>{/if}
+{#if declining}<ConfirmDialog title="Decline this proposal?" body="Nothing has started. This plan will not be approved or started, and stays here so you can tell Gaffer what you want instead or go back to the outcome." confirmLabel="Decline proposal" oncancel={() => declining = false} onconfirm={() => { declined = true; declining = false }}/>{/if}
 
 <style>
   .outcome{display:grid;gap:14px;min-width:0;font-size:14px;line-height:1.5}p{margin:0;overflow-wrap:anywhere}.hint{color:var(--muted)}.warning{color:var(--bad)}
@@ -335,12 +395,16 @@
   .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pair.two{grid-template-columns:1fr 1fr;padding-top:8px}.source-field{min-width:0}.crew-source{grid-column:1/-1;min-width:0}
   .eyebrow{display:block;font-size:0.875rem;color:var(--muted);margin-bottom:2px}.objective{white-space:pre-wrap}
   .summary,.access{border-left:2px solid var(--line-strong);padding-left:12px}
+  .talk{display:grid;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+  .said{display:grid;gap:2px;min-width:0}.said.you p:last-child{white-space:pre-wrap}.said.gaffer{padding-left:12px;border-left:2px solid var(--line-strong)}
+  .declined{padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--tint);font-weight:600}
+  .reply{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:14px}
   .plan{list-style:none;margin:0;padding:0;display:grid;gap:12px}.plan li{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:12px;min-width:0}
   .plan-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.link{border:0;background:none;color:var(--accent-text);font:600 14px var(--sans);cursor:pointer;min-height:44px;padding:0 4px}
   .add{justify-self:start}
   .limit-editor summary{min-height:44px;display:list-item;align-content:center;cursor:pointer;font-variant-numeric:tabular-nums}.limit-editor summary span{color:var(--accent-text);margin-left:8px}
-  .steps{list-style:none;display:flex;gap:6px 18px;flex-wrap:wrap;margin:0;padding:0 0 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:0.875rem}.steps li{display:flex;align-items:center;gap:8px}.steps .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line-strong);font-variant-numeric:tabular-nums;font-size:0.8125rem}.steps li[aria-current]{color:var(--ink);font-weight:600}.steps li[aria-current] .n,.steps li.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-  .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.8125rem;color:var(--muted);font-weight:400}
+  .steps{list-style:none;display:flex;gap:6px 18px;flex-wrap:wrap;margin:0;padding:0 0 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:0.875rem}.steps li{display:flex;align-items:center;gap:8px}.steps .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line-strong);font-variant-numeric:tabular-nums;font-size:0.875rem}.steps li[aria-current]{color:var(--ink);font-weight:600}.steps li[aria-current] .n,.steps li.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted);font-weight:400}
   .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}
   @media(max-width:479px){.crew-row{grid-template-columns:1fr}}@media(pointer:coarse){.stage-chip{min-height:44px}}
   .approvals{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}.approvals legend{font-weight:600;padding:0;margin-bottom:6px}

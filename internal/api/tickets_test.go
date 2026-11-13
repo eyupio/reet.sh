@@ -104,6 +104,7 @@ func TestPersonalTicketLifecycleAndNotifications(t *testing.T) {
 }
 
 func TestTeamTicketIsVisibleToManagersNotOtherMembers(t *testing.T) {
+	t.Parallel()
 	m := newMailSrv(t)
 	owner := setupMailOwner(t, m.srv)
 	hash, _ := auth.HashPassword("long-enough-password")

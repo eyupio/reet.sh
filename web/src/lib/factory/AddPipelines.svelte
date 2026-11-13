@@ -104,7 +104,7 @@
   .who{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:10px;align-items:start}label{font-weight:600;display:grid;gap:6px;min-width:0}
   select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;min-height:44px;box-sizing:border-box}
   .crew summary{min-height:44px;display:list-item;align-content:center;cursor:pointer}.crew summary span{color:var(--accent-text);margin-left:8px}
-  .crew-rows{display:grid;gap:10px;padding:6px 0 8px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.8125rem;color:var(--muted)}
+  .crew-rows{display:grid;gap:10px;padding:6px 0 8px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted)}
   summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.btn{min-height:44px}
   button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import Icon from './Icon.svelte'
   import { shell } from './dialogShell'
   import Skeleton from './Skeleton.svelte'
   import { syncCandidates, type Machine, type SyncSkill } from './api'
@@ -70,7 +71,7 @@
         <h2 id="machine-add-skill-title">Add a skill to {machine.host}</h2>
         <p class="lede" data-shell-aside>Reet saves the intent, then the machine previews the exact plan. Additive installs may apply on their own; removals wait for review.</p>
       </div>
-      <button type="button" class="icon" onclick={() => dialog?.close()} aria-label="Close add a skill" data-shell-close>×</button>
+      <button type="button" class="icon" onclick={() => dialog?.close()} aria-label="Close add a skill" data-shell-close><Icon name="x" size={18} /></button>
     </header>
 
     <label class="search">Search skills

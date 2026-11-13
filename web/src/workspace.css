@@ -2,12 +2,9 @@
 :root {
   --workspace-rail: var(--bg-sunk);
 }
-@media (min-width: 1100px) {
-  /* Home's panel is wider (it holds the project list). Set before the shell mounts, so the content never jumps. */
-  html[data-workspace-shell][data-boot-layout='home'] { --workspace-sidebar-width: 300px; }
-  html[data-workspace-shell] #main-content { margin-left: var(--workspace-sidebar-width, 228px); margin-right: 0; width: calc(100% - var(--workspace-sidebar-width, 228px)); max-width: none; }
-  html[data-workspace-shell] #main-content ~ footer { margin-left: var(--workspace-sidebar-width, 228px); width: calc(100% - var(--workspace-sidebar-width, 228px)); }
-}
+/* The signed-in workspace draws its pages full width; the public reading measure stays in App's own rule. */
+html[data-app-shell] #main-content { max-width: none; margin-left: 0; margin-right: 0; width: 100%; }
+html[data-app-shell] #main-content ~ footer { max-width: none; width: 100%; }
 .session-board .heading h2 { font-size: clamp(24px, 2.1vw, 32px); letter-spacing: -0.03em; }
 .session-board .session-card { border-radius: 8px; background: var(--card); }
 .session-board .stage { background: transparent; }

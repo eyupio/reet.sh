@@ -374,7 +374,7 @@
   </ul>
 
   {#if records.length}<div class="fold-all">{#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}<button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {}; outcomeFolds = {} }}>{allOpen === true ? 'Collapse all' : 'Expand all'}</button></div>{/if}
-  {#if scope}<p class="scope">Showing <strong>{scopeName}</strong>{scope.kind === 'project' ? '. A new outcome starts in this project.' : '.'} <button type="button" class="btn quiet" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
+  {#if scope}<p class="scope"><span>Showing <strong>{scopeName}</strong>{scope.kind === 'project' ? '. A new outcome starts in this project.' : '.'}</span> <button type="button" class="btn quiet" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
   {#if notice}<p role="status" class="notice">{notice}</p>{/if}
   {#if error}<p role="alert" class="warning">{error}{#if records.length}{' '}Showing the last successful read.{/if}</p>{/if}
 

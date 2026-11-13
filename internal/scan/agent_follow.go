@@ -55,6 +55,34 @@ func (f *moveFollower) say(out io.Writer, line string) {
 	fmt.Fprintln(out, line)
 }
 
+// movedEcho keeps a waiting agent's log readable. An agent whose controller has
+// moved is refused every five seconds until the new one answers, which can be
+// an hour of the same sentence; it is worth saying once, and again only when
+// it changes or after the agent has got through in between.
+type movedEcho struct{ last string }
+
+// worthSaying reports whether a cycle's error should be printed. Anything that
+// is not a moved controller's refusal always is.
+func (e *movedEcho) worthSaying(err error) bool {
+	if err == nil {
+		e.last = ""
+		return false
+	}
+	to, moved := movedTo(err)
+	if !moved {
+		e.last = ""
+		return true
+	}
+	// The address is part of what is said: an owner who lifts the fence and
+	// raises it again with the right address has told the machines something.
+	now := err.Error() + "\n" + to
+	if e.last == now {
+		return false
+	}
+	e.last = now
+	return true
+}
+
 // movedTo is the address a refusal names, when the refusal is a fenced
 // controller saying where it went.
 func movedTo(err error) (string, bool) {

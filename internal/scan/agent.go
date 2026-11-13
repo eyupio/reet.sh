@@ -474,6 +474,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	follower := &moveFollower{}
+	waiting := &movedEcho{}
 	for {
 		err = agentCycle(ctx, c, *config, out, version, &lastScan, !*once)
 		if err != nil && follower.follow(ctx, err, c, *config, out, version) {
@@ -498,13 +499,16 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			if *once {
 				return err
 			}
-			fmt.Fprintf(out, "Agent: %v\n", err)
+			if waiting.worthSaying(err) {
+				fmt.Fprintf(out, "Agent: %v\n", err)
+			}
 			state.note(&state.cycleError, err.Error())
 		} else if !*once && !announcedWaiting {
 			fmt.Fprintln(out, "Agent cycle complete. Still running: waiting for updates and the next inventory scan.")
 			announcedWaiting = true
 		}
 		if err == nil {
+			waiting.worthSaying(nil)
 			state.lastCycle.Store(time.Now().UnixMilli())
 			state.note(&state.cycleError, "")
 		}
@@ -562,6 +566,11 @@ type agentResult struct {
 
 func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer, version string, lastScan *time.Time, allowRestart bool) error {
 	if err := syncLibraryEdits(ctx, c, config, version, out); err != nil {
+		// A controller that has moved refuses every request that follows too,
+		// so the cycle ends here with the one reason, not four lines of it.
+		if _, moved := movedTo(err); moved {
+			return err
+		}
 		fmt.Fprintln(out, "Library edits remain local; continuing other connector work:", err)
 	}
 	// A completed result is durable before acknowledgment. Reconnect resends the

@@ -49,15 +49,19 @@ func (f *baseFixture) git(ctx context.Context, dir string, args ...string) ([]by
 }
 
 // fetched reports whether any call was a fetch.
-func (f *baseFixture) fetched() bool {
+func (f *baseFixture) fetched() bool { return f.count("fetch") > 0 }
+
+// count is how many calls had sub as one of their arguments.
+func (f *baseFixture) count(sub string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	n := 0
 	for _, args := range f.calls {
-		if slices.Contains(args, "fetch") {
-			return true
+		if slices.Contains(args, sub) {
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 func (f *baseFixture) resolve(t *testing.T, base string, fetch bool) terminalproto.BaseState {
@@ -143,6 +147,48 @@ func TestBaseFetchFailedWithoutLocalUsesRemoteTracking(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseFetchFailed, tracking)
+}
+
+// A branch that is only in the person's own repository was never on GitHub,
+// which the fetch cannot tell from a GitHub it could not reach: one
+// ls-remote settles it, and the run starts from the local branch as ahead.
+func TestBaseLocalOnlyBranchIsAheadNotFetchFailed(t *testing.T) {
+	f := newBaseFixture(t)
+	testGit(t, f.repo, "branch", "feature")
+	local := commitOf(t, f.repo, "refs/heads/feature")
+	state := f.resolve(t, "feature", true)
+	wantBase(t, state, terminalproto.BaseAhead, local)
+	if state.Remote != "" {
+		t.Fatalf("state = %+v, want no commit on GitHub's side", state)
+	}
+	if n := f.count("ls-remote"); n != 1 {
+		t.Fatalf("ls-remote ran %d times, want once", n)
+	}
+}
+
+// A GitHub that cannot be reached at all still answers fetch_failed: the
+// ls-remote fails too, rather than exiting 2 for a missing ref.
+func TestBaseFetchFailedStillReportedWhenRemoteIsUnreachable(t *testing.T) {
+	f := newBaseFixture(t)
+	local := commitOf(t, f.repo, "refs/heads/main")
+	if err := os.RemoveAll(f.remote); err != nil {
+		t.Fatal(err)
+	}
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseFetchFailed, local)
+	if n := f.count("ls-remote"); n != 1 {
+		t.Fatalf("ls-remote ran %d times, want once", n)
+	}
+}
+
+// A branch deleted on GitHub that the repository never had is missing, even
+// though an old fetch left a remote-tracking branch behind.
+func TestBaseMissingOnBothSidesAfterLsRemote(t *testing.T) {
+	f := newBaseFixture(t)
+	testGit(t, f.remote, "branch", "feature")
+	f.resolve(t, "feature", true) // leaves refs/remotes/origin/feature behind
+	testGit(t, f.remote, "branch", "-D", "feature")
+	_, err := ResolveBase(context.Background(), f.repo, "feature", true, f.git)
+	refusedWith(t, err, terminalproto.WorktreeBaseMissing)
 }
 
 func TestBaseNonGitHubOriginIsNotFetched(t *testing.T) {

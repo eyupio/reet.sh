@@ -3,6 +3,7 @@ package terminalhost
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -26,9 +27,10 @@ const baseFetchTimeout = 30 * time.Second
 //   - same, behind, no_local: GitHub's commit, so a run starts from what the
 //     pull request will be merged into;
 //   - ahead, diverged: the local commit, so work the person has not pushed is
-//     never silently left out;
-//   - fetch_failed: the local branch, or the last fetched remote-tracking
-//     branch when there is no local one;
+//     never silently left out. A branch GitHub answered that it does not have
+//     is ahead too, with no commit on GitHub's side;
+//   - fetch_failed (GitHub itself could not be reached): the local branch, or
+//     the last fetched remote-tracking branch when there is no local one;
 //   - no_remote: the local branch. With no github.com origin at all, nothing
 //     is fetched and the lookup is the one PrepareWorktree has always done,
 //     refs/heads/<base> and then refs/remotes/<base>; with one that has no
@@ -71,9 +73,9 @@ func ResolveBase(ctx context.Context, repo, base string, fetch bool, git GitRunn
 		return resolvedBase(state)
 	}
 
-	fetchFailed := false
+	found := baseFetched
 	if fetch {
-		fetchFailed = !fetchBase(ctx, git, repo, base)
+		found = fetchBase(ctx, git, repo, base)
 	}
 	remote, err := gitCommit(ctx, git, repo, "refs/remotes/origin/"+base)
 	if err != nil {
@@ -82,7 +84,14 @@ func ResolveBase(ctx context.Context, repo, base string, fetch bool, git GitRunn
 	state.Remote = remote
 
 	switch {
-	case fetchFailed:
+	case found == baseAbsent:
+		// GitHub was reached and has no such branch, so every local commit is
+		// one it lacks and a remote-tracking branch left by an older fetch is
+		// stale. With no local branch either, nothing is left to start from.
+		state.Relation = terminalproto.BaseAhead
+		state.Remote = ""
+		state.Start = local
+	case found == baseUnreachable:
 		// The remote-tracking branch may be out of date, so the local branch
 		// wins and the two sides are not compared.
 		state.Relation = terminalproto.BaseFetchFailed
@@ -136,21 +145,58 @@ func githubOrigin(ctx context.Context, git GitRunner, repo string) bool {
 	return ok
 }
 
-// fetchBase fetches base from origin into refs/remotes/origin/<base> and
-// reports whether it worked. The call runs with hooks off, gh's credentials
-// for github.com only (ghCredentialArgs), GIT_TERMINAL_PROMPT=0 so a missing
-// sign-in fails instead of waiting for a prompt (networkGitEnv), and
-// baseFetchTimeout of its own. It writes no FETCH_HEAD and fetches no tags,
-// so nothing but that one remote-tracking branch moves.
-func fetchBase(ctx context.Context, git GitRunner, repo, base string) bool {
+// baseFetch is what the one attempt to reach GitHub found.
+type baseFetch int
+
+const (
+	// baseFetched: refs/remotes/origin/<base> is now GitHub's branch.
+	baseFetched baseFetch = iota
+	// baseUnreachable: GitHub did not answer, so nothing is known about it.
+	baseUnreachable
+	// baseAbsent: GitHub answered and has no such branch.
+	baseAbsent
+)
+
+// fetchBase fetches base from origin into refs/remotes/origin/<base>. Every
+// call runs with hooks off, gh's credentials for github.com only
+// (ghCredentialArgs) and GIT_TERMINAL_PROMPT=0, so a missing sign-in fails
+// instead of waiting for a prompt (networkGitEnv); the whole attempt shares
+// baseFetchTimeout. The fetch writes no FETCH_HEAD and fetches no tags, so
+// nothing but that one remote-tracking branch moves.
+//
+// A fetch fails the same way for a GitHub that cannot be reached and for a
+// branch that is not on it, so a failure within the bound asks once more
+// with `ls-remote --exit-code`, whose documented exit status 2 is "no
+// matching refs" and nothing else. The exit status is read from the error,
+// never from git's output, which is localised.
+func fetchBase(ctx context.Context, git GitRunner, repo, base string) baseFetch {
 	ctx, cancel := context.WithTimeout(ctx, baseFetchTimeout)
 	defer cancel()
-	args := []string{"-c", "core.hooksPath=/dev/null"}
-	args = append(args, ghCredentialArgs()...)
-	args = append(args, "fetch", "--no-tags", "--no-write-fetch-head", "origin",
+	ctx = withGitEnv(ctx, networkGitEnv()...)
+	args := append(networkGitArgs(), "fetch", "--no-tags", "--no-write-fetch-head", "origin",
 		"+refs/heads/"+base+":refs/remotes/origin/"+base)
-	_, err := git(withGitEnv(ctx, networkGitEnv()...), repo, args...)
-	return err == nil && ctx.Err() == nil
+	if _, err := git(ctx, repo, args...); err == nil {
+		if ctx.Err() == nil {
+			return baseFetched
+		}
+		return baseUnreachable
+	}
+	if ctx.Err() != nil {
+		return baseUnreachable
+	}
+	args = append(networkGitArgs(), "ls-remote", "--exit-code", "origin", "refs/heads/"+base)
+	_, err := git(ctx, repo, args...)
+	var exit *exec.ExitError
+	if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() == 2 {
+		return baseAbsent
+	}
+	return baseUnreachable
+}
+
+// networkGitArgs are the arguments every call that may reach github.com
+// carries: hooks off, and gh's credentials for github.com only.
+func networkGitArgs() []string {
+	return append([]string{"-c", "core.hooksPath=/dev/null"}, ghCredentialArgs()...)
 }
 
 // isAncestor reports whether commit is an ancestor of other (or the same

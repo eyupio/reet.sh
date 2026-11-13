@@ -28,7 +28,7 @@ func repoCloneConfig(t *testing.T) AgentConfig {
 }
 
 // RepoClone is reported only with launch and worktrees, the negotiated
-// repo-clone-v1, and both git and gh found.
+// repo-clone-v1, both git and gh found, and terminal access on.
 func TestRepoCloneCapability(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("terminal control is Linux and macOS only")
@@ -46,6 +46,9 @@ func TestRepoCloneCapability(t *testing.T) {
 		{"worktree not negotiated", func(c *AgentConfig) { c.worktree = false }, false},
 		{"launch not negotiated", func(c *AgentConfig) { c.launch = false }, false},
 		{"no terminal control", func(c *AgentConfig) { c.TerminalSession = nil }, false},
+		{"terminal access off", func(c *AgentConfig) {
+			c.TerminalEnabled, c.TerminalReadiness = false, terminalproto.DisabledLocally
+		}, false},
 	} {
 		cfg := repoCloneConfig(t)
 		tc.edit(&cfg)
@@ -91,6 +94,7 @@ func TestRepoCloneRequestsFollowTheAdvertisedCapability(t *testing.T) {
 		{"everything on", func(*AgentConfig) {}, true},
 		{"gh not found", func(c *AgentConfig) { c.GHAvailable = func() bool { return false } }, false},
 		{"git not found", func(c *AgentConfig) { c.GitAvailable = func() bool { return false } }, false},
+		{"terminal access off", func(c *AgentConfig) { c.TerminalAllowed = func() bool { return false } }, false},
 		{"not negotiated", func(c *AgentConfig) { c.repoClone = false }, true},
 	} {
 		cfg := repoCloneConfig(t)

@@ -103,11 +103,14 @@ const (
 	RepoCloneDenied RepoCloneReason = "denied"
 	// RepoCloneBusy: the machine is already cloning; nothing was started.
 	RepoCloneBusy RepoCloneReason = "busy"
+	// RepoCloneSSHRewrite: the machine's git settings send github.com over
+	// ssh, which the clone refuses.
+	RepoCloneSSHRewrite RepoCloneReason = "ssh_rewrite"
 )
 
 func (r RepoCloneReason) valid() bool {
 	switch r {
-	case RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied, RepoCloneBusy:
+	case RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied, RepoCloneBusy, RepoCloneSSHRewrite:
 		return true
 	}
 	return false

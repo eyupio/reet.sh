@@ -1343,8 +1343,10 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		BaseFresh: cfg.baseFresh && worktree,
 		// Cloning makes a project folder for runs, so it follows Worktree as
 		// fetching a base does; it also needs gh, whose sign-in is what the
-		// clone authenticates with. The sign-in itself is checked per clone.
-		RepoClone:       cfg.repoClone && worktree && cfg.GHAvailable != nil && cfg.GHAvailable(),
+		// clone authenticates with, and terminal access on, as BranchSync does,
+		// so a machine with access off is not offered. The sign-in itself, and
+		// the machine's consent, are checked per clone.
+		RepoClone:       cfg.repoClone && worktree && enabled && cfg.GHAvailable != nil && cfg.GHAvailable(),
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,

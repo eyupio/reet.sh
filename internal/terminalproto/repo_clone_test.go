@@ -126,6 +126,8 @@ func TestRepoCloneResultValid(t *testing.T) {
 		"failed":              {RepoCloneResult{Reason: RepoCloneFailed}, true},
 		"denied":              {RepoCloneResult{Reason: RepoCloneDenied}, true},
 		"busy":                {RepoCloneResult{Reason: RepoCloneBusy}, true},
+		"ssh rewrite":         {RepoCloneResult{Reason: RepoCloneSSHRewrite}, true},
+		"ssh rewrite and dir": {RepoCloneResult{Reason: RepoCloneSSHRewrite, Dir: "/home/u/x"}, false},
 		"empty":               {RepoCloneResult{}, false},
 		"dir and reason":      {RepoCloneResult{Dir: "/home/u/x", Reason: RepoCloneFailed}, false},
 		"unknown reason":      {RepoCloneResult{Reason: "boom"}, false},
@@ -138,7 +140,7 @@ func TestRepoCloneResultValid(t *testing.T) {
 		"branch without dir":  {RepoCloneResult{DefaultBranch: "main"}, false},
 		"flags without dir":   {RepoCloneResult{Marked: true}, false},
 	}
-	for _, reason := range []RepoCloneReason{RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied, RepoCloneBusy} {
+	for _, reason := range []RepoCloneReason{RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied, RepoCloneBusy, RepoCloneSSHRewrite} {
 		cases["reason "+string(reason)] = struct {
 			r    RepoCloneResult
 			want bool

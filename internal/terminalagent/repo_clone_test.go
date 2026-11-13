@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalhost"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -188,4 +189,16 @@ func TestRepoCloneHasASlotOfItsOwn(t *testing.T) {
 	}
 	holdOnce.Do(func() { close(hold) })
 	next(t, got, "base-check-request-2")
+}
+
+// The connector answers a clone that has not returned after the clone's own
+// 10-minute bound and before the controller's call gives up, so a stuck
+// clone's answer never races the controller.
+func TestRepoCloneAnswerBoundSitsBetweenTheClonesAndTheControllers(t *testing.T) {
+	if repoCloneAnswerAfter != 10*time.Minute+15*time.Second {
+		t.Fatalf("repoCloneAnswerAfter = %v, want 10m15s", repoCloneAnswerAfter)
+	}
+	if repoCloneAnswerAfter >= terminalbroker.RepoCloneCallTimeout {
+		t.Fatalf("answer %v is not under the controller's %v", repoCloneAnswerAfter, terminalbroker.RepoCloneCallTimeout)
+	}
 }

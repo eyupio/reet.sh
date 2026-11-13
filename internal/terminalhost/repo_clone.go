@@ -26,9 +26,15 @@ const (
 	// cloneMarker is the file reet writes into <clone>/.git when it made the
 	// clone itself; its content is "owner/repo\n".
 	cloneMarker = "reet-clone"
+	// leftoverAge is how long a temporary clone folder is left alone: longer
+	// than any clone runs (repoCloneTimeout), so it is never one in progress.
+	leftoverAge = 15 * time.Minute
 )
 
 var errGHMissing = errors.New("gh is not installed")
+
+// removeLeftover removes a leftover temporary folder; tests replace it.
+var removeLeftover = os.RemoveAll
 
 // GHRunner runs `gh args...` and returns its combined output. The real one
 // is ExecGH; tests fake it.
@@ -79,7 +85,13 @@ func ExecCloneGit(ctx context.Context, dir string, args ...string) ([]byte, erro
 // made in a temporary folder next to it, the marker written into it, and the
 // folder renamed into place without replacing anything. A clone that fails
 // removes its temporary folder, and the owner folder when this call made it
-// and it is empty; nothing else is ever removed.
+// and it is empty. Before cloning, the temporary folders earlier clones of
+// the same repository left behind when cut off are removed, under the exact
+// conditions removeLeftovers states; nothing else is ever removed.
+//
+// The clone is a full, normal one: its remote is named origin whatever the
+// person's clone.defaultRemoteName says, and tags are fetched as in any
+// clone. A git setting that rewrites github.com to ssh answers ssh_rewrite.
 //
 // The clone reaches github.com only and runs no LFS filter (cloneFilterArgs).
 // Any other smudge filter the person's own git configuration names still runs
@@ -137,6 +149,8 @@ func CloneRepo(ctx context.Context, home string, req terminalproto.RepoClone, gi
 		return refuse(terminalproto.RepoCloneFailed)
 	}
 
+	removeLeftovers(ownerDir, req)
+
 	// The temporary folder is made here, exclusively, so it is this call's
 	// and nobody else's; git clones into an empty folder that exists.
 	var suffix [8]byte
@@ -162,7 +176,7 @@ func CloneRepo(ctx context.Context, home string, req terminalproto.RepoClone, gi
 	// from running on this checkout at all (see cloneFilterArgs).
 	cloneCtx := withGitEnv(ctx, append(networkGitEnv(), "LANG=C", "GIT_LFS_SKIP_SMUDGE=1")...)
 	args := append(networkGitArgs(), cloneFilterArgs...)
-	args = append(args, "clone", "--no-tags", "https://github.com/"+req.Owner+"/"+req.Repo+".git", temp)
+	args = append(args, "clone", "--origin", "origin", "https://github.com/"+req.Owner+"/"+req.Repo+".git", temp)
 	out, err := git(cloneCtx, ownerDir, args...)
 	if err != nil || ctx.Err() != nil {
 		discard()
@@ -171,6 +185,8 @@ func CloneRepo(ctx context.Context, home string, req terminalproto.RepoClone, gi
 			return refuse(terminalproto.RepoCloneTimedOut)
 		case errors.Is(err, errGitMissing):
 			return refuse(terminalproto.RepoCloneFailed)
+		case sshRefused(out):
+			return refuse(terminalproto.RepoCloneSSHRewrite)
 		case noAccess(out):
 			return refuse(terminalproto.RepoCloneNoAccess)
 		}
@@ -206,6 +222,63 @@ var cloneFilterArgs = []string{"-c", "filter.lfs.process=", "-c", "filter.lfs.sm
 // visible to the sign-in: GitHub answers both the same way.
 func noAccess(out []byte) bool {
 	return bytes.Contains(out, []byte("Repository not found")) || bytes.Contains(out, []byte("could not read Username"))
+}
+
+// sshRefused reports git's own words for refusing the ssh transport: the
+// person's git settings rewrote the github.com URL to ssh (url.<base>.insteadOf),
+// which the clone does not allow.
+func sshRefused(out []byte) bool {
+	return bytes.Contains(out, []byte("transport 'ssh' not allowed"))
+}
+
+// removeLeftovers removes the temporary folders earlier clones of req's
+// repository left in ownerDir when they were cut off (the connector stopped,
+// the machine lost power). A folder is a leftover only when all of these
+// hold: it is directly in ownerDir; its name is exactly
+// ".<repo>.cloning-" and 16 lower-case hex characters; it is a real
+// directory, not a symlink, owned by this user; it last changed more than
+// leftoverAge ago; and it is not a clone reet made under that name, that is,
+// its marker does not name <owner>/<its own name>. Only that folder is
+// removed, and a failure to remove it is ignored.
+func removeLeftovers(ownerDir string, req terminalproto.RepoClone) {
+	list, err := os.ReadDir(ownerDir)
+	if err != nil {
+		return
+	}
+	prefix := "." + req.Repo + ".cloning-"
+	for _, entry := range list {
+		name := entry.Name()
+		suffix, ok := strings.CutPrefix(name, prefix)
+		if !ok || !lowerHex16(suffix) {
+			continue
+		}
+		path := filepath.Join(ownerDir, name)
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || ownedByCurrentUser(info) != nil {
+			continue
+		}
+		if time.Since(info.ModTime()) <= leftoverAge {
+			continue
+		}
+		if origin, marked := cloneMarked(path); marked && strings.EqualFold(origin, req.Owner+"/"+name) {
+			continue
+		}
+		_ = removeLeftover(path)
+	}
+}
+
+// lowerHex16 reports whether s is exactly 16 lower-case hex characters, the
+// suffix CloneRepo gives its temporary folder.
+func lowerHex16(s string) bool {
+	if len(s) != 16 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // hasCaseTwin reports whether dir holds an entry whose name equals name
@@ -316,9 +389,14 @@ func cloneMarked(dir string) (origin string, ok bool) {
 }
 
 // cloneDefaultBranch is the repository's default branch (syncDefaultBase),
-// else the branch its working tree has checked out, else "".
+// else the branch its working tree has checked out, else "". A clone whose
+// HEAD has no commit (an empty repository) has none: its HEAD names a branch
+// that does not exist yet.
 func cloneDefaultBranch(ctx context.Context, dir string, git GitRunner) string {
 	ctx = pinGitDir(ctx, dir)
+	if _, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err != nil {
+		return ""
+	}
 	if name := syncDefaultBase(ctx, dir, git); name != "" {
 		return name
 	}

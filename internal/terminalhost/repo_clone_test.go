@@ -24,6 +24,9 @@ import (
 // one of github.com.
 type cloneFixture struct {
 	home, remote string
+	// name is the repository under o the stand-in answers for; "r" unless
+	// a test sets it.
+	name string
 	// onClone, when set, runs in place of the real clone: it is given the
 	// context, the clone's arguments and the real runner.
 	onClone func(ctx context.Context, dir string, args []string, real GitRunner) ([]byte, error)
@@ -40,7 +43,7 @@ func newCloneFixture(t *testing.T) *cloneFixture {
 	work := newRepo(t, home, "work")
 	remote := filepath.Join(home, "github.git")
 	testGit(t, home, "clone", "-q", "--bare", work, remote)
-	return &cloneFixture{home: home, remote: remote}
+	return &cloneFixture{home: home, remote: remote, name: "r"}
 }
 
 func (f *cloneFixture) git(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -52,7 +55,7 @@ func (f *cloneFixture) git(ctx context.Context, dir string, args ...string) ([]b
 	}
 	f.mu.Unlock()
 	real := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
-		rewrite := []string{"-c", "url." + f.remote + ".insteadOf=https://github.com/o/r.git"}
+		rewrite := []string{"-c", "url." + f.remote + ".insteadOf=https://github.com/o/" + f.name + ".git"}
 		return ExecGit(ctx, dir, append(rewrite, args...)...)
 	}
 	if isClone && f.onClone != nil {
@@ -174,14 +177,14 @@ func TestCloneRepoMakesAMarkedNormalClone(t *testing.T) {
 		t.Fatalf("clone calls %q", calls)
 	}
 	args := calls[0]
-	for _, banned := range []string{"--depth", "--filter", "--bare", "--mirror", "--shallow-since", "--single-branch"} {
+	for _, banned := range []string{"--depth", "--filter", "--bare", "--mirror", "--shallow-since", "--single-branch", "--no-tags"} {
 		for _, arg := range args {
 			if strings.HasPrefix(arg, banned) {
 				t.Fatalf("clone argv has %s: %q", banned, args)
 			}
 		}
 	}
-	want := append(append(networkGitArgs(), cloneFilterArgs...), "clone", "--no-tags", "https://github.com/o/r.git")
+	want := append(append(networkGitArgs(), cloneFilterArgs...), "clone", "--origin", "origin", "https://github.com/o/r.git")
 	if !slices.Equal(args[:len(args)-1], want) || !slices.Contains(args, "core.hooksPath=/dev/null") || !slices.Contains(args, "protocol.ssh.allow=never") {
 		t.Fatalf("clone argv %q, want %q then a temp folder", args, want)
 	}
@@ -776,5 +779,248 @@ func TestCloneRepoRunsNoLFSFilter(t *testing.T) {
 				t.Fatalf("clone environment %q", f.cloneEnv)
 			}
 		})
+	}
+}
+
+// The clone fetches tags as any clone does, and keeps them coming: no
+// remote.origin.tagopt is written. Its remote is origin whatever the
+// person's clone.defaultRemoteName says, since adoption and every later
+// fetch name origin.
+func TestCloneRepoKeepsTagsAndNamesOrigin(t *testing.T) {
+	f := newCloneFixture(t)
+	testGit(t, f.remote, "tag", "v1.0.0", "main")
+	writeFile(t, filepath.Join(f.home, ".gitconfig"), "[clone]\n\tdefaultRemoteName = upstream\n")
+	r := f.clone(t, "o", "r")
+	dest := filepath.Join(f.repos(), "o", "r")
+	if r != (terminalproto.RepoCloneResult{Dir: dest, DefaultBranch: "main", Marked: true}) {
+		t.Fatalf("result = %+v", r)
+	}
+	if got := testGit(t, dest, "tag", "--list"); got != "v1.0.0" {
+		t.Fatalf("tags %q", got)
+	}
+	if out, err := testGitErr(dest, "config", "--get", "remote.origin.tagopt"); err == nil {
+		t.Fatalf("remote.origin.tagopt is set: %q", out)
+	}
+	if got := testGit(t, dest, "remote"); got != "origin" {
+		t.Fatalf("remotes %q", got)
+	}
+	// A clone made so is adopted on a second request, which reads origin.
+	if again := f.clone(t, "o", "r"); again != (terminalproto.RepoCloneResult{Dir: dest, DefaultBranch: "main", Adopted: true, Marked: true}) {
+		t.Fatalf("second = %+v", again)
+	}
+}
+
+// A person's git settings that send github.com over ssh stop the clone,
+// since ssh is refused; the answer says so rather than a bare failure.
+func TestCloneRepoSSHRewrite(t *testing.T) {
+	f := newCloneFixture(t)
+	f.onClone = failClone("Cloning into '/x'...\nfatal: transport 'ssh' not allowed\n")
+	wantReason(t, f.clone(t, "o", "r"), terminalproto.RepoCloneSSHRewrite)
+	wantMissing(t, filepath.Join(f.repos(), "o"))
+
+	// The real git, with the rewrite a developer commonly sets: the clone
+	// runs without the stand-in's rewrite, so github.com is what git sees,
+	// and git refuses ssh before it reaches any network.
+	f = newCloneFixture(t)
+	writeFile(t, filepath.Join(f.home, ".gitconfig"), "[url \"git@github.com:\"]\n\tinsteadOf = https://github.com/\n")
+	f.onClone = func(ctx context.Context, dir string, args []string, _ GitRunner) ([]byte, error) {
+		return ExecGit(ctx, dir, args...)
+	}
+	wantReason(t, f.clone(t, "o", "r"), terminalproto.RepoCloneSSHRewrite)
+	wantMissing(t, filepath.Join(f.repos(), "o"))
+}
+
+// An empty repository clones, and has no default branch: its HEAD names a
+// branch that has no commit.
+func TestCloneRepoEmptyRepositoryHasNoDefaultBranch(t *testing.T) {
+	f := newCloneFixture(t)
+	if err := os.RemoveAll(f.remote); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, f.home, "init", "-q", "--bare", "-b", "main", f.remote)
+	r := f.clone(t, "o", "r")
+	dest := filepath.Join(f.repos(), "o", "r")
+	if r != (terminalproto.RepoCloneResult{Dir: dest, Marked: true}) {
+		t.Fatalf("result = %+v", r)
+	}
+	if again := f.clone(t, "o", "r"); again != (terminalproto.RepoCloneResult{Dir: dest, Adopted: true, Marked: true}) {
+		t.Fatalf("adopted = %+v", again)
+	}
+}
+
+// leftoverName is a temporary folder's name for repo, as CloneRepo makes it.
+func leftoverName(repo string) string { return "." + repo + ".cloning-0123456789abcdef" }
+
+// makeLeftover makes a folder at path with a half-written clone in it, last
+// changed age ago.
+func makeLeftover(t *testing.T, path string, age time.Duration) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(path, ".git", "objects"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(path, "half-written"), "x")
+	agePath(t, path, age)
+}
+
+func agePath(t *testing.T, path string, age time.Duration) {
+	t.Helper()
+	when := time.Now().Add(-age)
+	if err := os.Chtimes(path, when, when); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A clone cut off before it finished leaves its temporary folder; the next
+// clone of that repository removes it, and only under every condition.
+func TestCloneRepoRemovesAStaleLeftover(t *testing.T) {
+	f := newCloneFixture(t)
+	owner := filepath.Join(f.repos(), "o")
+	stale := filepath.Join(owner, leftoverName("r"))
+	makeLeftover(t, stale, 20*time.Minute)
+	// The temporary folder of a clone cut off after its marker was written
+	// names the repository, not the folder: it is a leftover too.
+	writeFile(t, filepath.Join(stale, ".git", cloneMarker), "o/r\n")
+	agePath(t, stale, 20*time.Minute)
+	// Another spelling of the suffix is a leftover of its own.
+	other := filepath.Join(owner, ".r.cloning-fedcba9876543210")
+	makeLeftover(t, other, time.Hour)
+	r := f.clone(t, "o", "r")
+	if r != (terminalproto.RepoCloneResult{Dir: filepath.Join(owner, "r"), DefaultBranch: "main", Marked: true}) {
+		t.Fatalf("result = %+v", r)
+	}
+	if names := entries(t, owner); !slices.Equal(names, []string{"r"}) {
+		t.Fatalf("owner folder holds %q", names)
+	}
+}
+
+func TestCloneRepoKeepsWhatIsNotALeftover(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// make builds what must be kept; keep lists the paths to check.
+		make func(t *testing.T, f *cloneFixture, owner string) []string
+		// repo is the repository cloned; "r" when empty.
+		repo string
+	}{
+		{"younger than 15 minutes", func(t *testing.T, f *cloneFixture, owner string) []string {
+			path := filepath.Join(owner, leftoverName("r"))
+			makeLeftover(t, path, 14*time.Minute)
+			return []string{path}
+		}, ""},
+		{"a symlink", func(t *testing.T, f *cloneFixture, owner string) []string {
+			target := filepath.Join(f.home, "target")
+			makeLeftover(t, target, time.Hour)
+			if err := os.MkdirAll(owner, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(owner, leftoverName("r"))
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			return []string{link, target}
+		}, ""},
+		{"a file", func(t *testing.T, f *cloneFixture, owner string) []string {
+			if err := os.MkdirAll(owner, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(owner, leftoverName("r"))
+			writeFile(t, path, "mine\n")
+			agePath(t, path, time.Hour)
+			return []string{path}
+		}, ""},
+		{"a clone reet made of a repository with that name", func(t *testing.T, f *cloneFixture, owner string) []string {
+			name := ".x.cloning-0123456789abcdef"
+			path := filepath.Join(owner, name)
+			f.handClone(t, path, "https://github.com/o/"+name+".git")
+			writeFile(t, filepath.Join(path, ".git", cloneMarker), "o/"+name+"\n")
+			agePath(t, path, time.Hour)
+			return []string{path}
+		}, "x"},
+		{"another repository's leftover", func(t *testing.T, f *cloneFixture, owner string) []string {
+			path := filepath.Join(owner, leftoverName("other"))
+			makeLeftover(t, path, time.Hour)
+			return []string{path}
+		}, ""},
+		{"another owner's leftover", func(t *testing.T, f *cloneFixture, owner string) []string {
+			path := filepath.Join(f.repos(), "p", leftoverName("r"))
+			makeLeftover(t, path, time.Hour)
+			return []string{path}
+		}, ""},
+		{"a leftover below the owner folder", func(t *testing.T, f *cloneFixture, owner string) []string {
+			path := filepath.Join(owner, "sub", leftoverName("r"))
+			makeLeftover(t, path, time.Hour)
+			return []string{path}
+		}, ""},
+		{"names that are not the temporary folder's", func(t *testing.T, f *cloneFixture, owner string) []string {
+			var paths []string
+			for _, name := range []string{
+				".r.cloning-0123456789ABCDEF",
+				".r.cloning-0123456789abcde",
+				".r.cloning-0123456789abcdef0",
+				".r.cloning-0123456789abcdeg",
+				"r.cloning-0123456789abcdef",
+				".R.cloning-0123456789abcdef",
+				".r.cloning-0123456789abcdef.bak",
+			} {
+				path := filepath.Join(owner, name)
+				makeLeftover(t, path, time.Hour)
+				paths = append(paths, path)
+			}
+			return paths
+		}, ""},
+		{"owned by another user", func(t *testing.T, f *cloneFixture, owner string) []string {
+			if os.Getuid() != 0 {
+				t.Skip("only root can give a folder to another user")
+			}
+			path := filepath.Join(owner, leftoverName("r"))
+			makeLeftover(t, path, time.Hour)
+			if err := os.Chown(path, 4242, 4242); err != nil {
+				t.Fatal(err)
+			}
+			agePath(t, path, time.Hour)
+			return []string{path}
+		}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newCloneFixture(t)
+			if tc.repo != "" {
+				f.name = tc.repo
+			}
+			owner := filepath.Join(f.repos(), "o")
+			keep := tc.make(t, f, owner)
+			var before [][]string
+			for _, path := range keep {
+				before = append(before, snapshot(t, path))
+			}
+			r := f.clone(t, "o", f.name)
+			if r != (terminalproto.RepoCloneResult{Dir: filepath.Join(owner, f.name), DefaultBranch: "main", Marked: true}) {
+				t.Fatalf("result = %+v", r)
+			}
+			for i, path := range keep {
+				if after := snapshot(t, path); !slices.Equal(before[i], after) {
+					t.Fatalf("%s changed:\n%q\n%q", path, before[i], after)
+				}
+			}
+		})
+	}
+}
+
+// A leftover that cannot be removed does not stop the clone.
+func TestCloneRepoIgnoresALeftoverItCannotRemove(t *testing.T) {
+	f := newCloneFixture(t)
+	owner := filepath.Join(f.repos(), "o")
+	stale := filepath.Join(owner, leftoverName("r"))
+	makeLeftover(t, stale, time.Hour)
+	var tried []string
+	removeLeftover = func(path string) error {
+		tried = append(tried, path)
+		return errors.New("permission denied")
+	}
+	t.Cleanup(func() { removeLeftover = os.RemoveAll })
+	r := f.clone(t, "o", "r")
+	if r != (terminalproto.RepoCloneResult{Dir: filepath.Join(owner, "r"), DefaultBranch: "main", Marked: true}) {
+		t.Fatalf("result = %+v", r)
+	}
+	if !slices.Equal(tried, []string{stale}) {
+		t.Fatalf("tried to remove %q", tried)
 	}
 }

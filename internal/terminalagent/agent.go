@@ -55,8 +55,11 @@ var (
 	// deadline is 33 s, which is under this answer.
 	baseCheckAnswerAfter = 36 * time.Second
 	// repoCloneAnswerAfter bounds a clone that has not returned. Its own
-	// deadline is 10 minutes, which is under this answer.
-	repoCloneAnswerAfter = 10*time.Minute + 30*time.Second
+	// deadline is 10 minutes, which is under this answer, and this answer is
+	// under the controller's 10 minutes 30 seconds
+	// (terminalbroker.RepoCloneCallTimeout), so it arrives before the
+	// controller gives up.
+	repoCloneAnswerAfter = 10*time.Minute + 15*time.Second
 	// modelsAnswerAfter is when a model listing that has not returned is
 	// answered timed_out and its slot freed. ListModels kills its process at
 	// 10 s; this leaves room for the reply and process reaping.

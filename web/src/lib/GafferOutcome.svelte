@@ -76,9 +76,9 @@
   const tools = $derived(machine ? CHAT_TOOLS.filter(id => structuredAgent(machine.capabilities, id)) : [])
   const cap = $derived(Math.max(1, Math.min(MAX_OUTCOME_SESSIONS, room)))
   const blocker = $derived(loading ? '' : !provider ? 'Choose a default Gaffer provider in Gaffer settings first.' : objectiveBlocker({ objective, project: !!project, machineReady: !!machine?.ready, agent: !!tool && tools.includes(tool), room }))
+  const crewTools = $derived(CREW_ROLES.map(item => crew[item.role].tool))
   // Google Antigravity never starts in a folder that was not trusted, so approving a crew with it and no trust would only fail later.
   const approveBlocker = $derived(planBlocker(sessions, room) || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
-  const crewTools = $derived(CREW_ROLES.map(item => crew[item.role].tool))
   const sourceOffered = $derived.by(() => {
     const ids = KNOWN_SOURCES.map(item => item.id)
     if (savedSource && !ids.includes(savedSource)) ids.push(savedSource)

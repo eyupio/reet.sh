@@ -190,7 +190,7 @@
         if (accounts) {
           if (f.status === 'fulfilled' && f.value) { followups = f.value; followupsFailed = false }
           else followupsFailed = true
-          void listGafferOutcomes(bounded()).then(found => { if (!stale()) { factory = factoryMembers(found); factoryRecords = found } }).catch(() => {})
+          void listGafferOutcomes(bounded()).then(found => { if (!stale()) { const floor = found.filter(record => !record.archivedAt); factory = factoryMembers(floor); factoryRecords = floor } }).catch(() => {})
         }
         if (s.status === 'fulfilled' && s.value) { sessions = s.value; sessionsFailed = false } else { failed = true; sessionsFailed = sessions === undefined }
         if (p.status === 'fulfilled' && p.value) { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else { failed = true; projectsFailed = projects === undefined }

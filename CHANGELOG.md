@@ -5,6 +5,42 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Ending a session that a Factory pipeline is working in now says so first.**
+  The End and Remove from history dialogs name the pipeline and stage and what
+  ending it costs. Afterwards the pipeline's card says its session was ended
+  and offers what actually works: run the stage again in a new session in the
+  same folder and branch, move to the next stage, or stop following. It no
+  longer offers to tell an agent that is not there.
+- **Try again now recovers a pipeline whose session is gone.** It used to try
+  to follow the dead session again and fail, or refuse because the closed goal
+  was still there. It starts the stage in a new session, or follows the session
+  again if it is still running.
+- **The controller ends sessions a pipeline has finished with**, keeping their
+  history: the session a stage leaves when the next stage gets one of its own,
+  and the last session when every stage is done. Worktrees are not touched.
+- **A stopped outcome restarts only what you ask for.** A pipeline shown as not
+  started could not be tried again, and trying another one again, adding a
+  pipeline or approving a merge started every pipeline that had been waiting.
+- Moving a pipeline on is refused if it has already left the stage you were
+  looking at. A Cline stage that is sent back keeps its billing source. An
+  outcome that names Google Antigravity without folder trust is refused when it
+  is approved, instead of failing at that stage.
+- An outcome whose pipelines are still running is no longer dropped when the
+  account passes thirty outcomes.
+- **MCP and Gaffer's own tools:** Factory changes are refused on a fenced
+  controller, as they are in the browser. `reet_tell_pipeline_agent` needs
+  `confirm: true`. Telling an agent, adding pipelines and sending work back are
+  refused for an outcome that runs on YOLO and stay Factory-page actions.
+  `reet_stop_outcome` now stops following the outcome instead of reporting
+  success when nothing was being started; `reet_move_pipeline_on` takes the
+  `stage` it is moving on from. Update the stdio MCP package with the
+  controller.
+- Factory page: what an action did, or why it was refused, stays in view and
+  is announced as a problem when it is one; a refusal of Tell the agent, Send
+  back or Add pipelines shows inside its dialog; a failed first read is no
+  longer shown as an empty factory; proposals in a report start ticked; a long
+  pipeline on a phone names the stage in hand instead of overlapping eight
+  names; a session's Factory badge opens its pipeline.
 - A Factory outcome can no longer get stuck on a session that is gone. When a
   followed session is removed (for example ended with its history removed), the
   controller now notices within seconds, stops following that pipeline and

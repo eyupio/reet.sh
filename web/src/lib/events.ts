@@ -101,6 +101,7 @@ export function eventLabel(e: Event): string {
     case 'gaffer-stage-started': return d.stage ? `A pipeline's ${d.stage} stage started` : 'An outcome session started and Gaffer is following it'
     case 'gaffer-pipeline-waiting-merge': return 'A pipeline is ready and waits for your merge decision'
     case 'gaffer-pipeline-done': return 'A pipeline finished every stage'
+    case 'gaffer-session-ended': return 'The controller ended a session its pipeline had finished with'
     case 'gaffer-pipeline-stopped': return `A pipeline stopped${d.stage ? ` at its ${d.stage} stage` : ''}${d.reason ? `: ${d.reason}` : ''}`
     case 'gaffer-pipeline-moved-on': return 'Moved a pipeline to its next stage'
     case 'gaffer-goal-needs-you': return `A goal needs you${d.stage ? ` (${d.stage} stage)` : ''}${d.reason ? `: ${d.reason}` : ''}`

@@ -5,6 +5,18 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- You can add a project from a GitHub repository that isn't on any machine
+  yet. **Add** in the project rail now offers **From GitHub** beside **Folder
+  on a machine**: write `owner/name` or paste the github.com link, choose the
+  machine, and reet clones it there into `~/reet/repos/owner/name` and adds it
+  as a repository project, with the repository's default branch as its base.
+  The machine clones with its own GitHub CLI sign-in, so it needs a current
+  reet, git, `gh auth login` done there and terminal access on; a sign-in held
+  only in a `GH_TOKEN` variable or a custom gh config folder isn't seen. No
+  GitHub credential reaches the controller. A clone can take minutes: you can
+  close the dialog, and the project appears in the rail when it's done. The
+  project records which repository it came from, and because reet made the
+  checkout, starting a session in it never asks where it starts.
 - A starting session now reports its stages to the controller as it goes.
   The machine sent each stage note with the session's id attached, which the
   private protocol refuses, so every note was dropped before it left the

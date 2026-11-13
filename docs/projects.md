@@ -9,8 +9,10 @@ the sessions started in it.
 There is no separate Projects page: `/projects` and `/projects/<id>` go to Home.
 
 The rail is `web/src/lib/home/ProjectRail.svelte`, the Add and Edit dialog `AddProjectDialog.svelte`
-with `FolderBrowser.svelte` (how a machine lists its folders is in [Folder browse](folder-browse.md)),
-the Worktrees list `ProjectWorktrees.svelte`. The controller code is `internal/api/folder_projects.go`,
+with `FolderBrowser.svelte` (how a machine lists its folders is in [Folder browse](folder-browse.md))
+and `AddFromGitHub.svelte` (with `web/src/lib/githubRepo.ts`), the Worktrees list
+`ProjectWorktrees.svelte`. The controller code is `internal/api/folder_projects.go`,
+`internal/api/folder_projects_github.go` for a project from GitHub,
 `internal/store/store_folder_projects.go` and, for the move from saved Projects,
 `internal/store/store_projects_migrate.go`. The design is in
 [the agents home spec](https://github.com/eyupio/reet.sh/blob/main/docs/superpowers/specs/2026-10-26-agents-home-design.md) ("Project registry",
@@ -87,7 +89,8 @@ on hover or keyboard focus with a mouse, always on touch; arrow keys move, Escap
 session here**, **Edit**, **Worktrees**, **Move up**, **Move down** and **Remove from reet**. A
 machine's own **+** on Home asks which project on that machine to start, or offers a terminal session.
 
-- **Add** opens the folder browser on the first machine that can browse; a machine that cannot (it is
+- **Add** offers two ways in, **Folder on a machine** (the default) and **From GitHub** (below). A
+  folder opens the folder browser on the first machine that can browse; a machine that cannot (it is
   offline, runs an older reet, or has browsing switched off) still takes a typed path, checked again
   at launch. Success: "Sorted. reet added." in Home's status line.
 - **Edit** reads the project again with its starter prompt and sends only what changed, naming the
@@ -114,6 +117,51 @@ How it works is in [Start an agent session](start-agent-session.md#start-in-seve
 `/?project=<id>` marks that project's card and puts it in the launch bar. Jump finds
 projects by name and opens that address.
 
+## Adding from GitHub
+
+**From GitHub** in the Add dialog adds a repository that is not on any machine yet. Write it as
+`owner/name` or paste its `https://github.com/owner/name` link (a `.git` ending is fine), choose the
+machine, and optionally a name; once the repository reads, the dialog says where it goes ("reet will
+clone it to ~/reet/repos/owner/name on studio.") and **Clone and add** is offered. Only github.com is
+taken: another host, `http`, a port, a sign-in in the link or an `owner/name/` with a trailing slash is
+refused with "Write the repository as owner/name, or paste its github.com link."
+
+The machine picker lists only machines that can clone. A machine needs, in plain terms:
+
+- a current reet (one that reports it can clone from GitHub),
+- git,
+- the GitHub CLI (`gh`), signed in on that machine with `gh auth login`,
+- terminal access on.
+
+A sign-in held only in a `GH_TOKEN` environment variable, or in a custom gh config folder, is not seen
+by reet on that machine: reet runs gh with a clean environment, so use `gh auth login`. When no
+machine can clone, the dialog says "No machine here can clone from GitHub yet. It needs a current reet,
+git and the GitHub CLI." and shows no form.
+
+The machine clones the repository with its own gh sign-in into `~/reet/repos/<owner>/<name>` in its
+user's home, and the controller saves an ordinary repository project for that folder, with the
+repository's default branch as its base and the name defaulting to the repository's. reet records where
+it came from (`origin`, `owner/name`) and that reet cloned it (`cloned`). No GitHub credential reaches
+the controller. A folder already there that is a clone of the same repository is used as it is; a
+folder there that is anything else is refused and left alone.
+
+A clone can take minutes (10 at most). While it runs the form gives way to "Cloning owner/name on
+studio… You can close this; the project appears when it's done." with **Close**; closing does not stop
+the clone. The page reads the clone every two seconds while Home (or the Sessions screen or Factory,
+which hold the same rail) is open, with the dialog open or not; when it is done the project is added
+and chosen in the rail, with "Sorted. name added." The clone being read is kept in memory for the
+page's life only; a page opened later simply finds the project in its list. A failure is the
+controller's sentence ("studio isn't signed in to GitHub. Run gh auth login there, then try again.",
+"GitHub has no owner/name that studio's sign-in can read.", the folder holding something else, ten
+minutes running out) in the dialog's status line with what was typed still there, or in Home's status
+line when the dialog was closed. A start refused at once (the machine offline or too old for this, five
+clones already running for the account, the project limit, a name already used) says so in the
+dialog. Asking again for the same repository on the same machine while it is still cloning joins that
+clone.
+
+A project reet cloned is never asked **Check where this starts** (below): the checkout is reet's own,
+so nothing local can be ahead of GitHub there.
+
 ## Routes and shapes
 
 All under `/api/v2`, with the access above; refusals are `{error, code, field?, message}` with one
@@ -138,9 +186,17 @@ plain sentence, and a field refusal names the field so the dialog can move focus
 - `DELETE /folder-projects/{id}` with `If-Match` → `{ok, message}`.
 - `POST /folder-projects/reorder` with `{ids, versions}` naming every project once → the list.
 - `POST /folder-projects/import-saved` with `{}` → the list plus `{created, skipped, message}`.
+- `POST /folder-projects/from-github` with `{host, repo, name}` (`repo` as `owner/name` or its
+  github.com link; `name` `""` for the repository's) → 202 `{cloneId, dir}`, or at once 422
+  `invalid_repo`, 409 `repo_clone_unsupported`, 409 `machine_offline`, 429 `clone_limit` (five running
+  per account), or the create's own refusals (`project_limit`, `name_taken`, `unknown_machine`).
+- `GET /folder-projects/clones/{id}` → `{state: "cloning"}`, `{state: "done", project}` or `{state:
+  "failed", code, sentence}`; an unknown id, another account's, or one that ended more than 10 minutes
+  ago is 404 `clone_not_found`.
 
 A FolderProject is `{id, host, machine, dir, name, isRepo, baseBranch, worktreeDefault, defaultTool,
-defaultModel, defaultEffort, hasStarterPrompt, starterPrompt?, note, position, createdAt, updatedAt, version}`.
+defaultModel, defaultEffort, hasStarterPrompt, starterPrompt?, note, position, createdAt, updatedAt, version,
+origin?, cloned?}`; `origin` (`owner/name`) and `cloned` are there only for a project added from GitHub.
 `machine` is the machine's current name, `""` once it is no longer enrolled (the card says "machine
 not enrolled"). A terminal create may carry `projectId`; the controller checks it belongs to the
 account and to that machine (404 `project_not_found`, 422 `project_machine_mismatch`) and never
@@ -456,7 +512,7 @@ kept." *Remove worktree* never deletes the branch.
 ## Audit
 
 `project-add`, `project-update` and `project-remove` record the project's id, machine (id and name),
-folder and name; `projects-migrated` the saved Project's name and the folder projects made from it;
+folder and name (and, for a project added from GitHub, its `origin` and `cloned`); `projects-migrated` the saved Project's name and the folder projects made from it;
 `folder-browse` one row per opened browser (machine, starting folder, pages). None carries a starter
 prompt. Activity reads them as, for example, "Added project reet (/home/me/reet on studio)", "Removed
 project reet; its folder on studio is untouched", "Moved saved Project Site into the rail as 2

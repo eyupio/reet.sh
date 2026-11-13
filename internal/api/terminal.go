@@ -344,6 +344,7 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if started && create.Tool != "" {
 		s.auditTerminalLaunch(uid, in.AgentID, create, session)
+		s.recordSessionBase(uid, create, session)
 	}
 	writeJSON(w, 200, session)
 }

@@ -17,8 +17,9 @@ import (
 )
 
 // isolateWorktree makes a launch in a saved git repository run in a worktree
-// of its own, whatever the client asked for. Two agents can then never share
-// one checkout of a repository reet knows about.
+// of its own, whatever the client asked for, and names the project's base
+// branch for it to start from. Two agents can then never share one checkout
+// of a repository reet knows about.
 //
 // The run token comes from the request id, never from a clock or a random
 // source: a retried create must carry the same token so the machine adopts
@@ -34,9 +35,10 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 		return false
 	}
 	// Reuse the controller-derived identity from the original receipt. A
-	// project renamed/removed while a reply was uncertain cannot change a retry.
+	// project renamed/removed, or its base rebranched, while a reply was
+	// uncertain cannot change a retry: it must be the create already stored.
 	if operation, err := s.st.TerminalOperationFor(uid, agent, "create", requestID); err == nil && operation.Create != nil {
-		c.Worktree, c.Project = operation.Create.Worktree, operation.Create.Project
+		c.Worktree, c.Project, c.Base = operation.Create.Worktree, operation.Create.Project, operation.Create.Base
 		if c.Worktree != "" && c.ProjectID == "" {
 			if session, err := s.st.TerminalSessionFor(uid, operation.SessionID); err == nil && session.ProjectID != nil {
 				c.ProjectID = *session.ProjectID
@@ -50,10 +52,44 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 	}
 	c.Worktree = worktreeRunToken(requestID)
 	c.Project = terminalproto.Slug(p.Name, "project")
+	if c.Base == "" {
+		// The project's saved base is what work on it starts from. A launch
+		// that named its own base keeps it, and a project that saved none
+		// leaves the choice to the machine, which starts from the branch the
+		// repository's remote calls its default.
+		c.Base = p.BaseBranch
+	}
 	if c.ProjectID == "" {
 		c.ProjectID = p.ID
 	}
 	return true
+}
+
+// baseWorthANotice says whether where a worktree started from is worth
+// telling the person about: the task did not start from the base as GitHub
+// has it, or GitHub was never reached. The rest (the two sides agreed, the
+// repository has no such local branch, there is no such branch on GitHub)
+// needs no notice.
+func baseWorthANotice(relation string) bool {
+	switch terminalproto.BaseRelation(relation) {
+	case terminalproto.BaseBehind, terminalproto.BaseAhead, terminalproto.BaseDiverged, terminalproto.BaseFetchFailed:
+		return true
+	}
+	return false
+}
+
+// recordSessionBase notes what an isolated launch started from, once per
+// session: the base the controller named, how it stood against GitHub's and
+// the commit the worktree was made at. The source follows the launch audit's
+// ("ui": both a browser launch and an outcome's are the person's own).
+func (s *server) recordSessionBase(uid int64, in terminalproto.Create, session store.TerminalSession) {
+	if !baseWorthANotice(session.BaseRelation) {
+		return
+	}
+	_ = s.st.AddEventOnceFor(uid, "ui", "worktree-base", "", map[string]string{
+		"machine": session.AgentID, "host": s.machineHost(uid, session.AgentID), "session": session.ID,
+		"base": in.Base, "relation": session.BaseRelation, "start": session.BaseStart,
+	})
 }
 
 // worktreeRunToken derives a valid run token (32 lower-case hex digits) from a

@@ -74,6 +74,71 @@ func TestTerminalSessionRecordsWhereItsWorktreeIs(t *testing.T) {
 	}
 }
 
+func TestTerminalSessionRecordsWhatItsWorktreeStartedFrom(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	session, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, worktreeCreateIn())
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Repeat("ab", 20)
+	ahead := terminalproto.BaseState{Base: "develop", Relation: terminalproto.BaseAhead, Local: start, Start: start}
+	// A base belongs to a worktree, so it is refused before the machine's
+	// report of where that worktree is has been recorded.
+	if err := s.RecordTerminalBaseFor(uid, a.ID, session.ID, ahead); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatal("base recorded without a worktree", err)
+	}
+	path := "/home/u/.reet/worktrees/demo/site/" + storeRun
+	if err := s.RecordTerminalWorktreeFor(uid, a.ID, session.ID, path, "site"); err != nil {
+		t.Fatal(err)
+	}
+	for name, bad := range map[string]terminalproto.BaseState{
+		"unknown relation": {Relation: "elsewhere", Start: start},
+		"no start":         {Relation: terminalproto.BaseAhead},
+		"short start":      {Relation: terminalproto.BaseAhead, Start: "abc123"},
+		"base is a path":   {Base: "../main", Relation: terminalproto.BaseAhead, Start: start},
+	} {
+		if err := s.RecordTerminalBaseFor(uid, a.ID, session.ID, bad); !errors.Is(err, terminalproto.ErrInvalid) {
+			t.Fatal(name, err)
+		}
+	}
+	if err := s.RecordTerminalBaseFor(uid, a.ID, session.ID, ahead); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordTerminalBaseFor(uid, a.ID, session.ID, ahead); err != nil {
+		t.Fatal("the same base again", err)
+	}
+	// The first report is what the session started from; a later one about
+	// the same session cannot rewrite it.
+	later := terminalproto.BaseState{Base: "develop", Relation: terminalproto.BaseSame, Start: strings.Repeat("cd", 20)}
+	if err := s.RecordTerminalBaseFor(uid, a.ID, session.ID, later); !errors.Is(err, ErrTerminalConflict) {
+		t.Fatal("a second base replaced the first", err)
+	}
+	got, err := s.TerminalSessionFor(uid, session.ID)
+	if err != nil || got.BaseRelation != "ahead" || got.BaseStart != start {
+		t.Fatal("recorded base", got, err)
+	}
+	data, _ := json.Marshal(got)
+	for _, field := range []string{`"baseRelation":"ahead"`, `"baseStart":"` + start + `"`} {
+		if !strings.Contains(string(data), field) {
+			t.Fatal(field, string(data))
+		}
+	}
+	// A session with no base of its own says nothing about one.
+	plain := createTerminal(t, s, uid, a, c)
+	plainGot, _ := s.TerminalSessionFor(uid, plain.ID)
+	if data, _ := json.Marshal(plainGot); strings.Contains(string(data), "base") {
+		t.Fatal("plain session JSON", string(data))
+	}
+	// Another account cannot record on this session.
+	other, err := s.CreateUser("other@example.com", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordTerminalBaseFor(other.ID, a.ID, session.ID, ahead); err == nil {
+		t.Fatal("another account recorded a base")
+	}
+}
+
 func TestRefusedWorktreeCreateKeepsItsReason(t *testing.T) {
 	s, uid, a, c := terminalFixture(t)
 	request := syncID()

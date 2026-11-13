@@ -1318,6 +1318,9 @@ func (b *Broker) Bind(ctx context.Context, uid int64, agent string, h terminalpr
 // worktree create's reply. It answers ErrInvalid when the report does not
 // match the session's own run (the folder must be that run's folder under
 // ~/.reet/worktrees); a second, different report is a conflict and dropped.
+// What the worktree started from is stored with it, best effort: the agent is
+// already running, so an unusable or late base report is dropped rather than
+// failing a launch that happened.
 func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalproto.SessionChanged) error {
 	if s.WorktreePath == "" {
 		return nil
@@ -1325,6 +1328,9 @@ func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalpro
 	err := b.st.RecordTerminalWorktreeFor(uid, agent, session, s.WorktreePath, s.WorktreeRepo)
 	if errors.Is(err, terminalproto.ErrInvalid) {
 		return err
+	}
+	if err == nil && s.Base != nil {
+		_ = b.st.RecordTerminalBaseFor(uid, agent, session, *s.Base)
 	}
 	return nil
 }

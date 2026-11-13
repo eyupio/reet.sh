@@ -16,7 +16,7 @@
 </script>
 
 <WorkspaceDialog title={project ? `New session in ${project}` : 'New session'} {onclose}>
-  <p class="copy">Choose what to start {#if project}in <strong>{project}</strong> on <strong>{machine || 'this machine'}</strong>{:else}on <strong>{machine || 'your machine'}</strong>{/if}.</p>
+  <p class="copy">Choose what to start{#if project}{' '}in <strong>{project}</strong> on <strong>{machine || 'this machine'}</strong>{:else if machine}{' '}on <strong>{machine}</strong>{/if}.</p>
   <div class="choice">
     <button type="button" class="option" aria-label="Agent session" onclick={() => onchoose('agent')}><strong>Agent session</strong><span>Give an agent a brief and let it work in a folder.</span></button>
     <button type="button" class="option" aria-label="Terminal session" onclick={() => onchoose('terminal')}><strong>Terminal session</strong><span>A shell on the machine, with no agent.</span></button>

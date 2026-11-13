@@ -15,12 +15,12 @@
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import type { LaunchDefaults } from '../launchBar'
   import StartAgentDialog from '../StartAgentDialog.svelte'
+  import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import FleetStrip from './FleetStrip.svelte'
   import InFlight from './InFlight.svelte'
   import SessionBoard from './SessionBoard.svelte'
   import NeedsYou from './NeedsYou.svelte'
   import ProjectRailHost from './ProjectRailHost.svelte'
-  import NewSessionDialog from './NewSessionDialog.svelte'
   import NewSessionChoice, { type NewSessionKind } from '../terminal/NewSessionChoice.svelte'
   import LaunchDialog from './LaunchDialog.svelte'
 
@@ -84,7 +84,7 @@
   // The launch bar's modal, for Select and an address that hands Home projects.
   let launchOpen = $state(false)
   // The standard Start an agent dialog, opened from the rail's + or a machine's New session.
-  let agentStart = $state<{ opener: HTMLElement | null; project?: FolderProject } | null>(null)
+  let agentStart = $state<{ opener: HTMLElement | null; project?: FolderProject; agentId?: string } | null>(null)
   let now = $state(Date.now())
   let problem = $state('')
   let followups = $state<GafferGoalOverviewView | undefined>()
@@ -318,25 +318,37 @@
   // A machine's + offers what to start there: a session (which asks which project on it, or a terminal), a new project on
   // it, or a plain terminal. A project then opens Start an agent, so its defaults, refusals and navigation are the same as
   // the modal's Start everywhere else in the app.
-  let chooser = $state<{ card: FleetCard; opener: HTMLElement } | null>(null)
-  function newSessionOn(card: FleetCard, opener: HTMLElement) { notice = null; chooser = { card, opener } }
+  function newSessionOn(card: FleetCard, opener: HTMLElement) { notice = null; projectStart = { opener, agentId: card.agentId, machine: card.name } }
   // New project opens the rail's Add project dialog with this machine already chosen.
   function newProjectOn(card: FleetCard, opener: HTMLElement) { notice = null; void host?.openAdd(opener, card.agentId) }
   function startProjectNow(project: FolderProject, opener?: HTMLElement | null) {
-    const from = opener ?? chooser?.opener ?? null
-    chooser = null
+    const from = opener ?? null
     if (!terminals) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
     agentStart = { opener: from, project }
   }
   // A project's + asks what to start in it: an agent session, a terminal in its folder, or an outcome for the Factory.
-  let projectStart = $state<{ project: FolderProject; opener: HTMLElement | null } | null>(null)
+  // New session and a machine's + ask the same, for the whole account or for that machine.
+  let projectStart = $state<{ project?: FolderProject; agentId?: string; machine?: string; opener: HTMLElement | null } | null>(null)
+  // A terminal with no machine named, on an account with several: which machine it opens on.
+  let terminalPick = $state<{ opener: HTMLElement | null } | null>(null)
   function chooseProjectStart(kind: NewSessionKind) {
     const target = projectStart
     projectStart = null
     if (!target) return
-    if (kind === 'factory') { location.assign(`/factory?outcome=1&project=${encodeURIComponent(target.project.id)}`); return }
-    if (kind === 'agent') { startProjectNow(target.project, target.opener); return }
-    void startTerminalOn(target.project.host, target.opener, target.project)
+    const { project, agentId, opener } = target
+    if (kind === 'factory') { location.assign(`/factory?outcome=1${project ? `&project=${encodeURIComponent(project.id)}` : ''}`); return }
+    if (kind === 'agent') {
+      if (project) { startProjectNow(project, opener); return }
+      if (!terminals) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
+      agentStart = { opener, agentId }
+      return
+    }
+    if (project) { void startTerminalOn(project.host, opener, project); return }
+    if (agentId) { void startTerminalOn(agentId, opener); return }
+    if (!terminals) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
+    if (terminals.length === 1) { void startTerminalOn(terminals[0].agentId, opener); return }
+    if (!terminals.length) { notice = { text: 'Connect a machine first: a terminal session runs on one of your machines.', bad: true }; opener?.focus(); return }
+    terminalPick = { opener }
   }
   // New session on the board starts now, in the same Start an agent dialog as the rail and the machine cards.
   function startNewSession(opener: HTMLElement) {
@@ -353,7 +365,6 @@
   function forgetShell(key: string) { const next = { ...shellRequests }; delete next[key]; shellRequests = next }
   // With a project the shell opens in its folder and belongs to it; its request is kept apart from the machine's own.
   async function startTerminalOn(agentId: string, opener?: HTMLElement | null, project?: FolderProject) {
-    chooser = null
     if (shellStarting) return
     const why = readiness(terminals?.find(m => m.agentId === agentId))
     if (why) { notice = { text: why, bad: true }; opener?.focus(); return }
@@ -437,7 +448,7 @@
   <div class="column">
     <header class="workspace-heading">
       <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
-      {#if writer}<div class="home-controls">{#if accounts}<a class="btn home-factory" href="/factory" title="Gaffer’s pipelines: hand over an outcome and watch it run">Factory</a>{/if}<button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Show the project names and groups' : 'Hide the project list'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => startNewSession(event.currentTarget)}>New session</button></div>{/if}
+      {#if writer}<div class="home-controls">{#if accounts}<a class="btn home-factory" href="/factory" title="Gaffer’s pipelines: hand over an outcome and watch it run">Factory</a>{/if}<button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Show the project names and groups' : 'Hide the project list'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => { notice = null; projectStart = { opener: event.currentTarget } }}>New session</button></div>{/if}
       <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
         {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed || unfollowed)}<a class="followups" href="/factory"><GafferCompanionAvatar size={26}/><span class="followups-text">
           {#if true}{#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'goal needs' : 'goals need'} you{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if foldedGoals}Gaffer: {foldedGoals} {foldedGoals === 1 ? 'goal is' : 'goals are'} in Needs you{:else if followupsFailed}Gaffer’s goals unavailable{:else if unfollowed}Gaffer: {unfollowed} running {unfollowed === 1 ? 'chat' : 'chats'} not followed{/if}{#if followupsFailed && (followupsNeedReview || following || foldedGoals)}{' · last read'}{/if}{/if}
@@ -477,19 +488,19 @@
         <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
           onnew={newSessionOn} onproject={newProjectOn} onterminal={(card, opener) => void startTerminalOn(card.agentId, opener)} />
       </details>
-      {#if chooser && writer}
-        <NewSessionDialog host={chooser.card.name} agentId={chooser.card.agentId} machine={terminals?.find(m => m.agentId === chooser?.card.agentId)} machinesLoaded={terminals !== undefined} projects={projects ?? []}
-          loaded={projects !== undefined} onproject={(project) => startProjectNow(project, chooser?.opener)}
-          onterminal={() => { const target = chooser; if (target) void startTerminalOn(target.card.agentId, target.opener) }}
-          onclose={() => { const opener = chooser?.opener; chooser = null; opener?.focus() }} />
-      {/if}
       {#if projectStart}
-        <NewSessionChoice project={projectStart.project.name} machine={projectStart.project.machine || terminals?.find(m => m.agentId === projectStart?.project.host)?.host || ''} factory={accounts}
+        <NewSessionChoice project={projectStart.project?.name ?? ''} machine={projectStart.project ? projectStart.project.machine || terminals?.find(m => m.agentId === projectStart?.project?.host)?.host || '' : projectStart.machine ?? ''} factory={accounts}
           onchoose={chooseProjectStart} onclose={() => { const opener = projectStart?.opener; projectStart = null; opener?.focus() }} />
+      {/if}
+      {#if terminalPick}
+        <WorkspaceDialog title="New terminal session" onclose={() => { const opener = terminalPick?.opener; terminalPick = null; opener?.focus() }}>
+          <p class="pick-copy">Choose the machine the terminal runs on.</p>
+          <div class="pick-machines">{#each terminals ?? [] as item (item.agentId)}{@const why = readiness(item)}<button type="button" class="pick-machine" disabled={!!why} onclick={() => { const opener = terminalPick?.opener; terminalPick = null; void startTerminalOn(item.agentId, opener) }}><strong>{item.host}</strong><span>{why || 'Ready'}</span></button>{/each}</div>
+        </WorkspaceDialog>
       {/if}
       {#if agentStart && terminals}
         <StartAgentDialog machines={terminals} snapshot={sync?.machines ?? []} projects={projects ?? []}
-          initialAgent={agentStart.project?.host ?? ''} projectId={agentStart.project?.id ?? ''}
+          initialAgent={agentStart.project?.host ?? agentStart.agentId ?? ''} projectId={agentStart.project?.id ?? ''}
           opener={agentStart.opener} onstarted={started} onleavefailed={leaveFailed}
           onaddmachine={() => location.assign(machinesAt(accounts ? 'add-machine' : 'connect-machine'))}
           onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}
@@ -548,6 +559,12 @@
   .home:not(.writer) > .column { grid-column: 1; grid-row: 1; }
   .column { min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px 0; min-height: calc(100dvh - var(--top) - var(--bottom-chrome, 0px)); }
   .home:not(.writer) .column { padding-bottom: 36px; }
+  .pick-copy { margin: 0 0 12px; color: var(--muted); }
+  .pick-machines { display: grid; gap: 8px; }
+  .pick-machine { display: grid; gap: 4px; min-height: 44px; text-align: left; padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; cursor: pointer; }
+  .pick-machine:hover:not(:disabled), .pick-machine:focus-visible { border-color: var(--accent); }
+  .pick-machine:disabled { cursor: default; opacity: 0.7; }
+  .pick-machine span { font-size: 0.875rem; color: var(--muted); }
   .problem, .notice { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
   .problem { border-color: var(--warn); }
   .notice { border-color: var(--good); }

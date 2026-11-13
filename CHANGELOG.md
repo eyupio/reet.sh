@@ -9,8 +9,9 @@ this file existed releases were described on their GitHub release pages.
   Choosing a project (or a group) shows only its outcomes, and **Give Gaffer an
   outcome** then opens on that project; a project's **+** does both in one
   press. On a tablet or phone the page is unchanged.
-- A project's **+** on Home now asks what to start, as the Sessions page does:
-  an agent session, a terminal session in the project's folder, or a **Factory
+- **New session** on Home, a machine card's **New session…** and a project's
+  **+** now ask what to start, as the Sessions page does: an agent session, a
+  terminal session (in the project's folder when one is named), or a **Factory
   outcome**. The Sessions page's chooser offers the Factory outcome too.
 - **Apply retention now** on Admin, Backups no longer fails with "Cannot read
   properties of null (reading 'length')" when there is nothing to remove. The

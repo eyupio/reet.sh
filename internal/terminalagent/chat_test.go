@@ -142,7 +142,7 @@ func TestChatHostSwitchesApprovalMode(t *testing.T) {
 	h.sup.opts.YoloConsent = func() error { return nil }
 	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.mode("session-0123456789", true); err != nil {
@@ -184,7 +184,7 @@ func TestChatHostSwitchesAgentMode(t *testing.T) {
 	}
 	if _, err := h.open("request-0123456789", sessionID, terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	// The fake process offers no switch: a chat that cannot confirm a mode is
@@ -281,7 +281,7 @@ func TestChatPrefersTheManagedOpenCodeBinary(t *testing.T) {
 		binary = opts.Binary
 		return &fakeChat{done: make(chan struct{}, 1), closed: make(chan struct{})}, nil
 	}
-	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: home}); err != nil {
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: home}, true); err != nil {
 		t.Fatal(err)
 	}
 	if binary != managed {
@@ -294,7 +294,7 @@ func TestChatHostYoloAllowsOnce(t *testing.T) {
 	h.sup.opts.YoloConsent = func() error { return nil }
 	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Yolo: true, Dir: h.sup.opts.Home,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	proc.onEvent(acpagent.Event{Kind: "permission", PermissionID: "permission-0123456789", Title: "run tests"})
@@ -330,7 +330,7 @@ func TestChatHostYoloAnswersCodexOnlyWhereItAsks(t *testing.T) {
 		proc.mode = mode
 		if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 			Title: "Chat", Cols: 100, Rows: 30, Tool: "codex", Structured: true, Trust: true, Yolo: true, Dir: h.sup.opts.Home,
-		}); err != nil {
+		}, true); err != nil {
 			t.Fatalf("%s: %v", mode, err)
 		}
 		proc.onEvent(acpagent.Event{Kind: "permission", PermissionID: "permission-0123456789", Title: "run tests"})
@@ -351,7 +351,7 @@ func TestChatHostSwitchingYoloOnAnswersWaitingCodexCardsOnlyWhereItAsks(t *testi
 		proc.mode = mode
 		if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 			Title: "Chat", Cols: 100, Rows: 30, Tool: "codex", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-		}); err != nil {
+		}, true); err != nil {
 			t.Fatalf("%s: %v", mode, err)
 		}
 		if err := h.mode("session-0123456789", true); err != nil {
@@ -370,13 +370,13 @@ func TestChatHostYoloRefusedWithoutMachineConsent(t *testing.T) {
 	h, _, _ := testChatHost(t)
 	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Yolo: true, Dir: h.sup.opts.Home,
-	}); !errors.Is(err, terminalhost.ErrYoloRefused) {
+	}, true); !errors.Is(err, terminalhost.ErrYoloRefused) {
 		t.Fatalf("refused: %v", err)
 	}
 	h.sup.opts.YoloConsent = func() error { return errors.New("off") }
 	if _, err := h.open("request-9876543210", "session-9876543210", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Yolo: true, Dir: h.sup.opts.Home,
-	}); !errors.Is(err, terminalhost.ErrYoloRefused) {
+	}, true); !errors.Is(err, terminalhost.ErrYoloRefused) {
 		t.Fatalf("refused off: %v", err)
 	}
 }
@@ -385,7 +385,7 @@ func TestChatHostCreatePromptPermissionEnd(t *testing.T) {
 	h, proc, out := testChatHost(t)
 	changed, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-	})
+	}, true)
 	if err != nil || changed.State != terminalproto.Running {
 		t.Fatalf("open: %+v %v", changed, err)
 	}
@@ -446,13 +446,13 @@ func TestChatHostTrustAndVersionErrors(t *testing.T) {
 
 func TestChatHostEndKeepsItsReceipt(t *testing.T) {
 	h, _, _ := testChatHost(t)
-	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home}); err != nil {
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home}, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.end("session-0123456789"); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home})
+	changed, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home}, true)
 	if err != nil || changed.State != terminalproto.Exited {
 		t.Fatalf("replay: %+v %v", changed, err)
 	}
@@ -498,7 +498,7 @@ func TestReconcileSnapshotKeepsLiveChats(t *testing.T) {
 func TestChatHostOmitsHistoryFieldsForAnOldController(t *testing.T) {
 	h, _, out := testChatHost(t)
 	h.link.history = false
-	changed, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home})
+	changed, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +535,7 @@ func TestChatHostReportsCreatingInSnapshots(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home})
+		_, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home}, true)
 		done <- err
 	}()
 	deadline := time.Now().Add(time.Second)
@@ -585,7 +585,7 @@ func TestChatSurvivesReconnectAndFlushesDetachedEvents(t *testing.T) {
 	defer a.close()
 	changed, err := a.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: sup.opts.Home,
-	})
+	}, true)
 	if err != nil || changed.State != terminalproto.Running {
 		t.Fatalf("open: %+v %v", changed, err)
 	}
@@ -744,7 +744,7 @@ func TestChatStartupCompletesOnTheReplacementLink(t *testing.T) {
 	go func() {
 		_, err := first.open("request-0123456789", "session-0123456789", terminalproto.Create{
 			Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: sup.opts.Home,
-		})
+		}, true)
 		opened <- err
 	}()
 	deadline := time.Now().Add(time.Second)
@@ -834,7 +834,7 @@ func TestChatPromptPassesImageBytesToACP(t *testing.T) {
 	}
 	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.prompt("session-0123456789", "", []string{path}); err != nil {
@@ -873,7 +873,7 @@ func toolDetailHost(t *testing.T, details bool) (*chatHost, *fakeChat, *sent) {
 	}
 	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	return h, proc, out
@@ -926,7 +926,7 @@ func TestChatHostForwardsCodexLoginNoticeDuringStart(t *testing.T) {
 		opts.OnEvent(acpagent.Event{Kind: "notice", Text: "Codex sign-in: ChatGPT Pro"})
 		return proc, nil
 	}
-	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "codex", Structured: true, Dir: h.sup.opts.Home}); err != nil {
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chat", Cols: 100, Rows: 30, Tool: "codex", Structured: true, Dir: h.sup.opts.Home}, true); err != nil {
 		t.Fatal(err)
 	}
 	out.mu.Lock()
@@ -951,7 +951,7 @@ func TestChosenModelStartupRefusalDoesNotAnnounceOrPrompt(t *testing.T) {
 		opts.OnEvent(acpagent.Event{Kind: "status", State: "ended"})
 		return nil, acpagent.ErrModel
 	}
-	_, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chosen model", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, Model: "stub/model", Prompt: "opening prompt"})
+	_, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chosen model", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, Model: "stub/model", Prompt: "opening prompt"}, true)
 	if !errors.Is(err, acpagent.ErrModel) {
 		t.Fatalf("start refusal: %v", err)
 	}
@@ -979,7 +979,7 @@ func TestChosenEffortStartupRefusalDoesNotAnnounceOrPrompt(t *testing.T) {
 		}
 		return nil, acpagent.ErrControl
 	}
-	_, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chosen effort", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, Model: "stub/model", Effort: "ultra", Prompt: "opening prompt"})
+	_, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Chosen effort", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, Model: "stub/model", Effort: "ultra", Prompt: "opening prompt"}, true)
 	if !errors.Is(err, acpagent.ErrControl) {
 		t.Fatal(err)
 	}
@@ -999,7 +999,7 @@ func TestProcessEndingDuringAdmissionIsObservedAfterAdmission(t *testing.T) {
 		proc.Close()
 		return proc, nil
 	}
-	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Short-lived chat", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home}); err != nil {
+	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{Title: "Short-lived chat", Cols: 80, Rows: 24, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home}, true); err != nil {
 		t.Fatal(err)
 	}
 	waitUntil(t, "admitted process exit", func() bool {

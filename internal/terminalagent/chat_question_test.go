@@ -59,7 +59,7 @@ func questionHost(t *testing.T, negotiated bool) (*chatHost, *questionChat, *sen
 	}
 	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	return h, proc, out
@@ -192,7 +192,7 @@ func TestQuestionAnswerNeedsAProcessThatCanAsk(t *testing.T) {
 	h, _, _ := testChatHost(t) // its fake chat has no AnswerQuestion
 	if _, err := h.open("request-0123456789", "session-0123456789", terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	a := terminalproto.ACPQuestionAnswer{QuestionID: connectorQuestionID, Action: "decline"}

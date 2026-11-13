@@ -281,11 +281,13 @@ func (a *agentSwitch) chatTrusted(in terminalproto.SessionMode) error {
 	return spec.CheckTrust(dir, in.Trust)
 }
 
+// startChat opens the chat a switch to chat asks for. It works in the folder
+// the session already has and names no worktree, so it resolves no base.
 func (a *agentSwitch) startChat(requestID, sessionID, title string, in terminalproto.SessionMode, trust bool) (terminalproto.SessionChanged, error) {
 	return a.chats.open(requestID, sessionID, terminalproto.Create{
 		Title: title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Dir: in.Dir, Model: in.Model, Yolo: in.Yolo,
 		Structured: true, Trust: trust, ResumeACP: in.ACPSessionID,
-	})
+	}, false)
 }
 
 func (a *agentSwitch) startTerminal(ctx context.Context, requestID, sessionID, title string, in terminalproto.SessionMode, cols, rows int) (terminalproto.SessionChanged, error) {

@@ -2,8 +2,10 @@ package terminalhost
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -35,8 +37,9 @@ func TestGitHubRemoteAcceptsOnlyGitHubDotCom(t *testing.T) {
 	}
 }
 
-// With gh at an absolute path, the args reset inherited helpers and name gh
-// for github.com only.
+// With gh at an absolute path, the args name gh for github.com only and
+// leave the person's own credential helpers alone: a machine whose gh is
+// signed out still fetches with the helper their ~/.gitconfig names.
 func TestGhCredentialArgsNameOnlyGitHub(t *testing.T) {
 	dir := t.TempDir()
 	gh := filepath.Join(dir, "gh")
@@ -44,13 +47,41 @@ func TestGhCredentialArgsNameOnlyGitHub(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
-	want := []string{"-c", "credential.helper=", "-c", "credential.https://github.com.helper=!" + gh + " auth git-credential"}
+	want := []string{"-c", "credential.https://github.com.helper=!'" + gh + "' auth git-credential"}
 	if got := ghCredentialArgs(); !slices.Equal(got, want) {
 		t.Fatal(got)
+	}
+	if slices.Contains(ghCredentialArgs(), "credential.helper=") {
+		t.Fatal("the inherited credential helpers were reset", ghCredentialArgs())
 	}
 	t.Setenv("PATH", t.TempDir())
 	if got := ghCredentialArgs(); got != nil {
 		t.Fatal("args without gh", got)
+	}
+}
+
+// The helper string is run by a shell, so a gh in a folder whose name has a
+// space is still one word to it.
+func TestGhCredentialArgsQuoteThePath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "my tools")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gh := filepath.Join(dir, "gh")
+	if err := os.WriteFile(gh, []byte("#!/bin/sh\necho spaced\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	args := ghCredentialArgs()
+	want := "credential.https://github.com.helper=!'" + gh + "' auth git-credential"
+	if !slices.Equal(args, []string{"-c", want}) {
+		t.Fatal(args)
+	}
+	// The shell really runs it: the quoted word is the program, not two.
+	helper, _ := strings.CutPrefix(want, "credential.https://github.com.helper=!")
+	out, err := exec.Command("/bin/sh", "-c", helper).Output()
+	if err != nil || strings.TrimSpace(string(out)) != "spaced" {
+		t.Fatalf("the shell could not run %q: %v: %q", helper, err, out)
 	}
 }
 

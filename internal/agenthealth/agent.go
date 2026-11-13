@@ -1311,14 +1311,16 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// Only on a connection that negotiated chat-reattach-v1, with chats and
 		// their history, and for an agent that can reopen its stored
 		// conversation: OpenCode, or one whose descriptor claims it.
-		ChatReattach:    acp && cfg.acpHistory && cfg.chatReattach && reattachable,
-		ACPQuestions:    acp && cfg.acpQuestion,
-		Inspect:         cfg.inspect && control && enabled,
-		ShellDir:        cfg.shellDir && control && enabled,
-		Attention:       cfg.attention && control,
-		Branches:        cfg.branches && worktree && enabled,
-		BranchPrune:     cfg.branchPrune && worktree && enabled,
-		BranchSync:      cfg.branchSync && worktree && enabled,
+		ChatReattach: acp && cfg.acpHistory && cfg.chatReattach && reattachable,
+		ACPQuestions: acp && cfg.acpQuestion,
+		Inspect:      cfg.inspect && control && enabled,
+		ShellDir:     cfg.shellDir && control && enabled,
+		Attention:    cfg.attention && control,
+		Branches:     cfg.branches && worktree && enabled,
+		BranchPrune:  cfg.branchPrune && worktree && enabled,
+		BranchSync:   cfg.branchSync && worktree && enabled,
+		// Fetching a worktree's base is part of making one, so it follows
+		// Worktree, not enabled: a machine that makes worktrees fetches them.
 		BaseFresh:       cfg.baseFresh && worktree,
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,

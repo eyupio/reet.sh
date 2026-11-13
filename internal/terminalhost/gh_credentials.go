@@ -48,19 +48,31 @@ func networkGitEnv() []string {
 	return []string{"GIT_TERMINAL_PROMPT=0"}
 }
 
-// ghCredentialArgs returns the git -c arguments that reset every inherited
-// credential helper and then name gh's own, for github.com only, so git
-// authenticates a fetch from github.com with the machine's `gh` sign-in and
-// nowhere else. It returns nil when gh is not found on PATH, or is found
-// only as a relative path (a LookPath quirk for "."-containing PATH
-// entries, never a real install).
+// ghCredentialArgs returns the git -c argument that names gh's own credential
+// helper, for github.com only, so git can authenticate a fetch from
+// github.com with the machine's `gh` sign-in. It returns nil when gh is not
+// found on PATH, or is found only as a relative path (a LookPath quirk for
+// "."-containing PATH entries, never a real install).
+//
+// The helpers the person's own ~/.gitconfig names (osxkeychain, store, the
+// Git Credential Manager) are left in place and asked first: they are how a
+// machine with gh signed out, or signed in as an account without access to
+// the repository, has always fetched, and resetting them would take that
+// away. Nothing is sent anywhere else either way, because the key names
+// github.com and git only offers a helper the URL it is scoped to.
+//
+// The value is run by a shell (the leading "!"), so the path is quoted: a gh
+// installed under a folder whose name has a space is still one word.
 func ghCredentialArgs() []string {
 	gh, err := exec.LookPath("gh")
 	if err != nil || !filepath.IsAbs(gh) {
 		return nil
 	}
-	return []string{
-		"-c", "credential.helper=",
-		"-c", "credential.https://github.com.helper=!" + gh + " auth git-credential",
-	}
+	return []string{"-c", "credential.https://github.com.helper=!" + shellQuoted(gh) + " auth git-credential"}
+}
+
+// shellQuoted is path as a single word for /bin/sh: single quotes protect
+// everything but a single quote, which is closed, escaped and reopened.
+func shellQuoted(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
 }

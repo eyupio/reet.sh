@@ -81,17 +81,17 @@ func TestManualChatRecoveryReplacesRestartRecord(t *testing.T) {
 	sup.sessions[oldID] = &chatSession{id: oldID, tool: "opencode", acpID: proc.SessionID(), state: terminalproto.Exited}
 	h := sup.attach(ctx, 1, (&sent{}).send, true, true)
 	in := terminalproto.Create{Title: "Recovered", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: home, ResumeACP: proc.SessionID()}
-	if _, err := h.open("request-new0123456789", newID, in); err != nil {
+	if _, err := h.open("request-new0123456789", newID, in, true); err != nil {
 		t.Fatal(err)
 	}
 	records := newChatRegistry(path).snapshot()
 	if len(records) != 1 || records[0].ID != newID || records[0].ACPSID != proc.SessionID() {
 		t.Fatalf("next restart would reopen multiple copies: %+v", records)
 	}
-	if _, err := h.open("request-new0123456789", newID, in); err != nil {
+	if _, err := h.open("request-new0123456789", newID, in, true); err != nil {
 		t.Fatalf("retrying the same recovery operation was refused: %v", err)
 	}
-	if _, err := h.open("request-again0123456789", "session-again0123456789", in); !errors.Is(err, terminalhost.ErrOperationConflict) {
+	if _, err := h.open("request-again0123456789", "session-again0123456789", in, true); !errors.Is(err, terminalhost.ErrOperationConflict) {
 		t.Fatalf("duplicate recovery was not refused: %v", err)
 	}
 	// A restart sweep may already hold a snapshot of the superseded record.
@@ -119,7 +119,7 @@ func TestChatRecoveryRefusesConversationInUse(t *testing.T) {
 			}
 			_, err := h.open("request-another0123456789", "session-another0123456789", terminalproto.Create{
 				Title: "Again", Tool: "opencode", Structured: true, Dir: h.sup.opts.Home, ResumeACP: proc.SessionID(),
-			})
+			}, true)
 			if !errors.Is(err, terminalhost.ErrOperationConflict) || starts != 0 {
 				t.Fatalf("loaded a conversation still in use: err=%v starts=%d", err, starts)
 			}
@@ -224,7 +224,7 @@ func TestSupervisorRemembersAndResumesAcrossProcesses(t *testing.T) {
 	const id = "session-0123456789"
 	if _, err := h1.open("request-0123456789", id, terminalproto.Create{
 		Title: "Remembered", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: work,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	cancel1()

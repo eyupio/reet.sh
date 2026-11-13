@@ -5,6 +5,7 @@ package terminalhost
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -138,12 +139,88 @@ func fakeGh(t *testing.T) string {
 	return gh
 }
 
+// withoutGh leaves only git on PATH, as a machine gh was never installed on.
+func withoutGh(t *testing.T) {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(git, filepath.Join(dir, "git")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+// An ssh github.com origin is fetched over https with gh's credentials, and
+// never over ssh: the hardened environment has no ssh agent to ask and no
+// terminal to answer a passphrase or host-key prompt.
+func TestSyncBranchSSHOriginFetchesOverHTTPSWithGh(t *testing.T) {
+	f := newSyncFixture(t)
+	gh := fakeGh(t)
+	testGit(t, f.repo, "remote", "set-url", "origin", "git@github.com:o/r.git")
+	f.pushMerged(t, "merged-pr")
+	var calls [][]string
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		calls = append(calls, slices.Clone(args))
+		rewrite := []string{"-c", "url." + f.origin + ".insteadOf=https://github.com/o/r.git"}
+		return ExecGit(ctx, dir, append(rewrite, args...)...)
+	}
+	if r := SyncBranch(context.Background(), f.home, terminalproto.BranchSync{Dir: f.repo}, git); r.Status != terminalproto.BranchSyncUpdated {
+		t.Fatalf("result = %+v, want updated", r)
+	}
+	var fetch []string
+	for _, args := range calls {
+		if slices.Contains(args, "fetch") {
+			fetch = args
+		}
+		for _, arg := range args {
+			if strings.Contains(arg, "ssh://") || strings.Contains(arg, "git@github.com") {
+				t.Fatalf("a git call named an ssh URL: %q", args)
+			}
+		}
+	}
+	if !slices.Contains(fetch, "https://github.com/o/r.git") {
+		t.Fatalf("fetch %q did not name the repository's https URL", fetch)
+	}
+	if !slices.Contains(fetch, "credential.https://github.com.helper=!'"+gh+"' auth git-credential") {
+		t.Fatalf("fetch %q did not carry gh's credentials", fetch)
+	}
+}
+
+// With no gh to authenticate as, an ssh origin is not fetched at all: the
+// folder is left exactly as it was and the answer says GitHub was not reached.
+func TestSyncBranchSSHOriginWithoutGhDoesNotFetch(t *testing.T) {
+	f := newSyncFixture(t)
+	withoutGh(t)
+	testGit(t, f.repo, "remote", "set-url", "origin", "git@github.com:o/r.git")
+	before := testGit(t, f.repo, "rev-parse", "HEAD")
+	var calls [][]string
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		calls = append(calls, slices.Clone(args))
+		return ExecGit(ctx, dir, args...)
+	}
+	r := SyncBranch(context.Background(), f.home, terminalproto.BranchSync{Dir: f.repo}, git)
+	if r.Status != terminalproto.BranchSyncFetchFailed {
+		t.Fatalf("result = %+v, want fetch_failed", r)
+	}
+	for _, args := range calls {
+		if slices.Contains(args, "fetch") {
+			t.Fatalf("an ssh origin was fetched without gh: %q", args)
+		}
+	}
+	if after := testGit(t, f.repo, "rev-parse", "HEAD"); after != before {
+		t.Fatalf("HEAD moved from %s to %s", before, after)
+	}
+}
+
 // A sync of a github.com repository fetches with the machine's own gh
 // sign-in, and a repository hosted anywhere else is fetched exactly as before.
 func TestSyncBranchFetchCarriesTheGhHelper(t *testing.T) {
 	f := newSyncFixture(t)
 	gh := fakeGh(t)
-	helper := "credential.https://github.com.helper=!" + gh + " auth git-credential"
+	helper := "credential.https://github.com.helper=!'" + gh + "' auth git-credential"
 	var fetches [][]string
 	record := func(args []string) {
 		if slices.Contains(args, "fetch") {
@@ -178,7 +255,10 @@ func TestSyncBranchFetchCarriesTheGhHelper(t *testing.T) {
 	if len(fetches) != 1 || !slices.Contains(fetches[0], helper) {
 		t.Fatalf("a fetch from github.com did not carry gh's credentials: %q", fetches)
 	}
-	if reset := slices.Index(fetches[0], "credential.helper="); reset < 1 || fetches[0][reset-1] != "-c" {
-		t.Fatalf("a fetch from github.com kept the inherited credential helpers: %q", fetches[0])
+	// The person's own helpers are kept: a machine whose gh is signed out
+	// still fetches with the helper their ~/.gitconfig names, as it did
+	// before the base was ever fetched.
+	if slices.Contains(fetches[0], "credential.helper=") {
+		t.Fatalf("a fetch from github.com reset the inherited credential helpers: %q", fetches[0])
 	}
 }

@@ -690,7 +690,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					go func(in terminalproto.Create) {
 						defer chats.sup.wg.Done()
 						defer chats.sup.unhold(msg.SessionID)
-						changed, err := chats.open(msg.RequestID, msg.SessionID, in)
+						changed, err := chats.open(msg.RequestID, msg.SessionID, in, features.Has(terminalproto.BaseFreshFeature))
 						if callCtx.Err() != nil {
 							return
 						}
@@ -895,6 +895,12 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					defer wg.Done()
 					defer chats.sup.unhold(msg.SessionID)
 					createCtx := callCtx
+					if features.Has(terminalproto.BaseFreshFeature) {
+						// A worktree this create makes starts from the base as
+						// GitHub has it; without the feature it starts where a
+						// create always did and nothing is fetched.
+						createCtx = terminalhost.WithBaseFresh(createCtx)
+					}
 					if features.Has(terminalproto.ProgressFeature) {
 						// Each stage is told to the controller as it begins, before this create's one answer.
 						createCtx = terminalhost.WithProgress(callCtx, func(stage terminalproto.LaunchStage) {

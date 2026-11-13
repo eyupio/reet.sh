@@ -48,7 +48,7 @@ func TestModelReadbackUpdatesChatRestartRecord(t *testing.T) {
 			const id = "session-model0123456789"
 			if _, err := h.open("request-model0123456789", id, terminalproto.Create{
 				Title: "Chat", Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, Model: "provider/old",
-			}); err != nil {
+			}, true); err != nil {
 				t.Fatal(err)
 			}
 			_ = h.setModel(t.Context(), id, "provider/new")

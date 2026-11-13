@@ -61,14 +61,27 @@ func SyncBranch(ctx context.Context, home string, req terminalproto.BranchSync, 
 	}
 	remoteRef := "refs/remotes/origin/" + base
 	// A github.com origin is fetched with the machine's own gh sign-in, for
-	// github.com only, and with no terminal prompt to block on; any other
-	// host is fetched exactly as before, with hooks off and nothing else.
-	fetchCtx, fetchArgs := ctx, []string{"-c", "core.hooksPath=/dev/null"}
-	if githubOrigin(ctx, git, dir) {
-		fetchCtx, fetchArgs = withGitEnv(ctx, networkGitEnv()...), networkGitArgs()
+	// github.com only, and with no terminal prompt to block on; an ssh one is
+	// fetched from the repository's https URL instead, so ssh is never
+	// invoked (githubFetch). Any other host is fetched exactly as before,
+	// with hooks off and nothing else.
+	fetchCtx, fetchArgs, from := ctx, []string{"-c", "core.hooksPath=/dev/null"}, "origin"
+	switch origin := githubFetch(ctx, git, dir); {
+	case origin.from != "":
+		fetchCtx, fetchArgs, from = withGitEnv(ctx, networkGitEnv()...), networkGitArgs(), origin.from
+	case origin.gitHub:
+		// A github.com origin spelled as an ssh URL on a machine with no gh:
+		// there is nothing to authenticate as and ssh is never invoked, so
+		// GitHub was not reached and the folder is left exactly as it is.
+		return answer(terminalproto.BranchSyncFetchFailed)
 	}
-	fetchArgs = append(fetchArgs, "fetch", "--no-tags", "--no-write-fetch-head", "origin", "+refs/heads/"+base+":"+remoteRef)
-	if _, err := git(fetchCtx, dir, fetchArgs...); err != nil || ctx.Err() != nil {
+	fetchArgs = append(fetchArgs, "fetch", "--no-tags", "--no-write-fetch-head", from, "+refs/heads/"+base+":"+remoteRef)
+	// One fetch per repository at a time, as a base resolve does: concurrent
+	// fetches of the same refspec make all but one fail.
+	release := fetchLocks.lock(dir)
+	_, fetchErr := git(fetchCtx, dir, fetchArgs...)
+	release()
+	if fetchErr != nil || ctx.Err() != nil {
 		return answer(terminalproto.BranchSyncFetchFailed)
 	}
 	remote, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", remoteRef+"^{commit}")

@@ -138,7 +138,7 @@ func openSwapChat(t *testing.T, h *chatHost) (*agentSwitch, *fakeShells) {
 	t.Helper()
 	if _, err := h.open("request-0123456789", swapSession, terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	shells := newFakeShells()

@@ -380,15 +380,18 @@ func (s *chatSupervisor) detach(h *chatHost) {
 	s.mu.Unlock()
 }
 
-func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create) (terminalproto.SessionChanged, error) {
-	return h.openChat(requestID, sessionID, in, false)
+func (h *chatHost) open(requestID, sessionID string, in terminalproto.Create, baseFresh bool) (terminalproto.SessionChanged, error) {
+	return h.openChat(requestID, sessionID, in, false, baseFresh)
 }
 
 // openChat starts a structured chat under sessionID. With dropReplay set, the
 // events the agent emits before startup finishes (the conversation that
 // session/load replays) are not forwarded: the controller already holds that
 // transcript, so only what happens after the start reaches it.
-func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create, dropReplay bool) (terminalproto.SessionChanged, error) {
+//
+// baseFresh is the connection's negotiated base-fresh-v1: without it a
+// worktree starts where a create always started it and nothing is fetched.
+func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create, dropReplay, baseFresh bool) (terminalproto.SessionChanged, error) {
 	if in.Tool == agentsoftware.OpenCodeTool {
 		release, err := lockSoftwareRead(h.sup.ctx)
 		if err != nil {
@@ -466,7 +469,11 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 	}
 	var worktree terminalhost.Worktree
 	if in.Worktree != "" {
-		worktree, err = terminalhost.PrepareWorktree(h.sup.ctx, h.sup.opts.Home, dir, in.Project, in.Worktree, in.Base, git)
+		// The base is fetched before the worktree is made, as it is for a
+		// terminal session, and the start is then resolved from what that
+		// found without reaching the network again.
+		plan := terminalhost.PlanBase(h.sup.ctx, h.sup.opts.Home, dir, in.Project, in.Worktree, in.Base, baseFresh, git)
+		worktree, err = terminalhost.PrepareWorktreeFrom(h.sup.ctx, h.sup.opts.Home, dir, in.Project, in.Worktree, in.Base, plan, git)
 		if err != nil {
 			return terminalproto.SessionChanged{}, err
 		}
@@ -560,9 +567,10 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		h.startPrompt(cs, in.Prompt, nil)
 	}
 	// Only this call's own worktree has a base it resolved; an adopted one was
-	// started from a base another call chose.
+	// started from a base another call chose, and a create without
+	// base-fresh-v1 resolved none at all.
 	var base *terminalproto.BaseState
-	if worktree.Created {
+	if worktree.Created && worktree.Base.Valid() {
 		base = &worktree.Base
 	}
 	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(in.Tool, acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo, Base: base}, nil

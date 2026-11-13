@@ -163,6 +163,16 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if !valid {
 		return ManagedSession{}, terminalproto.ErrInvalid
 	}
+	// The base a worktree create starts from is fetched here, before the lock:
+	// no call that reaches github.com may run while m.mu or the registry lock
+	// is held, or one machine with hanging DNS would freeze every listing for
+	// the whole fetch budget. PrepareWorktreeFrom resolves the start from what
+	// this found, reaching nothing. A retry whose worktree is already there
+	// fetches nothing (PlanBase).
+	var plan BasePlan
+	if in.Worktree != "" {
+		plan = PlanBase(ctx, m.home, in.Dir, in.Project, in.Worktree, in.Base, baseFresh(ctx), m.git)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.allowed(); err != nil {
@@ -252,7 +262,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	started := false
 	if in.Worktree != "" {
 		reportStage(ctx, terminalproto.StageWorktree)
-		if worktree, err = PrepareWorktree(ctx, m.home, dir, in.Project, in.Worktree, in.Base, m.git); err != nil {
+		if worktree, err = PrepareWorktreeFrom(ctx, m.home, dir, in.Project, in.Worktree, in.Base, plan, m.git); err != nil {
 			return ManagedSession{}, err
 		}
 		dir = worktree.Path
@@ -268,9 +278,10 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	s := ManagedSession{ID: sessionID, Title: in.Title, Tool: in.Tool, State: terminalproto.Creating, CreatedAt: at, UpdatedAt: at, CreateRequestID: requestID}
 	if in.Worktree != "" {
 		s.WorktreePath, s.WorktreeRepo = worktree.Path, filepath.Base(filepath.Dir(worktree.Path))
-		if worktree.Created {
+		if worktree.Created && worktree.Base.Valid() {
 			// Only this call's own worktree has a base it resolved; an adopted
-			// one was started from a base another call chose.
+			// one was started from a base another call chose, and a create
+			// without base-fresh-v1 resolved none at all.
 			base := worktree.Base
 			s.Base = &base
 		}

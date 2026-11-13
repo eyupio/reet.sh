@@ -39,13 +39,32 @@ func newBaseFixture(t *testing.T) *baseFixture {
 }
 
 // git is the GitRunner ResolveBase is given: it records the arguments and
-// teaches git where "github.com/o/r" really is.
+// teaches git where "github.com/o/r" really is, in both the form an https
+// origin is fetched by and the one an ssh origin is rewritten to.
 func (f *baseFixture) git(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, slices.Clone(args))
 	f.mu.Unlock()
-	rewrite := []string{"-c", "url." + f.remote + ".insteadOf=https://github.com/o/r"}
+	rewrite := []string{
+		"-c", "url." + f.remote + ".insteadOf=https://github.com/o/r.git",
+		"-c", "url." + f.remote + ".insteadOf=https://github.com/o/r",
+	}
 	return ExecGit(ctx, dir, append(rewrite, args...)...)
+}
+
+// noSSH fails when any git call named an ssh URL: these fetches never invoke
+// ssh, whatever the origin is spelled as.
+func (f *baseFixture) noSSH(t *testing.T) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, args := range f.calls {
+		for _, arg := range args {
+			if strings.Contains(arg, "ssh://") || strings.Contains(arg, "git@github.com") {
+				t.Fatalf("a git call named an ssh URL: %q", args)
+			}
+		}
+	}
 }
 
 // fetched reports whether any call was a fetch.
@@ -210,6 +229,155 @@ func TestBaseMissingOnBothSidesAfterLsRemote(t *testing.T) {
 	refusedWith(t, err, terminalproto.WorktreeBaseMissing)
 }
 
+// An ssh github.com origin is fetched over https with gh's credentials: the
+// gh helper only serves https, and the hardened environment has no ssh agent
+// to ask, so ssh is never invoked.
+func TestBaseSSHOriginIsFetchedOverHTTPSWithGh(t *testing.T) {
+	for name, origin := range map[string]string{"scp": "git@github.com:o/r.git", "ssh": "ssh://git@github.com/o/r"} {
+		t.Run(name, func(t *testing.T) {
+			f := newBaseFixture(t)
+			gh := fakeGh(t)
+			testGit(t, f.repo, "remote", "set-url", "origin", origin)
+			ahead := commitIn(t, f.remote, "on-github")
+			wantBase(t, f.resolve(t, "main", true), terminalproto.BaseBehind, ahead)
+			args := f.fetchArgs()
+			if !slices.Contains(args, "https://github.com/o/r.git") {
+				t.Fatalf("fetch %q did not name the repository's https URL", args)
+			}
+			if !slices.Contains(args, "credential.https://github.com.helper=!'"+gh+"' auth git-credential") {
+				t.Fatalf("fetch %q did not carry gh's credentials", args)
+			}
+			f.noSSH(t)
+		})
+	}
+}
+
+// With no gh to authenticate as, an ssh origin is not fetched at all: the
+// base is the local branch, as it was before any base was fetched, and
+// nothing is said about GitHub.
+func TestBaseSSHOriginWithoutGhIsNotFetched(t *testing.T) {
+	f := newBaseFixture(t)
+	withoutGh(t)
+	testGit(t, f.repo, "remote", "set-url", "origin", "git@github.com:o/r.git")
+	commitIn(t, f.remote, "on-github")
+	local := commitOf(t, f.repo, "refs/heads/main")
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseNoRemote, local)
+	if f.fetched() {
+		t.Fatalf("an ssh origin was fetched without gh: %q", f.calls)
+	}
+	f.noSSH(t)
+}
+
+// Several resolves of the same repository at once all answer from GitHub's
+// branch. Concurrent fetches of one refspec make git fail every one but the
+// winner ("unable to update local ref"), so they are taken one at a time and
+// a fetch that failed all the same is settled against what GitHub printed.
+func TestBaseConcurrentResolvesAllSeeGitHubsCommit(t *testing.T) {
+	f := newBaseFixture(t)
+	ahead := commitIn(t, f.remote, "on-github")
+	const n = 12
+	states := make([]terminalproto.BaseState, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			states[i], errs[i] = ResolveBase(context.Background(), f.repo, "main", true, f.git)
+		}()
+	}
+	wg.Wait()
+	for i, state := range states {
+		if errs[i] != nil {
+			t.Fatalf("resolve %d: %v", i, errs[i])
+		}
+		if state.Relation != terminalproto.BaseBehind || state.Start != ahead {
+			t.Fatalf("resolve %d = %+v, want behind starting from GitHub's %s", i, state, ahead)
+		}
+	}
+}
+
+// A fetch that failed although it did update the tracking ref (the loser of a
+// race that ran far enough) is not a GitHub that could not be reached: the
+// id ls-remote printed is already there, so the base is fetched.
+func TestBaseFetchFailureWithTheTrackingRefAlreadyThereIsFetched(t *testing.T) {
+	f := newBaseFixture(t)
+	ahead := commitIn(t, f.remote, "on-github")
+	fetches := 0
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if slices.Contains(args, "fetch") {
+			fetches++
+			out, _ := f.git(ctx, dir, args...)
+			// The fetch did its work and then failed, as the loser of a race
+			// for the same refspec does.
+			return out, exitStatus(t, 1)
+		}
+		return f.git(ctx, dir, args...)
+	}
+	state, err := ResolveBase(context.Background(), f.repo, "main", true, git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Relation != terminalproto.BaseBehind || state.Start != ahead {
+		t.Fatalf("state = %+v, want behind starting from %s", state, ahead)
+	}
+	if fetches != 1 {
+		t.Fatalf("the fetch ran %d times, want once", fetches)
+	}
+}
+
+// A fetch that failed and left the tracking ref behind what GitHub printed is
+// tried once more before GitHub is called unreachable.
+func TestBaseFetchFailureIsRetriedOnceWhenGitHubAnswered(t *testing.T) {
+	f := newBaseFixture(t)
+	ahead := commitIn(t, f.remote, "on-github")
+	fetches := 0
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if slices.Contains(args, "fetch") {
+			if fetches++; fetches == 1 {
+				return []byte("fatal: unable to update local ref\n"), exitStatus(t, 1)
+			}
+		}
+		return f.git(ctx, dir, args...)
+	}
+	state, err := ResolveBase(context.Background(), f.repo, "main", true, git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Relation != terminalproto.BaseBehind || state.Start != ahead {
+		t.Fatalf("state = %+v, want behind starting from %s", state, ahead)
+	}
+	if fetches != 2 {
+		t.Fatalf("the fetch ran %d times, want twice", fetches)
+	}
+}
+
+// A fetch that keeps failing although GitHub answers is fetch_failed, after
+// exactly one retry.
+func TestBaseFetchFailureRetriedOnceThenUnreachable(t *testing.T) {
+	f := newBaseFixture(t)
+	commitIn(t, f.remote, "on-github")
+	local := commitOf(t, f.repo, "refs/heads/main")
+	fetches := 0
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if slices.Contains(args, "fetch") {
+			fetches++
+			return []byte("fatal: unable to update local ref\n"), exitStatus(t, 1)
+		}
+		return f.git(ctx, dir, args...)
+	}
+	state, err := ResolveBase(context.Background(), f.repo, "main", true, git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Relation != terminalproto.BaseFetchFailed || state.Start != local {
+		t.Fatalf("state = %+v, want fetch_failed starting from %s", state, local)
+	}
+	if fetches != 2 {
+		t.Fatalf("the fetch ran %d times, want twice", fetches)
+	}
+}
+
 func TestBaseNonGitHubOriginIsNotFetched(t *testing.T) {
 	f := newBaseFixture(t)
 	testGit(t, f.repo, "remote", "set-url", "origin", "https://gitlab.com/a/b")
@@ -228,6 +396,9 @@ func TestBaseMissingEverywhere(t *testing.T) {
 
 func TestBaseFetchIsBoundedAt30Seconds(t *testing.T) {
 	f := newBaseFixture(t)
+	// GitHub has moved on, so the tracking ref a failed fetch leaves behind
+	// is not the commit ls-remote prints and the fetch really did fail.
+	commitIn(t, f.remote, "on-github")
 	local := commitOf(t, f.repo, "refs/heads/main")
 	var deadline time.Time
 	var bounded bool

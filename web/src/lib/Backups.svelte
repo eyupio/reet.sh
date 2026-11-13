@@ -1056,7 +1056,7 @@
   .subtab { min-height: 40px; padding: 8px 14px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 0.95rem; cursor: pointer; }
   .subtab:hover { color: var(--ink); }
   .subtab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
-  .subtab small { margin-left: 6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+  .subtab small { margin-left: 6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .cards { margin-top: 24px; }
   .block { margin-top: 24px; padding: clamp(16px, 3vw, 24px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .blockhead { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }

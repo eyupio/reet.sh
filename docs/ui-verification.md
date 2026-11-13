@@ -39,6 +39,9 @@ Not run here: Firefox, Safari, physical devices, a controller in accounts mode
 with a real second role (the admin and member cases are fixture-backed), and
 `reet agent set-server` on a machine.
 
+The four pictures below were retaken after the Backups page was split into sections, with the cards in its **Move**
+section, against two controllers in accounts mode built from this branch.
+
 ![Move away, desktop light](images/ui/controller-move-away-1280-light.png)
 ![Move away, phone dark](images/ui/controller-move-away-320-dark.png)
 ![Move in, refused, phone light](images/ui/controller-move-in-refused-320-light.png)

@@ -410,9 +410,13 @@ account's). The base:
   else the account's default, else none; the one-project choice is never applied to all of them.
   The run is a selection run (`origin: selection`) and its members follow the orchestration below.
 - **Where it starts.** For a start in one saved repository, the bar reads the base check above before
-  it sends anything, and when the local base and GitHub's differ it says so and asks
-  (`web/src/lib/baseNotice.ts`, `web/src/lib/home/BaseConfirm.svelte`). A start in several projects is
-  not checked: each member has its own base, and the run is started by the controller.
+  it sends anything, and when the local base and GitHub's differ it says so and asks. Every browser
+  start path takes the same step (`web/src/lib/baseGate.ts`, the words in
+  `web/src/lib/baseNotice.ts`, the dialog in `web/src/lib/home/BaseConfirm.svelte`): Home's launch bar,
+  the **Start an agent** dialog, which the project rail's **+**, the machine cards, Machines and the
+  Sessions screen all open, and **Start** on a saved backlog plan. A start in several projects is not
+  checked (each member has its own base and the controller starts them), and nor are the starts nobody
+  is choosing in a browser: Factory and outcome launches made by the controller.
 
 ## The run orchestration
 

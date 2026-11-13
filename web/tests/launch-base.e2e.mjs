@@ -20,7 +20,11 @@ const health = () => ({serverNow:Date.now(),machines:[{agentId:'a1',host:'studio
 const fproject = (id, name, dir, over={}) => ({id,host:'a1',machine:'studio',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'inherit',colour:'',defaultTool:'',defaultModel:'',
  defaultEffort:'',defaultYolo:false,hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1,...over})
 const fprojects = () => [fproject('fp1','Store rewrite','/home/dev/store',{baseBranch:'main'}), fproject('fp2','Notes','/home/dev/notes',{isRepo:false,position:1})]
-const sync = () => ({environments:[],machines:[],runs:[],updateJobs:[],targets:[],jobs:[],
+// What the machine's last scan reported, so the Machines page has a card for studio to start from.
+const scope = () => ({id:'s1',host:'studio',name:'studio',kind:'agent',agent:'claude',project:'/home/dev/store',complete:true,scannedAt:now,lastSeen:now,
+ skills:[],skillCount:0,os:'linux',arch:'amd64',version:'dev'})
+const fleet = () => [{host:'studio',groups:[scope()],skillCount:0}]
+const sync = () => ({environments:[scope()],machines:fleet(),runs:[],updateJobs:[],targets:[],jobs:[],
  agents:[{id:'a1',host:'studio',version:'1',lastSeen:Date.now(),paused:false,autoUpdate:false}]})
 
 // A writer's Home with one saved repository on a ready machine. `check` answers the base check; every create and every
@@ -51,7 +55,7 @@ async function scene(options={}) {
   '/api/__e2e/sync': () => ({}),
   ...(options.routes ?? {}),
  }
- const opened = await openWorkspace(browser, {width:options.width ?? 1280, height:options.height ?? 900, theme:options.theme ?? 'light', touch:!!options.touch, sync:sync(), routes})
+ const opened = await openWorkspace(browser, {width:options.width ?? 1280, height:options.height ?? 900, theme:options.theme ?? 'light', touch:!!options.touch, sync:sync(), inventory:{environments:[scope()],machines:fleet()}, routes})
  await opened.page.addInitScript(()=>{if(localStorage.getItem('reet.rail.collapsed')===null)localStorage.setItem('reet.rail.collapsed','0')})
  // Every appearance of the confirmation is recorded here, so a start that was made without being asked about is caught
  // even once the page has moved on to the session.
@@ -72,6 +76,18 @@ const bar = page => page.getByRole('form',{name:'Start a session'})
 const prompt = page => bar(page).getByRole('textbox',{name:'Describe the job'})
 const startButton = page => bar(page).getByRole('button',{name:/^(Start the session|Try the same request again)$/})
 const confirm = page => page.getByRole('alertdialog',{name:'Check where this starts'})
+// The other browser start path: the Start an agent dialog, opened from a machine card on Machines (the same dialog the
+// project rail's + and the Sessions screen open), with the saved repository chosen in it.
+const agentDialog = page => page.getByRole('dialog',{name:'Start an agent',exact:true})
+const openStartAgent = async page => {
+ await page.goto(`${base}/machines`)
+ const card = page.locator('article').filter({has:page.getByRole('heading',{name:'studio',exact:true})})
+ await card.getByRole('button',{name:'Start an agent',exact:true}).click()
+ const dialog = agentDialog(page)
+ await expect(dialog).toBeVisible()
+ await dialog.getByRole('combobox',{name:'Project',exact:true}).selectOption('fp1')
+ return dialog
+}
 const sentenceText = page => bar(page).locator('.sentence').evaluate(el => [...el.querySelectorAll('.part')].map(p => p.textContent.trim()).join(' '))
 // The bar opens in a modal; #launch opens it.
 const openBar = async page => {
@@ -182,6 +198,107 @@ try {
   await context.close()
  }
 
+ // The Start an agent dialog asks the same question, in the same words, with the same two answers. Both widths, both themes.
+ for (const screen of [{width:1280, theme:'light'}, {width:1280, theme:'dark'}, {width:390, height:780, theme:'light', touch:true}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`Start an agent asks before starting from a local base (${screen.width} px, ${screen.theme})`)) continue
+  const {context,page,errors,box} = await scene(screen)
+  const dialog = await openStartAgent(page)
+  expect(await page.evaluate(() => document.documentElement.dataset.theme ?? 'light')).toBe(screen.theme)
+  const start = dialog.getByRole('button',{name:'Start',exact:true})
+  await start.click()
+
+  await expect(confirm(page)).toBeVisible()
+  await expect(confirm(page)).toContainText(AHEAD)
+  await expect(confirm(page)).toContainText('Nothing has started yet.')
+  await settled(page)
+  expect(box.posts).toEqual([])
+  expect(box.checks).toEqual([{method:'GET', dir:'/home/dev/store', base:'main'}])
+  // Cancel starts nothing and gives the keyboard back to the Start it came from.
+  await confirm(page).getByRole('button',{name:'Cancel'}).click()
+  await expect(confirm(page)).toBeHidden()
+  await expect(start).toBeFocused()
+  await settled(page)
+  expect(box.posts).toEqual([])
+  // Escape does the same.
+  await start.click()
+  await expect(confirm(page)).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(confirm(page)).toBeHidden()
+  await expect(start).toBeFocused()
+  await settled(page)
+  expect(box.posts).toEqual([])
+
+  await start.click()
+  await expect(confirm(page)).toBeVisible()
+  await confirm(page).getByRole('button',{name:'Start session'}).click()
+  await expect.poll(() => box.posts.length).toBe(1)
+  expect(box.posts[0]).toMatchObject({agentId:'a1', dir:'/home/dev/store', base:'main', projectId:'fp1'})
+  expect(box.posts[0].worktree).toMatch(/^[0-9a-f]{32}$/)
+  expect(box.checks).toHaveLength(3)
+  expect(box.confirms).toBe(3)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The same two quiet cases for that dialog: a base that matches GitHub, and a machine that cannot answer.
+ for (const [name, answer] of [
+  ['a base that matches GitHub', () => ({base:'main',relation:'same',local:START,remote:START,start:START})],
+  ['an older machine', () => ({status:409, json:{error:'Update reet on that machine to check where a session starts.', code:'base_check_unsupported'}})],
+ ]) {
+  if (!run(`Start an agent starts without a dialog for ${name}`)) continue
+  const {context,page,errors,box} = await scene({check:answer})
+  const dialog = await openStartAgent(page)
+  await dialog.getByRole('button',{name:'Start',exact:true}).click()
+  await expect.poll(() => box.posts.length).toBe(1)
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(box.confirms).toBe(0)
+  expect(box.checks).toHaveLength(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A saved backlog plan is a person's start too: its Start reads the same check and asks the same question, and the
+ // controller is only asked to start it once the person has said yes.
+ if (run('a backlog plan asks before it starts')) {
+  const draft = {id:'d1',title:'Fix the flaky test',prompt:'Fix the flaky login test',agentId:'a1',projectId:'fp1',dir:'/home/dev/store',tool:'claude',model:'',effort:'',
+   images:[],imageCount:0,idea:false,yolo:false,worktree:true,base:'main',chat:false,trust:false,starting:false,version:1,createdAt:now,updatedAt:now}
+  const starts = []
+  const {context,page,errors,box} = await scene({routes:{
+   '/api/v2/session-backlog': () => ({drafts:[draft]}),
+   '/api/v2/session-backlog/d1': () => draft,
+   '/api/v2/session-backlog/d1/start': request => {
+    starts.push(request.postDataJSON())
+    return {id:'new-d1',agentId:'a1',title:draft.title,state:'running',createdAt:now,updatedAt:now,exitCode:null}
+   },
+  }})
+  // The full card, as the board's own fixture does: a compact card keeps its actions behind the fold.
+  await page.addInitScript(() => { if (!localStorage.getItem('reet.sessionBoard.1')) localStorage.setItem('reet.sessionBoard.1', JSON.stringify({compact:false})) })
+  await page.goto(base)
+  const card = page.locator('article.session-card').filter({hasText:'Fix the flaky test'})
+  const start = card.getByRole('button',{name:'Start',exact:true})
+  await expect(start).toBeEnabled()
+  await start.click()
+  await expect(confirm(page)).toBeVisible()
+  await expect(confirm(page)).toContainText(AHEAD)
+  await settled(page)
+  expect(starts).toEqual([])
+  expect(box.checks).toEqual([{method:'GET', dir:'/home/dev/store', base:'main'}])
+  await confirm(page).getByRole('button',{name:'Cancel'}).click()
+  await expect(confirm(page)).toBeHidden()
+  await expect(start).toBeFocused()
+  await settled(page)
+  expect(starts).toEqual([])
+  await start.click()
+  await expect(confirm(page)).toBeVisible()
+  await confirm(page).getByRole('button',{name:'Start session'}).click()
+  await expect.poll(() => starts.length).toBe(1)
+  expect(starts[0]).toMatchObject({version:1, prompt:'Fix the flaky login test'})
+  // The plan goes to the controller, which makes the session: the browser sends no create of its own.
+  expect(box.posts).toEqual([])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  // A folder that is not a repository is never isolated into a worktree, so there is nothing to check and nothing to ask.
  if (run('a folder that is no repository is never checked')) {
   const {context,page,errors,box} = await scene({projects:[fproject('fp2','Notes','/home/dev/notes',{isRepo:false})]})
@@ -200,7 +317,7 @@ try {
   await context.close()
  }
 
- console.log('Launch base: the dialog says where a session starts and asks (1280 and 390 px, light and dark), Escape and Cancel start nothing and return focus to Start, Start session sends one create, a matching base and a failed or unsupported check start with no dialog, and a folder that is no repository is never checked.')
+ console.log('Launch base: every browser start path says where a session starts and asks first — Home\'s launch bar and the Start an agent dialog, each at 1280 and 390 px in light and dark, and Start on a backlog plan. Escape and Cancel start nothing and return focus to the Start they came from, Start session sends exactly one create (or one plan start) with the project\'s base, a matching base and a failed or unsupported check start with no dialog, and a folder that is no repository is never checked.')
 } finally {
  await browser.close()
 }

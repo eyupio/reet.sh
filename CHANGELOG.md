@@ -12,13 +12,15 @@ this file existed releases were described on their GitHub release pages.
   when GitHub can't be reached it starts from the last known commit and nothing
   in your checkout is touched. Agents no longer start work on a branch that was
   days behind.
-- When the two sides differ, Home's launch bar says so and asks before anything
-  starts: "main on studio has commits GitHub doesn't have. This session starts
-  from the local main (abc1234)." Cancel starts nothing. A base that matches
-  GitHub is not worth a question, so nothing is shown, and a machine that can't
-  answer the question — an older reet, a busy one, or no answer within ten
-  seconds — never holds the start up. The sentence is kept with the session and
-  shown on its Overview, under Where it's working.
+- When the two sides differ, every start you make in the browser says so and
+  asks before anything starts: "main on studio has commits GitHub doesn't have.
+  This session starts from the local main (abc1234)." That is Home's launch bar,
+  the Start an agent dialog (the project rail's +, the machine cards, Machines
+  and the Sessions screen) and Start on a backlog plan. Cancel starts nothing. A
+  base that matches GitHub is not worth a question, so nothing is shown, and a
+  machine that can't answer the question — an older reet, a busy one, or no
+  answer within ten seconds — never holds the start up. The sentence is kept with
+  the session and shown on its Overview, under Where it's working.
 - The scheduled worktree clean-up is now on unless an admin turns it off, so
   the clean worktrees of finished sessions are no longer left behind. It still
   removes only worktrees with nothing unsaved, and its default wait after a

@@ -7,12 +7,12 @@
   import { UnauthorizedError, addModelFavourite, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type YoloSetting } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { defaultLabel, favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
-  import { MAX_PROMPT_BYTES, cleanModel, isolatedLaunch, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
-  import { baseSentence, needsConfirm } from '../baseNotice'
+  import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
+  import { baseQuestion } from '../baseGate'
   import { launchEfforts } from '../terminal/launchOptions'
   import { afterLaunch, baseFor, chatEffort, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
-  import { checkBase, createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
+  import { createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from '../terminal/upload'
   import { rememberUpload } from '../terminal/thumbs'
@@ -799,7 +799,7 @@
     if (!operation) {
       if (reason !== null) return
       if (imagesReason) { failed = true; message = imagesReason; return }
-      if (!baseConfirmed && one && isolatedLaunch({ tool: choice.agent, dir: one.dir }, one)) {
+      if (!baseConfirmed && one) {
         // Asked before anything is built or uploaded, so a no leaves nothing behind. The dialog's button starts it.
         const asked = await askWhereItStarts(one)
         if (life.signal.aborted || asked || !choice || !projects) return
@@ -1088,15 +1088,14 @@
    */
   async function askWhereItStarts(project: FolderProject): Promise<boolean> {
     const host = hostOf(project.host)
+    const launch = { tool: choice!.agent, dir: project.dir, base: baseFor(choice!, project, profile) }
     busy = true; phase = 'prepare'; failed = false
     message = `Checking where this starts on ${host}…`
     try {
-      const state = await checkBase(project.host, project.dir, baseFor(choice!, project, profile) || undefined, life.signal)
+      const say = await baseQuestion(project.host, host, launch, project, life.signal)
       if (life.signal.aborted) return true
-      const say = baseSentence(state, host)
-      if (say && needsConfirm(state, project)) { baseText = say; baseHost = host; baseOpen = true; return true }
-    } catch { /* the check is a courtesy: a start is never held up for it */ }
-    finally { busy = false; message = '' }
+      if (say) { baseText = say; baseHost = host; baseOpen = true; return true }
+    } finally { busy = false; message = '' }
     return false
   }
   function cancelBase() {

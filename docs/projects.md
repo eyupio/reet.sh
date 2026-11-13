@@ -156,10 +156,12 @@ from the local branch; when GitHub can't be reached it starts from the last know
 in the checkout is changed ([Worktrees](terminal-worktrees.md#creating)). A machine running an older
 reet is unchanged: it fetches nothing and starts where it always did.
 
-When the two sides differ, Home's launch bar says so and asks before it starts anything ("main on
-studio has commits GitHub doesn't have. This session starts from the local main (abc1234)."), and the
-same sentence is kept with the session and shown on its Overview under **Where it's working**. A
-check that can't be answered never holds a start up. See
+When the two sides differ, every start you make in the browser — Home's launch bar, the **Start an
+agent** dialog the rail's **+**, the machine cards, Machines and the Sessions screen open, and **Start**
+on a backlog plan — says so and asks before it starts anything ("main on studio has commits GitHub doesn't have. This session starts
+from the local main (abc1234)."), and the same sentence is kept with the session and shown on its
+Overview under **Where it's working**. A check that can't be answered never holds a start up. Starts
+nobody is choosing in a browser (a Factory outcome's launches) do not ask. See
 [Start an agent session](start-agent-session.md#on-home-the-launch-bar).
 
 ## Session and profile fields

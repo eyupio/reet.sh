@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The scheduled worktree clean-up is now on unless an admin turns it off, so
+  the clean worktrees of finished sessions are no longer left behind. It still
+  removes only worktrees with nothing unsaved, for sessions finished at least
+  7 days ago by default. A controller where it was switched off stays off; one
+  that never saved the setting starts sweeping after this update.
 - A Factory outcome can no longer get stuck on a session that is gone. When a
   followed session is removed (for example ended with its history removed), the
   controller now notices within seconds, stops following that pipeline and

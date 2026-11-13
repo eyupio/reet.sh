@@ -33,6 +33,8 @@ var (
 	// browse is terminalhost.Browse; tests replace it to hold a browse.
 	browse           = terminalhost.Browse
 	inspectWorkspace = terminalhost.InspectSession
+	// cloneRepo is terminalhost.CloneRepo; tests replace it to hold a clone.
+	cloneRepo = terminalhost.CloneRepo
 	// browseAnswerAfter is when a browse that has not returned is answered
 	// unreadable and its slot freed: after Browse's own 3 s deadline, before
 	// the controller's 6 s. Browse cannot cut short every call (resolving the
@@ -52,6 +54,9 @@ var (
 	// baseCheckAnswerAfter bounds a base check that has not returned. Its own
 	// deadline is 33 s, which is under this answer.
 	baseCheckAnswerAfter = 36 * time.Second
+	// repoCloneAnswerAfter bounds a clone that has not returned. Its own
+	// deadline is 10 minutes, which is under this answer.
+	repoCloneAnswerAfter = 10*time.Minute + 30*time.Second
 	// modelsAnswerAfter is when a model listing that has not returned is
 	// answered timed_out and its slot freed. ListModels kills its process at
 	// 10 s; this leaves room for the reply and process reaping.
@@ -81,7 +86,14 @@ var (
 	softwareRunning atomic.Int32
 	inspectsRunning atomic.Int32
 	controlsRunning atomic.Int32
+	clonesRunning   atomic.Int32
 )
+
+// cloneSlot allows one repository clone at a time on this connector process,
+// not just one connection, so reconnecting cannot start a second. It is not
+// the slot prune, sync and base check share: a clone takes minutes and must
+// not hold those up.
+var cloneSlot = make(chan struct{}, 1)
 
 // softwareSlot serialises software applies on this connector process, not just
 // one connection, so two controllers cannot install at once.
@@ -514,6 +526,20 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.BaseCheckResult{Reason: terminalproto.BranchesConflict}, terminalproto.BaseCheckResult{Reason: terminalproto.BranchesGitFailed},
 					func(ctx context.Context) terminalproto.Body {
 						return terminalhost.CheckBase(ctx, home, req, git)
+					})
+			case *terminalproto.RepoClone:
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneDenied}
+					return send(callCtx, reply)
+				}
+				req, home, git := *op, opts.Home, opts.Git
+				if git == nil {
+					git = terminalhost.ExecCloneGit
+				}
+				return aside(callCtx, reply, cloneSlot, &clonesRunning, repoCloneAnswerAfter,
+					terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneTimedOut},
+					func(ctx context.Context) terminalproto.Body {
+						return cloneRepo(ctx, home, req, git, terminalhost.ExecGH)
 					})
 			case *terminalproto.Models:
 				if !terminalproto.ValidToolV2(op.Tool) {
@@ -1182,6 +1208,10 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.BaseCheck:
 		if !has(terminalproto.BaseFreshFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.RepoClone:
+		if !has(terminalproto.RepoCloneFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.Models:

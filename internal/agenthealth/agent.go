@@ -69,6 +69,7 @@ type AgentConfig struct {
 	branchPrune        bool
 	branchSync         bool
 	baseFresh          bool
+	repoClone          bool
 	browseAllowed      bool
 	clipboard          bool
 	clipboardAllowed   bool
@@ -131,6 +132,10 @@ type AgentConfig struct {
 	// GitAvailable reports whether git is on this connector's PATH, for run
 	// worktrees. Nil means the connector cannot make worktrees.
 	GitAvailable func() bool
+	// GHAvailable reports whether gh is on this connector's PATH at an
+	// absolute path, for cloning GitHub repositories. Nil means the connector
+	// cannot clone.
+	GHAvailable func() bool
 	// BrowseAllowed re-reads the machine's local folder-browse switch
 	// (reet terminal browse on|off). It is polled with Consent. Nil means
 	// browsing is refused.
@@ -557,6 +562,11 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 				m.Body = terminalproto.BaseCheckResult{Reason: terminalproto.BranchesDenied}
 				return send(ctx, m)
 			}
+		case *terminalproto.RepoClone:
+			if cfg.repoClone && !currentCapabilities(cfg).RepoClone {
+				m.Body = terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneDenied}
+				return send(ctx, m)
+			}
 		}
 		return control(ctx, m)
 	}
@@ -664,6 +674,11 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 			return m, false
 		}
 		m.Body = terminalproto.BaseCheckResult{Reason: terminalproto.BranchesConflict}
+	case *terminalproto.RepoClone:
+		if !terminalproto.SupportsRepoClone(features) {
+			return m, false
+		}
+		m.Body = terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneBusy}
 	default:
 		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 	}
@@ -936,6 +951,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.branchPrune = terminalproto.SupportsBranchPrune(advertised)
 	cfg.branchSync = terminalproto.SupportsBranchSync(advertised)
 	cfg.baseFresh = terminalproto.SupportsBaseFresh(advertised)
+	cfg.repoClone = terminalproto.SupportsRepoClone(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
@@ -1021,6 +1037,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.baseFresh {
 		features = append(features, terminalproto.BaseFreshFeature)
+	}
+	if cfg.repoClone {
+		features = append(features, terminalproto.RepoCloneFeature)
 	}
 	if cfg.clipboard {
 		features = append(features, terminalproto.ClipboardFeature)
@@ -1321,7 +1340,11 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		BranchSync:   cfg.branchSync && worktree && enabled,
 		// Fetching a worktree's base is part of making one, so it follows
 		// Worktree, not enabled: a machine that makes worktrees fetches them.
-		BaseFresh:       cfg.baseFresh && worktree,
+		BaseFresh: cfg.baseFresh && worktree,
+		// Cloning makes a project folder for runs, so it follows Worktree as
+		// fetching a base does; it also needs gh, whose sign-in is what the
+		// clone authenticates with. The sign-in itself is checked per clone.
+		RepoClone:       cfg.repoClone && worktree && cfg.GHAvailable != nil && cfg.GHAvailable(),
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,

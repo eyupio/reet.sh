@@ -441,6 +441,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 				StructuredAgents: func() []terminalproto.ACPAgent { return structuredAgents(c.Home) },
 				Software:         func() []terminalproto.SoftwareEntry { return softwareInventory(c.Home) },
 				GitAvailable:     gitAvailable,
+				GHAvailable:      ghAvailable,
 				BrowseAllowed:    browseAllowed(*config, c),
 				ClipboardAllowed: clipboardAllowed(*config, c),
 				UploadsAllowed:   uploadsAllowed(*config, c),

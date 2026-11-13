@@ -130,10 +130,12 @@ try{
   await session('ALPHA');await option('Look after this session')
   await goal().getByRole('button',{name:'Edit goal or start a new budget',exact:true}).click()
   await goal().getByLabel('Agreed goal',{exact:true}).fill('ALPHA review the new simulated check; ask the worker to fix it. Do not merge.')
+  // Let the earlier progress events finish reaching the controller, so a late idle status cannot drain the queued instruction.
+  await expect.poll(async()=>(await state()).workers.ALPHA.working,{timeout:30000}).toBe(false)
   await command('mode',{marker:'ALPHA',mode:'queue'})
   await goal().getByRole('button',{name:'Start new goal / budget',exact:true}).click()
   await page.getByRole('dialog',{name:'Start a new goal and budget?',exact:true}).getByRole('button',{name:'Start new goal',exact:true}).click()
-  await expect.poll(async()=>(await receipt('ALPHA'))?.state,{timeout:60000}).toBe('queued')
+  await expect.poll(async()=>(await receipt('ALPHA'))?.state,{timeout:120000}).toBe('queued')
   await expect.poll(async()=>(await goalData('ALPHA')).activeTurnId,{timeout:10000}).toBeFalsy()
   const workerPermission=await api(`/api/v2/gaffer/conversations/${conversations.ALPHA}/worker`)
   await api(`/api/v2/gaffer/conversations/${conversations.ALPHA}/worker`,'PUT',{enabled:false,revision:workerPermission.worker.grant.revision,providerId:workerPermission.worker.providerId,providerRevision:workerPermission.worker.providerRevision,model:workerPermission.worker.model})

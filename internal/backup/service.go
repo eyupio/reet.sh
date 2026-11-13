@@ -1102,6 +1102,9 @@ func (s *Service) PruneNow(ctx context.Context, ownerID int64) (PruneResult, err
 	if err != nil {
 		return PruneResult{}, err
 	}
+	if removed == nil {
+		removed = []string{}
+	}
 	out := PruneResult{Removed: removed, Remotes: []RemotePrune{}}
 	remotes, err := s.loadRemotes(ownerID)
 	if err != nil {
@@ -1109,6 +1112,9 @@ func (s *Service) PruneNow(ctx context.Context, ownerID int64) (PruneResult, err
 	}
 	for _, r := range remotes {
 		gone, err := s.pruneOneRemote(ctx, ownerID, r)
+		if gone == nil {
+			gone = []string{}
+		}
 		rp := RemotePrune{Name: r.Name, Removed: gone, Error: ""}
 		if err != nil {
 			rp.Error = err.Error()

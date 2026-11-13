@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -180,7 +181,7 @@ func TestCloneRepoMakesAMarkedNormalClone(t *testing.T) {
 			}
 		}
 	}
-	want := append(networkGitArgs(), "clone", "--no-tags", "https://github.com/o/r.git")
+	want := append(append(networkGitArgs(), cloneFilterArgs...), "clone", "--no-tags", "https://github.com/o/r.git")
 	if !slices.Equal(args[:len(args)-1], want) || !slices.Contains(args, "core.hooksPath=/dev/null") || !slices.Contains(args, "protocol.ssh.allow=never") {
 		t.Fatalf("clone argv %q, want %q then a temp folder", args, want)
 	}
@@ -696,5 +697,84 @@ func TestExecGH(t *testing.T) {
 	t.Setenv("PATH", shortTempDir(t))
 	if _, err := ExecGH(t.Context(), "auth", "status"); !errors.Is(err, errGHMissing) {
 		t.Fatalf("no gh: %v", err)
+	}
+}
+
+// lfsPointer is the text git-lfs commits in place of a large file.
+const lfsPointer = "version https://git-lfs.github.com/spec/v1\noid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\nsize 12345\n"
+
+// The clone reet starts reaches github.com and nothing else, and runs no
+// LFS filter on a tree nobody has looked at: a repository whose
+// .lfsconfig names another host over ssh, cloned on a machine whose own
+// git configuration installs an LFS filter, leaves the marked file as the
+// pointer it is and never starts the filter or ssh.
+func TestCloneRepoRunsNoLFSFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// real uses git-lfs itself as the filter, when it is installed.
+		real bool
+	}{
+		{"recording filter", false},
+		{"git-lfs", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.real {
+				if _, err := exec.LookPath("git-lfs"); err != nil {
+					t.Skip("git-lfs is not installed; the recording filter stands in for it")
+				}
+			}
+			f := newCloneFixture(t)
+			work := filepath.Join(f.home, "work")
+			writeFile(t, filepath.Join(work, ".gitattributes"), "big.bin filter=lfs diff=lfs merge=lfs -text\n")
+			writeFile(t, filepath.Join(work, ".lfsconfig"), "[lfs]\n\turl = ssh://git@attacker.invalid/x\n")
+			writeFile(t, filepath.Join(work, "big.bin"), lfsPointer)
+			testGit(t, work, "add", ".gitattributes", ".lfsconfig", "big.bin")
+			testGit(t, work, "commit", "-q", "-m", "lfs")
+			testGit(t, work, "push", "-q", f.remote, "main")
+
+			// Only now does this HOME's configuration name the filter, so
+			// the setup above ran none.
+			bin := shortTempDir(t)
+			record := filepath.Join(bin, "ran")
+			recorder := func(name string) string {
+				path := filepath.Join(bin, name)
+				script := "#!/bin/sh\necho " + name + " >> '" + record + "'\nexit 1\n"
+				if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			}
+			ssh := recorder("ssh")
+			process, smudge := recorder("filter-process"), recorder("filter-smudge")+" %f"
+			if tc.real {
+				process, smudge = "git-lfs filter-process", "git-lfs smudge -- %f"
+			}
+			writeFile(t, filepath.Join(f.home, ".gitconfig"),
+				"[filter \"lfs\"]\n\tprocess = "+process+"\n\tsmudge = "+smudge+"\n\tclean = "+recorder("filter-clean")+" %f\n\trequired = true\n"+
+					"[core]\n\tsshCommand = "+ssh+"\n")
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			r := f.clone(t, "o", "r")
+			dest := filepath.Join(f.repos(), "o", "r")
+			if data, err := os.ReadFile(record); err == nil || !os.IsNotExist(err) {
+				t.Fatalf("ran during the clone: %q (%v); result %+v", data, err, r)
+			}
+			if r != (terminalproto.RepoCloneResult{Dir: dest, DefaultBranch: "main", Marked: true}) {
+				t.Fatalf("result = %+v", r)
+			}
+			if data, err := os.ReadFile(filepath.Join(dest, "big.bin")); err != nil || string(data) != lfsPointer {
+				t.Fatalf("big.bin = %q, %v", data, err)
+			}
+			for _, args := range f.cloneCalls() {
+				for _, want := range []string{"filter.lfs.process=", "filter.lfs.smudge=", "filter.lfs.required=false"} {
+					if !slices.Contains(args, want) {
+						t.Fatalf("clone argv %q lacks %s", args, want)
+					}
+				}
+			}
+			if !slices.Contains(f.cloneEnv, "GIT_LFS_SKIP_SMUDGE=1") {
+				t.Fatalf("clone environment %q", f.cloneEnv)
+			}
+		})
 	}
 }

@@ -125,7 +125,7 @@ func TestRepoCloneResultValid(t *testing.T) {
 		"timed out":           {RepoCloneResult{Reason: RepoCloneTimedOut}, true},
 		"failed":              {RepoCloneResult{Reason: RepoCloneFailed}, true},
 		"denied":              {RepoCloneResult{Reason: RepoCloneDenied}, true},
-		"busy":                {RepoCloneResult{Reason: "busy"}, true},
+		"busy":                {RepoCloneResult{Reason: RepoCloneBusy}, true},
 		"empty":               {RepoCloneResult{}, false},
 		"dir and reason":      {RepoCloneResult{Dir: "/home/u/x", Reason: RepoCloneFailed}, false},
 		"unknown reason":      {RepoCloneResult{Reason: "boom"}, false},

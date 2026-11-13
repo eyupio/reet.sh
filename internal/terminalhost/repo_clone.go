@@ -80,6 +80,11 @@ func ExecCloneGit(ctx context.Context, dir string, args ...string) ([]byte, erro
 // folder renamed into place without replacing anything. A clone that fails
 // removes its temporary folder, and the owner folder when this call made it
 // and it is empty; nothing else is ever removed.
+//
+// The clone reaches github.com only and runs no LFS filter (cloneFilterArgs).
+// Any other smudge filter the person's own git configuration names still runs
+// during the clone's checkout, on the paths the repository's .gitattributes
+// select, as it would for any `git clone` that person ran.
 func CloneRepo(ctx context.Context, home string, req terminalproto.RepoClone, git GitRunner, gh GHRunner) terminalproto.RepoCloneResult {
 	refuse := func(reason terminalproto.RepoCloneReason) terminalproto.RepoCloneResult {
 		return terminalproto.RepoCloneResult{Reason: reason}
@@ -153,8 +158,11 @@ func CloneRepo(ctx context.Context, home string, req terminalproto.RepoClone, gi
 
 	// LANG=C so the messages noAccess matches are git's own English ones;
 	// LC_ALL and LC_MESSAGES never reach git (gitEnvironment).
-	cloneCtx := withGitEnv(ctx, append(networkGitEnv(), "LANG=C")...)
-	args := append(networkGitArgs(), "clone", "--no-tags", "https://github.com/"+req.Owner+"/"+req.Repo+".git", temp)
+	// GIT_LFS_SKIP_SMUDGE and the empty filter.lfs settings keep git-lfs
+	// from running on this checkout at all (see cloneFilterArgs).
+	cloneCtx := withGitEnv(ctx, append(networkGitEnv(), "LANG=C", "GIT_LFS_SKIP_SMUDGE=1")...)
+	args := append(networkGitArgs(), cloneFilterArgs...)
+	args = append(args, "clone", "--no-tags", "https://github.com/"+req.Owner+"/"+req.Repo+".git", temp)
 	out, err := git(cloneCtx, ownerDir, args...)
 	if err != nil || ctx.Err() != nil {
 		discard()
@@ -183,6 +191,16 @@ func CloneRepo(ctx context.Context, home string, req terminalproto.RepoClone, gi
 	}
 	return terminalproto.RepoCloneResult{Dir: dest, DefaultBranch: cloneDefaultBranch(ctx, dest, git), Marked: true}
 }
+
+// cloneFilterArgs turn off the LFS filter for the clone's own checkout,
+// whatever the person's git configuration installs (`git lfs install`):
+// git-lfs follows the repository's committed .lfsconfig to any host, over
+// ssh too, and asks the machine's credential helpers for it, so a tree nobody
+// has looked at yet must not start it. LFS-tracked files stay pointer files
+// in this checkout, which is not worked in; each run's worktree is checked out
+// later under the person's own configuration. They are for the clone only:
+// a fetch checks nothing out.
+var cloneFilterArgs = []string{"-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false"}
 
 // noAccess reports git's own words for a repository that is missing or not
 // visible to the sign-in: GitHub answers both the same way.

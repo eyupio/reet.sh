@@ -90,7 +90,10 @@ var (
 )
 
 // cloneSlot allows one repository clone at a time on this connector process,
-// not just one connection, so reconnecting cannot start a second. It is not
+// across its connections: a clone holds it for as long as it runs on its
+// connection. A dropped connection ends its clone and frees the slot, so a
+// clone on the next connection may start while the ended one is still
+// removing its temporary folder; each clone removes only its own. It is not
 // the slot prune, sync and base check share: a clone takes minutes and must
 // not hold those up.
 var cloneSlot = make(chan struct{}, 1)

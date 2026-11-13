@@ -258,7 +258,9 @@ func TestSessionRecordsTheBaseTheMachineResolved(t *testing.T) {
 	resolved := terminalproto.BaseState{Base: "main", Relation: terminalproto.BaseFetchFailed, Local: start, Start: start}
 	f.reply = reportsItsWorktree(&resolved)
 	code, out, raw := f.create(t, isolatedProjectLaunch(f.agent.ID, terminalbroker.ID()))
-	if code != 200 || out["baseRelation"] != "fetch_failed" {
+	// The session names the branch the machine resolved, so the notice on its
+	// own page can say which branch it started from.
+	if code != 200 || out["baseRelation"] != "fetch_failed" || out["baseName"] != "main" {
 		t.Fatal("session JSON", code, raw)
 	}
 	if sent := f.sent(); len(sent) != 1 || sent[0].Base != "" {

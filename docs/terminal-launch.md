@@ -306,9 +306,15 @@ leaves it absent.
 Create accepts optional `base`, `effort` and `yolo`. An older peer receives none
 of those fields and no new tool id: the controller answers 409
 `launch_option_unsupported` with "Update reet on that machine to use that option."
-A named base requires a worktree. The connector resolves a local branch first,
-then a remote branch, to a commit before creating the worktree. A missing branch
-answers 422 `base_missing`, naming the machine in the sentence. An empty base
+A named base requires a worktree. A connector that negotiated `base-fresh-v1`
+fetches that branch from a `github.com` origin and starts the worktree from
+GitHub's commit, unless the repository's own branch has commits GitHub does not
+have; a failed fetch starts from the last known commit, and with no `github.com`
+origin it resolves a local branch first, then a remote-tracking branch, as it
+always has ([Worktrees](terminal-worktrees.md#creating)). An older connector
+never fetches. A missing branch answers 422 `base_missing`, naming the machine in
+the sentence. An empty base leaves the branch to the machine: a `base-fresh-v1`
+connector starts from the repository's default branch on GitHub, and an older one
 keeps the existing HEAD behaviour.
 
 Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its

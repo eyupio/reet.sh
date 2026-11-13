@@ -117,8 +117,10 @@ func TestTerminalSessionRecordsWhatItsWorktreeStartedFrom(t *testing.T) {
 	if err != nil || got.BaseRelation != "ahead" || got.BaseStart != start || got.BaseName != "develop" {
 		t.Fatal("recorded base", got, err)
 	}
+	// The resolved branch goes out with the relation and the commit: the
+	// notice on the session's own page names the branch it started from.
 	data, _ := json.Marshal(got)
-	for _, field := range []string{`"baseRelation":"ahead"`, `"baseStart":"` + start + `"`} {
+	for _, field := range []string{`"baseRelation":"ahead"`, `"baseStart":"` + start + `"`, `"baseName":"develop"`} {
 		if !strings.Contains(string(data), field) {
 			t.Fatal(field, string(data))
 		}

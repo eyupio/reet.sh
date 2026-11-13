@@ -107,10 +107,32 @@ folder rules: absolute, inside home, symlinks resolved):
 3. `git rev-parse --verify --quiet HEAD^{commit}`, which must name a commit.
 4. `git for-each-ref --format=%(refname) refs/heads/reet/<project>-<run>`.
 5. `git worktree list --porcelain`.
-6. `git -c core.hooksPath=/dev/null worktree add -b <branch> <destination> HEAD`,
-   the only command that changes anything when all goes well. With a named
-   `base` (`agents-v2`, [Launch requests](terminal-launch.md#catalogue-and-named-bases-agents-v2))
-   the worktree starts from that branch's commit instead of HEAD.
+6. `git -c core.hooksPath=/dev/null worktree add -b <branch> <destination> <commit>`,
+   the only command that changes anything when all goes well. The commit is
+   HEAD unless a base was resolved (see below), in which case it is the commit
+   that base resolved to.
+
+Before step 6, a machine that negotiated `base-fresh-v1` resolves the base:
+
+- With a `github.com` origin it fetches that branch from GitHub first and starts
+  from **GitHub's commit**, unless the repository's own branch has commits
+  GitHub does not have, in which case it starts from the local branch. A fetch
+  that fails starts from the last known commit, and nothing is written to the
+  source checkout: the fetch only updates the remote-tracking branch.
+- With no `github.com` origin it resolves the local branch first, then the
+  remote-tracking branch, as it always has.
+- With no base named at all it takes the repository's default branch
+  (`origin/HEAD`, then a local `main` or `master`), so a run starts from
+  GitHub's default branch; only a repository with no `github.com` origin, or
+  none with a default branch, starts at HEAD.
+- It reports what it did with the worktree: the branch it resolved, how that
+  branch stood against GitHub's (`same`, `behind`, `no_local`, `ahead`,
+  `diverged`, `fetch_failed`, `no_remote`) and the commit it started from. The
+  controller keeps those on the session as `baseName`, `baseRelation` and
+  `baseStart`.
+
+A machine that did not negotiate `base-fresh-v1` is unchanged: it is never named
+a base it did not ask for, it fetches nothing, and it reports no base.
 
 If the add fails, the connector removes only what this same call created:
 `git worktree unlock <destination>`, then `git worktree remove --force
@@ -325,9 +347,20 @@ not a viewer, the canonical `Origin`, the remote-terminals switch on, strict JSO
   confirmedBy: "status"}` (the folder is not known then); otherwise it answers
   503 as a reconnect, and the person checks again.
 
+- `GET /api/v2/machines/{agentId}/base-check?dir=&base=` answers where a session
+  in that folder would start, without making anything: `{base, relation, local,
+  remote, start}`, each left out when empty. An empty `base` asks about the
+  saved project's own. It fetches on the machine, so it shares the rate limit
+  the other whole-repository reads take. A machine from before `base-fresh-v1`
+  answers 409 `base_check_unsupported`, a machine already busy with branches
+  409 `branches_busy`, a missing branch 422 `base_missing`, a failed git 422
+  `git_failed`, too many reads 429, and a viewer 403. Nothing is started, so
+  every one of those refusals is safe to ignore.
+
 The session JSON returned by create (and listed by `GET /api/v2/terminal/sessions`)
 carries `worktreePath`, `worktreeRepo` and `worktreeBranch` for a session started
-in its own worktree. `repo` in status and remove must be that `worktreeRepo`, the
+in its own worktree, and `baseName`, `baseRelation` and `baseStart` when the
+machine reported where it started from (each left out when empty). `repo` in status and remove must be that `worktreeRepo`, the
 name the machine used, not a name recomputed from the saved folder: when the
 member folder is itself a symlink inside home, its own name differs and status
 answers `not_found`. A refused create's reason and detail are stored with the
@@ -376,6 +409,10 @@ account's). The base:
 - **Several projects** (Select, 2 to 12). Each member's create carries its own project's base branch,
   else the account's default, else none; the one-project choice is never applied to all of them.
   The run is a selection run (`origin: selection`) and its members follow the orchestration below.
+- **Where it starts.** For a start in one saved repository, the bar reads the base check above before
+  it sends anything, and when the local base and GitHub's differ it says so and asks
+  (`web/src/lib/baseNotice.ts`, `web/src/lib/home/BaseConfirm.svelte`). A start in several projects is
+  not checked: each member has its own base, and the run is started by the controller.
 
 ## The run orchestration
 

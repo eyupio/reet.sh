@@ -368,9 +368,10 @@ type TerminalSession struct {
 	BaseStart    string `json:"baseStart,omitempty"`
 	// BaseName is the branch the machine resolved that base to, which can
 	// differ from the one the create named (a create that named none starts
-	// from the remote's default). It is the controller's own record of what
-	// happened, for the notice; the session view shows the worktree's branch.
-	BaseName string `json:"-"`
+	// from the remote's default). It is what the session's own notice names,
+	// so it goes out with the other two; the session view still shows the
+	// worktree's branch as the branch the agent works on.
+	BaseName string `json:"baseName,omitempty"`
 	// Launch metadata for the listing. Effort is the requested launch level;
 	// Yolo records the person's confirmation for this session. ProjectID is null
 	// for a session started outside a folder project.

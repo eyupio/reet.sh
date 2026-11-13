@@ -165,6 +165,21 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   names the checkout's current branch as the machine reported it. A branch only suggested from the
   machine's list is shown, never sent unless picked. In the checkout there is no Branch slot; a line
   under the sentence says "Works in the checkout on main."
+- **Where it starts.** A session in a saved repository works in a worktree of its own, cut from the
+  base branch after the machine has fetched that branch from GitHub. It starts from GitHub's commit
+  unless the branch on the machine has commits GitHub doesn't have, and from the last known commit
+  when GitHub couldn't be reached ([Worktrees](terminal-worktrees.md#creating)). Before it sends
+  anything, Start reads where it would start (`GET /api/v2/machines/{agentId}/base-check`). When the
+  two sides differ it asks first, in one sentence naming the branch, the machine and the commit:
+
+  > main on studio has commits GitHub doesn't have. This session starts from the local main (abc1234).
+
+  **Cancel** starts nothing; **Start session** starts it from that commit. A base that matches GitHub
+  is not worth a question, so nothing is shown. The check never holds a start up: a machine too old to
+  answer it, a busy or rate-limited one, or no answer within ten seconds starts the session with no
+  dialog and nothing said. The same sentence is kept with the session and shown on its Overview, under
+  **Where it's working**, as *Started from*. A start in several projects is not checked, and a plain
+  terminal, a folder that is not a repository and a continuation never are.
 - **Branch listing.** The Branch list comes from the machine (`GET /api/v2/machines/{agentId}/branches`,
   see [Folder browse and branch listing](folder-browse.md)): read once per folder, at most 200 names,
   with a filter that asks the machine again. A machine that can't list branches says "Update reet on
@@ -259,6 +274,10 @@ process list."
 
 The new session is titled \<Agent\> · \<folder name\>, for example "Claude Code · site". With the
 home folder it is just the agent's name. You can rename it afterwards.
+
+A start in a saved repository works in a worktree cut from the base branch as GitHub has it, the same
+as from Home's launch bar. This dialog does not ask about it first: the question is Home's launch bar's
+only. The session still says where it started from on its Overview, under **Where it's working**.
 
 ## What each state says
 

@@ -7,11 +7,12 @@
   import { UnauthorizedError, addModelFavourite, getYoloSetting, listModelFavourites, removeModelFavourite, setModelFavouriteDefault, type YoloSetting } from '../api'
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { defaultLabel, favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
-  import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
+  import { MAX_PROMPT_BYTES, cleanModel, isolatedLaunch, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
+  import { baseSentence, needsConfirm } from '../baseNotice'
   import { launchEfforts } from '../terminal/launchOptions'
-  import { afterLaunch, chatEffort, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
+  import { afterLaunch, baseFor, chatEffort, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
-  import { createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
+  import { checkBase, createTerminal, getFolderProject, getSelectionRun, launchProgress, launchUpload, listBranches, machineModels, readiness, refreshMachineModels, refusalSentence, retrySelectionMember, sessionHref, startSelectionRun, TerminalError,
     type BranchesResult, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { formatImageSize, imageFiles, imagePrompt, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from '../terminal/upload'
   import { rememberUpload } from '../terminal/thumbs'
@@ -25,6 +26,7 @@
  import { promptTrigger, replacePromptTrigger } from '../terminal/prompts'
  import { insertSkillPrompt } from '../skillPrompt'
   import YoloDialog from './YoloDialog.svelte'
+  import BaseConfirm from '../home/BaseConfirm.svelte'
 
   // The launch bar docked at the foot of Home: "Describe the job" and a sentence whose bold words are the choices (spec: The
   // launch bar). It opens on the resolved project, account and favourite defaults (D1), never the last launch; Start sends one
@@ -121,6 +123,10 @@
   // preselected and confirmed when Start is pressed.
   let yoloSetting = $state<YoloSetting | null>(null), yoloOpen = $state(false)
   let yoloIntent = $state<'enable' | 'start'>('enable'), yoloConfirmed = $state(false)
+  // Where a session in a saved repository would start. A launch isolated into a worktree asks its machine first; when the
+  // repository's base and GitHub's differ, the sentence is shown and Start waits for a yes. A check that cannot be
+  // answered (an older machine, a busy one, no reply at all) never holds the start up and is never mentioned.
+  let baseOpen = $state(false), baseText = $state(''), baseHost = $state(''), baseConfirmed = $state(false)
   const life = new AbortController()
   let form = $state<HTMLFormElement>(), field = $state<HTMLTextAreaElement>(), startButton = $state<HTMLButtonElement>()
   // Your saved prompts: a backslash token opens them above the bar; the Prompts button opens the full picker.
@@ -793,6 +799,13 @@
     if (!operation) {
       if (reason !== null) return
       if (imagesReason) { failed = true; message = imagesReason; return }
+      if (!baseConfirmed && one && isolatedLaunch({ tool: choice.agent, dir: one.dir }, one)) {
+        // Asked before anything is built or uploaded, so a no leaves nothing behind. The dialog's button starts it.
+        const asked = await askWhereItStarts(one)
+        if (life.signal.aborted || asked || !choice || !projects) return
+      }
+      // The yes was for this press: the next Start asks its machine again.
+      baseConfirmed = false
       keptProjects = [...projects]
       if (picked.length > 1) operation = { kind: 'run', body: toSelectionRun(choice, crypto.randomUUID()) }
       else {
@@ -1067,6 +1080,34 @@
   async function loadYolo() {
     try { yoloSetting = await getYoloSetting() } catch { yoloSetting = null }
   }
+
+  /**
+   * Asks the machine where a worktree for this project would start and, when that is worth saying, opens the
+   * confirmation. True means the person has been asked, so nothing is started yet. A machine that cannot answer (an
+   * older one, a busy one, a refusal, no reply within ten seconds) is never mentioned and never holds the start up.
+   */
+  async function askWhereItStarts(project: FolderProject): Promise<boolean> {
+    const host = hostOf(project.host)
+    busy = true; phase = 'prepare'; failed = false
+    message = `Checking where this starts on ${host}…`
+    try {
+      const state = await checkBase(project.host, project.dir, baseFor(choice!, project, profile) || undefined, life.signal)
+      if (life.signal.aborted) return true
+      const say = baseSentence(state, host)
+      if (say && needsConfirm(state, project)) { baseText = say; baseHost = host; baseOpen = true; return true }
+    } catch { /* the check is a courtesy: a start is never held up for it */ }
+    finally { busy = false; message = '' }
+    return false
+  }
+  function cancelBase() {
+    baseOpen = false; baseText = ''
+    void tick().then(() => startButton?.focus())
+  }
+  async function confirmBase() {
+    baseOpen = false; baseText = ''; baseConfirmed = true
+    await tick()
+    await start()
+  }
   function openYolo() {
     if (!choice || locked || yoloWhy) return
     // The dialog decides; the radio stays on Ask me until the person confirms they want YOLO enabled.
@@ -1261,6 +1302,10 @@
       </footer>
     </div>
   </dialog>
+{/if}
+
+{#if baseOpen}
+  <BaseConfirm sentence={baseText} host={baseHost} oncancel={cancelBase} onstart={() => void confirmBase()} />
 {/if}
 
 {#if yoloOpen && choice}

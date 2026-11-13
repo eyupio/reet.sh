@@ -461,6 +461,18 @@ try {
   await expect(panel.locator('.where')).not.toContainText('Base →')
   expect(errors).toEqual([]);await context.close()
  }
+ // What this session started from: the notice the machine's base report earned, kept with the session. A base that matched
+ // GitHub says nothing, so the row is not there at all.
+ {
+  const started={baseName:'main',baseRelation:'ahead',baseStart:'abc1234def5678901234567890abcdef12345678'}
+  const {page,context,panel,errors}=await open(1600,'dark',true,null,{session:started})
+  const from=panel.locator('.where > div').filter({has:page.getByText('Started from',{exact:true})})
+  await expect(from).toContainText("main on studio has commits GitHub doesn't have. This session starts from the local main (abc1234).")
+  expect(errors).toEqual([]);await context.close()
+  const agreed=await open(1600,'dark',true,null,{session:{...started,baseRelation:'same'}})
+  await expect(agreed.panel.locator('.where')).not.toContainText('Started from')
+  expect(agreed.errors).toEqual([]);await agreed.context.close()
+ }
  // The base branch appears next to the branch once the pull request read has named it.
  {
   const {page,context,panel,errors}=await open(1600,'dark',true,null,{pull:{base:'main'}})

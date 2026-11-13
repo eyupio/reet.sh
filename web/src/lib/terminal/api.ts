@@ -1,3 +1,4 @@
+import type { BaseState } from '../baseNotice'
 import type { InsightView, SessionInsight } from '../sessionInsights'
 import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 import type { MachineModels } from '../models'
@@ -18,7 +19,10 @@ export type SoftwareBatchState = 'pending' | 'running' | 'stopped' | 'done' | 'a
 export type SoftwareBatchMemberState = 'pending' | 'running' | 'applied' | 'failed' | 'skipped' | 'excluded'
 export type SoftwareBatchMember = { position: number; agentId: string; host: string; action?: 'install' | 'update'; target?: string; state: SoftwareBatchMemberState; code?: string; reason?: string; version?: string }
 export type SoftwareBatch = { id: string; tool: string; state: SoftwareBatchState; createdAt: number; updatedAt: number; members: SoftwareBatchMember[] }
-export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number }
+export type TerminalSession = { id: string; agentId: string; title: string; state: SessionState; createdAt: number; updatedAt: number; exitCode: number | null; removeHistory?:boolean; tool?: string; model?: string; effort?: string; yolo?: boolean; projectId?: string | null; dir?: string; worktreePath?: string; worktreeRepo?: string; worktreeBranch?: string;
+  /** What the session's worktree started from, when the machine reported it: the branch (`baseName`), how it stood
+   *  against GitHub (`baseRelation`, one of baseNotice's relations) and the commit it was cut at (`baseStart`). */
+  baseName?: string; baseRelation?: string; baseStart?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number }
 export type Capabilities = { nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
@@ -310,6 +314,9 @@ export type FolderProject = {
   /** The machine's current name for display; "" once the machine is no longer enrolled. */
   machine: string
   dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
+  /** Reet cloned this repository on the machine itself and keeps it up to date, so where a session starts needs no
+   *  confirmation. Nothing sends it yet: a project without it is asked about (`needsConfirm`). */
+  cloned?: boolean
   /** The rail colour's id from projectColour.ts, "" when none. */
   colour: string
   /** The group that holds the project; absent or "" when ungrouped. */
@@ -479,6 +486,22 @@ export async function branchPrunePlan(agentId: string, dir: string, base?: strin
 export async function pruneBranches(agentId: string, dir: string, base: string, branches: BranchPruneTarget[], signal?: AbortSignal): Promise<BranchPruneResult> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/branches/prune`, { method: 'POST', signal: within(signal), body: JSON.stringify({ dir, base, branches }) })).json()
 }
+// Where an isolated session would start (GET /api/v2/machines/{agentId}/base-check): one read-only question, asked
+// before anything is started. The machine fetches the base from GitHub and says how its own branch stood against it;
+// nothing is made and nothing is kept. Every refusal (an older machine, a busy or rate-limited machine, no answer at
+// all) is the caller's to ignore: a start is never held up for it, so the request gives up after 10 seconds.
+export const BASE_CHECK_TIMEOUT_MS = 10000
+export function baseCheckURL(agentId: string, dir: string, base?: string): string {
+  const params = new URLSearchParams({ dir })
+  if (base) params.set('base', base)
+  return `/api/v2/machines/${encodeURIComponent(agentId)}/base-check?${params}`
+}
+/** Reads the base check; `base` empty asks about the project's own saved base. Throws on any refusal. */
+export async function checkBase(agentId: string, dir: string, base?: string, signal?: AbortSignal): Promise<BaseState> {
+  const deadline = AbortSignal.timeout(BASE_CHECK_TIMEOUT_MS)
+  return (await terminalRequest(baseCheckURL(agentId, dir, base), { signal: signal ? AbortSignal.any([signal, deadline]) : deadline })).json()
+}
+
 export function chatURL(id: string): string { return `/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat` }
 export async function chatPrompt(id: string, text: string, images: string[] = []): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/chat/prompt`, { method: 'POST', body: JSON.stringify(images.length ? { text, images } : { text }) }) }
 /** Reconnects a lost chat in place. `trust` confirms the person trusts the chat's folder (it has OpenCode plugins) and is

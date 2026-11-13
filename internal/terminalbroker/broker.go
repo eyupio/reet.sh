@@ -547,6 +547,14 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 		// counted and dropped.
 		p.b.lateReplies.Add(1)
 		return nil
+	case *terminalproto.BaseCheckResult, *terminalproto.BranchSyncResult, *terminalproto.BranchPrunePlanResult, *terminalproto.BranchPruneResult,
+		*terminalproto.SoftwareApplyResult:
+		// An answer whose call already gave up. What it reports is read again
+		// by asking again (a plan, a status, the software list, the folder), so
+		// it is counted and dropped. Refusing it here would end the machine's
+		// connection over an answer that merely came late.
+		p.b.lateReplies.Add(1)
+		return nil
 	}
 	return terminalproto.ErrInvalid
 }

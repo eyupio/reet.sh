@@ -175,12 +175,12 @@ Codex login access and its "Sign in to Codex on that machine first" message are 
 
 ## 4. `gh` sign-in reaches hardened git
 
-**Why it is needed.** The hardened git runner (`internal/terminalhost/worktree.go`) strips every environment variable except `HOME`, `PATH` and `LANG`, so a fetch from github.com has to authenticate through a `-c credential.https://github.com.helper=!gh auth git-credential` argument alone, with no other credential helper and no ambient `GIT_*` variable. This still needs a real machine: one where `gh auth login` has been done and no other git credential helper is configured, against a private repository that machine can read.
+**Why it is needed.** The hardened git runner (`internal/terminalhost/worktree.go`) strips every environment variable except `HOME`, `PATH` and `LANG`, so a fetch from github.com has to authenticate through a `-c credential.https://github.com.helper=!gh auth git-credential` argument and whatever helpers the machine's own `~/.gitconfig` names, with no ambient `GIT_*` variable. This still needs a real machine: one where `gh auth login` has been done, against a private repository that machine can read.
 
-**Run:**
+**Run** (as reet runs it, with the machine's own helpers left in place; to see gh alone, run it in a `HOME` with no `credential.helper` set):
 
 ```bash
-env -i HOME="$HOME" PATH="$PATH" LANG=C GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null -c credential.helper= -c "credential.https://github.com.helper=!$(command -v gh) auth git-credential" ls-remote https://github.com/OWNER/PRIVATE.git HEAD
+env -i HOME="$HOME" PATH="$PATH" LANG=C GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null -c "credential.https://github.com.helper=!$(command -v gh) auth git-credential" ls-remote https://github.com/OWNER/PRIVATE.git HEAD
 ```
 
 **Record.** Expected outcomes: signed in, one line with a commit id; then, run again after `gh auth logout`, a non-zero exit within seconds and no prompt. This is owed by the owner; no result is recorded yet, and the rest of the plan depends on the first outcome holding.

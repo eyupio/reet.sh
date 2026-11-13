@@ -11,13 +11,29 @@ this file existed releases were described on their GitHub release pages.
   commits GitHub doesn't have, in which case it starts from the local branch;
   when GitHub can't be reached it starts from the last known commit and nothing
   in your checkout is touched. Agents no longer start work on a branch that was
-  days behind.
+  days behind. The fetch uses that machine's own git credential helpers and its
+  `gh` sign-in, for github.com only: a private repository needs one of them to
+  work there (for gh, `gh auth login` on that machine), and no credential ever
+  reaches the controller. A repository whose origin is an ssh URL
+  (`git@github.com:owner/repo.git`) is fetched over https with gh, and is not
+  fetched at all on a machine with no gh — it then starts from its own branch,
+  with nothing said about GitHub. A machine running an older reet is unchanged:
+  it fetches nothing and starts its worktrees exactly where it always did.
+- The sync that follows removing a session's worktree keeps working on a machine
+  whose `gh` is signed out, or signed in as an account without access: the
+  credential helpers your own git configuration names are asked as they always
+  were, with gh offered alongside for github.com.
+- Where a session started from is recorded in Activity for every start, not only
+  the ones made in a browser: a Project run, a start in several projects and a
+  session whose machine answered late all get the same line, worded like the
+  question the browser asks.
 - When the two sides differ, every start you make in the browser says so and
   asks before anything starts: "main on studio has commits GitHub doesn't have.
   This session starts from the local main (abc1234)." That is Home's launch bar,
   the Start an agent dialog (the project rail's +, the machine cards, Machines
   and the Sessions screen) and Start on a backlog plan. Cancel starts nothing. A
-  base that matches GitHub is not worth a question, so nothing is shown, and a
+  base that matches GitHub, or that the machine has no branch of its own for, is
+  not worth a question, so nothing is shown, and a
   machine that can't answer the question — an older reet, a busy one, or no
   answer within ten seconds — never holds the start up. The sentence is kept with
   the session and shown on its Overview, under Where it's working.

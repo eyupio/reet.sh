@@ -118,7 +118,24 @@ Before step 6, a machine that negotiated `base-fresh-v1` resolves the base:
   from **GitHub's commit**, unless the repository's own branch has commits
   GitHub does not have, in which case it starts from the local branch. A fetch
   that fails starts from the last known commit, and nothing is written to the
-  source checkout: the fetch only updates the remote-tracking branch.
+  source checkout: the fetch only updates the remote-tracking branch. The fetch
+  happens before the connector takes any lock of its own, so a repository that
+  cannot be reached never holds up listing or reconciling sessions; the start is
+  then worked out from what the fetch found, with no second network call.
+- The fetch uses the machine's own git credential helpers (whatever its
+  `~/.gitconfig` names) and its `gh` sign-in, for `github.com` only. A private
+  repository needs one of them to work on that machine: either a helper that
+  already serves github.com, or `gh auth login` done there. Nothing about a
+  credential ever reaches the controller.
+- An origin spelled as an ssh URL (`git@github.com:owner/repo.git`,
+  `ssh://git@github.com/owner/repo`) is fetched from
+  `https://github.com/owner/repo.git` with the `gh` sign-in. With no `gh` on
+  that machine it is not fetched at all: the base is the local branch and
+  nothing is said about GitHub. ssh is never run, because the hardened
+  environment has no ssh agent to ask and no terminal to answer a passphrase or
+  host-key prompt.
+- Fetches for one repository are taken one at a time inside the connector, so
+  two starts at once never report each other's "Couldn't reach GitHub".
 - With no `github.com` origin it resolves the local branch first, then the
   remote-tracking branch, as it always has.
 - With no base named at all it takes the repository's default branch
@@ -350,7 +367,10 @@ not a viewer, the canonical `Origin`, the remote-terminals switch on, strict JSO
 - `GET /api/v2/machines/{agentId}/base-check?dir=&base=` answers where a session
   in that folder would start, without making anything: `{base, relation, local,
   remote, start}`, each left out when empty. An empty `base` asks about the
-  saved project's own. It fetches on the machine, so it shares the rate limit
+  saved project's own, and the account's default base branch when the project
+  saved none — the same branch an isolated launch in that folder would name, so
+  the question and the start that follows it are about one branch. It fetches on
+  the machine, so it shares the rate limit
   the other whole-repository reads take. A machine from before `base-fresh-v1`
   answers 409 `base_check_unsupported`, a machine already busy with branches
   409 `branches_busy`, a missing branch 422 `base_missing`, a failed git 422

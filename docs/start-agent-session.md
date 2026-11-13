@@ -171,7 +171,10 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
 - **Where it starts.** A session in a saved repository works in a worktree of its own, cut from the
   base branch after the machine has fetched that branch from GitHub. It starts from GitHub's commit
   unless the branch on the machine has commits GitHub doesn't have, and from the last known commit
-  when GitHub couldn't be reached ([Worktrees](terminal-worktrees.md#creating)). Before it sends
+  when GitHub couldn't be reached ([Worktrees](terminal-worktrees.md#creating)). The fetch uses that
+  machine's own git credential helpers and its `gh` sign-in: a private repository needs one of them
+  there (`gh auth login` on that machine), and a repository whose origin is an ssh URL is fetched over
+  https with `gh`, or not fetched at all when the machine has no `gh`. Before it sends
   anything, Start reads where it would start (`GET /api/v2/machines/{agentId}/base-check`); so do the
   **Start an agent** dialog and **Start** on a backlog plan, through the same step
   (`web/src/lib/baseGate.ts`). When the two sides differ it asks first, in one sentence naming the
@@ -184,9 +187,11 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   answer it, a busy or rate-limited one, or no answer within ten seconds starts the session with no
   dialog and nothing said. The same sentence is kept with the session and shown on its Overview, under
   **Where it's working**, as *Started from*. A start in several projects is not checked (each member
-  has its own base and the controller starts them), a Factory outcome's launches are not (nobody is
-  choosing them in a browser), and a plain terminal, a folder that is not a repository and a
-  continuation never are.
+  has its own base and the controller starts them, like a Project run), a Factory outcome's launches
+  are not (nobody is choosing them in a browser), and a plain terminal, a folder that is not a
+  repository and a continuation never are. Every one of those still records the notice in Activity —
+  wherever a session's base is stored, the line is written — so a start nobody was asked about can
+  still be read afterwards.
 - **Branch listing.** The Branch list comes from the machine (`GET /api/v2/machines/{agentId}/branches`,
   see [Folder browse and branch listing](folder-browse.md)): read once per folder, at most 200 names,
   with a filter that asks the machine again. A machine that can't list branches says "Update reet on

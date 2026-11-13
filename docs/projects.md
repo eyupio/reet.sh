@@ -156,6 +156,12 @@ from the local branch; when GitHub can't be reached it starts from the last know
 in the checkout is changed ([Worktrees](terminal-worktrees.md#creating)). A machine running an older
 reet is unchanged: it fetches nothing and starts where it always did.
 
+The fetch uses that machine's own git credential helpers and its `gh` sign-in, for github.com only.
+A private repository needs one of them to work there: a helper that already serves github.com, or
+`gh auth login` done on that machine. A repository whose origin is an ssh URL is fetched over https
+with `gh`, and not fetched at all when the machine has no `gh` — it then starts from its own branch,
+with nothing said about GitHub. No credential ever reaches reet's controller.
+
 When the two sides differ, every start you make in the browser — Home's launch bar, the **Start an
 agent** dialog the rail's **+**, the machine cards, Machines and the Sessions screen open, and **Start**
 on a backlog plan — says so and asks before it starts anything ("main on studio has commits GitHub doesn't have. This session starts

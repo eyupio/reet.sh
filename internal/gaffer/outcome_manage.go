@@ -62,6 +62,7 @@ func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (stor
 				row.State = "advancing"
 			default:
 				if dead != "" && row.SessionID == dead {
+					row.Retire(row.ConversationID)
 					row.SessionID, row.ConversationID = "", ""
 					if staged {
 						row.Stages[row.Stage].SessionID, row.Stages[row.Stage].ConversationID = "", ""
@@ -595,6 +596,10 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 			}
 			// Sending work back is the person asking for it to be done: it sets a stopped outcome going again.
 			settleStoppedOutcome(o)
+			row.Retire(row.ConversationID)
+			for j := target; j < len(row.Stages); j++ {
+				row.Retire(row.Stages[j].ConversationID)
+			}
 			for j := target; j < len(row.Stages); j++ {
 				// A stage done again is asked for under a new request, so it gets a session of its own.
 				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, Provider: row.Stages[j].Provider, State: "pending", RequestID: fresh[j]}

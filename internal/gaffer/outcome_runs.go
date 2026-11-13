@@ -548,11 +548,35 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 	if err != nil || len(rows) == 0 || s.outcomesReady() != nil {
 		return
 	}
+	// Each outcome is carried on by itself: a launch that takes its full
+	// minute and a half, or a chat that is slow to come up, holds up that
+	// outcome's own pipelines and nobody else's. One outcome is never worked
+	// on twice at once.
 	for _, o := range rows {
 		if ctx.Err() != nil {
 			return
 		}
-		s.runOutcome(ctx, o.OwnerID, o.ID)
+		if _, running := s.outcomeRuns.LoadOrStore(o.ID, struct{}{}); running {
+			continue
+		}
+		s.wg.Add(1)
+		go func(uid int64, id string) {
+			defer s.wg.Done()
+			defer s.outcomeRuns.Delete(id)
+			s.runOutcome(ctx, uid, id)
+			// What was asked for while this one was being worked on is picked up without waiting for the next tick.
+			if ctx.Err() == nil {
+				if now, err := s.store.GafferOutcomeFor(uid, id); err == nil && now.State == "starting" {
+					for _, piece := range now.Sessions {
+						if piece.State == "waiting" || piece.State == "starting" || piece.State == "advancing" {
+							s.outcomeRuns.Delete(id)
+							s.wakeOutcomes()
+							break
+						}
+					}
+				}
+			}
+		}(o.OwnerID, o.ID)
 	}
 }
 

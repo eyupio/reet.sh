@@ -31,6 +31,7 @@ type outcomeStarterFake struct {
 	ended    []string
 	refuse   map[string]string
 	hold     chan struct{}
+	holdOnly string
 	entered  chan struct{}
 	once     sync.Once
 }
@@ -43,7 +44,7 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 	if f.entered != nil {
 		f.once.Do(func() { close(f.entered) })
 	}
-	if hold != nil {
+	if hold != nil && (f.holdOnly == "" || f.holdOnly == in.Title) {
 		select {
 		case <-hold:
 		case <-ctx.Done():

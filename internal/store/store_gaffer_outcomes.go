@@ -119,6 +119,11 @@ type GafferOutcomeSession struct {
 	// stops at Ready to merge whatever AutoMerge says.
 	YoloMergeOK   bool `json:"yoloMergeOk,omitempty"`
 	MergeApproved bool `json:"mergeApproved,omitempty"`
+	// Retired are the Gaffer conversations of sessions this pipeline has left
+	// behind: a stage that was sent back, or a session that ended and was
+	// replaced. Their closed goals belong to the pipeline, not to the list of
+	// the person's other sessions.
+	Retired []string `json:"retired,omitempty"`
 	// SessionState is whether the session in hand is still there: "running",
 	// "ended" (closed, history kept) or "gone" (removed). Live only, never saved.
 	SessionState string `json:"sessionState,omitempty"`
@@ -157,6 +162,23 @@ type GafferOutcome struct {
 	ArchivedAt int64 `json:"archivedAt,omitempty"`
 	CreatedAt  int64 `json:"createdAt"`
 	UpdatedAt  int64 `json:"updatedAt"`
+}
+
+// Retire records conversations the pipeline has left behind, newest last,
+// keeping the most recent twenty.
+func (p *GafferOutcomeSession) Retire(conversations ...string) {
+	for _, id := range conversations {
+		known := id == ""
+		for _, have := range p.Retired {
+			known = known || have == id
+		}
+		if !known {
+			p.Retired = append(p.Retired, id)
+		}
+	}
+	if len(p.Retired) > 20 {
+		p.Retired = p.Retired[len(p.Retired)-20:]
+	}
 }
 
 // Finished reports whether nothing in the outcome is still moving: it is not

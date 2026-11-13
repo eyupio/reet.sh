@@ -1,6 +1,7 @@
 package gaffer
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -300,5 +301,103 @@ func TestAnAntigravityOutcomeWithoutFolderTrustIsRefusedBeforeAnythingStarts(t *
 	}
 	if len(r.starter.asked()) > 1 {
 		t.Fatalf("launches: %+v", r.starter.asked())
+	}
+}
+
+// One outcome whose launch is slow does not hold up another's.
+func TestASlowLaunchForOneOutcomeDoesNotHoldUpAnother(t *testing.T) {
+	r := outcomeFixture(t)
+	r.starter.hold, r.starter.holdOnly = make(chan struct{}), "Slow part"
+	defer close(r.starter.hold)
+	r.s.StartGoalSupervisor()
+	slow := r.in
+	slow.Sessions = []OutcomeSession{{Title: "Slow part", Prompt: "Take your time. Do not merge."}}
+	first, err := r.s.CreateOutcome(r.p.UserID, slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quick := r.in
+	quick.Sessions = []OutcomeSession{{Title: "Quick part", Prompt: "Be quick. Do not merge."}}
+	second, err := r.s.CreateOutcome(r.p.UserID, quick)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.piece(t, second.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if held, err := r.st.GafferOutcomeFor(r.p.UserID, first.ID); err != nil || held.Sessions[0].State != "starting" {
+		t.Fatalf("the slow outcome is still starting: %+v %v", held.Sessions, err)
+	}
+}
+
+// The worktree a pipeline's first session was given is still wanted while the
+// pipeline has work left, whoever asks to remove it.
+func TestAPipelinesFolderIsInUseWhileItHasWorkLeft(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	if code.WorkDir == "" || !r.s.WorkDirInUse(r.p.UserID, code.WorkDir) || r.s.WorkDirInUse(r.p.UserID, "/work/elsewhere") || r.s.WorkDirInUse(r.p.UserID, "") {
+		t.Fatalf("a followed pipeline's folder is in use: %q", code.WorkDir)
+	}
+	o, err := r.s.Outcome(r.p.UserID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o, err = r.s.StopFollowingOutcome(r.p.UserID, created.ID, o.Revision); err != nil || !r.s.WorkDirInUse(r.p.UserID, code.WorkDir) {
+		t.Fatalf("a stopped pipeline can still be tried again in its folder: %v", err)
+	}
+	if _, err := r.s.ArchiveOutcome(r.p.UserID, created.ID, o.Revision, true); err != nil || r.s.WorkDirInUse(r.p.UserID, code.WorkDir) {
+		t.Fatalf("an archived outcome has no work left in the folder: %v", err)
+	}
+}
+
+// An outcome is its owner's: another account cannot read or steer it by its
+// ID, and an account that may only look starts and changes nothing.
+func TestAnOutcomeCannotBeReadOrSteeredByAnotherAccountOrAViewer(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, pipelineInput(r, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	other, err := r.st.CreateUser("other@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := r.st.CreateUser("viewer@example.test", "Viewer", "viewer", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := r.st.GafferOutcomeFor(r.p.UserID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, uid := range map[string]int64{"another account": other.ID, "a viewer": viewer.ID} {
+		if _, err := r.s.Outcome(uid, created.ID); err == nil {
+			t.Fatalf("%s read the outcome", name)
+		}
+		if rows, err := r.s.Outcomes(uid); err == nil && len(rows) != 0 {
+			t.Fatalf("%s listed the outcome: %+v", name, rows)
+		}
+		tries := map[string]error{}
+		_, tries["move on"] = r.s.MovePipelineOn(uid, created.ID, code.Key, "")
+		_, tries["send back"] = r.s.SendPipelineBack(uid, created.ID, code.Key, "code", "Again.")
+		_, tries["merge setting"] = r.s.SetPipelineAutoMerge(uid, created.ID, code.Key, true, false)
+		_, tries["tell"] = r.s.TellPipelineAgent(context.Background(), uid, created.ID, code.Key, strings.Repeat("c", 32), "Carry on.")
+		_, tries["stop following"] = r.s.StopFollowingOutcome(uid, created.ID, before.Revision)
+		_, tries["retry"] = r.s.RetryPipeline(uid, created.ID, code.Key, before.Revision)
+		_, tries["approve merge"] = r.s.ApproveMerge(uid, created.ID, code.Key, before.Revision)
+		tries["delete"] = r.s.DeleteOutcome(uid, created.ID, before.Revision)
+		for what, err := range tries {
+			if err == nil {
+				t.Fatalf("%s could %s", name, what)
+			}
+		}
+	}
+	if after, err := r.st.GafferOutcomeFor(r.p.UserID, created.ID); err != nil || after.Revision != before.Revision {
+		t.Fatalf("the outcome changed: %+v %v", after, err)
 	}
 }

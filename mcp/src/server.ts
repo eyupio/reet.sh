@@ -106,7 +106,8 @@ export function createServer(client: ReetClient, forwarder?: MCPForwarder): McpS
   tool('start_outcome', 'Start a Factory outcome', 'Requires management scope and a writer account. Approve an outcome on the user’s behalf: the controller starts each pipeline’s first stage as an agent session on the project’s machine and Gaffer follows it stage by stage. This starts real agents that run commands and may use the user’s agent and Gaffer credits. Sessions always start with ordinary approvals, never YOLO, with no folder trust, and every pipeline stops at Ready to merge and waits for the user. Use only when the user asked you to start exactly this work, with confirm=true.', {
     objective: z.string().min(1).max(4000).describe('What the user wants done, in their words.'),
     project_id: z.string().min(1).max(128).describe('Exact id from reet_list_factory_projects.'),
-    agent: z.enum(['claude', 'codex', 'opencode', 'cline', 'antigravity']).describe('The coding agent that does every stage.'),
+    agent: z.enum(['claude', 'codex', 'opencode', 'cline', 'antigravity']).describe('The coding agent that does every stage. It must be able to run a chat on the project’s machine. Google Antigravity needs folder trust, which is given on the Factory page only, so it is refused here.'),
+    model: z.string().max(200).optional().describe('The model every stage runs on, as that agent names it. Omit for the agent’s default. A name the agent does not offer stops the pipeline at launch.'),
     pipelines: pipelineList,
     reports_by_itself: z.boolean().default(false).describe('Have Gaffer report across the outcome when a pipeline finishes or stops. Each report is one model request.'),
     confirm: confirmed,

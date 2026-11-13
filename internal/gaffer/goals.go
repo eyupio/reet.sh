@@ -186,7 +186,10 @@ func (s *Service) ControlGoal(uid int64, cid string, revision int64, action stri
 		bind.WorkerRevision = pins.WorkerRevision
 		bind.ContextRevision = pins.ContextRevision
 		bind.LastSeq = seq
-		if seq > 0 && s.pipelineStage(uid, cid) {
+		halted, _ := s.store.GafferWorkerHalted(uid, c.SessionID)
+		if seq > 0 && (halted || s.pipelineStage(uid, cid)) {
+			// A goal resumed after the working model stopped is resumed to set
+			// it going again, so Gaffer reviews where it stopped.
 			// A pipeline stage is resumed to carry the pipeline on: Gaffer
 			// reviews the work already there, which may be the finished stage,
 			// and does not wait for progress an idle agent will never make.
@@ -360,6 +363,13 @@ func (s *Service) reviewHeldGoal(ctx context.Context, g store.GafferGoal) {
 		hold(g.Note)
 		return
 	}
+	// The wait can end without an answer: a request nobody answers expires and
+	// the agent's turn stops with it. That is not the person having answered,
+	// and nothing carries on by itself from there.
+	if halted, _, err := s.store.GafferWorkerHaltedAt(g.OwnerID, g.SessionID); err == nil && halted {
+		end("The working model’s request waited for you until it expired, and its turn stopped. Read what it asked in its session, then resume the goal: Gaffer reviews where it stopped and can set it going again.")
+		return
+	}
 	if err = s.store.ReleaseGafferGoalHold(g, "The working model is no longer waiting for you. Gaffer is following again."); err != nil {
 		// No room among the active goals yet, or the goal changed: look again later.
 		hold(g.Note)
@@ -444,9 +454,12 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 			return
 		}
 	}
-	halted, err := s.store.GafferWorkerHalted(g.OwnerID, g.SessionID)
-	if err != nil || halted {
-		observe("needs_user", "The working model stopped or failed. Check its conversation before resuming follow-up.", time.Minute)
+	// A stop or failure the person has already resumed from is not asked about
+	// again: resuming is them saying carry on, and Gaffer's review can then
+	// tell the working model to. Without this a resume led straight back here.
+	halted, haltedAt, err := s.store.GafferWorkerHaltedAt(g.OwnerID, g.SessionID)
+	if err != nil || halted && g.ResumedAt <= haltedAt {
+		observe("needs_user", "The working model stopped or failed. Check its conversation, then resume the goal: Gaffer reviews where it stopped and can set it going again.", time.Minute)
 		return
 	}
 	if g.UsedReviews >= g.MaxReviews {

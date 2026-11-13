@@ -6,6 +6,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // The Factory over MCP. Two tools read the outcomes and their pipelines; the
@@ -167,7 +168,9 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 }
 
 func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name string, args map[string]any) (map[string]any, error) {
-	uid, full := access.User.ID, access.canWrite()
+	// Handover notes and reports are session text. Gaffer's own call returns
+	// them only when the provider that will read the result is allowed it.
+	uid, full := access.User.ID, access.canWrite() && (access.Connection.Kind != "gaffer" || gaffer.SessionTextAllowed(ctx))
 	str := func(key string) string { v, _ := args[key].(string); return v }
 	if name == "reet_list_factory" {
 		rows, err := s.gafferProviders.Outcomes(uid)
@@ -258,8 +261,18 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 		if perr != nil {
 			return nil, perr
 		}
+		// The browser offers only the agents the project's machine can run as a
+		// chat. A client names one blind, so it is checked here: an outcome whose
+		// every pipeline would fail at launch is refused before it is saved.
+		if project, perr := s.st.FolderProjectFor(uid, str("project_id")); perr == nil {
+			if caps, cerr := s.st.RemoteCapabilitiesFor(uid, project.Host); cerr == nil && caps.Capabilities.ACP {
+				if _, ok := caps.Capabilities.ChatAgent(str("agent")); !ok && terminalproto.ReviewedChatTool(str("agent")) {
+					return nil, errors.New("That agent cannot run a Gaffer chat on this project's machine right now: it is not installed there, is out of date, or its chat is switched off for this account. Nothing was started.")
+				}
+			}
+		}
 		// The person's usual limits; no YOLO, no folder trust and no merge by itself can be asked for here.
-		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Sessions: pipelines, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true})
+		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Model: str("model"), Sessions: pipelines, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true})
 		id = o.ID
 	case "reet_add_pipelines":
 		pipelines, perr := mcpPipelines(args["pipelines"])

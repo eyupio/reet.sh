@@ -776,7 +776,12 @@
             "cline",
             "antigravity"
           ],
-          "description": "The coding agent that does every stage."
+          "description": "The coding agent that does every stage. It must be able to run a chat on the project’s machine. Google Antigravity needs folder trust, which is given on the Factory page only, so it is refused here."
+        },
+        "model": {
+          "description": "The model every stage runs on, as that agent names it. Omit for the agent’s default. A name the agent does not offer stops the pipeline at launch.",
+          "type": "string",
+          "maxLength": 200
         },
         "pipelines": {
           "minItems": 1,

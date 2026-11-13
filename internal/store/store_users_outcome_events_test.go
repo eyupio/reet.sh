@@ -1,8 +1,11 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -28,12 +31,22 @@ func TestOutcomeEventsAreThatOutcomesGafferRowsNewestFirst(t *testing.T) {
 	add("yolo-allow", map[string]any{"outcome": "aaa"})
 	add("gaffer-stage-handed-over", map[string]any{"outcome": "aaa", "pipeline": "a", "stage": "code"})
 	add("gaffer-goal-held", nil)
-	got, err := st.OutcomeEventsFor(uid, "aaa", 10)
+	got, err := st.OutcomeEventsFor(uid, "aaa", 0, 10)
 	if err != nil || len(got) != 2 || got[0].Action != "gaffer-stage-handed-over" || got[1].Action != "gaffer-stage-started" {
 		t.Fatalf("events %+v %v", got, err)
 	}
-	if other, err := st.OutcomeEventsFor(uid+99, "aaa", 10); err != nil || len(other) != 0 {
+	if other, err := st.OutcomeEventsFor(uid+99, "aaa", 0, 10); err != nil || len(other) != 0 {
 		t.Fatalf("another account read them: %+v %v", other, err)
+	}
+	// What a client did to the outcome over MCP is part of its history; nothing older than the outcome is read.
+	if err := st.AddEventFor(uid, "mcp", "mcp-factory-control", "", map[string]any{"outcome": "aaa", "tool": "reet_approve_pipeline_merge", "pipeline": "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = st.OutcomeEventsFor(uid, "aaa", 0, 10); err != nil || len(got) != 3 || got[0].Action != "mcp-factory-control" {
+		t.Fatalf("with the MCP action: %+v %v", got, err)
+	}
+	if later, err := st.OutcomeEventsFor(uid, "aaa", time.Now().Add(time.Hour).UnixMilli(), 10); err != nil || len(later) != 0 {
+		t.Fatalf("events from before the outcome began: %+v %v", later, err)
 	}
 }
 
@@ -112,5 +125,55 @@ func TestRetentionKeepsAnOutcomeWhosePipelinesAreStillMoving(t *testing.T) {
 	}
 	if _, err := st.GafferOutcomeFor(u.ID, old.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("the oldest finished outcome is the one to drop: %v", err)
+	}
+}
+
+// A controller restored from a copy starts nothing the copy was about to: an
+// outcome that was starting sessions is stopped, one that had settled is left
+// as it was, and both can still be read.
+func TestARestoredCopyStopsOutcomesThatWereStartingSessions(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := st.CreateUser("restore@example.test", "Owner", "owner", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	starting, err := st.CreateGafferOutcomeFor(u.ID, GafferOutcome{ID: fmt.Sprintf("%032d", 1), Objective: "Ship it.", Sessions: []GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it."}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settled, err := st.CreateGafferOutcomeFor(u.ID, GafferOutcome{ID: fmt.Sprintf("%032d", 2), Objective: "Shipped.", Sessions: []GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it."}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled, err = st.UpdateGafferOutcomeFor(u.ID, settled.ID, settled.Revision, func(o *GafferOutcome) bool {
+		o.State, o.Sessions[0].State = "settled", "done"
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(st.Dir(), "reet.db")
+	if err = st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = AdaptDatabaseFile(context.Background(), path, AdaptOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	stopped, err := st.GafferOutcomeFor(u.ID, starting.ID)
+	if err != nil || stopped.State != "stopped" || stopped.Revision != starting.Revision+1 || !strings.Contains(stopped.Note, "restored from a copy") {
+		t.Fatalf("an outcome that was starting sessions: %+v %v", stopped, err)
+	}
+	if rows, err := st.StartingGafferOutcomes(); err != nil || len(rows) != 0 {
+		t.Fatalf("the restored copy still has outcomes to start: %+v %v", rows, err)
+	}
+	if kept, err := st.GafferOutcomeFor(u.ID, settled.ID); err != nil || kept.State != "settled" || kept.Revision != settled.Revision {
+		t.Fatalf("a settled outcome was changed: %+v %v", kept, err)
 	}
 }

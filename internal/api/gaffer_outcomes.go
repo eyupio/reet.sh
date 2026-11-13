@@ -84,7 +84,7 @@ func (s *server) gafferOutcomeHistory(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
-	events, err := s.st.OutcomeEventsFor(s.uid(r), o.ID, 200)
+	events, err := s.st.OutcomeEventsFor(s.uid(r), o.ID, o.CreatedAt-60_000, 200)
 	if err != nil {
 		writeErr(w, 500, "The history could not be read.")
 		return
@@ -235,7 +235,7 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-pipeline-merge-approved", "", map[string]any{"outcome": o.ID, "session": r.PathValue("key")})
+	s.eventRequest(r, "gaffer-pipeline-merge-approved", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "session": r.PathValue("key")})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }
@@ -364,7 +364,7 @@ func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-pipeline-retried", "", map[string]any{"outcome": o.ID, "session": r.PathValue("key")})
+	s.eventRequest(r, "gaffer-pipeline-retried", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "session": r.PathValue("key")})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }

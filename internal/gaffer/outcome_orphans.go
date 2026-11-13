@@ -127,3 +127,32 @@ func (s *Service) StopFollowingOutcome(uid int64, id string, revision int64) (st
 	}
 	return outcomeView(o), nil
 }
+
+// WorkDirInUse reports whether a pipeline still has work to do in a folder:
+// the worktree its first stage was given, which every later stage and any
+// retry works in. The session list uses it to keep that worktree when the
+// session that made it is removed from history.
+func (s *Service) WorkDirInUse(uid int64, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	rows, err := s.store.GafferOutcomesFor(uid)
+	if err != nil {
+		return false
+	}
+	for _, o := range rows {
+		if o.ArchivedAt > 0 {
+			continue
+		}
+		for _, piece := range o.Sessions {
+			if piece.WorkDir != dir {
+				continue
+			}
+			switch piece.State {
+			case "following", "starting", "advancing", "ready_to_merge", "unfollowed":
+				return true
+			}
+		}
+	}
+	return false
+}

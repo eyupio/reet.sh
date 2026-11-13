@@ -906,8 +906,11 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						// Built on createCtx, never on callCtx: a context built afresh from the call would
 						// drop what this one already carries, such as the negotiated base-fresh above.
 						createCtx = terminalhost.WithProgress(createCtx, func(stage terminalproto.LaunchStage) {
-							note := msg
-							note.Body = terminalproto.LaunchProgress{Stage: stage}
+							// A stage note is matched to its create by request id alone. It must not
+							// carry the create's session id: a launch_progress with one is not a valid
+							// message, so it would be refused when encoded and never sent.
+							note := terminalproto.Message{Version: msg.Version, RequestID: msg.RequestID, Generation: msg.Generation,
+								Body: terminalproto.LaunchProgress{Stage: stage}}
 							noteCtx, cancel := context.WithTimeout(callCtx, time.Second)
 							defer cancel()
 							_ = send(noteCtx, note)

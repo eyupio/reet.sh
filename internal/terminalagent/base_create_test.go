@@ -149,7 +149,8 @@ func agentWithTmux(t *testing.T, home, features string, git terminalhost.GitRunn
 }
 
 // sessionChanged sends one create and returns the session_changed it is
-// answered with, dropping the launch progress notes that come before it.
+// answered with, checking the launch progress notes that come before it.
+// Every caller negotiates launch-progress-v1.
 func sessionChanged(t *testing.T, handle func(context.Context, terminalproto.Message) error, got replies, in terminalproto.Create) terminalproto.SessionChanged {
 	t.Helper()
 	msg := terminalproto.Message{Version: terminalproto.Version, Generation: 1, RequestID: "request-0123456789", SessionID: "session-0123456789", Body: &in}
@@ -160,17 +161,29 @@ func sessionChanged(t *testing.T, handle func(context.Context, terminalproto.Mes
 		t.Fatal(err)
 	}
 	deadline := time.After(90 * time.Second)
+	notes := 0
 	for {
 		select {
 		case reply := <-got:
 			switch body := reply.Body.(type) {
 			case terminalproto.LaunchProgress:
-				// A stage note, sent before the one answer; this test is
-				// about the answer.
+				// A stage note, sent before the one answer. The connector
+				// encodes before it writes, so a note that is not a valid
+				// message never reaches the controller.
+				if _, err := terminalproto.Encode(reply); err != nil {
+					t.Fatalf("launch progress note is not a valid message: %+v", reply)
+				}
+				if reply.RequestID != msg.RequestID {
+					t.Fatalf("launch progress note carries request %q, want the create's", reply.RequestID)
+				}
+				notes++
 				continue
 			case terminalproto.SessionChanged:
 				if _, err := terminalproto.Encode(reply); err != nil {
 					t.Fatalf("reply is not a valid message: %+v", reply.Body)
+				}
+				if notes == 0 {
+					t.Fatal("a create with launch progress negotiated sent no stage note")
 				}
 				return body
 			default:

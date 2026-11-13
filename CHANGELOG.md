@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A starting session now reports its stages to the controller as it goes.
+  The machine sent each stage note with the session's id attached, which the
+  private protocol refuses, so every note was dropped before it left the
+  machine and the stages a start had reached were never recorded.
 - A session started in a saved repository now begins from the base branch as
   GitHub has it. The machine fetches that branch before it makes the session's
   worktree and starts from GitHub's commit, unless the branch on the machine has

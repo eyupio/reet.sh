@@ -54,6 +54,7 @@ const (
 	sentenceBrowseOld       = "Update reet on that machine to browse its folders."
 	sentenceBranchesOld     = "Update reet on that machine to list its branches."
 	sentenceBaseCheckOld    = "Update reet on that machine to check a branch against GitHub."
+	sentenceBaseCheckGit    = "Git couldn't check that branch there."
 	sentenceBrowseBusy      = "That machine is already listing a folder. Try again in a moment."
 	sentenceBranchesBusy    = "That machine is already listing branches. Try again in a moment."
 	sentenceBranchesGit     = "Git couldn't list the branches there."
@@ -375,7 +376,8 @@ func (s *server) machineRequestError(w http.ResponseWriter, err error, uid int64
 		case terminalproto.BranchesDenied:
 			writeErrCode(w, http.StatusConflict, "branches_denied", "", sentenceBranchesDenied, "")
 		default:
-			writeErrCode(w, http.StatusUnprocessableEntity, "git_failed", "dir", sentenceBranchesGit, "")
+			// Not the branch-listing sentence: a check is not a listing.
+			writeErrCode(w, http.StatusUnprocessableEntity, "git_failed", "dir", sentenceBaseCheckGit, "")
 		}
 	case errors.Is(err, terminalbroker.ErrBaseCheckUnsupported):
 		writeErrCode(w, http.StatusConflict, "base_check_unsupported", "", sentenceBaseCheckOld, "")

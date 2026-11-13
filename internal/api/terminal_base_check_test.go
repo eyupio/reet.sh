@@ -146,3 +146,35 @@ func TestBaseCheckRouteRefusesAViewer(t *testing.T) {
 		t.Fatalf("a refused request reached the machine: %+v", sent)
 	}
 }
+
+// A machine already running git over a repository is busy, not broken: the
+// browser gets the same answer a branch listing or a prune gets.
+func TestBaseCheckRouteSaysBusyWhenTheMachineIsBusy(t *testing.T) {
+	f := browseAPIFixture(t, baseCheckCaps())
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.BaseCheckResult{Reason: terminalproto.BranchesConflict}
+	})
+	code, out, raw := f.get(t, f.cookie, baseCheckPath(f.agent, browseTestHome+"/site", "main"))
+	if code != http.StatusConflict || out["code"] != "branches_busy" {
+		t.Fatalf("busy machine = %d %v %s", code, out, raw)
+	}
+	if out["error"] != sentenceBranchesBusy {
+		t.Fatalf("sentence = %v, want %q", out["error"], sentenceBranchesBusy)
+	}
+}
+
+// A git that could not answer says so about this check, never about listing
+// branches, which is not what was asked for.
+func TestBaseCheckRouteSaysGitCouldNotCheckTheBranch(t *testing.T) {
+	f := browseAPIFixture(t, baseCheckCaps())
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.BaseCheckResult{Reason: terminalproto.BranchesGitFailed}
+	})
+	code, out, raw := f.get(t, f.cookie, baseCheckPath(f.agent, browseTestHome+"/site", "main"))
+	if code != http.StatusUnprocessableEntity || out["code"] != "git_failed" {
+		t.Fatalf("git failure = %d %v %s", code, out, raw)
+	}
+	if out["error"] != "Git couldn't check that branch there." {
+		t.Fatalf("sentence = %v", out["error"])
+	}
+}

@@ -18,8 +18,8 @@ var BaseCheckCallTimeout = 40 * time.Second
 var ErrBaseCheckUnsupported = errors.New("machine does not support base checks")
 
 // BaseCheckError is a check the machine refused: not_repo_root, outside_home,
-// git_failed, conflict, denied, or base_missing when neither the repository
-// nor GitHub has the branch.
+// git_failed, denied, or base_missing when neither the repository nor GitHub
+// has the branch. A busy machine is ErrBranchPruneBusy instead.
 type BaseCheckError struct{ Reason terminalproto.BranchesReason }
 
 func (e *BaseCheckError) Error() string { return "base check refused: " + string(e.Reason) }
@@ -48,8 +48,13 @@ func (b *Broker) CheckBase(ctx context.Context, uid int64, agent string, req ter
 	if !ok {
 		return terminalproto.BaseState{}, ErrMachineAnswer
 	}
-	if r.Reason != "" {
-		return terminalproto.BaseState{}, &BaseCheckError{Reason: r.Reason}
+	switch r.Reason {
+	case "":
+		return r.State, nil
+	case terminalproto.BranchesConflict:
+		// The machine is already running git over a repository: it shares one
+		// slot with a prune and a sync, so it is busy, not broken.
+		return terminalproto.BaseState{}, ErrBranchPruneBusy
 	}
-	return r.State, nil
+	return terminalproto.BaseState{}, &BaseCheckError{Reason: r.Reason}
 }

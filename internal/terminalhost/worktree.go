@@ -150,17 +150,32 @@ func pinGitDir(ctx context.Context, dir string) context.Context {
 	return context.WithValue(ctx, pinnedGitKey{}, dir)
 }
 
-// pinnedGitEnv is the environment pinGitDir adds, or nothing.
+// gitEnvKey carries, in a context, extra variables for a git call (see
+// withGitEnv).
+type gitEnvKey struct{}
+
+// withGitEnv returns ctx with env added to the hardened environment of git
+// calls made through ExecGit, for the few variables one call needs and the
+// others must not have (GIT_TERMINAL_PROMPT=0 on a fetch, see networkGitEnv).
+// It replaces what an earlier withGitEnv added.
+func withGitEnv(ctx context.Context, env ...string) context.Context {
+	return context.WithValue(ctx, gitEnvKey{}, env)
+}
+
+// pinnedGitEnv is the environment pinGitDir and withGitEnv add, or nothing.
 func pinnedGitEnv(ctx context.Context) []string {
-	dir, ok := ctx.Value(pinnedGitKey{}).(string)
-	if !ok || !filepath.IsAbs(dir) {
-		return nil
+	var env []string
+	if dir, ok := ctx.Value(pinnedGitKey{}).(string); ok && filepath.IsAbs(dir) {
+		// GIT_NO_LAZY_FETCH: in a partial clone, git never fetches a missing
+		// object (which would run the repository's configured ssh command or
+		// remote helper). Older gits ignore it; ListBranches then also avoids
+		// reading objects in such a repository.
+		env = append(env, "GIT_DIR="+filepath.Join(dir, ".git"), "GIT_CEILING_DIRECTORIES="+filepath.Dir(dir), "GIT_NO_LAZY_FETCH=1")
 	}
-	// GIT_NO_LAZY_FETCH: in a partial clone, git never fetches a missing
-	// object (which would run the repository's configured ssh command or
-	// remote helper). Older gits ignore it; ListBranches then also avoids
-	// reading objects in such a repository.
-	return []string{"GIT_DIR=" + filepath.Join(dir, ".git"), "GIT_CEILING_DIRECTORIES=" + filepath.Dir(dir), "GIT_NO_LAZY_FETCH=1"}
+	if extra, ok := ctx.Value(gitEnvKey{}).([]string); ok {
+		env = append(env, extra...)
+	}
+	return env
 }
 
 // gitEnvironment keeps only HOME, PATH and LANG (the first of each). No
@@ -235,11 +250,15 @@ func worktreeDetail(out []byte) string {
 
 // Worktree is a run's worktree. Created is true only when this call made it;
 // Undo then removes it and its branch. An adopted worktree (Created false,
-// from a retry) is never undone.
+// from a retry) is never undone, and has no Base: only the call that made the
+// worktree resolved one.
 type Worktree struct {
 	Path, Branch string
 	Created      bool
-	repo         string
+	// Base is what this call started the worktree from (see ResolveBase),
+	// set whenever Created is true.
+	Base terminalproto.BaseState
+	repo string
 }
 
 // Undo removes a worktree this call created, after a later step failed before
@@ -271,8 +290,23 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 //     directory inside home) and must be the root of a normal working tree:
 //     `.git` a real directory (not a file, not a symlink, not bare), equal to
 //     `git rev-parse --show-toplevel`, no merge, rebase, cherry-pick, revert or
-//     bisect in progress, and HEAD a commit. A dirty tree is allowed. A named base is resolved
-//     to a local branch commit, then a remote-tracking branch commit.
+//     bisect in progress, and HEAD a commit. A dirty tree is allowed. On a
+//     connection that negotiated base-fresh-v1 the base is resolved with
+//     ResolveBase, from the fetch the plan made: GitHub's commit unless the
+//     repository's own branch is ahead of it; with no github.com origin it is
+//     the local branch, then the remote-tracking branch, as it has always
+//     been. A base naming GitHub's own branch, origin/<name>, is started from
+//     whatever the local <name> holds, and any other remote's branch
+//     (upstream/main) still resolves to refs/remotes/<base>. What it chose is
+//     Base. With no base named, ResolveBase takes the repository's default
+//     branch (origin/HEAD, then a local main or master), so the run starts
+//     from GitHub's default branch, or, when the fetch failed, from the last
+//     known one; only a repository with no github.com origin, or none with a
+//     default branch at all, starts at HEAD, as it always has.
+//     Without base-fresh-v1 (a zero BasePlan) nothing is fetched and the base
+//     is the lookup a create has always made: refs/heads/<base>, then
+//     refs/remotes/<base>, and the folder's HEAD with no base named. Such a
+//     worktree has no Base to report.
 //  2. The destination is <home>/.reet/worktrees/<project slug>/<repo slug>/<run>
 //     and the branch reet/<project slug>-<run>. Every folder up to the
 //     destination's parent must be a real directory owned by this user (new
@@ -281,18 +315,33 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 //     exactly that path on exactly that branch for this repository (Created
 //     false); anything else is refused.
 //  4. Otherwise it runs exactly
-//     `git -C <repo> -c core.hooksPath=/dev/null worktree add -b <branch> <destination> <commit>` (HEAD when base is empty).
+//     `git -C <repo> -c core.hooksPath=/dev/null worktree add -b <branch> <destination> <commit>`
+//     (the literal HEAD when no base was named and no default branch is known).
 //
 // Refusals are *WorktreeError (errors.Is ErrWorktreeRefused); a folder that
 // ResolveDir refuses keeps its ErrLaunchUnavailable error.
+//
+// PrepareWorktree is the whole thing in one call, for a caller that may reach
+// the network where it stands: it plans the base itself, as a connection that
+// negotiated base-fresh-v1. A caller that holds a lock must not — it calls
+// PlanBase first and then PrepareWorktreeFrom.
 func PrepareWorktree(ctx context.Context, home, repo, project, run, base string, git GitRunner) (Worktree, error) {
-	return prepareWorktree(ctx, home, repo, project, run, base, git, gitTimeout, cleanupTimeout)
+	plan := PlanBase(ctx, home, repo, project, run, base, true, git)
+	return PrepareWorktreeFrom(ctx, home, repo, project, run, base, plan, git)
+}
+
+// PrepareWorktreeFrom is PrepareWorktree with the base already planned (see
+// PlanBase): it makes the worktree without one git call that reaches the
+// network, so it is safe to run under a lock. Its own budget covers only the
+// calls it makes; the plan's fetch had its own.
+func PrepareWorktreeFrom(ctx context.Context, home, repo, project, run, base string, plan BasePlan, git GitRunner) (Worktree, error) {
+	return prepareWorktree(ctx, home, repo, project, run, base, plan, git, gitTimeout, cleanupTimeout)
 }
 
 // prepareWorktree bounds every git call it makes by one budget (60 s in
 // PrepareWorktree; runGit also caps each call); cleaning up a failed add has
 // its own budget so it still runs after that one has ended.
-func prepareWorktree(ctx context.Context, home, repo, project, run, base string, git GitRunner, budget, cleanupBudget time.Duration) (Worktree, error) {
+func prepareWorktree(ctx context.Context, home, repo, project, run, base string, plan BasePlan, git GitRunner, budget, cleanupBudget time.Duration) (Worktree, error) {
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	validBase := base == "" || terminalproto.ValidRefName(base)
@@ -300,57 +349,16 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 	if !valid {
 		return Worktree{}, terminalproto.ErrInvalid
 	}
-	repoPath, err := ResolveDir(home, repo)
+	repoPath, realHome, err := worktreeRepoPath(home, repo)
 	if err != nil {
 		return Worktree{}, err
 	}
-	realHome, err := filepath.EvalSymlinks(home)
+	head, err := checkWorktreeRepo(ctx, git, repoPath)
 	if err != nil {
-		return Worktree{}, launchUnavailable("home is unavailable")
-	}
-	if repoPath, err = filepath.EvalSymlinks(repoPath); err != nil {
-		return Worktree{}, launchUnavailable("folder is unavailable")
-	}
-	worktreeRoot := filepath.Join(realHome, ".reet")
-	// A repository that contains ~/.reet (home itself, or a parent of it) would
-	// hold its own worktrees as untracked files that a clean deletes.
-	if inside(repoPath, worktreeRoot) {
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "worktrees cannot be made inside the repository they come from")
-	}
-	gitDir := filepath.Join(repoPath, ".git")
-	info, err := os.Lstat(gitDir)
-	validGitDir := err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
-	if !validGitDir {
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, ".git is not a folder in this repository")
-	}
-	for _, marker := range busyMarkers {
-		if _, err := os.Lstat(filepath.Join(gitDir, marker)); err == nil {
-			return Worktree{}, refuseWorktree(terminalproto.WorktreeRepoBusy, marker+" is present")
-		}
-	}
-	out, err := git(ctx, repoPath, "rev-parse", "--show-toplevel")
-	if err != nil {
-		if errors.Is(err, errGitMissing) || ctx.Err() != nil {
-			return Worktree{}, gitFailed(out, err)
-		}
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, worktreeDetail(out))
-	}
-	top, err := filepath.EvalSymlinks(strings.TrimSuffix(string(out), "\n"))
-	if err != nil || top != repoPath {
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "the folder is not the top of its working tree")
-	}
-	if out, err := git(ctx, repoPath, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err != nil || strings.TrimSpace(string(out)) == "" {
-		if errors.Is(err, errGitMissing) || ctx.Err() != nil {
-			return Worktree{}, gitFailed(out, err)
-		}
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "HEAD does not point at a commit yet")
+		return Worktree{}, err
 	}
 
-	projectSlug := terminalproto.Slug(project, "project")
-	repoSlug := terminalproto.Slug(filepath.Base(repoPath), "repo")
-	parent := filepath.Join(worktreeRoot, "worktrees", projectSlug, repoSlug)
-	dest := filepath.Join(parent, run)
-	branch := "reet/" + projectSlug + "-" + run
+	parent, dest, branch := worktreePlace(realHome, repoPath, project, run)
 	if hasControl(dest) {
 		return Worktree{}, refuseWorktree(terminalproto.WorktreeOutsideHome, "the home folder's path cannot hold a worktree")
 	}
@@ -384,35 +392,134 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 
 	// A retry adopts above without depending on whether the original base
 	// branch still exists. New worktrees pin the chosen branch to a commit.
-	start := "HEAD"
-	if base != "" {
-		start = ""
-		for _, prefix := range []string{"refs/heads/", "refs/remotes/"} {
-			out, err := git(ctx, repoPath, "rev-parse", "--verify", "--end-of-options", prefix+base+"^{commit}")
-			if err != nil {
-				if errors.Is(err, errGitMissing) || ctx.Err() != nil {
-					return Worktree{}, gitFailed(out, err)
-				}
-				continue
-			}
-			start = strings.TrimSpace(string(out))
-			if !validHeadLine("HEAD " + start) {
-				return Worktree{}, gitFailed(nil, errors.New("git returned an invalid commit"))
-			}
-			break
+	start := ""
+	if !plan.fresh {
+		// A connection that did not negotiate base-fresh-v1 never asked for a
+		// fetched base, so nothing was fetched and the worktree starts where
+		// a create has always started it. It has no base to report either.
+		if start, err = baseAsBefore(ctx, git, repoPath, base); err != nil {
+			return Worktree{}, err
 		}
-		if start == "" {
-			return Worktree{}, refuseWorktree(terminalproto.WorktreeBaseMissing, "")
+	} else {
+		state, err := ResolveBaseFrom(ctx, repoPath, base, plan, git)
+		if err != nil {
+			return Worktree{}, err
 		}
+		start = state.Start
+		// With no base named and no default branch to go by — no github.com
+		// origin, or none known — the run begins where the repository stands,
+		// exactly as it always has. A fetch that failed still leaves the last
+		// known default branch, which ResolveBase has already chosen.
+		if base == "" && state.Relation == terminalproto.BaseNoRemote {
+			state = terminalproto.BaseState{Relation: terminalproto.BaseNoRemote, Start: head}
+			start = "HEAD"
+		}
+		w.Base = state
 	}
 
-	out, err = git(ctx, repoPath, "-c", "core.hooksPath=/dev/null", "worktree", "add", "-b", branch, dest, start)
+	out, err := git(ctx, repoPath, "-c", "core.hooksPath=/dev/null", "worktree", "add", "-b", branch, dest, start)
 	if err != nil {
 		cleanupFailedAdd(ctx, git, w, cleanupBudget)
 		return Worktree{}, gitFailed(out, err)
 	}
 	w.Created = true
 	return w, nil
+}
+
+// worktreeRepoPath resolves the repository a worktree create works from, and
+// the home it must be inside: ResolveDir, both with their symlinks followed.
+// A repository that contains ~/.reet (home itself, or a parent of it) is
+// refused, because it would hold its own worktrees as untracked files that a
+// clean deletes.
+func worktreeRepoPath(home, repo string) (string, string, error) {
+	repoPath, err := ResolveDir(home, repo)
+	if err != nil {
+		return "", "", err
+	}
+	realHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return "", "", launchUnavailable("home is unavailable")
+	}
+	if repoPath, err = filepath.EvalSymlinks(repoPath); err != nil {
+		return "", "", launchUnavailable("folder is unavailable")
+	}
+	if inside(repoPath, filepath.Join(realHome, ".reet")) {
+		return "", "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, "worktrees cannot be made inside the repository they come from")
+	}
+	return repoPath, realHome, nil
+}
+
+// checkWorktreeRepo makes the checks every worktree create makes on the
+// repository before it changes anything, and answers the commit HEAD names:
+// `.git` is a real directory of its own (not a file, not a symlink), no
+// merge, rebase, cherry-pick, revert or bisect is in progress, the folder is
+// the top of its working tree, and HEAD is a commit.
+//
+// PlanBase makes exactly these checks before it fetches, so a create that
+// will be refused never reaches github.com for a base it cannot use.
+func checkWorktreeRepo(ctx context.Context, git GitRunner, repoPath string) (string, error) {
+	gitDir := filepath.Join(repoPath, ".git")
+	info, err := os.Lstat(gitDir)
+	validGitDir := err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
+	if !validGitDir {
+		return "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, ".git is not a folder in this repository")
+	}
+	for _, marker := range busyMarkers {
+		if _, err := os.Lstat(filepath.Join(gitDir, marker)); err == nil {
+			return "", refuseWorktree(terminalproto.WorktreeRepoBusy, marker+" is present")
+		}
+	}
+	out, err := git(ctx, repoPath, "rev-parse", "--show-toplevel")
+	if err != nil {
+		if errors.Is(err, errGitMissing) || ctx.Err() != nil {
+			return "", gitFailed(out, err)
+		}
+		return "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, worktreeDetail(out))
+	}
+	top, err := filepath.EvalSymlinks(strings.TrimSuffix(string(out), "\n"))
+	if err != nil || top != repoPath {
+		return "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, "the folder is not the top of its working tree")
+	}
+	head, err := gitCommit(ctx, git, repoPath, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if head == "" {
+		return "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, "HEAD does not point at a commit yet")
+	}
+	return head, nil
+}
+
+// worktreePlace is where a run's worktree goes under a resolved home and
+// repository: the folder that holds that project's worktrees for that
+// repository, the destination itself and the branch. PlanBase works out the
+// same destination, so a retry that will adopt one fetches nothing.
+func worktreePlace(realHome, repoPath, project, run string) (parent, dest, branch string) {
+	projectSlug := terminalproto.Slug(project, "project")
+	repoSlug := terminalproto.Slug(filepath.Base(repoPath), "repo")
+	parent = filepath.Join(realHome, ".reet", "worktrees", projectSlug, repoSlug)
+	return parent, filepath.Join(parent, run), "reet/" + projectSlug + "-" + run
+}
+
+// baseAsBefore is the commit a worktree starts from on a connection that did
+// not negotiate base-fresh-v1: refs/heads/<base>, then refs/remotes/<base>,
+// and the literal HEAD when no base was named. It reaches nothing and is the
+// lookup a create made before any base was ever fetched. A base neither place
+// has is refuseWorktree(WorktreeBaseMissing, "").
+func baseAsBefore(ctx context.Context, git GitRunner, repo, base string) (string, error) {
+	if base == "" {
+		return "HEAD", nil
+	}
+	for _, prefix := range []string{"refs/heads/", "refs/remotes/"} {
+		commit, err := gitCommit(ctx, git, repo, prefix+base)
+		if err != nil {
+			return "", err
+		}
+		if commit != "" {
+			return commit, nil
+		}
+	}
+	return "", refuseWorktree(terminalproto.WorktreeBaseMissing, "")
 }
 
 func gitFailed(out []byte, err error) error {

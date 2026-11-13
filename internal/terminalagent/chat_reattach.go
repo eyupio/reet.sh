@@ -69,9 +69,10 @@ func (h *chatHost) reattach(requestID, sessionID string, in terminalproto.ChatRe
 	}
 	h.sup.mu.Unlock()
 	// openChat checks again under its own lock and answers a known requestID
-	// from its receipt, so a race since the checks above is still refused.
+	// from its receipt, so a race since the checks above is still refused. A
+	// reattach names no worktree, so it resolves no base either.
 	return h.openChat(requestID, sessionID, terminalproto.Create{
 		Tool: in.Tool, Dir: in.Dir, Model: in.Model, Effort: in.Effort, Yolo: in.Yolo, Trust: in.Trust,
 		Structured: true, Title: in.Title, ResumeACP: in.ACPSessionID,
-	}, true)
+	}, true, false)
 }

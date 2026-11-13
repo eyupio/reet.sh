@@ -1,5 +1,6 @@
 import type { Event } from './api'
 import { launchActivity, toolName } from './agentLaunch'
+import { baseSentence } from './baseNotice'
 
 type Detail = {
   host?: string
@@ -60,6 +61,9 @@ type Detail = {
   defaultTool?: string
   defaultModel?: string
   defaultEffort?: string
+  base?: string
+  relation?: string
+  start?: string
 }
 
 function detail(e: Event): Detail {
@@ -125,6 +129,10 @@ export function eventLabel(e: Event): string {
     case 'folder-browse': return d.path ? `Browsed folders from ${d.path}${typeof d.pages === 'number' ? ` (${d.pages} ${d.pages === 1 ? 'page' : 'pages'})` : ''}` : 'Browsed folders on a machine'
     case 'worktree-remove': return `Removed a worktree on ${d.host || 'a machine'}${d.branch ? `; the branch ${d.branch} is kept` : ''}`
     case 'worktree-kept': return `Kept a session's worktree on ${d.host || 'a machine'}; it has work that needs your decision`
+    // The same sentence the browser asks the question with, so what was said
+    // before a session started and what is recorded after it read alike. A
+    // relation this build does not know is not put into words.
+    case 'worktree-base': return baseSentence({ base: d.base, relation: d.relation, start: d.start }, d.host || '') ?? 'Noted where a session started'
     case 'session-remove': return `Removed a finished session from history on ${d.host || 'a machine'}`
     case 'software-apply':
       if (d.state !== 'applied') return `Tried to ${d.action || 'change'} OpenCode on ${d.host || 'a machine'}${d.reason ? ` (${String(d.reason).replaceAll('_', ' ')})` : ''}`
@@ -365,6 +373,7 @@ const CATEGORY_ACTIONS: Record<string, EventCategory> = {
   'model-favourite-default': 'agents',
   'worktree-remove': 'agents',
   'worktree-kept': 'agents',
+  'worktree-base': 'agents',
   'session-remove': 'agents',
   'software-apply': 'agents',
   'merge-machines': 'agents',

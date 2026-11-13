@@ -193,7 +193,7 @@ func TestPrepareWorktreeHasOneOverallBudget(t *testing.T) {
 	outer, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	start := time.Now()
-	_, err := prepareWorktree(outer, home, repo, "p", testRun, "", blockingGit, 300*time.Millisecond, time.Second)
+	_, err := prepareWorktree(outer, home, repo, "p", testRun, "", BasePlan{fresh: true}, blockingGit, 300*time.Millisecond, time.Second)
 	refusedWith(t, err, terminalproto.WorktreeGitFailed)
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatal("prepare exceeded its budget", elapsed)
@@ -221,7 +221,7 @@ func TestCleanupRunsAfterThePrepareBudgetExpired(t *testing.T) {
 		}
 		return ExecGit(ctx, dir, args...)
 	}
-	_, err := prepareWorktree(context.Background(), home, repo, "p", testRun, "", git, 2*time.Second, 30*time.Second)
+	_, err := prepareWorktree(context.Background(), home, repo, "p", testRun, "", BasePlan{fresh: true}, git, 2*time.Second, 30*time.Second)
 	refusedWith(t, err, terminalproto.WorktreeGitFailed)
 	nothingCreated(t, home, repo)
 	if _, err := os.Lstat(wantPath(home, "p", "late", testRun)); err == nil {

@@ -38,8 +38,8 @@ func (s LaunchStage) Valid() bool {
 	return s == StageResolving || s == StageWorktree || s == StageStarting || s == StageConfirming
 }
 
-// LaunchProgress is sent by the machine, carrying the request id and session
-// id of the create it belongs to, before that create's single answer.
+// LaunchProgress is sent by the machine, carrying the request id of the create
+// it belongs to and no session id, before that create's single answer.
 type LaunchProgress struct {
 	Stage LaunchStage `json:"stage"`
 }

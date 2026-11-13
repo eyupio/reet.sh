@@ -69,7 +69,15 @@ same refine-and-start dialog; and an item that cannot start says why instead of
 moving. The Start button remains the keyboard route.
 
 Start checks machine readiness, installed agents, image-upload capability, and
-project identity. The server freezes the launch parameters before dispatch and
+project identity. For a plan in a saved repository it also reads where the
+session would start (`GET /api/v2/machines/{agentId}/base-check`) before the
+images are sent and before the controller is asked to start anything, and asks
+first when the branch on the machine and GitHub's differ — the same question and
+the same words as the two start dialogs
+([Start an agent session](start-agent-session.md#on-home-the-launch-bar)).
+**Cancel** leaves the item in the backlog and gives the card's Start the keyboard
+back; a check that can't be answered never holds the start up. A frozen retry
+carries the request already made, so it is not asked again. The server freezes the launch parameters before dispatch and
 uses the backlog item's stable ID as the terminal create request ID. Concurrent
 starts and retries reuse that frozen request, including its uploaded image
 paths. A definitive refusal before any broker operation is recorded makes the

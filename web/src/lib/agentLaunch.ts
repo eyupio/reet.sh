@@ -339,6 +339,18 @@ export function rekey(prev: LaunchChoices, key: string, defaults: { model?: stri
   return prev.key === key ? prev : { key, model: defaults.model ?? '', folder: defaults.folder ?? '', effort: defaults.effort ?? '' }
 }
 
+/**
+ * Whether this launch will be isolated into a worktree of its own, which is when where it starts from is worth checking
+ * first (`checkBase`). The controller's rule (internal/api/session_isolation.go): an agent start, in a folder, that is
+ * not a continuation, in a saved git repository or already naming its own worktree, and not already inside one reet
+ * made. A plain shell, a folder that is not a repository and the home folder are never isolated.
+ */
+export function isolatedLaunch(launch: { tool?: string; dir?: string; resume?: boolean; resumeAcp?: string; worktree?: string }, project: { isRepo?: boolean } | null | undefined): boolean {
+  if (!launch.tool || !launch.dir || launch.resume || launch.resumeAcp) return false
+  if (launch.dir.includes('/.reet/worktrees/')) return false
+  return !!launch.worktree || project?.isRepo === true
+}
+
 /** Which field a definite refusal is about, so focus can go there. */
 export function refusalField(status: number, code?: string): '' | 'machine' | 'tool' | 'folder' | 'prompt' {
   if (status === 409 && code === 'launch_unsupported') return 'machine'

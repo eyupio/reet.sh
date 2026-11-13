@@ -63,6 +63,10 @@ type Broker struct {
 	// peerReady hears that a connection finished synchronizing, so the server
 	// can resume cleanups that were waiting for the machine, restart included.
 	peerReady func(uid int64, agent string)
+	// sessionBase hears where a session's worktree started from, as its base
+	// is stored. It is the one place every start path passes through, so the
+	// server can record the notice once, whatever started the session.
+	sessionBase func(uid int64, agent, session string, base terminalproto.BaseState)
 	// lateReplies counts browse and branches answers that came after their
 	// request gave up; they are dropped, never treated as protocol errors.
 	lateReplies atomic.Int64
@@ -1092,6 +1096,19 @@ func (b *Broker) OnPeerReady(fn func(uid int64, agent string)) {
 	b.mu.Unlock()
 }
 
+// OnSessionBase sets fn to hear what a session's worktree started from, as
+// that is stored: once for the create that made it, and once for a reply that
+// came after its call gave up (the same report again, which the store
+// accepts). It runs on the caller's or the peer's observer goroutine and must
+// not block it; the server uses it to record the notice, which it does once
+// per session however often it is told. The store cannot write that notice
+// itself: only the server knows the machine's name.
+func (b *Broker) OnSessionBase(fn func(uid int64, agent, session string, base terminalproto.BaseState)) {
+	b.mu.Lock()
+	b.sessionBase = fn
+	b.mu.Unlock()
+}
+
 // observe applies one authenticated state observation. Only a ready peer can
 // reach the machine to release a worktree, so a close seen while a connection
 // is still synchronizing is left to the peer-ready sweep.
@@ -1318,6 +1335,9 @@ func (b *Broker) Bind(ctx context.Context, uid int64, agent string, h terminalpr
 // worktree create's reply. It answers ErrInvalid when the report does not
 // match the session's own run (the folder must be that run's folder under
 // ~/.reet/worktrees); a second, different report is a conflict and dropped.
+// What the worktree started from is stored with it, best effort: the agent is
+// already running, so an unusable or late base report is dropped rather than
+// failing a launch that happened.
 func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalproto.SessionChanged) error {
 	if s.WorktreePath == "" {
 		return nil
@@ -1325,6 +1345,18 @@ func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalpro
 	err := b.st.RecordTerminalWorktreeFor(uid, agent, session, s.WorktreePath, s.WorktreeRepo)
 	if errors.Is(err, terminalproto.ErrInvalid) {
 		return err
+	}
+	if err == nil && s.Base != nil {
+		if b.st.RecordTerminalBaseFor(uid, agent, session, *s.Base) == nil {
+			// Stored (or the same report again): the one place every start
+			// path reaches, so the notice is recorded from here alone.
+			b.mu.Lock()
+			fn := b.sessionBase
+			b.mu.Unlock()
+			if fn != nil {
+				fn(uid, agent, session, *s.Base)
+			}
+		}
 	}
 	return nil
 }

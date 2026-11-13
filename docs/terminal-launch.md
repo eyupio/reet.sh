@@ -306,10 +306,19 @@ leaves it absent.
 Create accepts optional `base`, `effort` and `yolo`. An older peer receives none
 of those fields and no new tool id: the controller answers 409
 `launch_option_unsupported` with "Update reet on that machine to use that option."
-A named base requires a worktree. The connector resolves a local branch first,
-then a remote branch, to a commit before creating the worktree. A missing branch
-answers 422 `base_missing`, naming the machine in the sentence. An empty base
-keeps the existing HEAD behaviour.
+A named base requires a worktree. A connector that negotiated `base-fresh-v1`
+fetches that branch from a `github.com` origin and starts the worktree from
+GitHub's commit, unless the repository's own branch has commits GitHub does not
+have; a failed fetch starts from the last known commit, and with no `github.com`
+origin it resolves a local branch first, then a remote-tracking branch, as it
+always has ([Worktrees](terminal-worktrees.md#creating)). The fetch uses that
+machine's own git credential helpers and its `gh` sign-in, and an ssh origin is
+fetched over https with `gh`, or not fetched at all when the machine has no
+`gh`. An older connector never fetches: it makes the worktree exactly as it
+always did, and reports no base. A missing branch answers 422 `base_missing`,
+naming the machine in the sentence. An empty base leaves the branch to the
+machine: a `base-fresh-v1` connector starts from the repository's default branch
+on GitHub, and an older one keeps the existing HEAD behaviour.
 
 Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its
 confirmed `--thinking` option, Claude Code 2.1.319 and Antigravity CLI 1.5.0 to `--effort` (Claude Code's own help also lists `xhigh` and `max`, which a launch does not carry), and Codex to a `-c model_reasoning_effort=<level>` override (its CLI does not check the value, so only these three are sent; `ultra` is not, because a model that lacks it falls back to `medium`); other presets have no effort mapping until their

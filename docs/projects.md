@@ -146,11 +146,40 @@ not enrolled"). A terminal create may carry `projectId`; the controller checks i
 account and to that machine (404 `project_not_found`, 422 `project_machine_mismatch`) and never
 sends it to the machine.
 
+## Where a session in a repository starts
+
+A session started in a saved repository always works in a worktree of its own, cut from the project's
+base branch. The account's default base branch applies where the browser sends it (a start that asks
+for a worktree names it in the create, as it always has); the controller never fills it in, because
+one branch name does not fit every repository. With no base named at all, the machine starts from the
+branch the repository's remote calls its default.
+A machine that is up to date fetches that branch from GitHub first and starts from **GitHub's
+commit**, unless the branch on the machine has commits GitHub doesn't have, in which case it starts
+from the local branch; when GitHub can't be reached it starts from the last known commit and nothing
+in the checkout is changed ([Worktrees](terminal-worktrees.md#creating)). A machine running an older
+reet is unchanged: it fetches nothing and starts where it always did.
+
+The fetch uses that machine's own git credential helpers and its `gh` sign-in, for github.com only.
+A private repository needs one of them to work there: a helper that already serves github.com, or
+`gh auth login` done on that machine. A repository whose origin is an ssh URL is fetched over https
+with `gh`, and not fetched at all when the machine has no `gh` — it then starts from its own branch,
+with nothing said about GitHub. No credential ever reaches reet's controller.
+
+When the two sides differ, every start you make in the browser — Home's launch bar, the **Start an
+agent** dialog the rail's **+**, the machine cards, Machines and the Sessions screen open, and **Start**
+on a backlog plan — says so and asks before it starts anything ("main on studio has commits GitHub doesn't have. This session starts
+from the local main (abc1234)."), and the same sentence is kept with the session and shown on its
+Overview under **Where it's working**. A check that can't be answered never holds a start up. Starts
+nobody is choosing in a browser (a Factory outcome's launches) do not ask. See
+[Start an agent session](start-agent-session.md#on-home-the-launch-bar).
+
 ## Session and profile fields
 
 The session listing (`GET /api/v2/terminal/sessions`) carries, for every session, `tool`, `model`,
 `effort` (the chosen thinking level, or `""`) and `projectId` (the folder project it was started in,
-`null` otherwise), and never the prompt. The profile (`GET`/`PATCH /api/v2/profile`) carries
+`null` otherwise), and never the prompt. A session that worked in a worktree also carries
+`baseName`, `baseRelation` and `baseStart`: the branch it was cut from, how that branch stood against
+GitHub's and the commit it started at, each left out when the machine reported none. The profile (`GET`/`PATCH /api/v2/profile`) carries
 `defaultBaseBranch` (blank, the repository's own default, or a valid branch name),
 `worktreesByDefault` (true unless changed): the account default a project's `inherit` means, and
 `defaultTool`, `defaultModel`, `defaultEffort` for a session started outside a project. Model

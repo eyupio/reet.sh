@@ -182,7 +182,7 @@ func TestReattachAdoptsLiveProcess(t *testing.T) {
 	h, proc, _, loads := reattachHost(t)
 	if _, err := h.open("request-first0123456789", reattachSessionID, terminalproto.Create{
 		Title: "Chat", Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, ResumeACP: proc.SessionID(),
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	cs := h.find(reattachSessionID)
@@ -210,7 +210,7 @@ func TestReattachRefusedWhenAnotherRowOwnsConversation(t *testing.T) {
 	h, proc, _, loads := reattachHost(t)
 	if _, err := h.open("request-other0123456789", "session-other0123456789", terminalproto.Create{
 		Title: "Other", Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, ResumeACP: proc.SessionID(),
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	_, err := h.reattach(reattachRequestID, reattachSessionID, reattachBody(h, proc))
@@ -419,7 +419,7 @@ func TestReattachOwnedElsewhereIsPlainConflict(t *testing.T) {
 	h, proc, _, _ := reattachHost(t)
 	if _, err := h.open("request-other0123456789", "session-other0123456789", terminalproto.Create{
 		Title: "Other", Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home, ResumeACP: proc.SessionID(),
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	_, err := h.reattach(reattachRequestID, reattachSessionID, reattachBody(h, proc))

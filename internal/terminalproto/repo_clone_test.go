@@ -125,6 +125,7 @@ func TestRepoCloneResultValid(t *testing.T) {
 		"timed out":           {RepoCloneResult{Reason: RepoCloneTimedOut}, true},
 		"failed":              {RepoCloneResult{Reason: RepoCloneFailed}, true},
 		"denied":              {RepoCloneResult{Reason: RepoCloneDenied}, true},
+		"busy":                {RepoCloneResult{Reason: "busy"}, true},
 		"empty":               {RepoCloneResult{}, false},
 		"dir and reason":      {RepoCloneResult{Dir: "/home/u/x", Reason: RepoCloneFailed}, false},
 		"unknown reason":      {RepoCloneResult{Reason: "boom"}, false},
@@ -137,7 +138,7 @@ func TestRepoCloneResultValid(t *testing.T) {
 		"branch without dir":  {RepoCloneResult{DefaultBranch: "main"}, false},
 		"flags without dir":   {RepoCloneResult{Marked: true}, false},
 	}
-	for _, reason := range []RepoCloneReason{RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied} {
+	for _, reason := range []RepoCloneReason{RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied, RepoCloneBusy} {
 		cases["reason "+string(reason)] = struct {
 			r    RepoCloneResult
 			want bool

@@ -101,11 +101,13 @@ const (
 	RepoCloneFailed RepoCloneReason = "failed"
 	// RepoCloneDenied: the machine's owner does not allow cloning.
 	RepoCloneDenied RepoCloneReason = "denied"
+	// RepoCloneBusy: the machine is already cloning; nothing was started.
+	RepoCloneBusy RepoCloneReason = "busy"
 )
 
 func (r RepoCloneReason) valid() bool {
 	switch r {
-	case RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied:
+	case RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied, RepoCloneBusy:
 		return true
 	}
 	return false

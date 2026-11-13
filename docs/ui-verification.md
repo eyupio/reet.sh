@@ -3763,4 +3763,4 @@ in Chromium (Google Chrome for Testing 153) with synthetic answers:
 not heard). No real machine cloned anything: every answer here is synthetic, so the clone itself, `gh` on a desktop
 keyring and the ten-minute limit were not exercised in a browser (the clone is covered by the Go tests with real git
 against a local repository standing in for GitHub). The Sessions screen and Factory hold the same rail and read an
-outstanding clone too; neither was exercised with one. `sessions-phone.e2e.mjs` was not run after this change.
+outstanding clone too; neither was exercised with one.

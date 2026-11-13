@@ -855,8 +855,20 @@ func leftoverName(repo string) string { return "." + repo + ".cloning-0123456789
 // changed age ago.
 func makeLeftover(t *testing.T, path string, age time.Duration) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(path, ".git", "objects"), 0o700); err != nil {
+	makeLeftoverOf(t, path, "https://github.com/o/r.git", age)
+}
+
+// makeLeftoverOf makes what a clone of origin cut off part-way leaves at path:
+// a repository with that origin and no commits, and a half-written file,
+// last changed age ago. With origin "" it never got as far as .git.
+func makeLeftoverOf(t *testing.T, path, origin string, age time.Duration) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
+	}
+	if origin != "" {
+		testGit(t, path, "init", "-q")
+		testGit(t, path, "config", "remote.origin.url", origin)
 	}
 	writeFile(t, filepath.Join(path, "half-written"), "x")
 	agePath(t, path, age)
@@ -1022,5 +1034,93 @@ func TestCloneRepoIgnoresALeftoverItCannotRemove(t *testing.T) {
 	}
 	if !slices.Equal(tried, []string{stale}) {
 		t.Fatalf("tried to remove %q", tried)
+	}
+}
+
+// A folder named like a leftover of o/x that adoption would take as a clone
+// of the repository of that very name is a person's clone, not a leftover,
+// and is kept; so is one whose origin cannot be read. A real leftover names
+// o/x as its origin, or never got as far as .git, and is still removed.
+func TestCloneRepoLeftoverOrigin(t *testing.T) {
+	const name = ".x.cloning-0123456789abcdef"
+	for _, tc := range []struct {
+		test string
+		make func(t *testing.T, f *cloneFixture, path string)
+		kept bool
+	}{
+		{"a person's clone of the repository of that name", func(t *testing.T, f *cloneFixture, path string) {
+			f.handClone(t, path, "https://github.com/o/"+name)
+		}, true},
+		{"the same with its origin in another case and with .git", func(t *testing.T, f *cloneFixture, path string) {
+			f.handClone(t, path, "https://github.com/O/.X.cloning-0123456789ABCDEF.git")
+		}, true},
+		{"the same over ssh", func(t *testing.T, f *cloneFixture, path string) {
+			f.handClone(t, path, "git@github.com:o/"+name+".git")
+		}, true},
+		{"a .git whose config cannot be read", func(t *testing.T, f *cloneFixture, path string) {
+			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
+			writeFile(t, filepath.Join(path, ".git", "config"), "[remote \"origin\"\n\turl = = =\n")
+		}, true},
+		{"a .git without an origin", func(t *testing.T, f *cloneFixture, path string) {
+			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
+			testGit(t, path, "config", "--unset", "remote.origin.url")
+		}, true},
+		{"a leftover with a marker", func(t *testing.T, f *cloneFixture, path string) {
+			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
+			writeFile(t, filepath.Join(path, ".git", cloneMarker), "o/x\n")
+		}, false},
+		{"a leftover without a marker", func(t *testing.T, f *cloneFixture, path string) {
+			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
+		}, false},
+		{"a leftover that never got as far as .git", func(t *testing.T, f *cloneFixture, path string) {
+			makeLeftoverOf(t, path, "", time.Hour)
+		}, false},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			f.name = "x"
+			owner := filepath.Join(f.repos(), "o")
+			path := filepath.Join(owner, name)
+			tc.make(t, f, path)
+			agePath(t, path, time.Hour)
+			before := snapshot(t, path)
+			r := f.clone(t, "o", "x")
+			if r != (terminalproto.RepoCloneResult{Dir: filepath.Join(owner, "x"), DefaultBranch: "main", Marked: true}) {
+				t.Fatalf("result = %+v", r)
+			}
+			if !tc.kept {
+				wantMissing(t, path)
+				return
+			}
+			if after := snapshot(t, path); !slices.Equal(before, after) {
+				t.Fatalf("%s changed:\n%q\n%q", path, before, after)
+			}
+		})
+	}
+}
+
+// A git that cannot read a candidate's origin (it fails, or runs out of
+// time) keeps the folder.
+func TestCloneRepoKeepsALeftoverWhoseOriginGitCannotRead(t *testing.T) {
+	f := newCloneFixture(t)
+	owner := filepath.Join(f.repos(), "o")
+	stale := filepath.Join(owner, leftoverName("r"))
+	makeLeftover(t, stale, time.Hour)
+	var asked [][]string
+	leftoverGit = func(_ context.Context, dir string, args ...string) ([]byte, error) {
+		asked = append(asked, append([]string{dir}, args...))
+		return nil, errors.New("git timed out: context deadline exceeded")
+	}
+	t.Cleanup(func() { leftoverGit = ExecGit })
+	before := snapshot(t, stale)
+	r := f.clone(t, "o", "r")
+	if r != (terminalproto.RepoCloneResult{Dir: filepath.Join(owner, "r"), DefaultBranch: "main", Marked: true}) {
+		t.Fatalf("result = %+v", r)
+	}
+	if after := snapshot(t, stale); !slices.Equal(before, after) {
+		t.Fatalf("leftover changed:\n%q\n%q", before, after)
+	}
+	if len(asked) != 1 || !slices.Equal(asked[0], []string{stale, "config", "--get", "remote.origin.url"}) {
+		t.Fatalf("asked %q", asked)
 	}
 }

@@ -36,6 +36,11 @@ var errGHMissing = errors.New("gh is not installed")
 // removeLeftover removes a leftover temporary folder; tests replace it.
 var removeLeftover = os.RemoveAll
 
+// leftoverGit reads a leftover candidate's origin: the ordinary per-call git
+// runner, not the clone's, so a slow candidate cannot hold the clone up for
+// long. Tests replace it.
+var leftoverGit GitRunner = ExecGit
+
 // GHRunner runs `gh args...` and returns its combined output. The real one
 // is ExecGH; tests fake it.
 type GHRunner func(ctx context.Context, args ...string) ([]byte, error)
@@ -149,7 +154,7 @@ func CloneRepo(ctx context.Context, home string, req terminalproto.RepoClone, gi
 		return refuse(terminalproto.RepoCloneFailed)
 	}
 
-	removeLeftovers(ownerDir, req)
+	removeLeftovers(ctx, ownerDir, req)
 
 	// The temporary folder is made here, exclusively, so it is this call's
 	// and nobody else's; git clones into an empty folder that exists.
@@ -233,14 +238,26 @@ func sshRefused(out []byte) bool {
 
 // removeLeftovers removes the temporary folders earlier clones of req's
 // repository left in ownerDir when they were cut off (the connector stopped,
-// the machine lost power). A folder is a leftover only when all of these
-// hold: it is directly in ownerDir; its name is exactly
-// ".<repo>.cloning-" and 16 lower-case hex characters; it is a real
-// directory, not a symlink, owned by this user; it last changed more than
-// leftoverAge ago; and it is not a clone reet made under that name, that is,
-// its marker does not name <owner>/<its own name>. Only that folder is
-// removed, and a failure to remove it is ignored.
-func removeLeftovers(ownerDir string, req terminalproto.RepoClone) {
+// the machine lost power). A folder is a leftover only when all six hold:
+//
+//  1. it is directly in ownerDir;
+//  2. its name is exactly ".<repo>.cloning-" and 16 lower-case hex
+//     characters;
+//  3. it is a real directory, not a symlink, owned by this user;
+//  4. it last changed more than leftoverAge ago;
+//  5. it is not a clone reet made under that name: its marker does not name
+//     <owner>/<its own name>;
+//  6. it is not a clone of the repository named like it: when it has a .git,
+//     its configured remote.origin.url (read as adoptClone reads it, pinned
+//     to the folder, no rewrites, with the ordinary per-call bound) is read
+//     and does not name github.com/<owner>/<its own name>, ignoring case. A
+//     .git whose origin cannot be read (git fails, times out, the config is
+//     unreadable or has no origin) keeps the folder.
+//
+// A real leftover of <owner>/<repo> names <owner>/<repo> as its origin, or
+// has no .git yet. Only that folder is removed, and a failure to remove it is
+// ignored.
+func removeLeftovers(ctx context.Context, ownerDir string, req terminalproto.RepoClone) {
 	list, err := os.ReadDir(ownerDir)
 	if err != nil {
 		return
@@ -263,8 +280,30 @@ func removeLeftovers(ownerDir string, req terminalproto.RepoClone) {
 		if origin, marked := cloneMarked(path); marked && strings.EqualFold(origin, req.Owner+"/"+name) {
 			continue
 		}
+		if clonedAs(ctx, path, req.Owner+"/"+name) {
+			continue
+		}
 		_ = removeLeftover(path)
 	}
+}
+
+// clonedAs reports whether the folder at path may be a clone of repo
+// ("owner/name"): it has a .git and its configured origin names repo on
+// github.com, or its origin cannot be read. A folder without .git is not.
+func clonedAs(ctx context.Context, path, repo string) bool {
+	if _, err := os.Lstat(filepath.Join(path, ".git")); os.IsNotExist(err) {
+		return false
+	} else if err != nil {
+		return true
+	}
+	// `git config --get` applies no url.<base>.insteadOf rewrite: this is the
+	// origin as configured.
+	out, err := leftoverGit(pinGitDir(ctx, path), path, "config", "--get", "remote.origin.url")
+	if err != nil {
+		return true
+	}
+	owner, name, ok := GitHubRemote(strings.TrimSuffix(string(out), "\n"))
+	return ok && strings.EqualFold(owner+"/"+name, repo)
 }
 
 // lowerHex16 reports whether s is exactly 16 lower-case hex characters, the

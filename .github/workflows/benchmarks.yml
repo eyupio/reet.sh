@@ -47,8 +47,25 @@ jobs:
         shell: bash
         run: |
           bash pr/scripts/bench-compare.sh base pr "$RUNNER_TEMP/benchmarks"
+      # A regression has to be seen twice. The first comparison names what looks
+      # slower; only those benchmarks are measured again, in a fresh paired run,
+      # and the job fails on what is still over the threshold. The threshold and
+      # the significance are the same both times.
       - name: Compare with benchstat
-        run: python3 pr/scripts/bench-gate.py "$RUNNER_TEMP/benchmarks/base.txt" "$RUNNER_TEMP/benchmarks/new.txt" 15
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/benchmarks"
+          if python3 pr/scripts/bench-gate.py "$out/base.txt" "$out/new.txt" 15 --failed-to "$out/failed.txt"; then
+            exit 0
+          fi
+          if ! grep -Eq '^[A-Za-z0-9_]+$' "$out/failed.txt"; then
+            echo "bench-gate failed without naming a benchmark to measure again" >&2
+            exit 1
+          fi
+          echo "Measuring again: $(paste -sd' ' "$out/failed.txt")"
+          BENCH_REGEX="^Benchmark($(grep -E '^[A-Za-z0-9_]+$' "$out/failed.txt" | paste -sd'|'))\$" \
+            bash pr/scripts/bench-compare.sh base pr "$out/confirm"
+          python3 pr/scripts/bench-gate.py "$out/confirm/base.txt" "$out/confirm/new.txt" 15
       - name: Keep the benchmark outputs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -57,4 +74,6 @@ jobs:
           path: |
             ${{ runner.temp }}/benchmarks/base.txt
             ${{ runner.temp }}/benchmarks/new.txt
+            ${{ runner.temp }}/benchmarks/confirm/base.txt
+            ${{ runner.temp }}/benchmarks/confirm/new.txt
           retention-days: 7

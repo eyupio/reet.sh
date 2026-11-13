@@ -560,7 +560,7 @@ func TestFolderProjectOriginMigratesWithDefaults(t *testing.T) {
 
 // Origin and Cloned are stored on create, read back everywhere, and kept by
 // an update, which cannot change them.
-func TestFolderProjectOriginRoundTripAndIsKept(t *testing.T) {
+func TestFolderProjectOriginRoundTripAndIsKeptWhileTheFolderIs(t *testing.T) {
 	s := newStore(t)
 	uid := projectUser(t, s, "a")
 	made := mustFP(t, s, uid, FolderProject{Host: "laptop", Dir: "/home/a/reet/repos/acme/site", IsRepo: true, BaseBranch: "main", Origin: "acme/site", Cloned: true})
@@ -583,6 +583,12 @@ func TestFolderProjectOriginRoundTripAndIsKept(t *testing.T) {
 	}
 	if again, _ := s.FolderProjectFor(uid, made.ID); again != updated {
 		t.Fatalf("stored after update: %+v", again)
+	}
+	// A folder written the same way after normalizing is no change of folder.
+	edit = updated
+	edit.Dir = updated.Dir + "/"
+	if kept, err := s.UpdateFolderProjectFor(uid, edit, updated.Version); err != nil || kept.Origin != "acme/site" || !kept.Cloned {
+		t.Fatalf("same folder: %v %+v", err, kept)
 	}
 	for name, p := range map[string]FolderProject{
 		"origin not owner/name": {Host: "laptop", Dir: "/x1", Origin: "acme"},
@@ -619,5 +625,38 @@ func TestFolderProjectRoomFor(t *testing.T) {
 	}
 	if err := s.FolderProjectRoomFor(uid, ""); !errors.Is(err, ErrFolderProjectLimit) {
 		t.Fatalf("full: %v", err)
+	}
+}
+
+// Moving a project to another folder or machine makes it a project of that
+// folder: where the old one came from, and that reet cloned it, no longer
+// hold, so both are cleared in the same write.
+func TestFolderProjectOriginIsClearedWhenTheFolderChanges(t *testing.T) {
+	for name, move := range map[string]func(*FolderProject){
+		"folder":  func(p *FolderProject) { p.Dir = "/home/a/code/site" },
+		"machine": func(p *FolderProject) { p.Host = "desktop" },
+		"both":    func(p *FolderProject) { p.Host, p.Dir = "desktop", "/home/a/code/site" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			uid := projectUser(t, s, "a")
+			made := mustFP(t, s, uid, FolderProject{Host: "laptop", Dir: "/home/a/reet/repos/acme/site", IsRepo: true, BaseBranch: "main", Origin: "acme/site", Cloned: true})
+			edit := made
+			move(&edit)
+			updated, err := s.UpdateFolderProjectFor(uid, edit, made.Version)
+			if err != nil || updated.Origin != "" || updated.Cloned || updated.Dir != edit.Dir || updated.Host != edit.Host {
+				t.Fatalf("update: %v %+v", err, updated)
+			}
+			if again, _ := s.FolderProjectFor(uid, made.ID); again != updated {
+				t.Fatalf("stored after update: %+v", again)
+			}
+			// Moving it back does not bring them back: the edit cannot know
+			// the folder is still that clone.
+			back := updated
+			back.Host, back.Dir = made.Host, made.Dir
+			if restored, err := s.UpdateFolderProjectFor(uid, back, updated.Version); err != nil || restored.Origin != "" || restored.Cloned {
+				t.Fatalf("moved back: %v %+v", err, restored)
+			}
+		})
 	}
 }

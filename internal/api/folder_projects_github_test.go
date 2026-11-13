@@ -273,7 +273,6 @@ func TestAddFromGitHubNeverWritesToAFinishedRequestOnFailure(t *testing.T) {
 }
 
 func TestAddFromGitHubReportsEachRefusal(t *testing.T) {
-	sentenceTerminalAccessOff := "Enable terminal access locally on this machine."
 	for _, c := range []struct {
 		reason   terminalproto.RepoCloneReason
 		sentence string
@@ -284,7 +283,8 @@ func TestAddFromGitHubReportsEachRefusal(t *testing.T) {
 		{terminalproto.RepoCloneTimedOut, "Cloning Acme/Site took longer than 10 minutes and was stopped. Nothing was kept."},
 		{terminalproto.RepoCloneFailed, "Couldn't clone Acme/Site on studio."},
 		{terminalproto.RepoCloneBusy, "studio is already cloning a repository. Try again when it finishes."},
-		{terminalproto.RepoCloneDenied, sentenceTerminalAccessOff},
+		{terminalproto.RepoCloneDenied, "Terminal access is off on studio. Turn it on there, then try again."},
+		{terminalproto.RepoCloneSSHRewrite, "studio's git settings send github.com over ssh, which reet doesn't use for cloning. Clone Acme/Site there yourself and add the folder as a project."},
 	} {
 		t.Run(string(c.reason), func(t *testing.T) {
 			f := browseAPIFixture(t, repoCloneCaps())
@@ -576,5 +576,51 @@ func TestOriginAndClonedAreNotSettableThroughTheNormalRoutes(t *testing.T) {
 	one := f.fpDo(t, f.cookie, "GET", "/api/v2/folder-projects/"+id, nil, "")
 	if strings.Contains(one.raw, `"origin"`) || strings.Contains(one.raw, `"cloned"`) {
 		t.Fatalf("a project added by path shows an origin: %s", one.raw)
+	}
+}
+
+// An empty repository has no default branch: the project is saved with a
+// blank base rather than one that does not exist.
+func TestAddFromGitHubSavesAnEmptyRepositoryWithABlankBase(t *testing.T) {
+	f := browseAPIFixture(t, repoCloneCaps())
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.RepoCloneResult{Dir: browseTestHome + "/reet/repos/acme/empty", Marked: true}
+	})
+	id, _ := f.startClone(t, "acme/empty", "")
+	done := f.waitClone(t, id)
+	if done["state"] != "done" {
+		t.Fatalf("job = %v", done)
+	}
+	project, _ := done["project"].(map[string]any)
+	if project["baseBranch"] != "" || project["isRepo"] != true || project["cloned"] != true {
+		t.Fatalf("project = %v", project)
+	}
+	saved, err := f.st.FolderProjectFor(f.uid, project["id"].(string))
+	if err != nil || saved.BaseBranch != "" || !saved.IsRepo {
+		t.Fatalf("stored %+v %v", saved, err)
+	}
+}
+
+// Editing a cloned project's folder or machine clears where it came from in
+// the same write; an edit that leaves both alone keeps it.
+func TestEditingAClonedProjectsFolderClearsItsOrigin(t *testing.T) {
+	f := projectFixture(t)
+	made, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.ID, Dir: "/home/tester/reet/repos/acme/site", IsRepo: true, BaseBranch: "main", Origin: "acme/site", Cloned: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v2/folder-projects/" + made.ID
+	res := f.fpDo(t, f.cookie, "PATCH", path, map[string]any{"name": "Site"}, `"1"`)
+	if res.code != 200 || res.out["origin"] != "acme/site" || res.out["cloned"] != true {
+		t.Fatalf("rename = %d %s", res.code, res.raw)
+	}
+	f.resetFolderWrites()
+	res = f.fpDo(t, f.cookie, "PATCH", path, map[string]any{"dir": "/home/tester/code/site"}, `"2"`)
+	if res.code != 200 || strings.Contains(res.raw, `"origin"`) || strings.Contains(res.raw, `"cloned"`) {
+		t.Fatalf("move = %d %s", res.code, res.raw)
+	}
+	saved, err := f.st.FolderProjectFor(f.uid, made.ID)
+	if err != nil || saved.Origin != "" || saved.Cloned || saved.Dir != "/home/tester/code/site" || saved.Name != "Site" {
+		t.Fatalf("stored %+v %v", saved, err)
 	}
 }

@@ -483,7 +483,9 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (F
 }
 
 // UpdateFolderProjectFor replaces the editable fields of project p.ID of uid.
-// Position, LegacyProjectID, Origin, Cloned and CreatedAt are kept. A non-zero expect is the
+// Position, LegacyProjectID and CreatedAt are kept. Origin and Cloned are
+// kept while Host and Dir stay the same, and cleared in the same write when
+// either changes. A non-zero expect is the
 // version the caller read: a different stored one is ErrFolderProjectChanged.
 // Zero means the last write wins. Either way the version goes up by one.
 // The starter prompt is checked only when it changes, so a saved one that
@@ -503,11 +505,16 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 		if expect != 0 && expect != cur.Version {
 			return ErrFolderProjectChanged
 		}
-		// Where a project came from is a fact of its create, not an edit.
+		// Where a project came from is a fact of its create, not an edit: an
+		// edit keeps it, unless it moves the project to another machine or
+		// folder, which is not where it came from (or what reet cloned).
 		p.Origin, p.Cloned = cur.Origin, cur.Cloned
 		defaultsChanged := p.DefaultTool != cur.DefaultTool || p.DefaultModel != cur.DefaultModel || p.DefaultEffort != cur.DefaultEffort
 		if p, err = normalizeFolderWith(p, p.StarterPrompt != cur.StarterPrompt, defaultsChanged); err != nil {
 			return err
+		}
+		if p.Host != cur.Host || p.Dir != cur.Dir {
+			p.Origin, p.Cloned = "", false
 		}
 		if p.Note != "" {
 			p.Note = cur.Note
@@ -520,8 +527,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 			t = cur.CreatedAt
 		}
 		p.ID, p.Position, p.LegacyProjectID, p.CreatedAt, p.UpdatedAt, p.Version = id, cur.Position, cur.LegacyProjectID, cur.CreatedAt, t, cur.Version+1
-		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
-			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Note, t, p.Version, id, uid, cur.Version)
+		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,origin=?,cloned=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Note, t, p.Version, id, uid, cur.Version)
 		if err != nil {
 			return folderConflict(err)
 		}

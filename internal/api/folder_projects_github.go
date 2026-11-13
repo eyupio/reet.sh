@@ -33,9 +33,6 @@ const (
 	sentenceInvalidRepo = "Write the repository as owner/name, or paste its github.com link."
 	sentenceCloneLimit  = "Five repositories are already being cloned. Wait for one to finish."
 	sentenceCloneGone   = "That clone isn't on this account."
-	// sentenceTerminalAccessOff is the browser's readiness line for a machine
-	// whose terminal access is off, which is why a machine refuses a clone.
-	sentenceTerminalAccessOff = "Enable terminal access locally on this machine."
 )
 
 type cloneState string
@@ -336,7 +333,9 @@ func cloneRefusal(err error, reason terminalproto.RepoCloneReason, machine, repo
 	case terminalproto.RepoCloneBusy:
 		return string(reason), machine + " is already cloning a repository. Try again when it finishes."
 	case terminalproto.RepoCloneDenied:
-		return string(reason), sentenceTerminalAccessOff
+		return string(reason), "Terminal access is off on " + machine + ". Turn it on there, then try again."
+	case terminalproto.RepoCloneSSHRewrite:
+		return string(reason), machine + "'s git settings send github.com over ssh, which reet doesn't use for cloning. Clone " + repo + " there yourself and add the folder as a project."
 	}
 	return string(terminalproto.RepoCloneFailed), "Couldn't clone " + repo + " on " + machine + "."
 }

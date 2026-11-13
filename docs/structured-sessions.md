@@ -253,10 +253,12 @@ from bounded conversation history, whose existing retention limits remain in pla
 
 Both **Start an agent** dialogs and the backlog composer include **Model** and **Effort**. Models use the machine catalogue,
 your favourites or a configured model ID. In Gaffer, effort suggestions come from the selected agent's advertised
-thought-level options on a connector that negotiated `acp-start-options-v1` (`acpStartOptions`). Older live-controls
-connectors must be upgraded before they can accept effort in a new chat. When no options are advertised, **Agent default** is
-shown with an explanation. A chosen effort is confirmed against the actual selected model before the chat becomes ready
-or receives the opening prompt; an unsupported choice refuses startup rather than silently falling back. The terminal
+thought-level options on a connector that negotiated `acp-start-options-v1` (`acpStartOptions`). When the descriptor
+names no thought levels but the connector did negotiate start options, the dialog offers low, medium and high, because
+the live session may still report them. Older live-controls connectors that did not negotiate start options must be
+upgraded before they can accept effort in a new chat, and their selector shows **Agent default** with an explanation. A
+chosen effort is confirmed against the actual selected model before the chat becomes ready or receives the opening
+prompt; an unsupported choice refuses startup rather than silently falling back. The terminal
 interface keeps its existing effort mappings. Backlog save, edit, reload and Start retain both selected values.
 
 

@@ -681,7 +681,13 @@ func (s *server) adminImportPending(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"pending": rep})
+	out := map[string]any{"pending": rep}
+	if rep != nil {
+		// With a staged copy goes the list of what no copy carries, so the
+		// page that shows the report can say what is still to set by hand.
+		out["notInCopy"] = backup.Checklist()
+	}
+	writeJSON(w, 200, out)
 }
 
 // importBodyLimit bounds an upload: the largest copy this build opens, plus
@@ -773,11 +779,16 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 	}
 	rep, err := svc.StageImportFile(r.Context(), s.st.Dir(), upload, password, opts)
 	if err != nil {
-		code := 400
-		if errors.Is(err, backup.ErrNotEmpty) || errors.Is(err, backup.ErrLiveSource) {
-			code = http.StatusConflict
+		// The two refusals an owner can answer by saying so carry a code, so
+		// a page can offer the matching choice without reading the sentence.
+		switch {
+		case errors.Is(err, backup.ErrLiveSource):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error(), "code": "copy_source_live"})
+		case errors.Is(err, backup.ErrNotEmpty):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error(), "code": "controller_not_empty"})
+		default:
+			writeErr(w, 400, err.Error())
 		}
-		writeErr(w, code, err.Error())
 		return
 	}
 	s.event(s.uid(r), "backup", "backup-import-staged", "", map[string]any{
@@ -786,7 +797,7 @@ func (s *server) adminImportStage(w http.ResponseWriter, r *http.Request) {
 		"allowLiveSource": opts.AllowLiveSource, "publicUrl": opts.PublicURL,
 		"safetyCopy": rep.SafetyCopy, "secretsCleared": len(rep.Unreadable),
 	})
-	writeJSON(w, 200, map[string]any{"staged": true, "restartRequired": true, "report": rep})
+	writeJSON(w, 200, map[string]any{"staged": true, "restartRequired": true, "report": rep, "notInCopy": backup.Checklist()})
 }
 
 func (s *server) importReadFailed(w http.ResponseWriter, err error) {

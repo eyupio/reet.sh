@@ -297,7 +297,7 @@ Keep the folders you work in as **projects** in the rail on Home: one folder on 
 
 Machine terminals retain the OS account’s usual sudo permissions and authentication. See [sudo setup and migration](docs/terminal-controller-commands.md#sudo-in-a-machine-terminal) for older restricted Linux service units.
 
-When a controller moves, point a machine at the new one with `reet agent set-server URL`; it first has the controller prove it holds the machine's record, and sends no credential until it has ([following a moved controller](docs/controller-sync.md#follow-a-controller-that-has-moved)).
+When a controller moves and its owner says where to, running machines follow it on their own (`reet agent follow-moves off` stops that); any machine can be pointed at the new one with `reet agent set-server URL`. Either way the machine first has the controller prove it holds the machine's record, and sends no credential until it has ([following a moved controller](docs/controller-sync.md#follow-a-controller-that-has-moved)).
 
 Connect a machine’s terminal with `reet agent terminal setup`. Interactive install, enrollment and upgrades offer this resumable wizard; it checks tmux, asks for local shell consent and repairs native services while preserving running sessions. See [terminal connection setup](docs/terminal-controller-commands.md#first-class-machine-connection-setup).
 
@@ -504,6 +504,8 @@ See [setup discovery and limits](docs/setup-discovery.md) and
 There are two kinds: a one-off export, and sealed copies taken on a schedule.
 
 **Personal shelf export and restore.** Use **JSON (personal shelf backup) → Download** and **Restore from JSON** in Shelf tools, or call `GET /api/export` and `POST /api/restore`. The export includes personal skills, flags, notes, tags, attached environment reports and the ignored list; tick **Include local history** to add the event log. It does not include accounts, shared lists, teams, sync references or standalone machine heartbeats; use an instance backup for those. **Markdown** and **CSV** downloads follow the current search, stage, tag and environment filters.
+
+**Moving a controller.** To take a controller to a new machine or hand it to a new operator without a terminal on it, the owner uses **Admin → Backups**: **Move this controller away** fences the old controller, takes a final copy sealed with a password typed for that copy, and gives the command each machine runs afterwards; **Move a controller in** on the new one imports that copy with the address it now answers at. [docs/backups.md](docs/backups.md#moving-a-controller-from-the-web-page) has the steps.
 
 **Sealed, scheduled backups.** The instance owner configures the schedule, retention and off-site destinations under **Admin → Backups**; each person can back up their own shelf under **Account → Backups**, to their own destination. Every copy is verified after it is taken, then kept on this machine, copied to each enabled S3-compatible destination, or both, as the owner chooses. Copies are gzip-compressed by default; an owner can protect them with a password instead of the instance key and open a downloaded copy with `reet backup open`. **Download** hands over the sealed `.reetbackup` file; **Export JSON** is the unsealed snapshot. The key is separate from the database: keep a copy of `data/backup.key` (or `REET_BACKUP_KEY`) somewhere else, or an off-site copy cannot be opened after the machine is lost.
 

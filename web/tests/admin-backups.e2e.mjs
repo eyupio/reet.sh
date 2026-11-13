@@ -1,5 +1,7 @@
 // Admin → Backups: the copies and recent runs in the collection grammar, with
-// counts, search, honest chips and the existing per-copy actions.
+// counts, search, honest chips and the existing per-copy actions; and moving a
+// controller from the page: fence, final copy, lift, and the import's address
+// and live-source tick.
 import { chromium, expect } from '@playwright/test'
 import { openWorkspace } from './helpers/workspace.mjs'
 
@@ -48,6 +50,60 @@ const routes = () => ({
   '/api/v2/admin/backups/prune': { removed: null, remotes: [{ name: 's3-eu', removed: null }] },
 })
 const open = options => openWorkspace(browser, { width: 1440, routes: routes(), ...options })
+
+// A controller that holds every part of a move, with a fence the page can raise and lift and a run that seals the
+// copy with the password it was sent. `seen` records what the page asked for, which is half of what is checked.
+const ALL = ['copy-origin', 'fence', 'restore-public-url', 'copy-password-request']
+const NOT_IN_COPY = [
+  { names: ['REET_DATA_DIR', 'REET_ADDR', 'REET_PUBLIC_URL'], say: 'Where it keeps data, what it listens on, and its public address.' },
+  { names: ['REET_BACKUP_KEY'], say: 'The backup key.' },
+]
+function moving({ features = ALL, fenced = false, movedTo = '', final = null, stage, pending = null } = {}) {
+  const seen = { raised: [], lifted: 0, runs: [], fenceReads: 0, staged: [] }
+  let fence = fenced ? { fenced: true, since: now - 60_000, movedTo } : { fenced: false, since: 0, movedTo: '' }
+  const items = [...backup.items.map(item => ({ ...item, fenced: false })), ...(final ? [final] : [])]
+  return {
+    seen,
+    routes: {
+      ...routes(),
+      '/api/version': features ? { version: 'test', commit: 'fixture', features } : { version: 'test', commit: 'fixture' },
+      '/api/v2/admin/backups': () => ({ ...backup, items }),
+      '/api/v2/admin/fence': request => {
+        if (request.method() === 'POST') {
+          const body = request.postDataJSON()
+          seen.raised.push(body)
+          fence = { fenced: true, since: now, movedTo: body.movedTo ?? '' }
+        } else if (request.method() === 'DELETE') {
+          seen.lifted++
+          fence = { fenced: false, since: 0, movedTo: '' }
+        } else seen.fenceReads++
+        return fence
+      },
+      '/api/v2/admin/backups/run': request => {
+        const body = request.postDataJSON()
+        seen.runs.push(body)
+        const item = { id: 'instance-final', kind: 'instance', target: 'instance', takenAt: now + 1000, bytes: 4096, version: 'test', local: true, remotes: [], protection: body.password ? 'password' : 'key', fenced: fence.fenced }
+        items.unshift(item)
+        return item
+      },
+      '/api/v2/admin/backups/import': request => {
+        if (request.method() !== 'POST') return { pending, notInCopy: NOT_IN_COPY }
+        const body = request.postDataBuffer()?.toString('latin1') ?? ''
+        seen.staged.push(body)
+        return stage(body)
+      },
+    },
+  }
+}
+const field = (body, name) => body.match(new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]*)`))?.[1]
+const moveAway = page => page.getByRole('region', { name: 'Move this controller away' })
+const moveIn = page => page.getByRole('group', { name: 'Move a controller in' })
+const report = {
+  id: 'instance-final', takenAt: now, schemaVersion: 1, users: 2, usersByRole: { owner: 1, member: 1 }, shelves: 2, skills: 5, lists: 1, tags: 3,
+  environments: 1, machines: 2, destinations: 0, sessionsKept: 1, sessionsEnded: 0, tokensRevoked: 0, mcpConnectionsRevoked: 0, tokensKept: true,
+  identityDropped: true, unreadable: [], publicUrl: base, mailBaseRewritten: true, syncOriginsRewritten: 2, mcpGrantsStale: 1,
+  paused: ['Gaffer goal "Ship the release" is paused.', '3 queued message(s) are held.'],
+}
 const copies = page => page.getByRole('region', { name: 'Backup copies' })
 const runs = page => page.getByRole('region', { name: 'Recent runs' })
 const count = panel => panel.getByRole('status').first()
@@ -124,6 +180,81 @@ try {
     await context.close()
   }
 
+  // The order is the safety of a move: no final copy before the fence, a copy that says it was taken fenced, and an
+  // undo that is always there.
+  if (run('move-away')) {
+    const { seen, routes: moved } = moving()
+    const { context, page, errors } = await open({ routes: moved })
+    await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Move/)
+    const card = moveAway(page)
+    await expect(card.getByRole('heading', { name: 'Fence this controller' })).toBeVisible()
+    await expect(card.getByText('Available once the controller is fenced', { exact: false })).toBeVisible()
+    await expect(card.getByRole('button', { name: 'Take the final copy' })).toHaveCount(0)
+    await expect(page.getByText('This controller is fenced.')).toHaveCount(0)
+    await expect(card.getByText('reet agent set-server https://NEW-ADDRESS')).toBeVisible()
+
+    // A path is refused beside the field, before the request, and nothing is sent.
+    await card.getByLabel('New address (optional)').fill('https://reet.new.example/app')
+    await expect(card.getByText('Use the address alone, with nothing after the host name.')).toBeVisible()
+    await expect(card.getByRole('button', { name: 'Fence this controller' })).toBeDisabled()
+    await card.getByLabel('New address (optional)').fill('https://reet.new.example/')
+    await expect(card.getByText('reet agent set-server https://reet.new.example', { exact: true })).toBeVisible()
+
+    // The dialog says what stops and that it can be undone; cancelling changes nothing.
+    await card.getByRole('button', { name: 'Fence this controller' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Fence this controller?' })
+    await expect(dialog).toContainText('Every change is refused')
+    await expect(dialog).toContainText('Nothing is deleted')
+    await expect(dialog).toContainText('lift the fence')
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    expect(seen.raised).toEqual([])
+    await card.getByRole('button', { name: 'Fence this controller' }).click()
+    await page.getByRole('dialog', { name: 'Fence this controller?' }).getByRole('button', { name: 'Fence this controller' }).click()
+    await expect(page.getByText('This controller is fenced.')).toBeVisible()
+    expect(seen.raised).toEqual([{ movedTo: 'https://reet.new.example' }])
+    await expect(card.getByText('Fenced since')).toBeVisible()
+    await expect(card.getByRole('link', { name: 'https://reet.new.example' })).toBeVisible()
+
+    // The copy password is this copy's own: twelve characters, sent with the run and with nothing else.
+    const take = card.getByRole('button', { name: 'Take the final copy' })
+    await expect(take).toBeDisabled()
+    await card.getByLabel('Copy password').fill('too short')
+    await expect(card.getByText('A copy password needs at least 12 characters.')).toBeVisible()
+    await expect(take).toBeDisabled()
+    await card.getByLabel('Copy password').fill('a password for the move')
+    await take.click()
+    await expect(card.getByText('taken fenced')).toBeVisible()
+    expect(seen.runs).toEqual([{ password: 'a password for the move' }])
+    await expect(card.getByText('It opens with its password alone', { exact: false })).toBeVisible()
+    const download = card.getByRole('link', { name: 'Download the final copy' })
+    await expect(download).toHaveAttribute('href', '/api/v2/admin/backups/items/instance-final/download?format=zip')
+    await expect(download).toHaveAttribute('download', '')
+    // The password is not left in the page once the copy exists.
+    await card.getByRole('button', { name: 'Take another' }).click()
+    await expect(card.getByLabel('Copy password')).toHaveValue('')
+    await openTab(page, /^Copies/)
+    await expect(copies(page).getByRole('listitem').filter({ hasText: 'instance-final' }).getByText('taken fenced')).toBeVisible()
+    await openTab(page, /^Move/)
+
+    // The fence is in place after a reload, read from the controller, and the final copy is found again from the list.
+    await page.reload()
+    await openTab(page, /^Move/)
+    await expect(page.getByText('This controller is fenced.')).toBeVisible()
+    await expect(moveAway(page).getByRole('link', { name: 'Download the final copy' })).toBeVisible()
+
+    await moveAway(page).getByRole('button', { name: 'Lift the fence' }).click()
+    const lift = page.getByRole('dialog', { name: 'Lift the fence?' })
+    await expect(lift).toContainText('two controllers would work from one set of data')
+    await lift.getByRole('button', { name: 'Lift the fence' }).click()
+    await expect(page.getByText('This controller is fenced.')).toHaveCount(0)
+    expect(seen.lifted).toBe(1)
+    await expect(moveAway(page).getByRole('link', { name: 'Download the final copy' })).toHaveCount(0)
+    await expect(moveAway(page).getByText('Available once the controller is fenced', { exact: false })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
   if (run('tabs')) {
     const { context, page, errors } = await open({})
     await page.goto(`${base}/admin/backups`)
@@ -138,10 +269,28 @@ try {
     await expect(tab(page, /^Copies/)).toHaveAttribute('aria-selected', 'true')
     await expect(copies(page)).toBeVisible()
     await page.keyboard.press('End')
-    await expect(tab(page, /^Import/)).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByText('Import a copy from another controller')).toBeVisible()
+    await expect(tab(page, /^Move/)).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByText('Move a controller in')).toBeVisible()
     await openTab(page, /^Schedule/)
     await expect(page.getByRole('heading', { name: 'Schedule and retention' })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // A copy the fence did not hold for is said to be so, not handed over as the final one.
+  if (run('move-away-unfenced-copy')) {
+    const { routes: moved } = moving({ fenced: true })
+    moved['/api/v2/admin/backups/run'] = () => ({ id: 'instance-raced', kind: 'instance', target: 'instance', takenAt: now + 1000, bytes: 4096, local: true, remotes: [], protection: 'password', fenced: false })
+    const { context, page, errors } = await open({ routes: moved })
+    await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Move/)
+    const card = moveAway(page)
+    await card.getByLabel('Copy password').fill('a password for the move')
+    await card.getByRole('button', { name: 'Take the final copy' }).click()
+    await expect(card.getByText('not marked fenced')).toBeVisible()
+    await expect(card.getByText('Take it again.', { exact: false })).toBeVisible()
+    await expect(card.getByRole('link', { name: 'Download the final copy' })).toHaveCount(0)
+    await expect(card.getByRole('button', { name: 'Take the final copy' })).toBeVisible()
     expect(errors).toEqual([])
     await context.close()
   }
@@ -156,6 +305,163 @@ try {
     await expect(page.getByRole('alert').filter({ hasText: 'Cannot read properties' })).toHaveCount(0)
     expect(errors).toEqual([])
     await context.close()
+  }
+
+  // The page offers only what the controller says it holds, and only the owner may fence.
+  if (run('move-honest')) {
+    {
+      const { seen, routes: older } = moving({ features: null })
+      const { context, page, errors } = await open({ routes: older })
+      await page.goto(`${base}/admin/backups`)
+      await openTab(page, /^Move/)
+      await expect(moveIn(page)).toBeVisible()
+      await expect(moveAway(page)).toHaveCount(0)
+      await expect(moveIn(page).getByLabel("This controller's address (optional)")).toHaveCount(0)
+      expect(seen.fenceReads).toBe(0)
+      expect(errors).toEqual([])
+      await context.close()
+    }
+    {
+      const { seen, routes: partial } = moving({ features: ['fence'], fenced: true })
+      const { context, page, errors } = await open({ routes: partial })
+      await page.goto(`${base}/admin/backups`)
+      await openTab(page, /^Move/)
+      const card = moveAway(page)
+      // No password of its own for this copy, so none is asked for and none is sent.
+      await expect(card.getByLabel('Copy password')).toHaveCount(0)
+      await card.getByRole('button', { name: 'Take the final copy' }).click()
+      await expect(card.getByRole('link', { name: 'Download the final copy' })).toBeVisible()
+      expect(seen.runs).toEqual([{}])
+      await expect(moveIn(page).getByLabel("This controller's address (optional)")).toHaveCount(0)
+      expect(errors).toEqual([])
+      await context.close()
+    }
+    {
+      const { routes: fencedRoutes } = moving({ fenced: true, movedTo: 'https://reet.new.example' })
+      const { context, page, errors } = await open({ routes: fencedRoutes, status: { user: { id: 2, name: 'Ada', email: 'ada@example.test', role: 'admin' } } })
+      await page.goto(`${base}/admin/backups`)
+      // An admin has no Move section at all; the banner still tells them.
+      await expect(tab(page, /^Move/)).toHaveCount(0)
+      await expect(page.getByText('This controller is fenced.')).toBeVisible()
+      await expect(page.getByText('Only the owner can lift the fence.', { exact: false })).toBeVisible()
+      await expect(moveAway(page)).toHaveCount(0)
+      await expect(moveIn(page)).toHaveCount(0)
+      expect(errors).toEqual([])
+      await context.close()
+    }
+  }
+
+  // The tick that accepts a copy of a running controller is asked for by the controller's refusal and never before,
+  // and a refusal costs the person nothing they typed.
+  if (run('move-in')) {
+    let attempt = 0
+    const { seen, routes: incoming } = moving({
+      stage: () => ++attempt === 1
+        ? { status: 409, json: { error: 'this copy was taken from a controller that was not stopped: its source was still running. Fence the old controller and take a final copy.', code: 'copy_source_live' } }
+        : { staged: true, restartRequired: true, report, notInCopy: NOT_IN_COPY },
+    })
+    const { context, page, errors } = await open({ routes: incoming })
+    await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Move/)
+    const card = moveIn(page)
+    const address = card.getByLabel("This controller's address (optional)")
+    await expect(address).toHaveValue(base)
+    await expect(card.getByText('The old controller is stopped or gone')).toHaveCount(0)
+    const stageButton = card.getByRole('button', { name: 'Check and stage' })
+    await expect(stageButton).toBeDisabled()
+
+    await card.locator('input[type=file]').setInputFiles({ name: 'instance-final.zip', mimeType: 'application/zip', buffer: Buffer.from('sealed') })
+    await card.getByLabel('Copy password (if it has one)').fill('a password for the move')
+    await address.fill('https://reet.new.example/app')
+    await expect(card.getByText('Use the address alone, with nothing after the host name.')).toBeVisible()
+    await expect(stageButton).toBeDisabled()
+    await address.fill('https://reet.new.example')
+    await stageButton.click()
+
+    // The refusal is the controller's own text, beside the form, and everything typed is still there.
+    await expect(card.getByRole('alert')).toContainText('was not stopped')
+    expect(field(seen.staged[0], 'publicUrl')).toBe('https://reet.new.example')
+    expect(field(seen.staged[0], 'allowLiveSource')).toBeUndefined()
+    await expect(address).toHaveValue('https://reet.new.example')
+    await expect(card.getByLabel('Copy password (if it has one)')).toHaveValue('a password for the move')
+    const tick = card.getByRole('checkbox', { name: /The old controller is stopped or gone/ })
+    await expect(tick).toBeVisible()
+    await expect(tick).not.toBeChecked()
+    await expect(stageButton).toBeDisabled()
+    await tick.check()
+    await stageButton.click()
+
+    await expect(card.getByText('is staged. Restart reet to put it in place.', { exact: false })).toBeVisible()
+    expect(field(seen.staged[1], 'allowLiveSource')).toBe('1')
+    expect(field(seen.staged[1], 'password')).toBe('a password for the move')
+    await expect(card.getByText(`Saved addresses now point to ${base}.`)).toBeVisible()
+    await expect(card.getByText('1 MCP grant(s) issued for the old address were removed', { exact: false })).toBeVisible()
+    await expect(card.getByText('Gaffer goal "Ship the release" is paused.')).toBeVisible()
+    await card.getByText('Not in the copy: set these by hand on this machine').click()
+    await expect(card.getByText('REET_DATA_DIR, REET_ADDR, REET_PUBLIC_URL')).toBeVisible()
+    await expect(card.getByText(`reet agent set-server ${base}`, { exact: true })).toBeVisible()
+    await expect(card.getByRole('alert')).toHaveCount(0)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // A fence stops every write, so the shell says so on any page an admin opens. Someone who is not an admin is not
+  // asked about it, and learns it from the write the controller refuses.
+  if (run('shell')) {
+    {
+      const { routes: fencedRoutes } = moving({ fenced: true, movedTo: 'https://reet.new.example' })
+      const { context, page } = await open({ routes: fencedRoutes })
+      await page.goto(`${base}/admin/overview`)
+      const strip = page.locator('.fence-strip')
+      await expect(strip).toContainText('This controller is fenced.')
+      await expect(strip).toContainText('It has moved to https://reet.new.example.')
+      await expect(strip.getByRole('link', { name: 'Open Backups' })).toHaveAttribute('href', '/admin/backups')
+      // Backups says it in full, so the line is not repeated above it.
+      await page.goto(`${base}/admin/backups`)
+      await expect(page.getByText('This controller is fenced.')).toHaveCount(1)
+      await expect(page.locator('.fence-strip')).toHaveCount(0)
+      await context.close()
+    }
+    {
+      const { seen, routes: fencedRoutes } = moving({ fenced: true, movedTo: 'https://reet.new.example' })
+      fencedRoutes['/api/skills'] = request => request.method() === 'GET' ? { skills: [], counts: { all: 0, used: 0, liked: 0, bookmarked: 0 } }
+        : { status: 423, json: { error: 'This controller has moved, so it no longer accepts changes.', code: 'controller_moved', fenced: true, since: now, movedTo: 'https://reet.new.example' } }
+      const { context, page } = await open({ routes: fencedRoutes, status: { user: { id: 3, name: 'Mo', email: 'mo@example.test', role: 'member' } } })
+      await page.goto(`${base}/skills`)
+      await page.getByLabel('Skill install command, URL or slug').fill('demo/toolkit/pdf')
+      await expect(page.locator('.fence-strip')).toHaveCount(0)
+      expect(seen.fenceReads).toBe(0)
+      await page.getByRole('button', { name: 'Add to library' }).click()
+      await expect(page.locator('.fence-strip')).toContainText('It has moved to https://reet.new.example.')
+      await expect(page.locator('.fence-strip').getByRole('link')).toHaveCount(0)
+      expect(seen.fenceReads).toBe(0)
+      await context.close()
+    }
+  }
+
+  if (run('move-phone')) {
+    for (const width of [390, 320]) {
+      for (const theme of ['light', 'dark']) {
+        const final = { id: 'instance-20261113T101500Z-9f2c4a7be1d0', kind: 'instance', target: 'instance', takenAt: now, bytes: 4096, local: true, remotes: [], protection: 'password', fenced: true }
+        const { routes: fencedRoutes } = moving({ fenced: true, movedTo: 'https://reet-controller.new-machine.example.com', final, pending: { ...report, publicUrl: 'https://reet-controller.new-machine.example.com' } })
+        const { context, page, errors } = await open({ width, height: 812, touch: true, theme, routes: fencedRoutes })
+        await page.goto(`${base}/admin/backups`)
+      await openTab(page, /^Move/)
+        await expect(moveAway(page).getByRole('link', { name: 'Download the final copy' })).toBeVisible()
+        await moveIn(page).getByText('Not in the copy: set these by hand on this machine').click()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px, ${theme}`).toBe(true)
+        for (const name of ['Lift the fence', 'Take another']) {
+          const box = await moveAway(page).getByRole('button', { name }).boundingBox()
+          expect(box.height, `${name} height at ${width}px`).toBeGreaterThanOrEqual(44)
+        }
+        if (process.env.REET_UI_SCREENSHOTS) {
+          await moveAway(page).screenshot({ path: `${process.env.REET_UI_SCREENSHOTS}/move-away-fixture-${width}-${theme}.png` })
+          await moveIn(page).screenshot({ path: `${process.env.REET_UI_SCREENSHOTS}/move-in-fixture-${width}-${theme}.png` })
+        }
+        expect(errors).toEqual([])
+        await context.close()
+      }
+    }
   }
 
   if (run('phone')) {
@@ -181,4 +487,4 @@ try {
 } finally {
   await browser.close()
 }
-console.log('Admin backups: sectioned tabs, copies and runs in one grammar, honest chips, search, verify, a null-safe prune and a phone layout.')
+console.log('Admin backups: sectioned tabs, copies and runs in one grammar, honest chips, search, verify, a null-safe prune and a phone layout; a move away (fence, final copy, lift), a move in (address, live-source tick), honest offers and the shell line.')

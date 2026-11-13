@@ -8,7 +8,7 @@
   import GafferModelSelect from '../GafferModelSelect.svelte'
   import { CREW_ROLES, DEFAULT_STAGES, STAGES, sessionCount, stagePlan, type Crew } from '../gafferOutcome'
   import type { MachineModels, ModelFavourite } from '../models'
-  import { launchEfforts } from '../terminal/launchOptions'
+  import { reportedEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
   export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string }[] }
@@ -28,11 +28,13 @@
   })
   const stageLabel = (kind: string) => STAGES.find(item => item.kind === kind)?.label ?? kind
   const kinds = (item: Proposal) => item.stages?.length ? item.stages : DEFAULT_STAGES
-  const own = (): Who => ({ tool: record.tool, model: record.model ?? '', effort: '' })
+  // An added pipeline starts as the outcome runs: its agent and model, and the effort its own stages on that agent were given.
+  const inherited = () => record.sessions.flatMap(piece => piece.stages ?? []).find(stage => stage.tool === record.tool && stage.effort)?.effort ?? ''
+  const own = (): Who => ({ tool: record.tool, model: record.model ?? '', effort: inherited() })
   const choice = (title: string) => main[title] ?? own()
   const crewOf = (title: string): Crew => crews[title] ?? { think: choice(title), build: choice(title), ship: choice(title) }
   const usedTools = (title: string) => CREW_ROLES.map(item => crewOf(title)[item.role].tool)
-  const efforts = (id: string) => launchEfforts(id, machine?.capabilities, true)
+  const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
   const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
   // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.
@@ -98,6 +100,7 @@
     <p class="hint">Each pipeline starts on this outcome’s agent and model. Change any of them for the job: a stronger model for a hard one, a cheaper one for a chore.</p>
     {#if refused}<p class="warning" role="alert">Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. Choose another agent here, or give Gaffer a new outcome with folder trust ticked.</p>
     {:else if needsTrust}<p class="warning" role="status">This outcome was approved without folder trust. OpenCode is refused in a folder that has plugins of its own.</p>{/if}
+    {#if proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
     {#if error}<p class="warning" role="alert">{error}</p>{/if}
     <div class="actions"><button class="btn primary" type="button" disabled={busy || refused} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
   </div>

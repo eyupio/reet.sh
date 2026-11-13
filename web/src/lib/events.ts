@@ -246,6 +246,10 @@ export function eventLabel(e: Event): string {
       return `Revoked ${d.name || 'an MCP connection'}`
     case 'mcp-revoke-all':
       return 'Revoked all MCP connections'
+    case 'mcp-factory-control': {
+      const did: Record<string, string> = { reet_start_outcome: 'started an outcome', reet_add_pipelines: 'added pipelines', reet_move_pipeline_on: 'moved a pipeline on', reet_send_pipeline_back: 'sent a pipeline back', reet_retry_pipeline: 'tried a pipeline again', reet_approve_pipeline_merge: 'approved a pipeline’s merge', reet_set_pipeline_merge: 'made a pipeline wait for merge approval', reet_stop_outcome: 'stopped an outcome', reet_report_outcome: 'asked Gaffer for a report', reet_tell_pipeline_agent: 'told a pipeline’s agent what to do next' }
+      return `${d.connection || 'An MCP client'} ${did[d.tool ?? ''] ?? 'changed the Factory'}`
+    }
     case 'mcp-call':
       return `Made a change through ${d.connection || 'an MCP client'}`
     case 'user-role':

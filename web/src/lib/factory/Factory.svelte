@@ -46,7 +46,7 @@
   const listed = $derived(showArchived ? records : floor)
   const tally = $derived(factoryTally(floor, attention))
   // Goals the page draws inside a pipeline are left out of the list of other sessions below.
-  const drawn = $derived(records.flatMap(record => record.sessions.flatMap(piece => [piece.conversationId, ...(piece.stages ?? []).map(stage => stage.conversationId)])).filter((id): id is string => !!id))
+  const drawn = $derived(records.flatMap(record => record.sessions.flatMap(piece => [piece.conversationId, ...(piece.stages ?? []).map(stage => stage.conversationId), ...(piece.retired ?? [])])).filter((id): id is string => !!id))
   // A pipeline's own sessions are not offered again below, except one that was started and is not followed.
   const drawnSessions = $derived(records.flatMap(record => record.sessions.filter(piece => piece.state !== 'unfollowed').flatMap(piece => [piece.sessionId, ...(piece.stages ?? []).map(stage => stage.sessionId)])).filter((id): id is string => !!id))
   const ready = $derived(!!setup && setup.provider && setup.machine && setup.project)
@@ -389,14 +389,14 @@
             {#if lost}{@const need = sessionEndedChoices((piece.stage ?? 0) >= nodes.length - 1, piece.sessionState === 'gone')}<section class="decide" aria-label={`What ${piece.title} needs from you`}>
               <p class="decide-why">{need.why}</p>
               <p class="decide-ask">What do you want to do?</p>
-              <div class="decide-choices">{#each need.choices.filter(choice => choice.id !== 'move' || (nodes.length && piece.conversationId)) as choice (choice.id)}<button class="btn" class:primary={choice.primary} type="button" disabled={busy} onclick={() => choose(choice, record, piece, goal)}>{choice.label}</button>{/each}</div>
+              <div class="decide-choices" data-floating-clearance>{#each need.choices.filter(choice => choice.id !== 'move' || (nodes.length && piece.conversationId)) as choice (choice.id)}<button class="btn" class:primary={choice.primary} type="button" disabled={busy} onclick={() => choose(choice, record, piece, goal)}>{choice.label}</button>{/each}</div>
               <p class="hint">A new session works in the same folder and branch. Moving on starts the next stage in a session of its own.</p>
             </section>
             {:else if status.label === 'Needs you' && goal}{@const need = needsYou(goal.goal, goal.reason, (piece.stage ?? 0) >= nodes.length - 1)}<section class="decide" aria-label={`What ${piece.title} needs from you`}>
               <p class="decide-why">{need.why}</p>
               {#if goal.goal.summary}{@const whole = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open={whole}><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!whole} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !whole }}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
               <p class="decide-ask">What do you want to do?</p>
-              <div class="decide-choices">{#each need.choices.filter(choice => (choice.id !== 'move' || (piece.state === 'following' && nodes.length && piece.conversationId)) && (choice.id !== 'tell' || (piece.sessionId && piece.conversationId && alive)) && ((choice.id !== 'open' && choice.id !== 'answer') || (piece.sessionId && piece.sessionState !== 'gone'))) as choice (choice.id)}<button class="btn" class:primary={choice.primary} type="button" disabled={busy} onclick={() => choose(choice, record, piece, goal)}>{choice.label}</button>{/each}</div>
+              <div class="decide-choices" data-floating-clearance>{#each need.choices.filter(choice => (choice.id !== 'move' || (piece.state === 'following' && nodes.length && piece.conversationId)) && (choice.id !== 'tell' || (piece.sessionId && piece.conversationId && alive)) && ((choice.id !== 'open' && choice.id !== 'answer') || (piece.sessionId && piece.sessionState !== 'gone'))) as choice (choice.id)}<button class="btn" class:primary={choice.primary} type="button" disabled={busy} onclick={() => choose(choice, record, piece, goal)}>{choice.label}</button>{/each}</div>
             </section>
             {:else}<p class="now">{piece.note}</p>{/if}
             {#if goal?.goal.summary && (status.label !== 'Needs you' || lost)}{@const whole = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open={whole}><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!whole} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !whole }}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
@@ -407,6 +407,9 @@
                 {#if activity.text}<div><dt>Agent</dt><dd class:low={activity.quiet}>{activity.text}</dd></div>{/if}{/if}
               {#if nodes.some(node => node.kind === 'merge')}{@const auto = mergesByItself(record, piece)}<div><dt>Merge</dt><dd>{auto ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : record.yolo && piece.autoMerge ? 'Waits for you (YOLO)' : 'Waits for you'}{#if piece.state !== 'done' && piece.state !== 'ready_to_merge' && !piece.mergeApproved}{' '}<button class="inline" type="button" disabled={busy} aria-label={`${auto ? 'Make' : 'Let'} ${piece.title} ${auto ? 'wait for you before merging' : 'merge by itself'}`} onclick={() => void mergeMode(record, piece, !auto)}>{auto ? 'Make it wait for me' : 'Let it merge by itself'}</button>{/if}</dd></div>{/if}
             </dl>
+            {#if nodes.length}<details class="more-facts"><summary>Who did each stage</summary><ol class="stages" aria-label={`Who did each stage of ${piece.title}`}>
+              {#each nodes as node (node.kind)}<li><strong>{node.label}</strong><span>{chatToolName(node.tool)}{node.model ? ` · ${node.model}` : ''}{node.source ? ` · ${sourceLabel(node.source)}` : ''}</span><span class="why">{node.state === 'done' ? (node.moved ? 'Done: you moved it on' : 'Done: Gaffer handed it over') : node.state === 'running' ? 'In hand' : node.state === 'failed' ? 'Stopped' : 'To come'}</span>{#if node.summary}<p class="handover">{node.summary}</p>{/if}</li>{/each}
+            </ol></details>{/if}
             <details class="more-facts"><summary>Usage and budget</summary><dl class="facts">
               {#if goal && goal.goal.state === 'active'}<div><dt>Reviews left</dt><dd>{Math.max(0, goal.goal.maxReviews - goal.goal.usedReviews)} of {goal.goal.maxReviews}</dd></div>
                 <div><dt>Time left</dt><dd>{timeLeft(goal.goal.expiresAt, clock)}</dd></div>{/if}
@@ -500,6 +503,7 @@
   .decide{display:grid;gap:8px;padding:12px 14px;border-radius:10px;background:var(--card);border:1px solid var(--accent)}.decide-why{margin:0;color:var(--ink)}.decide-ask{margin:0;font-weight:600}.decide-choices{display:flex;flex-wrap:wrap;gap:8px}.decide-choices .btn{min-height:44px}@media(max-width:560px){.decide-choices .btn{flex:1 1 100%}}
   .pipe.arrived{outline:2px solid var(--accent);outline-offset:3px}.pipe:focus{outline:2px solid var(--accent);outline-offset:3px}
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
+  .stages{list-style:none;margin:0;padding:0;display:grid;gap:8px}.stages li{display:grid;grid-template-columns:minmax(0,7rem) minmax(0,1fr) auto;gap:2px 12px;align-items:baseline}.stages .handover{grid-column:2 / -1;color:var(--muted);font-size:.875rem}@media(max-width:560px){.stages li{grid-template-columns:minmax(0,1fr)}.stages .handover{grid-column:1}}
   .facts dd.low{color:var(--warn);font-weight:600}.split{color:var(--muted)}
   .facts dd.yolo{color:var(--warn);font-weight:600}
   .facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}.facts div{display:grid;gap:0;min-width:0}.facts dt{font-size:0.875rem;color:var(--muted)}.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}

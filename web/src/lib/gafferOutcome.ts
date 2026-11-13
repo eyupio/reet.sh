@@ -413,7 +413,7 @@ export function factoryMembers(records: { id: string; objective: string; session
 export function factoryEndWarning(member: FactoryMember | undefined, removing = false): string {
   if (!member?.working) return ''
   const what = member.stage ? `the ${member.stage.toLowerCase()} stage of the Factory pipeline “${member.pipeline}”` : `the Factory pipeline “${member.pipeline}”`
-  return `This session is doing ${what}. ${removing ? 'Removing' : 'Ending'} it stops that pipeline until you choose, on the Factory page, to run the stage again in a new session or to move it on.${removing ? '' : ' Removing it from history as well can take away the worktree its later stages work in.'}`
+  return `This session is doing ${what}. ${removing ? 'Removing' : 'Ending'} it stops that pipeline until you choose, on the Factory page, to run the stage again in a new session or to move it on. ${removing ? 'The session stays in history while the pipeline still works in its worktree.' : 'Its worktree is kept for the pipeline.'}`
 }
 /** "Factory · Plan 1 of 8", or "Factory" for a session with no stages. */
 export function factoryBadge(member: FactoryMember): string {

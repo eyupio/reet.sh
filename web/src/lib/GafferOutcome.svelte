@@ -17,7 +17,7 @@
   import { yoloCanStart, type YoloGate } from './launchBar'
   import { CATALOGUE } from './catalogue'
   import type { MachineModels, ModelFavourite } from './models'
-  import { launchEfforts } from './terminal/launchOptions'
+  import { reportedEfforts } from './terminal/launchOptions'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
@@ -92,10 +92,11 @@
   const limitsOk = $derived(wholeBetween(maxReviews, 1, 48) && wholeBetween(hours, 1, 168))
   const done = $derived(!!record && record.state !== 'starting')
 
-  $effect(() => { if (tools.length && !tools.includes(tool)) tool = tools[0]; if (!tools.length) tool = '' })
+  // A model or effort chosen for one agent means nothing to another: when the machine changes the agent, they go with it.
+  $effect(() => { if (tools.length && !tools.includes(tool)) { tool = tools[0]; model = ''; effort = '' } if (!tools.length) tool = '' })
   $effect(() => { if (wanted > cap) wanted = cap })
   // A crew role follows the main agent until the person gives it one of its own that this machine can run.
-  $effect(() => { for (const item of CREW_ROLES) if (!tools.includes(crew[item.role].tool)) crew[item.role].tool = tool })
+  $effect(() => { for (const item of CREW_ROLES) if (!tools.includes(crew[item.role].tool)) crew[item.role] = { ...crew[item.role], tool, model: '', effort: '' } })
   // A new agent starts on the saved source; a source picked for the old agent is not carried to the new one.
   let lastTool = ''
   $effect(() => {
@@ -129,7 +130,7 @@
     }
   })
   // Every session here is a chat, so the efforts are the agent's own thinking levels as this machine reports them.
-  const efforts = (id: string) => launchEfforts(id, machine?.capabilities, true)
+  const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   const offeredFor = (id: string) => machine ? offered[`${machine.agentId}:${id}`] ?? null : null
   const yoloGates = $derived.by((): YoloGate[] => {
     const account = yoloSetting?.allowed === true
@@ -329,16 +330,16 @@
       <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={busy} busy={imageUploading} error={imageError} />
       <ol class="plan" aria-label="Planned sessions">
         {#each sessions as item, index (item.key)}<li>
-          <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Session {index + 1}</label><button class="link" type="button" aria-label={`Remove session ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
-          <input id={`${formId}-${item.key}-title`} aria-label={`Session ${index + 1} title`} bind:value={item.title} maxlength="80" placeholder="Short title"/>
-          <textarea aria-label={`Session ${index + 1} prompt`} bind:value={item.prompt} rows="5" placeholder="What this session should build, how to check it, and to raise a pull request. Do not merge." onpaste={pasted}></textarea>
-          <div class="stage-pick" role="group" aria-label={`Session ${index + 1} stages`}>
+          <div class="plan-head"><label for={`${formId}-${item.key}-title`}>Pipeline {index + 1}</label><button class="link" type="button" aria-label={`Remove pipeline ${index + 1}`} onclick={() => removeSession(item.key)}>Remove</button></div>
+          <input id={`${formId}-${item.key}-title`} aria-label={`Pipeline ${index + 1} title`} bind:value={item.title} maxlength="80" placeholder="Short title"/>
+          <textarea aria-label={`Pipeline ${index + 1} prompt`} bind:value={item.prompt} rows="5" placeholder="What this pipeline should build, how to check it, and to raise a pull request. Do not merge." onpaste={pasted}></textarea>
+          <div class="stage-pick" role="group" aria-label={`Pipeline ${index + 1} stages`}>
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
           </div>
           <p class="hint">{sessionCount(stagePlan(item.stages ?? [], crew, machine?.capabilities?.acpProvider === true))} agent {sessionCount(stagePlan(item.stages ?? [], crew, machine?.capabilities?.acpProvider === true)) === 1 ? 'session' : 'sessions'} for {item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}.</p>
         </li>{/each}
       </ol>
-      {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a session</button>{/if}
+      {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a pipeline</button>{/if}
       <div class="access" aria-label="Outcome access review"><p>Approving has the controller start {sessions.length === 1 ? 'this session' : `these ${sessions.length} sessions`} on {project?.machine || 'the project’s machine'} {yolo ? 'on YOLO' : 'with ordinary approvals (no YOLO)'}, one after another, whether or not this page stays open.{#if yolo}{' '}<strong>On YOLO the agents do not wait for you before running commands or changing files, and that includes what Gaffer asks them to do.</strong>{/if}{' '} Gaffer may then read each one’s recent conversation, including code or logs in it, and queue instructions for its working model. If the provider does not yet allow session data, this enables it. Gaffer cannot merge, run commands or answer approvals.</p></div>
       <details class="limit-editor"><summary>{maxReviews} reviews · {hours} hours per session <span>Change limits</span></summary>
         <div class="pair two"><label>Review budget<input aria-label="Review budget" type="number" min="1" max="48" step="1" bind:value={maxReviews}/></label><label>Follow for (hours)<input aria-label="Follow for (hours)" type="number" min="1" max="168" step="1" bind:value={hours}/></label></div>
@@ -367,7 +368,7 @@
       </section>
       <div class="actions">
         {#if declined}<button class="btn" type="button" onclick={() => step = 'objective'}>Back to the outcome</button>
-        {:else}<button class="btn primary" type="button" disabled={busy || planning || !!approveBlocker || !limitsOk} onclick={() => void approve()}>{busy ? 'Saving the plan…' : `Approve and start ${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}`}</button><button class="btn quiet" type="button" disabled={busy || planning} onclick={() => declining = true}>Decline proposal</button><button class="btn quiet" type="button" disabled={busy || planning} onclick={() => step = 'objective'}>Back</button>{/if}
+        {:else}<button class="btn primary" type="button" disabled={busy || planning || !!approveBlocker || !limitsOk} onclick={() => void approve()}>{busy ? 'Saving the plan…' : `Approve and start ${sessions.length} ${sessions.length === 1 ? 'pipeline' : 'pipelines'}`}</button><button class="btn quiet" type="button" disabled={busy || planning} onclick={() => declining = true}>Decline proposal</button><button class="btn quiet" type="button" disabled={busy || planning} onclick={() => step = 'objective'}>Back</button>{/if}
       </div>
     {:else if record}
       <p class="objective"><span class="eyebrow">Outcome</span>{record.objective}</p>

@@ -64,6 +64,14 @@ try {
         const names=ended.getByRole('list',{name:'Stages of Export API',exact:true}).locator('.name')
         const boxes=await names.evaluateAll(list=>list.map(el=>el.getBoundingClientRect()).filter(r=>r.width>2).map(r=>[r.left,r.right]))
         expect(boxes.length).toBe(1)
+        // Gaffer's launcher does not sit over the choices: with them in view it rides above them.
+        await decide.getByRole('button',{name:'Stop following this outcome',exact:true}).scrollIntoViewIfNeeded()
+        await expect.poll(async()=>page.evaluate(()=>{
+          const launcher=document.querySelector('.gaffer-launcher'),choices=document.querySelector('[data-floating-clearance]')
+          if(!launcher||!choices)return 'missing'
+          const a=launcher.getBoundingClientRect(),b=choices.getBoundingClientRect()
+          return a.bottom<=b.top||a.top>=b.bottom||a.right<=b.left||a.left>=b.right?'clear':'over'
+        })).toBe('clear')
       }
       // Moving on names the stage the person was shown.
       await decide.getByRole('button',{name:'Move to next stage',exact:true}).click()

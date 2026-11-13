@@ -17,7 +17,7 @@
   import { yoloCanStart, type YoloGate } from './launchBar'
   import { CATALOGUE } from './catalogue'
   import type { MachineModels, ModelFavourite } from './models'
-  import { reportedEfforts } from './terminal/launchOptions'
+  import { launchEfforts } from './terminal/launchOptions'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
@@ -96,7 +96,7 @@
   $effect(() => { if (tools.length && !tools.includes(tool)) { tool = tools[0]; model = ''; effort = '' } if (!tools.length) tool = '' })
   $effect(() => { if (wanted > cap) wanted = cap })
   // A crew role follows the main agent until the person gives it one of its own that this machine can run.
-  $effect(() => { for (const item of CREW_ROLES) if (!tools.includes(crew[item.role].tool)) crew[item.role] = { ...crew[item.role], tool, model: '', effort: '' } })
+  $effect(() => { for (const item of CREW_ROLES) if (!tools.includes(crew[item.role].tool) && crew[item.role].tool !== tool) crew[item.role] = { ...crew[item.role], tool, model: '', effort: '' } })
   // A new agent starts on the saved source; a source picked for the old agent is not carried to the new one.
   let lastTool = ''
   $effect(() => {
@@ -130,7 +130,7 @@
     }
   })
   // Every session here is a chat, so the efforts are the agent's own thinking levels as this machine reports them.
-  const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
+  const efforts = (id: string) => launchEfforts(id, machine?.capabilities, true)
   const offeredFor = (id: string) => machine ? offered[`${machine.agentId}:${id}`] ?? null : null
   const yoloGates = $derived.by((): YoloGate[] => {
     const account = yoloSetting?.allowed === true

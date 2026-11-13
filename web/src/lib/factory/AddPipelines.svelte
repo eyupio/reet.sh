@@ -8,7 +8,7 @@
   import GafferModelSelect from '../GafferModelSelect.svelte'
   import { CREW_ROLES, DEFAULT_STAGES, STAGES, sessionCount, stagePlan, type Crew } from '../gafferOutcome'
   import type { MachineModels, ModelFavourite } from '../models'
-  import { reportedEfforts } from '../terminal/launchOptions'
+  import { launchEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
   export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string }[] }
@@ -34,7 +34,7 @@
   const choice = (title: string) => main[title] ?? own()
   const crewOf = (title: string): Crew => crews[title] ?? { think: choice(title), build: choice(title), ship: choice(title) }
   const usedTools = (title: string) => CREW_ROLES.map(item => crewOf(title)[item.role].tool)
-  const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
+  const efforts = (id: string) => launchEfforts(id, machine?.capabilities, true)
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
   const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
   // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.

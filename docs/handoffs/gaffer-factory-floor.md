@@ -1172,42 +1172,71 @@ pass. Synthetic only: no real machine, agent or provider was used.
 ![Ended session, desktop](../images/ui/gaffer-factory-session-1440-light.png)
 ![Ended session, phone](../images/ui/gaffer-factory-session-390-dark.png)
 
-### Found and not fixed
+### The open findings, taken up the same day
 
-Each was confirmed by reading the code unless it says otherwise.
+The owner asked for everything the review had found and left to be fixed.
 
-- **An approval nobody answers for five minutes ends the agent's turn.** The
-  held goal is released, the next review finds the worker halted and the goal
-  needs the person again; resuming alone loops. Only the release note's wording
-  ("You answered…", which was untrue) was changed. The dialog's promise that
-  Gaffer carries on once the person answers does not hold past five minutes.
-- **One supervisor starts every account's sessions in turn.** A slow launch (up
-  to 90 s) or follow wait (60 s) for one outcome delays every other outcome on
-  the controller.
-- **Removing a first-stage session from history can remove the pipeline's
-  worktree** when nothing is uncommitted. The End dialog now warns; a retry
-  into a folder that is gone fails with the machine's own message.
-- Agents: effort for OpenCode and Cline falls back to low/medium/high with no
-  evidence either accepts one at launch; model names can be checked against the
-  machine only for OpenCode; Stop during a tool call ends the whole chat for
-  Codex and Antigravity; Add pipelines has no Cline source choice (it now keeps
-  the outcome's) and inherits no effort; a model chosen for one agent survives
-  the dialog switching agent by itself; Home's backlog refuses folder trust for
-  Antigravity (`session_backlog.go`).
-- MCP and tools: actions taken over MCP are missing from an outcome's History;
-  Gaffer's in-process tools return handover text whatever the chat provider's
-  session permission; a pending Ask-me tool call never expires; an outcome
-  started over MCP cannot choose a model, and its agent is not checked against
-  the machine until launch.
-- Browser: stage details (agent, handover) live only in a hover title; goals of
-  stages replaced by a send-back show under Other sessions; the inline floor
-  overstates room for new goals; the outcome dialog still says "Session 1";
-  `GafferFollowedSessions`' dialog branch is unreachable and polls beside the
-  page; Gaffer's launcher can sit over a card's text on a phone.
-- Store: `terminal_session_usage` rows are never removed; an outcome's History
-  scans the account's whole Gaffer log.
-- Tests owed: the `back`, `automerge`, `tell` and `stop-following` routes, a
-  viewer and a foreign ID on the browser routes, and the restore of outcomes.
+- **An approval nobody answers.** A request expires after five minutes and
+  the agent's turn stops. `reviewHeldGoal` now ends the hold with a note that
+  says so (it used to say "You answered…" and release the goal), and a goal
+  resumed after a stop is reviewed: `GafferWorkerHaltedAt` gives when the
+  worker stopped, `reviewGoal` asks about a stop only if it is newer than
+  `ResumedAt`, and `ControlGoal` sets `LastSeq` one behind for a halted worker
+  so Gaffer reviews where it stopped. The five minutes are unchanged.
+- **One outcome at a time.** `advanceOutcomes` carries each outcome on in its
+  own goroutine (`Service.outcomeRuns` keeps one per outcome), so a slow
+  launch holds up only its own outcome.
+- **The pipeline's worktree.** `Service.WorkDirInUse` and
+  `releaseSessionWorktree`: a session whose worktree a pipeline still has
+  work in (following, starting, advancing, ready to merge or stopped but not
+  archived) is not removed from history; the refusal is
+  `worktree_in_pipeline`. Not covered: Home's worktree sweep and branch
+  pruning, which remove worktrees by other paths.
+- **Gaffer's tools.** A call set to Ask me waits a day (`pendingToolLife`),
+  then is closed as declined. `forProvider` marks each call with whether the
+  chat's provider may read session text; `executeMCPFactory` returns handover
+  notes and reports to Gaffer only when it may.
+- **History.** `OutcomeEventsFor` includes `mcp-factory-control` and reads
+  nothing older than the outcome; the merge and retry rows carry `pipeline`
+  as well as `session`; the browser has a sentence for an MCP action.
+- **Starting over MCP.** `reet_start_outcome` takes `model` and refuses an
+  agent the project's machine cannot run as a chat.
+- **Send-back and replaced sessions.** `GafferOutcomeSession.Retired` holds the
+  conversations a pipeline left behind; the page leaves their closed goals out
+  of Other sessions.
+- **Store.** `terminal_session_usage` rows go with an archived session and,
+  by trigger, with a deleted account.
+- **Agents.** Home's backlog accepts folder trust for Google Antigravity. The
+  outcome dialog drops a model and effort when the machine changes the agent.
+  A model name the machine did not list says it is not checked. An added
+  pipeline starts on the effort the outcome's own stages were given, and says
+  which billing source a Cline stage runs on.
+- **Browser.** "Who did each stage" on a card lists every stage's agent,
+  model, who closed it and its handover, readable by touch and keyboard. The
+  inline floor counts room over every goal and no longer reads the outcomes
+  beside the page. The outcome dialog says Pipeline, not Session. Gaffer's
+  launcher lifts clear of a card's choices.
+- **Tests.** The `advance`, `back`, `automerge`, `tell` and `stop-following`
+  routes; another account and a viewer against every control; a restored
+  copy's outcomes.
+
+### Looked at again and left as they are
+
+- **Effort without reported levels.** The review called offering low, medium
+  and high for an agent that reports no levels a risk. It is the documented
+  start fallback (`c354ff3`) with a controller test and a browser test that
+  assert it, so it stays; a level the agent refuses still fails that launch
+  with the agent's own message.
+- **Stop during a tool call ends the chat for Codex and Antigravity.** This
+  is the adapters' own rule, so that no command keeps running behind a stopped
+  chat. A pipeline whose session ends this way is now handled as any ended
+  session is.
+- **`GafferFollowedSessions`' dialog form is not dead code**, as the review
+  said: Chat options → Factory floor still opens it.
+- Model names can still be checked against the machine only for OpenCode, and
+  an added pipeline cannot choose a Cline source of its own.
+- A pending tool call is closed when it is answered after a day, not on a
+  timer; nothing expires it while it sits unanswered.
 
 ## Not done, for the next slice
 

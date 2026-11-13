@@ -41,6 +41,22 @@ this file existed releases were described on their GitHub release pages.
   longer shown as an empty factory; proposals in a report start ticked; a long
   pipeline on a phone names the stage in hand instead of overlapping eight
   names; a session's Factory badge opens its pipeline.
+- **An approval nobody answers no longer leaves a goal looping.** A request
+  expires after five minutes and stops the agent's turn; the goal now says so
+  instead of "You answered", and resuming it has Gaffer review where the agent
+  stopped and set it going again.
+- Outcomes are carried on side by side: one slow launch no longer holds up
+  every other outcome on the controller.
+- A session whose worktree a Factory pipeline still works in is kept in
+  history, with the reason, until the pipeline finishes or its outcome is
+  stopped and archived.
+- A call Gaffer asked your approval for is not run if it has waited more than
+  a day. Gaffer's own Factory read returns handover notes and reports only to
+  a provider allowed session text. An outcome's History includes what was done
+  to it over MCP. `reet_start_outcome` takes a `model` and refuses an agent
+  the project's machine cannot run.
+- Factory card: **Who did each stage** lists each stage's agent, model, who
+  closed it and its handover. The outcome dialog says Pipeline, not Session.
 - **Apply retention now** on Admin, Backups no longer fails with "Cannot read
   properties of null (reading 'length')" when there is nothing to remove. The
   controller now always answers with empty lists, and the page copes with the

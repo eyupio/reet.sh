@@ -110,6 +110,51 @@ func TestIsolatedLaunchWithoutABaseUsesTheProjectsBase(t *testing.T) {
 	}
 }
 
+// A project that saved no base of its own falls back to the account's
+// default, exactly as the browser's question and a project run do, so the
+// branch the person was asked about is the one the session starts from.
+func TestIsolatedLaunchFallsBackToTheAccountsDefaultBase(t *testing.T) {
+	s, uid, machine := isolationFixture(t, baseFreshCaps())
+	profile, err := s.st.ProfileFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.DefaultBaseBranch = "trunk"
+	if err := s.st.SaveProfileFor(uid, profile); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/plain", Name: "Plain", IsRepo: true}); err != nil {
+		t.Fatal(err)
+	}
+	c := terminalproto.Create{Tool: "claude", Dir: "/home/a/plain"}
+	if !s.isolateWorktree(uid, machine, "req", &c) || c.Base != "trunk" {
+		t.Fatalf("the account's default base was not named: %+v", c)
+	}
+	// The project's own base still wins.
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "develop"}); err != nil {
+		t.Fatal(err)
+	}
+	c = terminalproto.Create{Tool: "claude", Dir: "/home/a/reet"}
+	if !s.isolateWorktree(uid, machine, "req-2", &c) || c.Base != "develop" {
+		t.Fatalf("the project's base was overridden: %+v", c)
+	}
+}
+
+// Only a machine that fetches a base and takes the newer launch fields is
+// named one: the broker refuses a non-empty base without agents-v2.
+func TestIsolatedLaunchNamesNoBaseWithoutAgentsV2(t *testing.T) {
+	caps := baseFreshCaps()
+	caps.AgentsV2 = false
+	s, uid, machine := isolationFixture(t, caps)
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "develop"}); err != nil {
+		t.Fatal(err)
+	}
+	c := terminalproto.Create{Tool: "claude", Dir: "/home/a/reet"}
+	if !s.isolateWorktree(uid, machine, "req", &c) || c.Base != "" {
+		t.Fatalf("a machine without agents-v2 was sent a base: %+v", c)
+	}
+}
+
 func TestIsolatedLaunchKeepsANamedBase(t *testing.T) {
 	s, uid, machine := isolationFixture(t, baseFreshCaps())
 	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "develop"}); err != nil {
@@ -220,9 +265,9 @@ func TestSessionRecordsItsBase(t *testing.T) {
 	start := strings.Repeat("ab", 20)
 	var reported terminalproto.BaseState
 	f.reply = reportsItsWorktree(&reported)
-	// This machine names no base of its own, so the notice falls back to the
-	// one the controller asked it to start from.
-	reported = terminalproto.BaseState{Relation: terminalproto.BaseAhead, Local: start, Start: start}
+	// The notice names the branch the machine resolved, which here is the one
+	// the controller asked it to start from.
+	reported = terminalproto.BaseState{Base: "develop", Relation: terminalproto.BaseAhead, Local: start, Start: start}
 	code, out, raw := f.create(t, isolatedProjectLaunch(f.agent.ID, terminalbroker.ID()))
 	if code != 200 || out["baseRelation"] != "ahead" || out["baseStart"] != start {
 		t.Fatal("session JSON without its base", code, raw)

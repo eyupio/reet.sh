@@ -53,13 +53,18 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 	c.Worktree = worktreeRunToken(requestID)
 	c.Project = terminalproto.Slug(p.Name, "project")
 	if c.Base == "" && s.machineFetchesBase(uid, agent) {
-		// The project's saved base is what work on it starts from. A launch
-		// that named its own base keeps it, and a project that saved none
-		// leaves the choice to the machine, which starts from the branch the
+		// The project's saved base is what work on it starts from, and the
+		// account's default when it saved none — the same order the browser's
+		// question and a Project run follow, so all three name one branch. A
+		// launch that named its own base keeps it, and with neither the choice
+		// is left to the machine, which starts from the branch the
 		// repository's remote calls its default. A machine from before
 		// base-fresh-v1 is named no base at all: it never asked for one, and
 		// naming one would only refuse a launch that used to run.
 		c.Base = p.BaseBranch
+		if c.Base == "" {
+			c.Base = s.accountBase(uid)
+		}
 	}
 	if c.ProjectID == "" {
 		c.ProjectID = p.ID
@@ -69,10 +74,21 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 
 // machineFetchesBase reports whether the machine's stored capabilities
 // negotiated base-fresh-v1, so it fetches a worktree's base from GitHub and
-// says what it started from. Only such a machine is named a base.
+// says what it started from, and agents-v2, without which the broker refuses
+// a create that names a base at all. Only such a machine is named one.
 func (s *server) machineFetchesBase(uid int64, agent string) bool {
 	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
-	return err == nil && caps.Capabilities.BaseFresh
+	return err == nil && caps.Capabilities.BaseFresh && caps.Capabilities.AgentsV2
+}
+
+// accountBase is the branch the account starts new worktrees from when the
+// project names none, or "" when it has no default either.
+func (s *server) accountBase(uid int64) string {
+	profile, err := s.st.ProfileFor(uid)
+	if err != nil {
+		return ""
+	}
+	return profile.DefaultBaseBranch
 }
 
 // baseWorthANotice says whether where a worktree started from is worth
@@ -88,23 +104,21 @@ func baseWorthANotice(relation string) bool {
 	return false
 }
 
-// recordSessionBase notes what an isolated launch started from, once per
-// session: the base it started from, how that stood against GitHub's and the
-// commit the worktree was made at. The base is the branch the machine
-// resolved, falling back to the one the create named when it reported none.
-// The source follows the launch audit's ("ui": both a browser launch and an
-// outcome's are the person's own).
-func (s *server) recordSessionBase(uid int64, in terminalproto.Create, session store.TerminalSession) {
-	if !baseWorthANotice(session.BaseRelation) {
+// recordSessionBase notes what a session's worktree started from, once per
+// session: the branch the machine resolved, how that stood against GitHub's
+// and the commit the worktree was made at. The broker calls it wherever a
+// base is first stored, so a session started by a project run, by a start in
+// several projects at once or by a create whose reply came after the call
+// gave up is noticed as well as one the browser started on its own. The
+// source follows the launch audit's ("ui": a browser launch, an outcome's and
+// a run's are all the person's own).
+func (s *server) recordSessionBase(uid int64, agent, session string, base terminalproto.BaseState) {
+	if !baseWorthANotice(string(base.Relation)) {
 		return
 	}
-	base := session.BaseName
-	if base == "" {
-		base = in.Base
-	}
 	_ = s.st.AddEventOnceFor(uid, "ui", "worktree-base", "", map[string]string{
-		"machine": session.AgentID, "host": s.machineHost(uid, session.AgentID), "session": session.ID,
-		"base": base, "relation": session.BaseRelation, "start": session.BaseStart,
+		"machine": agent, "host": s.machineHost(uid, agent), "session": session,
+		"base": base.Base, "relation": string(base.Relation), "start": base.Start,
 	})
 }
 

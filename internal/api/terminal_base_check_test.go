@@ -91,6 +91,33 @@ func TestBaseCheckRouteFillsTheProjectsBase(t *testing.T) {
 	}
 }
 
+// A project that saved no base of its own falls back to the account's
+// default, as an isolated launch does, so the branch the browser asks about
+// is the one the session will start from.
+func TestBaseCheckRouteFallsBackToTheAccountsDefaultBase(t *testing.T) {
+	f := browseAPIFixture(t, baseCheckCaps())
+	baseCheckProject(t, f, "")
+	profile, err := f.st.ProfileFor(f.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.DefaultBaseBranch = "trunk"
+	if err := f.st.SaveProfileFor(f.uid, profile); err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Repeat("ab", 20)
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.BaseCheckResult{State: terminalproto.BaseState{Base: "trunk", Relation: terminalproto.BaseSame, Start: start}}
+	})
+	if code, _, raw := f.get(t, f.cookie, baseCheckPath(f.agent, browseTestHome+"/site", "")); code != 200 {
+		t.Fatalf("check = %d %s", code, raw)
+	}
+	sent := f.sentRequests()
+	if len(sent) != 1 || sent[0].(terminalproto.BaseCheck).Base != "trunk" {
+		t.Fatalf("the check did not ask about the account's default base: %+v", sent)
+	}
+}
+
 // The answer carries only what the machine sent: a state with no local or
 // remote commit leaves those fields out altogether.
 func TestBaseCheckRouteOmitsWhatTheMachineDidNotSend(t *testing.T) {

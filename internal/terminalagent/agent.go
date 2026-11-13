@@ -903,7 +903,9 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					}
 					if features.Has(terminalproto.ProgressFeature) {
 						// Each stage is told to the controller as it begins, before this create's one answer.
-						createCtx = terminalhost.WithProgress(callCtx, func(stage terminalproto.LaunchStage) {
+						// Built on createCtx, never on callCtx: a context built afresh from the call would
+						// drop what this one already carries, such as the negotiated base-fresh above.
+						createCtx = terminalhost.WithProgress(createCtx, func(stage terminalproto.LaunchStage) {
 							note := msg
 							note.Body = terminalproto.LaunchProgress{Stage: stage}
 							noteCtx, cancel := context.WithTimeout(callCtx, time.Second)

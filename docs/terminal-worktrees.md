@@ -133,7 +133,11 @@ Before step 6, a machine that negotiated `base-fresh-v1` resolves the base:
   that machine it is not fetched at all: the base is the local branch and
   nothing is said about GitHub. ssh is never run, because the hardened
   environment has no ssh agent to ask and no terminal to answer a passphrase or
-  host-key prompt.
+  host-key prompt. The fetch refuses the ssh transport outright
+  (`protocol.ssh.allow=never`), so a git configuration that rewrites
+  github.com's https URLs to ssh (a `url.<ssh>.insteadOf` for
+  `https://github.com/`) makes the fetch fail at once, and the session starts
+  from the last known base as it does for any GitHub that could not be reached.
 - Fetches for one repository are taken one at a time inside the connector, so
   two starts at once never report each other's "Couldn't reach GitHub".
 - With no `github.com` origin it resolves the local branch first, then the

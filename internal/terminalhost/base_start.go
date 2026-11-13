@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -278,28 +277,28 @@ func (p BasePlan) lookup(_ context.Context, _ GitRunner, _, _, branch string) ba
 // all and the create starts where it always did.
 //
 // A create whose worktree is already there is a retry that adopts it and
-// resolves no base, so nothing is fetched for it either. Everything else this
-// call cannot settle — a folder that is not a repository, an origin that is
-// not github.com, an ssh origin with no gh to authenticate as — is left to
-// PrepareWorktreeFrom, which refuses or resolves it exactly as it would.
+// resolves no base, so nothing is fetched for it either, and neither is a
+// folder the create itself would refuse: the same checks run here first
+// (checkWorktreeRepo), with git pinned to that folder, so a folder that is
+// not a repository can never leave git to discover the one above it and fetch
+// into that. What is left — an origin that is not github.com, an ssh origin
+// with no gh to authenticate as — is for PrepareWorktreeFrom to resolve
+// exactly as it would.
 func PlanBase(ctx context.Context, home, repo, project, run, base string, fresh bool, git GitRunner) BasePlan {
 	plan := BasePlan{fresh: fresh}
 	validBase := base == "" || terminalproto.ValidRefName(base)
 	if !fresh || git == nil || !validBase || !terminalproto.ValidRunToken(run) {
 		return plan
 	}
-	repoPath, err := ResolveDir(home, repo)
+	repoPath, realHome, err := worktreeRepoPath(home, repo)
 	if err != nil {
-		return plan
-	}
-	realHome, err := filepath.EvalSymlinks(home)
-	if err != nil {
-		return plan
-	}
-	if repoPath, err = filepath.EvalSymlinks(repoPath); err != nil {
 		return plan
 	}
 	if _, dest, _ := worktreePlace(realHome, repoPath, project, run); !missing(dest) {
+		return plan
+	}
+	ctx = pinGitDir(ctx, repoPath)
+	if _, err := checkWorktreeRepo(ctx, git, repoPath); err != nil {
 		return plan
 	}
 	from, branch, ok := baseFetchBranch(ctx, git, repoPath, base)
@@ -540,9 +539,18 @@ func (l *repoLocks) lock(repo string) func() {
 }
 
 // networkGitArgs are the arguments every call that may reach github.com
-// carries: hooks off, and gh's credentials for github.com only.
+// carries: hooks off, ssh refused outright, and gh's credentials for
+// github.com only.
+//
+// protocol.ssh.allow=never is what keeps the promise that these fetches never
+// invoke ssh. The URL is chosen for https (githubFetch), but the person's own
+// configuration is still read — HOME is one of the three variables git keeps —
+// and a url.<ssh>.insteadOf rewrite of https://github.com/ would otherwise
+// send the fetch over ssh after all, where there is no agent to ask and no
+// terminal to answer a passphrase or host-key prompt. With the transport
+// refused the fetch fails at once and is handled like any other failed fetch.
 func networkGitArgs() []string {
-	return append([]string{"-c", "core.hooksPath=/dev/null"}, ghCredentialArgs()...)
+	return append([]string{"-c", "core.hooksPath=/dev/null", "-c", "protocol.ssh.allow=never"}, ghCredentialArgs()...)
 }
 
 // isAncestor reports whether commit is an ancestor of other (or the same

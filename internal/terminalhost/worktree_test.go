@@ -1418,6 +1418,34 @@ func TestCreateFetchesTheBaseWithoutHoldingTheManagerLock(t *testing.T) {
 	}
 }
 
+// A machine whose terminal switch is off refuses the create, so nothing is
+// fetched for it: the base is planned before the lock, and that switch is
+// read before the plan as well as under it.
+func TestCreateWithTerminalsOffFetchesNothing(t *testing.T) {
+	m, _, _, _, repo, _ := worktreeManager(t)
+	testGit(t, repo, "remote", "add", "origin", "https://github.com/o/r")
+	var mu sync.Mutex
+	var calls [][]string
+	m.git = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		mu.Lock()
+		calls = append(calls, slices.Clone(args))
+		mu.Unlock()
+		return ExecGit(ctx, dir, args...)
+	}
+	m.consent = func() error { return errors.New("terminals are off here") }
+	_, err := m.Create(WithBaseFresh(context.Background()), testRequestID(1), testSessionID(1), worktreeCreate(repo, testRun))
+	if !errors.Is(err, ErrTerminalDisabled) {
+		t.Fatalf("create = %v, want the terminal switch's refusal", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, args := range calls {
+		if slices.Contains(args, "fetch") {
+			t.Fatalf("a refused create reached github.com: %q", calls)
+		}
+	}
+}
+
 // A connection that negotiated base-fresh-v1 fetches the base before the
 // worktree is made, and makes it with no network call of its own.
 func TestPrepareWorktreeFromAPlanFetchesOnceBeforehand(t *testing.T) {
@@ -1441,6 +1469,39 @@ func TestPrepareWorktreeFromAPlanFetchesOnceBeforehand(t *testing.T) {
 	if w.Base.Relation != terminalproto.BaseBehind || w.Base.Start != ahead {
 		t.Fatalf("base = %+v, want behind starting from %s", w.Base, ahead)
 	}
+}
+
+// A folder a create will refuse is never fetched for, and git is never left
+// to discover the repository above it: a plain folder inside a home that is
+// itself a repository must leave that repository's refs alone.
+func TestPlanBaseDoesNotFetchForAFolderThatIsNotARepository(t *testing.T) {
+	f := newBaseFixture(t)
+	// The home itself is a github.com repository, as a person's home can be.
+	testGit(t, f.home, "init", "-q", "-b", "main")
+	testGit(t, f.home, "config", "user.name", "Reet Test")
+	testGit(t, f.home, "config", "user.email", "test@example.invalid")
+	testGit(t, f.home, "config", "commit.gpgsign", "false")
+	writeFile(t, filepath.Join(f.home, "NOTES"), "home\n")
+	testGit(t, f.home, "add", "NOTES")
+	testGit(t, f.home, "commit", "-q", "-m", "home")
+	testGit(t, f.home, "remote", "add", "origin", "https://github.com/o/r")
+	plain := filepath.Join(f.home, "plain")
+	if err := os.MkdirAll(plain, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	before := testGit(t, f.home, "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes")
+	commitIn(t, f.remote, "on-github")
+
+	plan := PlanBase(context.Background(), f.home, plain, "p", testRun, "", true, f.git)
+	if f.fetched() {
+		t.Fatalf("a folder that is no repository was fetched for: %q", f.calls)
+	}
+	if after := testGit(t, f.home, "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes"); after != before {
+		t.Fatalf("the repository above the folder was fetched into:\nbefore %q\nafter  %q", before, after)
+	}
+	// And the create itself is still refused, in its own words.
+	_, err := PrepareWorktreeFrom(context.Background(), f.home, plain, "p", testRun, "", plan, f.git)
+	refusedWith(t, err, terminalproto.WorktreeNotRepoRoot)
 }
 
 // A plan a retry makes for a worktree that is already there fetches nothing:

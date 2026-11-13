@@ -378,6 +378,44 @@ func TestBaseFetchFailureRetriedOnceThenUnreachable(t *testing.T) {
 	}
 }
 
+// A git configuration that rewrites github.com's https URLs to ssh must not
+// make these fetches run ssh after all: the transport is refused outright, so
+// nothing can sit on a passphrase or host-key prompt, and the base is resolved
+// as it is for any GitHub that could not be reached.
+func TestBaseFetchNeverRunsSSHThroughInsteadOf(t *testing.T) {
+	f := newBaseFixture(t)
+	commitIn(t, f.remote, "on-github")
+	local := commitOf(t, f.repo, "refs/heads/main")
+	marker := filepath.Join(f.home, "ssh-was-run")
+	ssh := filepath.Join(f.home, "fake-ssh")
+	if err := os.WriteFile(ssh, []byte("#!/bin/sh\ntouch "+marker+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The person's own configuration, which the hardened environment keeps:
+	// HOME is one of the three variables git is given.
+	writeFile(t, filepath.Join(f.home, ".gitconfig"),
+		"[url \"git@github.com:\"]\n\tinsteadOf = https://github.com/\n[core]\n\tsshCommand = "+ssh+"\n")
+	// Not the fixture's rewriting runner: this test is about the URL git is
+	// left to resolve itself.
+	var calls [][]string
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		calls = append(calls, slices.Clone(args))
+		return ExecGit(ctx, dir, args...)
+	}
+	started := time.Now()
+	state, err := ResolveBase(context.Background(), f.repo, "main", true, git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBase(t, state, terminalproto.BaseFetchFailed, local)
+	if _, err := os.Lstat(marker); err == nil {
+		t.Fatalf("ssh was run for a fetch: %q", calls)
+	}
+	if took := time.Since(started); took > 20*time.Second {
+		t.Fatalf("a rewritten fetch held the resolve up for %v", took)
+	}
+}
+
 func TestBaseNonGitHubOriginIsNotFetched(t *testing.T) {
 	f := newBaseFixture(t)
 	testGit(t, f.repo, "remote", "set-url", "origin", "https://gitlab.com/a/b")

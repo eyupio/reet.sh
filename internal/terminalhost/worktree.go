@@ -349,51 +349,13 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 	if !valid {
 		return Worktree{}, terminalproto.ErrInvalid
 	}
-	repoPath, err := ResolveDir(home, repo)
+	repoPath, realHome, err := worktreeRepoPath(home, repo)
 	if err != nil {
 		return Worktree{}, err
 	}
-	realHome, err := filepath.EvalSymlinks(home)
-	if err != nil {
-		return Worktree{}, launchUnavailable("home is unavailable")
-	}
-	if repoPath, err = filepath.EvalSymlinks(repoPath); err != nil {
-		return Worktree{}, launchUnavailable("folder is unavailable")
-	}
-	worktreeRoot := filepath.Join(realHome, ".reet")
-	// A repository that contains ~/.reet (home itself, or a parent of it) would
-	// hold its own worktrees as untracked files that a clean deletes.
-	if inside(repoPath, worktreeRoot) {
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "worktrees cannot be made inside the repository they come from")
-	}
-	gitDir := filepath.Join(repoPath, ".git")
-	info, err := os.Lstat(gitDir)
-	validGitDir := err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
-	if !validGitDir {
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, ".git is not a folder in this repository")
-	}
-	for _, marker := range busyMarkers {
-		if _, err := os.Lstat(filepath.Join(gitDir, marker)); err == nil {
-			return Worktree{}, refuseWorktree(terminalproto.WorktreeRepoBusy, marker+" is present")
-		}
-	}
-	out, err := git(ctx, repoPath, "rev-parse", "--show-toplevel")
-	if err != nil {
-		if errors.Is(err, errGitMissing) || ctx.Err() != nil {
-			return Worktree{}, gitFailed(out, err)
-		}
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, worktreeDetail(out))
-	}
-	top, err := filepath.EvalSymlinks(strings.TrimSuffix(string(out), "\n"))
-	if err != nil || top != repoPath {
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "the folder is not the top of its working tree")
-	}
-	head, err := gitCommit(ctx, git, repoPath, "HEAD")
+	head, err := checkWorktreeRepo(ctx, git, repoPath)
 	if err != nil {
 		return Worktree{}, err
-	}
-	if head == "" {
-		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "HEAD does not point at a commit yet")
 	}
 
 	parent, dest, branch := worktreePlace(realHome, repoPath, project, run)
@@ -455,13 +417,77 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 		w.Base = state
 	}
 
-	out, err = git(ctx, repoPath, "-c", "core.hooksPath=/dev/null", "worktree", "add", "-b", branch, dest, start)
+	out, err := git(ctx, repoPath, "-c", "core.hooksPath=/dev/null", "worktree", "add", "-b", branch, dest, start)
 	if err != nil {
 		cleanupFailedAdd(ctx, git, w, cleanupBudget)
 		return Worktree{}, gitFailed(out, err)
 	}
 	w.Created = true
 	return w, nil
+}
+
+// worktreeRepoPath resolves the repository a worktree create works from, and
+// the home it must be inside: ResolveDir, both with their symlinks followed.
+// A repository that contains ~/.reet (home itself, or a parent of it) is
+// refused, because it would hold its own worktrees as untracked files that a
+// clean deletes.
+func worktreeRepoPath(home, repo string) (string, string, error) {
+	repoPath, err := ResolveDir(home, repo)
+	if err != nil {
+		return "", "", err
+	}
+	realHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return "", "", launchUnavailable("home is unavailable")
+	}
+	if repoPath, err = filepath.EvalSymlinks(repoPath); err != nil {
+		return "", "", launchUnavailable("folder is unavailable")
+	}
+	if inside(repoPath, filepath.Join(realHome, ".reet")) {
+		return "", "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, "worktrees cannot be made inside the repository they come from")
+	}
+	return repoPath, realHome, nil
+}
+
+// checkWorktreeRepo makes the checks every worktree create makes on the
+// repository before it changes anything, and answers the commit HEAD names:
+// `.git` is a real directory of its own (not a file, not a symlink), no
+// merge, rebase, cherry-pick, revert or bisect is in progress, the folder is
+// the top of its working tree, and HEAD is a commit.
+//
+// PlanBase makes exactly these checks before it fetches, so a create that
+// will be refused never reaches github.com for a base it cannot use.
+func checkWorktreeRepo(ctx context.Context, git GitRunner, repoPath string) (string, error) {
+	gitDir := filepath.Join(repoPath, ".git")
+	info, err := os.Lstat(gitDir)
+	validGitDir := err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
+	if !validGitDir {
+		return "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, ".git is not a folder in this repository")
+	}
+	for _, marker := range busyMarkers {
+		if _, err := os.Lstat(filepath.Join(gitDir, marker)); err == nil {
+			return "", refuseWorktree(terminalproto.WorktreeRepoBusy, marker+" is present")
+		}
+	}
+	out, err := git(ctx, repoPath, "rev-parse", "--show-toplevel")
+	if err != nil {
+		if errors.Is(err, errGitMissing) || ctx.Err() != nil {
+			return "", gitFailed(out, err)
+		}
+		return "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, worktreeDetail(out))
+	}
+	top, err := filepath.EvalSymlinks(strings.TrimSuffix(string(out), "\n"))
+	if err != nil || top != repoPath {
+		return "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, "the folder is not the top of its working tree")
+	}
+	head, err := gitCommit(ctx, git, repoPath, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if head == "" {
+		return "", refuseWorktree(terminalproto.WorktreeNotRepoRoot, "HEAD does not point at a commit yet")
+	}
+	return head, nil
 }
 
 // worktreePlace is where a run's worktree goes under a resolved home and

@@ -24,7 +24,7 @@ const outcomes=[{id:'e'.repeat(32),revision:5,objective:'Ship CSV export for bil
  {key:'a',title:'Importer retry',prompt:'p',state:'done',note:'Every stage is done. Check the result; only you mark the work complete.',sessionId:'s4',conversationId:'4'.repeat(32),updatedAt:now,stage:3,autoMerge:true,stages:['code','test','pr','merge'].map(k=>st(k,'claude','','done',{summary:'ok'}))},
 ]}]
 const goals=[goal('1'.repeat(32),'s1','Export API','active',false,'The endpoint and its tests are committed. The review found one missing error case and is fixing it.'),goal('2'.repeat(32),'s2','Export button','needs_user',true,'The button is in, but the design leaves the empty state open. Which of the two do you want?'),goal('5'.repeat(32),'s5','Login tokens','active',false,'Checks are green.')]
-const sessions=['s1','s2','s3','s4','s5','s6'].map((id,n)=>({id,agentId:'a1',title:['Export API','Export button','Export docs','Importer retry','Login tokens','Docs refresh'][n],state:'running',structured:true,tool:'claude',dir:'/work/x',createdAt:now,updatedAt:now,exitCode:null}))
+const sessions=['s1','s2','s3','s4','s5','s6'].map((id,n)=>({id,agentId:'a1',title:['Export API','Export button','Export docs','Importer retry','Login tokens','Docs refresh'][n],state:'running',structured:true,tool:'claude',dir:'/work/x',createdAt:now,updatedAt:now,exitCode:null,...(id==='s5'?{projectId:'p1'}:{})}))
 const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available'},{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
 // What the working agents reported: the code stage's own count, and the review stage in hand with its context window.
 Object.assign(outcomes[0].sessions[0].stages[2],{agentInputTokens:60000,agentOutputTokens:24600,agentCachedTokens:410000,agentUsageReported:true})
@@ -71,12 +71,19 @@ try {
         await expect(page.locator('.scope')).toContainText('Showing docs-site. A new outcome starts in this project.')
         await expect(page.getByRole('heading',{name:'Nothing in docs-site yet.',exact:true})).toBeVisible()
         await expect(page.getByRole('article')).toHaveCount(0)
+        // Other sessions follow the chosen project: one in another project, or in none, is left out.
+        const others=page.getByRole('region',{name:'Other sessions',exact:true})
+        await expect(others).toContainText('Only those in docs-site are listed.')
+        await expect(others.getByRole('heading',{name:'Login tokens',exact:true})).toHaveCount(0)
+        await expect(others).not.toContainText('Docs refresh')
         await page.getByRole('button',{name:'Give Gaffer an outcome in docs-site',exact:true}).click()
         let asking=page.getByRole('dialog',{name:'Give Gaffer an outcome',exact:true})
         await expect(asking.getByLabel('Project',{exact:true})).toHaveValue('p2')
         await asking.getByRole('button',{name:'Close Give Gaffer an outcome',exact:true}).click()
         await projectRail.getByRole('button',{name:/^billing, /}).click()
         await expect(page.getByRole('article')).toHaveCount(2)
+        await expect(others.getByRole('heading',{name:'Login tokens',exact:true})).toBeVisible()
+        await expect(others).not.toContainText('Docs refresh')
         await page.getByRole('button',{name:'Show all projects',exact:true}).click()
         await expect(page.locator('.scope')).toHaveCount(0)
         await projectRail.getByRole('button',{name:'New outcome in billing',exact:true}).click()

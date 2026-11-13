@@ -8,7 +8,8 @@ this file existed releases were described on their GitHub release pages.
 - The Factory page has the project list down its left side, as Home does.
   Choosing a project (or a group) shows only its outcomes, and **Give Gaffer an
   outcome** then opens on that project; a project's **+** does both in one
-  press. On a tablet or phone the page is unchanged.
+  press. **Other sessions** follows the chosen project too. On a tablet or
+  phone the page is unchanged.
 - **New session** on Home, a machine card's **New session…** and a project's
   **+** now ask what to start, as the Sessions page does: an agent session, a
   terminal session (in the project's folder when one is named), or a **Factory

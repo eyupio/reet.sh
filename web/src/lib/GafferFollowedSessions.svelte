@@ -15,10 +15,12 @@
   import GafferProse from './GafferProse.svelte'
   import { formatWhen } from './time'
 
-  let { onclose, onchanged, onselect, onhistory, onerror, userId=0, timeZone='', dateFormat='locale', startWithOutcome=false, inline=false, hidden=[], hiddenSessions=[] }: {
+  let { onclose, onchanged, onselect, onhistory, onerror, userId=0, timeZone='', dateFormat='locale', startWithOutcome=false, inline=false, hidden=[], hiddenSessions=[], projectIds=undefined }: {
     startWithOutcome?:boolean;
     /** On the Factory page the floor is part of the page, not a dialog, and the page shows outcomes itself. `hidden` are goals the page already draws as pipelines. */
     inline?:boolean; hidden?:string[]; hiddenSessions?:string[];
+    /** The projects the page is narrowed to: only their sessions are listed. A session with no project is then left out. */
+    projectIds?:string[];
     onclose:()=>void; onchanged:()=>void|Promise<void>; onselect:()=>void; onhistory:()=>void; userId?:number;
     onerror:(e:unknown)=>string; timeZone?:string; dateFormat?:string
   } = $props()
@@ -52,13 +54,16 @@
   }
   let refreshButton=$state<HTMLButtonElement>()
   let controller:AbortController|undefined, epoch=0, returnFocus:HTMLElement|undefined
-  const rows=$derived((view?.goals??[]).filter(row=>!hidden.includes(row.goal.conversationId)))
+  const inProjects=(sessionId:string)=>!projectIds||projectIds.includes(sessions.find(item=>item.id===sessionId)?.projectId??'')
+  const allRows=$derived((view?.goals??[]).filter(row=>!hidden.includes(row.goal.conversationId)))
+  const rows=$derived(allRows.filter(row=>inProjects(row.goal.sessionId)))
   const needsYou=$derived(rows.filter(row=>row.attention).length)
   const following=$derived(rows.filter(row=>row.goal.state==='active'&&!row.attention).length)
   // A session is offered only when it has no goal at all and is not a pipeline's own session.
-  const candidates=$derived(view?floorCandidates(sessions,view.goals.map(row=>row.goal)).filter(item=>!hiddenSessions.includes(item.id)):[])
+  const candidates=$derived(view?floorCandidates(sessions,view.goals.map(row=>row.goal)).filter(item=>!hiddenSessions.includes(item.id)&&inProjects(item.id)):[])
   const chosen=$derived(floorChosen(candidates,ticked))
-  const room=$derived(floorRoom(rows.map(row=>row.goal)))
+  // Room is the account's, whatever the page is narrowed to.
+  const room=$derived(floorRoom(allRows.map(row=>row.goal)))
   const showCandidates=$derived(!outcomeFilter&&(filter==='all'||filter==='idle'))
   const outcomes=$derived(floorOutcomes(records,rows))
   const chosenOutcome=$derived(outcomes.find(group=>group.id===outcomeFilter))

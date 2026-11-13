@@ -500,8 +500,8 @@
 
   <section class="floor" aria-label="Other sessions">
     <h2>Other sessions</h2>
-    <p class="hint">Sessions you started yourself: the ones Gaffer looks after, and the running chats it does not yet.</p>
-    {#key floorKey}<GafferFollowedSessions inline hidden={drawn} hiddenSessions={drawnSessions} {userId} {timeZone} {dateFormat} onerror={e => e instanceof Error ? e.message : 'The sessions could not be read.'} onchanged={load} onselect={() => {}} onhistory={() => {}} onclose={() => {}}/>{/key}
+    <p class="hint">Sessions you started yourself: the ones Gaffer looks after, and the running chats it does not yet.{#if scope}{' '}Only those in {scopeName} are listed.{/if}</p>
+    {#key floorKey}<GafferFollowedSessions inline hidden={drawn} hiddenSessions={drawnSessions} projectIds={scopedIds} {userId} {timeZone} {dateFormat} onerror={e => e instanceof Error ? e.message : 'The sessions could not be read.'} onchanged={load} onselect={() => {}} onhistory={() => {}} onclose={() => {}}/>{/key}
   </section>
   {#if readAt}<p class="foot">Read {when(readAt)}{live ? ', refreshing while sessions start' : ''}. Reading the factory makes no model request and starts nothing.</p>{/if}
 </div>

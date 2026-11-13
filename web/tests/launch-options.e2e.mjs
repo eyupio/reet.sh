@@ -51,6 +51,7 @@ try {
    // Home's New session opens the same Start an agent dialog as everywhere else.
    await page.goto(`${base}/`)
    await page.getByRole('button',{name:'New session',exact:true}).click()
+   await page.getByRole('dialog',{name:'New session',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
    const start=page.getByRole('dialog',{name:'Start an agent',exact:true})
    await start.getByRole('combobox',{name:'Project',exact:true}).selectOption('project-options')
    await start.getByRole('textbox',{name:/Opening prompt/}).fill('Start with the selected model and effort')

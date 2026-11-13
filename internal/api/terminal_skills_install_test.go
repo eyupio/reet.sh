@@ -456,3 +456,100 @@ func TestEnvironmentMergePreviewCountsPendingInstalls(t *testing.T) {
 		t.Fatalf("got %d %s", code, raw)
 	}
 }
+
+// catalogue reads the session's slash-command catalogue as the browser does.
+func (f *installFx) catalogue(t *testing.T) SessionSkills {
+	t.Helper()
+	r := httptest.NewRequest("GET", "/api/v2/terminal/sessions/"+f.session+"/skills", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var out SessionSkills
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err, w.Body.String())
+	}
+	return out
+}
+
+// rescanInstall reports one installed skill the way the connector's post-apply
+// rescan does for a private install: the skill is in its folder, with no
+// skills-CLI lock source to name it.
+func (f *installFx) rescanInstall(t *testing.T, name string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{
+		"items":        []map[string]string{{"name": name, "host": f.agent.Host, "agent": "claude"}},
+		"environments": []map[string]any{{"host": f.agent.Host, "agent": "claude", "project": "", "path": ".claude/skills", "skills": []string{name}}},
+	})
+	r := httptest.NewRequest("POST", "/api/import", strings.NewReader(string(body)))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Authorization", "Bearer "+f.token)
+	w := httptest.NewRecorder()
+	f.srv.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func sessionSkillByID(skills []SessionSkill, id string) *SessionSkill {
+	for i := range skills {
+		if skills[i].ID == id {
+			return &skills[i]
+		}
+	}
+	return nil
+}
+
+func sessionSkillByName(skills []SessionSkill, name string) *SessionSkill {
+	for i := range skills {
+		if skills[i].Name == name && skills[i].Source == "machine" {
+			return &skills[i]
+		}
+	}
+	return nil
+}
+
+// Installing a private draft from a session must make it insertable in that same
+// session once the machine reports it installed. Before the fix the installed
+// copy was hidden from the library and so absent from the catalogue, which left
+// the reet-hosted row saying "not on this machine" while a second install was
+// refused as already installed.
+func TestTerminalSessionSkillsFindsAnInstalledPrivateDraft(t *testing.T) {
+	f := installFixture(t)
+
+	// A skill that is not installed is listed as reet-hosted and cannot be inserted.
+	before := f.catalogue(t)
+	if s := sessionSkillByID(before.Skills, "reet:draft"); s == nil || s.OnMachine || s.Native || s.Invocation != "" {
+		t.Fatalf("draft before install = %+v", s)
+	}
+	if s := sessionSkillByName(before.Skills, "draft"); s != nil {
+		t.Fatalf("draft is on the machine before install: %+v", s)
+	}
+
+	if code, raw := f.install(`{"skill":"reet:draft"}`); code != 200 {
+		t.Fatal(code, raw)
+	}
+	f.rescanInstall(t, "draft")
+
+	after := f.catalogue(t)
+	installed := sessionSkillByName(after.Skills, "draft")
+	if installed == nil || !installed.Native || !installed.OnMachine || installed.Invocation != "Use the draft skill." {
+		t.Fatalf("installed draft = %+v (all %+v)", installed, after.Skills)
+	}
+	if s := sessionSkillByID(after.Skills, "reet:draft"); s != nil {
+		t.Fatalf("the reet-hosted copy is still listed after install: %+v", s)
+	}
+	if after.MachineSeen == 0 {
+		t.Fatal("the machine read was not reported")
+	}
+
+	// A genuinely absent skill still says it is not installed.
+	if s := sessionSkillByID(after.Skills, "reet:docx"); s == nil || s.OnMachine || s.Native || s.Invocation != "" {
+		t.Fatalf("uninstalled skill after the rescan = %+v", s)
+	}
+	if s := sessionSkillByName(after.Skills, "docx"); s != nil {
+		t.Fatalf("docx appeared without being installed: %+v", s)
+	}
+}

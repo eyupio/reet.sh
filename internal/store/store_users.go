@@ -403,6 +403,42 @@ func (s *Store) attachHiddenTagsFor(userID int64, skills []Skill) error {
 	return rows.Err()
 }
 
+// InstalledSkillsFor returns every skill the account's environments report on
+// host, whatever the library shows. It is the machine inventory read through
+// skill_envs, the same rows the installer uses to decide a skill is already
+// there, so the session catalogue and the installer cannot disagree. A private
+// draft installed on a machine is hidden from the library (skills.hidden) but
+// is still installed, so hidden rows are included here; ListFor keeps hiding
+// them.
+func (s *Store) InstalledSkillsFor(userID int64, host string) ([]Skill, error) {
+	rows, err := s.readStmts.query(`SELECT `+shelfCols+` FROM skills s JOIN shelf sh ON sh.skill_id=s.id AND sh.user_id=?
+		WHERE s.id IN (SELECT se.skill_id FROM skill_envs se JOIN environments e ON e.id=se.env_id
+			WHERE e.user_id=? AND e.host=? COLLATE NOCASE)
+		ORDER BY lower(s.name),s.id`, userID, userID, host)
+	if err != nil {
+		return nil, err
+	}
+	out := []Skill{}
+	reader := newSkillRowScanner(false)
+	for rows.Next() {
+		skill, err := reader.scan(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, skill)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if err := s.attachMetaForMode(userID, out, attachMode{}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *Store) GetFor(userID int64, id string) (Skill, bool, error) {
 	k, err := scan(s.db.QueryRow(`SELECT `+shelfCols+canonicalShelfColumn+` FROM skills s JOIN shelf sh ON sh.skill_id=s.id`+canonicalShelfJoin+` WHERE sh.user_id=? AND s.id=?`, userID, id), true)
 	if errors.Is(err, sql.ErrNoRows) {

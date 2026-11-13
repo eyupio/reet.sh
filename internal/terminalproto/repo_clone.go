@@ -34,11 +34,15 @@ var ghRepo = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
 // ValidGitHubOwner reports whether s is a GitHub owner name.
 func ValidGitHubOwner(s string) bool { return ghOwner.MatchString(s) }
 
-// ValidGitHubRepo reports whether s is a GitHub repository name as it is
-// stored, without a ".git" suffix: callers strip the suffix from a URL or
-// remote first. "." and ".." are never names, and neither is ".git".
+// ValidGitHubRepo reports whether s is a GitHub repository name that has
+// already been stripped of its ".git" suffix: callers strip one trailing
+// ".git" from a URL or remote first, so a name that still ends in ".git" is
+// refused. A name made only of dots and a name ending in a dot are refused
+// too, because the name becomes a folder and Windows path handling drops
+// trailing dots; a leading dot or dash is allowed.
 func ValidGitHubRepo(s string) bool {
-	return ghRepo.MatchString(s) && s != "." && s != ".." && !strings.HasSuffix(s, ".git")
+	return ghRepo.MatchString(s) && strings.Trim(s, ".") != "" &&
+		!strings.HasSuffix(s, ".") && !strings.HasSuffix(s, ".git")
 }
 
 // ParseGitHubRepo reads what a person typed to name a repository on

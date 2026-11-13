@@ -27,6 +27,8 @@ func TestParseGitHubRepo(t *testing.T) {
 		"eyupio/reet.sh.git":                     "eyupio/reet.sh",
 		"  eyupio/reet.sh \n":                    "eyupio/reet.sh",
 		"https://GitHub.com/eyupio/reet.sh":      "eyupio/reet.sh",
+		"a/.github":                              "a/.github",
+		"a/-x":                                   "a/-x",
 		"a/b":                                    "a/b",
 		strings.Repeat("a", 39) + "/" + "r":      strings.Repeat("a", 39) + "/r",
 	} {
@@ -58,6 +60,7 @@ func TestParseGitHubRepo(t *testing.T) {
 		"a/b//",
 		strings.Repeat("a", 40) + "/b",
 		"a/" + strings.Repeat("b", 101),
+		"a/...", "a/....git", "a/b.", "a/b..git", "https://github.com/a/b.",
 		"a/b\x00",
 		"a\x00/b",
 		"a/b\tc",
@@ -81,12 +84,12 @@ func TestValidGitHubNames(t *testing.T) {
 			t.Error("owner accepted", owner)
 		}
 	}
-	for _, repo := range []string{"r", "reet.sh", "a_b-c", strings.Repeat("r", 100)} {
+	for _, repo := range []string{"r", "reet.sh", "a_b-c", ".github", "-x", strings.Repeat("r", 100)} {
 		if !ValidGitHubRepo(repo) {
 			t.Error("repo rejected", repo)
 		}
 	}
-	for _, repo := range []string{"", ".", "..", ".git", "x.git", "a b", "a/b", strings.Repeat("r", 101)} {
+	for _, repo := range []string{"", ".", "..", "...", "....", "a.", "a..", ".git", "x.git", "a b", "a/b", strings.Repeat("r", 101)} {
 		if ValidGitHubRepo(repo) {
 			t.Error("repo accepted", repo)
 		}
@@ -133,6 +136,12 @@ func TestRepoCloneResultValid(t *testing.T) {
 		"reason with marked":  {RepoCloneResult{Reason: RepoCloneFailed, Marked: true}, false},
 		"branch without dir":  {RepoCloneResult{DefaultBranch: "main"}, false},
 		"flags without dir":   {RepoCloneResult{Marked: true}, false},
+	}
+	for _, reason := range []RepoCloneReason{RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied} {
+		cases["reason "+string(reason)] = struct {
+			r    RepoCloneResult
+			want bool
+		}{RepoCloneResult{Reason: reason}, true}
 	}
 	for name, c := range cases {
 		if got := c.r.valid(); got != c.want {

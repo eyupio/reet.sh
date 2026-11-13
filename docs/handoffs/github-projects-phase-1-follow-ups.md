@@ -16,11 +16,10 @@ are as the reviewers gave them and will have moved. Items the final fix round cl
 
 ## Fix before phase 2 builds on it
 
-- `GitHubRemote("https://github.com:443/owner")` answers owner `443`, repo `owner` instead of refusing
-  (`internal/terminalhost/gh_credentials.go`). Phase 1 uses the function only as a yes or no; phase 2 uses
-  the owner and repo it returns.
-- `GitHubRemote` matches the host case-sensitively (`GitHub.com` is refused) and does not recognise
-  `https://user@github.com/…` or `http://` origins. All fall back to the old behaviour.
+The two `GitHubRemote` items (a port read as the owner, and the host matched case-sensitively) were fixed
+on the phase 2 branch: a port is refused, the host is matched in any case and `https://user@github.com/…`
+is recognised (`internal/terminalhost/gh_credentials.go`).
+
 - `internal/terminalhost/inspect.go` (`inspectGitHubRepo`) parses github.com remotes a second way. Phase 2
   Task 7 moves the owner and repo patterns; fold this one in then.
 

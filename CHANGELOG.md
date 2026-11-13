@@ -18,7 +18,18 @@ this file existed releases were described on their GitHub release pages.
   project records which repository it came from, and a project reet cloned
   itself is not asked where a session starts (a clone of the same repository
   that was already there, and that reet didn't make, is used as it is and is
-  still asked).
+  still asked); what a session started from is recorded on the session and in
+  Activity. Editing the project to another machine or folder clears where it
+  came from. The clone is a full, normal one with its tags; Git LFS files stay
+  pointer files in the clone's own folder, while other content filters in the
+  machine's git settings still run. A machine clones one repository at a time,
+  a dropped connection or a controller restart ends a clone in progress (adding
+  the repository again picks up whatever finished, and the page says it lost
+  track of the clone), a git setting that sends github.com over ssh stops the
+  clone and says so, and an empty repository is added with a blank base.
+  Removing the project leaves `~/reet/repos/owner/name` on the machine; the
+  hidden folder a clone cut off part-way leaves is removed the next time that
+  repository is cloned.
 - A machine waiting for its controller to finish moving keeps a readable log.
   The agent says once that the controller has moved, and again only if the
   address changes, where it printed four lines every five seconds; it also

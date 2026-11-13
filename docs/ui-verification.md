@@ -3719,9 +3719,10 @@ repository as `owner/name` or its github.com link, read as the controller reads 
 machine from those that report `repoClone`, and an optional name. The page reads the clone every two seconds from the
 rail's host (`web/src/lib/home/ProjectRailHost.svelte`), with the dialog open or closed.
 
-Validation, against the production build in Chromium (Google Chrome for Testing 153) with synthetic answers:
+Validation, after the final review's fixes, against the production build (`npm run build`, served by `npm run preview`)
+in Chromium (Google Chrome for Testing 153) with synthetic answers:
 
-- `web/tests/add-project-github.e2e.mjs` (new) passes. At 1280 px and at 390 px with a coarse pointer, each in light and
+- `web/tests/add-project-github.e2e.mjs` passes. At 1280 px and at 390 px with a coarse pointer, each in light and
   dark: the tabs by keyboard (the arrows move between them, Tab reaches the Repository field), only the machine that can
   clone is offered and is chosen already, an unreadable repository says the controller's sentence only once the field
   is left, the line naming `~/reet/repos/eyupio/reet.sh on studio` appears once it reads, **Clone and add** is disabled
@@ -3733,26 +3734,33 @@ Validation, against the production build in Chromium (Google Chrome for Testing 
   touch, and nothing about the clone is in browser storage. At 1280 px in light only: closing mid-clone keeps the reads
   going and the project is chosen when done; reopening Add during the clone shows its status, not a second form; a new
   page load after leaving Home mid-clone reads nothing and finds the project in the list; a failure with the dialog
-  closed is said in Home's status line; four failures with the dialog open (not signed in, no access, folder exists,
-  timed out) show the controller's sentence in the dialog's status line with the typed repository and name kept and
-  focus on **Clone and add**; seven refusals of the start (`invalid_repo`, `repo_clone_unsupported`,
-  `machine_offline`, `clone_limit`, `project_limit`, `name_taken`, `read_only`) show their sentence and start no reads;
-  with two machines that can clone none is chosen and the button waits for one; `http`, another host, a trailing
-  `owner/name/`, a port and an all-dot name keep it disabled; no machine that can clone shows the sentence and no form;
-  a 401 at the start goes to sign in; a viewer sees no Add and no From GitHub; a project with `cloned: true` whose base
-  check answers `behind` starts from the launch bar with no **Check where this starts** dialog. The keyboard case was
-  seen failing against a build without the choice first; the cloned-project case passed before this change too (the
-  base question already left `cloned` out) and is kept as a guard.
-- `githubRepo.test.mjs` (new) runs every case of the Go `TestParseGitHubRepo` with the same answer, plus Go's
-  whitespace (a no-break space, the next-line control and the line separators are trimmed; a byte-order mark is not),
-  case-insensitive `https://GITHUB.COM/`, and look-alike letters; and the clone watcher: one read per interval, the
-  first after one interval, done and failed end it and forget it, a 404 ends it quietly, a 401 keeps it, a read that
-  never arrives is tried again, and stopping it stops the reads. `folderProjectsApi.test.mjs` covers the two routes.
+  closed is said in Home's status line; six failures with the dialog open (not signed in, no access, folder exists,
+  timed out, git settings that send github.com over ssh, terminal access off) show the controller's sentence in the
+  dialog's status line with the typed repository and name kept and focus on **Clone and add**; a clone the controller
+  no longer knows (404) says "reet lost track of cloning eyupio/reet.sh. Add it again; if the clone finished, reet
+  picks it up." in the dialog's status line with the repository kept, or in Home's status line with the dialog closed,
+  and reads the project list again; while the start is on its way the header's Close is disabled and Close, Escape and
+  a press outside all leave the dialog open, the tabs wait, and once the start answers the status line, **Close** and
+  the reads follow; seven refusals of the start (`invalid_repo`, `repo_clone_unsupported`, `machine_offline`,
+  `clone_limit`, `project_limit`, `name_taken`, `read_only`) show their sentence and start no reads; with two machines
+  that can clone none is chosen and the button waits for one; `http`, another host, a trailing `owner/name/`, a port
+  and an all-dot name keep it disabled; no machine that can clone shows the sentence and no form; a 401 at the start
+  goes to sign in; a viewer sees no Add and no From GitHub; a project with `cloned: true` whose base check answers
+  `behind` starts from the launch bar with no **Check where this starts** dialog. The held-dialog case and both
+  lost-clone cases were seen failing against the build before this change first.
+- `web/tests/phone-dialogs.e2e.mjs` passes for all 24 dialogs at 320 × 568, 360 × 640, 390 × 844, 412 × 915, 844 × 390
+  and 915 × 412. It now includes the Add dialog on its From GitHub tab. Before this change the Add dialog failed at
+  844 × 390 and 915 × 412 with the keyboard open (the focused folder field was cut off, and at 844 × 390 covered by
+  the footer's button), on both tabs; on a short screen the dialog now hides its eyebrow, its header is 48 px and the
+  footer's buttons are 44 px, so the field is whole above the footer at both sizes.
+- `githubRepo.test.mjs` runs every case of the Go `TestParseGitHubRepo` with the same answer, plus Go's whitespace,
+  case-insensitive `https://GITHUB.COM/` and look-alike letters; the clone watcher; and the lost-clone sentence.
 - `web/tests/add-project.e2e.mjs`, `add-project-edit.e2e.mjs`, `projects.e2e.mjs`, `launch-base.e2e.mjs`,
-  `home.e2e.mjs` and `sessions-phone.e2e.mjs` pass unchanged.
-- `npm run check` (unit tests and `svelte-check`, 0 errors, 0 warnings), `npm run build` and `go build ./...` pass.
+  `home.e2e.mjs` and `sessions-phone.e2e.mjs` pass.
+- `npm run check` (unit tests and `svelte-check`, 0 errors, 0 warnings) and `npm run build` pass.
 
 **Not checked.** No physical phone, Safari or Firefox, and no screen reader (the live regions were checked as markup,
 not heard). No real machine cloned anything: every answer here is synthetic, so the clone itself, `gh` on a desktop
-keyring and the ten-minute limit were not exercised in a browser. The Sessions screen and Factory hold the same rail and
-read an outstanding clone too; neither was exercised with one.
+keyring and the ten-minute limit were not exercised in a browser (the clone is covered by the Go tests with real git
+against a local repository standing in for GitHub). The Sessions screen and Factory hold the same rail and read an
+outstanding clone too; neither was exercised with one. `sessions-phone.e2e.mjs` was not run after this change.

@@ -140,7 +140,8 @@ git and the GitHub CLI." and shows no form.
 
 The machine clones the repository with its own gh sign-in into `~/reet/repos/<owner>/<name>` in its
 user's home, and the controller saves an ordinary repository project for that folder, with the
-repository's default branch as its base and the name defaulting to the repository's. reet records where
+repository's default branch as its base (blank for an empty repository, which has no branch yet) and
+the name defaulting to the repository's. reet records where
 it came from (`origin`, `owner/name`) and that reet cloned it (`cloned`). No GitHub credential reaches
 the controller. A folder already there that is a clone of the same repository is used as it is; a
 folder there that is anything else is refused and left alone.
@@ -152,15 +153,43 @@ which hold the same rail) is open, with the dialog open or not; when it is done 
 and chosen in the rail, with "Sorted. name added." The clone being read is kept in memory for the
 page's life only; a page opened later simply finds the project in its list. A failure is the
 controller's sentence ("studio isn't signed in to GitHub. Run gh auth login there, then try again.",
-"GitHub has no owner/name that studio's sign-in can read.", the folder holding something else, ten
-minutes running out) in the dialog's status line with what was typed still there, or in Home's status
-line when the dialog was closed. A start refused at once (the machine offline or too old for this, five
+"GitHub has no owner/name that studio's sign-in can read.", "Terminal access is off on studio. Turn it
+on there, then try again.", the folder holding something else, ten minutes running out) in the dialog's
+status line with what was typed still there, or in Home's status line when the dialog was closed. When
+the controller no longer knows the clone (it restarted mid-clone, or the clone ended more than ten
+minutes ago), the same place says "reet lost track of cloning owner/name. Add it again; if the clone
+finished, reet picks it up." and the project list is read again. While **Clone and add** waits for its
+answer the dialog can't be closed (Close, Escape and a press outside wait), as while a folder project is
+saved; once it answers, the cloning line and **Close** appear. A start refused at once (the machine offline or too old for this, five
 clones already running for the account, the project limit, a name already used) says so in the
 dialog. Asking again for the same repository on the same machine while it is still cloning joins that
 clone.
 
-A project reet cloned is never asked **Check where this starts** (below): the checkout is reet's own,
-so nothing local can be ahead of GitHub there.
+A project reet cloned is not asked **Check where this starts** (below) when a session starts; what the
+session started from is recorded on the session and in Activity, as for any session. Editing the project
+to another machine or folder makes it an ordinary project of that folder: where it came from and that
+reet cloned it are cleared.
+
+What the clone does, and what it leaves:
+
+- It is a full, normal clone, with tags fetched as in any clone, and its remote is always called
+  `origin`.
+- Git LFS files are left as pointer files in the clone's own folder; each session's worktree is checked
+  out the usual way, under that machine's own git settings. Other content filters named in the
+  person's own git settings still run during the clone.
+- A machine clones one repository at a time; asking while it is busy says "studio is already cloning
+  a repository. Try again when it finishes."
+- A dropped connection or a controller restart ends a clone in progress. Adding the repository again
+  picks up whatever finished: a complete clone already in `~/reet/repos/owner/name` is used as it is.
+- A git setting that sends github.com over ssh (for example `url."git@github.com:".insteadOf
+  "https://github.com/"`) stops the clone, because reet doesn't clone over ssh: "studio's git settings
+  send github.com over ssh, which reet doesn't use for cloning. Clone owner/name there yourself and add
+  the folder as a project."
+- Removing the project leaves `~/reet/repos/owner/name` on the machine. A later change will offer to
+  delete it.
+- A clone cut off part-way (the connector stopped, the machine lost power) leaves a hidden folder
+  `~/reet/repos/owner/.name.cloning-…`. It is removed the next time that repository is cloned, once it
+  is more than 15 minutes old; nothing else there is removed.
 
 ## Routes and shapes
 
@@ -182,7 +211,8 @@ plain sentence, and a field refusal names the field so the dialog can move focus
   `ETag` (the version, quoted).
 - `PATCH /folder-projects/{id}` with `If-Match` and any of the create fields: absent keeps, `""`
   clears; `{"note": ""}` clears the migration note (any other note is 422 `invalid_note`). A stale
-  version is 409 `project_changed`.
+  version is 409 `project_changed`. A change of `host` or `dir` clears `origin` and `cloned` in the
+  same write.
 - `DELETE /folder-projects/{id}` with `If-Match` → `{ok, message}`.
 - `POST /folder-projects/reorder` with `{ids, versions}` naming every project once → the list.
 - `POST /folder-projects/import-saved` with `{}` → the list plus `{created, skipped, message}`.

@@ -12,6 +12,10 @@ this file existed releases were described on their GitHub release pages.
   answers to a branch sync, a branch prune and a software update were all
   missing. An answer that arrives after its request gave up is now dropped
   instead of ending the connection too.
+- A machine waiting for its controller to finish moving keeps a readable log.
+  The agent says once that the controller has moved, and again only if the
+  address changes, where it printed four lines every five seconds; it also
+  asks the old controller once per cycle, not four times.
 - A starting session now reports its stages to the controller as it goes.
   The machine sent each stage note with the session's id attached, which the
   private protocol refuses, so every note was dropped before it left the

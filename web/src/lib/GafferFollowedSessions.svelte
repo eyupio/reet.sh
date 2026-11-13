@@ -62,8 +62,8 @@
   // A session is offered only when it has no goal at all and is not a pipeline's own session.
   const candidates=$derived(view?floorCandidates(sessions,view.goals.map(row=>row.goal)).filter(item=>!hiddenSessions.includes(item.id)&&inProjects(item.id)):[])
   const chosen=$derived(floorChosen(candidates,ticked))
-  // Room is the account's, whatever the page is narrowed to.
-  const room=$derived(floorRoom(allRows.map(row=>row.goal)))
+  // Room is the account's, whatever the page is narrowed to, and counts the pipelines' own goals that the page draws elsewhere.
+  const room=$derived(floorRoom((view?.goals??[]).map(row=>row.goal)))
   const showCandidates=$derived(!outcomeFilter&&(filter==='all'||filter==='idle'))
   const outcomes=$derived(floorOutcomes(records,rows))
   const chosenOutcome=$derived(outcomes.find(group=>group.id===outcomeFilter))
@@ -79,7 +79,8 @@
       const [next,owned,found]=await Promise.all([
         listGafferGoals(current.signal),
         // Outcome records are an addition: a controller without them, or a failed read, leaves the floor as it was.
-        listGafferOutcomes(current.signal).catch(()=>null),
+        // The page that shows this inline reads the outcomes itself.
+        inline?Promise.resolve(null):listGafferOutcomes(current.signal).catch(()=>null),
         terminalSessions(current.signal).then(list=>({list,error:''}),e=>({list:null,error:e instanceof Error?e.message:'Running sessions could not be read.'})),
       ])
       if(mine!==epoch)return

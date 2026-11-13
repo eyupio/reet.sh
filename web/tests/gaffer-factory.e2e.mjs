@@ -205,10 +205,12 @@ try {
       await button.getByRole('button',{name:'Move to next stage',exact:true}).click()
       const move=page.getByRole('dialog',{name:/^Move “Export button” on to (review|test|pr)\?$/})
       await expect(move).toContainText('This is your call');await expect(move).toContainText('Nothing is merged by this.')
+      // The move names the stage the person was shown, so a pipeline that left it meanwhile is not moved again.
+      const seen=kinds[outcomes[0].sessions[1].stage]
       expect(box.moved).toEqual([])
       await move.getByRole('button',{name:'Move on',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Moved'})).toHaveText('Moved “Export button” on. The controller is starting its next stage.')
-      expect(box.moved).toEqual([{confirmed:true}])
+      expect(box.moved).toEqual([{confirmed:true,stage:seen}])
       // …and decide, per pipeline and at any time, whether its merge waits for them.
       await pipes.nth(0).getByRole('button',{name:'Let Export API merge by itself',exact:true}).click()
       await expect(pipes.nth(0)).toContainText('By itself when green');expect(box.modes).toEqual([{on:true}])

@@ -174,6 +174,8 @@ type Service struct {
 	auditor         atomic.Pointer[AuditFunc]
 	toolHost        atomic.Pointer[ToolHost]
 	outcomeWake     chan struct{}
+	// outcomeRuns holds the outcomes being carried on right now, by ID.
+	outcomeRuns     sync.Map
 	workerEnabled   func() bool
 	workerLimiter   *auth.Limiter
 	store           *store.Store

@@ -119,6 +119,14 @@ type GafferOutcomeSession struct {
 	// stops at Ready to merge whatever AutoMerge says.
 	YoloMergeOK   bool `json:"yoloMergeOk,omitempty"`
 	MergeApproved bool `json:"mergeApproved,omitempty"`
+	// Retired are the Gaffer conversations of sessions this pipeline has left
+	// behind: a stage that was sent back, or a session that ended and was
+	// replaced. Their closed goals belong to the pipeline, not to the list of
+	// the person's other sessions.
+	Retired []string `json:"retired,omitempty"`
+	// SessionState is whether the session in hand is still there: "running",
+	// "ended" (closed, history kept) or "gone" (removed). Live only, never saved.
+	SessionState string `json:"sessionState,omitempty"`
 }
 
 type GafferOutcome struct {
@@ -154,6 +162,23 @@ type GafferOutcome struct {
 	ArchivedAt int64 `json:"archivedAt,omitempty"`
 	CreatedAt  int64 `json:"createdAt"`
 	UpdatedAt  int64 `json:"updatedAt"`
+}
+
+// Retire records conversations the pipeline has left behind, newest last,
+// keeping the most recent twenty.
+func (p *GafferOutcomeSession) Retire(conversations ...string) {
+	for _, id := range conversations {
+		known := id == ""
+		for _, have := range p.Retired {
+			known = known || have == id
+		}
+		if !known {
+			p.Retired = append(p.Retired, id)
+		}
+	}
+	if len(p.Retired) > 20 {
+		p.Retired = p.Retired[len(p.Retired)-20:]
+	}
 }
 
 // Finished reports whether nothing in the outcome is still moving: it is not
@@ -222,7 +247,11 @@ func (s *Store) CreateGafferOutcomeFor(uid int64, o GafferOutcome) (GafferOutcom
 	if _, err = tx.Exec(`INSERT INTO gaffer_outcomes(id,user_id,created_at,data) VALUES(?,?,?,?)`, o.ID, uid, o.CreatedAt, string(raw)); err != nil {
 		return o, err
 	}
-	if _, err = tx.Exec(`DELETE FROM gaffer_outcomes WHERE user_id=? AND json_extract(data,'$.state')!='starting' AND id NOT IN(SELECT id FROM gaffer_outcomes WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?)`, uid, uid, MaxGafferOutcomes); err != nil {
+	// Only an outcome with nothing still moving is dropped: one whose pipelines
+	// are followed or waiting for a merge decision is kept however old it is.
+	if _, err = tx.Exec(`DELETE FROM gaffer_outcomes WHERE user_id=? AND json_extract(data,'$.state')!='starting'
+ AND NOT EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state') IN('following','starting','advancing','waiting','ready_to_merge'))
+ AND id NOT IN(SELECT id FROM gaffer_outcomes WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?)`, uid, uid, MaxGafferOutcomes); err != nil {
 		return o, err
 	}
 	return o, tx.Commit()
@@ -241,7 +270,7 @@ func (s *Store) GafferOutcomeFor(uid int64, id string) (GafferOutcome, error) {
 }
 
 func (s *Store) GafferOutcomesFor(uid int64) ([]GafferOutcome, error) {
-	rows, err := s.db.Query(`SELECT data FROM gaffer_outcomes WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?`, uid, MaxGafferOutcomes)
+	rows, err := s.db.Query(`SELECT data FROM gaffer_outcomes WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?`, uid, 2*MaxGafferOutcomes)
 	if err != nil {
 		return nil, err
 	}

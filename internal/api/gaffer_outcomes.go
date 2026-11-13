@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -82,7 +84,7 @@ func (s *server) gafferOutcomeHistory(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
-	events, err := s.st.OutcomeEventsFor(s.uid(r), o.ID, 200)
+	events, err := s.st.OutcomeEventsFor(s.uid(r), o.ID, o.CreatedAt-60_000, 200)
 	if err != nil {
 		writeErr(w, 500, "The history could not be read.")
 		return
@@ -132,6 +134,11 @@ func (s *server) gafferOutcomeStop(w http.ResponseWriter, r *http.Request) {
 	o, err := s.gafferProviders.StopOutcome(s.uid(r), r.PathValue("id"), in.Revision)
 	if err != nil {
 		gafferOutcomeError(w, err)
+		return
+	}
+	if o.State != "stopped" {
+		// Nothing was being started, so nothing was stopped: say so rather than record a stop.
+		writeErr(w, 409, "This outcome has no sessions left to start. Use Stop following to end the pipelines in hand.")
 		return
 	}
 	s.eventRequest(r, "gaffer-outcome-stopped", "", map[string]any{"outcome": o.ID})
@@ -228,7 +235,7 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-pipeline-merge-approved", "", map[string]any{"outcome": o.ID, "session": r.PathValue("key")})
+	s.eventRequest(r, "gaffer-pipeline-merge-approved", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "session": r.PathValue("key")})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }
@@ -239,6 +246,8 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 func (s *server) gafferOutcomeAdvance(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Confirmed bool `json:"confirmed"`
+		// Stage is the stage the person was shown as in hand.
+		Stage string `json:"stage"`
 	}
 	if !decodeStrictJSON(w, r, 1024, &in, "That request is invalid.") {
 		return
@@ -251,7 +260,7 @@ func (s *server) gafferOutcomeAdvance(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
 		return
 	}
-	o, err := s.gafferProviders.MovePipelineOn(s.uid(r), r.PathValue("id"), r.PathValue("key"))
+	o, err := s.gafferProviders.MovePipelineOn(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Stage)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
@@ -355,7 +364,7 @@ func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-pipeline-retried", "", map[string]any{"outcome": o.ID, "session": r.PathValue("key")})
+	s.eventRequest(r, "gaffer-pipeline-retried", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "session": r.PathValue("key")})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }
@@ -426,6 +435,21 @@ type replyCapture struct {
 func (c *replyCapture) Header() http.Header         { return c.header }
 func (c *replyCapture) Write(b []byte) (int, error) { return c.body.Write(b) }
 func (c *replyCapture) WriteHeader(int)             {}
+
+// EndOutcomeSession ends a session a pipeline has finished with, the way the
+// person's own End does with its history kept: the worktree is left alone.
+func (o outcomeStarter) EndOutcomeSession(ctx context.Context, uid int64, sessionID string) error {
+	s := o.s
+	if s.terminals == nil {
+		return errors.New("Remote sessions are disabled on this controller.")
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return err
+	}
+	_, err := s.terminals.End(ctx, uid, sessionID, hex.EncodeToString(raw))
+	return err
+}
 
 func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in gaffer.OutcomeLaunch) (string, string, error) {
 	s := o.s

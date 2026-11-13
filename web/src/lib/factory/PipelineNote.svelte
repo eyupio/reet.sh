@@ -2,11 +2,11 @@
   // The person's own words to a pipeline: an instruction for its working agent, or the reason a stage is sent back.
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
 
-  let { title, intro, label, placeholder = '', confirmLabel, stages = [], busy = false, oncancel, onconfirm }: {
+  let { title, intro, label, placeholder = '', confirmLabel, stages = [], busy = false, error = '', oncancel, onconfirm }: {
     title: string; intro: string; label: string; placeholder?: string; confirmLabel: string
     /** For sending back: the stages that can be done again, the one in hand last. */
     stages?: { kind: string; label: string }[]
-    busy?: boolean; oncancel: () => void; onconfirm: (text: string, stage: string) => void
+    busy?: boolean; /** Why the last attempt was refused, shown where the person is looking. */ error?: string; oncancel: () => void; onconfirm: (text: string, stage: string) => void
   } = $props()
   const formId = $props.id()
   let text = $state(''), stage = $state('')
@@ -24,7 +24,8 @@
     </select></label>{/if}
     <label for={`${formId}-text`}>{label}</label>
     <textarea id={`${formId}-text`} bind:value={text} rows="5" {placeholder} disabled={busy}></textarea>
-    {#if bytes > limit}<p class="warning" role="status">Keep it within {limit.toLocaleString('en-GB')} UTF-8 bytes.</p>{/if}
+    {#if bytes > limit}<p class="warning" role="status">That is too long. Keep it within about {limit.toLocaleString('en-GB')} characters.</p>{/if}
+    {#if error}<p class="warning" role="alert">{error}</p>{/if}
     <div class="actions"><button class="btn primary" type="submit" disabled={busy || blocked}>{confirmLabel}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
   </form>
 </WorkspaceDialog>

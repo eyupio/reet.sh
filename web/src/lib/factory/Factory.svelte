@@ -10,7 +10,7 @@
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
-  import { DEFAULT_STAGES, agentActivity, ago, needsYou, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
+  import { DEFAULT_STAGES, agentActivity, ago, needsYou, sessionEndedChoices, sessionLost, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
   import { eventLabel } from '../events'
   import { sourceLabel } from '../clineSource'
   import GafferProse from '../GafferProse.svelte'
@@ -30,7 +30,13 @@
   let setup = $state<{ provider: boolean; machine: boolean; project: boolean } | null>(null)
   let outcomeOpen = $state(false), outcomeButton = $state<HTMLButtonElement>()
   let merging = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null), managing = $state<GafferGoalOverview | null>(null)
-  let busy = $state(false), notice = $state(''), floorKey = $state(0)
+  let busy = $state(false), notice = $state(''), bad = $state(false), floorKey = $state(0)
+  // Why a dialog's last attempt was refused, shown inside that dialog rather than behind it.
+  let dialogError = $state('')
+  // What went wrong is said where the person is, in the colour of a problem, and announced.
+  const fail = (e: unknown, fallback: string) => { notice = e instanceof Error ? e.message : fallback; bad = true }
+  // An objective can run to paragraphs; a title or a notice names it in a line.
+  const short = (text: string) => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > 80 ? `${line.slice(0, 79)}…` : line }
   // Asking Gaffer for a report on an outcome, and approving pipelines it proposed. `picked` holds the ticked proposals per outcome.
   let reporting = $state(''), picked = $state<Record<string, string[]>>({}), adding = $state<Outcome | null>(null), clock = $state(Date.now())
   let controller: AbortController | undefined, epoch = 0
@@ -110,7 +116,7 @@
   const listed = $derived((showArchived ? records : floor).filter(inScope))
   const tally = $derived(factoryTally(floor.filter(inScope), attention))
   // Goals the page draws inside a pipeline are left out of the list of other sessions below.
-  const drawn = $derived(records.flatMap(record => record.sessions.flatMap(piece => [piece.conversationId, ...(piece.stages ?? []).map(stage => stage.conversationId)])).filter((id): id is string => !!id))
+  const drawn = $derived(records.flatMap(record => record.sessions.flatMap(piece => [piece.conversationId, ...(piece.stages ?? []).map(stage => stage.conversationId), ...(piece.retired ?? [])])).filter((id): id is string => !!id))
   // A pipeline's own sessions are not offered again below, except one that was started and is not followed.
   const drawnSessions = $derived(records.flatMap(record => record.sessions.filter(piece => piece.state !== 'unfollowed').flatMap(piece => [piece.sessionId, ...(piece.stages ?? []).map(stage => stage.sessionId)])).filter((id): id is string => !!id))
   const ready = $derived(!!setup && setup.provider && setup.machine && setup.project)
@@ -153,29 +159,29 @@
   async function approve() {
     if (!merging || busy) return
     const { record, piece } = merging
-    busy = true; notice = ''
+    busy = true; notice = ''; bad = false
     try {
       const fresh = records.find(item => item.id === record.id) ?? record
       await approveGafferMerge(fresh, piece.key)
       notice = `Merge approved for “${piece.title}”. Its agent merges once every check passes, no review thread is open and there are no conflicts.`
-    } catch (e) { notice = e instanceof Error ? e.message : 'The merge was not approved.' }
+    } catch (e) { fail(e, 'The merge was not approved.') }
     busy = false; merging = null
     await load()
   }
   async function stop(record: Outcome) {
     if (busy) return
-    busy = true; notice = ''
-    try { await stopGafferOutcome(record); notice = 'Stopped. Sessions not yet started stay unstarted; the ones already started keep running.' }
-    catch (e) { notice = e instanceof Error ? e.message : 'The outcome was not stopped.' }
+    busy = true; notice = ''; bad = false
+    try { await stopGafferOutcome(latest(record)); notice = 'Stopped. Sessions not yet started stay unstarted; the ones already started keep running.' }
+    catch (e) { fail(e, 'The outcome was not stopped.') }
     busy = false
     await load()
   }
   // Ends an outcome that is not finished (a session was lost or removed, or the work is no longer wanted) so it can be archived or deleted.
   async function stopFollowing(record: Outcome) {
     if (busy) return
-    busy = true; notice = ''; releasing = null
-    try { await stopFollowingGafferOutcome(record); notice = `Stopped following “${record.objective}”. Sessions that still exist keep running. You can now archive or delete it.` }
-    catch (e) { notice = e instanceof Error ? e.message : 'The outcome was not stopped.' }
+    busy = true; notice = ''; bad = false; releasing = null
+    try { await stopFollowingGafferOutcome(latest(record)); notice = `Stopped following “${short(record.objective)}”. Sessions that still exist keep running. You can now archive or delete it.` }
+    catch (e) { fail(e, 'The outcome was not stopped.') }
     busy = false
     await load()
   }
@@ -185,13 +191,13 @@
   const outcomeShown = (record: Outcome) => outcomeFolds[record.id] ?? allOpen ?? (!outcomeFinished(record) || record.sessions.some(piece => ['failed', 'unfollowed'].includes(piece.state)))
   async function putAway(record: Outcome, mode: 'archive' | 'delete' | 'restore') {
     if (busy) return
-    busy = true; notice = ''; deleting = null
+    busy = true; notice = ''; bad = false; deleting = null
     try {
       const current = latest(record)
-      if (mode === 'delete') { await deleteGafferOutcome(current); notice = `Deleted “${record.objective}”. Its sessions and pull requests were not touched.` }
-      else if (mode === 'archive') { await archiveGafferOutcome(current); notice = `Archived “${record.objective}”. Show archived outcomes to bring it back.` }
-      else { await restoreGafferOutcome(current); notice = `Restored “${record.objective}”.` }
-    } catch (e) { notice = e instanceof Error ? e.message : 'That outcome was not changed.' }
+      if (mode === 'delete') { await deleteGafferOutcome(current); notice = `Deleted “${short(record.objective)}”. Its sessions and pull requests were not touched.` }
+      else if (mode === 'archive') { await archiveGafferOutcome(current); notice = `Archived “${short(record.objective)}”. Show archived outcomes to bring it back.` }
+      else { await restoreGafferOutcome(current); notice = `Restored “${short(record.objective)}”.` }
+    } catch (e) { fail(e, 'That outcome was not changed.') }
     busy = false
     await load()
   }
@@ -199,14 +205,14 @@
   // A review of Gaffer's own that did not complete is tried again by resuming the goal under its current permissions.
   async function reviewAgain(piece: GafferOutcomeSession) {
     if (busy || !piece.conversationId) return
-    busy = true; notice = ''
+    busy = true; notice = ''; bad = false
     try {
       const view = await getGafferGoal(piece.conversationId)
       if (!view.goal) throw new Error('That goal is no longer there.')
       if (!view.allowed) throw new Error(view.reason || 'Review this goal’s permissions before trying again.')
       await controlGafferGoal(piece.conversationId, view.goal.revision, 'resume', view.pins, true)
       notice = `Gaffer is reviewing “${piece.title}” again.`
-    } catch (e) { notice = e instanceof Error ? e.message : 'The review was not tried again.' }
+    } catch (e) { fail(e, 'The review was not tried again.') }
     busy = false
     await load()
   }
@@ -224,12 +230,14 @@
   const shown = (id: string, tone: string) => folds[id] ?? allOpen ?? (tone === 'you' || tone === 'bad' || arrived === id)
   // One choice from a card that needs the person. Each does what its button says and nothing else.
   let expanded = $state<Record<string, boolean>>({})
-  function choose(choice: NeedChoice, record: Outcome, piece: GafferOutcomeSession, goal: GafferGoalOverview) {
+  function choose(choice: NeedChoice, record: Outcome, piece: GafferOutcomeSession, goal: GafferGoalOverview | undefined) {
     if (choice.id === 'answer' || choice.id === 'open') { if (piece.sessionId) location.href = sessionHref(record, piece.sessionId) }
     else if (choice.id === 'retry' || choice.id === 'again') void reviewAgain(piece)
     else if (choice.id === 'tell') telling = { record, piece }
     else if (choice.id === 'move') moving = { record, piece }
-    else if (choice.id === 'budget') managing = goal
+    else if (choice.id === 'budget') { if (goal) managing = goal }
+    else if (choice.id === 'restart') void retry(record, piece)
+    else if (choice.id === 'stop') releasing = record
   }
   // A link from Home or elsewhere names one pipeline: bring it into view and mark it once the page has it.
   let arrived = $state(''), sought = false
@@ -239,7 +247,7 @@
     const id = decodeURIComponent(location.hash.slice(1))
     if (!id.startsWith('pipeline-')) return
     const record = records.find(item => id.startsWith(`pipeline-${item.id}-`))
-    if (record) reveal(record, id)
+    if (record) { if (record.archivedAt) showArchived = true; reveal(record, id) }
   })
   // The headline numbers that want the person are buttons: they go to the first card of that kind.
   function jump(kind: 'you' | 'ready') {
@@ -254,7 +262,7 @@
   }
   // A link or a number names one pipeline: open its outcome if it is folded, then bring it into view and mark it.
   function reveal(record: Outcome, id: string) {
-    outcomeFolds = { ...outcomeFolds, [record.id]: true }
+    outcomeFolds = { ...outcomeFolds, [record.id]: true }; folds = { ...folds, [id]: true }
     void tick().then(() => { const card = document.getElementById(id); if (card) { arrived = id; card.scrollIntoView({ block: 'center' }); card.focus({ preventScroll: true }) } })
   }
   const pipelineOf = (event: ActivityEvent) => { try { return String(JSON.parse(event.detail || '{}').pipeline ?? '') } catch { return '' } }
@@ -263,33 +271,37 @@
   async function moveOn() {
     if (!moving || busy) return
     const { record, piece } = moving
-    busy = true; notice = ''; moving = null
-    try { await moveGafferPipelineOn(record, piece.key); notice = `Moved “${piece.title}” on. The controller is starting its next stage.` }
-    catch (e) { notice = e instanceof Error ? e.message : 'That pipeline was not moved on.' }
+    busy = true; notice = ''; bad = false; moving = null
+    try { await moveGafferPipelineOn(record, piece.key, piece.stages?.[piece.stage ?? 0]?.kind ?? ''); notice = `Moved “${piece.title}” on. The controller is starting its next stage.` }
+    catch (e) { fail(e, 'That pipeline was not moved on.') }
     busy = false
     await load()
   }
   // Telling the working agent what to do next, and sending a pipeline back to a stage to be done again.
   let telling = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null), sending = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null)
   const requestId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
+  // One request ID for each opening of the dialog: a second press after a lost answer reads the first's receipt instead of telling the agent twice.
+  let tellRequest = ''
+  $effect(() => { if (telling) tellRequest = requestId(); dialogError = '' })
+  $effect(() => { if (sending || adding) dialogError = '' })
   async function tell(text: string) {
     if (!telling || busy) return
     const { record, piece } = telling
-    busy = true; notice = ''
+    busy = true; notice = ''; bad = false; dialogError = ''
     try {
-      const sent = await tellGafferPipelineAgent(record, piece.key, requestId(), text)
+      const sent = await tellGafferPipelineAgent(record, piece.key, tellRequest, text)
       notice = sent.message.state === 'sent' || sent.message.state === 'queued' || sent.message.state === 'sending' ? `Your instruction is with the agent of “${piece.title}” for its next turn.` : `The instruction for “${piece.title}” was not delivered: ${sent.message.note || sent.message.state}.`
       telling = null
-    } catch (e) { notice = e instanceof Error ? e.message : 'The instruction was not sent.' }
+    } catch (e) { dialogError = e instanceof Error ? e.message : 'The instruction was not sent.' }
     busy = false
     await load()
   }
   async function sendBack(reason: string, stage: string) {
     if (!sending || busy) return
     const { record, piece } = sending
-    busy = true; notice = ''
+    busy = true; notice = ''; bad = false; dialogError = ''
     try { await sendGafferPipelineBack(record, piece.key, stage, reason); notice = `Sent “${piece.title}” back to ${stageLabel(stage).toLowerCase()}. The controller is starting that stage again.`; sending = null }
-    catch (e) { notice = e instanceof Error ? e.message : 'That pipeline was not sent back.' }
+    catch (e) { dialogError = e instanceof Error ? e.message : 'That pipeline was not sent back.' }
     busy = false
     await load()
   }
@@ -300,44 +312,47 @@
     if (busy) return
     if (on && record.yolo && !yoloConfirmed) { yoloMerge = { record, piece }; return }
     yoloMerge = null
-    busy = true; notice = ''
+    busy = true; notice = ''; bad = false
     try { await setGafferPipelineAutoMerge(record, piece.key, on, yoloConfirmed); notice = on ? `“${piece.title}” will merge by itself once every check passes.` : `“${piece.title}” will stop at Ready to merge and wait for you.` }
-    catch (e) { notice = e instanceof Error ? e.message : 'The merge setting was not changed.' }
+    catch (e) { fail(e, 'The merge setting was not changed.') }
     busy = false
     await load()
   }
   async function retry(record: Outcome, piece: GafferOutcomeSession) {
     if (busy) return
-    busy = true; notice = ''
+    busy = true; notice = ''; bad = false
     try { await retryGafferPipeline(latest(record), piece.key); notice = `Trying “${piece.title}” again.` }
-    catch (e) { notice = e instanceof Error ? e.message : 'That pipeline was not tried again.' }
+    catch (e) { fail(e, 'That pipeline was not tried again.') }
     busy = false
     await load()
   }
   async function report(record: Outcome) {
     if (busy || reporting) return
-    reporting = record.id; notice = ''
+    reporting = record.id; notice = ''; bad = false
     try {
       const next = await reviewGafferOutcome(latest(record))
       records = records.map(item => item.id === next.id ? next : item)
-      // Every proposal starts ticked; nothing is added until the person says so.
-      picked = { ...picked, [next.id]: (next.report?.proposals ?? []).map(item => item.title) }
-    } catch (e) { notice = e instanceof Error ? e.message : 'Gaffer could not report on this outcome.' }
+      // A new report's proposals start ticked again.
+      const { [next.id]: _, ...rest } = picked; picked = rest
+    } catch (e) { fail(e, 'Gaffer could not report on this outcome.') }
     reporting = ''
   }
-  const chosenProposals = (record: Outcome) => (record.report?.proposals ?? []).filter(item => (picked[record.id] ?? []).includes(item.title))
+  // Every proposal starts ticked, whoever asked for the report and whenever the page was opened; nothing is added until the person says so.
+  const ticked = (record: Outcome) => picked[record.id] ?? (record.report?.proposals ?? []).map(item => item.title)
+  const chosenProposals = (record: Outcome) => (record.report?.proposals ?? []).filter(item => ticked(record).includes(item.title))
   function pick(record: Outcome, title: string, on: boolean) {
-    const now = picked[record.id] ?? []
+    const now = ticked(record)
     picked = { ...picked, [record.id]: on ? [...now, title] : now.filter(item => item !== title) }
   }
   async function add(chosen: AddedPipeline[]) {
     if (!adding || busy) return
     const record = adding
-    busy = true; notice = ''; adding = null
+    busy = true; notice = ''; bad = false; dialogError = ''
     try {
       await addGafferPipelines(latest(record), chosen)
+      adding = null
       notice = chosen.length === 1 ? `Added “${chosen[0].title}”. The controller is starting it.` : `Added ${chosen.length} pipelines. The controller is starting them.`
-    } catch (e) { notice = e instanceof Error ? e.message : 'The pipelines were not added. Nothing was started.' }
+    } catch (e) { dialogError = e instanceof Error ? e.message : 'The pipelines were not added. Nothing was started.' }
     busy = false
     await load()
   }
@@ -375,8 +390,8 @@
 
   {#if records.length}<div class="fold-all">{#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}<button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {}; outcomeFolds = {} }}>{allOpen === true ? 'Collapse all' : 'Expand all'}</button></div>{/if}
   {#if scope}<p class="scope"><span>Showing <strong>{scopeName}</strong>{scope.kind === 'project' ? '. A new outcome starts in this project.' : '.'}</span> <button type="button" class="btn quiet" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
-  {#if notice}<p role="status" class="notice">{notice}</p>{/if}
-  {#if error}<p role="alert" class="warning">{error}{#if records.length}{' '}Showing the last successful read.{/if}</p>{/if}
+  {#if notice}<div class="notice" class:bad><p role={bad ? 'alert' : 'status'}>{notice}</p><button class="inline" type="button" aria-label="Dismiss this message" onclick={() => notice = ''}>Dismiss</button></div>{/if}
+  {#if error && records.length}<p role="alert" class="warning">{error} Showing the last successful read.</p>{/if}
 
   {#if setup && !ready}<section class="setup" aria-label="Set up your factory">
     <GafferCompanionAvatar size={48}/>
@@ -393,13 +408,14 @@
 
   <section class="lines" aria-label="Pipelines">
     {#if loading}<p role="status">Reading the factory…</p>
+    {:else if error && !records.length}<div class="empty"><h2>The factory could not be read.</h2><p>Nothing is shown because nothing was read, not because there is nothing. The page tries again by itself every few seconds.</p><button class="btn" type="button" onclick={() => { loading = true; void load() }}>Try again now</button></div>
     {:else if scope && !listed.length}<div class="empty"><h2>Nothing in {scopeName} yet.</h2><p>{scope.kind === 'project' ? 'Give Gaffer an outcome and its pipelines for this project appear here.' : 'No outcome has been started in this group’s projects.'}</p>{#if scope.kind === 'project'}<button class="btn primary" type="button" onclick={() => openOutcome()}>Give Gaffer an outcome in {scopeName}</button>{/if}</div>
     {:else if !listed.length && shelved.length}<div class="empty"><h2>Nothing on the floor.</h2><p>Every outcome is archived. Show archived to look at them or bring one back.</p></div>
     {:else if !records.length}<div class="empty"><h2>No pipelines yet.</h2><p>Give Gaffer an outcome and its pipelines appear here, each moving through plan, design, code, review, test, pull request, babysitting and merge.</p></div>
     {:else}
-      {#each listed as record (record.id)}{@const open_ = outcomeShown(record)}{@const finished = outcomeFinished(record)}{@const usage = outcomeUsage(record.sessions.map(piece => pipelineUsage(piece, piece.conversationId ? byConversation.get(piece.conversationId)?.goal : undefined)), record.report)}<article class="outcome" class:shelved={!!record.archivedAt} aria-label={`Outcome: ${record.objective}`}>
+      {#each listed as record (record.id)}{@const open_ = outcomeShown(record)}{@const finished = outcomeFinished(record)}{@const usage = outcomeUsage(record.sessions.map(piece => pipelineUsage(piece, piece.conversationId ? byConversation.get(piece.conversationId)?.goal : undefined)), record.report)}<article class="outcome" class:shelved={!!record.archivedAt} aria-label={`Outcome: ${short(record.objective)}`}>
         <header class="outcome-head">
-          <div class="outcome-title"><p class="eyebrow">Outcome</p><h2>{record.objective}</h2><p class="meta">{record.projectName || 'Project'} · started {when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {when(record.archivedAt)}{/if}{#if !open_} · {record.sessions.length} {record.sessions.length === 1 ? 'pipeline' : 'pipelines'}, {record.sessions.every(piece => piece.state === 'done') ? 'all done' : finished ? 'finished' : 'in progress'}{/if}</p></div>
+          <div class="outcome-title"><p class="eyebrow">Outcome</p><h2 class:folded={!open_}>{record.objective}</h2><p class="meta">{record.projectName || 'Project'} · started {when(record.createdAt)}{#if record.state === 'starting'} · <span class="live">the controller is starting sessions</span>{:else if record.state === 'stopped'} · stopped{/if}{#if record.archivedAt} · archived {when(record.archivedAt)}{/if}{#if !open_} · {record.sessions.length} {record.sessions.length === 1 ? 'pipeline' : 'pipelines'}, {record.sessions.every(piece => piece.state === 'done') ? 'all done' : finished ? 'finished' : 'in progress'}{/if}</p></div>
           <div class="outcome-actions">
             <button class="btn quiet" type="button" aria-expanded={open_} onclick={() => outcomeFolds = { ...outcomeFolds, [record.id]: !open_ }}>{open_ ? 'Hide details' : 'Show details'}</button>
             {#if open_}
@@ -420,7 +436,7 @@
           <div><dt>Gaffer reviews</dt><dd>{usage.reviews}</dd></div>
           <div><dt>Gaffer tokens</dt><dd>{tokensText(usage)}</dd></div>
           {#if true}{@const agents = outcomeAgentUsage(record.sessions)}<div><dt>Agent tokens</dt><dd>{agentTokensText(agents.total)}{#if agents.byAgent.length > 1}{' '}<span class="split">({agents.byAgent.map(item => `${chatToolName(item.tool)} ${agentTokensText({ tokens: item.tokens, cached: 0, reported: true })}`).join(', ')})</span>{/if}</dd></div>{/if}
-          <div><dt>Budget per stage</dt><dd>{record.maxReviews} reviews · {record.hours} h</dd></div>
+          <div><dt>Budget per stage</dt><dd>{record.maxReviews} {record.maxReviews === 1 ? 'review' : 'reviews'} · {record.hours} h</dd></div>
           <div><dt>Approvals</dt><dd class:yolo={record.yolo}>{record.yolo ? 'YOLO' : 'Ask me'}</dd></div>
           <div><dt>Reports</dt><dd>{record.autoReport ? 'By itself and on request' : 'On request'}</dd></div>
         </dl>
@@ -438,36 +454,45 @@
           {#if record.report.proposals?.length}
             <p class="hint">Gaffer suggests adding {record.report.proposals.length === 1 ? 'this pipeline' : 'these pipelines'}. Nothing is added or started unless you approve it, and you choose each one’s agent, model and effort then.</p>
             <ul class="proposals" aria-label="Proposed pipelines">
-              {#each record.report.proposals as item (item.title)}<li><label><input type="checkbox" checked={(picked[record.id] ?? []).includes(item.title)} onchange={event => pick(record, item.title, event.currentTarget.checked)}/><span><strong>{item.title}</strong>{#if item.why}<span class="why">{item.why}</span>{/if}<span class="why">{(item.stages?.length ? item.stages : DEFAULT_STAGES).map(stageLabel).join(' → ')}</span></span></label></li>{/each}
+              {#each record.report.proposals as item (item.title)}<li><label><input type="checkbox" checked={ticked(record).includes(item.title)} onchange={event => pick(record, item.title, event.currentTarget.checked)}/><span><strong>{item.title}</strong>{#if item.why}<span class="why">{item.why}</span>{/if}<span class="why">{(item.stages?.length ? item.stages : DEFAULT_STAGES).map(stageLabel).join(' → ')}</span></span></label></li>{/each}
             </ul>
             <div class="actions"><button class="btn primary" type="button" disabled={busy || !chosenProposals(record).length} onclick={() => adding = record}>{chosenProposals(record).length === 1 ? 'Add 1 pipeline' : `Add ${chosenProposals(record).length} pipelines`}</button></div>
           {/if}
         </section>{/if}
         <ul class="pipes" aria-label="Pipelines of this outcome">
-          {#each record.sessions as piece (piece.key)}{@const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined}{@const status = pipelineStatus(piece, !!goal?.attention)}{@const nodes = track(piece)}{@const id = pipelineAnchor(record.id, piece.key)}{@const open = shown(id, status.tone)}<li class="pipe" id={pipelineAnchor(record.id, piece.key)} tabindex="-1" class:arrived={arrived === pipelineAnchor(record.id, piece.key)} class:you={status.tone === 'you'} class:bad={status.tone === 'bad'}>
+          {#each record.sessions as piece (piece.key)}{@const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined}{@const status = pipelineStatus(piece, !!goal?.attention)}{@const nodes = track(piece)}{@const id = pipelineAnchor(record.id, piece.key)}{@const open = shown(id, status.tone)}{@const lost = sessionLost(piece)}{@const alive = piece.sessionState !== 'ended' && piece.sessionState !== 'gone'}<li class="pipe" id={pipelineAnchor(record.id, piece.key)} tabindex="-1" class:arrived={arrived === pipelineAnchor(record.id, piece.key)} class:you={status.tone === 'you'} class:bad={status.tone === 'bad'}>
             <div class="pipe-head"><h3>{piece.title}</h3>{#if nodes.length}<span class="where">{stageLabel(nodes[Math.min(piece.stage ?? 0, nodes.length - 1)].kind)} · {Math.min((piece.stage ?? 0) + 1, nodes.length)} of {nodes.length}</span>{/if}<span class="badge {status.tone}">{status.label}</span>
               <button class="fold" type="button" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} details of ${piece.title}`} onclick={() => folds = { ...folds, [id]: !open }}>{open ? 'Hide details' : 'Show details'}</button></div>
-            {#if !open}<p class="now brief">{status.label === 'Needs you' && goal ? (goal.reason || goal.goal.note) : piece.note}</p>{:else}
+            {#if !open}<p class="now brief">{lost ? 'Its session was ended. Open this to choose what happens next.' : status.label === 'Needs you' && goal ? (goal.reason || goal.goal.note) : piece.note}</p>{:else}
             {#if nodes.length}<ol class="track" aria-label={`Stages of ${piece.title}`}>
               {#each nodes as node, index (node.kind)}{@const look = node.state === 'running' && status.label === 'Needs you' ? 'waiting' : node.state}<li class={look} aria-current={look === 'running' || look === 'waiting' ? 'step' : undefined} title={`${node.label}: ${chatToolName(node.tool)}${node.model ? ` · ${node.model}` : ''}${node.source ? ` · ${sourceLabel(node.source)}` : ''}${node.moved ? ' · moved on by you' : ''}${node.summary ? ` — ${node.summary}` : ''}`}>
                 <span class="dot" class:moved={node.moved} aria-hidden="true">{node.moved ? '»' : look === 'done' ? '✓' : look === 'waiting' ? '!' : look === 'failed' ? '×' : index + 1}</span><span class="name">{node.label}</span><span class="sr-only">{node.moved ? 'moved on by you, not handed over by Gaffer' : look === 'done' ? 'done' : look === 'running' ? 'running now' : look === 'waiting' ? 'waiting for you' : look === 'failed' ? 'stopped' : 'to come'}</span>
               </li>{/each}
             </ol>{/if}
-            {#if status.label === 'Needs you' && goal}{@const need = needsYou(goal.goal, goal.reason, (piece.stage ?? 0) >= nodes.length - 1)}<section class="decide" aria-label={`What ${piece.title} needs from you`}>
+            {#if lost}{@const need = sessionEndedChoices((piece.stage ?? 0) >= nodes.length - 1, piece.sessionState === 'gone')}<section class="decide" aria-label={`What ${piece.title} needs from you`}>
+              <p class="decide-why">{need.why}</p>
+              <p class="decide-ask">What do you want to do?</p>
+              <div class="decide-choices" data-floating-clearance>{#each need.choices.filter(choice => choice.id !== 'move' || (nodes.length && piece.conversationId)) as choice (choice.id)}<button class="btn" class:primary={choice.primary} type="button" disabled={busy} onclick={() => choose(choice, record, piece, goal)}>{choice.label}</button>{/each}</div>
+              <p class="hint">A new session works in the same folder and branch. Moving on starts the next stage in a session of its own.</p>
+            </section>
+            {:else if status.label === 'Needs you' && goal}{@const need = needsYou(goal.goal, goal.reason, (piece.stage ?? 0) >= nodes.length - 1)}<section class="decide" aria-label={`What ${piece.title} needs from you`}>
               <p class="decide-why">{need.why}</p>
               {#if goal.goal.summary}{@const whole = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open={whole}><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!whole} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !whole }}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
               <p class="decide-ask">What do you want to do?</p>
-              <div class="decide-choices">{#each need.choices.filter(choice => (choice.id !== 'move' || (piece.state === 'following' && nodes.length && piece.conversationId)) && (choice.id !== 'tell' || (piece.sessionId && piece.conversationId)) && ((choice.id !== 'open' && choice.id !== 'answer') || piece.sessionId)) as choice (choice.id)}<button class="btn" class:primary={choice.primary} type="button" disabled={busy} onclick={() => choose(choice, record, piece, goal)}>{choice.label}</button>{/each}</div>
+              <div class="decide-choices" data-floating-clearance>{#each need.choices.filter(choice => (choice.id !== 'move' || (piece.state === 'following' && nodes.length && piece.conversationId)) && (choice.id !== 'tell' || (piece.sessionId && piece.conversationId && alive)) && ((choice.id !== 'open' && choice.id !== 'answer') || (piece.sessionId && piece.sessionState !== 'gone'))) as choice (choice.id)}<button class="btn" class:primary={choice.primary} type="button" disabled={busy} onclick={() => choose(choice, record, piece, goal)}>{choice.label}</button>{/each}</div>
             </section>
             {:else}<p class="now">{piece.note}</p>{/if}
-            {#if goal?.goal.summary && status.label !== 'Needs you'}{@const whole = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open={whole}><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!whole} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !whole }}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
+            {#if goal?.goal.summary && (status.label !== 'Needs you' || lost)}{@const whole = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open={whole}><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!whole} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !whole }}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
             <dl class="facts">
               <div><dt>Doing this stage</dt><dd>{crew(piece, record)}</dd></div>
               {#if piece.state === 'following'}{@const stage = piece.stages?.[piece.stage ?? 0]}{@const activity = agentActivity(stage, clock)}
                 {#if stage?.startedAt}<div><dt>In this stage</dt><dd>{ago(stage.startedAt, clock)}</dd></div>{/if}
                 {#if activity.text}<div><dt>Agent</dt><dd class:low={activity.quiet}>{activity.text}</dd></div>{/if}{/if}
-              {#if nodes.some(node => node.kind === 'merge')}{@const auto = mergesByItself(record, piece)}<div><dt>Merge</dt><dd>{auto ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : record.yolo && piece.autoMerge ? 'Waits for you (YOLO)' : 'Waits for you'}{#if piece.state !== 'done' && !piece.mergeApproved}{' '}<button class="inline" type="button" disabled={busy} aria-label={`${auto ? 'Make' : 'Let'} ${piece.title} ${auto ? 'wait for you before merging' : 'merge by itself'}`} onclick={() => void mergeMode(record, piece, !auto)}>{auto ? 'Make it wait for me' : 'Let it merge by itself'}</button>{/if}</dd></div>{/if}
+              {#if nodes.some(node => node.kind === 'merge')}{@const auto = mergesByItself(record, piece)}<div><dt>Merge</dt><dd>{auto ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : record.yolo && piece.autoMerge ? 'Waits for you (YOLO)' : 'Waits for you'}{#if piece.state !== 'done' && piece.state !== 'ready_to_merge' && !piece.mergeApproved}{' '}<button class="inline" type="button" disabled={busy} aria-label={`${auto ? 'Make' : 'Let'} ${piece.title} ${auto ? 'wait for you before merging' : 'merge by itself'}`} onclick={() => void mergeMode(record, piece, !auto)}>{auto ? 'Make it wait for me' : 'Let it merge by itself'}</button>{/if}</dd></div>{/if}
             </dl>
+            {#if nodes.length}<details class="more-facts"><summary>Who did each stage</summary><ol class="stages" aria-label={`Who did each stage of ${piece.title}`}>
+              {#each nodes as node (node.kind)}<li><strong>{node.label}</strong><span>{chatToolName(node.tool)}{node.model ? ` · ${node.model}` : ''}{node.source ? ` · ${sourceLabel(node.source)}` : ''}</span><span class="why">{node.state === 'done' ? (node.moved ? 'Done: you moved it on' : 'Done: Gaffer handed it over') : node.state === 'running' ? 'In hand' : node.state === 'failed' ? 'Stopped' : 'To come'}</span>{#if node.summary}<p class="handover">{node.summary}</p>{/if}</li>{/each}
+            </ol></details>{/if}
             <details class="more-facts"><summary>Usage and budget</summary><dl class="facts">
               {#if goal && goal.goal.state === 'active'}<div><dt>Reviews left</dt><dd>{Math.max(0, goal.goal.maxReviews - goal.goal.usedReviews)} of {goal.goal.maxReviews}</dd></div>
                 <div><dt>Time left</dt><dd>{timeLeft(goal.goal.expiresAt, clock)}</dd></div>{/if}
@@ -478,16 +503,18 @@
             </dl></details>
             <div class="actions">
               {#if piece.state === 'ready_to_merge'}<button class="btn primary" type="button" disabled={busy} onclick={() => merging = { record, piece }}>Approve merge</button>{/if}
-              {#if status.label === 'Needs you' && goal}
+              {#if lost}
+                {#if goal}<button class="btn quiet" type="button" onclick={() => managing = goal}>Goal and limits</button>{/if}
+              {:else if status.label === 'Needs you' && goal}
                 <!-- The choices above cover opening the session, telling the agent and moving on; what is left is the rest. -->
                 <button class="btn quiet" type="button" onclick={() => managing = goal}>Goal and limits</button>
               {:else}
-                {#if piece.sessionId}<a class="btn" href={sessionHref(record, piece.sessionId)}>Open session</a>{/if}
+                {#if piece.sessionId && piece.sessionState !== 'gone'}<a class="btn" href={sessionHref(record, piece.sessionId)}>{alive ? 'Open session' : 'Read the ended session'}</a>{/if}
                 {#if goal}<button class="btn quiet" type="button" onclick={() => managing = goal}>Review goal</button>{/if}
                 {#if piece.state === 'following' && nodes.length && piece.conversationId}{@const last = (piece.stage ?? 0) >= nodes.length - 1}<button class="btn" type="button" disabled={busy} onclick={() => moving = { record, piece }}>{last ? 'Finish this stage' : 'Move to next stage'}</button>{/if}
-                {#if piece.sessionId && piece.conversationId && ['following', 'unfollowed', 'ready_to_merge'].includes(piece.state)}<button class="btn quiet" type="button" disabled={busy} onclick={() => telling = { record, piece }}>Tell the agent…</button>{/if}
+                {#if piece.sessionId && piece.conversationId && alive && ['following', 'unfollowed', 'ready_to_merge'].includes(piece.state)}<button class="btn quiet" type="button" disabled={busy} onclick={() => telling = { record, piece }}>Tell the agent…</button>{/if}
               {/if}
-              {#if nodes.length && ['following', 'ready_to_merge', 'done', 'unfollowed'].includes(piece.state)}<button class="btn quiet" type="button" disabled={busy} onclick={() => sending = { record, piece }}>Send back…</button>{/if}
+              {#if nodes.length && !lost && ['following', 'ready_to_merge', 'done', 'unfollowed'].includes(piece.state)}<button class="btn quiet" type="button" disabled={busy} onclick={() => sending = { record, piece }}>Send back…</button>{/if}
               {#if ['failed', 'unfollowed', 'cancelled'].includes(piece.state)}<button class="btn" type="button" disabled={busy} onclick={() => void retry(record, piece)}>Try again</button>{/if}
             </div>
             {/if}
@@ -503,18 +530,18 @@
     <p class="hint">Sessions you started yourself: the ones Gaffer looks after, and the running chats it does not yet.{#if scope}{' '}Only those in {scopeName} are listed.{/if}</p>
     {#key floorKey}<GafferFollowedSessions inline hidden={drawn} hiddenSessions={drawnSessions} projectIds={scopedIds} {userId} {timeZone} {dateFormat} onerror={e => e instanceof Error ? e.message : 'The sessions could not be read.'} onchanged={load} onselect={() => {}} onhistory={() => {}} onclose={() => {}}/>{/key}
   </section>
-  {#if readAt}<p class="foot">Read {when(readAt)}{live ? ', refreshing while sessions start' : ''}. Reading the factory makes no model request and starts nothing.</p>{/if}
+  {#if readAt}<p class="foot">Read {when(readAt)}{live ? ', while the controller starts sessions' : ''}. The page refreshes every few seconds. Reading the factory makes no model request and starts nothing.</p>{/if}
 </div>
 
 </div>
 
 {#if outcomeOpen}<GafferOutcome projectId={outcomeProject} room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
-{#if releasing}<ConfirmDialog title={`Stop following “${releasing.objective}”?`} body="Gaffer and the controller stop looking after every unfinished pipeline in this outcome and start nothing more for it. Sessions that still exist keep running, and nothing is merged or closed. Use this when a session was lost or removed, or the work is no longer wanted; you can then archive or delete the outcome." confirmLabel="Stop following" oncancel={() => releasing = null} onconfirm={() => releasing && void stopFollowing(releasing)}/>{/if}
-{#if deleting}<ConfirmDialog title={`Delete “${deleting.objective}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
-{#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
+{#if releasing}<ConfirmDialog title={`Stop following “${short(releasing.objective)}”?`} body="Gaffer and the controller stop looking after every unfinished pipeline in this outcome and start nothing more for it. Sessions that still exist keep running, and nothing is merged or closed. Use this when a session was lost or removed, or the work is no longer wanted; you can then archive or delete the outcome." confirmLabel="Stop following" oncancel={() => releasing = null} onconfirm={() => releasing && void stopFollowing(releasing)}/>{/if}
+{#if deleting}<ConfirmDialog title={`Delete “${short(deleting.objective)}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
+{#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} error={dialogError} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
 {#if moving}{@const at = moving.piece.stages?.[moving.piece.stage ?? 0]?.kind ?? ''}{@const next = moving.piece.stages?.[(moving.piece.stage ?? 0) + 1]?.kind ?? ''}<ConfirmDialog title={next ? `Move “${moving.piece.title}” on to ${stageLabel(next).toLowerCase()}?` : `Finish the ${stageLabel(at).toLowerCase()} stage of “${moving.piece.title}”?`} body={`This is your call: the ${stageLabel(at).toLowerCase()} stage is closed as it stands, without waiting for Gaffer to find it done${next ? `, and the controller starts the ${stageLabel(next).toLowerCase()} stage with Gaffer’s last review as its handover` : ''}. ${next === 'merge' && !mergesByItself(moving.record, moving.piece) ? 'It then stops at Ready to merge and waits for you.' : next === 'merge' ? 'This pipeline merges by itself once every check passes.' : 'Nothing is merged by this.'}`} confirmLabel={next ? 'Move on' : 'Finish stage'} oncancel={() => moving = null} onconfirm={() => void moveOn()}/>{/if}
-{#if telling}<PipelineNote title={`Tell the agent of “${telling.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" placeholder="Write the plan as text now: files, approach, risks. Change no code." confirmLabel="Send to the agent" {busy} oncancel={() => telling = null} onconfirm={text => void tell(text)}/>{/if}
-{#if sending}{@const upTo = Math.min(sending.piece.stage ?? 0, (sending.piece.stages?.length ?? 1) - 1)}<PipelineNote title={`Send “${sending.piece.title}” back`} intro="The stage you choose, and every stage after it, is done again in a fresh agent session in the same folder and branch. The agent is told your reason. Nothing already committed is undone." label="Why it is going back" placeholder="The review found the export leaks other tenants’ rows." confirmLabel="Send back" stages={(sending.piece.stages ?? []).slice(0, upTo + 1).map(item => ({ kind: item.kind, label: stageLabel(item.kind) }))} {busy} oncancel={() => sending = null} onconfirm={(text, stage) => void sendBack(text, stage)}/>{/if}
+{#if telling}<PipelineNote title={`Tell the agent of “${telling.piece.title}”`} intro="Your words go to this pipeline’s working agent for its next turn, exactly as you write them. It cannot interrupt the agent or answer an approval." label="Instruction" placeholder="Write the plan as text now: files, approach, risks. Change no code." confirmLabel="Send to the agent" {busy} error={dialogError} oncancel={() => telling = null} onconfirm={text => void tell(text)}/>{/if}
+{#if sending}{@const upTo = Math.min(sending.piece.stage ?? 0, (sending.piece.stages?.length ?? 1) - 1)}<PipelineNote title={`Send “${sending.piece.title}” back`} intro="The stage you choose, and every stage after it, is done again in a fresh agent session in the same folder and branch. The agent is told your reason. Nothing already committed is undone." label="Why it is going back" placeholder="The review found the export leaks other tenants’ rows." confirmLabel="Send back" stages={(sending.piece.stages ?? []).slice(0, upTo + 1).map(item => ({ kind: item.kind, label: stageLabel(item.kind) }))} {busy} error={dialogError} oncancel={() => sending = null} onconfirm={(text, stage) => void sendBack(text, stage)}/>{/if}
 {#if yoloMerge}<ConfirmDialog title={`Let “${yoloMerge.piece.title}” merge by itself on YOLO?`} body="This pipeline’s agent runs on YOLO: it acts without asking you. If it may also merge by itself, nothing stops for you between the code and the merge. It still merges only once every check passes, no review thread is open and there are no conflicts. A merge cannot be undone from here." confirmLabel="Let it merge by itself" oncancel={() => yoloMerge = null} onconfirm={() => { const { record, piece } = yoloMerge!; void mergeMode(record, piece, true, true) }}/>{/if}
 {#if merging}<ConfirmDialog title={`Merge “${merging.piece.title}”?`} body="This tells the pipeline’s agent to merge its pull request once every check passes, no review thread is open and there are no conflicts. If any of those is not true it fixes that first or brings it back to you. A merge cannot be undone from here." confirmLabel="Approve merge" oncancel={() => merging = null} onconfirm={() => void approve()}/>{/if}
 {#if managing}<WorkspaceDialog title="Look after this session" onclose={() => { managing = null; void load() }}><GafferGoal id={managing.goal.conversationId} sessionId={managing.goal.sessionId} {userId} {timeZone} {dateFormat} onchanged={load}/></WorkspaceDialog>{/if}
@@ -532,7 +559,9 @@
   .sub,.hint,.meta,.foot{color:var(--muted)}.warning{color:var(--bad)}.eyebrow{font-size:0.875rem;color:var(--muted);letter-spacing:.02em}
   .top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}.identity{display:grid;gap:4px;min-width:0;flex:1 1 320px}.top-actions{display:flex;gap:8px;flex-wrap:wrap}.top-actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center}
   .tiles{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.tiles li{display:grid;gap:2px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);min-width:0}.tiles strong{font:500 1.6rem var(--serif);font-variant-numeric:tabular-nums;line-height:1.1}.tiles span{font-size:0.875rem;color:var(--muted)}.tiles li.you{border-color:var(--accent);background:var(--tint)}
-  .notice{padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+  /* What an action did stays in view wherever on the page it was pressed. */
+  .notice{position:sticky;top:8px;z-index:5;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:var(--shadow)}.notice.bad{border-color:var(--bad);color:var(--bad)}.notice p{min-width:0}.notice .inline{flex:none}
+  h2.folded{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
   .setup{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--tint)}.setup-body{display:grid;gap:12px;min-width:0}.setup ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.setup li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}.setup li p{color:var(--muted)}.tick{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);font-size:0.875rem;font-variant-numeric:tabular-nums}.setup li.done .tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.setup a{color:var(--accent-text);font-weight:600}
   .lines{display:grid;gap:16px;min-width:0}.empty{padding:28px 20px;border:1px dashed var(--line-strong);border-radius:14px;display:grid;gap:8px;text-align:center;justify-items:center}.empty p{color:var(--muted);max-width:56ch}
   .outcome{border:1px solid var(--line);border-radius:14px;background:var(--card);min-width:0;overflow:hidden}.outcome-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line)}.outcome-title{display:grid;gap:2px;min-width:0;flex:1 1 280px}.live{color:var(--accent-text);font-weight:600}
@@ -540,7 +569,7 @@
   .outcome-report{display:grid;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}.proposals{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.proposals li+li{border-top:1px solid var(--line)}.proposals label{display:flex;align-items:flex-start;gap:12px;padding:10px 14px;min-height:44px;cursor:pointer}.proposals input{width:20px;height:20px;margin:2px 0 0;flex:none;accent-color:var(--accent)}.proposals label>span{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}.why{font-size:0.875rem;color:var(--muted)}
   .pipes{list-style:none;margin:0;padding:0}.pipe{display:grid;gap:10px;padding:16px 18px;min-width:0}.pipe+.pipe{border-top:1px solid var(--line)}.pipe.you{background:var(--tint)}
   .pipe-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-  .badge{font-size:0.875rem;font-weight:600;border-radius:999px;padding:2px 10px;border:1px solid var(--line);white-space:nowrap}.badge.you{border-color:var(--accent);color:var(--accent-text);background:var(--card)}.badge.busy{color:var(--ink)}.badge.good{border-color:var(--good,var(--line-strong));color:var(--good,var(--ink))}.badge.bad{border-color:var(--bad);color:var(--bad)}.badge.idle{color:var(--muted)}
+  .badge{font-size:0.875rem;font-weight:600;border-radius:999px;padding:2px 10px;border:1px solid var(--line);white-space:nowrap}.badge.you{border-color:var(--accent);color:var(--accent-text);background:var(--card)}.badge.bad{border-color:var(--bad);color:var(--bad)}.badge.idle{color:var(--muted)}
   /* The production line: stages joined by a rail. Done stages are filled, the one in hand is ringed, the rest are to come. */
   .track{list-style:none;margin:0;padding:2px 0 0;display:flex;gap:0;min-width:0;overflow-x:auto;scrollbar-width:thin}
   .track li{position:relative;flex:1 1 0;min-width:64px;display:grid;justify-items:center;gap:4px;padding:0 4px 2px;color:var(--muted);font-size:0.875rem;text-align:center}
@@ -559,14 +588,14 @@
   @keyframes factory-blink{0%,100%{opacity:1}50%{opacity:.35}}
   @media(prefers-reduced-motion:reduce){.track li.running .dot::after{animation:none;transform:scale(1.35);opacity:.45}.badge.busy::before{animation:none}}
   .track li.failed{color:var(--bad)}.track li.failed .dot{border-color:var(--bad);color:var(--bad)}
-  @media(prefers-reduced-motion:no-preference){.track li.running .dot{animation:pulse 2s ease-in-out infinite}}@keyframes pulse{50%{box-shadow:0 0 0 7px transparent}}
-  .now{color:var(--ink)}.pipe.bad .now{color:var(--bad)}.callout{padding:8px 12px;border-radius:8px;background:var(--card);border:1px solid var(--accent)}.report{border-left:2px solid var(--line-strong);padding-left:12px;display:grid;gap:4px;justify-items:start}.prose-clamp{max-height:6.2em;overflow:hidden;min-width:0;max-width:100%}.prose-clamp.open{max-height:none}.report-clamp{max-height:9em}.outcome.shelved{opacity:0.8}.btn.danger{border-color:var(--bad);color:var(--bad)}
+  .now{color:var(--ink)}.pipe.bad .now{color:var(--bad)}.report{border-left:2px solid var(--line-strong);padding-left:12px;display:grid;gap:4px;justify-items:start}.prose-clamp{max-height:6.2em;overflow:hidden;min-width:0;max-width:100%}.prose-clamp.open{max-height:none}.report-clamp{max-height:9em}.outcome.shelved{opacity:0.8}.btn.danger{border-color:var(--bad);color:var(--bad)}
   .tile-jump{display:grid;gap:2px;width:100%;min-height:44px;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}.tile-jump:focus-visible{outline:2px solid var(--accent);outline-offset:4px}.tile-jump span{text-decoration:underline}
   .more-facts summary{cursor:pointer;min-height:32px;color:var(--muted);font-size:.875rem}.more-facts[open] summary{margin-bottom:8px}.more-facts summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .pipe-head .where{color:var(--muted);font-size:.875rem;white-space:nowrap}.fold{margin-left:auto;min-height:44px;padding:0 10px;border:0;background:none;color:var(--accent-text);font:inherit;font-size:.875rem;text-decoration:underline;cursor:pointer}.fold:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.pipe-head .badge{margin-left:0}.now.brief{margin:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}.fold-all{display:flex;justify-content:flex-end}
   .decide{display:grid;gap:8px;padding:12px 14px;border-radius:10px;background:var(--card);border:1px solid var(--accent)}.decide-why{margin:0;color:var(--ink)}.decide-ask{margin:0;font-weight:600}.decide-choices{display:flex;flex-wrap:wrap;gap:8px}.decide-choices .btn{min-height:44px}@media(max-width:560px){.decide-choices .btn{flex:1 1 100%}}
-  .pipe.arrived{outline:2px solid var(--accent);outline-offset:3px}.pipe:focus{outline:2px solid var(--accent);outline-offset:3px}.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
+  .pipe.arrived{outline:2px solid var(--accent);outline-offset:3px}.pipe:focus{outline:2px solid var(--accent);outline-offset:3px}
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
+  .stages{list-style:none;margin:0;padding:0;display:grid;gap:8px}.stages li{display:grid;grid-template-columns:minmax(0,7rem) minmax(0,1fr) auto;gap:2px 12px;align-items:baseline}.stages .handover{grid-column:2 / -1;color:var(--muted);font-size:.875rem}@media(max-width:560px){.stages li{grid-template-columns:minmax(0,1fr)}.stages .handover{grid-column:1}}
   .facts dd.low{color:var(--warn);font-weight:600}.split{color:var(--muted)}
   .facts dd.yolo{color:var(--warn);font-weight:600}
   .facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}.facts div{display:grid;gap:0;min-width:0}.facts dt{font-size:0.875rem;color:var(--muted)}.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
@@ -574,5 +603,7 @@
   .floor{display:grid;gap:10px;min-width:0;border-top:1px solid var(--line);padding-top:20px}.foot{font-size:0.875rem}
   .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  @media(max-width:640px){.factory{padding-left:16px;padding-right:16px}.track{overflow:visible}.track li{min-width:0;padding:0 1px 2px;font-size:0.875rem}.dot{width:24px;height:24px;font-size:0.875rem}.track li+li::before{top:11px}.pipe,.outcome-head{padding:14px 12px}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.setup{grid-template-columns:1fr}.top-actions{width:100%}.top-actions .btn{flex:1 1 auto;justify-content:center}}
+  @media(max-width:640px){.factory{padding-left:16px;padding-right:16px}.track{overflow:visible}.track li{min-width:0;padding:0 1px 2px;font-size:0.875rem}
+    /* A long line has no room for eight names on a phone: the stage in hand is named, the head of the card says which of how many, and the rest are their marks. */
+    .track:has(li:nth-child(6)) li:not(.running):not(.waiting):not(.failed) .name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.track:has(li:nth-child(6)) .name{white-space:nowrap}.dot{width:24px;height:24px;font-size:0.875rem}.track li+li::before{top:11px}.pipe,.outcome-head{padding:14px 12px}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.setup{grid-template-columns:1fr}.top-actions{width:100%}.top-actions .btn{flex:1 1 auto;justify-content:center}}
 </style>

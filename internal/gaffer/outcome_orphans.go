@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // sessionGone reports whether a session can never be looked after again: its
@@ -17,6 +18,16 @@ func (s *Service) sessionGone(uid int64, sessionID string) bool {
 	}
 	archived, err := s.store.TerminalArchivedFor(uid, sessionID)
 	return err == nil && archived
+}
+
+// sessionRunning reports whether a session is still there to be followed.
+func (s *Service) sessionRunning(uid int64, sessionID string) bool {
+	row, err := s.store.TerminalSessionFor(uid, sessionID)
+	if err != nil || row.State != terminalproto.Running {
+		return false
+	}
+	archived, err := s.store.TerminalArchivedFor(uid, sessionID)
+	return err == nil && !archived
 }
 
 // stopPipelineGoal closes the goal that followed a pipeline stage, so it does
@@ -115,4 +126,33 @@ func (s *Service) StopFollowingOutcome(uid int64, id string, revision int64) (st
 		s.stopPipelineGoal(uid, conversation, stoppedFollowingNote)
 	}
 	return outcomeView(o), nil
+}
+
+// WorkDirInUse reports whether a pipeline still has work to do in a folder:
+// the worktree its first stage was given, which every later stage and any
+// retry works in. The session list uses it to keep that worktree when the
+// session that made it is removed from history.
+func (s *Service) WorkDirInUse(uid int64, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	rows, err := s.store.GafferOutcomesFor(uid)
+	if err != nil {
+		return false
+	}
+	for _, o := range rows {
+		if o.ArchivedAt > 0 {
+			continue
+		}
+		for _, piece := range o.Sessions {
+			if piece.WorkDir != dir {
+				continue
+			}
+			switch piece.State {
+			case "following", "starting", "advancing", "ready_to_merge", "unfollowed":
+				return true
+			}
+		}
+	}
+	return false
 }

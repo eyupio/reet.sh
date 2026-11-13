@@ -17,17 +17,17 @@ const { isolatedLaunch } = await import(asURL(compile('./agentLaunch.ts')
 const START = 'abc1234def5678901234567890abcdef12345678'
 const state = (relation, over = {}) => ({ base: 'main', relation, local: START, remote: START, start: START, ...over })
 
-test('a base that agrees with GitHub, or has no branch there, says nothing', () => {
-  for (const relation of ['same', 'no_remote']) assert.equal(baseSentence(state(relation), 'studio'), null)
+test('a base that agrees with GitHub, has no branch there, or none here, says nothing', () => {
+  // no_local: the repository has no such branch of its own, so "main here is behind GitHub" would be untrue.
+  for (const relation of ['same', 'no_remote', 'no_local']) assert.equal(baseSentence(state(relation), 'studio'), null)
   // An unknown relation is not put into words: a newer machine never makes the browser invent a sentence.
   assert.equal(baseSentence(state('elsewhere'), 'studio'), null)
   assert.equal(baseSentence({}, 'studio'), null)
 })
 
-test('a base behind GitHub, or missing locally, says the session starts from GitHub', () => {
+test('a base behind GitHub says the session starts from GitHub', () => {
   const sentence = "main on studio is behind GitHub. This session starts from GitHub's main (abc1234)."
   assert.equal(baseSentence(state('behind'), 'studio'), sentence)
-  assert.equal(baseSentence(state('no_local', { local: '' }), 'studio'), sentence)
 })
 
 test('a base with commits GitHub lacks says the session starts from the local branch', () => {
@@ -59,7 +59,14 @@ test('with no branch name the sentences say the base branch instead', () => {
 
 test('the short commit is the first seven characters, and no commit leaves the sentence whole', () => {
   assert.match(baseSentence(state('behind', { start: 'fedcba9876543210fedcba9876543210fedcba98' }), 'studio'), /\(fedcba9\)\.$/)
+  // A SHA-256 repository's ids are 64 characters and still show their short id.
+  assert.match(baseSentence(state('behind', { start: 'f'.repeat(64) }), 'studio'), /\(fffffff\)\.$/)
   assert.equal(baseSentence(state('behind', { start: '' }), 'studio'),
+    "main on studio is behind GitHub. This session starts from GitHub's main.")
+  // Anything that is not a commit id is left out rather than shown in part.
+  assert.equal(baseSentence(state('behind', { start: 'f'.repeat(65) }), 'studio'),
+    "main on studio is behind GitHub. This session starts from GitHub's main.")
+  assert.equal(baseSentence(state('behind', { start: 'not-a-commit' }), 'studio'),
     "main on studio is behind GitHub. This session starts from GitHub's main.")
 })
 
@@ -68,10 +75,10 @@ test('a machine with no name is still said plainly', () => {
 })
 
 test('a start asks first whenever there is something to say', () => {
-  for (const relation of ['behind', 'no_local', 'ahead', 'diverged', 'fetch_failed']) {
+  for (const relation of ['behind', 'ahead', 'diverged', 'fetch_failed']) {
     assert.equal(needsConfirm(state(relation), {}), true, relation)
   }
-  for (const relation of ['same', 'no_remote', 'elsewhere']) {
+  for (const relation of ['same', 'no_remote', 'no_local', 'elsewhere']) {
     assert.equal(needsConfirm(state(relation), {}), false, relation)
   }
   assert.equal(needsConfirm({}, {}), false)

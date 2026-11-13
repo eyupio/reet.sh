@@ -263,8 +263,9 @@
       // already made, so it is not asked again.
       if (draft.yolo && !draft.preparedPrompt && draft.version !== confirmedVersion) { void askYolo(draft); return }
       if (!draft.preparedPrompt && draft.version !== basedVersion) {
-        // Where it will start, before the images and before the controller is asked to start anything.
-        const host = machineNames.get(draft.agentId) || draft.agentId
+        // Where it will start, before the images and before the controller is asked to start anything. With no name
+        // for the machine the sentence says "that machine": an enrolment id would mean nothing to anyone.
+        const host = machineNames.get(draft.agentId) || ''
         phase = 'Checking where this starts…'
         const say = await baseQuestion(draft.agentId, host, { tool: draft.tool, dir: draft.dir, base: draft.base },
           repoProjectAt(projects, draft.agentId, draft.dir), signal())

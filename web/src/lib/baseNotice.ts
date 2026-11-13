@@ -10,12 +10,16 @@
 export type BaseState = { base?: string; relation?: string; local?: string; remote?: string; start?: string }
 
 /** The relations worth telling someone about: the session did not start from the base as GitHub has it, or GitHub was
- *  never reached. `same` and `no_remote` need no notice, and an unknown relation is not put into words. */
-const NOTEWORTHY = new Set(['behind', 'no_local', 'ahead', 'diverged', 'fetch_failed'])
+ *  never reached. `same` and `no_remote` need no notice; neither does `no_local`, where the repository has no such
+ *  branch of its own, so there is nothing of the person's to be behind or ahead (the controller says the same, in
+ *  `baseWorthANotice`). An unknown relation is not put into words. */
+const NOTEWORTHY = new Set(['behind', 'ahead', 'diverged', 'fetch_failed'])
 
+/** The commit's short id, as git shows it: the first seven characters of a SHA-1 or SHA-256 id, and nothing at all
+ *  for anything that is not one. */
 const short = (start: string | undefined): string => {
   const s = String(start ?? '')
-  return /^[0-9a-f]{7,40}$/i.test(s) ? ` (${s.slice(0, 7)})` : ''
+  return /^[0-9a-f]{7,64}$/i.test(s) ? ` (${s.slice(0, 7)})` : ''
 }
 
 /**

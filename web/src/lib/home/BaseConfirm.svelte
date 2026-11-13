@@ -9,7 +9,7 @@
   let { sentence, host, oncancel, onstart }: {
     /** The one sentence from `baseSentence`, naming the branch, the machine and the commit. */
     sentence: string
-    /** The machine's name, for the eyebrow. */
+    /** The machine's name, for the eyebrow; empty when the page has no name for it, and then left off. */
     host: string
     oncancel: () => void
     onstart: () => void
@@ -31,7 +31,7 @@
 <dialog bind:this={dialog} role="alertdialog" use:shell={{ sheet: 'bottom' }} aria-labelledby={id} aria-describedby={`${id}-body`}
   oncancel={(event) => { event.preventDefault(); cancel() }}>
   <div class="box" data-shell-card>
-    <p class="eyebrow" data-shell-aside>{host}</p>
+    {#if host}<p class="eyebrow" data-shell-aside>{host}</p>{/if}
     <h2 {id}>Check where this starts</h2>
     <p class="say" id={`${id}-body`}>{sentence}</p>
     <p class="quiet">Nothing has started yet. Start the session to work from that commit, or cancel and sort the branch out on the machine first.</p>

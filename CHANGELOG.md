@@ -15,8 +15,10 @@ this file existed releases were described on their GitHub release pages.
   only in a `GH_TOKEN` variable or a custom gh config folder isn't seen. No
   GitHub credential reaches the controller. A clone can take minutes: you can
   close the dialog, and the project appears in the rail when it's done. The
-  project records which repository it came from, and because reet made the
-  checkout, starting a session in it never asks where it starts.
+  project records which repository it came from, and a project reet cloned
+  itself is not asked where a session starts (a clone of the same repository
+  that was already there, and that reet didn't make, is used as it is and is
+  still asked).
 - A starting session now reports its stages to the controller as it goes.
   The machine sent each stage note with the session's id attached, which the
   private protocol refuses, so every note was dropped before it left the

@@ -352,6 +352,8 @@
   const ways = $derived(!editing && !!onclone)
   let way = $state<Way>('folder')
   let github = $state<AddFromGitHub>()
+  // A From GitHub start on its way: the tabs wait for its answer, so focus is never left in a panel being hidden.
+  const starting = $derived(!!github?.busy())
   function chooseWay(next: Way, focus = false) {
     way = next
     if (focus) void tick().then(() => dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-tab-${next}`)}`)?.focus())
@@ -387,7 +389,9 @@
     if (returnFocus && opener?.isConnected) opener.focus()
   }
   // While a save is in flight the dialog stays: the 15-second limit ends the wait.
-  function close() { if (busy || github?.busy()) return; shutdown(true); onclose() }
+  // A From GitHub start on its way does not hold the dialog: closing drops the answer (the clone, if the controller began
+  // it, still ends in a project the list shows later) and gives focus back to what opened the dialog.
+  function close() { if (busy) return; shutdown(true); onclose() }
   // A change clears a refusal. After a lost reply the fields are locked, so Try again sends exactly what was sent.
   function edited() { if (!busy && !operation && message) { message = ''; failed = false } }
 
@@ -611,9 +615,9 @@
   {#if ways}
     <div class="ways" role="tablist" aria-label="How to add the project" tabindex="-1" onkeydown={wayKeys}>
       <button type="button" id={`${id}-tab-folder`} role="tab" aria-selected={way === 'folder'} aria-controls={`${id}-panel-folder`} tabindex={way === 'folder' ? 0 : -1}
-        disabled={busy} onclick={() => chooseWay('folder')}>Folder on a machine</button>
+        disabled={busy || starting} onclick={() => chooseWay('folder')}>Folder on a machine</button>
       <button type="button" id={`${id}-tab-github`} role="tab" aria-selected={way === 'github'} aria-controls={`${id}-panel-github`} tabindex={way === 'github' ? 0 : -1}
-        disabled={busy} onclick={() => chooseWay('github')}>From GitHub</button>
+        disabled={busy || starting} onclick={() => chooseWay('github')}>From GitHub</button>
     </div>
   {/if}
   <form id={`${id}-panel-folder`} role={ways ? 'tabpanel' : undefined} aria-labelledby={ways ? `${id}-tab-folder` : undefined} hidden={ways && way !== 'folder'}

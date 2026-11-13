@@ -36,7 +36,7 @@
   const ready = $derived(!!parsed && !!machine)
   const repoProblem = $derived(left && repo.trim() !== '' && !parsed ? INVALID : '')
 
-  /** Whether the panel is busy sending, so the dialog keeps its Close and Escape until the answer. */
+  /** Whether the start is on its way, so the dialog holds its tabs until the answer. */
   export function busy(): boolean { return starting }
   /** The clone this page started has ended without a project: the controller's sentence goes in the error slot and the
    *  form comes back as it was (filled with that clone when it had been emptied by a close). */
@@ -150,7 +150,9 @@
   .where { color: var(--ink); }
   .path { font-family: var(--mono); }
   .lead { color: var(--ink); }
-  .live:empty { display: none; }
+  /* The live regions stay in the accessibility tree from the start, empty and taking no room, so what is put in them is
+     announced (a region that appears together with its words often is not). */
+  .live:empty { margin: 0; padding: 0; }
   .pair { display: flex; gap: 12px; }
   .pair > .field { flex: 1; }
   footer { display: flex; align-items: center; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--line-soft); }
@@ -177,7 +179,7 @@
     .chev { top: 17px; }
     .pair { flex-direction: column; }
     footer { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px 16px 16px; background: var(--bg-sunk); }
-    .status.quiet { display: none; }
+    .status.quiet { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .cancel { width: 110px; height: 48px; padding: 0; border-color: var(--line-strong); border-radius: 10px; }
     .submit { flex: 1; height: 48px; border-radius: 10px; padding: 0 12px; }
   }

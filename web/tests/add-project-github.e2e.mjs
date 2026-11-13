@@ -162,11 +162,22 @@ try {
    expect(small, 'touch targets under 44 px').toEqual([])
   }
   expect(await noSideways(page)).toBe(true)
+  // The status region and the error slot are in the accessibility tree before anything is said in them: empty, taking
+  // no room (the phone's quiet error slot is the 1 px visually-hidden box), never display:none, so what is put in them
+  // later is announced.
+  const live = await d.locator('[role=tabpanel]:not([hidden]) .live').elementHandle()
+  const slot = await errorSlot(page).elementHandle()
+  for (const region of [live, slot]) {
+   expect(await region.evaluate(el => [el.getAttribute('role'), el.getAttribute('aria-live'), el.textContent.trim(), getComputedStyle(el).display !== 'none', el.offsetHeight <= 1])).toEqual(['status', 'polite', '', true, true])
+  }
+  await expect(d.locator('[role=tabpanel]:not([hidden])').getByRole('status')).toHaveCount(2)
   await page.keyboard.press('Enter')
 
-  // Started: one request, and the form gives way to the status line, announced, with Close.
+  // Started: one request, and the form gives way to the status line, announced, with Close. The sentence goes into the
+  // region that was already there, not a new one.
   await expect(d.getByText(CLONING,{exact:true})).toBeVisible()
   await expect(d.locator('[role=status]').filter({hasText:CLONING})).toHaveCount(1)
+  expect(await live.evaluate(el => [el.isConnected, el.textContent.trim()])).toEqual([true, CLONING])
   expect(box.starts).toEqual([SENT])
   await expect(repoField(page)).toHaveCount(0)
   await expect(footClose(page)).toBeFocused()
@@ -358,6 +369,49 @@ try {
  }
 
  // No machine can clone yet: the line says what one needs, and there is no form.
+ // While the start is on its way the two tabs wait, so focus is never left in a hidden panel; the header's close still
+ // works and gives focus back to Add.
+ if (run('the tabs wait while the start is on its way')) {
+  let release
+  const gate = new Promise(r => { release = r })
+  const {context,page,errors,box} = await scene({start:() => gate.then(() => ({status:202, json:{cloneId:'c0ffee', dir:'~/reet/repos/eyupio/reet.sh'}}))})
+  await page.goto(base)
+  const add = await openAdd(page)
+  await toGitHub(page)
+  await repoField(page).fill('eyupio/reet.sh')
+  await cloneButton(page).click()
+  await expect.poll(() => box.starts.length).toBe(1)
+  await expect(tab(page, 'Folder on a machine')).toBeDisabled()
+  await expect(tab(page, 'From GitHub')).toBeDisabled()
+  release()
+  await expect(dialog(page).getByText(CLONING,{exact:true})).toBeVisible()
+  await expect(tab(page, 'Folder on a machine')).toBeEnabled()
+  await expect(footClose(page)).toBeFocused()
+  await footClose(page).click()
+  await expect(add).toBeFocused()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+ if (run('closing while the start is on its way returns focus to Add')) {
+  let release
+  const gate = new Promise(r => { release = r })
+  const {context,page,errors,box} = await scene({start:() => gate.then(() => ({status:202, json:{cloneId:'c0ffee', dir:'~/reet/repos/eyupio/reet.sh'}}))})
+  await page.goto(base)
+  const add = await openAdd(page)
+  await toGitHub(page)
+  await repoField(page).fill('eyupio/reet.sh')
+  await cloneButton(page).click()
+  await expect.poll(() => box.starts.length).toBe(1)
+  await expect(tab(page, 'From GitHub')).toBeDisabled()
+  await dialog(page).locator('header').getByRole('button',{name:'Close',exact:true}).click()
+  await expect(dialog(page)).toHaveCount(0)
+  await expect(add).toBeFocused()
+  release()
+  await page.waitForTimeout(500)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
  if (run('no machine can clone yet')) {
   const {context,page,errors} = await scene({clone:{}})
   await page.goto(base)

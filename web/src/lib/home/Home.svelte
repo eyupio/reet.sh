@@ -436,7 +436,7 @@
     <ProjectRailHost bind:this={host} rail={!narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
       chosen={launchProject ?? chosen} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected} onchoose={(project) => chooseProject(project)}
       {scope} onscope={(next) => (scope = next)} collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId}
-      width={railWidth} onwidth={setRailWidth} onwidthcommit={commitRailWidth}
+      width={railWidth} onwidth={setRailWidth} onwidthcommit={commitRailWidth} onpick={(project) => { chooseProject(project); scope = { kind: 'project', id: project.id } }}
       onnew={(project, opener) => { notice = null; projectStart = { project, opener } }}
       signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={(n) => (savedWaiting = n)} onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)}
       onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}>

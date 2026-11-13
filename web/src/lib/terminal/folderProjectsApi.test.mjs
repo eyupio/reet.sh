@@ -212,3 +212,39 @@ test('an old Project id is looked up by id only, and a project made from none an
   calls = fetchReplying(500, { error: 'down' })
   await assert.rejects(api.folderProjectForLegacy('p1'))
 })
+
+test('a project from GitHub: one POST to start the clone, then reads of its state', async () => {
+  let calls = fetchReplying(202, { cloneId: 'c0ffee', dir: '~/reet/repos/eyupio/reet.sh' })
+  assert.deepEqual(await api.addFromGitHub('a1b2c3', 'eyupio/reet.sh', ''), { cloneId: 'c0ffee', dir: '~/reet/repos/eyupio/reet.sh' })
+  assert.equal(calls[0].url, '/api/v2/folder-projects/from-github')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { host: 'a1b2c3', repo: 'eyupio/reet.sh', name: '' })
+  assert.equal(calls[0].headers.get('Content-Type'), 'application/json')
+  cookieOnly(calls[0])
+
+  calls = fetchReplying(200, { state: 'cloning' })
+  assert.deepEqual(await api.cloneStatus('c0/ffee'), { state: 'cloning' })
+  assert.equal(calls[0].url, '/api/v2/folder-projects/clones/c0%2Fffee')
+  assert.equal(calls[0].init.method, undefined)
+  cookieOnly(calls[0])
+  fetchReplying(200, { state: 'done', project: project({ origin: 'eyupio/reet.sh', cloned: true }) })
+  assert.deepEqual(await api.cloneStatus('c0ffee'), { state: 'done', project: project({ origin: 'eyupio/reet.sh', cloned: true }) })
+
+  for (const [status, body] of [
+    [422, { code: 'invalid_repo', field: 'repo', error: 'Write the repository as owner/name, or paste its github.com link.' }],
+    [409, { code: 'repo_clone_unsupported', error: 'Update reet on studio to add projects from GitHub. It also needs git and the GitHub CLI.' }],
+    [409, { code: 'machine_offline', error: "studio is offline. Try again when it's back." }],
+    [429, { code: 'clone_limit', error: 'Five repositories are already being cloned. Wait for one to finish.' }],
+  ]) {
+    fetchReplying(status, body)
+    const error = await api.addFromGitHub('a1', 'x', '').then(() => assert.fail(body.code), e => e)
+    assert.ok(error instanceof api.TerminalError)
+    assert.equal(error.status, status)
+    assert.equal(error.code, body.code)
+    assert.equal(error.message, body.error)
+  }
+  fetchReplying(404, { code: 'clone_not_found', error: "That clone isn't on this account." })
+  const gone = await api.cloneStatus('old').catch(e => e)
+  assert.equal(gone.status, 404)
+  assert.equal(gone.code, 'clone_not_found')
+})

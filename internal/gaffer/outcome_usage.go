@@ -39,6 +39,16 @@ func (s *Service) stageAgentUsage(uid int64, piece store.GafferOutcomeSession, a
 func (s *Service) withAgentUsage(uid int64, o store.GafferOutcome) store.GafferOutcome {
 	for i := range o.Sessions {
 		piece := &o.Sessions[i]
+		if piece.SessionID != "" {
+			switch {
+			case s.sessionGone(uid, piece.SessionID):
+				piece.SessionState = "gone"
+			case s.sessionRunning(uid, piece.SessionID):
+				piece.SessionState = "running"
+			default:
+				piece.SessionState = "ended"
+			}
+		}
 		at := piece.Stage
 		if at >= len(piece.Stages) || piece.Stages[at].State == "done" {
 			continue

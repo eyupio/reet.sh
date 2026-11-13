@@ -1,6 +1,8 @@
 package store
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -68,5 +70,47 @@ func TestARepeatedEventIsRecordedOnceAndEventsCanLeaveSourcesOut(t *testing.T) {
 	rest, _, err := st.ListEventsPageFor(u.ID, EventQuery{Limit: 50, Exclude: []string{"scan", "machine"}})
 	if err != nil || len(rest) != 1 || rest[0].Action != "gaffer-goal-held" {
 		t.Fatalf("excluding scan: %+v %v", rest, err)
+	}
+}
+
+// Past the retention limit only an outcome with nothing still moving is
+// dropped: one whose pipeline is still followed stays however old it is.
+func TestRetentionKeepsAnOutcomeWhosePipelinesAreStillMoving(t *testing.T) {
+	st, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	u, err := st.CreateUser("retention@example.test", "Owner", "owner", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	make := func(n int, state string) GafferOutcome {
+		t.Helper()
+		id := fmt.Sprintf("%032d", n)
+		o, err := st.CreateGafferOutcomeFor(u.ID, GafferOutcome{ID: id, Objective: "Ship it.", Sessions: []GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it."}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = st.UpdateGafferOutcomeFor(u.ID, id, o.Revision, func(o *GafferOutcome) bool {
+			o.State, o.Sessions[0].State, o.CreatedAt = "settled", state, int64(n)
+			return true
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = st.db.Exec(`UPDATE gaffer_outcomes SET created_at=? WHERE id=?`, n, id); err != nil {
+			t.Fatal(err)
+		}
+		return o
+	}
+	live, old := make(1, "following"), make(2, "done")
+	for n := 3; n <= MaxGafferOutcomes+3; n++ {
+		make(n, "done")
+	}
+	if _, err := st.GafferOutcomeFor(u.ID, live.ID); err != nil {
+		t.Fatalf("an outcome still being followed was dropped: %v", err)
+	}
+	if _, err := st.GafferOutcomeFor(u.ID, old.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the oldest finished outcome is the one to drop: %v", err)
 	}
 }

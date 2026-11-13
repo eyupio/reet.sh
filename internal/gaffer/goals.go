@@ -360,7 +360,7 @@ func (s *Service) reviewHeldGoal(ctx context.Context, g store.GafferGoal) {
 		hold(g.Note)
 		return
 	}
-	if err = s.store.ReleaseGafferGoalHold(g, "You answered the working model. Gaffer is following again."); err != nil {
+	if err = s.store.ReleaseGafferGoalHold(g, "The working model is no longer waiting for you. Gaffer is following again."); err != nil {
 		// No room among the active goals yet, or the goal changed: look again later.
 		hold(g.Note)
 		return

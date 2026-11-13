@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // sessionGone reports whether a session can never be looked after again: its
@@ -17,6 +18,16 @@ func (s *Service) sessionGone(uid int64, sessionID string) bool {
 	}
 	archived, err := s.store.TerminalArchivedFor(uid, sessionID)
 	return err == nil && archived
+}
+
+// sessionRunning reports whether a session is still there to be followed.
+func (s *Service) sessionRunning(uid int64, sessionID string) bool {
+	row, err := s.store.TerminalSessionFor(uid, sessionID)
+	if err != nil || row.State != terminalproto.Running {
+		return false
+	}
+	archived, err := s.store.TerminalArchivedFor(uid, sessionID)
+	return err == nil && !archived
 }
 
 // stopPipelineGoal closes the goal that followed a pipeline stage, so it does

@@ -28,6 +28,7 @@ type outcomeStarterFake struct {
 	gen      int64
 	mu       sync.Mutex
 	launches []OutcomeLaunch
+	ended    []string
 	refuse   map[string]string
 	hold     chan struct{}
 	entered  chan struct{}
@@ -67,6 +68,26 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 		work = in.Dir + "/.reet/worktrees/" + in.RequestID[:8]
 	}
 	return row.ID, work, nil
+}
+
+// EndOutcomeSession ends a session as the person's own End does, history kept.
+func (f *outcomeStarterFake) EndOutcomeSession(_ context.Context, uid int64, session string) error {
+	if _, err := f.st.RequestTerminalEndFor(uid, f.agent, session, session[:32]); err != nil {
+		return err
+	}
+	if err := f.st.ObserveTerminalStateFor(uid, f.agent, session, 1, terminalproto.Ended, nil); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	f.ended = append(f.ended, session)
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *outcomeStarterFake) closed() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.ended...)
 }
 
 func (f *outcomeStarterFake) asked() []OutcomeLaunch {
@@ -1069,10 +1090,10 @@ func TestThePersonMovesAPipelineOnWhateverTheStageGoalSays(t *testing.T) {
 	if err = r.st.ObserveGafferGoal(g, "needs_user", "Gaffer brought a question back to you.", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, "zz"); err == nil {
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, "zz", ""); err == nil {
 		t.Fatal("an unknown pipeline was moved on")
 	}
-	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, code.Key); err != nil {
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, code.Key, ""); err != nil {
 		t.Fatal(err)
 	}
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
@@ -1151,7 +1172,7 @@ func TestGafferChatMovesThePipelineOnWhenThePersonSaysContinue(t *testing.T) {
 		t.Fatalf("stage after the chat: %+v", review.Stages[0])
 	}
 	// A move made from the chat is in the activity log, and says it was the person's word.
-	log.wait(t, "gaffer-stage-started code", "gaffer-stage-handed-over code chat", "gaffer-stage-started review")
+	log.wait(t, "gaffer-stage-started code", "gaffer-stage-handed-over code chat", "gaffer-stage-started review", "gaffer-session-ended")
 	mu.Lock()
 	defer mu.Unlock()
 	// The person's chat in a pipeline session is given both ways to act; the reporting round has none.

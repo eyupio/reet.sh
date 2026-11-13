@@ -1212,6 +1212,30 @@ try{
  await expect(p.agentWhy).toContainText('Google Antigravity (AGY) · Update reet on that machine')
  await page.keyboard.press('Escape')
  tmachines[0].capabilities.agentsV2=true
+
+ // A chat whose descriptor names no thought levels still offers the start levels when the machine can carry effort,
+ // and the chosen level is sent with the create. Without start options the selector stays closed with its explanation.
+ tmachines[0].capabilities.tools.push('opencode')
+ Object.assign(tmachines[0].capabilities,{acp:true,acpStartOptions:true,acpAgents:[{tool:'opencode',adapter:'opencode',state:'available'}]})
+ d=await openAt(A);p=parts(d)
+ await p.pick('OpenCode')
+ const chatEffort=d.getByRole('combobox',{name:'Effort',exact:true})
+ await expect(chatEffort).toBeEnabled()
+ await chatEffort.selectOption('high')
+ await p.prompt.fill('update the readme')
+ const chatPosts=posts.length
+ await p.start.click()
+ await expect(d).toHaveCount(0)
+ await expect.poll(()=>posts.length).toBe(chatPosts+1)
+ expect(JSON.parse(posts.at(-1))).toMatchObject({tool:'opencode',structured:true,trust:true,effort:'high',prompt:'update the readme'})
+ tmachines[0].capabilities.acpStartOptions=false
+ d=await openAt(A);p=parts(d)
+ await p.pick('OpenCode')
+ await expect(d.getByRole('combobox',{name:'Effort',exact:true})).toBeDisabled()
+ await expect(d.getByText('Update reet on this machine to choose Gaffer effort before starting.')).toBeVisible()
+ await page.keyboard.press('Escape')
+ delete tmachines[0].capabilities.acpStartOptions;delete tmachines[0].capabilities.acp;delete tmachines[0].capabilities.acpAgents
+ tmachines[0].capabilities.tools=tmachines[0].capabilities.tools.filter(id=>id!=='opencode')
  expect(errors).toEqual([])
  console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old three otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, a pasted image uploaded before the start with its path joined to the opening prompt, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

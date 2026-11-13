@@ -23,6 +23,25 @@ func chatCaps() terminalproto.Capabilities {
 	return caps
 }
 
+// A chat whose descriptor names no thought levels still carries the effort the
+// person chose once the machine negotiated start options. The descriptor is
+// installation evidence; the agent confirms the level itself.
+func TestStructuredStartCarriesAnEffortItsDescriptorOmits(t *testing.T) {
+	caps := chatCaps()
+	caps.AgentsV2, caps.ACPLiveControls, caps.ACPStartOptions = true, true, true
+	caps.Tools = []string{"opencode"}
+	entries := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5"}}
+	caps.ACPAgents = &entries
+	f := launchAPIFixture(t, caps)
+	status, out, body := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "opencode", "structured": true, "trust": true, "dir": "/tmp", "effort": "medium", "prompt": "update the readme"}))
+	if status != 200 || out["structured"] != true || out["effort"] != "medium" {
+		t.Fatalf("create: %d %s", status, body)
+	}
+	if sent := f.sent(); len(sent) != 1 || !sent[0].Structured || sent[0].Effort != "medium" {
+		t.Fatalf("sent: %+v", sent)
+	}
+}
+
 func TestAntigravityChatCreateKeepsItsOptionsAndTrust(t *testing.T) {
 	caps := chatCaps()
 	caps.AgentsV2, caps.ACPLiveControls, caps.ACPStartOptions, caps.ACPModel = true, true, true, true

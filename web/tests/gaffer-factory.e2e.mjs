@@ -156,17 +156,18 @@ try {
       await agent.selectOption('codex')
       await add.getByRole('combobox',{name:'Model for Changelog entry',exact:true}).selectOption('gpt-5-codex')
       await add.getByRole('combobox',{name:'Effort for Changelog entry',exact:true}).selectOption('low')
-      // A crew can do its stages: the shipping stage goes back to the outcome's own agent, which reports no effort here.
+      // A crew can do its stages: the shipping stage goes back to the outcome's own agent. Its descriptor names no
+      // thought levels, but the machine can still start it with an effort, so the selector is usable and the choice is sent.
       await add.getByText('Choose who does what',{exact:true}).click()
       await expect(add.getByRole('combobox',{name:'Building agent for Changelog entry',exact:true})).toHaveValue('codex')
       await add.getByRole('combobox',{name:'Shipping agent for Changelog entry',exact:true}).selectOption('claude')
-      await expect(add.getByRole('combobox',{name:'Shipping effort for Changelog entry',exact:true})).toBeDisabled()
+      await add.getByRole('combobox',{name:'Shipping effort for Changelog entry',exact:true}).selectOption('low')
       await expect(add.getByText('2 agent sessions for 2 stages.',{exact:false})).toBeVisible()
       expect(await add.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await add.screenshot({path:`${shots}/gaffer-factory-add-${width}-${theme}.png`})
       await add.getByRole('button',{name:'Add pipeline',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Added'})).toHaveText('Added “Changelog entry”. The controller is starting it.')
-      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low'},{kind:'pr',tool:'claude',model:''}]}]}])
+      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low'},{kind:'pr',tool:'claude',model:'',effort:'low'}]}]}])
       await expect(pipes).toHaveCount(4);await expect(report.getByRole('list',{name:'Proposed pipelines',exact:true})).toHaveCount(0)
       await expect(totals).toContainText('Gaffer tokens4,884')
       expect(box.reviews).toEqual([{revision:6}])

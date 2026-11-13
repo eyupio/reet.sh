@@ -150,17 +150,32 @@ func pinGitDir(ctx context.Context, dir string) context.Context {
 	return context.WithValue(ctx, pinnedGitKey{}, dir)
 }
 
-// pinnedGitEnv is the environment pinGitDir adds, or nothing.
+// gitEnvKey carries, in a context, extra variables for a git call (see
+// withGitEnv).
+type gitEnvKey struct{}
+
+// withGitEnv returns ctx with env added to the hardened environment of git
+// calls made through ExecGit, for the few variables one call needs and the
+// others must not have (GIT_TERMINAL_PROMPT=0 on a fetch, see networkGitEnv).
+// It replaces what an earlier withGitEnv added.
+func withGitEnv(ctx context.Context, env ...string) context.Context {
+	return context.WithValue(ctx, gitEnvKey{}, env)
+}
+
+// pinnedGitEnv is the environment pinGitDir and withGitEnv add, or nothing.
 func pinnedGitEnv(ctx context.Context) []string {
-	dir, ok := ctx.Value(pinnedGitKey{}).(string)
-	if !ok || !filepath.IsAbs(dir) {
-		return nil
+	var env []string
+	if dir, ok := ctx.Value(pinnedGitKey{}).(string); ok && filepath.IsAbs(dir) {
+		// GIT_NO_LAZY_FETCH: in a partial clone, git never fetches a missing
+		// object (which would run the repository's configured ssh command or
+		// remote helper). Older gits ignore it; ListBranches then also avoids
+		// reading objects in such a repository.
+		env = append(env, "GIT_DIR="+filepath.Join(dir, ".git"), "GIT_CEILING_DIRECTORIES="+filepath.Dir(dir), "GIT_NO_LAZY_FETCH=1")
 	}
-	// GIT_NO_LAZY_FETCH: in a partial clone, git never fetches a missing
-	// object (which would run the repository's configured ssh command or
-	// remote helper). Older gits ignore it; ListBranches then also avoids
-	// reading objects in such a repository.
-	return []string{"GIT_DIR=" + filepath.Join(dir, ".git"), "GIT_CEILING_DIRECTORIES=" + filepath.Dir(dir), "GIT_NO_LAZY_FETCH=1"}
+	if extra, ok := ctx.Value(gitEnvKey{}).([]string); ok {
+		env = append(env, extra...)
+	}
+	return env
 }
 
 // gitEnvironment keeps only HOME, PATH and LANG (the first of each). No

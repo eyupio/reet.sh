@@ -1,0 +1,237 @@
+//go:build linux || darwin
+
+package terminalhost
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
+)
+
+// baseFixture is a repository whose origin is https://github.com/o/r, with a
+// second local repository standing in for the one on GitHub. The fixture's
+// GitRunner rewrites that URL to the second repository's path with
+// url.<path>.insteadOf, so a real fetch runs without reaching the network.
+// `git config --get remote.origin.url` is not rewritten, so ResolveBase still
+// sees a github.com origin.
+type baseFixture struct {
+	repo, remote string
+
+	mu    sync.Mutex
+	calls [][]string
+}
+
+func newBaseFixture(t *testing.T) *baseFixture {
+	t.Helper()
+	home := worktreeHome(t)
+	remote := newRepo(t, home, "github")
+	repo := filepath.Join(home, "local")
+	testGit(t, home, "clone", "-q", remote, repo)
+	testGit(t, repo, "remote", "set-url", "origin", "https://github.com/o/r")
+	return &baseFixture{repo: repo, remote: remote}
+}
+
+// git is the GitRunner ResolveBase is given: it records the arguments and
+// teaches git where "github.com/o/r" really is.
+func (f *baseFixture) git(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, slices.Clone(args))
+	f.mu.Unlock()
+	rewrite := []string{"-c", "url." + f.remote + ".insteadOf=https://github.com/o/r"}
+	return ExecGit(ctx, dir, append(rewrite, args...)...)
+}
+
+// fetched reports whether any call was a fetch.
+func (f *baseFixture) fetched() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, args := range f.calls {
+		if slices.Contains(args, "fetch") {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *baseFixture) resolve(t *testing.T, base string, fetch bool) terminalproto.BaseState {
+	t.Helper()
+	state, err := ResolveBase(context.Background(), f.repo, base, fetch, f.git)
+	if err != nil {
+		t.Fatalf("ResolveBase(%q, fetch=%v): %v", base, fetch, err)
+	}
+	if !state.Valid() {
+		t.Fatalf("ResolveBase(%q, fetch=%v) returned an invalid state: %+v", base, fetch, state)
+	}
+	return state
+}
+
+// deleteLocalBase leaves HEAD where it is and removes the local main branch,
+// as in a repository that has never checked the base out.
+func (f *baseFixture) deleteLocalBase(t *testing.T) {
+	t.Helper()
+	testGit(t, f.repo, "checkout", "--detach", "HEAD")
+	testGit(t, f.repo, "branch", "-D", "main")
+}
+
+// commitOf is the commit a ref names, which must exist.
+func commitOf(t *testing.T, dir, ref string) string {
+	t.Helper()
+	return testGit(t, dir, "rev-parse", "--verify", ref+"^{commit}")
+}
+
+func wantBase(t *testing.T, state terminalproto.BaseState, relation terminalproto.BaseRelation, start string) {
+	t.Helper()
+	if state.Relation != relation || state.Start != start {
+		t.Fatalf("state = %+v, want relation %s starting from %s", state, relation, start)
+	}
+}
+
+func TestBaseSame(t *testing.T) {
+	f := newBaseFixture(t)
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseSame, commitOf(t, f.repo, "refs/heads/main"))
+}
+
+func TestBaseBehindStartsFromGitHub(t *testing.T) {
+	f := newBaseFixture(t)
+	ahead := commitIn(t, f.remote, "on-github")
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseBehind, ahead)
+}
+
+func TestBaseNoLocalStartsFromGitHub(t *testing.T) {
+	f := newBaseFixture(t)
+	ahead := commitIn(t, f.remote, "on-github")
+	f.deleteLocalBase(t)
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseNoLocal, ahead)
+}
+
+func TestBaseAheadStartsFromLocal(t *testing.T) {
+	f := newBaseFixture(t)
+	ahead := commitIn(t, f.repo, "local-only")
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseAhead, ahead)
+}
+
+func TestBaseDivergedStartsFromLocal(t *testing.T) {
+	f := newBaseFixture(t)
+	commitIn(t, f.remote, "on-github")
+	local := commitIn(t, f.repo, "local-only")
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseDiverged, local)
+}
+
+func TestBaseFetchFailedUsesLastKnown(t *testing.T) {
+	f := newBaseFixture(t)
+	local := commitOf(t, f.repo, "refs/heads/main")
+	if err := os.RemoveAll(f.remote); err != nil {
+		t.Fatal(err)
+	}
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseFetchFailed, local)
+}
+
+func TestBaseFetchFailedWithoutLocalUsesRemoteTracking(t *testing.T) {
+	f := newBaseFixture(t)
+	commitIn(t, f.remote, "on-github")
+	f.resolve(t, "main", true) // the last successful fetch
+	tracking := commitOf(t, f.repo, "refs/remotes/origin/main")
+	f.deleteLocalBase(t)
+	if err := os.RemoveAll(f.remote); err != nil {
+		t.Fatal(err)
+	}
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseFetchFailed, tracking)
+}
+
+func TestBaseNonGitHubOriginIsNotFetched(t *testing.T) {
+	f := newBaseFixture(t)
+	testGit(t, f.repo, "remote", "set-url", "origin", "https://gitlab.com/a/b")
+	local := commitOf(t, f.repo, "refs/heads/main")
+	wantBase(t, f.resolve(t, "main", true), terminalproto.BaseNoRemote, local)
+	if f.fetched() {
+		t.Fatalf("a non-GitHub origin was fetched: %q", f.calls)
+	}
+}
+
+func TestBaseMissingEverywhere(t *testing.T) {
+	f := newBaseFixture(t)
+	_, err := ResolveBase(context.Background(), f.repo, "nope", true, f.git)
+	refusedWith(t, err, terminalproto.WorktreeBaseMissing)
+}
+
+func TestBaseFetchIsBoundedAt30Seconds(t *testing.T) {
+	f := newBaseFixture(t)
+	local := commitOf(t, f.repo, "refs/heads/main")
+	var deadline time.Time
+	var bounded bool
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if !slices.Contains(args, "fetch") {
+			return f.git(ctx, dir, args...)
+		}
+		// A fetch that hangs is cut off by the bound of its own context. The
+		// test asserts that bound instead of waiting 30 seconds for it.
+		deadline, bounded = ctx.Deadline()
+		return nil, context.DeadlineExceeded
+	}
+	state, err := ResolveBase(context.Background(), f.repo, "main", true, git)
+	if err != nil {
+		t.Fatalf("ResolveBase: %v", err)
+	}
+	if !bounded {
+		t.Fatal("the fetch ran without a deadline of its own")
+	}
+	if left := time.Until(deadline); left > 30*time.Second || left < 25*time.Second {
+		t.Fatalf("the fetch had %v left, want at most 30 seconds", left)
+	}
+	wantBase(t, state, terminalproto.BaseFetchFailed, local)
+}
+
+func TestBaseEmptyUsesTheRemoteDefault(t *testing.T) {
+	f := newBaseFixture(t)
+	testGit(t, f.remote, "branch", "trunk")
+	testGit(t, f.repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+	state := f.resolve(t, "", true)
+	if state.Base != "trunk" {
+		t.Fatalf("state = %+v, want the remote default trunk", state)
+	}
+	wantBase(t, state, terminalproto.BaseNoLocal, commitOf(t, f.remote, "refs/heads/trunk"))
+}
+
+func TestBaseWithoutFetchComparesTheLastFetchedRef(t *testing.T) {
+	f := newBaseFixture(t)
+	commitIn(t, f.remote, "on-github")
+	local := commitOf(t, f.repo, "refs/heads/main")
+	wantBase(t, f.resolve(t, "main", false), terminalproto.BaseSame, local)
+	if f.fetched() {
+		t.Fatalf("a read-only resolve fetched: %q", f.calls)
+	}
+}
+
+// TestWithGitEnvAddsOneCallsVariables covers the plumbing the fetch needs:
+// GIT_TERMINAL_PROMPT=0 reaches git although gitEnvironment strips every
+// GIT_* variable, and only for the call that asked for it.
+func TestWithGitEnvAddsOneCallsVariables(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "env")
+	ctx := withGitEnv(context.Background(), "GIT_AUTHOR_NAME=Env Test", "GIT_AUTHOR_EMAIL=env@example.invalid")
+	out, err := ExecGit(ctx, repo, "var", "GIT_AUTHOR_IDENT")
+	if err != nil {
+		t.Fatalf("git var: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), "Env Test <env@example.invalid>") {
+		t.Fatalf("git did not see the call's own variables: %q", out)
+	}
+	out, err = ExecGit(context.Background(), repo, "var", "GIT_AUTHOR_IDENT")
+	if err != nil || strings.Contains(string(out), "Env Test") {
+		t.Fatalf("the variables outlived the call: %v: %q", err, out)
+	}
+}
+
+func TestBaseWithoutFetchAndWithoutATrackingRefUsesLocal(t *testing.T) {
+	f := newBaseFixture(t)
+	testGit(t, f.repo, "update-ref", "-d", "refs/remotes/origin/main")
+	local := commitOf(t, f.repo, "refs/heads/main")
+	wantBase(t, f.resolve(t, "main", false), terminalproto.BaseNoRemote, local)
+}

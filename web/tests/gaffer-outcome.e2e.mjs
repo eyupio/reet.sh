@@ -200,7 +200,7 @@ try {
       await expect(results.nth(2)).toContainText('Started, but not followed: Its chat was not ready')
       const cheap=kind=>({kind,tool:'claude',model:''}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high'}),ship=kind=>({kind,tool:'claude',model:'',effort:'low'})
       const usual=[cheap('code'),strong('review'),cheap('test'),ship('pr'),ship('babysit'),ship('merge')]
-      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',trust:false,yolo:false,autoReport:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
+      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
         {title:'Export API',prompt:proposed.sessions[0].prompt,stages:usual},
         {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge')]},
         {title:'Export docs',prompt:'Document the export in the README.    Raise a pull request. Do not merge.',stages:usual},

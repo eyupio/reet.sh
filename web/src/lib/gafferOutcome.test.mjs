@@ -189,6 +189,18 @@ test('a crew role\'s effort is sent with its stages and starts a new session whe
   assert.equal(o.sessionCount(o.stagePlan(['plan', 'design', 'review'], crew)), 1)
 })
 
+test('a Cline crew role carries its billing source and a source change starts a new session', () => {
+  const crew = { think: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, build: { tool: 'cline', model: '' }, ship: { tool: 'codex', model: '' } }
+  assert.deepEqual(o.stagePlan(['review', 'code', 'pr'], crew), [
+    { kind: 'code', tool: 'cline', model: '' }, { kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4', provider: 'cline-pass' }, { kind: 'pr', tool: 'codex', model: '' },
+  ])
+  assert.equal(o.sessionCount(o.stagePlan(['plan', 'review'], crew)), 1)
+  // A machine that did not negotiate a Cline source setting never has one sent for it.
+  assert.deepEqual(o.stagePlan(['review'], crew, false), [{ kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4' }])
+  const switched = { think: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, build: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline' }, ship: { tool: 'codex', model: '' } }
+  assert.equal(o.sessionCount(o.stagePlan(['review', 'test'], switched)), 2)
+})
+
 test('agent usage is what agents reported, split by agent, and never a made-up zero', () => {
   const pieces = [
     { stages: [{ tool: 'claude', state: 'done', agentInputTokens: 1000, agentOutputTokens: 200, agentCachedTokens: 5000, agentUsageReported: true }, { tool: 'codex', state: 'running', agentInputTokens: 300, agentOutputTokens: 50, agentUsageReported: true, contextUsed: 170000, contextSize: 200000 }] },

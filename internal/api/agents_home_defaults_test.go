@@ -268,6 +268,18 @@ func TestProfileDefaultClineSource(t *testing.T) {
 	if p, err := f.st.ProfileFor(f.uid); err != nil || p.DefaultClineSource != "cline-pass" || p.Theme != "dark" {
 		t.Fatal("refused save applied", err, p)
 	}
+	// The default is per user: another account reads its own blank profile, not this one's saved source.
+	other, err := f.st.CreateUser("source-other@example.test", "Other", "member", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, out, raw = f.do(t, terminalLogin(t, f.st, other.ID), "GET", "/api/v2/profile", nil); code != 200 {
+		t.Fatalf("another account's profile: %d %s", code, raw)
+	}
+	otherProfile, _ := out["profile"].(map[string]any)
+	if otherProfile["defaultClineSource"] != "" {
+		t.Fatalf("one account's default source reached another: %+v", otherProfile)
+	}
 	viewer, err := f.st.CreateUser("source-viewer@example.test", "Viewer", "viewer", "hash")
 	if err != nil {
 		t.Fatal(err)

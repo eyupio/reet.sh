@@ -37,6 +37,30 @@ test('the start source is the explicit choice, then the saved default, then Clin
   assert.match(gone.note, /isn.t available/)
 })
 
+test('no saved default leaves Cline’s own choice, without a note or a block', () => {
+  const offered = ['cline', 'cline-pass']
+  assert.deepEqual(resolveStartSource({ offered, saved: '' }), { source: '', note: '' })
+  assert.deepEqual(resolveStartSource({ offered }), { source: '', note: '' })
+})
+
+test('a one-off choice overrides the saved default', () => {
+  const offered = ['cline', 'cline-pass']
+  assert.equal(resolveStartSource({ explicit: 'cline', saved: 'cline-pass', offered }).source, 'cline')
+  assert.equal(resolveStartSource({ explicit: 'cline-pass', saved: 'cline', offered }).source, 'cline-pass')
+  // Cline's own is a deliberate one-off too; it is not replaced by the saved default.
+  assert.equal(resolveStartSource({ explicit: '', saved: 'cline-pass', offered }).source, '')
+})
+
+test('both agent flows use one source control and one default resolver', () => {
+  for (const file of ['./StartAgentDialog.svelte', './GafferOutcome.svelte']) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8')
+    assert.match(text, /import ClineSourceSelect from '\.\/ClineSourceSelect\.svelte'/, file)
+    assert.match(text, /<ClineSourceSelect/, file)
+    assert.match(text, /resolveStartSource\(/, file)
+    assert.match(text, /defaultClineSource/, file)
+  }
+})
+
 test('the credit hint names the other sources the session offers', () => {
   const lead = 'This source has no credit. Switch to '
   const tail = ', or add credits with Cline, then send a message to continue.'

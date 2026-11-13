@@ -8,6 +8,7 @@
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { DEFAULT_STAGES, agentActivity, ago, needsYou, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
   import { eventLabel } from '../events'
+  import { sourceLabel } from '../clineSource'
   import GafferProse from '../GafferProse.svelte'
   import { formatWhen } from '../time'
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
@@ -272,7 +273,9 @@
   const crew = (piece: GafferOutcomeSession, record: Outcome) => {
     const stage = piece.stages?.[piece.stage ?? 0]
     const tool = stage?.tool ?? record.tool, model = stage?.model ?? record.model ?? ''
-    return `${chatToolName(tool)}${model ? ` · ${model}` : ''}${stage?.effort ? ` · ${stage.effort} effort` : ''}`
+    // A stage's own empty source is Cline's own choice; the outcome's source is only the fallback when a piece has no stage.
+    const source = stage ? stage.provider ?? '' : record.provider ?? ''
+    return `${chatToolName(tool)}${model ? ` · ${model}` : ''}${source ? ` · ${sourceLabel(source)}` : ''}${stage?.effort ? ` · ${stage.effort} effort` : ''}`
   }
 </script>
 
@@ -363,7 +366,7 @@
               <button class="fold" type="button" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} details of ${piece.title}`} onclick={() => folds = { ...folds, [id]: !open }}>{open ? 'Hide details' : 'Show details'}</button></div>
             {#if !open}<p class="now brief">{status.label === 'Needs you' && goal ? (goal.reason || goal.goal.note) : piece.note}</p>{:else}
             {#if nodes.length}<ol class="track" aria-label={`Stages of ${piece.title}`}>
-              {#each nodes as node, index (node.kind)}{@const look = node.state === 'running' && status.label === 'Needs you' ? 'waiting' : node.state}<li class={look} aria-current={look === 'running' || look === 'waiting' ? 'step' : undefined} title={`${node.label}: ${chatToolName(node.tool)}${node.model ? ` · ${node.model}` : ''}${node.moved ? ' · moved on by you' : ''}${node.summary ? ` — ${node.summary}` : ''}`}>
+              {#each nodes as node, index (node.kind)}{@const look = node.state === 'running' && status.label === 'Needs you' ? 'waiting' : node.state}<li class={look} aria-current={look === 'running' || look === 'waiting' ? 'step' : undefined} title={`${node.label}: ${chatToolName(node.tool)}${node.model ? ` · ${node.model}` : ''}${node.source ? ` · ${sourceLabel(node.source)}` : ''}${node.moved ? ' · moved on by you' : ''}${node.summary ? ` — ${node.summary}` : ''}`}>
                 <span class="dot" class:moved={node.moved} aria-hidden="true">{node.moved ? '»' : look === 'done' ? '✓' : look === 'waiting' ? '!' : look === 'failed' ? '×' : index + 1}</span><span class="name">{node.label}</span><span class="sr-only">{node.moved ? 'moved on by you, not handed over by Gaffer' : look === 'done' ? 'done' : look === 'running' ? 'running now' : look === 'waiting' ? 'waiting for you' : look === 'failed' ? 'stopped' : 'to come'}</span>
               </li>{/each}
             </ol>{/if}

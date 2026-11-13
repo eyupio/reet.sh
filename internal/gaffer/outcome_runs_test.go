@@ -199,6 +199,50 @@ func TestOutcomeStartsAndFollowsItsApprovedSessionsWithoutABrowser(t *testing.T)
 	}
 }
 
+// A Cline stage carries the billing source the person chose all the way to the launch, and the record keeps it.
+func TestOutcomeCarriesAClineBillingSourceToItsLaunch(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Tool, r.in.Model, r.in.Provider = "cline", "", "cline-pass"
+	r.in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint with tests. Do not merge.", Stages: []OutcomeStageInput{
+		{Kind: "code", Tool: "cline", Model: "cline-pass/deepseek-v4", Provider: "cline-pass"},
+	}}}
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Sessions[0].Stages[0].Provider != "cline-pass" || created.Provider != "cline-pass" {
+		t.Fatalf("stored source: %+v", created)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for len(r.starter.asked()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	asked := r.starter.asked()
+	if len(asked) != 1 || asked[0].Tool != "cline" || asked[0].Provider != "cline-pass" || asked[0].Model != "cline-pass/deepseek-v4" {
+		t.Fatalf("launch carried no source: %+v", asked)
+	}
+}
+
+func TestOutcomeRefusesABillingSourceAnotherAgentCannotTake(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	refused := func(label string) {
+		t.Helper()
+		var ref *Invalid
+		if _, err := r.s.CreateOutcome(r.p.UserID, r.in); !errors.As(err, &ref) || ref.Field != "provider" {
+			t.Fatalf("%s: %v", label, err)
+		}
+	}
+	r.in.Provider = "cline-pass"
+	refused("a source on OpenCode")
+	r.in.Tool, r.in.Provider = "cline", "bad value"
+	refused("an invalid source")
+	r.in.Provider = ""
+	r.in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add it. Do not merge.", Stages: []OutcomeStageInput{{Kind: "code", Tool: "opencode", Provider: "cline-pass"}}}}
+	refused("a stage source on OpenCode")
+}
+
 func TestOutcomeReportsEachSessionAndCarriesOnPastARefusal(t *testing.T) {
 	r := outcomeFixture(t)
 	r.starter.refuse["Export API"] = "That agent isn't installed on that machine."

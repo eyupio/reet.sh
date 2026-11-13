@@ -2,13 +2,15 @@
   // Give Gaffer an outcome. Gaffer proposes the sessions, the person edits and approves the plan, and only then does the
   // controller start each session through the ordinary launch and put it in Gaffer's care. This dialog only watches:
   // the work carries on if it is closed. Nothing starts on the model's say-so: a proposed session is text until Approve.
-  import { onMount } from 'svelte'
-  import { createGafferOutcome, getGafferOutcome, getGafferSettings, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
+  import { onMount, untrack } from 'svelte'
+  import { createGafferOutcome, getGafferOutcome, getGafferSettings, getProfile, getYoloSetting, listModelFavourites, planGafferOutcome, stopGafferOutcome, type GafferOutcome, type GafferProvider, type YoloSetting } from './api'
   import { chatToolName, launchUpload, listFolderProjects, machineModels, structuredAgent, terminalMachines, type FolderProject, type TerminalMachine } from './terminal/api'
   import { imageFiles, imagePrompt } from './terminal/upload'
   import ImageAttachment from './ImageAttachment.svelte'
   import { attachmentFromPaste, attachmentMessage } from './imageAttachment'
   import GafferModelSelect from './GafferModelSelect.svelte'
+  import ClineSourceSelect from './ClineSourceSelect.svelte'
+  import { KNOWN_SOURCES, resolveStartSource } from './clineSource'
   import GafferProse from './GafferProse.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import YoloDialog from './launch/YoloDialog.svelte'
@@ -38,6 +40,9 @@
   let trust = $state(false)
   // The model every stage uses unless a crew role is given its own. Empty is the agent's default.
   let model = $state(''), effort = $state('')
+  // The Cline billing source: the account's saved default, and the person's own choice for this run.
+  let savedSource = $state(''), explicitSource = $state(false), source = $state('')
+  let crewSourceExplicit = $state<Record<string, boolean>>({ think: false, build: false, ship: false })
   // What each agent offers on the project's machine, read once per agent. A failed read leaves favourites, suggestions and Other.
   let offered = $state<Record<string, MachineModels | null>>({}), favourites = $state<ModelFavourite[]>([])
   // YOLO: the account setting, and whether the person confirmed it for this outcome. It is never remembered.
@@ -73,6 +78,14 @@
   const blocker = $derived(loading ? '' : !provider ? 'Choose a default Gaffer provider in Gaffer settings first.' : objectiveBlocker({ objective, project: !!project, machineReady: !!machine?.ready, agent: !!tool && tools.includes(tool), room }))
   const approveBlocker = $derived(planBlocker(sessions, room))
   const crewTools = $derived(CREW_ROLES.map(item => crew[item.role].tool))
+  const sourceOffered = $derived.by(() => {
+    const ids = KNOWN_SOURCES.map(item => item.id)
+    if (savedSource && !ids.includes(savedSource)) ids.push(savedSource)
+    return ids
+  })
+  const startSource = $derived(resolveStartSource({ explicit: explicitSource ? source : undefined, saved: savedSource, offered: sourceOffered }))
+  const chosenSource = $derived(startSource.source)
+  const sourceShown = $derived(tool === 'cline' && machine?.capabilities?.acpProvider === true)
   const needsTrust = $derived(crewTools.some(id => id === 'opencode' || id === 'antigravity'))
   const trustNames = $derived([...new Set(crewTools.filter(id => id === 'opencode' || id === 'antigravity'))].map(chatToolName).join(' and '))
   const limitsOk = $derived(wholeBetween(maxReviews, 1, 48) && wholeBetween(hours, 1, 168))
@@ -82,6 +95,27 @@
   $effect(() => { if (wanted > cap) wanted = cap })
   // A crew role follows the main agent until the person gives it one of its own that this machine can run.
   $effect(() => { for (const item of CREW_ROLES) if (!tools.includes(crew[item.role].tool)) crew[item.role].tool = tool })
+  // A new agent starts on the saved source; a source picked for the old agent is not carried to the new one.
+  let lastTool = ''
+  $effect(() => {
+    const next = tool
+    untrack(() => {
+      if (lastTool && next !== lastTool) { explicitSource = false; source = '' }
+      lastTool = next
+    })
+  })
+  // A Cline selection opens on the saved default until the person picks another source for this run.
+  $effect(() => {
+    const saved = savedSource, currentTool = tool, currentExplicit = explicitSource, currentSource = source, currentTools = crewTools
+    untrack(() => {
+      if (currentTool === 'cline' && !currentExplicit && currentSource !== saved) source = saved
+      for (const item of CREW_ROLES) {
+        if (!currentTools.includes('cline')) continue
+        const role = crew[item.role]
+        if (role.tool === 'cline' && !crewSourceExplicit[item.role] && (role.source ?? '') !== saved) role.source = saved
+      }
+    })
+  })
   $effect(() => { if (!needsTrust) trust = false })
   $effect(() => {
     const agentId = machine?.agentId
@@ -114,6 +148,7 @@
     maxReviews = saved.maxReviews; hours = saved.hours
     autoMerge = $gafferAutoMerge
     void getYoloSetting().then(found => { yoloSetting = found }).catch(() => { yoloSetting = { allowed: false } })
+    void getProfile().then(answer => { if (!life.signal.aborted) savedSource = answer.profile.defaultClineSource ?? '' }).catch(() => { /* Cline’s own choice */ })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
     void Promise.all([getGafferSettings(life.signal), listFolderProjects(life.signal), terminalMachines(life.signal)]).then(([settings, folders, found]) => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
@@ -123,6 +158,20 @@
       .finally(() => { loading = false })
     return () => life.abort()
   })
+
+  // Choosing the main source applies it to every stage that follows the main agent, unless a crew role has its own.
+  function pickSource(next: string) {
+    source = next; explicitSource = true
+    for (const item of CREW_ROLES) {
+      if (crew[item.role].tool !== tool) continue
+      crew[item.role] = { ...crew[item.role], source: next }
+      crewSourceExplicit[item.role] = true
+    }
+  }
+  function pickCrewSource(role: keyof Crew, next: string) {
+    crew[role] = { ...crew[role], source: next }
+    crewSourceExplicit[role] = true
+  }
 
   async function ask() {
     if (planning || blocker || !provider || !project) return
@@ -192,8 +241,8 @@
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
-        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), trust, yolo: yolo && !yoloWhy, autoReport, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew) })),
+        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew, machine?.capabilities?.acpProvider === true) })),
       }, life.signal)
       step = 'results'; clearImage()
       watch(record.id)
@@ -230,7 +279,7 @@
               <option value="">Choose a project…</option>
               {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
             </select></label>
-            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; effort = ''; for (const item of CREW_ROLES) crew[item.role] = { tool, model: '', effort: '' } }}>
+            <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; effort = ''; source = ''; explicitSource = false; crewSourceExplicit = { think: false, build: false, ship: false }; for (const item of CREW_ROLES) crew[item.role] = { tool, model: '', effort: '', source: '' } }}>
               {#if !tools.length}<option value="">{project ? 'None available' : 'Choose a project first'}</option>{/if}
               {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
             </select></label>
@@ -241,15 +290,17 @@
             <label>Sessions<select aria-label="Sessions" bind:value={wanted} disabled={planning}>
               {#each Array.from({ length: cap }, (_, n) => n + 1) as n (n)}<option value={n}>Up to {n}</option>{/each}
             </select></label>
+            {#if sourceShown}<div class="source-field"><ClineSourceSelect label="Source" value={chosenSource} saved={savedSource} offered={sourceOffered} note={startSource.note} disabled={planning} onchange={pickSource} onsaved={next => savedSource = next} /></div>{/if}
           </div>
           <details class="limit-editor crew"><summary>{crewTools.every(id => id === tool) && CREW_ROLES.every(item => crew[item.role].model.trim() === model.trim() && (crew[item.role].effort ?? '') === effort) ? 'One agent does every stage' : 'A crew does the stages'} <span>Choose who does what</span></summary>
             <p class="hint">Right tool for the job: give the thinking stages a stronger model or more effort, and the building or shipping stages a cheaper one. A new session starts whenever the agent, model or effort changes; otherwise a pipeline keeps one session.</p>
             <div class="crew-rows">
               {#each CREW_ROLES as item (item.role)}<div class="crew-row" role="group" aria-label={`${item.label} crew`}>
                 <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span></div>
-                <select aria-label={`${item.label} agent`} bind:value={crew[item.role].tool} disabled={planning || !tools.length} onchange={() => { const same = crew[item.role].tool === tool; crew[item.role].model = same ? model : ''; crew[item.role].effort = same ? effort : '' }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+                <select aria-label={`${item.label} agent`} bind:value={crew[item.role].tool} disabled={planning || !tools.length} onchange={() => { const same = crew[item.role].tool === tool; crew[item.role].model = same ? model : ''; crew[item.role].effort = same ? effort : ''; crew[item.role].source = same ? chosenSource : ''; crewSourceExplicit[item.role] = false }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                 <GafferModelSelect label={`${item.label} model`} tool={crew[item.role].tool} bind:value={crew[item.role].model} machine={offeredFor(crew[item.role].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
                 <select aria-label={`${item.label} effort`} bind:value={crew[item.role].effort} disabled={planning || efforts(crew[item.role].tool).length < 2}>{#each efforts(crew[item.role].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(crew[item.role].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
+                {#if crew[item.role].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} source`} value={crew[item.role].source ?? ''} saved={savedSource} offered={sourceOffered} disabled={planning} onchange={next => pickCrewSource(item.role, next)} onsaved={next => savedSource = next} /></div>{/if}
               </div>{/each}
             </div>
           </details>
@@ -283,7 +334,7 @@
           <div class="stage-pick" role="group" aria-label={`Session ${index + 1} stages`}>
             {#each STAGES as stage (stage.kind)}<button type="button" class="stage-chip" aria-pressed={item.stages?.includes(stage.kind) ?? false} onclick={() => toggleStage(item, stage.kind)}>{stage.label}</button>{/each}
           </div>
-          <p class="hint">{sessionCount(stagePlan(item.stages ?? [], crew))} agent {sessionCount(stagePlan(item.stages ?? [], crew)) === 1 ? 'session' : 'sessions'} for {item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}.</p>
+          <p class="hint">{sessionCount(stagePlan(item.stages ?? [], crew, machine?.capabilities?.acpProvider === true))} agent {sessionCount(stagePlan(item.stages ?? [], crew, machine?.capabilities?.acpProvider === true)) === 1 ? 'session' : 'sessions'} for {item.stages?.length ?? 0} {item.stages?.length === 1 ? 'stage' : 'stages'}.</p>
         </li>{/each}
       </ol>
       {#if sessions.length < cap}<button class="btn quiet add" type="button" onclick={addSession}>Add a session</button>{/if}
@@ -341,7 +392,7 @@
   .outcome{display:grid;gap:14px;min-width:0;font-size:14px;line-height:1.5}p{margin:0;overflow-wrap:anywhere}.hint{color:var(--muted)}.warning{color:var(--bad)}
   form{display:grid;gap:12px;min-width:0}label{font-weight:600;display:grid;gap:6px;min-width:0}
   textarea,input,select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;max-width:100%;min-height:44px;box-sizing:border-box}textarea{resize:vertical}
-  .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pair.two{grid-template-columns:1fr 1fr;padding-top:8px}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pair.two{grid-template-columns:1fr 1fr;padding-top:8px}.source-field{min-width:0}.crew-source{grid-column:1/-1;min-width:0}
   .eyebrow{display:block;font-size:0.875rem;color:var(--muted);margin-bottom:2px}.objective{white-space:pre-wrap}
   .summary,.access{border-left:2px solid var(--line-strong);padding-left:12px}
   .talk{display:grid;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}

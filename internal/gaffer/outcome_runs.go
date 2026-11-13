@@ -20,7 +20,7 @@ import (
 
 // OutcomeLaunch is one approved session for the launch path to start.
 type OutcomeLaunch struct {
-	AgentID, RequestID, Title, Tool, Model, Effort, Dir, ProjectID, Prompt string
+	AgentID, RequestID, Title, Tool, Model, Effort, Provider, Dir, ProjectID, Prompt string
 	// LinkProjectID ties a later stage's session to the outcome's project in
 	// the session list. It is not a project launch: no worktree is made for it.
 	LinkProjectID string
@@ -52,6 +52,7 @@ type OutcomeInput struct {
 	ProjectID string `json:"projectId"`
 	Tool      string `json:"tool"`
 	Model     string `json:"model"`
+	Provider  string `json:"provider"`
 	Trust     bool   `json:"trust"`
 	// Yolo starts every session of the outcome without approvals. It is the
 	// person's choice only: no plan and no model can ask for it.
@@ -75,6 +76,8 @@ type OutcomeStageInput struct {
 	Kind  string `json:"kind"`
 	Tool  string `json:"tool,omitempty"`
 	Model string `json:"model,omitempty"`
+	// Provider is the billing source a Cline stage starts on; empty is Cline's own choice.
+	Provider string `json:"provider,omitempty"`
 	// Effort is how hard the stage's agent thinks: empty for its own default.
 	Effort string `json:"effort,omitempty"`
 }
@@ -235,6 +238,10 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if model != "" && !terminalproto.ValidModel(model) {
 		return o, invalid("model", "Choose a model name this agent accepts, or leave it to the agent's default.")
 	}
+	providerSource := strings.TrimSpace(in.Provider)
+	if providerSource != "" && (!terminalproto.ToolTakesProvider(in.Tool) || !terminalproto.ValidProvider(providerSource)) {
+		return o, invalid("provider", "Choose a Cline billing source, or leave it to Cline’s own.")
+	}
 	if in.Trust && in.Tool != "opencode" && in.Tool != "antigravity" && !outcomeWantsTrust(in) {
 		return o, invalid("trust", "Only OpenCode and Google Antigravity ask you to trust a folder's plugins.")
 	}
@@ -268,11 +275,11 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
-	sessions, err := outcomePieces(in.Sessions, in.Tool, model, in.AutoMerge, map[string]bool{}, 0)
+	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, in.AutoMerge, map[string]bool{}, 0)
 	if err != nil {
 		return o, err
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Trust: in.Trust, Yolo: in.Yolo, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err
@@ -284,7 +291,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 // outcomePieces turns approved sessions into pipeline records. taken holds
 // the titles already used in the outcome and from is how many pieces it has,
 // so added pipelines get titles and keys of their own.
-func outcomePieces(items []OutcomeSession, tool, model string, autoMerge bool, taken map[string]bool, from int) ([]store.GafferOutcomeSession, error) {
+func outcomePieces(items []OutcomeSession, tool, model, provider string, autoMerge bool, taken map[string]bool, from int) ([]store.GafferOutcomeSession, error) {
 	out := make([]store.GafferOutcomeSession, 0, len(items))
 	for i, item := range items {
 		title, prompt := strings.TrimSpace(item.Title), strings.TrimSpace(item.Prompt)
@@ -310,9 +317,15 @@ func outcomePieces(items []OutcomeSession, tool, model string, autoMerge bool, t
 				return nil, invalid("sessions", "Keep the stages of “"+title+"” in pipeline order, each at most once.")
 			}
 			last = at
-			stageTool, stageModel := stage.Tool, strings.TrimSpace(stage.Model)
+			stageTool, stageModel, stageProvider := stage.Tool, strings.TrimSpace(stage.Model), strings.TrimSpace(stage.Provider)
 			if stageTool == "" {
 				stageTool, stageModel = tool, model
+				if stageProvider == "" {
+					stageProvider = provider
+				}
+			}
+			if stageProvider != "" && (!terminalproto.ToolTakesProvider(stageTool) || !terminalproto.ValidProvider(stageProvider)) {
+				return nil, invalid("provider", "Choose a billing source for Cline, or leave it to Cline's own, for every stage of “"+title+"”.")
 			}
 			// Every stage is a chat, whose effort is one of the agent's own
 			// thinking levels: a name, not one of reet's three. The agent
@@ -327,7 +340,7 @@ func outcomePieces(items []OutcomeSession, tool, model string, autoMerge bool, t
 			if err != nil {
 				return nil, err
 			}
-			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stage.Effort, RequestID: id})
+			piece.Stages = append(piece.Stages, store.GafferOutcomeStage{Kind: stage.Kind, Tool: stageTool, Model: stageModel, Effort: stage.Effort, Provider: stageProvider, RequestID: id})
 		}
 		if len(piece.Stages) > 0 {
 			piece.Stages[0].RequestID = request
@@ -797,7 +810,7 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 	if next > 0 {
 		prev = item.Stages[next-1]
 	}
-	if next > 0 && prev.State == "done" && prev.Tool == stage.Tool && prev.Model == stage.Model && prev.Effort == stage.Effort && item.ConversationID != "" {
+	if next > 0 && prev.State == "done" && prev.Tool == stage.Tool && prev.Model == stage.Model && prev.Effort == stage.Effort && prev.Provider == stage.Provider && item.ConversationID != "" {
 		// Same agent, model and effort: the session carries on, under a fresh goal and budget for the new stage.
 		v, err := s.Goal(uid, item.ConversationID)
 		if err == nil && v.SetupAllowed {
@@ -860,12 +873,12 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		}
 		return err == nil
 	}
-	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Trust: o.Trust, Yolo: o.Yolo, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
+	launch := OutcomeLaunch{AgentID: o.AgentID, RequestID: item.RequestID, Title: item.Title, Tool: o.Tool, Model: o.Model, Provider: o.Provider, Trust: o.Trust, Yolo: o.Yolo, Dir: o.Dir, ProjectID: o.ProjectID, Prompt: item.Prompt}
 	goal := OutcomeGoal(o.Objective, item.Title)
 	staged := len(item.Stages) > 0 && item.Stage < len(item.Stages)
 	if staged {
 		stage := item.Stages[item.Stage]
-		launch.RequestID, launch.Tool, launch.Model, launch.Prompt = stage.RequestID, stage.Tool, stage.Model, stagePrompt(o, item, item.Stage)
+		launch.RequestID, launch.Tool, launch.Model, launch.Provider, launch.Prompt = stage.RequestID, stage.Tool, stage.Model, stage.Provider, stagePrompt(o, item, item.Stage)
 		launch.Effort = stage.Effort
 		launch.Trust = o.Trust && (stage.Tool == "opencode" || stage.Tool == "antigravity")
 		launch.Title = clipBytes(item.Title, 60) + " · " + stage.Kind

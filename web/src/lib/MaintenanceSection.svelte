@@ -42,7 +42,7 @@
     if (busy) return
     busy = 'scanning'; failed = false; message = 'Asking your machines about finished sessions’ worktrees…'
     try {
-      const out = await scanWorktrees(settings?.worktrees.minAgeDays ?? 7, life.signal)
+      const out = await scanWorktrees(settings?.worktrees.minAgeDays ?? 1, life.signal)
       items = out.items; more = out.more
       picked = Object.fromEntries(cleanable(out.items).map(i => [itemKey(i), true]))
       message = out.items.length === 0 ? 'Nothing to clean up.' : `Found ${plural(out.items.length, 'worktree', 'worktrees')}.`

@@ -14,6 +14,12 @@ this file existed releases were described on their GitHub release pages.
   **+** now ask what to start, as the Sessions page does: an agent session, a
   terminal session (in the project's folder when one is named), or a **Factory
   outcome**. The Sessions page's chooser offers the Factory outcome too.
+- The scheduled worktree clean-up is now on unless an admin turns it off, so
+  the clean worktrees of finished sessions are no longer left behind. It still
+  removes only worktrees with nothing unsaved, and its default wait after a
+  session finishes is now 1 day, down from 7. A controller where it was
+  switched off stays off, and a saved wait is kept; one that never saved these
+  settings starts sweeping, with the 1-day wait, after this update.
 - **Apply retention now** on Admin, Backups no longer fails with "Cannot read
   properties of null (reading 'length')" when there is nothing to remove. The
   controller now always answers with empty lists, and the page copes with the

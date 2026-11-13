@@ -252,10 +252,10 @@ func sshRefused(out []byte) bool {
 //     (b) its .git is a real directory (not a file, not a symlink) whose
 //     config is a regular file of its own (not a symlink, not a directory),
 //     with no commondir and no config.worktree beside it, and
-//     `git config --local --get remote.origin.url` (pinned to the folder,
-//     no rewrites, the ordinary per-call git bound) exits 0 with an origin
-//     that GitHubRemote parses to <owner>/<repo>, the repository being
-//     cloned, ignoring case.
+//     `git config --local --get-all remote.origin.url` (pinned to the
+//     folder, no rewrites, the ordinary per-call git bound) exits 0 with
+//     exactly one origin, which GitHubRemote parses to <owner>/<repo>, the
+//     repository being cloned, ignoring case.
 //     Every other outcome keeps the folder, including git's exit 1: git
 //     answers 1 both for an origin that is not set and for one it could not
 //     see (an unreadable config, an include, a worktree config), so it is
@@ -305,14 +305,22 @@ func originIsLeftover(ctx context.Context, path string, req terminalproto.RepoCl
 	} else if err != nil || !ownConfig(gitDir) {
 		return false
 	}
-	// `git config --local --get` reads the candidate's own config only and
-	// applies no url.<base>.insteadOf rewrite: this is the origin as
-	// configured. Only a found origin is an answer.
-	out, err := leftoverGit(pinGitDir(ctx, path), path, "config", "--local", "--get", "remote.origin.url")
-	if err != nil {
+	// `git config --local --get-all` reads the candidate's own config only
+	// and applies no url.<base>.insteadOf rewrite: this is the origin as
+	// configured. Only a found origin, exactly one, is an answer.
+	out, err := leftoverGit(pinGitDir(ctx, path), path, "config", "--local", "--get-all", "remote.origin.url")
+	return err == nil && originNames(out, req)
+}
+
+// originNames reports whether out, the answer of `git config --get-all
+// remote.origin.url`, is exactly one non-empty origin naming req's repository
+// on github.com. Several values are refused: git fetches from the first.
+func originNames(out []byte, req terminalproto.RepoClone) bool {
+	line, _ := strings.CutSuffix(string(out), "\n")
+	if line == "" || strings.Contains(line, "\n") {
 		return false
 	}
-	owner, repo, ok := GitHubRemote(strings.TrimSuffix(string(out), "\n"))
+	owner, repo, ok := GitHubRemote(line)
 	return ok && sameRepo(owner+"/"+repo, req)
 }
 
@@ -373,16 +381,16 @@ func adoptClone(ctx context.Context, dest string, req terminalproto.RepoClone, g
 	if !realDir(dest) || !ownConfig(filepath.Join(dest, ".git")) {
 		return exists
 	}
-	// `git config --local --get` reads the folder's own config only (never
-	// the person's global or system config) and fails outside a repository
-	// git accepts; it applies no url.<base>.insteadOf rewrite: this is the
-	// origin as configured.
-	out, err := git(pinGitDir(ctx, dest), dest, "config", "--local", "--get", "remote.origin.url")
+	// `git config --local --get-all` reads the folder's own config only
+	// (never the person's global or system config) and fails outside a
+	// repository git accepts; it applies no url.<base>.insteadOf rewrite:
+	// this is the origin as configured. More than one value is refused: git
+	// fetches from the first while `--get` would answer the last.
+	out, err := git(pinGitDir(ctx, dest), dest, "config", "--local", "--get-all", "remote.origin.url")
 	if err != nil {
 		return exists
 	}
-	owner, repo, ok := GitHubRemote(strings.TrimSuffix(string(out), "\n"))
-	if !ok || !sameRepo(owner+"/"+repo, req) {
+	if !originNames(out, req) {
 		return exists
 	}
 	origin, marked := cloneMarked(dest)

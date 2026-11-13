@@ -1133,7 +1133,7 @@ func TestCloneRepoKeepsALeftoverWhoseOriginGitCannotRead(t *testing.T) {
 	if after := snapshot(t, stale); !slices.Equal(before, after) {
 		t.Fatalf("leftover changed:\n%q\n%q", before, after)
 	}
-	if len(asked) != 1 || !slices.Equal(asked[0], []string{stale, "config", "--local", "--get", "remote.origin.url"}) {
+	if len(asked) != 1 || !slices.Equal(asked[0], []string{stale, "config", "--local", "--get-all", "remote.origin.url"}) {
 		t.Fatalf("asked %q", asked)
 	}
 }
@@ -1247,7 +1247,7 @@ func TestCloneRepoLeftoverOriginIsItsOwn(t *testing.T) {
 				}
 			}
 			for _, args := range asked {
-				if !slices.Equal(args, []string{"config", "--local", "--get", "remote.origin.url"}) {
+				if !slices.Equal(args, []string{"config", "--local", "--get-all", "remote.origin.url"}) {
 					t.Fatalf("asked %q", args)
 				}
 			}
@@ -1289,7 +1289,7 @@ func TestCloneRepoAdoptsOnlyItsOwnOrigin(t *testing.T) {
 		t.Fatalf("result = %+v", r)
 	}
 	for _, args := range f.calls {
-		if slices.Contains(args, "remote.origin.url") && !slices.Equal(args[len(args)-4:], []string{"config", "--local", "--get", "remote.origin.url"}) {
+		if slices.Contains(args, "remote.origin.url") && !slices.Equal(args[len(args)-4:], []string{"config", "--local", "--get-all", "remote.origin.url"}) {
 			t.Fatalf("origin read %q", args)
 		}
 	}
@@ -1357,16 +1357,9 @@ func TestCloneRepoRemovesALeftoverOnlyOnProof(t *testing.T) {
 			}
 			return []string{elsewhere}
 		}, true},
-		{"config unreadable", func(t *testing.T, f *cloneFixture, path string) []string {
-			if os.Geteuid() == 0 {
-				t.Skip("root reads a file of mode 000")
-			}
+		{"origin o/other, then o/x added", func(t *testing.T, f *cloneFixture, path string) []string {
 			makeLeftoverOf(t, path, "https://github.com/o/other.git", time.Hour)
-			config := filepath.Join(path, ".git", "config")
-			if err := os.Chmod(config, 0); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = os.Chmod(config, 0o600) })
+			testGit(t, path, "config", "--add", "remote.origin.url", "https://github.com/o/x.git")
 			return nil
 		}, true},
 		{"origin set only through include.path", func(t *testing.T, f *cloneFixture, path string) []string {
@@ -1441,6 +1434,10 @@ func TestCloneRepoAdoptsOnlyAPlainConfig(t *testing.T) {
 			f.handClone(t, dest, "https://github.com/o/r.git")
 			writeFile(t, filepath.Join(dest, ".git", "config.worktree"), "")
 		}},
+		{"two origins, the last naming it", func(t *testing.T, f *cloneFixture, dest string) {
+			f.handClone(t, dest, "https://github.com/o/other.git")
+			testGit(t, dest, "config", "--add", "remote.origin.url", "https://github.com/o/r.git")
+		}},
 		{"config a symlink", func(t *testing.T, f *cloneFixture, dest string) {
 			f.handClone(t, dest, "https://github.com/o/r.git")
 			config := filepath.Join(dest, ".git", "config")
@@ -1470,5 +1467,39 @@ func TestCloneRepoAdoptsOnlyAPlainConfig(t *testing.T) {
 	f.handClone(t, dest, "https://github.com/o/r.git")
 	if r := f.clone(t, "o", "r"); r != (terminalproto.RepoCloneResult{Dir: dest, DefaultBranch: "main", Adopted: true}) {
 		t.Fatalf("result = %+v", r)
+	}
+}
+
+// A leftover whose config this user cannot read is kept, though its origin
+// names the repository being cloned: git's answer without the config is no
+// proof. (Root reads a file of mode 000, so this runs only as another user.)
+func TestCloneRepoKeepsALeftoverWithAnUnreadableConfig(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a file of mode 000")
+	}
+	f := newCloneFixture(t)
+	f.name = "x"
+	owner := filepath.Join(f.repos(), "o")
+	path := filepath.Join(owner, ".x.cloning-0123456789abcdef")
+	makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
+	config := filepath.Join(path, ".git", "config")
+	info, err := os.Lstat(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode := info.Mode().Perm()
+	before := snapshot(t, path)
+	if err := os.Chmod(config, 0); err != nil {
+		t.Fatal(err)
+	}
+	restore := func() { _ = os.Chmod(config, mode) }
+	t.Cleanup(restore)
+	r := f.clone(t, "o", "x")
+	restore()
+	if r != (terminalproto.RepoCloneResult{Dir: filepath.Join(owner, "x"), DefaultBranch: "main", Marked: true}) {
+		t.Fatalf("result = %+v", r)
+	}
+	if after := snapshot(t, path); !slices.Equal(before, after) {
+		t.Fatalf("%s changed:\n%q\n%q", path, before, after)
 	}
 }

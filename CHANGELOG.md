@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- An agent whose binary has only just been written, by an install or an
+  update, is no longer refused as having "no version". Starting it could fail
+  for an instant with "text file busy"; the version check now waits that out.
 - A machine waiting for its controller to finish moving keeps a readable log.
   The agent says once that the controller has moved, and again only if the
   address changes, where it printed four lines every five seconds; it also

@@ -49,6 +49,9 @@ var (
 	// branchSyncAnswerAfter bounds a sync that has not returned. Its own
 	// deadline is 45 s, which is under this answer.
 	branchSyncAnswerAfter = 48 * time.Second
+	// baseCheckAnswerAfter bounds a base check that has not returned. Its own
+	// deadline is 33 s, which is under this answer.
+	baseCheckAnswerAfter = 36 * time.Second
 	// modelsAnswerAfter is when a model listing that has not returned is
 	// answered timed_out and its slot freed. ListModels kills its process at
 	// 10 s; this leaves room for the reply and process reaping.
@@ -498,6 +501,20 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					func(ctx context.Context) terminalproto.Body {
 						return terminalhost.SyncBranch(ctx, home, req, git)
 					})
+			case *terminalproto.BaseCheck:
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.BaseCheckResult{Reason: terminalproto.BranchesDenied}
+					return send(callCtx, reply)
+				}
+				req, home, git := *op, opts.Home, opts.Git
+				if git == nil {
+					git = terminalhost.ExecGit
+				}
+				return aside(callCtx, reply, pruneSlot, &prunesRunning, baseCheckAnswerAfter,
+					terminalproto.BaseCheckResult{Reason: terminalproto.BranchesConflict}, terminalproto.BaseCheckResult{Reason: terminalproto.BranchesGitFailed},
+					func(ctx context.Context) terminalproto.Body {
+						return terminalhost.CheckBase(ctx, home, req, git)
+					})
 			case *terminalproto.Models:
 				if !terminalproto.ValidToolV2(op.Tool) {
 					return terminalproto.ErrInvalid
@@ -673,14 +690,14 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					go func(in terminalproto.Create) {
 						defer chats.sup.wg.Done()
 						defer chats.sup.unhold(msg.SessionID)
-						changed, err := chats.open(msg.RequestID, msg.SessionID, in)
+						changed, err := chats.open(msg.RequestID, msg.SessionID, in, features.Has(terminalproto.BaseFreshFeature))
 						if callCtx.Err() != nil {
 							return
 						}
 						if err != nil {
 							reply.Body = chatResult(err)
 						} else {
-							reply.Body = changed
+							reply.Body = changed.ForFeatures(featureHeader)
 						}
 						_ = send(callCtx, reply)
 					}(*op)
@@ -878,11 +895,22 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					defer wg.Done()
 					defer chats.sup.unhold(msg.SessionID)
 					createCtx := callCtx
+					if features.Has(terminalproto.BaseFreshFeature) {
+						// A worktree this create makes starts from the base as
+						// GitHub has it; without the feature it starts where a
+						// create always did and nothing is fetched.
+						createCtx = terminalhost.WithBaseFresh(createCtx)
+					}
 					if features.Has(terminalproto.ProgressFeature) {
 						// Each stage is told to the controller as it begins, before this create's one answer.
-						createCtx = terminalhost.WithProgress(callCtx, func(stage terminalproto.LaunchStage) {
-							note := msg
-							note.Body = terminalproto.LaunchProgress{Stage: stage}
+						// Built on createCtx, never on callCtx: a context built afresh from the call would
+						// drop what this one already carries, such as the negotiated base-fresh above.
+						createCtx = terminalhost.WithProgress(createCtx, func(stage terminalproto.LaunchStage) {
+							// A stage note is matched to its create by request id alone. It must not
+							// carry the create's session id: a launch_progress with one is not a valid
+							// message, so it would be refused when encoded and never sent.
+							note := terminalproto.Message{Version: msg.Version, RequestID: msg.RequestID, Generation: msg.Generation,
+								Body: terminalproto.LaunchProgress{Stage: stage}}
 							noteCtx, cancel := context.WithTimeout(callCtx, time.Second)
 							defer cancel()
 							_ = send(noteCtx, note)
@@ -913,6 +941,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 							ExitStatus:   s.ExitCode,
 							WorktreePath: s.WorktreePath,
 							WorktreeRepo: s.WorktreeRepo,
+							Base:         s.Base,
 						}.ForFeatures(featureHeader)
 					}
 					_ = send(callCtx, reply)
@@ -1149,6 +1178,10 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.BranchSync:
 		if !has(terminalproto.BranchSyncFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.BaseCheck:
+		if !has(terminalproto.BaseFreshFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.Models:

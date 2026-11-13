@@ -113,7 +113,7 @@ when:
 | `diverged` | The local main has commits the remote lacks. |
 | `busy` | A merge, rebase, cherry-pick, revert or bisect is in progress. |
 | `no_remote` | No `origin`, or it has no such branch. |
-| `fetch_failed` | git could not reach the remote (network, or credentials that need an ssh agent or helper outside reet's pinned git environment). |
+| `fetch_failed` | git could not reach the remote. A `github.com` origin is fetched with the machine's own credential helpers and its `gh` sign-in, so this means none of them could serve it; a `github.com` origin spelled as an ssh URL is fetched over https with `gh`, and is not fetched at all (this status) when the machine has no `gh`. Any other host is fetched as before, so one needing an ssh agent or a helper outside reet's pinned git environment fails here. |
 
 A successful fast-forward is `updated`. The merge runs with repository hooks
 disabled, like a worktree add.

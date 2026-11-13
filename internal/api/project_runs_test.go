@@ -168,6 +168,41 @@ func (f *runMachine) settled(t *testing.T, runID string, done func(store.Run) bo
 
 func notRunning(r store.Run) bool { return r.State != store.RunRunning }
 
+// A session a project run started notes where it started from, like one the
+// browser started: the notice is written wherever a base is first stored, so
+// no start path is left without it.
+func TestProjectRunSessionRecordsItsBase(t *testing.T) {
+	f := runMachineFixture(t)
+	start := strings.Repeat("ab", 20)
+	f.decide = func(in terminalproto.Create) terminalproto.Body {
+		repo := terminalproto.Slug(path.Base(in.Dir), "repo")
+		return terminalproto.SessionChanged{State: terminalproto.Running,
+			WorktreePath: "/home/tester/.reet/worktrees/" + in.Project + "/" + repo + "/" + in.Worktree, WorktreeRepo: repo,
+			Base: &terminalproto.BaseState{Base: "main", Relation: terminalproto.BaseBehind, Local: start, Remote: start, Start: start}}
+	}
+	id := f.project(t)
+	code, out, raw := f.do(t, f.cookie, "POST", "/api/v2/projects/"+id+"/runs", map[string]any{"requestId": terminalbroker.ID(), "positions": []int{0}})
+	if code != 201 {
+		t.Fatal(code, raw)
+	}
+	run := f.settled(t, out["id"].(string), notRunning)
+	if run.State != store.RunComplete || len(run.Members) != 1 {
+		t.Fatalf("%+v", run.Members)
+	}
+	events := worktreeEvents(t, f.st, f.uid, "worktree-base")
+	if len(events) != 1 {
+		t.Fatalf("worktree-base recorded %d times", len(events))
+	}
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(events[0].Detail), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail["machine"] != f.agent.ID || detail["session"] != run.Members[0].SessionID ||
+		detail["base"] != "main" || detail["relation"] != "behind" || detail["start"] != start {
+		t.Fatal("worktree-base detail", events[0].Detail)
+	}
+}
+
 func TestProjectRunStartsAtOnceAndEachMemberStartsInItsOwnWorktree(t *testing.T) {
 	f := runMachineFixture(t)
 	id := f.project(t)

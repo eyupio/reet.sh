@@ -68,6 +68,7 @@ type AgentConfig struct {
 	branches           bool
 	branchPrune        bool
 	branchSync         bool
+	baseFresh          bool
 	browseAllowed      bool
 	clipboard          bool
 	clipboardAllowed   bool
@@ -551,6 +552,11 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 				m.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesDenied}
 				return send(ctx, m)
 			}
+		case *terminalproto.BaseCheck:
+			if cfg.baseFresh && !currentCapabilities(cfg).BaseFresh {
+				m.Body = terminalproto.BaseCheckResult{Reason: terminalproto.BranchesDenied}
+				return send(ctx, m)
+			}
 		}
 		return control(ctx, m)
 	}
@@ -653,6 +659,11 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 			return m, false
 		}
 		m.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesConflict}
+	case *terminalproto.BaseCheck:
+		if !terminalproto.SupportsBaseFresh(features) {
+			return m, false
+		}
+		m.Body = terminalproto.BaseCheckResult{Reason: terminalproto.BranchesConflict}
 	default:
 		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 	}
@@ -924,6 +935,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.branches = terminalproto.SupportsBranches(advertised)
 	cfg.branchPrune = terminalproto.SupportsBranchPrune(advertised)
 	cfg.branchSync = terminalproto.SupportsBranchSync(advertised)
+	cfg.baseFresh = terminalproto.SupportsBaseFresh(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
@@ -1006,6 +1018,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.branchSync {
 		features = append(features, terminalproto.BranchSyncFeature)
+	}
+	if cfg.baseFresh {
+		features = append(features, terminalproto.BaseFreshFeature)
 	}
 	if cfg.clipboard {
 		features = append(features, terminalproto.ClipboardFeature)
@@ -1296,14 +1311,17 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// Only on a connection that negotiated chat-reattach-v1, with chats and
 		// their history, and for an agent that can reopen its stored
 		// conversation: OpenCode, or one whose descriptor claims it.
-		ChatReattach:    acp && cfg.acpHistory && cfg.chatReattach && reattachable,
-		ACPQuestions:    acp && cfg.acpQuestion,
-		Inspect:         cfg.inspect && control && enabled,
-		ShellDir:        cfg.shellDir && control && enabled,
-		Attention:       cfg.attention && control,
-		Branches:        cfg.branches && worktree && enabled,
-		BranchPrune:     cfg.branchPrune && worktree && enabled,
-		BranchSync:      cfg.branchSync && worktree && enabled,
+		ChatReattach: acp && cfg.acpHistory && cfg.chatReattach && reattachable,
+		ACPQuestions: acp && cfg.acpQuestion,
+		Inspect:      cfg.inspect && control && enabled,
+		ShellDir:     cfg.shellDir && control && enabled,
+		Attention:    cfg.attention && control,
+		Branches:     cfg.branches && worktree && enabled,
+		BranchPrune:  cfg.branchPrune && worktree && enabled,
+		BranchSync:   cfg.branchSync && worktree && enabled,
+		// Fetching a worktree's base is part of making one, so it follows
+		// Worktree, not enabled: a machine that makes worktrees fetches them.
+		BaseFresh:       cfg.baseFresh && worktree,
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,

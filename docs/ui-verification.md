@@ -3658,3 +3658,55 @@ Validation, against the production build in Chromium with synthetic answers:
 - `npm run check` (unit tests and `svelte-check`, 0 errors) and `npm run build` pass.
 
 **Not checked.** No physical phone, Safari or Firefox, and no screen reader.
+
+## Where a session starts, said and confirmed — 13 November 2026
+
+A session in a saved repository now works in a worktree cut from the base branch as GitHub has it. Where
+the branch on the machine and GitHub's differ, every start a person makes in the browser says so and
+asks before it sends anything: Home's launch bar, the **Start an agent** dialog (the project rail's
+**+**, the machine cards, Machines and the Sessions screen) and **Start** on a backlog plan. All three
+take the same step (`web/src/lib/baseGate.ts`) and show the same dialog
+(`web/src/lib/home/BaseConfirm.svelte`, the sentences in `web/src/lib/baseNotice.ts`), and the
+same sentence is kept with the session and shown on its Overview under **Where it's working** as
+*Started from*.
+
+Validation, against the production build in Chromium (Google Chrome for Testing 153) with synthetic
+answers:
+
+- `web/tests/launch-base.e2e.mjs` (new) passes for Home's launch bar and for the **Start an agent**
+  dialog, each at 1280 px and 390 px in light and dark, the phone runs with a coarse pointer: a machine
+  reporting `ahead` opens **Check where this starts** with the sentence, Escape and **Cancel** send no
+  create and give focus back to the Start they came from, the keyboard never reaches the bar behind the
+  dialog, **Start session** sends exactly one create with the project's base, and the dialog's buttons
+  are 44 px on touch. It also covers **Start** on a backlog plan at 1280 px: the dialog opens, Cancel
+  asks the controller for nothing and returns focus, and only after **Start session** is the plan
+  started. A base that matches GitHub, a machine answering 409 `base_check_unsupported`, a read that
+  fails with 500, and a folder that is not a repository all start with no dialog; the last never reads
+  the check at all. Each case was seen failing against a build without the dialog first.
+- `session-workspace.e2e.mjs` gains the Overview's *Started from* line (the stored sentence for a session whose base
+  was `ahead`, and no such row for one that matched GitHub); it was seen failing without the line first. The whole file
+  passes at 1600 px in dark, and its phone and tablet cases pass with it.
+- `web/tests/launch.e2e.mjs`, `start-agent.e2e.mjs`, `start-agent-source.e2e.mjs`, `home.e2e.mjs`,
+  `launch-options.e2e.mjs`, `session-board.e2e.mjs`, `projects.e2e.mjs`, `terminal-workspace.e2e.mjs`,
+  `phone-dialogs.e2e.mjs`, `sessions-phone.e2e.mjs`, `chat.e2e.mjs` and `phone-zoom.e2e.mjs` pass
+  unchanged.
+- `baseNotice.test.mjs` (new) covers every relation's sentence, the branchless wording, the short
+  commit, and when a start is asked about. `baseGate.test.mjs` (new) covers the shared step: the
+  request it makes, a launch that will not be isolated making none, and what comes back as nothing to
+  ask — 409 unsupported, 409 busy, 422 `base_missing`, 429, 403, a fetch that throws, a body that will
+  not parse, a reply that never comes (the deadline, shortened to 40 ms in the test, with the
+  ten-second default asserted) and a caller that gives up. The browser test runs the 409, the 500 and a
+  route that never answers, which waits out the real ten seconds.
+- The e2e also covers a confirmation that must not carry over: with the question on screen the machine
+  stops taking sessions, so the start it was answering is refused before anything is sent; choosing
+  another repository and pressing Start asks again, in that repository's own words, and nothing is
+  created until that second yes. Both the launch bar and the Start an agent dialog; each was seen
+  failing (the second question never appeared) against the build before the fix.
+- `npm run check` (unit tests and `svelte-check`, 0 errors, 0 warnings) and `npm run build` pass;
+  `gofmt`, `go vet ./internal/...`, `go build ./...`, `go test ./internal/store` and
+  `go test ./internal/api` pass.
+
+**Not checked.** No physical phone, Safari or Firefox, and no screen reader. No live machine was asked for a real base
+check: every answer here is synthetic. The backlog path was checked at 1280 px in light only (its dialog is the same
+component as the other two, which were checked at both widths and in both themes). A start in several projects and a
+Factory outcome's launches do not ask, by design, and were not exercised here.

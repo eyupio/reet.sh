@@ -17,8 +17,9 @@ import (
 )
 
 // isolateWorktree makes a launch in a saved git repository run in a worktree
-// of its own, whatever the client asked for. Two agents can then never share
-// one checkout of a repository reet knows about.
+// of its own, whatever the client asked for, and names the project's base
+// branch for it to start from. Two agents can then never share one checkout
+// of a repository reet knows about.
 //
 // The run token comes from the request id, never from a clock or a random
 // source: a retried create must carry the same token so the machine adopts
@@ -34,9 +35,10 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 		return false
 	}
 	// Reuse the controller-derived identity from the original receipt. A
-	// project renamed/removed while a reply was uncertain cannot change a retry.
+	// project renamed/removed, or its base rebranched, while a reply was
+	// uncertain cannot change a retry: it must be the create already stored.
 	if operation, err := s.st.TerminalOperationFor(uid, agent, "create", requestID); err == nil && operation.Create != nil {
-		c.Worktree, c.Project = operation.Create.Worktree, operation.Create.Project
+		c.Worktree, c.Project, c.Base = operation.Create.Worktree, operation.Create.Project, operation.Create.Base
 		if c.Worktree != "" && c.ProjectID == "" {
 			if session, err := s.st.TerminalSessionFor(uid, operation.SessionID); err == nil && session.ProjectID != nil {
 				c.ProjectID = *session.ProjectID
@@ -50,10 +52,63 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 	}
 	c.Worktree = worktreeRunToken(requestID)
 	c.Project = terminalproto.Slug(p.Name, "project")
+	if c.Base == "" && s.machineFetchesBase(uid, agent) {
+		// The project's saved base is what work on it starts from: an explicit
+		// choice for this repository, which may well refuse a launch when the
+		// branch is gone. A launch that named its own base keeps it, and a
+		// project that saved none leaves the choice to the machine, which
+		// starts from the branch the repository's remote calls its default.
+		// The account's default base is never filled in here: it is one branch
+		// name for every repository, and a repository that calls its own
+		// branch something else would refuse a launch that used to run. The
+		// browser sends it where it applies, and a machine from before
+		// base-fresh-v1 is named no base at all.
+		c.Base = p.BaseBranch
+	}
 	if c.ProjectID == "" {
 		c.ProjectID = p.ID
 	}
 	return true
+}
+
+// machineFetchesBase reports whether the machine's stored capabilities
+// negotiated base-fresh-v1, so it fetches a worktree's base from GitHub and
+// says what it started from, and agents-v2, without which the broker refuses
+// a create that names a base at all. Only such a machine is named one.
+func (s *server) machineFetchesBase(uid int64, agent string) bool {
+	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
+	return err == nil && caps.Capabilities.BaseFresh && caps.Capabilities.AgentsV2
+}
+
+// baseWorthANotice says whether where a worktree started from is worth
+// telling the person about: the task did not start from the base as GitHub
+// has it, or GitHub was never reached. The rest (the two sides agreed, the
+// repository has no such local branch, there is no such branch on GitHub)
+// needs no notice.
+func baseWorthANotice(relation string) bool {
+	switch terminalproto.BaseRelation(relation) {
+	case terminalproto.BaseBehind, terminalproto.BaseAhead, terminalproto.BaseDiverged, terminalproto.BaseFetchFailed:
+		return true
+	}
+	return false
+}
+
+// recordSessionBase notes what a session's worktree started from, once per
+// session: the branch the machine resolved, how that stood against GitHub's
+// and the commit the worktree was made at. The broker calls it wherever a
+// base is first stored, so a session started by a project run, by a start in
+// several projects at once or by a create whose reply came after the call
+// gave up is noticed as well as one the browser started on its own. The
+// source follows the launch audit's ("ui": a browser launch, an outcome's and
+// a run's are all the person's own).
+func (s *server) recordSessionBase(uid int64, agent, session string, base terminalproto.BaseState) {
+	if !baseWorthANotice(string(base.Relation)) {
+		return
+	}
+	_ = s.st.AddEventOnceFor(uid, "ui", "worktree-base", "", map[string]string{
+		"machine": agent, "host": s.machineHost(uid, agent), "session": session,
+		"base": base.Base, "relation": string(base.Relation), "start": base.Start,
+	})
 }
 
 // worktreeRunToken derives a valid run token (32 lower-case hex digits) from a

@@ -5,6 +5,8 @@
   import { getYoloSetting, type YoloSetting } from '../api'
   import { yoloGates } from '../launchBar'
   import YoloDialog from '../launch/YoloDialog.svelte'
+  import BaseConfirm from './BaseConfirm.svelte'
+  import { baseQuestion, repoProjectAt } from '../baseGate'
   import { startProblem, type StartPlace, type StartTarget } from '../draftOptions'
   import { shortAge, stateWord } from '../home'
   import { sessionStatus } from '../sessionStatus'
@@ -53,6 +55,10 @@
   let dragDraft = $state(''), dragOpener: HTMLElement | undefined, dropActive = $state(false)
   // YOLO is confirmed here, at Start, never when the item is saved or remembered by the browser.
   let yoloAsk = $state<SessionDraft | null>(null), yoloSetting = $state<YoloSetting | null>(null)
+  // Where a plan in a saved repository would start, asked of the machine at Start as the two start dialogs ask it. The
+  // opener is kept so Cancel gives the card's Start the keyboard back.
+  let baseAsk = $state<{ draft: SessionDraft; say: string; host: string; confirmed: number } | null>(null)
+  let baseOpener: HTMLElement | undefined
   let actions = $state<SessionActions>(), filterButton = $state<HTMLButtonElement>(), filterPanel = $state<HTMLDivElement>(), deleteDialog = $state<HTMLDialogElement>()
   let generation = 0
   let activeRequests = new Set<string>()
@@ -206,6 +212,7 @@
     const intent = dropIntent(draft, startReason(draft))
     if (intent.kind === 'blocked') { notice = intent.reason; return }
     if (intent.kind === 'refine') { void edit(draft, dragOpener ?? document.body, true); return }
+    baseOpener = dragOpener
     void activate(draft)
   }
   function closeComposer() { const opener = composer?.opener; composer = null; void tick().then(() => opener?.focus()) }
@@ -240,7 +247,13 @@
   function cancelYolo() { yoloAsk = null; notice = 'Not started. The item is still in your backlog.' }
   // The confirmation is for the version the dialog showed; a draft edited since is confirmed again.
   function confirmYolo() { const item = yoloAsk; yoloAsk = null; if (item) void activate(item, item.version) }
-  async function activate(item: SessionDraft, confirmedVersion = 0) {
+  function cancelBase() {
+    baseAsk = null; notice = 'Not started. The item is still in your backlog.'
+    void tick().then(() => { if (baseOpener?.isConnected) baseOpener.focus() })
+  }
+  // The yes is for the version that was shown; a plan edited since is asked about again.
+  function confirmBase() { const ask = baseAsk; baseAsk = null; if (ask) void activate(ask.draft, ask.confirmed, ask.draft.version) }
+  async function activate(item: SessionDraft, confirmedVersion = 0, basedVersion = 0) {
     if (activeRequests.has(item.id)) return
     const why = startReason(item); if (why) { notice = why; return }
     activeRequests.add(item.id); working = item.id; notice = ''; phase = 'Preparing…'
@@ -249,6 +262,16 @@
       // Decide on the draft as the server has it now, not the board's last refresh. A frozen retry carries the request
       // already made, so it is not asked again.
       if (draft.yolo && !draft.preparedPrompt && draft.version !== confirmedVersion) { void askYolo(draft); return }
+      if (!draft.preparedPrompt && draft.version !== basedVersion) {
+        // Where it will start, before the images and before the controller is asked to start anything. With no name
+        // for the machine the sentence says "that machine": an enrolment id would mean nothing to anyone.
+        const host = machineNames.get(draft.agentId) || ''
+        phase = 'Checking where this starts…'
+        const say = await baseQuestion(draft.agentId, host, { tool: draft.tool, dir: draft.dir, base: draft.base },
+          repoProjectAt(projects, draft.agentId, draft.dir), signal())
+        if (life.signal.aborted) return
+        if (say) { baseAsk = { draft, say, host, confirmed: confirmedVersion }; return }
+      }
       let prompt = draft.preparedPrompt || draft.prompt
       if (!draft.preparedPrompt) {
         const refs: string[] = []
@@ -375,7 +398,7 @@
                 <footer class="card-foot">
                   {#if draft}
                     <span class="age" title={new Date(item.createdAt).toLocaleString()}>Saved {shortAge(Math.max(0, now - item.createdAt))} ago</span>
-                    <div class="card-actions">{#if !draft.starting}<button class="edit" disabled={!!working || !!loadingId} onclick={e => void edit(draft, e.currentTarget)} aria-label={`Edit ${draft.title}`}>Edit</button><button class="delete" disabled={!!working || !!loadingId} aria-label={`Delete ${draft.title}`} onclick={() => void askDelete(draft)}>Delete</button>{/if}<button class="start" disabled={!!reason || !!working} title={reason ?? (draft.idea ? 'Refine this idea, then start it' : 'Start this session on its machine')} onclick={e => draft.idea ? void edit(draft, e.currentTarget, true) : void activate(draft)}>{working === draft.id ? phase : draft.starting ? 'Retry start' : 'Start'}<BoardIcon name="arrow" size={13}/></button></div>
+                    <div class="card-actions">{#if !draft.starting}<button class="edit" disabled={!!working || !!loadingId} onclick={e => void edit(draft, e.currentTarget)} aria-label={`Edit ${draft.title}`}>Edit</button><button class="delete" disabled={!!working || !!loadingId} aria-label={`Delete ${draft.title}`} onclick={() => void askDelete(draft)}>Delete</button>{/if}<button class="start" disabled={!!reason || !!working} title={reason ?? (draft.idea ? 'Refine this idea, then start it' : 'Start this session on its machine')} onclick={e => { baseOpener = e.currentTarget; if (draft.idea) void edit(draft, e.currentTarget, true); else void activate(draft) }}>{working === draft.id ? phase : draft.starting ? 'Retry start' : 'Start'}<BoardIcon name="arrow" size={13}/></button></div>
                   {:else if session && word}
                     <span class="status" title={word.source}>{#if sessionStatus(session) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<i></i>{/if}{word.word}{offline.has(item.agentId) ? ' · last known' : ''}</span><span class="age session-age" title={new Date(item.updatedAt).toLocaleString()}>{shortAge(Math.max(0, now - item.updatedAt))} ago</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
                   {/if}
@@ -395,6 +418,7 @@
   </div>
   <div class="board-foot"><span><BoardIcon name="finished" size={13}/>Saved to your account. Ready across your machines.</span><a href="/sessions">All session history<BoardIcon name="arrow" size={13}/></a></div>
 </section>
+{#if baseAsk}<BaseConfirm sentence={baseAsk.say} host={baseAsk.host} oncancel={cancelBase} onstart={confirmBase} />{/if}
 {#if yoloAsk}<YoloDialog gates={yoloGateList} tool={yoloAsk.tool} structured={yoloAsk.chat === true} machine={machineNames.get(yoloAsk.agentId) || 'the machine'} oncancel={cancelYolo} onstart={confirmYolo} />{/if}
 {#if composer}<SessionComposer draft={composer.draft} startNow={composer.start === true} {startCheck} {projects} {machines} {profile} {initialProject} onsaved={saved} onclose={closeComposer} onerror={error}/>{/if}
 {#if removing}<dialog class="delete-dialog" bind:this={deleteDialog} aria-labelledby={`${id}-delete`} oncancel={e => { if (deleteBusy) e.preventDefault(); else removing = null }}><h2 id={`${id}-delete`}>Delete this backlog item?</h2><p>“{removing.title}” and its saved images will be removed.</p><div><button class="btn" disabled={deleteBusy} onclick={() => removing = null}>Keep session</button><button class="btn primary" disabled={deleteBusy} aria-busy={deleteBusy} onclick={() => void remove()}>{deleteBusy ? 'Deleting…' : 'Delete item'}</button></div></dialog>{/if}

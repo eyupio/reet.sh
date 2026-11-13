@@ -8,7 +8,10 @@ const asURL = source => `data:text/javascript;base64,${Buffer.from(source).toStr
 const launchURL = asURL(compile('./agentLaunch.ts')
   .replace("from './catalogue'", `from '${asURL(compile('./catalogue.ts'))}'`)
   .replace("from './clineSource'", `from '${asURL(compile('./clineSource.ts'))}'`))
-const { eventLabel, eventCategory, eventRemedy } = await import(asURL(compile('./events.ts').replace("from './agentLaunch'", `from '${launchURL}'`)))
+const noticeURL = asURL(compile('./baseNotice.ts'))
+const { eventLabel, eventCategory, eventRemedy } = await import(asURL(compile('./events.ts')
+  .replace("from './agentLaunch'", `from '${launchURL}'`)
+  .replace("from './baseNotice'", `from '${noticeURL}'`)))
 const event = (action, detail) => ({ id: 1, at: 0, source: 'ui', action, ...(detail ? { detail: JSON.stringify(detail) } : {}) })
 test('ownership receipt events read as plain sentences from their metadata', () => {
   assert.equal(eventLabel(event('skill-content-adopt', { name: 'demo', files: 3, receiptId: 'a'.repeat(48) })), 'Recorded ownership of 3 files of demo')
@@ -61,6 +64,18 @@ test('folder project activity reads as plain sentences and never names a prompt'
   assert.equal(eventLabel(event('folder-browse', { machine: 'a1', path: '~', pages: 3 })), 'Browsed folders from ~ (3 pages)')
   assert.equal(eventLabel(event('folder-browse', { machine: 'a1', path: '/srv/site', pages: 1 })), 'Browsed folders from /srv/site (1 page)')
   assert.equal(eventLabel(event('folder-browse')), 'Browsed folders on a machine')
+})
+test('where a session started reads as the sentence the browser asks with, under Agents', () => {
+  const start = 'abc1234def5678901234567890abcdef12345678'
+  const where = (detail) => eventLabel(event('worktree-base', { machine: 'a1', host: 'studio', session: 's1', start, ...detail }))
+  assert.equal(where({ base: 'main', relation: 'behind' }), "main on studio is behind GitHub. This session starts from GitHub's main (abc1234).")
+  assert.equal(where({ base: 'main', relation: 'ahead' }), "main on studio has commits GitHub doesn't have. This session starts from the local main (abc1234).")
+  assert.equal(where({ base: 'develop', relation: 'fetch_failed' }),
+    "Couldn't reach GitHub from studio, so develop may be out of date. This session starts from the last known develop (abc1234).")
+  // A machine with no name, and a relation this build does not put into words.
+  assert.equal(where({ base: 'main', relation: 'behind', host: '' }), "main on that machine is behind GitHub. This session starts from GitHub's main (abc1234).")
+  assert.equal(where({ base: 'main', relation: 'elsewhere' }), 'Noted where a session started')
+  assert.equal(eventCategory(event('worktree-base')), 'agents')
 })
 test('model activity names the tool and never a host or a path', () => {
   assert.equal(eventLabel(event('machine-models-read', { machine: 'a1', tool: 'opencode', state: 'listed', count: 42 })), "Read OpenCode's models (42)")

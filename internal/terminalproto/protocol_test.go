@@ -299,3 +299,42 @@ func TestCapabilitiesSessionModeForNeedsTheLaunchTool(t *testing.T) {
 		t.Fatal("opencode can switch although it is not a launch tool")
 	}
 }
+
+// A machine reports what a worktree started from only on a connection that
+// negotiated base-fresh-v1; every other connection's session_changed encodes
+// exactly as before, so an older controller's strict decoder never sees the
+// field.
+func TestSessionChangedBaseIsOmittedWithoutTheFeature(t *testing.T) {
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	state := BaseState{Base: "main", Relation: BaseBehind, Local: commit, Remote: commit, Start: commit}
+	changed := SessionChanged{State: Running, WorktreePath: "/home/t/.reet/worktrees/p/r/" + testID, WorktreeRepo: "r", Base: &state}
+	if !changed.valid() {
+		t.Fatalf("a worktree create's base is not valid: %+v", changed)
+	}
+	data, err := Encode(testMessage(changed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"base"`) {
+		t.Fatalf("the base was not encoded: %s", data)
+	}
+	if kept := changed.ForFeatures(WorktreeFeature + "," + BaseFreshFeature); kept.Base == nil {
+		t.Fatal("the base was dropped on a connection that negotiated base-fresh-v1")
+	}
+	stripped := changed.ForFeatures(WorktreeFeature + "," + BranchSyncFeature)
+	if stripped.Base != nil {
+		t.Fatalf("the base survived a connection without base-fresh-v1: %+v", stripped)
+	}
+	if data, err = Encode(testMessage(stripped)); err != nil || strings.Contains(string(data), `"base"`) {
+		t.Fatalf("session_changed carried a base without the feature: %s (%v)", data, err)
+	}
+	invalid := changed
+	invalid.Base = &BaseState{Relation: BaseSame}
+	if invalid.valid() {
+		t.Fatal("a base with no starting commit was accepted")
+	}
+	// A base is an answer to a worktree create and never stands alone.
+	if (SessionChanged{State: Running, Base: &state}).valid() {
+		t.Fatal("a base without a worktree was accepted")
+	}
+}

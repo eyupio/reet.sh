@@ -56,7 +56,7 @@ func TestStructuredChatWorktreeLifecycle(t *testing.T) {
 				return proc, nil
 			}
 			create := terminalproto.Create{Title: "Isolated chat", Tool: "opencode", Structured: true, Trust: true, Dir: repo, Cols: 80, Rows: 24, Worktree: run, Project: "project"}
-			changed, err := h.open("request-worktree-0001", "session-worktree-0001", create)
+			changed, err := h.open("request-worktree-0001", "session-worktree-0001", create, true)
 			if scenario == "refused-new" {
 				if err == nil {
 					t.Fatal("start unexpectedly succeeded")
@@ -85,7 +85,7 @@ func TestStructuredChatWorktreeLifecycle(t *testing.T) {
 			if len(records) != 1 || records[0].Dir != path || records[0].WorktreePath != path || records[0].WorktreeRepo != "repo" {
 				t.Fatalf("restart record lost worktree identity: %+v", records)
 			}
-			again, err := h.open("request-worktree-0001", "session-worktree-0001", create)
+			again, err := h.open("request-worktree-0001", "session-worktree-0001", create, true)
 			if err != nil || again.WorktreePath != path || starts != 1 {
 				t.Fatalf("retry recreated chat/worktree: %+v %v starts=%d", again, err, starts)
 			}

@@ -47,6 +47,10 @@ type ManagedSession struct {
 	// so a replay of the create reports them again.
 	WorktreePath string `json:"worktreePath,omitempty"`
 	WorktreeRepo string `json:"worktreeRepo,omitempty"`
+	// Base is what the worktree this call made started from. It belongs to the
+	// one answer, not to the session, so it is never persisted: a replay of the
+	// create adopts the worktree and has no fresh base to report.
+	Base *terminalproto.BaseState `json:"-"`
 }
 
 type operationReceipt struct {

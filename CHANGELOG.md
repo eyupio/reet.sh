@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The Factory page has the project list down its left side, as Home does.
+  Choosing a project (or a group) shows only its outcomes, and **Give Gaffer an
+  outcome** then opens on that project; a project's **+** does both in one
+  press. On a tablet or phone the page is unchanged.
+- A project's **+** on Home now asks what to start, as the Sessions page does:
+  an agent session, a terminal session in the project's folder, or a **Factory
+  outcome**. The Sessions page's chooser offers the Factory outcome too.
 - A Factory outcome can no longer get stuck on a session that is gone. When a
   followed session is removed (for example ended with its history removed), the
   controller now notices within seconds, stops following that pipeline and

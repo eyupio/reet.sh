@@ -21,6 +21,7 @@
   import NeedsYou from './NeedsYou.svelte'
   import ProjectRailHost from './ProjectRailHost.svelte'
   import NewSessionDialog from './NewSessionDialog.svelte'
+  import NewSessionChoice, { type NewSessionKind } from '../terminal/NewSessionChoice.svelte'
   import LaunchDialog from './LaunchDialog.svelte'
 
   // Writers get the persistent session board and project rail. New agents start from the standard Start an agent modal;
@@ -327,6 +328,16 @@
     if (!terminals) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
     agentStart = { opener: from, project }
   }
+  // A project's + asks what to start in it: an agent session, a terminal in its folder, or an outcome for the Factory.
+  let projectStart = $state<{ project: FolderProject; opener: HTMLElement | null } | null>(null)
+  function chooseProjectStart(kind: NewSessionKind) {
+    const target = projectStart
+    projectStart = null
+    if (!target) return
+    if (kind === 'factory') { location.assign(`/factory?outcome=1&project=${encodeURIComponent(target.project.id)}`); return }
+    if (kind === 'agent') { startProjectNow(target.project, target.opener); return }
+    void startTerminalOn(target.project.host, target.opener, target.project)
+  }
   // New session on the board starts now, in the same Start an agent dialog as the rail and the machine cards.
   function startNewSession(opener: HTMLElement) {
     if (!terminals) { notice = { text: 'Home is still opening. Try again in a moment.', bad: true }; return }
@@ -339,29 +350,31 @@
   type ShellRequest = { requestId: string; title: string }
   let shellRequests = $state<Record<string, ShellRequest>>({})
   let shellStarting = ''
-  function forgetShell(agentId: string) { const next = { ...shellRequests }; delete next[agentId]; shellRequests = next }
-  async function startTerminalOn(card: FleetCard, opener?: HTMLElement | null) {
+  function forgetShell(key: string) { const next = { ...shellRequests }; delete next[key]; shellRequests = next }
+  // With a project the shell opens in its folder and belongs to it; its request is kept apart from the machine's own.
+  async function startTerminalOn(agentId: string, opener?: HTMLElement | null, project?: FolderProject) {
     chooser = null
     if (shellStarting) return
-    const why = readiness(terminals?.find(m => m.agentId === card.agentId))
+    const why = readiness(terminals?.find(m => m.agentId === agentId))
     if (why) { notice = { text: why, bad: true }; opener?.focus(); return }
-    const request = shellRequests[card.agentId] ?? { requestId: crypto.randomUUID(), title: titleFor('', '') }
-    if (!shellRequests[card.agentId]) shellRequests = { ...shellRequests, [card.agentId]: request }
-    shellStarting = card.agentId
+    const key = project ? `${agentId}:${project.id}` : agentId
+    const request = shellRequests[key] ?? { requestId: crypto.randomUUID(), title: titleFor('', project?.dir ?? '') }
+    if (!shellRequests[key]) shellRequests = { ...shellRequests, [key]: request }
+    shellStarting = key
     notice = null
     try {
-      const session = await createTerminal(card.agentId, request.requestId, request.title, 100, 30, bounded())
+      const session = await createTerminal(agentId, request.requestId, request.title, 100, 30, bounded(), project ? { dir: project.dir, projectId: project.id } : undefined)
       if (life.signal.aborted) return
       const notStarted = notStartedText(session.state)
-      if (notStarted) { forgetShell(card.agentId); notice = { text: notStarted, bad: true }; return }
-      forgetShell(card.agentId)
+      if (notStarted) { forgetShell(key); notice = { text: notStarted, bad: true }; return }
+      forgetShell(key)
       sessions = [session, ...(sessions ?? []).filter(s => s.id !== session.id)]
       location.assign(sessionHref(session))
     } catch (e) {
       if (life.signal.aborted) return
       if (e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)) { life.abort(); onsignedout(new UnauthorizedError()); return }
       if (e instanceof TerminalError && [400, 403, 404, 409, 422].includes(e.status)) {
-        forgetShell(card.agentId)
+        forgetShell(key)
         notice = { text: refusalText(e.status, e.code, e.message), bad: true }
       } else {
         notice = { text: "We didn't hear back, so the terminal may have started. Choosing New terminal again asks about the same request.", bad: true }
@@ -413,7 +426,7 @@
       chosen={launchProject ?? chosen} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected} onchoose={(project) => chooseProject(project)}
       {scope} onscope={(next) => (scope = next)} collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId}
       width={railWidth} onwidth={setRailWidth} onwidthcommit={commitRailWidth}
-      onnew={startProjectNow}
+      onnew={(project, opener) => { notice = null; projectStart = { project, opener } }}
       signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={(n) => (savedWaiting = n)} onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)}
       onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }}>
       {#snippet selectAction()}
@@ -462,13 +475,17 @@
       </div>
       <details class="home-detail"><summary>Your machines <span>{cards.filter(reporting).length} of {cards.length} connected</span></summary>
         <FleetStrip {cards} sessions={sessions !== undefined} addHref={canAdd ? machinesAt(accounts ? 'add-machine' : 'connect-machine') : null} loaded={health !== undefined}
-          onnew={newSessionOn} onproject={newProjectOn} onterminal={startTerminalOn} />
+          onnew={newSessionOn} onproject={newProjectOn} onterminal={(card, opener) => void startTerminalOn(card.agentId, opener)} />
       </details>
       {#if chooser && writer}
         <NewSessionDialog host={chooser.card.name} agentId={chooser.card.agentId} machine={terminals?.find(m => m.agentId === chooser?.card.agentId)} machinesLoaded={terminals !== undefined} projects={projects ?? []}
           loaded={projects !== undefined} onproject={(project) => startProjectNow(project, chooser?.opener)}
-          onterminal={() => { const target = chooser; if (target) void startTerminalOn(target.card, target.opener) }}
+          onterminal={() => { const target = chooser; if (target) void startTerminalOn(target.card.agentId, target.opener) }}
           onclose={() => { const opener = chooser?.opener; chooser = null; opener?.focus() }} />
+      {/if}
+      {#if projectStart}
+        <NewSessionChoice project={projectStart.project.name} machine={projectStart.project.machine || terminals?.find(m => m.agentId === projectStart?.project.host)?.host || ''} factory={accounts}
+          onchoose={chooseProjectStart} onclose={() => { const opener = projectStart?.opener; projectStart = null; opener?.focus() }} />
       {/if}
       {#if agentStart && terminals}
         <StartAgentDialog machines={terminals} snapshot={sync?.machines ?? []} projects={projects ?? []}

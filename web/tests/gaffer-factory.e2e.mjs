@@ -33,8 +33,8 @@ Object.assign(outcomes[0].sessions[0].stages[3],{agentInputTokens:9000,agentOutp
 Object.assign(outcomes[0].sessions[0].stages[0],{closedBy:'person'});Object.assign(outcomes[0].sessions[0].stages[1],{closedBy:'gaffer'})
 Object.assign(outcomes[0].sessions[0].stages[3],{startedAt:now-42*60000,agentState:'working',agentActiveAt:now-20*60000})
 const story=[{id:9,at:now-60000,source:'gaffer',action:'gaffer-stage-started',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'review',reason:'The review stage is under way.'})},{id:8,at:now-120000,source:'gaffer',action:'gaffer-stage-handed-over',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'code',by:'gaffer',reason:'x'})}]
-const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',createdAt:now,updatedAt:now}]
-const routesFor=box=>({'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
+const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:0,version:1,createdAt:now,updatedAt:now},{id:'p2',host:'a1',machine:'workshop',dir:'/work/docs-site',name:'docs-site',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:1,version:1,createdAt:now,updatedAt:now}]
+const routesFor=box=>({'/api/v2/settings/yolo':{allowed:false},'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/history`]:{events:story},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/b/advance`]:request=>{box.moved.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[1];piece.stages[piece.stage].state='done';piece.stage++;piece.stages[piece.stage].state='running';piece.note='The review stage is under way.';o.revision++;return o},
@@ -62,6 +62,28 @@ try {
       await expect(page).toHaveURL(/\/factory$/);await expect(page).toHaveTitle(/Factory/)
       await expect(page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
       await expect(page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Factory',exact:true}).first()).toHaveAttribute('aria-current','page')
+      // The project list is the page's left column on a desktop, as on Home. Choosing a project narrows the page to its
+      // outcomes, and the outcome dialog then opens on that project; the card's + does the same in one press.
+      const projectRail=page.getByRole('complementary',{name:'Projects'})
+      if(width>=1100){
+        await expect(projectRail).toBeVisible()
+        await projectRail.getByRole('button',{name:/^docs-site, /}).click()
+        await expect(page.locator('.scope')).toContainText('Showing docs-site. A new outcome starts in this project.')
+        await expect(page.getByRole('heading',{name:'Nothing in docs-site yet.',exact:true})).toBeVisible()
+        await expect(page.getByRole('article')).toHaveCount(0)
+        await page.getByRole('button',{name:'Give Gaffer an outcome in docs-site',exact:true}).click()
+        let asking=page.getByRole('dialog',{name:'Give Gaffer an outcome',exact:true})
+        await expect(asking.getByLabel('Project',{exact:true})).toHaveValue('p2')
+        await asking.getByRole('button',{name:'Close Give Gaffer an outcome',exact:true}).click()
+        await projectRail.getByRole('button',{name:/^billing, /}).click()
+        await expect(page.getByRole('article')).toHaveCount(2)
+        await page.getByRole('button',{name:'Show all projects',exact:true}).click()
+        await expect(page.locator('.scope')).toHaveCount(0)
+        await projectRail.getByRole('button',{name:'New outcome in billing',exact:true}).click()
+        asking=page.getByRole('dialog',{name:'Give Gaffer an outcome',exact:true})
+        await expect(asking.getByLabel('Project',{exact:true})).toHaveValue('p1')
+        await asking.getByRole('button',{name:'Close Give Gaffer an outcome',exact:true}).click()
+      } else await expect(projectRail).toHaveCount(0)
       // A running pipeline is one line until opened; the ones that want the person start open. Then everything is opened for the rest of the run.
       const lines=page.getByRole('list',{name:'Pipelines of this outcome',exact:true}).first().locator(':scope > li')
       await expect(lines.nth(0).getByRole('button',{name:'Show details of Export API',exact:true})).toHaveAttribute('aria-expanded','false')

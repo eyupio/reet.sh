@@ -292,6 +292,8 @@ try {
   await page.goto(base)
   await expect(page.locator('details.quick-launch')).toHaveCount(0)
   await rail(page).getByRole('button',{name:'New session in Store rewrite'}).click()
+  // A project's + asks what to start in it; an agent session goes on to Start an agent.
+  await page.getByRole('dialog',{name:'New session in Store rewrite',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   let dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(dialog).toBeVisible()
   await expect(dialog.getByLabel('Project')).toHaveValue('fp1')
@@ -304,6 +306,7 @@ try {
   // The card's menu does the same from a right-click.
   await rail(page).getByRole('button',{name:/^Store rewrite, /}).click({button:'right'})
   await page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'New session here'}).click()
+  await page.getByRole('dialog',{name:'New session in Store rewrite',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button',{name:'Start',exact:true}).click()
@@ -631,6 +634,8 @@ try {
   await expect(notes).not.toHaveAttribute('aria-current','true')
   await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
   await rail(page).getByRole('button',{name:'New session in Store rewrite'}).click()
+  // A project's + asks what to start in it; an agent session goes on to Start an agent.
+  await page.getByRole('dialog',{name:'New session in Store rewrite',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   const start = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(start.getByLabel('Project')).toHaveValue('fp1')
   await start.getByRole('button',{name:'Start',exact:true}).click()
@@ -723,6 +728,7 @@ try {
   const menu = page.getByRole('menu',{name:'Notes'})
   await expect(menu.getByRole('menuitem',{name:'New session here'})).toBeFocused()
   await menu.getByRole('menuitem',{name:'New session here'}).click()
+  await page.getByRole('dialog',{name:'New session in Notes',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   await expect(menu).toBeHidden()
   const startDialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(startDialog).toBeVisible()
@@ -746,6 +752,7 @@ try {
   await rail(narrow.page).getByRole('button',{name:'More for Notes',exact:true}).click()
   await expect(narrow.page.getByRole('menu',{name:'Notes'}).getByRole('menuitem',{name:'New session here'})).toBeFocused()
   await narrow.page.keyboard.press('Enter')
+  await narrow.page.getByRole('dialog',{name:'New session in Notes',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   const narrowDialog = narrow.page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(narrowDialog).toBeVisible()
   await expect(narrowDialog.getByLabel('Project')).toHaveValue('fp2')
@@ -950,6 +957,8 @@ try {
   await expect(launchBar(page)).toHaveCount(0)
   await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
   await rail(page).getByRole('button',{name:'New session in Store rewrite'}).click()
+  // A project's + asks what to start in it; an agent session goes on to Start an agent.
+  await page.getByRole('dialog',{name:'New session in Store rewrite',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(dialog).toBeVisible()
   const barBox = await dialog.boundingBox()

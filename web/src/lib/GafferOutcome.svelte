@@ -24,7 +24,9 @@
   import { CREW_ROLES, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, sessionCount, stagePlan, startingProgress, wholeBetween, type Crew, type PlanSession, type PlanTurn } from './gafferOutcome'
   import { gafferAutoMerge } from './gafferMotion'
 
-  let { room, userId = 0, onclose, onstarted }: { room: number; userId?: number; onclose: () => void; onstarted: () => void | Promise<void> } = $props()
+  let { room, userId = 0, projectId: wantedProject = '', onclose, onstarted }: { room: number; userId?: number;
+    /** The project the page had chosen when the dialog opened; it starts selected and can be changed. */
+    projectId?: string; onclose: () => void; onstarted: () => void | Promise<void> } = $props()
   const formId = $props.id()
   const CHAT_TOOLS = ['claude', 'codex', 'opencode', 'cline', 'antigravity']
   const life = new AbortController()
@@ -153,7 +155,8 @@
     void Promise.all([getGafferSettings(life.signal), listFolderProjects(life.signal), terminalMachines(life.signal)]).then(([settings, folders, found]) => {
       provider = settings.available ? settings.providers.find(item => item.isDefault && item.enabled) ?? null : null
       projects = folders; machines = found
-      if (folders.length === 1) projectId = folders[0].id
+      if (folders.some(item => item.id === wantedProject)) projectId = wantedProject
+      else if (folders.length === 1) projectId = folders[0].id
     }).catch(e => { if (!life.signal.aborted) loadError = e instanceof Error ? e.message : 'Projects and machines could not be read.' })
       .finally(() => { loading = false })
     return () => life.abort()

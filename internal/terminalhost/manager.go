@@ -142,6 +142,15 @@ func (m *Manager) allowed() error {
 	return nil
 }
 
+// consented reads the local terminal switch on its own, so work a create can
+// do before it takes the lock (fetching the base) is skipped when the machine
+// is going to refuse it. The decision is made again under the lock.
+func (m *Manager) consented() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.allowed() == nil
+}
+
 func updatedAt(s ManagedSession) int64 {
 	now := time.Now().UnixMilli()
 	if now < s.UpdatedAt {
@@ -169,8 +178,11 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	// the whole fetch budget. PrepareWorktreeFrom resolves the start from what
 	// this found, reaching nothing. A retry whose worktree is already there
 	// fetches nothing (PlanBase).
+	// Nothing is fetched for a create this machine will refuse anyway; the
+	// answer is settled again under the lock below, which is the one that
+	// decides.
 	var plan BasePlan
-	if in.Worktree != "" {
+	if in.Worktree != "" && m.consented() {
 		plan = PlanBase(ctx, m.home, in.Dir, in.Project, in.Worktree, in.Base, baseFresh(ctx), m.git)
 	}
 	m.mu.Lock()

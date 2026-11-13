@@ -549,7 +549,7 @@ try {
   expect(box.writes.filter(w => w.kind === 'end' || w.kind === 'archive')).toEqual([])
   expect(box.sessions.every(s => s.state !== 'end_requested')).toBe(true)
   // + asks what to start, the same choice as the New session button, rather than assuming an agent session.
-  await tabs(page).getByRole('button',{name:'New session'}).click()
+  await tabs(page).getByRole('button',{name:'Open a new session',exact:true}).click()
   const newSession = page.getByRole('dialog',{name:'New session',exact:true})
   await expect(newSession).toBeVisible()
   await expect(newSession.getByRole('button',{name:'Agent session'})).toBeVisible()

@@ -64,7 +64,7 @@
     {/each}
   </ul>
   {#if onnew}
-    <button type="button" class="new" aria-label="New session" title="New session" onclick={event => onnew?.(event.currentTarget)}>
+    <button type="button" class="new" aria-label="Open a new session" title="New session" onclick={event => onnew?.(event.currentTarget)}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
     </button>
   {:else}

@@ -634,6 +634,35 @@ func TestPruneNowAppliesTheCurrentCount(t *testing.T) {
 	}
 }
 
+// The admin page reads removed.length straight off the response, so a prune
+// that removes nothing must answer with empty lists and never null.
+func TestPruneNowNeverAnswersNullLists(t *testing.T) {
+	svc, _, user := testService(t, nil)
+	if _, err := svc.SaveSettings(user.ID, SettingsInput{Keep: 0, Destination: store.DestinationBoth}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateRemote(user.ID, RemoteInput{
+		Name: ptr("idle"), Endpoint: ptr("http://127.0.0.1:9000"), Bucket: ptr("bucket"),
+		AccessKey: ptr("key"), SecretKey: ptr("secret"), PathStyle: rawBool(true), Keep: ptrInt(0),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := svc.PruneNow(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "null") {
+		t.Fatalf("prune answered a null list: %s", raw)
+	}
+	if len(out.Remotes) != 1 {
+		t.Fatalf("remotes: %s", raw)
+	}
+}
+
 func TestEscrowRoundTrip(t *testing.T) {
 	svc, _, _ := testService(t, nil)
 	if _, err := svc.CreateRemote(0, RemoteInput{

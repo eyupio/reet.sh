@@ -375,9 +375,28 @@ func TestAnImportOfAnUnfencedCopyIsRefusedUnlessTheOwnerAllowsALiveSource(t *tes
 	if r.code != http.StatusConflict || !strings.Contains(r.text, "not stopped") || !strings.Contains(r.text, "--allow-live-source") {
 		t.Fatalf("an unfenced copy: %d %s", r.code, r.text)
 	}
+	// The page offers its "the old controller is stopped or gone" tick on this
+	// code, not on the wording of the sentence.
+	if r.v["code"] != "copy_source_live" {
+		t.Fatalf("the refusal carries the code %v", r.v["code"])
+	}
 	tg.untouched(t)
-	if r := tg.post(t, "owner-token", [][2]string{{"allowLiveSource", "1"}}, raw); r.code != 200 {
+	r = tg.post(t, "owner-token", [][2]string{{"allowLiveSource", "1"}}, raw)
+	if r.code != 200 {
 		t.Fatalf("with allowLiveSource: %d %s", r.code, r.text)
+	}
+	// What a copy cannot carry is sent with the report, so the page can list
+	// what to set by hand without a second source of the same list.
+	names, _ := r.v["notInCopy"].([]any)
+	if len(names) != len(backup.Checklist()) || !strings.Contains(r.text, "REET_PUBLIC_URL") {
+		t.Fatalf("the staged answer lists %d things not in the copy: %s", len(names), r.text)
+	}
+	// A page opened later reads the same list beside the staged report.
+	req, _ := http.NewRequest("GET", tg.url+"/api/v2/admin/backups/import", nil)
+	req.Header.Set("Authorization", "Bearer owner-token")
+	pending := doImport(t, req)
+	if again, _ := pending.v["notInCopy"].([]any); pending.code != 200 || pending.v["pending"] == nil || len(again) != len(names) {
+		t.Fatalf("the pending answer: %d %s", pending.code, pending.text)
 	}
 }
 

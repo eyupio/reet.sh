@@ -51,6 +51,39 @@ func TestACopyRecordsItsSourceAndWhetherItWasFenced(t *testing.T) {
 	}
 }
 
+// The page that walks an owner through a move shows whether the copy it just
+// took is the final one. It reads that from the run's answer and from the
+// list, so both must say what the copy's own header says.
+func TestARunAndTheListSayWhetherACopyWasTakenFenced(t *testing.T) {
+	svc, st, _, liveID := liveController(t)
+	fencedID := fencedCopy(t, svc, st)
+	st.LiftFence()
+	items, _, err := svc.Items(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]Item{}
+	for _, it := range items {
+		seen[it.ID] = it
+	}
+	if it := seen[liveID]; it.Fenced == nil || *it.Fenced || it.Protection != ProtectionKey {
+		t.Fatalf("the list says the live copy is fenced %v, protection %q", it.Fenced, it.Protection)
+	}
+	if it := seen[fencedID]; it.Fenced == nil || !*it.Fenced {
+		t.Fatalf("the list says the fenced copy is fenced %v", it.Fenced)
+	}
+	if _, err := st.SetFence(""); err != nil {
+		t.Fatal(err)
+	}
+	item, err := svc.RunInstanceWithPassword(context.Background(), "manual", "a password for this copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Fenced == nil || !*item.Fenced || item.Protection != ProtectionPassword {
+		t.Fatalf("the run answered fenced %v, protection %q", item.Fenced, item.Protection)
+	}
+}
+
 func TestTheSourceIdentifierIsStableAndSurvivesAChangeOfSettings(t *testing.T) {
 	_, st, _, _ := liveController(t)
 	a, _ := st.ControllerID()

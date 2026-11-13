@@ -20,7 +20,10 @@ import (
 const fencePath = "/api/v2/admin/fence"
 
 func (s *server) registerFenceRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET "+fencePath, s.requireOwner(s.fenceGet))
+	// An admin may read the state, so the pages they work in can say why every
+	// change is refused before they try one. It tells them nothing the 423
+	// does not. Raising and lifting stay the owner's alone.
+	mux.HandleFunc("GET "+fencePath, s.requireAdmin(s.fenceGet))
 	mux.HandleFunc("POST "+fencePath, s.requireOwner(s.fenceRaise))
 	mux.HandleFunc("DELETE "+fencePath, s.requireOwner(s.fenceLift))
 }

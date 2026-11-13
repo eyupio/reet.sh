@@ -19,6 +19,8 @@ func TestPrivateControlKeepsTheLinkForEveryMachineAnswer(t *testing.T) {
 		"branch_sync_result":       terminalproto.BranchSyncResult{Reason: terminalproto.BranchesGitFailed},
 		"branch_prune_result":      terminalproto.BranchPruneResult{Reason: terminalproto.BranchesGitFailed},
 		"branch_prune_plan_result": terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesGitFailed},
+		"native_view_result":       terminalproto.NativeViewResult{Reason: "not available"},
+		"software_apply_result":    terminalproto.SoftwareApplyResult{Tool: "claude", Action: terminalproto.SoftwareActionRemove, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplyBusy},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newGM6Harness(t)
@@ -30,6 +32,10 @@ func TestPrivateControlKeepsTheLinkForEveryMachineAnswer(t *testing.T) {
 			c, done := h.conn, h.workerDone
 			h.linkMu.Unlock()
 			msg := terminalproto.Message{Version: terminalproto.Version, RequestID: terminalbroker.ID(), Generation: caps.Generation, Body: body}
+			if name == "native_view_result" {
+				// A view answer belongs to a session, so it must name one.
+				msg.SessionID = terminalbroker.ID()
+			}
 			if err := h.send(c, msg); err != nil {
 				t.Fatal("the note could not be sent:", err)
 			}

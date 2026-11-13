@@ -547,6 +547,18 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 		// counted and dropped.
 		p.b.lateReplies.Add(1)
 		return nil
+	case *terminalproto.BaseCheckResult, *terminalproto.BranchSyncResult, *terminalproto.BranchPrunePlanResult, *terminalproto.BranchPruneResult,
+		*terminalproto.SoftwareApplyResult, *terminalproto.NativeViewResult:
+		// An answer whose call already gave up. Refusing it here would end the
+		// machine's connection over an answer that merely came late, so it is
+		// counted and dropped. For a check, a plan, a sync or a view nothing is
+		// lost: asking again reads it again. A late branch prune or software
+		// apply answer is different: the machine did the work, and the audit
+		// row and the stored software entry are written only by the call that
+		// was waiting, so that record is lost with it. It was lost before too,
+		// when a late answer ended the connection; recording it is still owed.
+		p.b.lateReplies.Add(1)
+		return nil
 	}
 	return terminalproto.ErrInvalid
 }

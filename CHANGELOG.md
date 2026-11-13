@@ -8,6 +8,13 @@ this file existed releases were described on their GitHub release pages.
 - An agent whose binary has only just been written, by an install or an
   update, is no longer refused as having "no version". Starting it could fail
   for an instant with "text file busy"; the version check now waits that out.
+- A machine no longer loses its connection part-way through starting an agent
+  session. The controller ended a machine's connection whenever the machine
+  sent a kind of message missing from its list of accepted answers, and the
+  stage notes of a starting session, the answer to a base check, and the
+  answers to a branch sync, a branch prune and a software update were all
+  missing. An answer that arrives after its request gave up is now dropped
+  instead of ending the connection too.
 - A machine waiting for its controller to finish moving keeps a readable log.
   The agent says once that the controller has moved, and again only if the
   address changes, where it printed four lines every five seconds; it also

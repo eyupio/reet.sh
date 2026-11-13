@@ -110,6 +110,9 @@
   const openTerminalIntent = wantsOpenTerminal(location.search)
   const openTerminalLinkedSession = new URLSearchParams(location.search).has('session')
   let openTerminalAttempted = false
+  // The Machine page's Open terminal asks for a new shell on that machine. It must never fall back to an agent session
+  // already running there, so the request is consumed once the inventory is read and never selects an existing session.
+  let openingTerminal = $state(new URLSearchParams(location.search).get('new') === 'shell' ? (new URLSearchParams(location.search).get('agent') || '') : '')
   let sideSession = $state<TerminalSession | null>(null)
   // The open chat's word on whether it is busy, for the header's TUI switch; kept with the session it is about. Undefined
   // until its stream has replayed, so the header keeps to the row's word meanwhile.
@@ -265,8 +268,9 @@
     }
   }
 
-  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');url.searchParams.delete('open');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
+  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');url.searchParams.delete('open');if(openingTerminal)url.searchParams.set('new','shell');else url.searchParams.delete('new');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
   function chooseMachine(id: string) {
+    openingTerminal=''
     if(selectedAgent && selectedSession)rememberedSessions.set(selectedAgent,selectedSession)
     selectedAgent=id
     const previous=rememberedSessions.get(id)
@@ -283,7 +287,7 @@
     window.addEventListener('reet:show-session',showSession)
     return()=>window.removeEventListener('reet:show-session',showSession)
   })
-  function chooseSession(item: TerminalSession) { if(selectedAgent&&selectedSession)rememberedSessions.set(selectedAgent,selectedSession);selectedAgent=item.agentId;selectedSession=item.id;title=creations[selectedAgent]?.title||'Shell';error='';remember();closeDrawer() }
+  function chooseSession(item: TerminalSession) { openingTerminal='';if(selectedAgent&&selectedSession)rememberedSessions.set(selectedAgent,selectedSession);selectedAgent=item.agentId;selectedSession=item.id;title=creations[selectedAgent]?.title||'Shell';error='';remember();closeDrawer() }
   // Open terminal on a machine (?open=1) is one action: join a usable session, or start one plain shell. It runs once,
   // after the first listing read, and never on a deep link that already names a session.
   function openTerminalFromCard(){
@@ -334,9 +338,11 @@
       dismissConfirmedEnds()
       if(removedAfterClose&&selectedSession===selectionBeforeRefresh){selectedSession='';remember()}
       if(nextHealth.data){health=nextHealth.data;receivedAt=performance.now();elapsed=0}
-      if(firstLoad&&!selectedSession)selectedSession=sessions.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
+      const openingAgent = firstLoad && !selectedSession ? openingTerminal : ''
+      if(firstLoad&&!selectedSession&&!openingAgent)selectedSession=sessions.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
       remember()
       if(firstLoad)openTerminalFromCard()
+      if(openingAgent)void openMachineTerminal(openingAgent)
     } catch(e){
       if(!signal?.aborted&&!disposed){
         statusError=request.signal.aborted?'Status refresh timed out. Your existing shell is preserved.':e instanceof Error?e.message:'Could not refresh machines.'
@@ -455,6 +461,36 @@
   function modeSwitched(id:string,to:'terminal'|'chat'){inventoryVersion++;sessions=sessions.map(item=>item.id===id?{...item,structured:to==='chat'}:item);void refresh()}
   // A started agent lands exactly as a new shell does: it joins the list and the workspace switches to it.
   function agentStarted(item:TerminalSession){inventoryVersion++;if(!terminalClosed(item.state))sessions=[item,...sessions.filter(other=>other.id!==item.id)];showCreate=false;chooseSession(item);void refresh()}
+  // The Machine page's Open terminal always starts a new plain shell on the selected machine. It never reuses or selects
+  // an agent session already running there, so repeated use keeps adding shells beside the agent's own session.
+  // A failed attempt keeps the intent in the address: reloading tries a shell again instead of silently selecting the
+  // machine's running agent session, which is what the address without it would do.
+  function keepOpenTerminalIntent(agent:string){
+    if(!agent)return
+    const url=new URL(location.href)
+    url.searchParams.set('view','terminal');url.searchParams.set('agent',agent);url.searchParams.set('new','shell')
+    url.searchParams.delete('session');url.searchParams.delete('theatre')
+    history.replaceState(null,'',url)
+  }
+  async function openMachineTerminal(agent:string){
+    if(!agent||accessDenied)return
+    if(actionBusy){keepOpenTerminalIntent(agent);return}
+    const target=machines.find(item=>item.agentId===agent)
+    if(!target?.ready||target.serverEnabled===false){error=readiness(target);keepOpenTerminalIntent(agent);return}
+    actionBusy=true;error=''
+    try{
+      const created=await createTerminal(agent,crypto.randomUUID(),titleFor('',''),100,30,AbortSignal.timeout(15000))
+      if(disposed)return
+      inventoryVersion++
+      if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
+      chooseSession(created)
+      await refresh()
+    }catch(e){
+      if(disposed)return
+      error=e instanceof TerminalError?(e.message||'That terminal could not be opened.'):'That terminal could not be opened.'
+      keepOpenTerminalIntent(agent)
+    }finally{actionBusy=false}
+  }
   // Continue a closed session as a new terminal in the same folder, asking the agent to resume its last conversation there.
   // The operation is kept per session until its outcome is known: an uncertain failure retries the same request id.
   // A plain shell in the folder an agent session is using. It is a separate

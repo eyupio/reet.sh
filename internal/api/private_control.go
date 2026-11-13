@@ -36,7 +36,14 @@ func isPeerReply(body terminalproto.Body) bool {
 	case *terminalproto.Result, *terminalproto.Reconcile, *terminalproto.SessionChanged,
 		*terminalproto.WorktreeState, *terminalproto.WorktreeResult,
 		*terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult,
-		*terminalproto.NativeViewResult, *terminalproto.ACPEvent, *terminalproto.ACPControlResult, *terminalproto.ACPPreviewResult, *terminalproto.InspectResult:
+		*terminalproto.NativeViewResult, *terminalproto.ACPEvent, *terminalproto.ACPControlResult, *terminalproto.ACPPreviewResult, *terminalproto.InspectResult,
+		// A kind left off this list ends the machine's connection the moment
+		// the machine sends it, answer or not. Every answer and note a machine
+		// may send belongs here; TestPrivateControlKeepsTheLinkForEveryMachineAnswer
+		// sends each one over a real connection.
+		*terminalproto.LaunchProgress, *terminalproto.BaseCheckResult,
+		*terminalproto.BranchSyncResult, *terminalproto.BranchPrunePlanResult, *terminalproto.BranchPruneResult,
+		*terminalproto.SoftwareApplyResult:
 		return true
 	}
 	return false

@@ -206,7 +206,11 @@
 
     <li>
       <h4><span class="marker" aria-hidden="true">4</span>On each machine</h4>
-      <p class="muted">A machine keeps talking to this address until it is told the new one. It checks that the new controller holds its record before it sends any credential.</p>
+      {#if fence.fenced && fence.movedTo}
+        <p class="muted">Machines whose agents are running follow to the new address on their own once the new controller answers. On a machine that does not, run this. Either way a machine checks that the new controller holds its record before it sends any credential.</p>
+      {:else}
+        <p class="muted">A machine keeps talking to this address until it is told the new one; give the fence the new address and running machines follow on their own. It checks that the new controller holds its record before it sends any credential.</p>
+      {/if}
       <div class="cmdline"><code>{command}</code><CopyButton text={command} compact ariaLabel="Copy the set-server command" /></div>
       {#if !target}<p class="muted">Replace <code>https://NEW-ADDRESS</code> with the new controller's address.</p>{/if}
     </li>

@@ -5,6 +5,13 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A restore can give the copy an owner you can sign in as. `reet backup
+  restore --make-owner ADDR --owner-password-file F` makes an account already
+  in the copy its owner with the password in the file, for a copy from a
+  controller whose sign-in the new machine does not have or whose owner
+  belonged to whoever operated it before. The owners the copy had become
+  admins, and an address the copy lacks or holds disabled is refused before
+  anything changes.
 - Machines follow a controller that has moved. When the old controller is
   fenced with the new address (`reet backup fence --moved-to NEW`), each
   running agent learns the address from the refusal, has the new controller

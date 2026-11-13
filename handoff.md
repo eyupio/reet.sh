@@ -18,11 +18,35 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## MOVE-FOLLOW-1 and MOVE-OWNER-1: machines follow a move, and a restore can make an owner (13 November 2026)
+
+- **Machines follow.** `internal/scan/agent_follow.go`: a running agent that is refused with 423 `controller_moved`
+  and a `movedTo` runs the two `set-server` checks against that address (proof of the machine's record first, then
+  the credentials), saves only the address into the enrollment read fresh from disk, and re-execs. The address is a
+  hint: a place that cannot prove the record is sent no credential and is asked once a minute, which is the normal
+  state while the new controller is being set up. `reet agent follow-moves on|off|status` is the local switch (on by
+  default, `followOff` in the enrollment). `--once` carries on against the new address in the same run. Not followed
+  on its own: a fence with no address, an address with a path, plain HTTP anywhere but this machine.
+- **Shown for real:** two controllers built from this branch on one machine and a foreground agent. The old one was
+  fenced with the new address, the agent said no credential was sent while the new one was down, the fenced copy was
+  restored with `--public-url`, the new one started, and within a minute the agent pointed at it and was polling it,
+  in the same process. The agent still prints the 423 refusal every cycle while it waits; quieting that is open.
+- **An owner at restore.** `reet backup restore --make-owner ADDR --owner-password-file F` makes an account already in
+  the copy its owner (`store.AdaptOptions.MakeOwner`, `makeOwner` in `store_restore.go`); the copy's owners become
+  admins, the account's sessions and reset links end, its two-step sign-in is kept. Refused before anything changes
+  for an address the copy lacks or holds disabled, a password under 8 characters, or `--owner-email` beside it. The
+  command line only: the staged import does not take it.
+- **Tests seen failing with the rule removed:** the proof skipped, the minute's pacing, the stale enrollment written
+  back, the switch ignored, plain HTTP followed, any 423 followed; the disabled check, the sessions kept, the old
+  owner not demoted, the short password and the check beside it. Unhooking the follower from the run loop does not
+  compile. `TestLibraryManagedRemovalExecutor/journal_refused` fails when the suite runs as root (it relies on a
+  read-only folder) and is not touched by this work.
+
 ## MOVE-UI-1: moving a controller from the Backups page (13 November 2026)
 
 The move was complete on the command line and the API (fence, a copy with its own password, `import` with `publicUrl`
 and `allowLiveSource`, `reet agent set-server`) and absent from the web UI. It is now under **Admin → Backups**, owner
-only, on an unpushed branch with no pull request yet.
+only.
 
 - **Old controller, Move this controller away** (`web/src/lib/MoveAway.svelte`): fence with an optional address and a
   confirm dialog; the final copy step is shut until the fence is up, takes a password for that one copy, and shows
@@ -45,8 +69,7 @@ only, on an unpushed branch with no pull request yet.
 
 Checked as [docs/ui-verification.md](docs/ui-verification.md) records: unit and browser contracts, and two real
 controllers driven through fence, final copy, download, lift and import in Chromium at 320 and 1280 px in both
-themes. Not done: machines still do not learn the new address by themselves (they never did; `set-server` is run on
-each), the session workspace shows no fenced line, and nothing was tried in Firefox, Safari or on a physical phone.
+themes. Not done: the session workspace shows no fenced line, and nothing was tried in Firefox, Safari or on a physical phone.
 The refusal text for a live copy is the controller's own and still names the command-line flag.
 
 ## Current Gaffer pause point — 6 November 2026

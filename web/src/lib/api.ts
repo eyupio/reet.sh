@@ -249,8 +249,15 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
 }
 
 export type GafferOutcomePlan = { summary: string; sessions: { title: string; prompt: string; stages?: { kind: string }[] }[]; model: string; usageReported: boolean; inputTokens: number; outputTokens: number }
+export type GafferOutcomePlanInput = {
+  objective: string; project: string; sessions: number
+  /** The person's answer to the proposal in `previous`; omitted for the first plan. */
+  reply?: string
+  /** What the reply answers: the summary and titles are enough to identify it without replaying every prompt. */
+  previous?: { summary: string; sessions: { title: string; stages?: string[] }[] }
+}
 /** Asks the provider to propose the sessions for an objective. It reads no reet data and starts nothing. */
-export async function planGafferOutcome(p: GafferProvider, input: { objective: string; project: string; sessions: number }, signal?: AbortSignal): Promise<GafferOutcomePlan> {
+export async function planGafferOutcome(p: GafferProvider, input: GafferOutcomePlanInput, signal?: AbortSignal): Promise<GafferOutcomePlan> {
   return (await req(`/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
 }
 export type GafferOutcomeStage = { kind: string; tool: string; model?: string; effort?: string; agentInputTokens?: number; agentOutputTokens?: number; agentCachedTokens?: number; agentUsageReported?: boolean; contextUsed?: number; contextSize?: number; state: 'pending' | 'running' | 'done'; sessionId?: string; conversationId?: string; summary?: string; closedBy?: 'gaffer' | 'person' | 'chat'; agentState?: string; agentActiveAt?: number; startedAt?: number; endedAt?: number; reviews?: number; inputTokens?: number; outputTokens?: number; usageReported?: boolean }

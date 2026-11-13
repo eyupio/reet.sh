@@ -165,8 +165,8 @@ func TestAFencedControllerRunsNoScheduledSweepUntilTheLift(t *testing.T) {
 // clean worktree is not left behind; an admin's explicit off still holds.
 func TestScheduledSweepIsOnUntilAnAdminTurnsItOff(t *testing.T) {
 	f := launchAPIFixture(t, worktreeCaps("claude"))
-	if !f.srv.s.worktreeMaintenanceSettings().Enabled {
-		t.Fatal("the sweep is off with no setting saved")
+	if got := f.srv.s.worktreeMaintenanceSettings(); !got.Enabled || got.MinAgeDays != 1 {
+		t.Fatal("with no setting saved the sweep should be on with a 1-day wait", got)
 	}
 	if code, _, raw := f.do(t, f.cookie, "PUT", "/api/v2/maintenance/worktrees", map[string]any{"enabled": false}); code != 200 {
 		t.Fatal(code, raw)

@@ -31,7 +31,7 @@ const (
 	maintWorktreeByKey       = "maintenance_worktrees_changed_by"
 
 	maintDefaultIntervalHours = 24
-	maintDefaultMinAgeDays    = 7
+	maintDefaultMinAgeDays    = 1
 	maintMaxCandidates        = 100
 	maintMaxClean             = 50
 	maintSweepTimeout         = 10 * time.Minute

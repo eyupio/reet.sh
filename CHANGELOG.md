@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The **+** beside the session tabs now asks what to start, the same choice as
+  **New session** (an agent session, a terminal, or a Factory outcome), instead
+  of assuming an agent session and sending you to the launch bar.
 - **Ending a session that a Factory pipeline is working in now says so first.**
   The End and Remove from history dialogs name the pipeline and stage and what
   ending it costs. Afterwards the pipeline's card says its session was ended

@@ -4,8 +4,9 @@ A worktree request asks a machine to give an agent its own git worktree and bran
 before it starts the agent, so that agents started together never share a
 checkout. It is an optional pair of fields on the launch request described in
 [Launch requests](terminal-launch.md), plus two further requests: one that reports
-what is in a run's worktree and one that removes it. reet never removes a worktree
-by itself, and a remove never deletes the branch. Afterwards the controller, unless an admin turned it off, fast-forwards the source repository to main and prunes its merged local branches ([branch pruning](branch-pruning.md#automation)).
+what is in a run's worktree and one that removes it. reet removes a worktree only when a person asks, when its session is
+removed from history, or in the scheduled clean-up of finished sessions' clean
+worktrees ([machine maintenance](machine-maintenance.md)); a remove never deletes the branch. Afterwards the controller, unless an admin turned it off, fast-forwards the source repository to main and prunes its merged local branches ([branch pruning](branch-pruning.md#automation)).
 
 This document describes what the code does after the commits "Offer worktrees
 through the broker and API" and "Refuse removal for nested bare repositories and

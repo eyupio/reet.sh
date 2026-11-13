@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A machine waiting for its controller to finish moving keeps a readable log.
+  The agent says once that the controller has moved, and again only if the
+  address changes, where it printed four lines every five seconds; it also
+  asks the old controller once per cycle, not four times.
 - A restore can give the copy an owner you can sign in as. `reet backup
   restore --make-owner ADDR --owner-password-file F` makes an account already
   in the copy its owner with the password in the file, for a copy from a

@@ -30,7 +30,8 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 - **Shown for real:** two controllers built from this branch on one machine and a foreground agent. The old one was
   fenced with the new address, the agent said no credential was sent while the new one was down, the fenced copy was
   restored with `--public-url`, the new one started, and within a minute the agent pointed at it and was polling it,
-  in the same process. The agent still prints the 423 refusal every cycle while it waits; quieting that is open.
+  in the same process. While it waits the agent says the refusal once, not every cycle (`movedEcho`), and a cycle ends at the first
+  moved refusal, so the fenced controller is asked once per cycle and the lines about work it could not do are gone.
 - **An owner at restore.** `reet backup restore --make-owner ADDR --owner-password-file F` makes an account already in
   the copy its owner (`store.AdaptOptions.MakeOwner`, `makeOwner` in `store_restore.go`); the copy's owners become
   admins, the account's sessions and reset links end, its two-step sign-in is kept. Refused before anything changes

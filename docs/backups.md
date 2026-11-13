@@ -308,6 +308,33 @@ exactly as it was.
 5. **The inventory is printed**: accounts by role, shelves, skills, lists, tags,
    environments, connected machines and backup destinations.
 
+### When nobody here can sign in as the copy's owner: `--make-owner`
+
+A copy can arrive on a machine where its owner is no use: the controller signed
+people in through an identity provider the new machine does not have, or its
+owner account belonged to whoever operated it before and the controller has been
+handed to a new operator. Name an account that is already in the copy and it
+becomes the owner, with a password you choose:
+
+```sh
+reet backup restore --yes --make-owner sam@example.com --owner-password-file ./owner-password <id>
+```
+
+- The account must be in the copy and not disabled; otherwise the restore is
+  refused, naming the address, before anything changes. No account is created.
+- The password is read from a file, or standard input for `-`, never from the
+  command line, and must be at least 8 characters. It is not printed or logged.
+- There is one owner, so the owners the copy had become admins. Nothing else
+  about them changes; remove or disable them afterwards if they should not stay.
+- The new owner's earlier browser sign-ins and reset links are ended. Its
+  two-step sign-in, if it had one, is kept.
+- The report says who was made owner and who is now an admin, and the activity
+  log records `ownerMade`. Without `--yes` the same is shown and nothing changes.
+
+It cannot be combined with `--owner-email`, which only checks. It is for the
+restore on the machine itself; an import into a running controller does not take
+it, because that controller already has an owner who is signed in.
+
 ### What a copy records about where it came from
 
 A whole-controller copy now carries two fields in its clear header, readable

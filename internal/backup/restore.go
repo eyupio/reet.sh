@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/store"
 )
 
@@ -29,6 +30,14 @@ type RestoreOptions struct {
 	// OwnerEmail, when set, must be an owner account in the copy that can sign
 	// in, or the restore is refused before anything is replaced.
 	OwnerEmail string
+	// MakeOwner, when set, is the address of an account in the copy that is
+	// made its owner and given OwnerPassword, for a copy whose own owner
+	// nobody here can sign in as: one from a controller that signed people in
+	// through an identity provider this machine does not have, or whose owner
+	// account belonged to whoever operated it before. The owners the copy had
+	// become admins. It is only for the stopped restore on the machine itself.
+	MakeOwner     string
+	OwnerPassword string
 	// CheckOnly runs every check and reports, and replaces nothing.
 	CheckOnly bool
 	// Before is called with the inventory once the copy has passed every
@@ -96,6 +105,11 @@ type RestoreReport struct {
 	// it again by itself, until the operator resumes it.
 	Paused []string `json:"paused,omitempty"`
 
+	// OwnerMade is the account made owner at the restore, and OwnersDemoted
+	// the owners it replaced, now admins.
+	OwnerMade     string   `json:"ownerMade,omitempty"`
+	OwnersDemoted []string `json:"ownersDemoted,omitempty"`
+
 	// StagedSHA256 is the digest of the adapted database a staged import
 	// holds, taken when it was staged, so the next start can tell the file
 	// was not changed in between.
@@ -144,6 +158,13 @@ func (r RestoreReport) Outcome() []string {
 		l = append(l, "Kept personal API tokens and MCP connections; the old controller's tokens open this one. Use --drop-tokens to revoke them.")
 	} else {
 		l = append(l, fmt.Sprintf("Revoked %d personal API token(s) and %d MCP connection(s), as asked; make new ones here.", r.TokensRevoked, r.MCPConnectionsRevoked))
+	}
+	if r.OwnerMade != "" {
+		line := "Made " + r.OwnerMade + " the owner, with the password you gave; its earlier sign-ins and reset links were ended."
+		if len(r.OwnersDemoted) > 0 {
+			line += " Now an admin instead: " + strings.Join(r.OwnersDemoted, ", ") + "."
+		}
+		l = append(l, line)
 	}
 	if r.SafetyCopy != "" {
 		l = append(l, "The database that is live now was copied to "+r.SafetyCopy+" first.")
@@ -222,6 +243,10 @@ func checkLiveSource(m Manifest, allow bool) error {
 	return fmt.Errorf("%w: %s. If that controller is still live, two controllers would work from one set of data, and this copy may already be out of date. Fence the old controller with `reet backup fence`, take a final copy of it, and use that; or, if you know the old one is gone, say so with --allow-live-source", ErrLiveSource, what)
 }
 
+// MinOwnerPassword is the shortest password an owner made at a restore may
+// have, the same floor every other place that sets a password keeps.
+const MinOwnerPassword = 8
+
 // ErrNewerSchema is returned for a copy taken by a newer reet.
 var ErrNewerSchema = errors.New("this copy was taken by a newer reet than this one")
 
@@ -239,6 +264,22 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 		if _, err := store.ValidatePublicURL(opts.PublicURL); err != nil {
 			return rep, err
 		}
+	}
+	makeOwner, ownerHash := strings.TrimSpace(opts.MakeOwner), ""
+	if makeOwner != "" {
+		// Both refusals come before the copy is even written out.
+		if strings.TrimSpace(opts.OwnerEmail) != "" {
+			return rep, errors.New("give either an owner to check for or an account to make the owner, not both")
+		}
+		if len(opts.OwnerPassword) < MinOwnerPassword {
+			return rep, fmt.Errorf("the new owner's password must be at least %d characters; nothing was changed", MinOwnerPassword)
+		}
+		var err error
+		if ownerHash, err = auth.HashPassword(opts.OwnerPassword); err != nil {
+			return rep, err
+		}
+	} else if opts.OwnerPassword != "" {
+		return rep, errors.New("a password for a new owner needs the account to make the owner")
 	}
 	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		return rep, err
@@ -275,6 +316,7 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 		DropSessions: opts.DropSessions,
 		DropTokens:   opts.DropTokens,
 		PublicURL:    opts.PublicURL,
+		MakeOwner:    makeOwner, OwnerPasswordHash: ownerHash,
 		Unreadable: func(sealed string) bool {
 			if s.cfg.Sealer == nil {
 				return true
@@ -287,9 +329,13 @@ func (s *Service) prepare(ctx context.Context, path string, m Manifest, payload 
 		EventDetail: map[string]any{"id": m.ID, "release": m.Version, "ownerChecked": strings.TrimSpace(opts.OwnerEmail) != "",
 			"source": m.Source, "sourceState": sourceState(m), "allowLiveSource": opts.AllowLiveSource},
 	})
+	if errors.Is(err, store.ErrNoSuchAccount) {
+		return rep, fmt.Errorf("%w, so it cannot be made the owner; nothing was changed", err)
+	}
 	if err != nil {
 		return rep, fmt.Errorf("adapting the copy: %w", err)
 	}
+	rep.OwnerMade, rep.OwnersDemoted = ad.OwnerMade, ad.OwnersDemoted
 	rep.SchemaVersion = sum.SchemaVersion
 	rep.Users, rep.UsersByRole, rep.Shelves, rep.Skills = sum.Users, sum.UsersByRole, sum.Shelves, sum.Skills
 	rep.LibraryItems, rep.PrivateBundles = sum.LibraryItems, sum.PrivateBundles

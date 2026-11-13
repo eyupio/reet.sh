@@ -1,11 +1,12 @@
 import type { TerminalSession } from './api'
 
-// A machine card's Open terminal is one action: the Sessions workspace with ?open=1, which reuses a usable session
-// or starts one plain shell there. The intent is a query parameter so the address still works as a deep link.
+// A machine card's Open terminal is one action: the Machine page's terminal workspace with new=shell, which always
+// starts a fresh plain shell there. The older ?open=1 deep link (reuse a usable session or start one shell) is still
+// read by wantsOpenTerminal for existing addresses.
 export const OPEN_TERMINAL_PARAM = 'open'
 
 export function openTerminalHref(agentId: string): string {
-  return `/sessions?agent=${encodeURIComponent(agentId)}&${OPEN_TERMINAL_PARAM}=1`
+  return `/machines?view=terminal&agent=${encodeURIComponent(agentId)}&new=shell`
 }
 
 export function wantsOpenTerminal(search: string): boolean {

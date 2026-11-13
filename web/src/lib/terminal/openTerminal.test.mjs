@@ -10,7 +10,7 @@ const session = (id, agentId, state) => ({ id, agentId, title: id, state, create
 
 test('Open terminal is a Sessions deep link with the one-action intent', () => {
   assert.equal(OPEN_TERMINAL_PARAM, 'open')
-  assert.equal(openTerminalHref('agent a/b'), '/sessions?agent=agent%20a%2Fb&open=1')
+  assert.equal(openTerminalHref('agent a/b'), '/machines?view=terminal&agent=agent%20a%2Fb&new=shell')
   assert.equal(wantsOpenTerminal('?agent=a&open=1'), true)
   assert.equal(wantsOpenTerminal('?agent=a'), false)
   assert.equal(wantsOpenTerminal('?agent=a&open=0'), false)

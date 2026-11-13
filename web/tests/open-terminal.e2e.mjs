@@ -54,9 +54,9 @@ try {
   })
   const sessionParam = () => new URL(page.url()).searchParams.get('session')
 
-  // The machine card's action points at the Sessions workspace with the one-action intent.
+  // The machine card's action asks the workspace for a fresh shell on that machine.
   await page.goto(`${base}/machines`)
-  await expect(page.getByRole('link', { name: 'Open terminal', exact: true }).first()).toHaveAttribute('href', '/sessions?agent=a1&open=1')
+  await expect(page.getByRole('link', { name: 'Open terminal', exact: true }).first()).toHaveAttribute('href', '/machines?view=terminal&agent=a1&new=shell')
 
   // A running session is reused: no creation, and the address names that session.
   await page.goto(`${base}/sessions?agent=a1&open=1`)

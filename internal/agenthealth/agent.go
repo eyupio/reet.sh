@@ -552,6 +552,11 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 				m.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesDenied}
 				return send(ctx, m)
 			}
+		case *terminalproto.BaseCheck:
+			if cfg.baseFresh && !currentCapabilities(cfg).BaseFresh {
+				m.Body = terminalproto.BaseCheckResult{Reason: terminalproto.BranchesDenied}
+				return send(ctx, m)
+			}
 		}
 		return control(ctx, m)
 	}
@@ -654,6 +659,11 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 			return m, false
 		}
 		m.Body = terminalproto.BranchSyncResult{Reason: terminalproto.BranchesConflict}
+	case *terminalproto.BaseCheck:
+		if !terminalproto.SupportsBaseFresh(features) {
+			return m, false
+		}
+		m.Body = terminalproto.BaseCheckResult{Reason: terminalproto.BranchesConflict}
 	default:
 		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 	}

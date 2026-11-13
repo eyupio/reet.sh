@@ -64,6 +64,35 @@ func (s BaseState) Valid() bool {
 	return validBase && validSides && validCommitID(s.Start)
 }
 
+// BaseCheck asks where a worktree made now would start in the repository
+// whose working tree top is Dir, without making one. Base empty asks for the
+// repository's default branch. It is sent only to a connection that
+// negotiated base-fresh-v1.
+type BaseCheck struct {
+	Dir  string `json:"dir"`
+	Base string `json:"base,omitempty"`
+}
+
+func (BaseCheck) kind() string { return "base_check" }
+func (c BaseCheck) valid() bool {
+	return validDir(c.Dir) && (c.Base == "" || validRefName(c.Base))
+}
+
+// BaseCheckResult answers a BaseCheck. With Reason set the check could not
+// run and State is empty; otherwise State is where a worktree would start.
+type BaseCheckResult struct {
+	Reason BranchesReason `json:"reason,omitempty"`
+	State  BaseState      `json:"state,omitzero"`
+}
+
+func (BaseCheckResult) kind() string { return "base_check_result" }
+func (r BaseCheckResult) valid() bool {
+	if r.Reason != "" {
+		return r.Reason.valid() && r.State == BaseState{}
+	}
+	return r.State.Valid()
+}
+
 // validCommitID accepts a lower-case hex commit id, SHA-1 or SHA-256.
 func validCommitID(s string) bool {
 	if len(s) != 40 && len(s) != 64 {

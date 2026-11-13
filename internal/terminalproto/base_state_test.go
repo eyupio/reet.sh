@@ -1,6 +1,9 @@
 package terminalproto
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestBaseStateValid(t *testing.T) {
 	const sha1 = "0123456789abcdef0123456789abcdef01234567"
@@ -28,5 +31,48 @@ func TestBaseStateValid(t *testing.T) {
 				t.Fatalf("Valid() = %v for %+v, want %v", got, c.state, c.want)
 			}
 		})
+	}
+}
+
+func TestBaseCheckRoundTripAndLimits(t *testing.T) {
+	const sha1 = "0123456789abcdef0123456789abcdef01234567"
+	for _, body := range []Body{
+		BaseCheck{Dir: "/home/u/api"},
+		BaseCheck{Dir: "/home/u/api", Base: "main"},
+		BaseCheckResult{State: BaseState{Base: "main", Relation: BaseBehind, Local: sha1, Remote: sha1, Start: sha1}},
+		BaseCheckResult{State: BaseState{Relation: BaseNoRemote, Start: sha1}},
+		BaseCheckResult{Reason: BranchesBaseMissing},
+		BaseCheckResult{Reason: BranchesNotRepoRoot},
+	} {
+		encoded, err := Encode(testMessage(body))
+		if err != nil {
+			t.Fatal(body.kind(), err)
+		}
+		decoded, err := Decode(encoded)
+		if err != nil {
+			t.Fatal(body.kind(), err)
+		}
+		if _, err = Encode(decoded); err != nil {
+			t.Fatal(err)
+		}
+	}
+	encoded, _ := Encode(testMessage(BaseCheck{Dir: "/home/u/api"}))
+	if _, err := Decode(bytes.Replace(encoded, []byte(`"dir":`), []byte(`"fetch":true,"dir":`), 1)); err == nil {
+		t.Fatal("unknown field accepted")
+	}
+	for name, c := range map[string]BaseCheck{"no dir": {}, "relative": {Dir: "api"}, "bad base": {Dir: "/a", Base: "ma\nin"}} {
+		if c.valid() {
+			t.Error("check accepted", name)
+		}
+	}
+	for name, r := range map[string]BaseCheckResult{
+		"empty":                 {},
+		"unknown reason":        {Reason: BranchesReason("stale")},
+		"reason and state":      {Reason: BranchesGitFailed, State: BaseState{Relation: BaseSame, Start: sha1}},
+		"state without a start": {State: BaseState{Relation: BaseSame}},
+	} {
+		if r.valid() {
+			t.Error("result accepted", name)
+		}
 	}
 }

@@ -53,6 +53,7 @@ const (
 	sentenceBrowseOff       = "That machine has folder browsing switched off."
 	sentenceBrowseOld       = "Update reet on that machine to browse its folders."
 	sentenceBranchesOld     = "Update reet on that machine to list its branches."
+	sentenceBaseCheckOld    = "Update reet on that machine to check a branch against GitHub."
 	sentenceBrowseBusy      = "That machine is already listing a folder. Try again in a moment."
 	sentenceBranchesBusy    = "That machine is already listing branches. Try again in a moment."
 	sentenceBranchesGit     = "Git couldn't list the branches there."
@@ -323,6 +324,7 @@ func (s *server) machineRequestError(w http.ResponseWriter, err error, uid int64
 	var browse *terminalbroker.BrowseError
 	var branches *terminalbroker.BranchesError
 	var prune *terminalbroker.BranchPruneError
+	var baseCheck *terminalbroker.BaseCheckError
 	switch {
 	case errors.As(err, &browse):
 		switch browse.Reason {
@@ -361,6 +363,22 @@ func (s *server) machineRequestError(w http.ResponseWriter, err error, uid int64
 		default:
 			writeErrCode(w, http.StatusUnprocessableEntity, "git_failed", "dir", sentenceBranchesGit, "")
 		}
+	case errors.As(err, &baseCheck):
+		switch baseCheck.Reason {
+		case terminalproto.BranchesBaseMissing:
+			// The sentence an isolated launch gets for the same branch.
+			writeErrCode(w, http.StatusUnprocessableEntity, "base_missing", "base", "That branch isn't in the repository on "+s.machineHost(uid, agent)+".", "")
+		case terminalproto.BranchesNotRepoRoot:
+			writeErrCode(w, http.StatusUnprocessableEntity, "not_repo_root", "dir", sentenceBranchesNotRoot, "")
+		case terminalproto.BranchesOutsideHome:
+			writeErrCode(w, http.StatusUnprocessableEntity, "outside_home", "dir", sentenceOutsideHome, "")
+		case terminalproto.BranchesDenied:
+			writeErrCode(w, http.StatusConflict, "branches_denied", "", sentenceBranchesDenied, "")
+		default:
+			writeErrCode(w, http.StatusUnprocessableEntity, "git_failed", "dir", sentenceBranchesGit, "")
+		}
+	case errors.Is(err, terminalbroker.ErrBaseCheckUnsupported):
+		writeErrCode(w, http.StatusConflict, "base_check_unsupported", "", sentenceBaseCheckOld, "")
 	case errors.Is(err, terminalbroker.ErrBranchPruneUnsupported):
 		writeErrCode(w, http.StatusConflict, "branches_unsupported", "", "Update reet on that machine to prune its branches.", "")
 	case errors.Is(err, terminalbroker.ErrBranchPruneDenied):

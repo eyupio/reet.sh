@@ -15,6 +15,43 @@ import (
 // up starting a run for long.
 const baseFetchTimeout = 30 * time.Second
 
+// baseCheckTimeout bounds one base check: the fetch and every other git call
+// it makes. It leaves the fetch its whole budget and a little over.
+const baseCheckTimeout = 33 * time.Second
+
+// CheckBase answers where a worktree made now for req.Base would start in the
+// repository whose working tree top is req.Dir, making none. The folder is
+// checked exactly as a branch listing's is, and the only write is the fetch
+// that brings refs/remotes/origin/<base> up to date: no worktree, branch or
+// checkout is created, removed or moved.
+//
+// A branch neither the repository nor GitHub has is base_missing, so the
+// browser can say so rather than showing a failure; anything else git could
+// not answer is git_failed.
+func CheckBase(ctx context.Context, home string, req terminalproto.BaseCheck, git GitRunner) terminalproto.BaseCheckResult {
+	ctx, cancel := context.WithTimeout(ctx, baseCheckTimeout)
+	defer cancel()
+	dir, reason := branchesRepo(home, req.Dir)
+	if reason != "" {
+		return terminalproto.BaseCheckResult{Reason: reason}
+	}
+	if git == nil {
+		return terminalproto.BaseCheckResult{Reason: terminalproto.BranchesGitFailed}
+	}
+	state, err := ResolveBase(pinGitDir(ctx, dir), dir, req.Base, true, git)
+	if err != nil {
+		var refusal *WorktreeError
+		if errors.As(err, &refusal) && refusal.Reason == terminalproto.WorktreeBaseMissing {
+			return terminalproto.BaseCheckResult{Reason: terminalproto.BranchesBaseMissing}
+		}
+		return terminalproto.BaseCheckResult{Reason: terminalproto.BranchesGitFailed}
+	}
+	if !state.Valid() {
+		return terminalproto.BaseCheckResult{Reason: terminalproto.BranchesGitFailed}
+	}
+	return terminalproto.BaseCheckResult{State: state}
+}
+
 // ResolveBase decides which commit a worktree for base should start from,
 // changing nothing in repo but refs/remotes/origin/<base>.
 //

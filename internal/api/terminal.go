@@ -36,6 +36,7 @@ func (s *server) registerTerminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/machines/{agentId}/yolo", s.terminalAccess(s.terminalMachineYolo, true))
 	mux.HandleFunc("POST /api/v2/machines/{agentId}/uploads", s.terminal(s.terminalLaunchUpload))
 	mux.HandleFunc("GET /api/v2/machines/{agentId}/launch-progress/{requestId}", s.terminal(s.terminalLaunchProgress))
+	mux.HandleFunc("GET /api/v2/machines/{agentId}/base-check", s.terminal(s.sameOriginRead(s.machineBaseCheck)))
 	mux.HandleFunc("GET /api/v2/terminal/sessions", s.terminal(s.terminalSessions))
 	mux.HandleFunc("POST /api/v2/terminal/sessions", s.terminal(s.terminalCreate))
 	mux.HandleFunc("PATCH /api/v2/terminal/sessions/{id}", s.terminal(s.terminalRename))

@@ -49,6 +49,9 @@ var (
 	// branchSyncAnswerAfter bounds a sync that has not returned. Its own
 	// deadline is 45 s, which is under this answer.
 	branchSyncAnswerAfter = 48 * time.Second
+	// baseCheckAnswerAfter bounds a base check that has not returned. Its own
+	// deadline is 33 s, which is under this answer.
+	baseCheckAnswerAfter = 36 * time.Second
 	// modelsAnswerAfter is when a model listing that has not returned is
 	// answered timed_out and its slot freed. ListModels kills its process at
 	// 10 s; this leaves room for the reply and process reaping.
@@ -497,6 +500,20 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.BranchSyncResult{Reason: terminalproto.BranchesConflict}, terminalproto.BranchSyncResult{Reason: terminalproto.BranchesGitFailed},
 					func(ctx context.Context) terminalproto.Body {
 						return terminalhost.SyncBranch(ctx, home, req, git)
+					})
+			case *terminalproto.BaseCheck:
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.BaseCheckResult{Reason: terminalproto.BranchesDenied}
+					return send(callCtx, reply)
+				}
+				req, home, git := *op, opts.Home, opts.Git
+				if git == nil {
+					git = terminalhost.ExecGit
+				}
+				return aside(callCtx, reply, pruneSlot, &prunesRunning, baseCheckAnswerAfter,
+					terminalproto.BaseCheckResult{Reason: terminalproto.BranchesConflict}, terminalproto.BaseCheckResult{Reason: terminalproto.BranchesGitFailed},
+					func(ctx context.Context) terminalproto.Body {
+						return terminalhost.CheckBase(ctx, home, req, git)
 					})
 			case *terminalproto.Models:
 				if !terminalproto.ValidToolV2(op.Tool) {
@@ -1150,6 +1167,10 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.BranchSync:
 		if !has(terminalproto.BranchSyncFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.BaseCheck:
+		if !has(terminalproto.BaseFreshFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.Models:

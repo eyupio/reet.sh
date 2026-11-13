@@ -880,6 +880,10 @@ func Decode(data []byte) (Message, error) {
 		b = &BranchSync{}
 	case "branch_sync_result":
 		b = &BranchSyncResult{}
+	case "base_check":
+		b = &BaseCheck{}
+	case "base_check_result":
+		b = &BaseCheckResult{}
 	case "upload":
 		b = &Upload{}
 	case "models":

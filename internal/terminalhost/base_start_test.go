@@ -387,3 +387,64 @@ func TestBaseOtherRemoteStillResolves(t *testing.T) {
 	state := f.resolve(t, "upstream/main", true)
 	wantBase(t, state, terminalproto.BaseNoRemote, want)
 }
+
+// A base check says where a run would start and changes nothing but the
+// remote-tracking branch its fetch updates: no worktree is made, and the
+// repository's own checkout and branches are left exactly as they were.
+func TestCheckBaseReportsWithoutMakingAWorktree(t *testing.T) {
+	f := newBaseFixture(t)
+	ahead := commitIn(t, f.remote, "on-github")
+	local := commitOf(t, f.repo, "refs/heads/main")
+	worktrees := testGit(t, f.repo, "worktree", "list")
+	branches := testGit(t, f.repo, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads")
+
+	result := CheckBase(context.Background(), f.home, terminalproto.BaseCheck{Dir: f.repo, Base: "main"}, f.git)
+	if result.Reason != "" {
+		t.Fatalf("check refused: %s", result.Reason)
+	}
+	if !result.State.Valid() {
+		t.Fatalf("invalid state: %+v", result.State)
+	}
+	wantBase(t, result.State, terminalproto.BaseBehind, ahead)
+	if result.State.Base != "main" || result.State.Local != local || result.State.Remote != ahead {
+		t.Fatalf("state = %+v, want main local %s remote %s", result.State, local, ahead)
+	}
+	if !f.fetched() {
+		t.Fatalf("the base was not fetched: %q", f.calls)
+	}
+	if got := testGit(t, f.repo, "worktree", "list"); got != worktrees {
+		t.Fatalf("worktrees changed:\nbefore %s\nafter  %s", worktrees, got)
+	}
+	if got := testGit(t, f.repo, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"); got != branches {
+		t.Fatalf("branches changed:\nbefore %s\nafter  %s", branches, got)
+	}
+	if got := commitOf(t, f.repo, "HEAD"); got != local {
+		t.Fatalf("the checkout moved to %s, want %s", got, local)
+	}
+	// The one write the check is allowed: the fetched remote-tracking branch.
+	if got := commitOf(t, f.repo, "refs/remotes/origin/main"); got != ahead {
+		t.Fatalf("refs/remotes/origin/main = %s, want %s", got, ahead)
+	}
+}
+
+// A branch neither side has is a reason the browser can show, not an error.
+func TestCheckBaseAnswersAMissingBranchWithAReason(t *testing.T) {
+	f := newBaseFixture(t)
+	result := CheckBase(context.Background(), f.home, terminalproto.BaseCheck{Dir: f.repo, Base: "nope"}, f.git)
+	if result.Reason != terminalproto.BranchesBaseMissing || result.State != (terminalproto.BaseState{}) {
+		t.Fatalf("result = %+v, want reason %s", result, terminalproto.BranchesBaseMissing)
+	}
+}
+
+// A folder that is not a repository top inside home is refused before git is
+// asked, as a branch listing is.
+func TestCheckBaseRefusesAFolderThatIsNotARepository(t *testing.T) {
+	f := newBaseFixture(t)
+	result := CheckBase(context.Background(), f.home, terminalproto.BaseCheck{Dir: f.home, Base: "main"}, f.git)
+	if result.Reason != terminalproto.BranchesNotRepoRoot {
+		t.Fatalf("result = %+v, want reason %s", result, terminalproto.BranchesNotRepoRoot)
+	}
+	if f.fetched() {
+		t.Fatalf("a folder that is not a repository was fetched: %q", f.calls)
+	}
+}

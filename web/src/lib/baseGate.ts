@@ -2,9 +2,10 @@ import { isolatedLaunch } from './agentLaunch'
 import { baseSentence, needsConfirm } from './baseNotice'
 import { checkBase, type FolderProject, type LaunchRequest } from './terminal/api'
 
-// The one step every browser start path takes before it creates an isolated agent session: ask the machine where the
-// session would start, and hand back the sentence to confirm, or nothing. Home's launch bar and the Start an agent
-// dialog both use this and show the same BaseConfirm dialog, so the rule and the words live in one place.
+// The one step every browser start path takes before it starts an isolated agent session: ask the machine where the
+// session would start, and hand back the sentence to confirm, or nothing. Home's launch bar, the Start an agent dialog
+// and Start on a backlog plan all use this and show the same BaseConfirm dialog, so the rule and the words live in one
+// place; `baseKey` is how each of them ties a yes to the start it was given for.
 //
 // The check is a courtesy, never a gate: a machine too old to answer it, a busy or rate-limited one, a refusal and a
 // reply that never comes all come back as nothing to ask, and the start goes on. Nothing here starts or changes
@@ -27,14 +28,24 @@ export function repoProjectAt<T extends ProjectRow>(projects: T[] | undefined, a
 }
 
 /**
+ * What a yes was given for: the machine, folder, base and agent the question was asked about. A start whose own key
+ * differs — another project, machine, folder or base — is asked again, so a confirmation can never be spent on a start
+ * the person did not see.
+ */
+export function baseKey(agentId: string, launch: BaseLaunch): string {
+  return [agentId, launch.dir ?? '', launch.base ?? '', launch.tool ?? ''].join('\u0000')
+}
+
+/**
  * The question to put to the person before this launch starts, or '' when there is none: the launch will not be
  * isolated, the base and GitHub hold the same commit, GitHub has no such branch, the machine could not answer, or the
- * repository is one reet cloned itself. `host` is the machine's name, which the sentence uses.
+ * repository is one reet cloned itself. `host` is the machine's name, which the sentence uses. `timeoutMs` shortens the
+ * read's own deadline, which only a test does.
  */
-export async function baseQuestion(agentId: string, host: string, launch: BaseLaunch, project: BaseProject | null | undefined, signal?: AbortSignal): Promise<string> {
+export async function baseQuestion(agentId: string, host: string, launch: BaseLaunch, project: BaseProject | null | undefined, signal?: AbortSignal, timeoutMs?: number): Promise<string> {
   if (!isolatedLaunch(launch, project)) return ''
   try {
-    const state = await checkBase(agentId, launch.dir ?? '', launch.base || undefined, signal)
+    const state = await checkBase(agentId, launch.dir ?? '', launch.base || undefined, signal, timeoutMs)
     const say = baseSentence(state, host)
     return say && needsConfirm(state, { cloned: project?.cloned }) ? say : ''
   } catch {

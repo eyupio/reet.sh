@@ -496,9 +496,10 @@ export function baseCheckURL(agentId: string, dir: string, base?: string): strin
   if (base) params.set('base', base)
   return `/api/v2/machines/${encodeURIComponent(agentId)}/base-check?${params}`
 }
-/** Reads the base check; `base` empty asks about the project's own saved base. Throws on any refusal. */
-export async function checkBase(agentId: string, dir: string, base?: string, signal?: AbortSignal): Promise<BaseState> {
-  const deadline = AbortSignal.timeout(BASE_CHECK_TIMEOUT_MS)
+/** Reads the base check; `base` empty asks about the project's own saved base. Throws on any refusal, and on the
+ *  deadline, which is `BASE_CHECK_TIMEOUT_MS` unless `timeoutMs` shortens it (only a test does). */
+export async function checkBase(agentId: string, dir: string, base?: string, signal?: AbortSignal, timeoutMs = BASE_CHECK_TIMEOUT_MS): Promise<BaseState> {
+  const deadline = AbortSignal.timeout(timeoutMs)
   return (await terminalRequest(baseCheckURL(agentId, dir, base), { signal: signal ? AbortSignal.any([signal, deadline]) : deadline })).json()
 }
 

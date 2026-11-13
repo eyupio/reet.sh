@@ -14,7 +14,8 @@ const launchURL = asURL(compile('./agentLaunch.ts')
   .replace("from './clineSource'", `from '${asURL(compile('./clineSource.ts'))}'`))
 const noticeURL = asURL(compile('./baseNotice.ts'))
 const apiURL = asURL(compile('./terminal/api.ts'))
-const { baseQuestion, repoProjectAt } = await import(asURL(compile('./baseGate.ts')
+const { BASE_CHECK_TIMEOUT_MS } = await import(apiURL)
+const { baseKey, baseQuestion, repoProjectAt } = await import(asURL(compile('./baseGate.ts')
   .replace("from './agentLaunch'", `from '${launchURL}'`)
   .replace("from './baseNotice'", `from '${noticeURL}'`)
   .replace("from './terminal/api'", `from '${apiURL}'`)))
@@ -23,7 +24,7 @@ const START = 'abc1234def5678901234567890abcdef12345678'
 const repo = { isRepo: true }
 // Each call is recorded; `answer` decides what the route says.
 let asked = [], answer = () => ({ ok: true, json: async () => ({ base: 'main', relation: 'ahead', local: START, start: START }) })
-globalThis.fetch = async (url, init) => { asked.push({ url: String(url), init }); return answer() }
+globalThis.fetch = async (url, init) => { asked.push({ url: String(url), init }); return answer(url, init) }
 const fresh = () => { asked = [] }
 
 test('an isolated start with a base behind GitHub comes back as the sentence to confirm', async () => {
@@ -78,6 +79,52 @@ test('every way the check can fail comes back as nothing, never as a throw', asy
     assert.equal(await baseQuestion('a1', 'studio', { tool: 'claude', dir: '/home/dev/store', base: 'main' }, repo), '', name)
     assert.equal(asked.length, 1, name)
   }
+})
+
+test('a reply that never comes is given up on, and the deadline is ten seconds', async () => {
+  fresh()
+  // As fetch itself behaves: the request only ends when its signal aborts.
+  answer = (url, init) => new Promise((_, reject) => {
+    init.signal.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')))
+  })
+  const began = Date.now()
+  // Node leaves AbortSignal.timeout's own timer unreferenced, so without something holding the loop open the process
+  // would end before the deadline fires. A browser has no such rule.
+  const awake = setInterval(() => {}, 5)
+  // The deadline is shortened here so the suite does not wait ten seconds; the default is checked below.
+  const say = await baseQuestion('a1', 'studio', { tool: 'claude', dir: '/home/dev/store', base: 'main' }, repo, undefined, 40)
+  clearInterval(awake)
+  assert.equal(say, '')
+  const waited = Date.now() - began
+  assert.ok(waited >= 30 && waited < 4000, `gave up after ${waited}ms`)
+  assert.equal(asked.length, 1)
+  assert.equal(BASE_CHECK_TIMEOUT_MS, 10000)
+})
+
+test('a caller that gives up takes the question with it', async () => {
+  fresh()
+  const life = new AbortController()
+  const timer = setTimeout(() => life.abort(), 20)
+  assert.equal(await baseQuestion('a1', 'studio', { tool: 'claude', dir: '/home/dev/store' }, repo, life.signal, 5000), '')
+  clearTimeout(timer)
+  assert.equal(asked.length, 1)
+})
+
+test('the key a yes is tied to changes with the machine, the folder, the base and the agent', () => {
+  const launch = { tool: 'claude', dir: '/home/dev/store', base: 'main' }
+  const key = baseKey('a1', launch)
+  assert.equal(baseKey('a1', { ...launch }), key)
+  for (const [name, other] of [
+    ['another machine', () => baseKey('a2', launch)],
+    ['another folder', () => baseKey('a1', { ...launch, dir: '/home/dev/site' })],
+    ['another base', () => baseKey('a1', { ...launch, base: 'develop' })],
+    ['no base at all', () => baseKey('a1', { ...launch, base: '' })],
+    ['another agent', () => baseKey('a1', { ...launch, tool: 'codex' })],
+  ]) assert.notEqual(other(), key, name)
+  // The run token is new on every press, so it must not be part of what was agreed to.
+  assert.equal(baseKey('a1', { ...launch, worktree: 'a'.repeat(32) }), key)
+  // One folder cannot be read as another: the parts are kept apart.
+  assert.notEqual(baseKey('a1', { tool: '', dir: '/home/dev/store', base: 'main' }), baseKey('a1', { tool: 'main', dir: '/home/dev/store', base: '' }))
 })
 
 test('the saved repository a launch would be isolated into is the one with exactly that folder', () => {

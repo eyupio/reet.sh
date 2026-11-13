@@ -15,8 +15,15 @@ const START = 'abc1234def5678901234567890abcdef12345678'
 const AHEAD = "main on studio has commits GitHub doesn't have. This session starts from the local main (abc1234)."
 const caps = (extra = {}) => ({protocolVersion:1,os:'linux',osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,
  worktree:true,agentsV2:true,yolo:true,branches:true,browse:true,models:true,tools:['claude','codex'],...extra})
-const tmachines = () => [{agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:caps()}]
-const health = () => ({serverNow:Date.now(),machines:[{agentId:'a1',host:'studio',state:'connected',capabilities:caps()}]})
+// `ready` is read on every machine read, so a test can take a machine out of service while a dialog is open.
+const tmachines = (ready={}) => [
+ {agentId:'a1',host:'studio',ready:ready.a1 !== false,serverEnabled:true,capabilities:caps()},
+ {agentId:'a2',host:'desk',ready:ready.a2 !== false,serverEnabled:true,capabilities:caps()},
+]
+const health = (ready={}) => ({serverNow:Date.now(),machines:[
+ {agentId:'a1',host:'studio',state:ready.a1 === false ? 'unreachable' : 'connected',capabilities:caps()},
+ {agentId:'a2',host:'desk',state:ready.a2 === false ? 'unreachable' : 'connected',capabilities:caps()},
+]})
 const fproject = (id, name, dir, over={}) => ({id,host:'a1',machine:'studio',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'inherit',colour:'',defaultTool:'',defaultModel:'',
  defaultEffort:'',defaultYolo:false,hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1,...over})
 const fprojects = () => [fproject('fp1','Store rewrite','/home/dev/store',{baseBranch:'main'}), fproject('fp2','Notes','/home/dev/notes',{isRepo:false,position:1})]
@@ -25,16 +32,30 @@ const scope = () => ({id:'s1',host:'studio',name:'studio',kind:'agent',agent:'cl
  skills:[],skillCount:0,os:'linux',arch:'amd64',version:'dev'})
 const fleet = () => [{host:'studio',groups:[scope()],skillCount:0}]
 const sync = () => ({environments:[scope()],machines:fleet(),runs:[],updateJobs:[],targets:[],jobs:[],
- agents:[{id:'a1',host:'studio',version:'1',lastSeen:Date.now(),paused:false,autoUpdate:false}]})
+ agents:[{id:'a1',host:'studio',version:'1',lastSeen:Date.now(),paused:false,autoUpdate:false},
+  {id:'a2',host:'desk',version:'1',lastSeen:Date.now(),paused:false,autoUpdate:false}]})
+// A second saved repository, on the other machine, with its own base: a start there is a different question.
+const pair = () => [fproject('fp1','Store rewrite','/home/dev/store',{baseBranch:'main'}),
+ fproject('fp4','Site','/home/dev/site',{host:'a2',machine:'desk',baseBranch:'develop',position:1})]
+// The answer for whichever folder was asked about.
+const aheadFor = asked => asked.dir === '/home/dev/site'
+ ? {base:'develop',relation:'ahead',local:START,start:START}
+ : {base:'main',relation:'ahead',local:START,start:START}
+const SITE_AHEAD = "develop on desk has commits GitHub doesn't have. This session starts from the local develop (abc1234)."
+// The page reads its machines again when the browser tab becomes visible, so a machine taken out of service is noticed
+// without waiting for the poll.
+const reread = page => page.evaluate(() => { document.dispatchEvent(new Event('visibilitychange')) })
 
 // A writer's Home with one saved repository on a ready machine. `check` answers the base check; every create and every
 // check is recorded in `box`.
 async function scene(options={}) {
  const box = {posts:[], checks:[], confirms:0}
+ // The machines a test can take out of service: `ready.a1 = false` and a visibility change makes the page read it again.
+ const ready = options.ready ?? {}
  const check = options.check ?? (() => ({base:'main',relation:'ahead',local:START,start:START}))
  const routes = {
-  '/api/v2/machines/health': health(),
-  '/api/v2/terminal/machines': () => ({machines:tmachines()}),
+  '/api/v2/machines/health': () => health(ready),
+  '/api/v2/terminal/machines': () => ({machines:tmachines(ready)}),
   '/api/v2/settings/yolo': () => ({allowed:true, changedBy:'Owner', changedAt:Date.now()}),
   '/api/v2/terminal/sessions': async request => {
    if (request.method() !== 'POST') return {sessions:[]}
@@ -45,11 +66,20 @@ async function scene(options={}) {
   '/api/v2/folder-projects': () => ({projects:options.projects ?? fprojects(), savedWaiting:0}),
   '/api/v2/profile/model-favourites': () => modelFavourites([]),
   '/api/v2/machines/a1/models': request => modelList({tool:new URL(request.url()).searchParams.get('tool') ?? 'claude'}),
+  '/api/v2/machines/a2/models': request => modelList({tool:new URL(request.url()).searchParams.get('tool') ?? 'claude'}),
   '/api/v2/machines/a1/branches': () => ({current:'main', default:'main', branches:['main','develop'], more:false}),
+  '/api/v2/machines/a2/branches': () => ({current:'develop', default:'develop', branches:['main','develop'], more:false}),
+  '/api/v2/machines/a2/base-check': request => {
+   const u = new URL(request.url())
+   const asked = {method:request.method(), dir:u.searchParams.get('dir'), base:u.searchParams.get('base')}
+   box.checks.push(asked)
+   return check(asked, box.checks.length)
+  },
   '/api/v2/machines/a1/base-check': request => {
    const u = new URL(request.url())
-   box.checks.push({method:request.method(), dir:u.searchParams.get('dir'), base:u.searchParams.get('base')})
-   return check(box.checks.length)
+   const asked = {method:request.method(), dir:u.searchParams.get('dir'), base:u.searchParams.get('base')}
+   box.checks.push(asked)
+   return check(asked, box.checks.length)
   },
   // Answered at once: a request sent after the page's others, so a test knows they have all reached these routes.
   '/api/__e2e/sync': () => ({}),
@@ -89,6 +119,14 @@ const openStartAgent = async page => {
  return dialog
 }
 const sentenceText = page => bar(page).locator('.sentence').evaluate(el => [...el.querySelectorAll('.part')].map(p => p.textContent.trim()).join(' '))
+const slot = (page, name) => bar(page).getByRole('button',{name:new RegExp(`^${name}: `)})
+const pick = async (page, name, option) => {
+ await slot(page, name).click()
+ const list = page.getByRole('listbox',{name})
+ await expect(list).toBeVisible()
+ await list.getByRole('option',{name:option}).click()
+ await expect(list).toBeHidden()
+}
 // The bar opens in a modal; #launch opens it.
 const openBar = async page => {
  await page.evaluate(() => { location.hash = 'launch' })
@@ -178,11 +216,13 @@ try {
   await context.close()
  }
 
- // A check that cannot be answered never holds up a start: an older machine (409), a refused read (500) and a reply
- // that never comes each start the session with no dialog and no message about it.
+ // A check that cannot be answered never holds up a start: an older machine (409), a refused read (500) and a reply that
+ // never comes (the browser's own ten-second deadline) each start the session with no dialog and no message about it.
  for (const [name, answer] of [
   ['an older machine', () => ({status:409, json:{error:'Update reet on that machine to check where a session starts.', code:'base_check_unsupported'}})],
   ['a machine that failed the read', () => ({status:500, json:{error:'The terminal connection is unavailable.'}})],
+  // Nothing is ever sent back, so the browser gives up after ten seconds. This case really waits for them.
+  ['a reply that never comes', () => new Promise(() => {})],
  ]) {
   if (!run(`a check ${name} never holds up the start`)) continue
   const {context,page,errors,box} = await scene({check:answer})
@@ -190,7 +230,8 @@ try {
   await openBar(page)
   await prompt(page).fill('Fix the failing tests')
   await startButton(page).click()
-  await expect.poll(() => box.posts.length).toBe(1)
+  // The deadline case really waits out the ten seconds the browser gives the check.
+  await expect.poll(() => box.posts.length, {timeout:25000}).toBe(1)
   await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.confirms).toBe(0)
   expect(box.checks).toHaveLength(1)
@@ -253,6 +294,71 @@ try {
   await expect(page).toHaveURL(/\/sessions\?/)
   expect(box.confirms).toBe(0)
   expect(box.checks).toHaveLength(1)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A yes belongs to the start it was given for. The machine goes out of service while the question is open, so the start
+ // it was answering is refused before anything is sent; choosing another repository and pressing Start must ask again.
+ if (run('a confirmation never carries over to another start from the bar')) {
+  const ready = {a1:true}
+  const {context,page,errors,box} = await scene({projects:pair(), ready, check:aheadFor})
+  await page.goto(base)
+  await openBar(page)
+  await prompt(page).fill('Fix the failing tests')
+  await startButton(page).click()
+  await expect(confirm(page)).toBeVisible()
+  await expect(confirm(page)).toContainText(AHEAD)
+  // studio stops taking sessions while the question is on screen.
+  ready.a1 = false
+  await reread(page)
+  await expect(startButton(page)).toBeDisabled({timeout:15000})
+  // The yes is for a start that can no longer happen: nothing is sent.
+  await confirm(page).getByRole('button',{name:'Start session'}).click()
+  await expect(confirm(page)).toBeHidden()
+  await settled(page)
+  expect(box.posts).toEqual([])
+  // Another repository, on the machine that is still there: the question is asked again, in its own words.
+  await pick(page, 'Project', 'Site')
+  await expect.poll(() => sentenceText(page), {timeout:15000}).toContain('on Site at desk')
+  await startButton(page).click()
+  await expect(confirm(page)).toBeVisible()
+  await expect(confirm(page)).toContainText(SITE_AHEAD)
+  await settled(page)
+  expect(box.posts).toEqual([])
+  await confirm(page).getByRole('button',{name:'Start session'}).click()
+  await expect.poll(() => box.posts.length).toBe(1)
+  expect(box.posts[0]).toMatchObject({agentId:'a2', dir:'/home/dev/site', base:'develop', projectId:'fp4'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The same for the Start an agent dialog: a yes for one repository is never spent on another.
+ if (run('a confirmation never carries over to another start from the dialog')) {
+  const ready = {a1:true}
+  const {context,page,errors,box} = await scene({projects:pair(), ready, check:aheadFor})
+  const dialog = await openStartAgent(page)
+  await dialog.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(confirm(page)).toBeVisible()
+  await expect(confirm(page)).toContainText(AHEAD)
+  ready.a1 = false
+  await reread(page)
+  await expect(dialog.getByRole('button',{name:'Start',exact:true})).toBeDisabled({timeout:15000})
+  await confirm(page).getByRole('button',{name:'Start session'}).click()
+  await expect(confirm(page)).toBeHidden()
+  await settled(page)
+  expect(box.posts).toEqual([])
+  // The other repository, on the machine that is still there.
+  await dialog.getByRole('combobox',{name:'Project',exact:true}).selectOption('fp4')
+  await expect(dialog.getByRole('combobox',{name:'Machine',exact:true})).toHaveValue('a2')
+  await dialog.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(confirm(page)).toBeVisible()
+  await expect(confirm(page)).toContainText(SITE_AHEAD)
+  await settled(page)
+  expect(box.posts).toEqual([])
+  await confirm(page).getByRole('button',{name:'Start session'}).click()
+  await expect.poll(() => box.posts.length).toBe(1)
+  expect(box.posts[0]).toMatchObject({agentId:'a2', dir:'/home/dev/site', base:'develop', projectId:'fp4'})
   expect(errors).toEqual([])
   await context.close()
  }

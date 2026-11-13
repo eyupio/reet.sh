@@ -3645,8 +3645,16 @@ answers:
   unchanged.
 - `baseNotice.test.mjs` (new) covers every relation's sentence, the branchless wording, the short
   commit, and when a start is asked about. `baseGate.test.mjs` (new) covers the shared step: the
-  request it makes, a launch that will not be isolated making none, and every refusal, timeout and
-  unreadable body coming back as nothing to ask.
+  request it makes, a launch that will not be isolated making none, and what comes back as nothing to
+  ask — 409 unsupported, 409 busy, 422 `base_missing`, 429, 403, a fetch that throws, a body that will
+  not parse, a reply that never comes (the deadline, shortened to 40 ms in the test, with the
+  ten-second default asserted) and a caller that gives up. The browser test runs the 409, the 500 and a
+  route that never answers, which waits out the real ten seconds.
+- The e2e also covers a confirmation that must not carry over: with the question on screen the machine
+  stops taking sessions, so the start it was answering is refused before anything is sent; choosing
+  another repository and pressing Start asks again, in that repository's own words, and nothing is
+  created until that second yes. Both the launch bar and the Start an agent dialog; each was seen
+  failing (the second question never appeared) against the build before the fix.
 - `npm run check` (unit tests and `svelte-check`, 0 errors, 0 warnings) and `npm run build` pass;
   `gofmt`, `go vet ./internal/...`, `go build ./...`, `go test ./internal/store` and
   `go test ./internal/api` pass.

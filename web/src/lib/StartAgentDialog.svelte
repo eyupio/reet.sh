@@ -26,7 +26,7 @@
  import SlotPicker, { type SlotOption } from './launch/SlotPicker.svelte'
  import YoloDialog from './launch/YoloDialog.svelte'
  import BaseConfirm from './home/BaseConfirm.svelte'
- import { baseQuestion, repoProjectAt } from './baseGate'
+ import { baseKey, baseQuestion, repoProjectAt } from './baseGate'
  import { yoloCanStart, type YoloGate } from './launchBar'
 
  // Start an agent CLI in a new terminal session on one machine. One screen, one press. The page names a tool id, a model, a
@@ -97,8 +97,11 @@
  let operation = $state<Operation | null>(null)
  // Where a session in a saved repository would start: asked of the machine before anything is sent, and shown when the
  // repository's base and GitHub's differ. `checking` is its own guard, so a second press cannot ask twice, and a check
- // that cannot be answered never holds the start up or says anything.
- let baseOpen = $state(false), baseText = $state(''), baseHost = $state(''), baseConfirmed = $state(false), checking = $state(false)
+ // that cannot be answered never holds the start up or says anything. `baseAsked` is what the open question is about and
+ // `baseYes` what was confirmed, both as `baseKey` (machine, folder, base and agent): the yes is spent by the press that
+ // read it, and a start whose own key differs is asked again, so it can never follow the person to another repository.
+ let baseOpen = $state(false), baseText = $state(''), baseHost = $state(''), checking = $state(false)
+ let baseAsked = '', baseYes = ''
  const life = new AbortController()
 
  // The project's own defaults (read once) and the account's: resolved with the catalogue's agent gate, never as a list read.
@@ -302,8 +305,9 @@
  $effect(() => { if (yoloWhy) untrack(() => { yoloChosen = false }) })
  async function loadYolo() { try { yoloSetting = await getYoloSetting() } catch { yoloSetting = null } }
  function openYolo() { if (locked || yoloWhy || yoloChosen) return; yoloOpen = true }
- function cancelBase() { baseOpen = false; baseText = ''; void focusAfter(() => startButton) }
- async function confirmBase() { baseOpen = false; baseText = ''; baseConfirmed = true; await tick(); await start() }
+ function cancelBase() { baseOpen = false; baseText = ''; baseAsked = ''; void focusAfter(() => startButton) }
+ // The yes is for exactly what was asked about, and for the press that follows it.
+ async function confirmBase() { baseOpen = false; baseText = ''; baseYes = baseAsked; baseAsked = ''; await tick(); await start() }
  function cancelYolo() { yoloOpen = false; yoloChosen = false; void focusAfter(() => yoloRadio) }
  function startYolo() { if (!yoloCanStart(yoloGateList)) return; yoloChosen = true; yoloOpen = false; edited() }
  // While a request is held, the line says what was asked for, not what the current machine list would offer.
@@ -620,6 +624,9 @@
   pickerOpen = false
   attempted = true
   if (!operation) {
+   // The yes belongs to this press: it is taken and let go here, before anything can bail, so nothing that happens next
+   // (a machine that stopped taking sessions, a project list that reloaded) can spend it on another start.
+   const yes = baseYes; baseYes = ''
    if (projectBlocked || blocked || !machine) return
    // The errors are derived, so they already count this attempt; no await here, or a second press could slip past the busy guard.
    const invalid = modelError ? ['model', modelError] : effortError ? ['effort', effortError] : dirError ? ['dir', dirError] : promptError ? ['prompt', promptError] : null
@@ -647,9 +654,9 @@
      if (base) launch.base = base
     }
    }
-   if (!baseConfirmed) {
+   const host = machine.host, agent = machine.agentId
+   if (yes !== baseKey(agent, launch)) {
     // Before the images and before the create: a no leaves nothing behind. The confirmation's button starts it.
-    const host = machine.host, agent = machine.agentId
     checking = true; failed = false; invalidMessage = false
     message = `Checking where this starts on ${host}…`
     // The saved repository this folder is, as the controller finds it; the chosen project is the fallback when the
@@ -658,10 +665,8 @@
     const say = await baseQuestion(agent, host, launch, repo, life.signal)
     checking = false; message = ''
     if (life.signal.aborted) return
-    if (say) { baseText = say; baseHost = host; baseOpen = true; return }
+    if (say) { baseText = say; baseHost = host; baseAsked = baseKey(agent, launch); baseOpen = true; return }
    }
-   // The yes was for this press: the next Start asks the machine again.
-   baseConfirmed = false
    const taskTitle = promptTitle(prompt) || titleFor(chosenTool, dir)
    // Who named the session comes from the typed task, never from the image paths appended to it below.
    launch.titleOrigin = titleOriginFor(prompt)

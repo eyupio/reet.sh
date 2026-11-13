@@ -154,6 +154,9 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   chosen; `/?project=<id>` opens the launch modal on it once. **Select projects** in the heading's
   menu turns the cards into checkboxes; **Start in these projects** opens the launch bar's modal on
   two or more of them.
+- **From the session screen.** The **+** beside the session tabs, and **New session** in that header,
+  ask what to start (agent or terminal) and the agent choice opens this same dialog, so a start made
+  there asks where it starts in the same way.
 - **Machines on Home.** Each machine card's **+** and its menu's **New session…** ask what to start
   there: one of that machine's folder projects, which opens Start an agent with it chosen, or
   **Terminal session**, a plain shell in the machine's home folder. Its menu also offers **New
@@ -287,6 +290,10 @@ project the folder belongs to is what decides, whether it was chosen in the Proj
 was typed: the controller isolates any agent start whose folder is a saved repository. A machine that
 cannot answer the question never holds the start up. The session also says where it started from on
 its Overview, under **Where it's working**.
+
+The yes belongs to the start it was given for: the machine, folder, base and agent it named. A start
+whose own are different, or one pressed after the first was refused (the machine stopped taking
+sessions while the question was on screen, say), asks again. The same holds in Home's launch bar.
 
 ## What each state says
 

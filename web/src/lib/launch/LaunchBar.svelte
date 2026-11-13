@@ -8,7 +8,7 @@
   import { CATALOGUE, agentChoices } from '../catalogue'
   import { defaultLabel, favouriteKey, modelOptions, modelStatus, recentModels, starLabel, type MachineModels, type ModelFavourite } from '../models'
   import { MAX_PROMPT_BYTES, cleanModel, modelSuggestions, notStartedText, refusalText, toolName, validateModel } from '../agentLaunch'
-  import { baseQuestion } from '../baseGate'
+  import { baseKey, baseQuestion, type BaseLaunch } from '../baseGate'
   import { launchEfforts } from '../terminal/launchOptions'
   import { afterLaunch, baseFor, chatEffort, defaultTitle, initialChoice, runRefusalText, sentence, startable, startedLine, summary, toCreate, toSelectionRun, withAgent, withHome, withProject, withSelection, sendKey, yoloCanStart, yoloGates,
     type LaunchChoice, type LaunchCreate, type LaunchDefaults, type SelectionRunRequest, type SentencePart } from '../launchBar'
@@ -126,7 +126,10 @@
   // Where a session in a saved repository would start. A launch isolated into a worktree asks its machine first; when the
   // repository's base and GitHub's differ, the sentence is shown and Start waits for a yes. A check that cannot be
   // answered (an older machine, a busy one, no reply at all) never holds the start up and is never mentioned.
-  let baseOpen = $state(false), baseText = $state(''), baseHost = $state(''), baseConfirmed = $state(false)
+  // `baseAsked` is what the open question is about and `baseYes` what was confirmed, both as `baseKey` (machine, folder,
+  // base and agent): a yes is spent by the press that read it, and a start whose own key differs is asked again, so a
+  // confirmation can never follow the person to another project, machine, folder or base.
+  let baseOpen = $state(false), baseText = $state(''), baseHost = $state(''), baseAsked = '', baseYes = ''
   const life = new AbortController()
   let form = $state<HTMLFormElement>(), field = $state<HTMLTextAreaElement>(), startButton = $state<HTMLButtonElement>()
   // Your saved prompts: a backslash token opens them above the bar; the Prompts button opens the full picker.
@@ -797,15 +800,19 @@
       return
     }
     if (!operation) {
+      // The yes belongs to this press: it is taken and let go here, before anything can bail, so nothing that happens
+      // next (a machine that stopped taking sessions, a project list that reloaded) can spend it on another start.
+      const yes = baseYes; baseYes = ''
       if (reason !== null) return
       if (imagesReason) { failed = true; message = imagesReason; return }
-      if (!baseConfirmed && one) {
-        // Asked before anything is built or uploaded, so a no leaves nothing behind. The dialog's button starts it.
-        const asked = await askWhereItStarts(one)
-        if (life.signal.aborted || asked || !choice || !projects) return
+      if (one) {
+        const asking: BaseLaunch = { tool: choice.agent, dir: one.dir, base: baseFor(choice, one, profile) }
+        if (yes !== baseKey(one.host, asking)) {
+          // Asked before anything is built or uploaded, so a no leaves nothing behind. The dialog's button starts it.
+          const asked = await askWhereItStarts(one, asking)
+          if (life.signal.aborted || asked || !choice || !projects) return
+        }
       }
-      // The yes was for this press: the next Start asks its machine again.
-      baseConfirmed = false
       keptProjects = [...projects]
       if (picked.length > 1) operation = { kind: 'run', body: toSelectionRun(choice, crypto.randomUUID()) }
       else {
@@ -1086,24 +1093,24 @@
    * confirmation. True means the person has been asked, so nothing is started yet. A machine that cannot answer (an
    * older one, a busy one, a refusal, no reply within ten seconds) is never mentioned and never holds the start up.
    */
-  async function askWhereItStarts(project: FolderProject): Promise<boolean> {
+  async function askWhereItStarts(project: FolderProject, launch: BaseLaunch): Promise<boolean> {
     const host = hostOf(project.host)
-    const launch = { tool: choice!.agent, dir: project.dir, base: baseFor(choice!, project, profile) }
     busy = true; phase = 'prepare'; failed = false
     message = `Checking where this starts on ${host}…`
     try {
       const say = await baseQuestion(project.host, host, launch, project, life.signal)
       if (life.signal.aborted) return true
-      if (say) { baseText = say; baseHost = host; baseOpen = true; return true }
+      if (say) { baseText = say; baseHost = host; baseAsked = baseKey(project.host, launch); baseOpen = true; return true }
     } finally { busy = false; message = '' }
     return false
   }
   function cancelBase() {
-    baseOpen = false; baseText = ''
+    baseOpen = false; baseText = ''; baseAsked = ''
     void tick().then(() => startButton?.focus())
   }
   async function confirmBase() {
-    baseOpen = false; baseText = ''; baseConfirmed = true
+    // The yes is for exactly what was asked about, and for the press that follows it.
+    baseOpen = false; baseText = ''; baseYes = baseAsked; baseAsked = ''
     await tick()
     await start()
   }

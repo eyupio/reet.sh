@@ -214,23 +214,23 @@ func TestTerminalArchiveMigrationAndConcurrentEnd(t *testing.T) {
 	}
 }
 
-func TestTerminalArchiveCannotReleaseActiveQuota(t *testing.T) {
+func TestTerminalArchiveRefusesLiveSession(t *testing.T) {
 	s, uid, a, c := terminalFixture(t)
-	for i := 0; i < terminalproto.MaxSessionsPerAgent; i++ {
+	for i := 0; i < 8; i++ {
 		session := createTerminal(t, s, uid, a, c)
 		if err := s.ArchiveTerminalFor(uid, session.ID); !errors.Is(err, ErrTerminalConflict) {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, terminalproto.Create{Title: "Extra", Cols: 80, Rows: 24}); !errors.Is(err, ErrTerminalCapacity) {
-		t.Fatal("archive freed active quota", err)
+	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, terminalproto.Create{Title: "Extra", Cols: 80, Rows: 24}); err != nil {
+		t.Fatalf("a live session cap still applies: %v", err)
 	}
 }
 
-func TestTerminalArchivePendingEndRetainsQuotaAndReconciliation(t *testing.T) {
+func TestTerminalArchivePendingEndAndReconciliation(t *testing.T) {
 	s, uid, a, c := terminalFixture(t)
 	var hidden, requestID string
-	for i := 0; i < terminalproto.MaxSessionsPerAgent; i++ {
+	for i := 0; i < 8; i++ {
 		session := createTerminal(t, s, uid, a, c)
 		endID := syncID()
 		if _, err := s.RequestTerminalEndFor(uid, a.ID, session.ID, endID); err != nil {
@@ -245,9 +245,6 @@ func TestTerminalArchivePendingEndRetainsQuotaAndReconciliation(t *testing.T) {
 		t.Fatal("pending entries still visible", rows, err)
 	}
 	in := terminalproto.Create{Title: "Extra", Cols: 80, Rows: 24}
-	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); !errors.Is(err, ErrTerminalCapacity) {
-		t.Fatal("hiding pending ends released quota", err)
-	}
 	// A reconnect must still receive the stop, and a late running report must
 	// neither resurrect the entry nor cancel termination.
 	if err := s.ObserveTerminalStateFor(uid, a.ID, hidden, c.Generation, terminalproto.Running, nil); err != nil {
@@ -269,11 +266,14 @@ func TestTerminalArchivePendingEndRetainsQuotaAndReconciliation(t *testing.T) {
 	if rows, err := s.TerminalSessionsFor(uid); err != nil || len(rows) != 0 {
 		t.Fatal("late observation resurrected entry", rows, err)
 	}
+	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); err != nil {
+		t.Fatalf("a pending end blocked a new session: %v", err)
+	}
 	if err := s.ObserveTerminalStateFor(uid, a.ID, hidden, c.Generation, terminalproto.Ended, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); err != nil {
-		t.Fatal("confirmed closure did not release quota", err)
+		t.Fatal("confirmed closure blocked a new session", err)
 	}
 }
 

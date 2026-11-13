@@ -228,15 +228,6 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if !responsive(ctx, m.tmux, m.layout) {
 		return ManagedSession{}, ErrNotRunning
 	}
-	live := 0
-	for _, s := range r.Sessions {
-		if s.State.ReservesQuota() {
-			live++
-		}
-	}
-	if live >= terminalproto.MaxSessionsPerAgent {
-		return ManagedSession{}, ErrSessionCapacity
-	}
 	// A server object without our durable intent must never be adopted.
 	names, err := m.sessionNames(ctx)
 	if err != nil {

@@ -77,7 +77,13 @@ type FolderProject struct {
 	// Colour is the rail colour the person chose ("", red, amber, green, blue
 	// or violet). It names an identity, not a state, so it is never used for
 	// status.
-	Colour          string
+	Colour string
+	// Origin is the GitHub repository ("owner/name") the project was added
+	// from, "" for a folder added by path. Cloned says reet itself made the
+	// clone (its marker is in the folder). Both are written once, on create,
+	// and never change.
+	Origin          string
+	Cloned          bool
 	Position        int
 	LegacyProjectID string
 	// Note is a one-time notice from the migration of saved Projects, as it
@@ -103,6 +109,8 @@ func (s *Store) migrateFolderProjects() error {
 				default_yolo INTEGER NOT NULL DEFAULT 0,
 				starter_prompt TEXT NOT NULL DEFAULT '',
 				colour TEXT NOT NULL DEFAULT '',
+				origin TEXT NOT NULL DEFAULT '',
+				cloned INTEGER NOT NULL DEFAULT 0,
 				position INTEGER NOT NULL CHECK(position>=0),
 				legacy_project_id TEXT,
 				note TEXT NOT NULL DEFAULT '',
@@ -171,6 +179,22 @@ func (s *Store) migrateFolderProjects() error {
 		if hasYolo == 0 {
 			if _, err := tx.Exec(`ALTER TABLE folder_projects ADD COLUMN default_yolo INTEGER NOT NULL DEFAULT 0`); err != nil {
 				return err
+			}
+		}
+		// Tables made before a project could come from GitHub gain its origin
+		// and whether reet cloned it. Existing rows keep "" and 0: added by path.
+		for _, col := range []struct{ name, def string }{
+			{"origin", `origin TEXT NOT NULL DEFAULT ''`},
+			{"cloned", `cloned INTEGER NOT NULL DEFAULT 0`},
+		} {
+			var has int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('folder_projects') WHERE name=?`, col.name).Scan(&has); err != nil {
+				return err
+			}
+			if has == 0 {
+				if _, err := tx.Exec(`ALTER TABLE folder_projects ADD COLUMN ` + col.def); err != nil {
+					return err
+				}
 			}
 		}
 		// Hosts were once machine names (index folder_projects_machine, on
@@ -248,6 +272,12 @@ func normalizeFolderWith(p FolderProject, checkPrompt, checkDefaults bool) (Fold
 	if p.Colour != "" && !validFolderProjectColour(p.Colour) {
 		return p, folderInvalid("project colour must be blank, red, amber, green, blue or violet")
 	}
+	if p.Origin != "" && !validFolderProjectOrigin(p.Origin) {
+		return p, folderInvalid("origin must be a GitHub repository written as owner/name")
+	}
+	if p.Cloned && p.Origin == "" {
+		return p, folderInvalid("only a project from GitHub can be a clone reet made")
+	}
 	if p.DefaultTool != "" && !terminalproto.ValidToolV2(p.DefaultTool) {
 		return p, folderInvalid("default agent must be one of claude, codex, opencode or cline")
 	}
@@ -278,6 +308,13 @@ func normalizeFolderWith(p FolderProject, checkPrompt, checkDefaults bool) (Fold
 
 func validFolderProjectName(n string) bool {
 	return utf8.RuneCountInString(n) >= 1 && utf8.RuneCountInString(n) <= MaxProjectNameRunes && plainText(n)
+}
+
+// validFolderProjectOrigin accepts exactly "owner/name", each part a valid
+// GitHub owner and repository name.
+func validFolderProjectOrigin(o string) bool {
+	owner, repo, ok := strings.Cut(o, "/")
+	return ok && terminalproto.ValidGitHubOwner(owner) && terminalproto.ValidGitHubRepo(repo)
 }
 
 // FolderProjectColours are the rail colours a project may carry, as ids. They
@@ -354,14 +391,14 @@ func folderConflict(err error) error {
 	return ErrFolderProjectExists
 }
 
-const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
+const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanFolderProject(r rowScanner) (FolderProject, error) {
 	var p FolderProject
 	err := r.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultYolo,
-		&p.StarterPrompt, &p.Colour, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
+		&p.StarterPrompt, &p.Colour, &p.Origin, &p.Cloned, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
 	p.Note = noteText(p.Note)
 	return p, err
 }
@@ -391,6 +428,25 @@ func (s *Store) CreateFolderProjectFor(uid int64, p FolderProject) (FolderProjec
 	return saved, nil
 }
 
+// FolderProjectRoomFor answers, before anything is made, what a create
+// would refuse without its folder: ErrFolderProjectLimit when uid has no room
+// for another project, ErrFolderProjectName when name (trimmed; "" for the
+// folder's own) is another project's. The create checks both again.
+func (s *Store) FolderProjectRoomFor(uid int64, name string) error {
+	var n, taken int
+	err := s.db.QueryRow(`SELECT COUNT(*),COALESCE(SUM(name_key=?),0) FROM folder_projects WHERE user_id=?`, nameKey(strings.TrimSpace(name)), uid).Scan(&n, &taken)
+	if err != nil {
+		return err
+	}
+	if n >= MaxFolderProjects {
+		return ErrFolderProjectLimit
+	}
+	if strings.TrimSpace(name) != "" && taken > 0 {
+		return ErrFolderProjectName
+	}
+	return nil
+}
+
 // insertFolderProject stores p, already normalized, at the end of uid's list
 // inside tx, with note as stored (see encodeNote): the limit, position and
 // name are settled there.
@@ -416,9 +472,9 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (F
 	if p.LegacyProjectID != "" {
 		legacy = p.LegacyProjectID
 	}
-	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,position,legacy_project_id,note,created_at,updated_at,version)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
-		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Position, legacy, note, t, t)
+	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,position,legacy_project_id,note,created_at,updated_at,version)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Position, legacy, note, t, t)
 	if err != nil {
 		return FolderProject{}, folderConflict(err)
 	}
@@ -427,7 +483,7 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (F
 }
 
 // UpdateFolderProjectFor replaces the editable fields of project p.ID of uid.
-// Position, LegacyProjectID and CreatedAt are kept. A non-zero expect is the
+// Position, LegacyProjectID, Origin, Cloned and CreatedAt are kept. A non-zero expect is the
 // version the caller read: a different stored one is ErrFolderProjectChanged.
 // Zero means the last write wins. Either way the version goes up by one.
 // The starter prompt is checked only when it changes, so a saved one that
@@ -447,6 +503,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 		if expect != 0 && expect != cur.Version {
 			return ErrFolderProjectChanged
 		}
+		// Where a project came from is a fact of its create, not an edit.
+		p.Origin, p.Cloned = cur.Origin, cur.Cloned
 		defaultsChanged := p.DefaultTool != cur.DefaultTool || p.DefaultModel != cur.DefaultModel || p.DefaultEffort != cur.DefaultEffort
 		if p, err = normalizeFolderWith(p, p.StarterPrompt != cur.StarterPrompt, defaultsChanged); err != nil {
 			return err

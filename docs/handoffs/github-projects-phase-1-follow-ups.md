@@ -49,6 +49,15 @@ are as the reviewers gave them and will have moved. Items the final fix round cl
 - An invalid `SessionChanged.Base` makes the whole reply fail strict decoding; the "ignored, never fails
   the create" rule holds only at the store.
 
+## A record that is lost
+
+- **A late branch prune or software apply answer leaves no audit row.** The machine does the work, but the
+  `branches-prune` and `software-apply` audit rows, and the stored software entry, are written only by the
+  call that was waiting. If that call has given up (a closed tab, a timeout), the answer is counted and
+  dropped by the broker (`internal/terminalbroker/broker.go`, `Peer.Receive`). Before the connection fix
+  it ended the machine's connection instead, and the record was lost then too. Recording a late answer
+  with the account, the machine and the outcome is still owed.
+
 ## Small code and test gaps
 
 - `base_missing`'s sentence reads "…on ." when the machine's name cannot be read

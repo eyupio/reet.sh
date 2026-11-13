@@ -350,6 +350,59 @@ is the one meant to be live, so a restore clears it.
 5. Resume the work the restore held back.
 6. When everything is working, the old controller can stay fenced or be retired.
 
+### Moving a controller from the web page
+
+The same move needs no terminal on either controller. Everything below is under
+**Admin → Backups**, for the owner only, and each piece is offered only when the
+controller lists it in `GET /api/version` (see
+[asking a controller what it can do](#asking-a-controller-what-it-can-do)).
+
+**On the old controller, Move this controller away:**
+
+1. **Fence this controller.** Type the new address if you know it (optional, a
+   plain `https://` origin) and confirm. The dialog says what stops: every change
+   is refused, background work stands still, nothing is deleted, and it can be
+   undone. From then on the page carries a banner saying since when the
+   controller has been fenced and where it moved to, and every other page shows
+   one line under the header saying the same, so a refused save is not the first
+   anybody hears of it. An admin's pages read the state when they open; anyone
+   else sees the line after the first change the controller refuses.
+2. **Take the final copy.** This step opens only once the fence is up. Type a
+   copy password of at least 12 characters: it seals this one copy
+   ([a password for one copy](#a-password-for-one-copy)), is not stored, and is
+   what the new controller will ask for. The page then shows the copy with
+   **taken fenced** beside it, read from the copy's own header, and **Download
+   the final copy**. If the fence changed while the copy was being taken the
+   page says so and asks for another, rather than handing over a copy the new
+   controller would refuse.
+3. The card then lists what is left: the import on the new controller, and on
+   each machine the command `reet agent set-server <new address>`, with a button
+   to copy it.
+4. **Lift the fence** is there the whole time. It asks first, because a
+   controller that is already running from the copy would then share its data
+   with this one.
+
+**On the new controller, Move a controller in:** choose the downloaded copy and
+type its password. **This controller's address** is filled in with the address
+the page was opened at; it is the `publicUrl` of an import, so the addresses
+saved in the copy are rewritten to it, and clearing the field leaves them alone.
+A copy that was not taken fenced is refused, the controller's own words are
+shown beside the form with everything you typed still there, and only then does
+the page ask for the tick **The old controller is stopped or gone**
+(`allowLiveSource`). Once the copy is staged the page shows the report: what
+came across, what was done about the address, what was held back, what is not in
+the copy and has to be set by hand, and the `set-server` command for the
+machines. Restart the controller to put the copy in place.
+
+The first answer of the import, and `GET /api/v2/admin/backups/import` while a
+copy is staged, carry `notInCopy`: the same checklist the command line prints,
+as `[{"names": [...], "say": "..."}]`. A copy in `GET /api/v2/admin/backups` and
+the answer of a run carry `fenced` (true, false, or absent when the copy does
+not say) and `protection` (`key` or `password`) from the copy's header. An import
+refused because its source was live answers `409` with
+`"code": "copy_source_live"`; one refused because the controller already holds
+data answers `"code": "controller_not_empty"`.
+
 ### Fencing a controller that is moving
 
 Moving a controller safely means the old one stops acting before the final copy
@@ -378,7 +431,9 @@ Every answer is `{"fenced": bool, "since": int64, "movedTo": string}`, with
 already fenced answers with the existing state and changes nothing, so a second
 call cannot move the date or the address. A `DELETE` when not fenced answers the
 same way and succeeds. Like every `POST`, it needs a JSON body; send `{}` for no
-address. All three are for the owner only.
+address. Raising and lifting are for the owner only. An admin may read the state
+with `GET`, which is what lets every admin page say that the controller is fenced
+before a change is refused; it tells them nothing the 423 does not.
 
 **While fenced:**
 
@@ -533,9 +588,10 @@ needs it unless the copy was taken from a fenced controller. `--replace` is
 described below. The command streams
 the file, so it is not read into memory on this side.
 
-**From the page**, under **Admin → Backups → Import a copy from another
-controller**: choose the copy, enter its password if it has one, pick the
-options. The page shows the report and a **Discard** button while it waits.
+**From the page**, under **Admin → Backups → Move a controller in**: choose the
+copy, enter its password if it has one, check the address and pick the options.
+The page shows the report and a **Discard** button while it waits. See
+[moving a controller from the web page](#moving-a-controller-from-the-web-page).
 
 **Over the API**, `POST /api/v2/admin/backups/import` takes `multipart/form-data`
 and the owner only. Send the options first and the copy last, as the field
@@ -607,7 +663,9 @@ any part of controller moving in full, `"features": [...]`, drawn from `"fence"`
 of that part is built. A controller built before the list existed has no
 `features` field, and so does one that holds none of the parts; treat a missing
 field as "none". A script that moves a controller should read it first rather
-than assume.
+than assume. The Backups page does the same: the move card needs `"fence"`, the
+copy's own password `"copy-password-request"`, the fenced mark and the
+live-source tick `"copy-origin"`, and the address field `"restore-public-url"`.
 
 ### A machine rebuilt from nothing
 

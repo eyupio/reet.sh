@@ -1,5 +1,49 @@
 # UI verification — 4 November 2026
 
+## Moving a controller from the Backups page (13 November 2026)
+
+**Admin → Backups** gained **Move this controller away** (fence, final copy
+with its own password, download, the `set-server` command, lift) and the import
+form became **Move a controller in** (the controller's address, and the
+live-source tick only after the controller asks for it). A fenced controller
+says so in a banner on Backups and in one line under the header elsewhere.
+
+Commands run in this container:
+
+- `cd web && npm ci --no-audit --no-fund`
+- `cd web && npm run check`: 0 errors, 0 warnings; every unit test passes,
+  `controllerMove.test.mjs` among them.
+- `cd web && npm run build`
+- `npx vite preview --port 4173 --strictPort` and, with
+  `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` pointing at the installed Chromium,
+  `node tests/admin-backups.e2e.mjs`: passes. Against fixtures it walks fence
+  (bad address refused beside the field, the dialog, cancel, confirm), the copy
+  password rule, the run's body, **taken fenced**, the download link, a reload,
+  and the lift; a copy the fence did not hold for; a controller with no
+  `features`, one with `fence` alone, and an admin who is not the owner; the
+  import's address, refusal, kept values and tick, and the multipart fields
+  sent; the shell line for an admin and, after a refused write, for a member;
+  and 390 and 320 px in both themes with no sideways scroll and 44 px targets.
+- Two real controllers (`REET_AUTH=none`, empty data folders, built from this
+  tree with the UI embedded) driven in Chromium: on the old one fence with an
+  address, a skill add refused with the controller's 423 message and the shell
+  line, the final copy with a password, the real download (a `.zip`), the copy
+  listed as fenced and password-protected, then the lift at 320 px; on the new
+  one an unfenced copy refused with the controller's own text and nothing
+  staged, then the final copy staged with the address prefilled, and after a
+  restart the new controller running on the imported database and not fenced.
+  Each page was opened at 320 and 1280 px in light and dark and the captures
+  were looked at.
+
+Not run here: Firefox, Safari, physical devices, a controller in accounts mode
+with a real second role (the admin and member cases are fixture-backed), and
+`reet agent set-server` on a machine.
+
+![Move away, desktop light](images/ui/controller-move-away-1280-light.png)
+![Move away, phone dark](images/ui/controller-move-away-320-dark.png)
+![Move in, refused, phone light](images/ui/controller-move-in-refused-320-light.png)
+![Move in, staged, desktop dark](images/ui/controller-move-in-staged-1280-dark.png)
+
 ## Session workspace: valuable facts first (8 November 2026)
 
 The Overview no longer spends its first screen on the "Since your last visit"

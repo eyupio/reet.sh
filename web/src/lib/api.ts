@@ -1,5 +1,6 @@
 import { inflight } from './inflight'
 import type { ModelFavourite } from './models'
+import type { Fence } from './controllerMove'
 
 export type Skill = {
   id: string
@@ -150,11 +151,23 @@ export class UnauthorizedError extends Error {
  */
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  /** The refusal's stable name, when the server gave it one; a caller branches on this, never on the sentence. */
+  code: string
+  constructor(message: string, status: number, code = '') {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
   }
+}
+
+let refusalListener: ((status: number, body: unknown) => void) | null = null
+/**
+ * Lets the shell hear every refusal with its body, whichever page made the request. A write refused because the
+ * controller has moved is how anyone but an admin learns of the fence, and no page should have to pass that on.
+ */
+export function onRefusal(fn: ((status: number, body: unknown) => void) | null) {
+  refusalListener = fn
 }
 
 export function getToken(): string {
@@ -208,12 +221,16 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
   }
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`
+    let code = ''
     try {
-      msg = (await res.json()).error ?? msg
+      const body = await res.json()
+      msg = body.error ?? msg
+      if (typeof body.code === 'string') code = body.code
+      refusalListener?.(res.status, body)
     } catch {
       /* keep status text */
     }
-    throw new ApiError(msg, res.status)
+    throw new ApiError(msg, res.status, code)
   }
   return res
 }
@@ -619,7 +636,7 @@ export async function listIgnored(): Promise<{ ignored: Ignored[] }> {
 export async function unignore(id: string): Promise<void> {
   await req(`/api/skill/ignore?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
-export async function getBuildInfo(): Promise<{ version: string; commit: string }> {
+export async function getBuildInfo(): Promise<{ version: string; commit: string; features?: string[] }> {
   return (await req('/api/version')).json()
 }
 export async function listLists(): Promise<{ lists: SharedList[]; linkEnabled: boolean; userId?: number }> {
@@ -762,6 +779,10 @@ export type BackupItem = {
   version?: string
   local: boolean
   remotes: string[]
+  /** What opens the copy: 'key' or 'password'. Absent for a copy listed from a destination. */
+  protection?: string
+  /** Whether the controller was fenced as the copy was taken; absent when the copy does not say. */
+  fenced?: boolean
 }
 export type BackupRun = {
   id: number
@@ -1028,9 +1049,15 @@ export async function saveBackupSettings(
   if (password !== undefined) body.password = password
   await req(bpath(admin), { method: 'PATCH', body: json(body) })
 }
-export async function runBackupNow(admin = false): Promise<BackupItem> {
-  return (await req(`${bpath(admin)}/run`, { method: 'POST', body: json({}) })).json()
+/** Takes a copy now. A password seals this one copy with it and is not kept; only the instance route accepts one. */
+export async function runBackupNow(admin = false, password?: string): Promise<BackupItem> {
+  return (await req(`${bpath(admin)}/run`, { method: 'POST', body: json(admin && password !== undefined ? { password } : {}) })).json()
 }
+export async function getFence(): Promise<Fence> { return (await req('/api/v2/admin/fence')).json() }
+export async function raiseFence(movedTo: string): Promise<Fence> {
+  return (await req('/api/v2/admin/fence', { method: 'POST', body: json(movedTo ? { movedTo } : {}) })).json()
+}
+export async function liftFence(): Promise<Fence> { return (await req('/api/v2/admin/fence', { method: 'DELETE' })).json() }
 export async function createBackupRemote(admin: boolean, input: BackupRemoteInput): Promise<BackupRemote> {
   return (await req(`${bpath(admin)}/remotes`, { method: 'POST', body: json(input) })).json()
 }
@@ -1079,24 +1106,36 @@ export type RestoreReport = {
   sessionsKept: number; sessionsEnded: number; tokensRevoked: number; mcpConnectionsRevoked: number; tokensKept: boolean; identityDropped: boolean
   safetyCopy?: string
   unreadable: string[]
+  publicUrl?: string; mailBaseRewritten?: boolean; syncOriginsRewritten?: number; mcpGrantsStale?: number
+  /** Work held back so the controller the copy lands on does not repeat it by itself. */
+  paused?: string[]
 }
-export async function getPendingImport(): Promise<RestoreReport | null> {
-  return ((await (await req('/api/v2/admin/backups/import')).json()) as { pending: RestoreReport | null }).pending
+/** Something a controller depends on that a copy cannot carry, to set by hand on the new machine. */
+export type NotInCopy = { names: string[]; say: string }
+export type StagedImport = { report: RestoreReport; notInCopy: NotInCopy[] }
+export async function getPendingImport(): Promise<StagedImport | null> {
+  const out = (await (await req('/api/v2/admin/backups/import')).json()) as { pending: RestoreReport | null; notInCopy?: NotInCopy[] }
+  return out.pending ? { report: out.pending, notInCopy: out.notInCopy ?? [] } : null
 }
 /**
  * Stages a sealed instance copy; it replaces the database at the controller's next start, not now.
  * The password and the options travel in the form body, before the file, never in the address or a header.
  */
-export async function stageImport(file: File, opts: { password?: string; dropSessions?: boolean; dropTokens?: boolean; ownerEmail?: string; replace?: boolean }): Promise<RestoreReport> {
+export async function stageImport(file: File, opts: { password?: string; dropSessions?: boolean; dropTokens?: boolean; ownerEmail?: string; replace?: boolean; publicUrl?: string; allowLiveSource?: boolean }): Promise<StagedImport> {
   const form = new FormData()
   if (opts.password) form.append('password', opts.password)
   if (opts.ownerEmail?.trim()) form.append('ownerEmail', opts.ownerEmail.trim())
   form.append('dropSessions', opts.dropSessions ? '1' : '0')
   form.append('dropTokens', opts.dropTokens ? '1' : '0')
   form.append('replace', opts.replace ? '1' : '0')
+  // Sent only when chosen: a controller that does not know a field would ignore it, and the page must not look as if
+  // it had acted on one.
+  if (opts.publicUrl) form.append('publicUrl', opts.publicUrl)
+  if (opts.allowLiveSource) form.append('allowLiveSource', '1')
   form.append('file', file)
   const res = await req('/api/v2/admin/backups/import', { method: 'POST', headers: { 'X-Reet-Import': '1' }, body: form })
-  return ((await res.json()) as { report: RestoreReport }).report
+  const out = (await res.json()) as { report: RestoreReport; notInCopy?: NotInCopy[] }
+  return { report: out.report, notInCopy: out.notInCopy ?? [] }
 }
 export async function cancelPendingImport(): Promise<void> {
   await req('/api/v2/admin/backups/import', { method: 'DELETE' })

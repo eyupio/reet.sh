@@ -3,14 +3,19 @@
   import { onMount } from 'svelte'
   import {
     backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, deleteBackupRemoteCopy, getBackupStatus,
-    listBackupRemoteCopies, pruneBackupCopies, getPendingImport, stageImport, cancelPendingImport, type RestoreReport, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
-    testBackupRemote, testBackupRemoteDraft, updateBackupRemote, verifyBackup,
+    listBackupRemoteCopies, pruneBackupCopies, getPendingImport, stageImport, cancelPendingImport, type RestoreReport, type StagedImport, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
+    testBackupRemote, testBackupRemoteDraft, updateBackupRemote, verifyBackup, getBuildInfo, getFence,
     type BackupCheck, type BackupCompression, type BackupDestination, type BackupItem, type BackupRemote,
     type BackupRemoteInput, type BackupStatus,
   } from './api'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CollectionPanel from './CollectionPanel.svelte'
+  import MoveAway from './MoveAway.svelte'
+  import {
+    addressLines, addressProblem, cleanAddress, fenceSentence, fenceWatch, isLiveSourceRefusal, moveFeatures, setServerCommand,
+    type Fence,
+  } from './controllerMove'
   import {
     BACKUP_COPY_SCOPES, BACKUP_RUN_SCOPES, backupCopyCountLabel, backupCopyMatchesSearch, backupCopyScopeCounts,
     backupRunCountLabel, backupRunMatchesSearch, backupRunScopeCounts, filterBackupCopies, filterBackupRuns,
@@ -43,14 +48,25 @@
   let deleteFor = $state<BackupItem | null>(null)
   let deleteRemoteFor = $state<BackupRemote | null>(null)
   let restoreFor = $state<BackupItem | null>(null)
-  let pendingImport = $state<RestoreReport | null>(null)
+  let pendingImport = $state<StagedImport | null>(null)
   let importFile = $state<File | null>(null)
   let importPassword = $state('')
+  let importError = $state('')
+  // Prefilled with where this page was opened: the address the controller demonstrably answers at.
+  let importPublicUrl = $state(typeof window === 'undefined' ? '' : window.location.origin)
+  let importAllowLive = $state(false)
+  // Set only by the controller's own refusal, so the tick is asked for when it is needed and never offered as a
+  // way round a check nobody has run yet.
+  let importLiveRefused = $state(false)
+  // What this controller can do in a move. Nothing is offered until it has said so itself.
+  let features = $state(moveFeatures(undefined))
+  let fence = $state<Fence>(fenceWatch.get())
+  const isOwner = $derived(admin && role === 'owner')
+  const importAddressBad = $derived(addressProblem(importPublicUrl))
   let importDropSessions = $state(false)
   let importDropTokens = $state(false)
   let importOwnerEmail = $state('')
   let importReplace = $state(false)
-  let importAskPassword = $state(false)
   let copySearch = $state('')
   let copyScope = $state<BackupCopyScope>('all')
   let runSearch = $state('')
@@ -69,22 +85,34 @@
     return l
   }
 
+  function chooseImport(file: File | null) {
+    importFile = file
+    // The refusal was about the copy that was chosen; another copy is asked afresh.
+    importLiveRefused = false
+    importAllowLive = false
+    importError = ''
+  }
+
   async function stage() {
-    if (!importFile) return
+    if (!importFile || importAddressBad) return
     busy = 'import'
-    error = ''
+    importError = ''
     saved = ''
     try {
-      pendingImport = await stageImport(importFile, { password: importPassword, dropSessions: importDropSessions, dropTokens: importDropTokens, ownerEmail: importOwnerEmail, replace: importReplace })
+      pendingImport = await stageImport(importFile, {
+        password: importPassword, dropSessions: importDropSessions, dropTokens: importDropTokens, ownerEmail: importOwnerEmail, replace: importReplace,
+        publicUrl: features.publicUrl ? cleanAddress(importPublicUrl) : '', allowLiveSource: importLiveRefused && importAllowLive,
+      })
       importFile = null
       importPassword = ''
-      importAskPassword = false
+      importLiveRefused = false
+      importAllowLive = false
       saved = 'Staged. Restart reet to put it in place.'
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      if (message.toLowerCase().includes('password')) importAskPassword = true
-      error = message
-      onerror?.(e)
+      // Said beside the form, with everything typed left as it was: the refusal is usually answered by changing one
+      // field and trying again.
+      importError = e instanceof Error ? e.message : String(e)
+      if (isLiveSourceRefusal(e)) importLiveRefused = true
     } finally {
       busy = ''
     }
@@ -97,8 +125,7 @@
       pendingImport = null
       saved = 'The staged import was discarded.'
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
-      onerror?.(e)
+      importError = e instanceof Error ? e.message : String(e)
     } finally {
       busy = ''
     }
@@ -114,13 +141,22 @@
 
   onMount(() => {
     void load()
+    // A write refused elsewhere on the page, or the fence raised below, reaches the banner by the same road.
+    return fenceWatch.subscribe((next) => (fence = next))
   })
 
-  async function load() {
-    loading = true
+  // `quiet` reads again without the skeleton, which would otherwise take the move card off the page, and what it had
+  // just said with it, the moment a copy was taken.
+  async function load(quiet = false) {
+    if (!quiet) loading = true
     try {
       status = await getBackupStatus(admin)
       if (admin && role === 'owner') pendingImport = await getPendingImport().catch(() => null)
+      if (admin) {
+        features = moveFeatures((await getBuildInfo().catch(() => null))?.features)
+        // An admin may read the fence; anyone else is refused, which says nothing either way and changes nothing.
+        if (features.fence) await getFence().then((f) => fenceWatch.set(f)).catch(() => {})
+      }
       const every = status.settings.everySeconds
       form = {
         every: everyText(every), keep: String(status.settings.keep), destination: status.settings.destination || 'both',
@@ -506,6 +542,15 @@
     {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
     {#if saved}<p class="notice good" role="status">{saved}</p>{/if}
 
+    {#if admin && fence.fenced}
+      <div class="banner fenced" role="status">
+        <strong>This controller is fenced.</strong>
+        {fenceSentence(fence, when)}
+        Signing in, reading, and taking, checking and downloading copies still work.
+        {isOwner ? 'Lift the fence under Move this controller away to undo it.' : 'Only the owner can lift the fence.'}
+      </div>
+    {/if}
+
     {#if !status.enabled}
       <div class="banner" role="alert">
         <strong>Nothing is being backed up.</strong> The backup key is missing or unusable. Set
@@ -817,7 +862,7 @@
           {#each shownCopies as item (item.id)}
             <li>
               <div class="copy-main">
-                <span class="copy-id"><code>{item.id}</code>{#if verified[item.id]}<span class="tag" class:bad={!verified[item.id].ok}>{verified[item.id].ok ? 'verified' : 'damaged'}</span>{/if}</span>
+                <span class="copy-id"><code>{item.id}</code>{#if admin && item.fenced}<span class="tag">taken fenced</span>{/if}{#if verified[item.id]}<span class="tag" class:bad={!verified[item.id].ok}>{verified[item.id].ok ? 'verified' : 'damaged'}</span>{/if}</span>
                 <small>{when(item.takenAt)} · {bytes(item.bytes)}{item.version ? ` · ${item.version}` : ''}</small>
                 {#if verified[item.id] && !verified[item.id].ok}<small class="bad">{verified[item.id].problems.join(' ')}</small>{/if}
               </div>
@@ -849,30 +894,62 @@
       {#if admin}
         <p class="muted">An instance restore replaces the live database, so it runs with the server stopped: <code>reet backup restore --yes &lt;id&gt;</code>.</p>
       {/if}
+      {#if isOwner && features.fence}
+        <MoveAway {fence} {features} items={copyItems} enabled={status.enabled} {when} size={bytes}
+          onfence={(next) => fenceWatch.set(next)} ontaken={() => void load(true)} />
+      {/if}
       {#if admin && canEdit}
         <div class="banner import" role="group" aria-labelledby="import-title">
-          <strong id="import-title">Import a copy from another controller</strong>
-          <p class="muted">Choose a sealed copy (<code>.reetbackup</code> or the downloaded <code>.zip</code>). It is opened and checked now; it replaces this controller's database only when reet next starts, and the current one is kept beside it.</p>
+          <strong id="import-title">Move a controller in</strong>
+          <p class="muted">Import a sealed copy from another controller (<code>.reetbackup</code> or the downloaded <code>.zip</code>). It is opened and checked now; it replaces this controller's database only when reet next starts, and the current one is kept beside it.</p>
+          {#if importError}<p class="notice bad" role="alert">{importError}</p>{/if}
           {#if pendingImport}
-            <p><strong>{pendingImport.id}</strong> is staged. Restart reet to put it in place.</p>
+            {@const report = pendingImport.report}
+            <p><strong>{report.id}</strong> is staged. Restart reet to put it in place.</p>
             <ul>
-              {#each reportLines(pendingImport) as line}<li>{line}</li>{/each}
+              {#each reportLines(report) as line}<li>{line}</li>{/each}
+              {#if features.publicUrl}{#each addressLines(report) as line}<li>{line}</li>{/each}{/if}
             </ul>
-            {#if pendingImport.unreadable.length}
+            {#if report.unreadable.length}
               <p>Sealed under a different backup key, so they cannot be opened here. They were cleared:</p>
-              <ul>{#each pendingImport.unreadable as u}<li>{u}</li>{/each}</ul>
+              <ul>{#each report.unreadable as u}<li>{u}</li>{/each}</ul>
             {/if}
+            {#if report.paused?.length}
+              <p>Held back, so this controller does not repeat it by itself. Resume each when you are ready:</p>
+              <ul>{#each report.paused as p}<li>{p}</li>{/each}</ul>
+            {/if}
+            {#if pendingImport.notInCopy.length}
+              <details class="not-in-copy">
+                <summary>Not in the copy: set these by hand on this machine</summary>
+                <dl>
+                  {#each pendingImport.notInCopy as item}
+                    <dt>{item.names.join(', ')}</dt>
+                    <dd>{item.say}</dd>
+                  {/each}
+                </dl>
+              </details>
+            {/if}
+            <p class="muted">Once it has restarted, tell each machine where the controller now is:</p>
+            <div class="cmdline"><code>{setServerCommand(report.publicUrl ?? '')}</code><CopyButton text={setServerCommand(report.publicUrl ?? '')} compact ariaLabel="Copy the set-server command" /></div>
             <div class="formacts"><button type="button" class="btn" onclick={discardImport} disabled={busy === 'import'}>Discard the staged import</button></div>
           {:else}
             <label>
               <span>Copy</span>
-              <input type="file" accept=".reetbackup,.sealed,.zip" onchange={(e) => (importFile = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
+              <input type="file" accept=".reetbackup,.sealed,.zip" onchange={(e) => chooseImport((e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
             </label>
-            {#if importAskPassword}
+            <label>
+              <span>Copy password (if it has one)</span>
+              <input type="password" autocomplete="off" bind:value={importPassword} />
+            </label>
+            {#if features.publicUrl}
               <label>
-                <span>Copy password</span>
-                <input type="password" autocomplete="off" bind:value={importPassword} />
+                <span>This controller's address (optional)</span>
+                <input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://reet.example.com" bind:value={importPublicUrl}
+                  aria-invalid={importAddressBad ? 'true' : undefined} aria-describedby="import-address-hint" />
               </label>
+              <small id="import-address-hint" class:bad={!!importAddressBad}>
+                {importAddressBad || 'The addresses saved in the copy (links in mail, the sync library origin) are changed to this one, and MCP clients authorise again here. Clear it to leave them as they are.'}
+              </small>
             {/if}
             <label class="keep">
               <input type="checkbox" bind:checked={importDropSessions} />
@@ -886,12 +963,18 @@
               <input type="checkbox" bind:checked={importReplace} />
               Replace what this controller already holds (a copy of the current database is kept first)
             </label>
+            {#if importLiveRefused}
+              <label class="keep needed">
+                <input type="checkbox" bind:checked={importAllowLive} required />
+                <span><strong>The old controller is stopped or gone</strong> (needed for this copy). It was not taken from a fenced controller. If the old one is still running, two controllers would work from one set of data; fence it and take a final copy instead.</span>
+              </label>
+            {/if}
             <label>
               <span>Make sure this owner can sign in (optional)</span>
               <input type="email" autocomplete="off" bind:value={importOwnerEmail} />
             </label>
             <div class="formacts">
-              <button type="button" class="btn primary" onclick={stage} disabled={!importFile || busy === 'import'}>{busy === 'import' ? 'Checking…' : 'Check and stage'}</button>
+              <button type="button" class="btn primary" onclick={stage} disabled={!importFile || busy === 'import' || !!importAddressBad || (importLiveRefused && !importAllowLive)} aria-busy={busy === 'import'}>{busy === 'import' ? 'Checking…' : 'Check and stage'}</button>
             </div>
           {/if}
         </div>
@@ -1072,6 +1155,19 @@
   .state-block h3 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
   .banner.import { border-color: var(--line); }
+  .banner.fenced { border-color: color-mix(in srgb, var(--warn) 60%, var(--line)); }
+  .banner.import > label:not(.keep) { display: grid; gap: 4px; margin-top: 12px; }
+  .banner.import > label:not(.keep) > span { color: var(--muted); font-size: 0.875rem; }
+  .banner.import input[type='url'], .banner.import input[type='password'], .banner.import input[type='email'] { width: 100%; max-width: 28rem; min-width: 0; }
+  .banner.import small { display: block; max-width: 34rem; margin-top: 4px; color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
+  .banner.import .notice { margin: 12px 0; overflow-wrap: anywhere; }
+  .banner.import ul { overflow-wrap: anywhere; }
+  .keep.needed { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 60%, var(--line)); border-radius: 8px; }
+  .not-in-copy { margin: 12px 0; }
+  .not-in-copy summary { cursor: pointer; font-weight: 600; }
+  .not-in-copy dl { margin: 8px 0 0; display: grid; gap: 4px; }
+  .not-in-copy dt { font: 0.875rem/1.45 var(--mono); overflow-wrap: anywhere; }
+  .not-in-copy dd { margin: 0 0 8px; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .banner.import input[type='file'] { width: 100%; min-width: 0; max-width: 100%; }
   .keep { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
   .keep input { width: 18px; height: 18px; min-height: 0; flex: none; }

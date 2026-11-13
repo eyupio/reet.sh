@@ -12,6 +12,27 @@ this file existed releases were described on their GitHub release pages.
   there, and only then saves the address and restarts. A place that cannot
   prove the record is sent no credential. `reet agent follow-moves off` keeps
   a machine where it is until `reet agent set-server` is run on it.
+- **A controller can be moved from the Backups page.** Under **Admin → Backups**
+  the owner now has **Move this controller away**: fence the controller (with an
+  optional new address, and a dialog that says what stops and that it can be
+  undone), take the final copy sealed with a password typed for that one copy,
+  download it, copy the `reet agent set-server` command for the machines, and
+  lift the fence at any time. The final copy is only offered once the fence is
+  up, and the page says whether the copy was really taken fenced. **Import a copy
+  from another controller** is now **Move a controller in**: it takes the address
+  the controller answers at (filled in from the page's own address), asks for
+  **The old controller is stopped or gone** only after the controller has refused
+  a copy for that reason, shows a refusal beside the form with what was typed
+  kept, and its report now says what was done about the address, what was held
+  back and what is not in the copy. A fenced controller says so in a banner on
+  Backups and in one line under the header on every other page. Each piece is
+  offered only when `GET /api/version` lists its feature.
+- For the page above: an admin may now read `GET /api/v2/admin/fence` (raising
+  and lifting stay the owner's); a copy in the backup list and the answer of a
+  run carry `fenced` and `protection` from the copy's header; an import's answer
+  and the pending import carry `notInCopy`; and an import refused because its
+  source was live, or because the controller already holds data, carries a
+  `code` (`copy_source_live`, `controller_not_empty`).
 - A Factory outcome can no longer get stuck on a session that is gone. When a
   followed session is removed (for example ended with its history removed), the
   controller now notices within seconds, stops following that pipeline and

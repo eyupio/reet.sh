@@ -14,6 +14,7 @@
   import { SYNC_FILTERS, SYNC_UNAVAILABLE, matchesSyncFilter, settledJobsKey, skillSyncIntent, skillSyncSummary, type SyncFilter } from './lib/skillSync'
   import { audienceLabel } from './lib/api'
   import { DOCS_URL } from './lib/links'
+  import FenceStrip from './lib/shell/FenceStrip.svelte'
   import { onMount, setContext, tick } from 'svelte'
   import {
     addSkill, addSkillTags, applyTheme, clearThemeChoice, clearToken, getAuthStatus, getNotificationCount, getProfile, getSyncState, getToken, listEnvironments, listEvents, listLists, listSkills, listTags,
@@ -1080,6 +1081,11 @@
   </div>
   {/if}
 </header>
+{#if authenticated && !needsAuth && !isPublicList && !isJoin}
+  <!-- The session workspace fills the viewport to the pixel and Backups says the same thing in full, so both keep the
+       listening and drop the line. -->
+  <FenceStrip admin={isAdminUser} quiet={terminalLayout || location.pathname === '/admin/backups'} {timeZone} {dateFormat} />
+{/if}
 <main id="main-content" tabindex="-1" class:terminal-layout={terminalLayout || (!authChecked && bootApp && bootLayout === 'workspace')} class:home-layout={homeLayout || (!authChecked && bootApp && bootLayout === 'home')} class:auth-page={(authChecked || !bootApp) && !isPublicList && !isCommunity && (!authenticated || needsAuth || isJoin)}>
   {#if isCommunity}
     {#await pages.Community()}

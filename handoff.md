@@ -18,6 +18,37 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## MOVE-UI-1: moving a controller from the Backups page (13 November 2026)
+
+The move was complete on the command line and the API (fence, a copy with its own password, `import` with `publicUrl`
+and `allowLiveSource`, `reet agent set-server`) and absent from the web UI. It is now under **Admin → Backups**, owner
+only, on an unpushed branch with no pull request yet.
+
+- **Old controller, Move this controller away** (`web/src/lib/MoveAway.svelte`): fence with an optional address and a
+  confirm dialog; the final copy step is shut until the fence is up, takes a password for that one copy, and shows
+  **taken fenced** from the copy's own header before offering the download; the checklist for the new controller and
+  the copyable `reet agent set-server` command; **Lift the fence** throughout. A copy the fence did not hold for is
+  said to be so and is not offered as final.
+- **New controller, Move a controller in** (the import form in `Backups.svelte`, renamed): the address field
+  (`publicUrl`, prefilled with `window.location.origin`), the live-source tick shown only after the controller's
+  `copy_source_live` refusal, the refusal beside the form with the values kept, and a report that adds the address
+  changes, what was held back, `notInCopy` and the `set-server` command.
+- **Fenced state**: a banner on Backups, and `web/src/lib/shell/FenceStrip.svelte`, one line under the header on every
+  other page. An admin's shell reads the state; anyone else gets the line from the first write refused with 423
+  (`onRefusal` in `api.ts`). The line is left off the session workspace, which fills the viewport to the pixel, and
+  off Backups, which says it in full.
+- **Honest offers**: `moveFeatures` in `web/src/lib/controllerMove.ts` reads `GET /api/version`; with no `features`
+  nothing of the move is offered and the fence is not even read.
+- **API, all small**: `GET /api/v2/admin/fence` is readable by an admin (raise and lift stay owner only);
+  `backup.Item` carries `fenced` and `protection`; the import answers carry `notInCopy` and the two refusals an owner
+  can answer carry a `code`.
+
+Checked as [docs/ui-verification.md](docs/ui-verification.md) records: unit and browser contracts, and two real
+controllers driven through fence, final copy, download, lift and import in Chromium at 320 and 1280 px in both
+themes. Not done: machines still do not learn the new address by themselves (they never did; `set-server` is run on
+each), the session workspace shows no fenced line, and nothing was tried in Firefox, Safari or on a physical phone.
+The refusal text for a live copy is the controller's own and still names the command-line flag.
+
 ## Current Gaffer pause point — 6 November 2026
 
 The user has paused work. Read the [continuation checkpoint](docs/handoffs/gaffer-resume.md)

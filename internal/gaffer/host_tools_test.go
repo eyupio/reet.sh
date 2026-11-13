@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 )
@@ -20,7 +21,9 @@ type fakeToolHost struct {
 	mu    sync.Mutex
 	tools []HostTool
 	calls []string
-	fail  map[string]string
+	// text is, per call, whether the result may carry session text to the provider.
+	text []bool
+	fail map[string]string
 }
 
 func (f *fakeToolHost) GafferTools(int64) []HostTool {
@@ -28,10 +31,11 @@ func (f *fakeToolHost) GafferTools(int64) []HostTool {
 	defer f.mu.Unlock()
 	return append([]HostTool(nil), f.tools...)
 }
-func (f *fakeToolHost) CallGafferTool(_ context.Context, _ int64, name string, args json.RawMessage) (string, error) {
+func (f *fakeToolHost) CallGafferTool(ctx context.Context, _ int64, name string, args json.RawMessage) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, name+" "+string(args))
+	f.text = append(f.text, SessionTextAllowed(ctx))
 	if why := f.fail[name]; why != "" {
 		return "", errors.New(why)
 	}
@@ -239,5 +243,45 @@ func TestASessionChatAsksBeforeAChangeAndAGoalReviewHasNoReetTools(t *testing.T)
 	}
 	if review := s.hostTools(&chatJob{uid: 1, goalID: "g"}, store.GafferConversation{SessionID: "abc"}); len(review) != 0 {
 		t.Fatalf("a goal review was offered reet tools: %+v", review)
+	}
+}
+
+// A request left waiting for more than a day is not run on approval: what it
+// would act on may have moved on. It is closed, and the person is told.
+func TestAToolRequestLeftTooLongIsNotRunOnApproval(t *testing.T) {
+	asking := writeTool
+	asking.Mode = "ask"
+	s, st, p, v, host, _, _ := hostFixture(t, []HostTool{asking}, `reet_stop_outcome {"outcome_id":"abc"}`, "Asked.")
+	turn := ask(t, s, p, v, "a", "Stop abc.")
+	life := pendingToolLife
+	pendingToolLife = 0
+	t.Cleanup(func() { pendingToolLife = life })
+	time.Sleep(5 * time.Millisecond)
+	c := v.Conversation.ID
+	if _, err := s.AnswerTool(context.Background(), p.UserID, c, turn.ID, turn.Tools[0].ID, true); err == nil || !strings.Contains(err.Error(), "more than a day") || len(host.made()) != 0 {
+		t.Fatalf("an old request was run: %v %v", err, host.made())
+	}
+	if kept, _ := st.GafferTurnFor(p.UserID, c, turn.ID); kept.Tools[0].State != "declined" || !strings.Contains(kept.Tools[0].Result, "more than a day") {
+		t.Fatalf("the old request stays open: %+v", kept.Tools)
+	}
+}
+
+// What a tool returns goes to the chat's provider. A provider that is not
+// allowed session text is not handed it through a tool.
+func TestAToolCallSaysWhetherItsResultMayCarrySessionText(t *testing.T) {
+	s, st, p, v, host, _, _ := hostFixture(t, []HostTool{readTool}, "reet_list_factory", "Read.", "reet_list_factory", "Read again.")
+	ask(t, s, p, v, "a", "What is on the floor?")
+	row, err := st.GafferProviderFor(p.UserID, v.Conversation.ProviderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.mu.Lock()
+	first := append([]bool(nil), host.text...)
+	host.mu.Unlock()
+	if len(first) != 1 || first[0] != (row.AllowSessions && row.AllowCode) {
+		t.Fatalf("session text for this provider: %v, provider allows %v %v", first, row.AllowSessions, row.AllowCode)
+	}
+	if !SessionTextAllowed(context.Background()) {
+		t.Fatal("a call that is not Gaffer's is not restricted here")
 	}
 }

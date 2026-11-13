@@ -11,9 +11,9 @@
   import { launchEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
-  export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string }[] }
-  let { record, proposals, busy = false, oncancel, onconfirm }: {
-    record: GafferOutcome; proposals: Proposal[]; busy?: boolean; oncancel: () => void; onconfirm: (pipelines: AddedPipeline[]) => void
+  export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string }[] }
+  let { record, proposals, busy = false, error = '', oncancel, onconfirm }: {
+    record: GafferOutcome; proposals: Proposal[]; busy?: boolean; /** Why the last approval was refused. */ error?: string; oncancel: () => void; onconfirm: (pipelines: AddedPipeline[]) => void
   } = $props()
   const CHAT_TOOLS = ['claude', 'codex', 'opencode', 'cline', 'antigravity']
   const life = new AbortController()
@@ -28,13 +28,17 @@
   })
   const stageLabel = (kind: string) => STAGES.find(item => item.kind === kind)?.label ?? kind
   const kinds = (item: Proposal) => item.stages?.length ? item.stages : DEFAULT_STAGES
-  const own = (): Who => ({ tool: record.tool, model: record.model ?? '', effort: '' })
+  // An added pipeline starts as the outcome runs: its agent and model, and the effort its own stages on that agent were given.
+  const inherited = () => record.sessions.flatMap(piece => piece.stages ?? []).find(stage => stage.tool === record.tool && stage.effort)?.effort ?? ''
+  const own = (): Who => ({ tool: record.tool, model: record.model ?? '', effort: inherited() })
   const choice = (title: string) => main[title] ?? own()
   const crewOf = (title: string): Crew => crews[title] ?? { think: choice(title), build: choice(title), ship: choice(title) }
   const usedTools = (title: string) => CREW_ROLES.map(item => crewOf(title)[item.role].tool)
   const efforts = (id: string) => launchEfforts(id, machine?.capabilities, true)
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
-  const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode' || id === 'antigravity')))
+  const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
+  // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.
+  const refused = $derived(!record.trust && proposals.some(item => usedTools(item.title).includes('antigravity')))
   // Setting the pipeline's own agent, model or effort gives it to every role; a role then keeps what it is given.
   function setMain(title: string, next: Who) { main[title] = next; crews[title] = { think: { ...next }, build: { ...next }, ship: { ...next } } }
   function setRole(title: string, role: keyof Crew, next: Partial<Who>) { crews[title] = { ...crewOf(title), [role]: { ...crewOf(title)[role], ...next } } }
@@ -58,14 +62,16 @@
       const plan = stagePlan(kinds(item), crewOf(item.title))
       // Left as the outcome's own agent and model, the stages name no one and the controller fills them in.
       const untouched = plan.every(stage => stage.tool === record.tool && stage.model === (record.model ?? '') && !stage.effort)
-      return { title: item.title, prompt: item.prompt, stages: untouched ? plan.map(stage => ({ kind: stage.kind })) : plan }
+      // A Cline stage keeps the outcome's billing source: a stage that names its agent is otherwise started on Cline's own.
+      const sourced = plan.map(stage => stage.tool === 'cline' && record.tool === 'cline' && record.provider ? { ...stage, provider: record.provider } : stage)
+      return { title: item.title, prompt: item.prompt, stages: untouched ? plan.map(stage => ({ kind: stage.kind })) : sourced }
     }))
   }
 </script>
 
 <WorkspaceDialog title={proposals.length === 1 ? `Add “${proposals[0].title}”?` : `Add ${proposals.length} pipelines?`} onclose={oncancel}>
   <div class="add">
-    <p>The controller starts each added pipeline as a chat in this outcome’s project, {record.yolo ? 'on YOLO like the rest of this outcome' : 'with ordinary approvals, never in YOLO'}, and Gaffer follows it stage by stage. None of them merges by itself: each stops at <strong>Ready to merge</strong> and waits for you.</p>
+    <p>The controller starts each added pipeline as a chat in this outcome’s project, {record.yolo ? 'on YOLO like the rest of this outcome' : 'with ordinary approvals, never in YOLO'}, and Gaffer looks after it stage by stage. None of them merges by itself: each stops at <strong>Ready to merge</strong> and waits for you.</p>
     <ul class="rows" aria-label="Pipelines to add">
       {#each proposals as item (item.title)}{@const who = choice(item.title)}<li role="group" aria-label={item.title}>
         <div class="what"><strong>{item.title}</strong><span>{kinds(item).map(stageLabel).join(' → ')}</span></div>
@@ -92,8 +98,11 @@
       </li>{/each}
     </ul>
     <p class="hint">Each pipeline starts on this outcome’s agent and model. Change any of them for the job: a stronger model for a hard one, a cheaper one for a chore.</p>
-    {#if needsTrust}<p class="warning" role="status">This outcome was not approved to run a folder’s plugins. OpenCode or Google Antigravity is refused in a folder that has any.</p>{/if}
-    <div class="actions"><button class="btn primary" type="button" disabled={busy} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
+    {#if refused}<p class="warning" role="alert">Google Antigravity starts only in a folder you have trusted, and this outcome was approved without folder trust. Choose another agent here, or give Gaffer a new outcome with folder trust ticked.</p>
+    {:else if needsTrust}<p class="warning" role="status">This outcome was approved without folder trust. OpenCode is refused in a folder that has plugins of its own.</p>{/if}
+    {#if proposals.some(item => usedTools(item.title).includes('cline'))}<p class="hint">{record.tool === 'cline' && record.provider ? 'Cline stages keep this outcome’s billing source.' : 'Cline stages run on the billing source Cline has saved on that machine. To choose another, give Gaffer a new outcome.'}</p>{/if}
+    {#if error}<p class="warning" role="alert">{error}</p>{/if}
+    <div class="actions"><button class="btn primary" type="button" disabled={busy || refused} onclick={approve}>{proposals.length === 1 ? 'Add pipeline' : 'Add pipelines'}</button><button class="btn quiet" type="button" disabled={busy} onclick={oncancel}>Cancel</button></div>
   </div>
 </WorkspaceDialog>
 

@@ -150,6 +150,11 @@ func (s *server) releaseSessionWorktree(ctx context.Context, uid int64, sess sto
 	if !ok {
 		return nil
 	}
+	// A Factory pipeline's later stages, and any retry, work in the worktree
+	// its first session was given. It stays while the pipeline has work left.
+	if s.gafferProviders != nil && s.gafferProviders.WorkDirInUse(uid, sess.WorktreePath) {
+		return &worktreeHold{Status: http.StatusConflict, Code: "worktree_in_pipeline", Msg: "A Factory pipeline still works in this session's worktree, so the session and the worktree are kept. Let the pipeline finish, or stop following its outcome and archive it, then remove the session."}
+	}
 	switch sess.State {
 	case terminalproto.Ended, terminalproto.Exited, terminalproto.Lost:
 	default:

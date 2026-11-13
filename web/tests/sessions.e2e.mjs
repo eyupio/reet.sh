@@ -548,8 +548,13 @@ try {
   await expect(screen(page).getByRole('heading',{name:'Add browse-v1 protocol',level:2})).toBeVisible()
   expect(box.writes.filter(w => w.kind === 'end' || w.kind === 'archive')).toEqual([])
   expect(box.sessions.every(s => s.state !== 'end_requested')).toBe(true)
-  // + goes to Home's launch bar.
-  await expect(tabs(page).getByRole('link',{name:'New session'})).toHaveAttribute('href','/#launch')
+  // + asks what to start, the same choice as the New session button, rather than assuming an agent session.
+  await tabs(page).getByRole('button',{name:'Open a new session',exact:true}).click()
+  const newSession = page.getByRole('dialog',{name:'New session',exact:true})
+  await expect(newSession).toBeVisible()
+  await expect(newSession.getByRole('button',{name:'Agent session'})).toBeVisible()
+  await expect(newSession.getByRole('button',{name:'Terminal session'})).toBeVisible()
+  await newSession.getByRole('button',{name:'Close New session',exact:true}).click()
   // Open tabs are held in memory. Return markers store only time and sequence, with ids in their keys.
   expect(await page.evaluate(() => Object.keys(sessionStorage).every(k => k.startsWith('reet-session-visit:')))).toBe(true)
   const stored = await page.evaluate(() => Object.entries(localStorage).map(([k,v]) => k + '=' + v).join('\n'))

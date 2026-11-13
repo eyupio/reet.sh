@@ -64,6 +64,13 @@ and time left; tokens only, no prices), a **report across an outcome** on reques
 approval, and one vocabulary (look after / goal / following / needs you). See "Owed items, smarter outcomes, usage and
 wording" in the handoff.
 
+On 13 November the owner asked for a review of the whole Factory. It found and fixed, each with a failing test first, a
+pipeline that could not be recovered once its session was closed, a stopped outcome that restarted pipelines nobody asked
+for, and MCP writes that skipped the fence and reached YOLO agents; the End dialogs now name the pipeline a session is
+working for, the card of an ended session offers choices that work, and the controller ends sessions a pipeline has
+finished with. Read "Review of the Factory, and sessions that end under a pipeline" in the handoff, including its list of
+what was found and not fixed.
+
 ## OVERVIEW-4: the Overview leads with what matters (8 November 2026)
 
 Follow-up to OVERVIEW-3 on the session workspace's right-hand panel.

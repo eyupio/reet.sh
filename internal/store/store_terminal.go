@@ -613,6 +613,11 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 		if err != nil {
 			return err
 		}
+		// What its agent reported using goes with the session. A finished
+		// pipeline stage has already kept its own figures.
+		if _, err = tx.Exec(`DELETE FROM terminal_session_usage WHERE user_id=? AND session_id=?`, uid, session.ID); err != nil {
+			return err
+		}
 		if err = clearArchivedPrompt(tx, uid, session.ID); err != nil {
 			return err
 		}

@@ -189,3 +189,55 @@ func TestAReviewThatChoosesNoStepSaysSoInsteadOfAskingForADecision(t *testing.T)
 		t.Fatalf("resume kept the mark: %+v", again)
 	}
 }
+
+// An approval nobody answers expires and stops the agent's turn. That is not
+// the person having answered: the goal says what happened, and resuming it
+// has Gaffer review where the agent stopped instead of asking again.
+func TestAnApprovalThatExpiredIsSaidToHaveExpiredAndAResumeCarriesOn(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}, accept: true}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := advancingGoalProvider(&calls)
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 4)
+	workerProgress(t, st, g, 1)
+	worker.waiting.Store(true)
+	s.reviewDueGoals(context.Background())
+	held, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if !held.WaitingOnWorker {
+		t.Fatalf("held: %+v", held)
+	}
+	// The request expires: the agent stops waiting and its turn is cancelled.
+	worker.waiting.Store(false)
+	if err := st.AppendTerminalChatEventFor(p.UserID, g.SessionID, 2, time.Now().UnixMilli(), []byte(`{"kind":"status","state":"cancelled"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.HoldGafferGoalForWorker(held, held.Note, 0); err != nil {
+		t.Fatal(err)
+	}
+	s.reviewDueGoals(context.Background())
+	expired, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if expired.State != "needs_user" || expired.WaitingOnWorker || !strings.Contains(expired.Note, "until it expired") || calls.Load() != 0 {
+		t.Fatalf("an expired request must not read as answered: %+v calls=%d", expired, calls.Load())
+	}
+	// The person resumes. The stop they resumed from is not asked about again: the goal is reviewed.
+	time.Sleep(5 * time.Millisecond)
+	v, err := s.Goal(p.UserID, g.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ControlGoal(p.UserID, g.ConversationID, v.Goal.Revision, "resume", v.Pins, true); err != nil {
+		t.Fatal(err)
+	}
+	s.reviewDueGoals(context.Background())
+	deadline := time.Now().Add(5 * time.Second)
+	for calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	after, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if calls.Load() == 0 || strings.Contains(after.Note, "stopped or failed") {
+		t.Fatalf("a resume after the stop must be reviewed, not sent back: %+v calls=%d", after, calls.Load())
+	}
+	finishReview(t, s, g)
+}

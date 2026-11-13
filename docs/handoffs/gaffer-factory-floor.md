@@ -1094,6 +1094,150 @@ is sent on every change, and "Off" for all sends `{modes:{}}`. No controller
 change. `gaffer-tools.e2e.mjs` covers one tool, a group, every tool, Custom,
 the description, folding, the merge warning and a failed save.
 
+## Review of the Factory, and sessions that end under a pipeline (13 November 2026)
+
+The owner asked for a detailed review of the Factory: code, UI and UX polish,
+alignment with sessions (including closing a session that belongs to a
+pipeline), Gaffer with every agent, and edge cases. Four reads were made in
+parallel (the controller engine and session paths; the API, MCP and store; the
+browser code; every agent's path through an outcome) and the page was captured
+at 1440 and 390 px. Every defect fixed here was reproduced by a failing test
+first.
+
+### Decisions the owner made
+
+Asked one at a time with a recommendation:
+
+1. **Ending a pipeline's session: warn, then the person decides.** Not chosen:
+   the controller restarting the stage by itself, or marking the pipeline
+   stopped at once.
+2. **Sessions a pipeline has finished with are ended, history kept.** Not
+   chosen: leaving them running, or ending them only when the pipeline is done.
+3. **MCP and Gaffer's tools are refused on YOLO outcomes** for telling the
+   agent, adding pipelines and sending back; tell also needs `confirm: true`.
+
+### Contract changes
+
+- **Session state on the read.** `GafferOutcomeSession.SessionState`
+  (`running`, `ended`, `gone`; live only, set in `withAgentUsage`). A pipeline
+  that is `following` with an ended or gone session is drawn as Needs you
+  (`sessionLost`, `sessionEndedChoices` in `gafferOutcome.ts`), on the page,
+  the tiles and Home.
+- **Retry** (`RetryPipeline`): a session that is not running (ended, lost,
+  removed) is not followed again; the step is asked for under a new request in
+  the pipeline's `WorkDir` (now used for unstaged pieces too). A pipeline still
+  `following` may be retried only when its session is not running; its old goal
+  is closed. A stage already `done` is advanced instead of followed again. A
+  running session whose goal was closed (Stop following) is followed again:
+  `runOutcomeSession` replaces a `stopped` or `completed` goal and still
+  refuses one that is in hand.
+- **Ending finished sessions.** `gaffer.SessionEnder`, implemented by the API's
+  `outcomeStarter.EndOutcomeSession` (the broker's `End`, history kept, so
+  `onSessionClosed` leaves the worktree). Called by `endFinishedSession` when a
+  stage starts in a session of its own, after a send-back, and when the
+  pipeline is done. Never for a session some pipeline still has in hand.
+  Activity: `gaffer-session-ended {outcome, pipeline, session, reason}`.
+- **Stopped outcomes.** `settleStoppedOutcome` writes the states the person is
+  shown (`cancelled`, `unfollowed`) into the record before a retry, an added
+  pipeline, an approved merge or a send-back sets the outcome going, so only
+  what was asked for starts. A send-back, or the person's own move-on, restarts
+  a stopped outcome; Gaffer's hand-over still does not.
+- **Move on** takes the stage seen: `POST …/advance {confirmed, stage}` and
+  `MovePipelineOn(uid, id, key, stage)`; `reet_move_pipeline_on` has an
+  optional `stage`. A mismatch changes nothing.
+- **Trust.** `CreateOutcome` and `AddPipelines` refuse Google Antigravity
+  without the outcome's folder trust (`antigravityTrust` always asks for it).
+  Both dialogs block instead of warning.
+- **Retention.** `CreateGafferOutcomeFor` drops only outcomes with nothing
+  moving; the list read takes sixty rows so kept live ones still show.
+- **MCP.** `executeMCPFactory` checks the fence for every write, names a
+  missing outcome, and refuses with its own sentence instead of the context
+  one. 48 definitions still; `mcp_tools.json` regenerated.
+- **Stop.** The browser's `/stop` answers 409 when nothing was being started.
+  `reet_stop_outcome` calls `StopFollowingOutcome`.
+
+### Validation
+
+Go: `outcome_retry_test.go` (retry after a removed, an ended and a stopped
+session; one pipeline of a stopped outcome; the Cline source on send-back; an
+ended session retried from following; finished sessions ended; move-on from the
+wrong stage; Antigravity without trust), the retention test in
+`internal/store`, and the MCP test for the fence, YOLO, confirm and the missing
+outcome. `internal/gaffer`, `internal/api` and `internal/store` pass. Browser:
+`gaffer-factory-session.e2e.mjs` (added to the Gaffer workflow) and the
+existing Factory, outcome, floor, followed, goal, Home, sessions and board
+suites against this build. `npm run check` and the stdio MCP package's tests
+pass. Synthetic only: no real machine, agent or provider was used.
+
+![Ended session, desktop](../images/ui/gaffer-factory-session-1440-light.png)
+![Ended session, phone](../images/ui/gaffer-factory-session-390-dark.png)
+
+### The open findings, taken up the same day
+
+The owner asked for everything the review had found and left to be fixed.
+
+- **An approval nobody answers.** A request expires after five minutes and
+  the agent's turn stops. `reviewHeldGoal` now ends the hold with a note that
+  says so (it used to say "You answered…" and release the goal), and a goal
+  resumed after a stop is reviewed: `GafferWorkerHaltedAt` gives when the
+  worker stopped, `reviewGoal` asks about a stop only if it is newer than
+  `ResumedAt`, and `ControlGoal` sets `LastSeq` one behind for a halted worker
+  so Gaffer reviews where it stopped. The five minutes are unchanged.
+- **One outcome at a time.** `advanceOutcomes` carries each outcome on in its
+  own goroutine (`Service.outcomeRuns` keeps one per outcome), so a slow
+  launch holds up only its own outcome.
+- **The pipeline's worktree.** `Service.WorkDirInUse` and
+  `releaseSessionWorktree`: a session whose worktree a pipeline still has
+  work in (following, starting, advancing, ready to merge or stopped but not
+  archived) is not removed from history; the refusal is
+  `worktree_in_pipeline`. Not covered: Home's worktree sweep and branch
+  pruning, which remove worktrees by other paths.
+- **Gaffer's tools.** A call set to Ask me waits a day (`pendingToolLife`),
+  then is closed as declined. `forProvider` marks each call with whether the
+  chat's provider may read session text; `executeMCPFactory` returns handover
+  notes and reports to Gaffer only when it may.
+- **History.** `OutcomeEventsFor` includes `mcp-factory-control` and reads
+  nothing older than the outcome; the merge and retry rows carry `pipeline`
+  as well as `session`; the browser has a sentence for an MCP action.
+- **Starting over MCP.** `reet_start_outcome` takes `model` and refuses an
+  agent the project's machine cannot run as a chat.
+- **Send-back and replaced sessions.** `GafferOutcomeSession.Retired` holds the
+  conversations a pipeline left behind; the page leaves their closed goals out
+  of Other sessions.
+- **Store.** `terminal_session_usage` rows go with an archived session and,
+  by trigger, with a deleted account.
+- **Agents.** Home's backlog accepts folder trust for Google Antigravity. The
+  outcome dialog drops a model and effort when the machine changes the agent.
+  A model name the machine did not list says it is not checked. An added
+  pipeline starts on the effort the outcome's own stages were given, and says
+  which billing source a Cline stage runs on.
+- **Browser.** "Who did each stage" on a card lists every stage's agent,
+  model, who closed it and its handover, readable by touch and keyboard. The
+  inline floor counts room over every goal and no longer reads the outcomes
+  beside the page. The outcome dialog says Pipeline, not Session. Gaffer's
+  launcher lifts clear of a card's choices.
+- **Tests.** The `advance`, `back`, `automerge`, `tell` and `stop-following`
+  routes; another account and a viewer against every control; a restored
+  copy's outcomes.
+
+### Looked at again and left as they are
+
+- **Effort without reported levels.** The review called offering low, medium
+  and high for an agent that reports no levels a risk. It is the documented
+  start fallback (`c354ff3`) with a controller test and a browser test that
+  assert it, so it stays; a level the agent refuses still fails that launch
+  with the agent's own message.
+- **Stop during a tool call ends the chat for Codex and Antigravity.** This
+  is the adapters' own rule, so that no command keeps running behind a stopped
+  chat. A pipeline whose session ends this way is now handled as any ended
+  session is.
+- **`GafferFollowedSessions`' dialog form is not dead code**, as the review
+  said: Chat options → Factory floor still opens it.
+- Model names can still be checked against the machine only for OpenCode, and
+  an added pipeline cannot choose a Cline source of its own.
+- A pending tool call is closed when it is answered after a day, not on a
+  timer; nothing expires it while it sits unanswered.
+
 ## Not done, for the next slice
 
 - No bulk resume (deliberate), and no per-session goal text in one review.

@@ -150,7 +150,10 @@ type Capabilities struct {
 	// BaseFresh is sent only on a connection that negotiated base-fresh-v1:
 	// the machine fetches a worktree's base from github.com as it makes it,
 	// and reports what the worktree started from.
-	BaseFresh  bool `json:"baseFresh,omitempty"`
+	BaseFresh bool `json:"baseFresh,omitempty"`
+	// RepoClone is sent only on a connection that negotiated repo-clone-v1:
+	// the machine can clone a GitHub repository into its projects folder.
+	RepoClone  bool `json:"repoClone,omitempty"`
 	BrowseOff  bool `json:"browseOff,omitempty"`
 	Clipboard  bool `json:"clipboard,omitempty"`
 	Uploads    bool `json:"uploads,omitempty"`
@@ -269,6 +272,9 @@ func (c Capabilities) Validate() error {
 	if c.BaseFresh {
 		features = append(features, BaseFreshFeature)
 	}
+	if c.RepoClone {
+		features = append(features, RepoCloneFeature)
+	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
 
@@ -345,6 +351,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.BaseFresh && !(c.Worktree && SupportsBaseFresh(features)) {
+		return ErrInvalid
+	}
+	if c.RepoClone && !(c.Worktree && SupportsRepoClone(features)) {
 		return ErrInvalid
 	}
 	uploadRule := c.Uploads && !c.TerminalControl
@@ -884,6 +893,10 @@ func Decode(data []byte) (Message, error) {
 		b = &BaseCheck{}
 	case "base_check_result":
 		b = &BaseCheckResult{}
+	case "repo_clone":
+		b = &RepoClone{}
+	case "repo_clone_result":
+		b = &RepoCloneResult{}
 	case "upload":
 		b = &Upload{}
 	case "models":

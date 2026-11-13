@@ -114,7 +114,7 @@ func TestTerminalSessionRecordsWhatItsWorktreeStartedFrom(t *testing.T) {
 		t.Fatal("a second base replaced the first", err)
 	}
 	got, err := s.TerminalSessionFor(uid, session.ID)
-	if err != nil || got.BaseRelation != "ahead" || got.BaseStart != start {
+	if err != nil || got.BaseRelation != "ahead" || got.BaseStart != start || got.BaseName != "develop" {
 		t.Fatal("recorded base", got, err)
 	}
 	data, _ := json.Marshal(got)

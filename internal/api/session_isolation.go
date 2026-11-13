@@ -52,17 +52,27 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 	}
 	c.Worktree = worktreeRunToken(requestID)
 	c.Project = terminalproto.Slug(p.Name, "project")
-	if c.Base == "" {
+	if c.Base == "" && s.machineFetchesBase(uid, agent) {
 		// The project's saved base is what work on it starts from. A launch
 		// that named its own base keeps it, and a project that saved none
 		// leaves the choice to the machine, which starts from the branch the
-		// repository's remote calls its default.
+		// repository's remote calls its default. A machine from before
+		// base-fresh-v1 is named no base at all: it never asked for one, and
+		// naming one would only refuse a launch that used to run.
 		c.Base = p.BaseBranch
 	}
 	if c.ProjectID == "" {
 		c.ProjectID = p.ID
 	}
 	return true
+}
+
+// machineFetchesBase reports whether the machine's stored capabilities
+// negotiated base-fresh-v1, so it fetches a worktree's base from GitHub and
+// says what it started from. Only such a machine is named a base.
+func (s *server) machineFetchesBase(uid int64, agent string) bool {
+	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
+	return err == nil && caps.Capabilities.BaseFresh
 }
 
 // baseWorthANotice says whether where a worktree started from is worth
@@ -79,16 +89,22 @@ func baseWorthANotice(relation string) bool {
 }
 
 // recordSessionBase notes what an isolated launch started from, once per
-// session: the base the controller named, how it stood against GitHub's and
-// the commit the worktree was made at. The source follows the launch audit's
-// ("ui": both a browser launch and an outcome's are the person's own).
+// session: the base it started from, how that stood against GitHub's and the
+// commit the worktree was made at. The base is the branch the machine
+// resolved, falling back to the one the create named when it reported none.
+// The source follows the launch audit's ("ui": both a browser launch and an
+// outcome's are the person's own).
 func (s *server) recordSessionBase(uid int64, in terminalproto.Create, session store.TerminalSession) {
 	if !baseWorthANotice(session.BaseRelation) {
 		return
 	}
+	base := session.BaseName
+	if base == "" {
+		base = in.Base
+	}
 	_ = s.st.AddEventOnceFor(uid, "ui", "worktree-base", "", map[string]string{
 		"machine": session.AgentID, "host": s.machineHost(uid, session.AgentID), "session": session.ID,
-		"base": in.Base, "relation": session.BaseRelation, "start": session.BaseStart,
+		"base": base, "relation": session.BaseRelation, "start": session.BaseStart,
 	})
 }
 

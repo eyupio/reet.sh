@@ -24,18 +24,18 @@ func TestWorktreeRunTokenIsValidAndStable(t *testing.T) {
 }
 
 func TestIsolateWorktreeOnlyTouchesRepoLaunches(t *testing.T) {
-	s, uid := isolationFixture(t)
+	s, uid, machine := isolationFixture(t, baseFreshCaps())
 	// No saved repository: nothing to isolate, and nothing is invented.
 	c := terminalproto.Create{Tool: "claude", Dir: "/home/a/reet"}
-	if s.isolateWorktree(uid, "laptop", "req", &c) || c.Worktree != "" {
+	if s.isolateWorktree(uid, machine, "req", &c) || c.Worktree != "" {
 		t.Fatalf("unsaved folder was changed: %+v", c)
 	}
-	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: "laptop", Dir: "/home/a/reet", Name: "Reet", IsRepo: true}); err != nil {
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true}); err != nil {
 		t.Fatal(err)
 	}
 	// A saved repository gets a worktree, the same one on a retry.
 	c = terminalproto.Create{Tool: "claude", Dir: "/home/a/reet", Project: ""}
-	if !s.isolateWorktree(uid, "laptop", "req", &c) || c.Worktree != worktreeRunToken("req") || c.Project != "reet" || c.ProjectID == "" {
+	if !s.isolateWorktree(uid, machine, "req", &c) || c.Worktree != worktreeRunToken("req") || c.Project != "reet" || c.ProjectID == "" {
 		t.Fatalf("repo launch not isolated: %+v", c)
 	}
 	for name, in := range map[string]terminalproto.Create{
@@ -47,15 +47,16 @@ func TestIsolateWorktreeOnlyTouchesRepoLaunches(t *testing.T) {
 		"reopened": {Tool: "claude", Dir: "/home/a/reet", ResumeACP: "abc"},
 	} {
 		in := in
-		if s.isolateWorktree(uid, "laptop", "req", &in) {
+		if s.isolateWorktree(uid, machine, "req", &in) {
 			t.Errorf("%s: should be left alone", name)
 		}
 	}
 }
 
-// isolationFixture is a controller with a store and one account, for the
-// checks that only exercise isolateWorktree's own decisions.
-func isolationFixture(t *testing.T) (*server, int64) {
+// isolationFixture is a controller with a store, one account and one enrolled
+// machine whose stored capabilities are caps, for the checks that only
+// exercise isolateWorktree's own decisions.
+func isolationFixture(t *testing.T, caps terminalproto.Capabilities) (*server, int64, string) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -66,42 +67,81 @@ func isolationFixture(t *testing.T) (*server, int64) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &server{st: st}, u.ID
+	machine, _, err := st.EnrollSyncAgent(u.ID, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.BeginRemoteConnectionFor(u.ID, machine.ID, terminalbroker.ID(), caps); err != nil {
+		t.Fatal(err)
+	}
+	return &server{st: st}, u.ID, machine.ID
+}
+
+// baseFreshCaps is a machine that makes worktrees and fetches their base from
+// GitHub before choosing where to start.
+func baseFreshCaps() terminalproto.Capabilities {
+	caps := worktreeCaps("claude")
+	caps.AgentsV2, caps.BaseFresh = true, true
+	return caps
 }
 
 func TestIsolatedLaunchWithoutABaseUsesTheProjectsBase(t *testing.T) {
-	s, uid := isolationFixture(t)
-	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: "laptop", Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "develop"}); err != nil {
+	s, uid, machine := isolationFixture(t, baseFreshCaps())
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "develop"}); err != nil {
 		t.Fatal(err)
 	}
 	c := terminalproto.Create{Tool: "claude", Dir: "/home/a/reet"}
-	if !s.isolateWorktree(uid, "laptop", "req", &c) || c.Base != "develop" {
+	if !s.isolateWorktree(uid, machine, "req", &c) || c.Base != "develop" {
 		t.Fatalf("the project's base was not named: %+v", c)
 	}
 	// A project that saved no base leaves the choice to the machine, which
 	// starts from the remote's default branch.
-	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: "laptop", Dir: "/home/a/plain", Name: "Plain", IsRepo: true}); err != nil {
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/plain", Name: "Plain", IsRepo: true}); err != nil {
 		t.Fatal(err)
 	}
 	c = terminalproto.Create{Tool: "claude", Dir: "/home/a/plain"}
-	if !s.isolateWorktree(uid, "laptop", "req-2", &c) || c.Base != "" {
+	if !s.isolateWorktree(uid, machine, "req-2", &c) || c.Base != "" {
 		t.Fatalf("a base was invented for a project without one: %+v", c)
 	}
 	// A launch that is not isolated is left alone, base included.
 	c = terminalproto.Create{Tool: "claude", Dir: "/home/a/elsewhere"}
-	if s.isolateWorktree(uid, "laptop", "req-3", &c) || c.Base != "" {
+	if s.isolateWorktree(uid, machine, "req-3", &c) || c.Base != "" {
 		t.Fatalf("an unsaved folder gained a base: %+v", c)
 	}
 }
 
 func TestIsolatedLaunchKeepsANamedBase(t *testing.T) {
-	s, uid := isolationFixture(t)
-	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: "laptop", Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "develop"}); err != nil {
+	s, uid, machine := isolationFixture(t, baseFreshCaps())
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "develop"}); err != nil {
 		t.Fatal(err)
 	}
 	c := terminalproto.Create{Tool: "claude", Dir: "/home/a/reet", Base: "release"}
-	if !s.isolateWorktree(uid, "laptop", "req", &c) || c.Base != "release" {
+	if !s.isolateWorktree(uid, machine, "req", &c) || c.Base != "release" {
 		t.Fatalf("a named base was overwritten: %+v", c)
+	}
+}
+
+// A machine from before base-fresh-v1 starts a worktree the way it always
+// has. Naming a base it never asked for would only refuse the launch, so the
+// project's base is left for the machines that fetch it.
+func TestIsolatedLaunchOnAnOlderMachineKeepsBaseEmpty(t *testing.T) {
+	s, uid, machine := isolationFixture(t, worktreeCaps("claude"))
+	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "develop"}); err != nil {
+		t.Fatal(err)
+	}
+	c := terminalproto.Create{Tool: "claude", Dir: "/home/a/reet"}
+	if !s.isolateWorktree(uid, machine, "req", &c) || c.Base != "" {
+		t.Fatalf("an older machine was sent a base: %+v", c)
+	}
+	// And the launch still runs: the same machine, through the whole create.
+	f := baseFixture(t, worktreeCaps("claude"), "develop")
+	f.reply = reportsItsWorktree(nil)
+	code, out, raw := f.create(t, isolatedProjectLaunch(f.agent.ID, terminalbroker.ID()))
+	if code != 200 || out["worktreePath"] == nil || out["baseRelation"] != nil {
+		t.Fatal("older machine refused an isolated launch", code, raw)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Base != "" || sent[0].Worktree == "" {
+		t.Fatalf("older machine was sent a base: %+v", sent)
 	}
 }
 
@@ -111,12 +151,10 @@ func isolatedProjectLaunch(agent, request string) map[string]any {
 	return launchBody(agent, request, map[string]any{"tool": "claude", "model": "sonnet", "dir": "/home/tester/site", "prompt": launchTestPrompt})
 }
 
-// baseFixture connects a peer that makes worktrees and reports what they
-// started from, and saves a repository project with base.
-func baseFixture(t *testing.T, base string) *launchAPI {
+// baseFixture connects a peer with those capabilities and saves the
+// repository project the launches above run in, with base as its own base.
+func baseFixture(t *testing.T, caps terminalproto.Capabilities, base string) *launchAPI {
 	t.Helper()
-	caps := worktreeCaps("claude")
-	caps.AgentsV2, caps.BaseFresh = true, true
 	f := launchAPIFixture(t, caps)
 	if _, err := f.st.CreateFolderProjectFor(f.uid, store.FolderProject{Host: f.agent.ID, Dir: "/home/tester/site", Name: "Site", IsRepo: true, BaseBranch: base}); err != nil {
 		t.Fatal(err)
@@ -124,8 +162,17 @@ func baseFixture(t *testing.T, base string) *launchAPI {
 	return f
 }
 
+// reportsItsWorktree answers a create with the worktree the machine made for
+// it, and with what that worktree started from when state is set.
+func reportsItsWorktree(state *terminalproto.BaseState) func(terminalproto.Create) terminalproto.Body {
+	return func(in terminalproto.Create) terminalproto.Body {
+		return terminalproto.SessionChanged{State: terminalproto.Running, Base: state,
+			WorktreePath: "/home/tester/.reet/worktrees/" + in.Project + "/site/" + in.Worktree, WorktreeRepo: "site"}
+	}
+}
+
 func TestIsolatedRetryKeepsTheOriginalBase(t *testing.T) {
-	f := baseFixture(t, "develop")
+	f := baseFixture(t, baseFreshCaps(), "develop")
 	request := terminalbroker.ID()
 	code, first, raw := f.create(t, isolatedProjectLaunch(f.agent.ID, request))
 	if code != 200 {
@@ -169,15 +216,13 @@ func TestGafferOutcomeLaunchCarriesTheProjectsBase(t *testing.T) {
 }
 
 func TestSessionRecordsItsBase(t *testing.T) {
-	f := baseFixture(t, "develop")
+	f := baseFixture(t, baseFreshCaps(), "develop")
 	start := strings.Repeat("ab", 20)
 	var reported terminalproto.BaseState
-	f.reply = func(in terminalproto.Create) terminalproto.Body {
-		state := reported
-		return terminalproto.SessionChanged{State: terminalproto.Running, Base: &state,
-			WorktreePath: "/home/tester/.reet/worktrees/" + in.Project + "/site/" + in.Worktree, WorktreeRepo: "site"}
-	}
-	reported = terminalproto.BaseState{Base: "develop", Relation: terminalproto.BaseAhead, Local: start, Start: start}
+	f.reply = reportsItsWorktree(&reported)
+	// This machine names no base of its own, so the notice falls back to the
+	// one the controller asked it to start from.
+	reported = terminalproto.BaseState{Relation: terminalproto.BaseAhead, Local: start, Start: start}
 	code, out, raw := f.create(t, isolatedProjectLaunch(f.agent.ID, terminalbroker.ID()))
 	if code != 200 || out["baseRelation"] != "ahead" || out["baseStart"] != start {
 		t.Fatal("session JSON without its base", code, raw)
@@ -202,6 +247,33 @@ func TestSessionRecordsItsBase(t *testing.T) {
 	}
 	if events := worktreeEvents(t, f.st, f.uid, "worktree-base"); len(events) != 1 {
 		t.Fatal("a base that matched GitHub was recorded", len(events))
+	}
+}
+
+// A project that saved no base leaves the branch to the machine, so the
+// notice names the one the machine resolved, not the blank the create carried.
+func TestSessionRecordsTheBaseTheMachineResolved(t *testing.T) {
+	f := baseFixture(t, baseFreshCaps(), "")
+	start := strings.Repeat("ab", 20)
+	resolved := terminalproto.BaseState{Base: "main", Relation: terminalproto.BaseFetchFailed, Local: start, Start: start}
+	f.reply = reportsItsWorktree(&resolved)
+	code, out, raw := f.create(t, isolatedProjectLaunch(f.agent.ID, terminalbroker.ID()))
+	if code != 200 || out["baseRelation"] != "fetch_failed" {
+		t.Fatal("session JSON", code, raw)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Base != "" {
+		t.Fatalf("a base was named for a project without one: %+v", sent)
+	}
+	events := worktreeEvents(t, f.st, f.uid, "worktree-base")
+	if len(events) != 1 {
+		t.Fatal("worktree-base recorded", len(events), "times")
+	}
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(events[0].Detail), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail["base"] != "main" || detail["relation"] != "fetch_failed" || detail["start"] != start {
+		t.Fatal("worktree-base detail", events[0].Detail)
 	}
 }
 

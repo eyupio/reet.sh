@@ -15,7 +15,7 @@
   // Select (the heading's menu, or a long press on a card on touch) turns the cards into checkboxes for Start in several
   // projects: 2 to 12 of them; the strip shows how many are chosen.
   let { projects, groups = undefined, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
-    selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, embedded = false, userId = 0, scope = null, onscope,
+    selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, embedded = false, userId = 0, scope = null, onscope, startWord = 'New session',
     collapsed = false, oncollapsed,
     width = RAIL_DEFAULT, onwidth, onwidthcommit,
     onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour, onmanage,
@@ -59,6 +59,8 @@
     onchoose: (project: FolderProject, opener: HTMLElement) => void
     /** Starts a session in this project at once (the card's +, or New session here). Falls back to `onchoose`. */
     onnew?: (project: FolderProject, opener: HTMLElement) => void
+    /** What the card's + and its menu's first item start: 'New session' (Home), or 'New outcome' on the Factory. */
+    startWord?: string
     onedit: (project: FolderProject, opener: HTMLElement) => void
     onworktrees: (project: FolderProject, opener: HTMLElement) => void
     onremove: (project: FolderProject, opener: HTMLElement) => void
@@ -422,7 +424,7 @@
       </span>
     </button>
     {#if !selecting}
-      {#if onnew}<button type="button" class="start" aria-label={`New session in ${p.name}`} title="Start a session in this project" onclick={(e) => startCard(p, e.currentTarget)}>
+      {#if onnew}<button type="button" class="start" aria-label={`${startWord} in ${p.name}`} title={startWord === 'New session' ? 'Start a session in this project' : `${startWord} in this project`} onclick={(e) => startCard(p, e.currentTarget)}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>
       </button>{/if}
       <button type="button" class="more" aria-label={`More for ${p.name}`} aria-haspopup="menu" aria-expanded={menuFor === p.id}
@@ -615,7 +617,7 @@
     {@const count = inGroup(gid).length}
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div class="menu" id={`${id}-menu-${project.id}`} style:left={`${menuX}px`} style:top={`${menuY}px`} role="menu" aria-label={project.name} tabindex="-1" onkeydown={menuKeys}>
-      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => startCard(target, o)) }}>New session here</button>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => startCard(target, o)) }}>{startWord} here</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onedit(target, o)) }}>Edit</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onworktrees(target, o)) }}>Worktrees</button>
       <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === 0} onclick={() => { const target = project; closeMenu(true); onmove(target, -1) }}>Move up</button>

@@ -22,7 +22,7 @@
   // region (`onnotice`). Nothing is stored in the browser.
   let { projects, groups = undefined, failed = false, savedWaiting = 0, sessions, sessionsFailed = false, reporting, running, known, worktrees, chosen = '',
     selecting = false, selected = [], onselecting, ontoggle, onchoose, onnew, signal, onsettle, onsettlegroups, onwaiting, onmachines, onnotice, onreload, onsignedout,
-    variant = 'home', selectAction, rail = true, embedded = false, userId = 0, scope = null, onscope, collapsed = false, oncollapsed,
+    variant = 'home', selectAction, rail = true, embedded = false, userId = 0, scope = null, onscope, startWord = undefined, collapsed = false, oncollapsed,
     width = RAIL_DEFAULT, onwidth, onwidthcommit }: {
     projects: FolderProject[] | undefined
     /** The account's project groups, in rail order. */
@@ -43,6 +43,8 @@
     onchoose: (project: FolderProject, opener: HTMLElement) => void
     /** Starts a session in a project at once (the card's +, and New session here). Without it the card chooses the project. */
     onnew?: (project: FolderProject, opener: HTMLElement) => void
+    /** What `onnew` starts, for the card's + and its menu (the Factory: 'New outcome'). */
+    startWord?: string
     /** A bounded abort signal for each request (the page's life and its timeout). */
     signal: () => AbortSignal
     /** A write's answer: the list as it now is. */
@@ -367,7 +369,7 @@
 {#if rail}<ProjectRail {projects} {groups} {failed} {reporting} {running} {known} {worktrees} {savedWaiting} {chosen} busy={checking} {importing} {pending} {moving}
   {selecting} {selected} {onselecting} {ontoggle} {variant} {selectAction} {embedded} {userId} {scope} {onscope} {collapsed} {oncollapsed}
   {width} {onwidth} {onwidthcommit}
-  {onnew} onadd={(opener) => void openAdd(opener)} onmanage={(opener) => void openManage(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
+  {onnew} {startWord} onadd={(opener) => void openAdd(opener)} onmanage={(opener) => void openManage(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
   onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour}
   onarrange={(order) => void arrange(order)} ongroupadd={openGroupAdd} ongroupedit={openGroupEdit}
   ongroupremove={(group, opener) => (groupRemoving = { group, opener })} ongroupmove={moveGroup} ongroupcolour={colourGroup} ongroupmovebusy={groupMoving}

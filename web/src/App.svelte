@@ -242,7 +242,8 @@
   let onMarkSeen = $state<((sessionId: string) => void | Promise<void>) | undefined>(undefined)
   let workspaceTitle = $state('')
   // Home spans the page: the project rail on the left and the docked Start an agent at the foot.
-  const homeLayout = $derived(isHome && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
+  // Home and the Factory hold the project rail as their own left column, so both take the whole width and draw no footer.
+  const homeLayout = $derived((isHome || (isFactory && sessionsAccess && authMode === 'accounts')) && authChecked && !!authMode && authenticated && !needsAuth && !(authMode === 'accounts' && setupRequired))
   const tabs = $derived<Tab[]>([
     { href: '/', label: 'Home', current: isHome },
     ...(sessionsAccess && authMode === 'accounts' ? [{ href: '/factory', label: 'Factory', current: isFactory }] : []),
@@ -1188,7 +1189,7 @@
     {#await pages.Factory()}
       <RouteSkeleton variant="cards" />
     {:then { default: Page }}
-      <Page userId={currentUser?.id ?? 0} {timeZone} {dateFormat} />
+      <Page userId={currentUser?.id ?? 0} {timeZone} {dateFormat} onsignedout={fail} />
     {:catch}
       <PageLoadError />
     {/await}

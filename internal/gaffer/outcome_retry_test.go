@@ -23,6 +23,8 @@ func TestRetryingAPipelineWhoseSessionIsGoneStartsItsStageInANewSession(t *testi
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
 	r.endSession(t, code.SessionID, true)
 	gone := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "unfollowed" })
+	// The controller writes once more after a pipeline is followed, to settle the outcome: the revision is read after that.
+	r.settle(t, created.ID)
 	o, err := r.s.Outcome(r.p.UserID, created.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +58,8 @@ func TestRetryingAPipelineWhoseSessionEndedStartsItsStageInANewSession(t *testin
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
 	r.endSession(t, code.SessionID, false)
+	// The controller writes once more after a pipeline is followed, to settle the outcome: the revision is read after that.
+	r.settle(t, created.ID)
 	o, err := r.s.Outcome(r.p.UserID, created.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +86,8 @@ func TestRetryingAfterStopFollowingFollowsTheRunningSessionAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	// The controller writes once more after a pipeline is followed, to settle the outcome: the revision is read after that.
+	r.settle(t, created.ID)
 	o, err := r.s.Outcome(r.p.UserID, created.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -190,6 +196,8 @@ func TestAPipelineWhoseSessionThePersonEndedIsTriedAgainInANewSession(t *testing
 		t.Fatal(err)
 	}
 	code := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" })
+	// The controller writes once more after a pipeline is followed, to settle the outcome: the revision is read after that.
+	r.settle(t, created.ID)
 	o, err := r.s.Outcome(r.p.UserID, created.ID)
 	if err != nil || o.Sessions[0].SessionState != "running" {
 		t.Fatalf("a live session reads as running: %+v %v", o.Sessions[0], err)
@@ -198,6 +206,8 @@ func TestAPipelineWhoseSessionThePersonEndedIsTriedAgainInANewSession(t *testing
 		t.Fatal("a pipeline whose session still runs was tried again")
 	}
 	r.endSession(t, code.SessionID, false)
+	// The controller writes once more after a pipeline is followed, to settle the outcome: the revision is read after that.
+	r.settle(t, created.ID)
 	o, err = r.s.Outcome(r.p.UserID, created.ID)
 	if err != nil || o.Sessions[0].State != "following" || o.Sessions[0].SessionState != "ended" {
 		t.Fatalf("an ended session is the person's to decide about, and reads as ended: %+v %v", o.Sessions[0], err)
@@ -341,6 +351,8 @@ func TestAPipelinesFolderIsInUseWhileItHasWorkLeft(t *testing.T) {
 	if code.WorkDir == "" || !r.s.WorkDirInUse(r.p.UserID, code.WorkDir) || r.s.WorkDirInUse(r.p.UserID, "/work/elsewhere") || r.s.WorkDirInUse(r.p.UserID, "") {
 		t.Fatalf("a followed pipeline's folder is in use: %q", code.WorkDir)
 	}
+	// The controller writes once more after a pipeline is followed, to settle the outcome: the revision is read after that.
+	r.settle(t, created.ID)
 	o, err := r.s.Outcome(r.p.UserID, created.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -371,6 +383,8 @@ func TestAnOutcomeCannotBeReadOrSteeredByAnotherAccountOrAViewer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The controller writes once more after a pipeline is followed, to settle the outcome: the revision is read after that.
+	r.settle(t, created.ID)
 	before, err := r.st.GafferOutcomeFor(r.p.UserID, created.ID)
 	if err != nil {
 		t.Fatal(err)

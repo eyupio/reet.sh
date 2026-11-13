@@ -4,7 +4,11 @@
   // nothing; the only things that act are the buttons, and each says what it does.
   import { onMount, tick } from 'svelte'
   import { addGafferPipelines, approveGafferMerge, controlGafferGoal, getGafferGoal, listGafferOutcomeHistory, type Event as ActivityEvent, moveGafferPipelineOn, sendGafferPipelineBack, setGafferPipelineAutoMerge, tellGafferPipelineAgent, getGafferSettings, getProfile, archiveGafferOutcome, restoreGafferOutcome, deleteGafferOutcome, listGafferGoals, listGafferOutcomes, retryGafferPipeline, reviewGafferOutcome, stopGafferOutcome, stopFollowingGafferOutcome, type GafferGoalOverview, type GafferOutcome as Outcome, type GafferOutcomeSession } from '../api'
-  import { chatToolName, listFolderProjects, terminalMachines } from '../terminal/api'
+  import { chatToolName, folderProjectList, listFolderProjects, listProjectGroups, machineHealth, terminalMachines, terminalSessions, TerminalError, type FolderProject, type ProjectGroup, type TerminalSession } from '../terminal/api'
+  import { UnauthorizedError } from '../api'
+  import { projectRunning, projectWorktrees } from '../home'
+  import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
+  import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
   import { DEFAULT_STAGES, agentActivity, ago, needsYou, sessionEndedChoices, sessionLost, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
   import { eventLabel } from '../events'
@@ -20,7 +24,7 @@
   import PipelineNote from './PipelineNote.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
 
-  let { userId = 0, timeZone = '', dateFormat = 'locale' }: { userId?: number; timeZone?: string; dateFormat?: string } = $props()
+  let { userId = 0, timeZone = '', dateFormat = 'locale', onsignedout }: { userId?: number; timeZone?: string; dateFormat?: string; onsignedout?: (e: unknown) => void } = $props()
   let records = $state<Outcome[]>([]), goals = $state<GafferGoalOverview[]>([]), loading = $state(true), error = $state(''), readAt = $state(0)
   // What a new installation still needs before a pipeline can run. Each is read once and again after an outcome dialog closes.
   let setup = $state<{ provider: boolean; machine: boolean; project: boolean } | null>(null)
@@ -43,8 +47,74 @@
   const floor = $derived(records.filter(record => !record.archivedAt))
   const shelved = $derived(records.filter(record => record.archivedAt))
   let showArchived = $state(false), removeMode = $state<'archive' | 'delete'>('archive'), deleting = $state<Outcome | null>(null), releasing = $state<Outcome | null>(null)
-  const listed = $derived(showArchived ? records : floor)
-  const tally = $derived(factoryTally(floor, attention))
+  // The project rail, as on Home: the same projects and groups, the same fold and width (kept in this browser). Choosing a
+  // project or group narrows the page to its outcomes, and a project is also where the next outcome starts.
+  let projects = $state<FolderProject[] | undefined>(), groups = $state<ProjectGroup[] | undefined>(), sessions = $state<TerminalSession[] | undefined>()
+  let projectsFailed = $state(false), sessionsFailed = $state(false), savedWaiting = $state(0), machineReporting = $state(new Map<string, boolean>())
+  let scope = $state<{ kind: 'project' | 'group'; id: string } | null>(null), outcomeProject = $state('')
+  const stored = (key: string) => { try { return localStorage.getItem(key) } catch { return null } }
+  let railCollapsed = $state(stored('reet.rail.collapsed') === '1')
+  let railWidth = $state(readWidth(stored('reet.rail.width'), RAIL_DEFAULT, width => clampRailWidth(width, innerWidth)))
+  const NARROW = '(max-width: 1099px)'
+  let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
+  const life = new AbortController()
+  const bounded = () => AbortSignal.any([life.signal, AbortSignal.timeout(15_000)])
+  const running = $derived(projectRunning(sessions ?? [])), worktrees = $derived(projectWorktrees(sessions ?? []))
+  const scopedIds = $derived.by(() => {
+    if (!scope) return undefined
+    if (scope.kind === 'project') return [scope.id]
+    const id = scope.id
+    return (projects ?? []).filter(p => (p.groupId ?? '') === id).map(p => p.id)
+  })
+  const scopeName = $derived(scope ? (scope.kind === 'project' ? (projects ?? []).find(p => p.id === scope?.id)?.name : (groups ?? []).find(g => g.id === scope?.id)?.name) ?? 'Selection' : '')
+  const inScope = (record: Outcome) => scopedIds === undefined || scopedIds.includes(record.projectId)
+  // A removal or a fresh read that no longer names the chosen project or group ends the scope.
+  $effect(() => {
+    if (!scope || !projects) return
+    if (scope.kind === 'project' && !projects.some(p => p.id === scope?.id)) scope = null
+    else if (scope.kind === 'group' && groups && !groups.some(g => g.id === scope?.id)) scope = null
+  })
+  // An address that names a project (/factory?project=<id>) opens the page on it, once the list is read.
+  let wanted = new URLSearchParams(location.search).get('project') ?? ''
+  $effect(() => {
+    if (!wanted || !projects) return
+    if (projects.some(p => p.id === wanted)) scope = { kind: 'project', id: wanted }
+    wanted = ''
+  })
+  const signedOut = (e: unknown) => e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)
+  // The rail's reads have a generation, so a write's answer (`settle`) is never overwritten by a read already on its way.
+  let railGeneration = 0, railLoading = false
+  async function loadRail(explicit = false) {
+    if (life.signal.aborted || (railLoading && !explicit)) return
+    const mine = ++railGeneration
+    railLoading = true
+    try {
+      const [p, g, s, h, m] = await Promise.allSettled([folderProjectList(bounded()), listProjectGroups(bounded()), terminalSessions(bounded()), machineHealth(bounded()), terminalMachines(bounded())])
+      if (life.signal.aborted || mine !== railGeneration) return
+      if ([p, g, s, h, m].some(r => r.status === 'rejected' && signedOut(r.reason))) { life.abort(); onsignedout?.(new UnauthorizedError()); return }
+      if (p.status === 'fulfilled') { projects = p.value.projects; savedWaiting = p.value.savedWaiting ?? 0; projectsFailed = false } else projectsFailed = projects === undefined
+      if (g.status === 'fulfilled') groups = g.value
+      if (s.status === 'fulfilled') { sessions = s.value; sessionsFailed = false } else sessionsFailed = sessions === undefined
+      // Connected machines come from the health report; where this sign-in cannot read it, from the machines that are ready.
+      if (h.status === 'fulfilled') machineReporting = new Map((h.value.machines ?? []).map(item => [item.agentId, item.state === 'connected']))
+      else if (m.status === 'fulfilled') machineReporting = new Map(m.value.map(item => [item.agentId, item.ready]))
+    } finally { if (mine === railGeneration) railLoading = false }
+  }
+  function settle(next: FolderProject[]) { railGeneration++; railLoading = false; projects = next; void loadSetup() }
+  function settleGroups(next: ProjectGroup[]) { railGeneration++; railLoading = false; groups = next }
+  function setRailCollapsed(next: boolean) {
+    railCollapsed = next
+    try { localStorage.setItem('reet.rail.collapsed', next ? '1' : '0') } catch { /* The rail still folds. */ }
+  }
+  const setRailWidth = (width: number) => { railWidth = clampRailWidth(width, innerWidth) }
+  function commitRailWidth(width: number) {
+    setRailWidth(width)
+    try { localStorage.setItem('reet.rail.width', String(railWidth)) } catch { /* The rail keeps its width for this page. */ }
+  }
+  // Give Gaffer an outcome: in the project the page is narrowed to, or the one whose + was pressed.
+  function openOutcome(project = scope?.kind === 'project' ? scope.id : '') { outcomeProject = project; outcomeOpen = true }
+  const listed = $derived((showArchived ? records : floor).filter(inScope))
+  const tally = $derived(factoryTally(floor.filter(inScope), attention))
   // Goals the page draws inside a pipeline are left out of the list of other sessions below.
   const drawn = $derived(records.flatMap(record => record.sessions.flatMap(piece => [piece.conversationId, ...(piece.stages ?? []).map(stage => stage.conversationId), ...(piece.retired ?? [])])).filter((id): id is string => !!id))
   // A pipeline's own sessions are not offered again below, except one that was started and is not followed.
@@ -69,19 +139,22 @@
     } catch { setup = null }
   }
   onMount(() => {
-    void load(); void loadSetup()
+    void load(); void loadSetup(); void loadRail()
+    const query = matchMedia(NARROW), resized = () => { narrow = query.matches }
+    query.addEventListener('change', resized)
+    const railTimer = setInterval(() => { if (!document.hidden) void loadRail() }, 15_000)
     void getProfile().then(p => { removeMode = p.profile.factoryRemoveMode === 'delete' ? 'delete' : 'archive' }).catch(() => { /* archiving is the safe default */ })
     // A page opened to give Gaffer an outcome (from Home or the chat) starts with that dialog up.
-    if (new URLSearchParams(location.search).get('outcome') === '1') outcomeOpen = true
+    if (new URLSearchParams(location.search).get('outcome') === '1') openOutcome(wanted)
     const timer = setInterval(() => { clock = Date.now(); if (!document.hidden && !outcomeOpen && !managing && !merging && !adding && !reporting) void load() }, 5000)
     const changed = () => void load()
     window.addEventListener(GAFFER_GOALS_CHANGED, changed)
-    return () => { epoch++; controller?.abort(); clearInterval(timer); window.removeEventListener(GAFFER_GOALS_CHANGED, changed) }
+    return () => { epoch++; controller?.abort(); life.abort(); clearInterval(timer); clearInterval(railTimer); query.removeEventListener('change', resized); window.removeEventListener(GAFFER_GOALS_CHANGED, changed) }
   })
   async function closeOutcome() {
     outcomeOpen = false; floorKey++
     if (location.search) history.replaceState(null, '', location.pathname)
-    await Promise.all([load(), loadSetup()]); await tick(); outcomeButton?.focus({ preventScroll: true })
+    await Promise.all([load(), loadSetup(), loadRail(true)]); await tick(); outcomeButton?.focus({ preventScroll: true })
   }
   async function approve() {
     if (!merging || busy) return
@@ -178,7 +251,7 @@
   })
   // The headline numbers that want the person are buttons: they go to the first card of that kind.
   function jump(kind: 'you' | 'ready') {
-    for (const record of records) for (const piece of record.sessions) {
+    for (const record of listed) for (const piece of record.sessions) {
       const goal = piece.conversationId ? byConversation.get(piece.conversationId) : undefined
       const label = pipelineStatus(piece, !!goal?.attention).label
       if ((kind === 'you' && label === 'Needs you') || (kind === 'ready' && label === 'Ready to merge')) {
@@ -294,10 +367,18 @@
   }
 </script>
 
+<div class="factory-page" class:rail-collapsed={railCollapsed} style:--rail-width={`${railWidth}px`}>
+<!-- On a desktop the project list is the page's left column, as on Home. A tablet or phone has no rail here: the outcome
+     dialog asks for the project instead. -->
+<ProjectRailHost rail={!narrow} {projects} {groups} failed={projectsFailed} {savedWaiting} {sessions} {sessionsFailed} reporting={machineReporting} {running} known={sessions !== undefined} {worktrees}
+  chosen={scope?.kind === 'project' ? scope.id : ''} {scope} onscope={next => (scope = next)} onchoose={() => {}} onnew={project => openOutcome(project.id)} startWord="New outcome"
+  collapsed={railCollapsed} oncollapsed={setRailCollapsed} {userId} width={railWidth} onwidth={setRailWidth} onwidthcommit={commitRailWidth}
+  signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={n => (savedWaiting = n)} onnotice={n => (notice = n?.text ?? '')} onreload={() => void loadRail(true)}
+  onsignedout={() => { life.abort(); onsignedout?.(new UnauthorizedError()) }}/>
 <div class="factory">
   <header class="top">
     <div class="identity"><h1>Factory</h1><p class="sub">Hand Gaffer the outcome. It plans the pipelines, you approve, and it runs each one to the finish.</p></div>
-    <div class="top-actions"><a class="btn quiet" href="/account/gaffer">Gaffer settings</a><button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => outcomeOpen = true}>Give Gaffer an outcome</button></div>
+    <div class="top-actions"><a class="btn quiet" href="/account/gaffer">Gaffer settings</a><button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>Give Gaffer an outcome</button></div>
   </header>
 
   <ul class="tiles" aria-label="Factory at a glance">
@@ -308,6 +389,7 @@
   </ul>
 
   {#if records.length}<div class="fold-all">{#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}<button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {}; outcomeFolds = {} }}>{allOpen === true ? 'Collapse all' : 'Expand all'}</button></div>{/if}
+  {#if scope}<p class="scope"><span>Showing <strong>{scopeName}</strong>{scope.kind === 'project' ? '. A new outcome starts in this project.' : '.'}</span> <button type="button" class="btn quiet" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
   {#if notice}<div class="notice" class:bad><p role={bad ? 'alert' : 'status'}>{notice}</p><button class="inline" type="button" aria-label="Dismiss this message" onclick={() => notice = ''}>Dismiss</button></div>{/if}
   {#if error && records.length}<p role="alert" class="warning">{error} Showing the last successful read.</p>{/if}
 
@@ -327,6 +409,7 @@
   <section class="lines" aria-label="Pipelines">
     {#if loading}<p role="status">Reading the factory…</p>
     {:else if error && !records.length}<div class="empty"><h2>The factory could not be read.</h2><p>Nothing is shown because nothing was read, not because there is nothing. The page tries again by itself every few seconds.</p><button class="btn" type="button" onclick={() => { loading = true; void load() }}>Try again now</button></div>
+    {:else if scope && !listed.length}<div class="empty"><h2>Nothing in {scopeName} yet.</h2><p>{scope.kind === 'project' ? 'Give Gaffer an outcome and its pipelines for this project appear here.' : 'No outcome has been started in this group’s projects.'}</p>{#if scope.kind === 'project'}<button class="btn primary" type="button" onclick={() => openOutcome()}>Give Gaffer an outcome in {scopeName}</button>{/if}</div>
     {:else if !listed.length && shelved.length}<div class="empty"><h2>Nothing on the floor.</h2><p>Every outcome is archived. Show archived to look at them or bring one back.</p></div>
     {:else if !records.length}<div class="empty"><h2>No pipelines yet.</h2><p>Give Gaffer an outcome and its pipelines appear here, each moving through plan, design, code, review, test, pull request, babysitting and merge.</p></div>
     {:else}
@@ -444,13 +527,15 @@
 
   <section class="floor" aria-label="Other sessions">
     <h2>Other sessions</h2>
-    <p class="hint">Sessions you started yourself: the ones Gaffer looks after, and the running chats it does not yet.</p>
-    {#key floorKey}<GafferFollowedSessions inline hidden={drawn} hiddenSessions={drawnSessions} {userId} {timeZone} {dateFormat} onerror={e => e instanceof Error ? e.message : 'The sessions could not be read.'} onchanged={load} onselect={() => {}} onhistory={() => {}} onclose={() => {}}/>{/key}
+    <p class="hint">Sessions you started yourself: the ones Gaffer looks after, and the running chats it does not yet.{#if scope}{' '}Only those in {scopeName} are listed.{/if}</p>
+    {#key floorKey}<GafferFollowedSessions inline hidden={drawn} hiddenSessions={drawnSessions} projectIds={scopedIds} {userId} {timeZone} {dateFormat} onerror={e => e instanceof Error ? e.message : 'The sessions could not be read.'} onchanged={load} onselect={() => {}} onhistory={() => {}} onclose={() => {}}/>{/key}
   </section>
   {#if readAt}<p class="foot">Read {when(readAt)}{live ? ', while the controller starts sessions' : ''}. The page refreshes every few seconds. Reading the factory makes no model request and starts nothing.</p>{/if}
 </div>
 
-{#if outcomeOpen}<GafferOutcome room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
+</div>
+
+{#if outcomeOpen}<GafferOutcome projectId={outcomeProject} room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
 {#if releasing}<ConfirmDialog title={`Stop following “${short(releasing.objective)}”?`} body="Gaffer and the controller stop looking after every unfinished pipeline in this outcome and start nothing more for it. Sessions that still exist keep running, and nothing is merged or closed. Use this when a session was lost or removed, or the work is no longer wanted; you can then archive or delete the outcome." confirmLabel="Stop following" oncancel={() => releasing = null} onconfirm={() => releasing && void stopFollowing(releasing)}/>{/if}
 {#if deleting}<ConfirmDialog title={`Delete “${short(deleting.objective)}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} error={dialogError} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
@@ -462,7 +547,14 @@
 {#if managing}<WorkspaceDialog title="Look after this session" onclose={() => { managing = null; void load() }}><GafferGoal id={managing.goal.conversationId} sessionId={managing.goal.sessionId} {userId} {timeZone} {dateFormat} onchanged={load}/></WorkspaceDialog>{/if}
 
 <style>
-  .factory{display:grid;gap:20px;min-width:0;max-width:1100px;margin:0 auto;padding:4px 0 40px;font-size:14px;line-height:1.5}
+  /* The rail is the left column on a wide desktop: its saved width, or the 56 px strip while folded. Below that there is no rail. */
+  .factory-page{--top:61px;display:grid;grid-template-columns:var(--rail-width,301px) minmax(0,1fr)}.factory-page.rail-collapsed{grid-template-columns:56px minmax(0,1fr)}
+  .factory-page>:global(aside.rail){grid-column:1;grid-row:1;min-width:0}.factory-page>.factory{grid-column:2;grid-row:1}
+  .factory-page :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked)){border-color:transparent;border-radius:8px;background:transparent}.factory-page :global(aside.rail .card:not(.chosen):not(.scoped):not(.picked):hover){background:var(--line-soft)}
+  .factory-page :global(aside.rail .strip){height:calc(100dvh - var(--top));min-height:0;overflow-y:auto;scrollbar-width:thin}.factory-page :global(aside.rail .strip>button){flex-shrink:0}
+  @media(max-width:1099px){.factory-page{grid-template-columns:minmax(0,1fr)}.factory-page>.factory{grid-column:1}}
+  .factory{display:grid;gap:20px;align-content:start;min-width:0;width:100%;max-width:1148px;box-sizing:border-box;margin:0 auto;padding:20px 24px calc(56px + var(--bottom-chrome,0px));font-size:14px;line-height:1.5}
+  .scope{display:flex;align-items:center;flex-wrap:wrap;gap:10px;color:var(--muted)}.scope strong{color:var(--ink)}.scope .btn{min-height:44px}
   p{margin:0;overflow-wrap:anywhere}h1{font:500 2rem var(--serif);margin:0}h2{font:500 1.35rem var(--serif);margin:0;overflow-wrap:anywhere}h3{font:600 1.05rem var(--sans);margin:0;overflow-wrap:anywhere;min-width:0}
   .sub,.hint,.meta,.foot{color:var(--muted)}.warning{color:var(--bad)}.eyebrow{font-size:0.875rem;color:var(--muted);letter-spacing:.02em}
   .top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px 20px;flex-wrap:wrap}.identity{display:grid;gap:4px;min-width:0;flex:1 1 320px}.top-actions{display:flex;gap:8px;flex-wrap:wrap}.top-actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center}
@@ -511,7 +603,7 @@
   .floor{display:grid;gap:10px;min-width:0;border-top:1px solid var(--line);padding-top:20px}.foot{font-size:0.875rem}
   .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  @media(max-width:640px){.track{overflow:visible}.track li{min-width:0;padding:0 1px 2px;font-size:0.875rem}
+  @media(max-width:640px){.factory{padding-left:16px;padding-right:16px}.track{overflow:visible}.track li{min-width:0;padding:0 1px 2px;font-size:0.875rem}
     /* A long line has no room for eight names on a phone: the stage in hand is named, the head of the card says which of how many, and the rest are their marks. */
     .track:has(li:nth-child(6)) li:not(.running):not(.waiting):not(.failed) .name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.track:has(li:nth-child(6)) .name{white-space:nowrap}.dot{width:24px;height:24px;font-size:0.875rem}.track li+li::before{top:11px}.pipe,.outcome-head{padding:14px 12px}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.setup{grid-template-columns:1fr}.top-actions{width:100%}.top-actions .btn{flex:1 1 auto;justify-content:center}}
 </style>

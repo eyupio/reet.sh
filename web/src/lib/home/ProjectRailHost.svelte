@@ -5,7 +5,7 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import { addedLine } from '../folderBrowser'
   import type { ProjectColour } from '../projectColour'
-  import { outstandingClone, rememberClone, watchClone, type CloneEnd, type OutstandingClone } from '../githubRepo'
+  import { lostCloneLine, outstandingClone, rememberClone, watchClone, type CloneEnd, type OutstandingClone } from '../githubRepo'
   import { cloneStatus, createProjectGroup, deleteFolderProject, deleteProjectGroup, getFolderProject, importSavedProjects, refusalSentence, reorderFolderProjects,
     reorderProjectGroups, setFolderProjectGroup, terminalMachines, updateFolderProject, updateProjectGroup, TerminalError,
     type FolderProject, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
@@ -152,11 +152,14 @@
     const watching = clone
     if (!watching) return
     const stop = new AbortController()
-    untrack(() => watchClone(watching, { status: cloneStatus, signal: stop.signal, onend: end => cloneEnded(end) }))
+    untrack(() => watchClone(watching, { status: cloneStatus, signal: stop.signal, onend: end => cloneEnded(end, watching) }))
     return () => stop.abort()
   })
-  function cloneEnded(end: CloneEnd) {
+  function cloneEnded(end: CloneEnd, watched: OutstandingClone) {
     if (end.state === 'signedout') { signOut(); return }
+    // A clone the controller no longer knows is said as a failure is, and the list is read again: it may have finished.
+    const lost = end.state === 'gone'
+    if (lost) end = { state: 'failed', code: 'clone_not_found', sentence: lostCloneLine(watched.repo) }
     // The open dialog shows the outcome first (it closes on done, or puts the sentence in its error slot), then the clone
     // leaves it.
     const shown = adding ? addDialog?.cloneEnded(end) ?? false : false
@@ -169,6 +172,7 @@
       onreload()
     } else if (end.state === 'failed') {
       if (!shown) onnotice({ text: end.sentence, bad: true })
+      if (lost) onreload()
     } else onreload()
   }
 

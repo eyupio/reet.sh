@@ -287,6 +287,8 @@ try {
   ['no_access', "GitHub has no eyupio/reet.sh that studio's sign-in can read."],
   ['exists', '~/reet/repos/eyupio/reet.sh on studio already holds something else. Move it, or add that folder as a project.'],
   ['timed_out', 'Cloning eyupio/reet.sh took longer than 10 minutes and was stopped. Nothing was kept.'],
+  ['ssh_rewrite', "studio's git settings send github.com over ssh, which reet doesn't use for cloning. Clone eyupio/reet.sh there yourself and add the folder as a project."],
+  ['denied', 'Terminal access is off on studio. Turn it on there, then try again.'],
  ]) {
   if (!run(`a failed clone (${code}) returns to the form`)) continue
   const {context,page,errors,box} = await scene()
@@ -368,9 +370,7 @@ try {
   await context.close()
  }
 
- // No machine can clone yet: the line says what one needs, and there is no form.
- // While the start is on its way the two tabs wait, so focus is never left in a hidden panel; the header's close still
- // works and gives focus back to Add.
+ // While the start is on its way the two tabs wait, so focus is never left in a hidden panel.
  if (run('the tabs wait while the start is on its way')) {
   let release
   const gate = new Promise(r => { release = r })
@@ -392,7 +392,10 @@ try {
   expect(errors).toEqual([])
   await context.close()
  }
- if (run('closing while the start is on its way returns focus to Add')) {
+ // While the start is on its way the dialog cannot be closed, as while a folder project is saved: the header's Close,
+ // Escape and a press outside all wait, so a clone the controller began is always followed. Once it answers, the status
+ // line and Close appear as usual, and the clone is read.
+ if (run('the dialog waits for the start before it can close')) {
   let release
   const gate = new Promise(r => { release = r })
   const {context,page,errors,box} = await scene({start:() => gate.then(() => ({status:202, json:{cloneId:'c0ffee', dir:'~/reet/repos/eyupio/reet.sh'}}))})
@@ -402,16 +405,56 @@ try {
   await repoField(page).fill('eyupio/reet.sh')
   await cloneButton(page).click()
   await expect.poll(() => box.starts.length).toBe(1)
-  await expect(tab(page, 'From GitHub')).toBeDisabled()
-  await dialog(page).locator('header').getByRole('button',{name:'Close',exact:true}).click()
-  await expect(dialog(page)).toHaveCount(0)
-  await expect(add).toBeFocused()
+  const headerClose = dialog(page).locator('header').getByRole('button',{name:'Close',exact:true})
+  await expect(headerClose).toBeDisabled()
+  await headerClose.click({force:true})
+  await page.keyboard.press('Escape')
+  await page.mouse.click(4, 4)
+  await page.waitForTimeout(300)
+  await expect(dialog(page)).toBeVisible()
   release()
-  await page.waitForTimeout(500)
+  await expect(dialog(page).getByText(CLONING,{exact:true})).toBeVisible()
+  await expect(footClose(page)).toBeFocused()
+  await expect(headerClose).toBeEnabled()
+  await expect.poll(() => box.reads.length, {timeout:10000}).toBeGreaterThan(0)
+  await footClose(page).click()
+  await expect(dialog(page)).toBeHidden()
+  await expect(add).toBeFocused()
   expect(errors).toEqual([])
   await context.close()
  }
 
+ // The controller no longer knows the clone (it restarted mid-clone, or the job expired): reet says it lost track, where
+ // a failure is said, and reads the project list again.
+ const LOST = 'reet lost track of cloning eyupio/reet.sh. Add it again; if the clone finished, reet picks it up.'
+ for (const open of [true, false]) {
+  if (!run(`a lost clone is said (${open ? 'dialog open' : 'on Home'})`)) continue
+  let lists = 0
+  const {context,page,errors,box} = await scene({routes:{'/api/v2/folder-projects': () => { lists++; return {projects:[notes()], savedWaiting:0} }}})
+  box.outcome = () => ({status:404, json:{error:"That clone isn't on this account.", code:'clone_not_found'}})
+  await page.goto(base)
+  await openAdd(page)
+  await toGitHub(page)
+  await repoField(page).fill('eyupio/reet.sh')
+  await cloneButton(page).click()
+  await expect(dialog(page).getByText(CLONING,{exact:true})).toBeVisible()
+  if (!open) { await footClose(page).click(); await expect(dialog(page)).toBeHidden() }
+  const before = lists
+  box.finish = true
+  if (open) {
+   await expect(errorSlot(page)).toHaveText(LOST, {timeout:10000})
+   await expect(repoField(page)).toHaveValue('eyupio/reet.sh')
+   await expect(cloneButton(page)).toBeFocused()
+   await expect(page.locator('.notice.bad')).toHaveCount(0)
+  } else {
+   await expect(page.locator('.notice.bad')).toHaveText(LOST, {timeout:10000})
+  }
+  await expect.poll(() => lists).toBeGreaterThan(before)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // No machine can clone yet: the line says what one needs, and there is no form.
  if (run('no machine can clone yet')) {
   const {context,page,errors} = await scene({clone:{}})
   await page.goto(base)
@@ -469,7 +512,7 @@ try {
   await context.close()
  }
 
- console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; 1280 and 390 px, light and dark.')
+ console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; 1280 and 390 px, light and dark.')
 } finally {
  await browser.close()
 }

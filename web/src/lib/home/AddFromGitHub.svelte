@@ -182,5 +182,8 @@
     .status.quiet { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .cancel { width: 110px; height: 48px; padding: 0; border-color: var(--line-strong); border-radius: 10px; }
     .submit { flex: 1; height: 48px; border-radius: 10px; padding: 0 12px; }
+    /* A short screen (sideways, or the keyboard open): the buttons keep the 44 px a touch needs and no more, so the
+       repository field has room above the footer under the dialog's header and tabs. */
+    :global(dialog[data-shell-short]) .cancel, :global(dialog[data-shell-short]) .submit { height: 44px; }
   }
 </style>

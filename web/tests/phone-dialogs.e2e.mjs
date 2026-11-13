@@ -43,6 +43,8 @@ const ended = {'/api/v2/terminal/sessions': {sessions:sessions.map(s => ({...s, 
 const moved = {...sessions[0], id:'session-switch000000001', title:'OpenCode chat moved to its TUI', tool:'opencode', dir:'/home/dev/work/site', acpSessionId:'ses_moved00000000000000000001'}
 const switchable = {'/api/v2/terminal/sessions': {sessions:[moved, ...sessions]},
  '/api/v2/terminal/machines': {machines:tmachines.map(m => m.agentId === moved.agentId ? {...m, capabilities:{...m.capabilities, tools:[...m.capabilities.tools, 'opencode'], acp:true, acpHistory:true, sessionMode:true}} : m)}}
+// Add a project From GitHub: its form shows only when a machine can clone from GitHub.
+const cloning = {'/api/v2/terminal/machines': {machines:tmachines.map(m => ({...m, capabilities:{...m.capabilities, repoClone:true}}))}}
 const switchTui = async page => { await page.getByRole('button',{name:'Session actions',exact:true}).click(); await page.getByRole('dialog',{name:'Session actions',exact:true}).getByLabel('Session interface',{exact:true}).selectOption('chat') }
 // field: the text field typed into with the keyboard open. primary: the main action, when it is not the dialog's
 // button.primary or submit button. sheet: how it sits on an upright phone.
@@ -64,6 +66,8 @@ const DIALOGS = [
  {name:'confirmation', path:'/machines', open:async p => { await cardMenu('Settings…')(p); await p.getByRole('button', {name:'Forget machine…'}).click() }, sheet:'bottom'},
  // Folder projects in the project rail, on the Sessions screen on a phone (PR H): Add, a card's Edit, Worktrees and Remove from reet.
  {name:'add project', path:'/sessions?view=list', open:press('Add a project', {exact:true}), field:TEXT, sheet:'full'},
+ // The same dialog on its From GitHub tab, typing the repository.
+ {name:'add project (GitHub)', path:'/sessions?view=list', extra:cloning, open:async p => { await press('Add a project', {exact:true})(p); await p.locator('dialog[open]').getByRole('tab', {name:'From GitHub', exact:true}).click() }, field:TEXT, sheet:'full'},
  {name:'edit project', path:'/sessions?view=list', open:menu('site', 'Edit'), field:TEXT, sheet:'full'},
  {name:'project worktrees', path:'/sessions?view=list', open:menu('site', 'Worktrees'), sheet:'full'},
  {name:'remove project', path:'/sessions?view=list', open:menu('site', 'Remove from reet'), sheet:'bottom'},

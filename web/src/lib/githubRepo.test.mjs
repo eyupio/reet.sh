@@ -10,7 +10,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
-const { parseGitHubRepo, cloneFolder, watchClone, outstandingClone, rememberClone } = await import(asURL(compile('./githubRepo.ts')))
+const { parseGitHubRepo, cloneFolder, lostCloneLine, watchClone, outstandingClone, rememberClone } = await import(asURL(compile('./githubRepo.ts')))
 
 const shown = r => r ? `${r.owner}/${r.repo}` : null
 
@@ -176,4 +176,8 @@ test('the first read waits one interval', async () => {
   await tick(50)
   assert.equal(reads, 1)
   stop.abort()
+})
+
+test('a clone the controller lost is said with its repository', () => {
+  assert.equal(lostCloneLine('eyupio/reet.sh'), 'reet lost track of cloning eyupio/reet.sh. Add it again; if the clone finished, reet picks it up.')
 })

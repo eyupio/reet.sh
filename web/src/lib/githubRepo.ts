@@ -39,6 +39,10 @@ export function parseGitHubRepo(input: string): { owner: string; repo: string } 
   return OWNER.test(owner) && validRepo(repo) ? { owner, repo } : null
 }
 
+/** What is said when the controller no longer knows a clone this page started (it restarted mid-clone, or the job
+ *  expired): the page cannot tell how it ended. `repo` is owner/name. */
+export const lostCloneLine = (repo: string): string => `reet lost track of cloning ${repo}. Add it again; if the clone finished, reet picks it up.`
+
 /** Where the machine puts the clone, as the person reads it. */
 export const cloneFolder = (r: { owner: string; repo: string }): string => `~/reet/repos/${r.owner}/${r.repo}`
 

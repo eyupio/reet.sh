@@ -388,10 +388,9 @@
     dialog?.close()
     if (returnFocus && opener?.isConnected) opener.focus()
   }
-  // While a save is in flight the dialog stays: the 15-second limit ends the wait.
-  // A From GitHub start on its way does not hold the dialog: closing drops the answer (the clone, if the controller began
-  // it, still ends in a project the list shows later) and gives focus back to what opened the dialog.
-  function close() { if (busy) return; shutdown(true); onclose() }
+  // While a save is in flight the dialog stays: the 15-second limit ends the wait. A From GitHub start on its way holds it
+  // the same way, so a clone the controller began is always followed: once it answers, the status line and Close appear.
+  function close() { if (busy || starting) return; shutdown(true); onclose() }
   // A change clears a refusal. After a lost reply the fields are locked, so Try again sends exactly what was sent.
   function edited() { if (!busy && !operation && message) { message = ''; failed = false } }
 
@@ -605,10 +604,10 @@
 <dialog bind:this={dialog} use:shell={{ sheet: 'full' }} class:browsing={browsing && way === 'folder'} class:ways aria-labelledby={`${id}-title`} oncancel={(event) => { event.preventDefault(); close() }}>
   <header data-shell-head>
     <div class="titles">
-      <p class="eyebrow">Projects</p>
+      <p class="eyebrow" data-shell-aside>Projects</p>
       <h2 id={`${id}-title`}>{editing ? `Edit ${editing.name}` : 'Add a project'}</h2>
     </div>
-    <button type="button" class="close" onclick={close} disabled={busy} aria-label="Close" data-shell-close>
+    <button type="button" class="close" onclick={close} disabled={busy || starting} aria-label="Close" data-shell-close>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
     </button>
   </header>
@@ -886,6 +885,10 @@
     dialog.browsing { height: auto; }
     header, form { background: var(--bg); }
     header { height: 60px; flex: none; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line-soft); }
+    /* A short screen (a phone held sideways, or the keyboard open): the eyebrow is gone (data-shell-aside), so the header
+       is one row around the 44 px Close, leaving the tabs and the focused field room above the footer. */
+    dialog:global([data-shell-short]) header { height: 48px; }
+    dialog:global([data-shell-short]) .cancel, dialog:global([data-shell-short]) .submit { height: 44px; }
     .ways { padding: 0 16px; background: var(--bg); }
     .eyebrow { font-size: 14px; letter-spacing: .09em; }
     h2 { margin: 0; font-size: 21px; }

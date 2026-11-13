@@ -13,8 +13,9 @@ import { checkBase, type FolderProject, type LaunchRequest } from './terminal/ap
 
 /** The launch fields the question depends on: what will run, where, and the base it was given. */
 export type BaseLaunch = Pick<LaunchRequest, 'tool' | 'dir' | 'resume' | 'resumeAcp' | 'worktree' | 'base'>
-/** The saved project a launch names, as far as this question cares. */
-export type BaseProject = { isRepo?: boolean; cloned?: boolean }
+/** The saved project a launch names, as far as this question cares: whether it is a repository reet would isolate, its
+ *  own saved base branch, and whether reet cloned it itself. */
+export type BaseProject = { isRepo?: boolean; cloned?: boolean; baseBranch?: string }
 type ProjectRow = BaseProject & Pick<FolderProject, 'host' | 'dir'>
 
 /**
@@ -41,11 +42,18 @@ export function baseKey(agentId: string, launch: BaseLaunch): string {
  * isolated, the base and GitHub hold the same commit, GitHub has no such branch, the machine could not answer, or the
  * repository is one reet cloned itself. `host` is the machine's name, which the sentence uses. `timeoutMs` shortens the
  * read's own deadline, which only a test does.
+ *
+ * It asks about exactly the branch this start will use: the base the create carries (the person's choice, the
+ * project's base, or the account's default, whichever the page resolved), else — when it carries none — the project's
+ * own saved base, which the controller fills in. With neither, no base is named and the machine answers for the branch
+ * its remote calls default, which is what it will start from. The account's default base is never added here: the
+ * controller does not fill it in either, and one branch name does not fit every repository.
  */
 export async function baseQuestion(agentId: string, host: string, launch: BaseLaunch, project: BaseProject | null | undefined, signal?: AbortSignal, timeoutMs?: number): Promise<string> {
   if (!isolatedLaunch(launch, project)) return ''
   try {
-    const state = await checkBase(agentId, launch.dir ?? '', launch.base || undefined, signal, timeoutMs)
+    const base = launch.base || project?.baseBranch || undefined
+    const state = await checkBase(agentId, launch.dir ?? '', base, signal, timeoutMs)
     const say = baseSentence(state, host)
     return say && needsConfirm(state, { cloned: project?.cloned }) ? say : ''
   } catch {

@@ -44,6 +44,25 @@ test('a base with nothing to say comes back as nothing', async () => {
   assert.equal(asked[0].url, '/api/v2/machines/a1/base-check?dir=%2Fhome%2Fdev%2Fstore')
 })
 
+test('the question is about exactly the base the start will carry', async () => {
+  answer = () => ({ ok: true, json: async () => ({ base: 'main', relation: 'same', local: START, remote: START, start: START }) })
+  const ask = async (launch, project) => {
+    fresh()
+    await baseQuestion('a1', 'studio', { tool: 'claude', dir: '/home/dev/store', ...launch }, project)
+    return new URL(asked[0].url, 'http://x').searchParams.get('base')
+  }
+  const saved = { isRepo: true, baseBranch: 'release/1.2' }
+  // A start whose create carries a base is asked about that base, whatever the project saved.
+  assert.equal(await ask({ base: 'main' }, saved), 'main')
+  assert.equal(await ask({ base: 'main' }, repo), 'main')
+  // A start whose create carries none is asked about the project's saved base: that is what the controller fills in.
+  assert.equal(await ask({}, saved), 'release/1.2')
+  // With neither, no base is named at all, so the machine answers for the branch it would choose itself. The
+  // account's default base is not it: the controller never fills that in, so the question must not either.
+  assert.equal(await ask({}, repo), null)
+  assert.equal(await ask({ base: '' }, { isRepo: true, baseBranch: '' }), null)
+})
+
 test('a launch that will not be isolated is never even asked about', async () => {
   for (const [name, launch, project] of [
     ['a plain shell', { dir: '/home/dev/store' }, repo],

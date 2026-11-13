@@ -110,16 +110,18 @@ func TestIsolatedLaunchWithoutABaseUsesTheProjectsBase(t *testing.T) {
 	}
 }
 
-// A project that saved no base of its own falls back to the account's
-// default, exactly as the browser's question and a project run do, so the
-// branch the person was asked about is the one the session starts from.
-func TestIsolatedLaunchFallsBackToTheAccountsDefaultBase(t *testing.T) {
+// The account's default base is a blanket setting that a given repository may
+// have no branch for, so the controller never fills it in: a project that
+// saved no base of its own leaves the branch to the machine, which starts
+// from the one its remote calls default. Only the project's own saved base,
+// an explicit choice for that repository, is named.
+func TestIsolatedLaunchNeverNamesTheAccountsDefaultBase(t *testing.T) {
 	s, uid, machine := isolationFixture(t, baseFreshCaps())
 	profile, err := s.st.ProfileFor(uid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile.DefaultBaseBranch = "trunk"
+	profile.DefaultBaseBranch = "main"
 	if err := s.st.SaveProfileFor(uid, profile); err != nil {
 		t.Fatal(err)
 	}
@@ -127,16 +129,16 @@ func TestIsolatedLaunchFallsBackToTheAccountsDefaultBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := terminalproto.Create{Tool: "claude", Dir: "/home/a/plain"}
-	if !s.isolateWorktree(uid, machine, "req", &c) || c.Base != "trunk" {
-		t.Fatalf("the account's default base was not named: %+v", c)
+	if !s.isolateWorktree(uid, machine, "req", &c) || c.Base != "" {
+		t.Fatalf("the account's default base was named: %+v", c)
 	}
-	// The project's own base still wins.
+	// The project's own base is still named.
 	if _, err := s.st.CreateFolderProjectFor(uid, store.FolderProject{Host: machine, Dir: "/home/a/reet", Name: "Reet", IsRepo: true, BaseBranch: "develop"}); err != nil {
 		t.Fatal(err)
 	}
 	c = terminalproto.Create{Tool: "claude", Dir: "/home/a/reet"}
 	if !s.isolateWorktree(uid, machine, "req-2", &c) || c.Base != "develop" {
-		t.Fatalf("the project's base was overridden: %+v", c)
+		t.Fatalf("the project's base was not named: %+v", c)
 	}
 }
 

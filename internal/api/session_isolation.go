@@ -53,18 +53,17 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 	c.Worktree = worktreeRunToken(requestID)
 	c.Project = terminalproto.Slug(p.Name, "project")
 	if c.Base == "" && s.machineFetchesBase(uid, agent) {
-		// The project's saved base is what work on it starts from, and the
-		// account's default when it saved none — the same order the browser's
-		// question and a Project run follow, so all three name one branch. A
-		// launch that named its own base keeps it, and with neither the choice
-		// is left to the machine, which starts from the branch the
-		// repository's remote calls its default. A machine from before
-		// base-fresh-v1 is named no base at all: it never asked for one, and
-		// naming one would only refuse a launch that used to run.
+		// The project's saved base is what work on it starts from: an explicit
+		// choice for this repository, which may well refuse a launch when the
+		// branch is gone. A launch that named its own base keeps it, and a
+		// project that saved none leaves the choice to the machine, which
+		// starts from the branch the repository's remote calls its default.
+		// The account's default base is never filled in here: it is one branch
+		// name for every repository, and a repository that calls its own
+		// branch something else would refuse a launch that used to run. The
+		// browser sends it where it applies, and a machine from before
+		// base-fresh-v1 is named no base at all.
 		c.Base = p.BaseBranch
-		if c.Base == "" {
-			c.Base = s.accountBase(uid)
-		}
 	}
 	if c.ProjectID == "" {
 		c.ProjectID = p.ID
@@ -79,16 +78,6 @@ func (s *server) isolateWorktree(uid int64, agent, requestID string, c *terminal
 func (s *server) machineFetchesBase(uid int64, agent string) bool {
 	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
 	return err == nil && caps.Capabilities.BaseFresh && caps.Capabilities.AgentsV2
-}
-
-// accountBase is the branch the account starts new worktrees from when the
-// project names none, or "" when it has no default either.
-func (s *server) accountBase(uid int64) string {
-	profile, err := s.st.ProfileFor(uid)
-	if err != nil {
-		return ""
-	}
-	return profile.DefaultBaseBranch
 }
 
 // baseWorthANotice says whether where a worktree started from is worth

@@ -367,9 +367,11 @@ not a viewer, the canonical `Origin`, the remote-terminals switch on, strict JSO
 - `GET /api/v2/machines/{agentId}/base-check?dir=&base=` answers where a session
   in that folder would start, without making anything: `{base, relation, local,
   remote, start}`, each left out when empty. An empty `base` asks about the
-  saved project's own, and the account's default base branch when the project
-  saved none — the same branch an isolated launch in that folder would name, so
-  the question and the start that follows it are about one branch. It fetches on
+  saved project's own, and about nothing when the project saved none — exactly
+  the branch an isolated launch in that folder would name, so the question and
+  the start that follows it are about one branch. The account's default base
+  branch is never filled in here; a browser that sends it with the create names
+  it in this request too. It fetches on
   the machine, so it shares the rate limit
   the other whole-repository reads take. A machine from before `base-fresh-v1`
   answers 409 `base_check_unsupported`, a machine already busy with branches
@@ -420,8 +422,10 @@ a worktree whenever its sentence says **in a fresh worktree** (the project's wor
 account's). The base:
 
 - **One project.** `base` is sent only when it was chosen: by the person in the Branch slot, by the
-  project's base branch or by the account's default base branch. Otherwise nothing is sent and the
-  worktree starts from the checkout's HEAD; the sentence names that branch as the machine reported it.
+  project's base branch or by the account's default base branch. Otherwise nothing is sent: the
+  controller names the project's own saved base when it has one, and with none the machine starts
+  from the branch its remote calls default (an older machine from the checkout's HEAD). The
+  sentence names the branch the machine reported.
 - **Branch listing.** The Branch slot's names come from the machine
   (`GET /api/v2/machines/{agentId}/branches`, [Folder browse and branch listing](folder-browse.md)),
   at most 200, filtered by the machine. A name only suggested from that list is never sent unless the

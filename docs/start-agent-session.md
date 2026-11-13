@@ -164,8 +164,9 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   scan says is installed: agents, skills and MCP (which no agent reports yet, so it reads "MCP —").
 - **Base branch.** The Branch slot is the base of the fresh worktree. `base` is sent only when it is
   chosen: by the person, by the project's base branch or by the account's default base branch.
-  Otherwise nothing is sent, the worktree starts from the checkout's current commit, and the sentence
-  names the checkout's current branch as the machine reported it. A branch only suggested from the
+  Otherwise nothing is sent: the controller names the project's own saved base when it has one, and
+  with none the machine starts from the branch its remote calls default (an older machine from the
+  checkout's current commit). The sentence names the branch the machine reported. A branch only suggested from the
   machine's list is shown, never sent unless picked. In the checkout there is no Branch slot; a line
   under the sentence says "Works in the checkout on main."
 - **Where it starts.** A session in a saved repository works in a worktree of its own, cut from the
@@ -177,7 +178,13 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   https with `gh`, or not fetched at all when the machine has no `gh`. Before it sends
   anything, Start reads where it would start (`GET /api/v2/machines/{agentId}/base-check`); so do the
   **Start an agent** dialog and **Start** on a backlog plan, through the same step
-  (`web/src/lib/baseGate.ts`). When the two sides differ it asks first, in one sentence naming the
+  (`web/src/lib/baseGate.ts`). The question is about exactly the branch the start will use: the base
+  the create carries (the Branch slot, the project's base, or the account's default, whichever the bar
+  resolved), else the project's saved base, which the controller fills in, else no base at all — the
+  machine then answers for the branch its remote calls default, which is where it will start. The
+  account's default base is never put in that last place: the controller does not fill it in either,
+  and a repository that calls its own branch something else would be refused.
+  When the two sides differ it asks first, in one sentence naming the
   branch, the machine and the commit:
 
   > main on studio has commits GitHub doesn't have. This session starts from the local main (abc1234).

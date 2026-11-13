@@ -91,17 +91,18 @@ func TestBaseCheckRouteFillsTheProjectsBase(t *testing.T) {
 	}
 }
 
-// A project that saved no base of its own falls back to the account's
-// default, as an isolated launch does, so the branch the browser asks about
-// is the one the session will start from.
-func TestBaseCheckRouteFallsBackToTheAccountsDefaultBase(t *testing.T) {
+// The account's default base is never filled in here either: a project that
+// saved no base leaves the branch to the machine, which is what an isolated
+// launch in that folder would do, so the question and the start match. The
+// browser names the account's default itself where its own create carries it.
+func TestBaseCheckRouteNeverNamesTheAccountsDefaultBase(t *testing.T) {
 	f := browseAPIFixture(t, baseCheckCaps())
 	baseCheckProject(t, f, "")
 	profile, err := f.st.ProfileFor(f.uid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile.DefaultBaseBranch = "trunk"
+	profile.DefaultBaseBranch = "main"
 	if err := f.st.SaveProfileFor(f.uid, profile); err != nil {
 		t.Fatal(err)
 	}
@@ -113,8 +114,8 @@ func TestBaseCheckRouteFallsBackToTheAccountsDefaultBase(t *testing.T) {
 		t.Fatalf("check = %d %s", code, raw)
 	}
 	sent := f.sentRequests()
-	if len(sent) != 1 || sent[0].(terminalproto.BaseCheck).Base != "trunk" {
-		t.Fatalf("the check did not ask about the account's default base: %+v", sent)
+	if len(sent) != 1 || sent[0].(terminalproto.BaseCheck).Base != "" {
+		t.Fatalf("the check named the account's default base: %+v", sent)
 	}
 }
 

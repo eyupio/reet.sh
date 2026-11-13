@@ -149,7 +149,10 @@ sends it to the machine.
 ## Where a session in a repository starts
 
 A session started in a saved repository always works in a worktree of its own, cut from the project's
-base branch (else the account's default, else the branch the repository's remote calls its default).
+base branch. The account's default base branch applies where the browser sends it (a start that asks
+for a worktree names it in the create, as it always has); the controller never fills it in, because
+one branch name does not fit every repository. With no base named at all, the machine starts from the
+branch the repository's remote calls its default.
 A machine that is up to date fetches that branch from GitHub first and starts from **GitHub's
 commit**, unless the branch on the machine has commits GitHub doesn't have, in which case it starts
 from the local branch; when GitHub can't be reached it starts from the last known commit and nothing

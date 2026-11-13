@@ -35,15 +35,14 @@ func (s *server) machineBaseCheck(w http.ResponseWriter, r *http.Request) {
 	req := terminalproto.BaseCheck{Dir: q.Get("dir"), Base: q.Get("base")}
 	if req.Base == "" {
 		// A browser that names no base is asking about the project's own: the
-		// branch an isolated session in that folder would start from, which is
-		// the project's base, else the account's default (isolateWorktree
-		// names the same one). A folder with no saved project, and an account
-		// with no default, leave the choice to the machine.
+		// branch an isolated session in that folder would start from
+		// (isolateWorktree names the same one, and no other). A folder with no
+		// saved project, and a project that saved no base, leave the choice to
+		// the machine, and the answer is about the branch it would choose. The
+		// account's default base belongs to the starts the browser sends it
+		// with, which name it in this request themselves.
 		if p, found, err := s.st.RepoProjectForDir(uid, agent, req.Dir); err == nil && found {
 			req.Base = p.BaseBranch
-			if req.Base == "" {
-				req.Base = s.accountBase(uid)
-			}
 		}
 	}
 	if terminalbroker.CheckBaseCheck(req) != nil {

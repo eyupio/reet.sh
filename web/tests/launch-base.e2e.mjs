@@ -3,7 +3,7 @@
 // differ, Home's launch bar reads the base check, says what will happen and asks. Synthetic API answers throughout:
 // every create the page sends is recorded, so a start that was not made is checked as well as one that was.
 import { chromium, expect } from '@playwright/test'
-import { openWorkspace, modelList, modelFavourites } from './helpers/workspace.mjs'
+import { openWorkspace, modelList, modelFavourites, owner } from './helpers/workspace.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
@@ -405,6 +405,48 @@ try {
   await context.close()
  }
 
+ // The question is about exactly the branch the start will use. This start carries no base of its own (the project asks
+ // for no worktree) and the project saved none, so no base is named: the controller names none either, and the machine
+ // answers for the branch its own remote calls default. The account's default base is not put in its place.
+ if (run('a start that carries no base asks about no base')) {
+  const profile = () => ({user:owner, sessionCount:1, accounts:true, profile:{theme:'light', timezone:'Europe/London', dateFormat:'', shelfView:'list',
+   cardsExpanded:false, hostedPrefix:'reet-', defaultBaseBranch:'develop', worktreesByDefault:true, updatedAt:now}})
+  const {context,page,errors,box} = await scene({
+   projects:[fproject('fp1','Store rewrite','/home/dev/store',{baseBranch:'', worktreeDefault:'no'})],
+   routes:{'/api/v2/profile':profile},
+   check:() => ({base:'main',relation:'same',local:START,remote:START,start:START}),
+  })
+  await page.goto(base)
+  await openBar(page)
+  await prompt(page).fill('Fix the failing tests')
+  await startButton(page).click()
+  await expect.poll(() => box.posts.length).toBe(1)
+  await expect(page).toHaveURL(/\/sessions\?/)
+  expect(box.checks).toEqual([{method:'GET', dir:'/home/dev/store', base:null}])
+  expect(box.posts[0].base).toBeUndefined()
+  expect(box.posts[0].worktree).toBeUndefined()
+  expect(box.confirms).toBe(0)
+  expect(errors).toEqual([])
+  await context.close()
+
+  // The same start in a project that did save a base asks about that one: the create carries none, so the controller
+  // fills the project's base in, and the question must be about the branch the session will really start from.
+  const saved = await scene({
+   projects:[fproject('fp1','Store rewrite','/home/dev/store',{baseBranch:'main', worktreeDefault:'no'})],
+   routes:{'/api/v2/profile':profile},
+   check:() => ({base:'main',relation:'same',local:START,remote:START,start:START}),
+  })
+  await saved.page.goto(base)
+  await openBar(saved.page)
+  await prompt(saved.page).fill('Fix the failing tests')
+  await startButton(saved.page).click()
+  await expect.poll(() => saved.box.posts.length).toBe(1)
+  expect(saved.box.checks).toEqual([{method:'GET', dir:'/home/dev/store', base:'main'}])
+  expect(saved.box.posts[0].base).toBeUndefined()
+  expect(saved.errors).toEqual([])
+  await saved.context.close()
+ }
+
  // A folder that is not a repository is never isolated into a worktree, so there is nothing to check and nothing to ask.
  if (run('a folder that is no repository is never checked')) {
   const {context,page,errors,box} = await scene({projects:[fproject('fp2','Notes','/home/dev/notes',{isRepo:false})]})
@@ -423,7 +465,7 @@ try {
   await context.close()
  }
 
- console.log('Launch base: every browser start path says where a session starts and asks first — Home\'s launch bar and the Start an agent dialog, each at 1280 and 390 px in light and dark, and Start on a backlog plan. Escape and Cancel start nothing and return focus to the Start they came from, Start session sends exactly one create (or one plan start) with the project\'s base, a matching base and a failed or unsupported check start with no dialog, and a folder that is no repository is never checked.')
+ console.log('Launch base: every browser start path says where a session starts and asks first — Home\'s launch bar and the Start an agent dialog, each at 1280 and 390 px in light and dark, and Start on a backlog plan. Escape and Cancel start nothing and return focus to the Start they came from, Start session sends exactly one create (or one plan start) with the project\'s base, a matching base and a failed or unsupported check start with no dialog, a start that carries no base is asked about the project\'s saved base or about no base at all (never the account\'s default), and a folder that is no repository is never checked.')
 } finally {
  await browser.close()
 }

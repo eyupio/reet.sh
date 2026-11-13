@@ -19,6 +19,13 @@ this file existed releases were described on their GitHub release pages.
   fetched at all on a machine with no gh — it then starts from its own branch,
   with nothing said about GitHub. A machine running an older reet is unchanged:
   it fetches nothing and starts its worktrees exactly where it always did.
+- The branch is the project's own base branch. Your account's default base
+  branch still applies where the browser sends it, as it always has; the
+  controller does not fill it in, so a repository that calls its branch
+  something else is never refused for a default meant for another one. With no
+  base named at all, the machine starts from the branch that repository's remote
+  calls its default. The browser asks its question about exactly the branch the
+  session will start from.
 - The sync that follows removing a session's worktree keeps working on a machine
   whose `gh` is signed out, or signed in as an account without access: the
   credential helpers your own git configuration names are asked as they always

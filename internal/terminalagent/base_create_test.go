@@ -179,6 +179,12 @@ func sessionChanged(t *testing.T, handle func(context.Context, terminalproto.Mes
 				notes++
 				continue
 			case terminalproto.SessionChanged:
+				if reply.RequestID != msg.RequestID {
+					// The connector's session watcher announces a session the
+					// moment it appears, under a request id of its own and with
+					// no worktree. It can arrive before the create's answer.
+					continue
+				}
 				if _, err := terminalproto.Encode(reply); err != nil {
 					t.Fatalf("reply is not a valid message: %+v", reply.Body)
 				}

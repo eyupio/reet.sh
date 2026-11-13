@@ -7,9 +7,9 @@ import "strings"
 // machine the controller moves to.
 type ChecklistItem struct {
 	// Names are the settings the item covers.
-	Names []string
+	Names []string `json:"names"`
 	// Say is what to do about it.
-	Say string
+	Say string `json:"say"`
 }
 
 // Checklist is derived from the code, not from memory: every setting the

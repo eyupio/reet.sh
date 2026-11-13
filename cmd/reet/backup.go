@@ -23,11 +23,11 @@ import (
 func runBackup(args []string, out io.Writer) error {
 	help := len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")
 	if help {
-		fmt.Fprintln(out, "Usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
+		fmt.Fprintln(out, "Usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--make-owner ADDR --owner-password-file F] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]\n\nlist reads local instance copies; run takes a sealed backup.\nopen decrypts a copy; restore requires its ID and confirmation.\nimport sends a copy to a running controller, which applies it at its next start.\nUse the existing REET_DATA_DIR and backup credentials for this instance.")
 		return nil
 	}
 	if len(args) == 0 {
-		return errors.New("usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]")
+		return errors.New("usage: reet backup keygen | list | run [--password-file F] | open | escrow | unescrow | restore [--yes] [--drop-sessions] [--drop-tokens] [--owner-email ADDR] [--make-owner ADDR --owner-password-file F] [--allow-live-source] [--public-url URL] ID | import --server URL --token-file F [--public-url URL] FILE | fence [--moved-to URL] [--lift]")
 	}
 	switch args[0] {
 	case "keygen":
@@ -348,12 +348,30 @@ func backupRestore(args []string, out io.Writer) error {
 	owner := f.String("owner-email", "", "refuse unless this address is an owner account in the copy, so you can sign in afterwards")
 	allowLive := f.Bool("allow-live-source", false, "accept a copy of a controller that was not fenced as it was taken, or whose copy does not say")
 	publicURL := f.String("public-url", "", "the address this controller will answer at; rewrites the saved mail base URL and sync library origin and removes MCP grants for the old one")
+	makeOwner := f.String("make-owner", "", "make this account, already in the copy, its owner, for a copy whose owner nobody here can sign in as; needs --owner-password-file")
+	ownerPasswordFile := f.String("owner-password-file", "", "read the new owner's password from this file, or - for standard input")
 	file, literal := passwordFlags(f)
 	if err := f.Parse(args); err != nil {
 		return err
 	}
 	if f.NArg() > 1 {
 		return errors.New("expected one backup ID")
+	}
+	if (*makeOwner == "") != (*ownerPasswordFile == "") {
+		return errors.New("--make-owner and --owner-password-file go together: the account to make the owner, and a file holding its new password")
+	}
+	if *makeOwner != "" && *owner != "" {
+		return errors.New("give either --owner-email, which checks for an owner, or --make-owner, which makes one, not both")
+	}
+	if *ownerPasswordFile == "-" && *file == "-" {
+		return errors.New("only one password can come from standard input; put the other in a file")
+	}
+	ownerPassword := ""
+	if *makeOwner != "" {
+		var err error
+		if ownerPassword, err = readSecretFile(*ownerPasswordFile, "the new owner's password"); err != nil {
+			return err
+		}
 	}
 	if *publicURL != "" {
 		u, err := store.ValidatePublicURL(*publicURL)
@@ -380,6 +398,8 @@ func backupRestore(args []string, out io.Writer) error {
 		DropSessions:    *dropSessions,
 		DropTokens:      *dropTokens,
 		OwnerEmail:      *owner,
+		MakeOwner:       *makeOwner,
+		OwnerPassword:   ownerPassword,
 		AllowLiveSource: *allowLive,
 		PublicURL:       *publicURL,
 		CheckOnly:       !*yes,

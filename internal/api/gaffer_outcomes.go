@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,6 +30,7 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcome))
 	mux.HandleFunc("GET /api/v2/gaffer/outcomes/{id}/history", access(s.gafferOutcomeHistory))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop", access(s.gafferOutcomeStop))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop-following", access(s.gafferOutcomeStopFollowing))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/archive", access(s.gafferOutcomeArchive(true)))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/restore", access(s.gafferOutcomeArchive(false)))
 	mux.HandleFunc("DELETE /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcomeDelete))
@@ -81,7 +84,7 @@ func (s *server) gafferOutcomeHistory(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
-	events, err := s.st.OutcomeEventsFor(s.uid(r), o.ID, 200)
+	events, err := s.st.OutcomeEventsFor(s.uid(r), o.ID, o.CreatedAt-60_000, 200)
 	if err != nil {
 		writeErr(w, 500, "The history could not be read.")
 		return
@@ -133,7 +136,36 @@ func (s *server) gafferOutcomeStop(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
+	if o.State != "stopped" {
+		// Nothing was being started, so nothing was stopped: say so rather than record a stop.
+		writeErr(w, 409, "This outcome has no sessions left to start. Use Stop following to end the pipelines in hand.")
+		return
+	}
 	s.eventRequest(r, "gaffer-outcome-stopped", "", map[string]any{"outcome": o.ID})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
+// gafferOutcomeStopFollowing is the person ending an outcome that is stuck or
+// no longer wanted: no pipeline is followed any more, so it can be archived or
+// deleted. Sessions that still exist keep running.
+func (s *server) gafferOutcomeStopFollowing(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision int64 `json:"revision"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That outcome request is invalid.") {
+		return
+	}
+	if in.Revision < 1 {
+		writeErr(w, 400, "Reload this outcome before stopping it.")
+		return
+	}
+	o, err := s.gafferProviders.StopFollowingOutcome(s.uid(r), r.PathValue("id"), in.Revision)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-outcome-following-stopped", "", map[string]any{"outcome": o.ID})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }
@@ -203,7 +235,7 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-pipeline-merge-approved", "", map[string]any{"outcome": o.ID, "session": r.PathValue("key")})
+	s.eventRequest(r, "gaffer-pipeline-merge-approved", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "session": r.PathValue("key")})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }
@@ -214,6 +246,8 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 func (s *server) gafferOutcomeAdvance(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Confirmed bool `json:"confirmed"`
+		// Stage is the stage the person was shown as in hand.
+		Stage string `json:"stage"`
 	}
 	if !decodeStrictJSON(w, r, 1024, &in, "That request is invalid.") {
 		return
@@ -226,7 +260,7 @@ func (s *server) gafferOutcomeAdvance(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "Remote sessions are disabled on this controller, so Gaffer cannot start any.")
 		return
 	}
-	o, err := s.gafferProviders.MovePipelineOn(s.uid(r), r.PathValue("id"), r.PathValue("key"))
+	o, err := s.gafferProviders.MovePipelineOn(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Stage)
 	if err != nil {
 		gafferOutcomeError(w, err)
 		return
@@ -330,7 +364,7 @@ func (s *server) gafferOutcomeRetry(w http.ResponseWriter, r *http.Request) {
 		gafferOutcomeError(w, err)
 		return
 	}
-	s.eventRequest(r, "gaffer-pipeline-retried", "", map[string]any{"outcome": o.ID, "session": r.PathValue("key")})
+	s.eventRequest(r, "gaffer-pipeline-retried", "", map[string]any{"outcome": o.ID, "pipeline": r.PathValue("key"), "session": r.PathValue("key")})
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, o)
 }
@@ -402,12 +436,27 @@ func (c *replyCapture) Header() http.Header         { return c.header }
 func (c *replyCapture) Write(b []byte) (int, error) { return c.body.Write(b) }
 func (c *replyCapture) WriteHeader(int)             {}
 
+// EndOutcomeSession ends a session a pipeline has finished with, the way the
+// person's own End does with its history kept: the worktree is left alone.
+func (o outcomeStarter) EndOutcomeSession(ctx context.Context, uid int64, sessionID string) error {
+	s := o.s
+	if s.terminals == nil {
+		return errors.New("Remote sessions are disabled on this controller.")
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return err
+	}
+	_, err := s.terminals.End(ctx, uid, sessionID, hex.EncodeToString(raw))
+	return err
+}
+
 func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in gaffer.OutcomeLaunch) (string, string, error) {
 	s := o.s
 	if !s.terminalEnabled() || s.terminals == nil {
 		return "", "", errors.New("Remote sessions are disabled on this controller.")
 	}
-	create := terminalproto.Create{Title: in.Title, Cols: 100, Rows: 30, Tool: in.Tool, Model: in.Model, Effort: in.Effort, Dir: in.Dir, Prompt: in.Prompt, ProjectID: in.ProjectID, Structured: true, Trust: in.Trust, Yolo: in.Yolo}
+	create := terminalproto.Create{Title: in.Title, Cols: 100, Rows: 30, Tool: in.Tool, Model: in.Model, Effort: in.Effort, Provider: in.Provider, Dir: in.Dir, Prompt: in.Prompt, ProjectID: in.ProjectID, Structured: true, Trust: in.Trust, Yolo: in.Yolo}
 	create.Title, create.TitleOrigin = terminalproto.ResolveTitle(in.Title, "", in.Tool, in.Prompt, in.Dir)
 	refusal := func(err error) (string, string, error) {
 		capture := &replyCapture{header: http.Header{}}

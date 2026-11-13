@@ -7,8 +7,8 @@
 
   // The strip of open sessions (R20): the sessions opened in this browser tab since it loaded, at most eight, in the order
   // they were opened. Each tab is a link to its session with its own close button; middle-click closes it too. Closing a tab
-  // closes the view, never the session. + asks what to start (agent or terminal) in the same dialog the New session
-  // button uses; without `onnew` it falls back to Home with the launch bar focused.
+  // closes the view, never the session. + asks what to start (agent, terminal or Factory outcome) in the same dialog
+  // the New session button uses; without `onnew` it falls back to Home with the launch bar focused.
   let { tabs, current, onselect, onclose, onnew }: {
     tabs: TerminalSession[]; current: string
     onselect: (s: TerminalSession) => void; onclose: (s: TerminalSession) => void

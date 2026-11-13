@@ -597,6 +597,11 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 		if err != nil {
 			return err
 		}
+		// What its agent reported using goes with the session. A finished
+		// pipeline stage has already kept its own figures.
+		if _, err = tx.Exec(`DELETE FROM terminal_session_usage WHERE user_id=? AND session_id=?`, uid, session.ID); err != nil {
+			return err
+		}
 		if err = clearArchivedPrompt(tx, uid, session.ID); err != nil {
 			return err
 		}
@@ -674,13 +679,6 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		}
 		if !c.Capabilities.TerminalEnabled || c.Capabilities.Readiness != terminalproto.Ready {
 			return ErrTerminalNotReady
-		}
-		var accountCount, agentCount int
-		if err := tx.QueryRow(`SELECT COUNT(*),COALESCE(SUM(agent_id=?),0) FROM terminal_sessions WHERE user_id=? AND state IN ('creating','running','end_requested')`, agentID, uid).Scan(&accountCount, &agentCount); err != nil {
-			return err
-		}
-		if accountCount >= terminalproto.MaxSessionsPerAccount || agentCount >= terminalproto.MaxSessionsPerAgent {
-			return ErrTerminalCapacity
 		}
 		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now(), Tool: in.Tool, Model: in.Model, Effort: in.Effort, Yolo: in.Yolo, Dir: in.Dir, Structured: in.Structured, ACPSessionID: in.ResumeACP}
 		if project.Valid {

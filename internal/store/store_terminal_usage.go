@@ -24,6 +24,12 @@ func (s *Store) migrateTerminalUsage() error {
 		input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, cached_tokens INTEGER NOT NULL DEFAULT 0,
 		context_used INTEGER NOT NULL DEFAULT 0, context_size INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL,
 		PRIMARY KEY(user_id, session_id))`)
+	if err != nil {
+		return err
+	}
+	// The table has no foreign key, so what an account's sessions reported goes with the account.
+	_, err = s.db.Exec(`CREATE TRIGGER IF NOT EXISTS terminal_session_usage_owner AFTER DELETE ON users BEGIN
+		DELETE FROM terminal_session_usage WHERE user_id=old.id; END`)
 	return err
 }
 

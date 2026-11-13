@@ -23,6 +23,7 @@ func TestYoloSettingDefaultsOff(t *testing.T) {
 }
 
 func TestYoloSettingOnlyOwnersAndAdmins(t *testing.T) {
+	t.Parallel()
 	srv, st := newAccountsSrvStore(t, "bootstrap")
 	owner := &http.Client{Jar: mustJar(t)}
 	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {

@@ -538,3 +538,282 @@ func TestCanonicalLibraryTypedContentCannotEnterSkillOnlyTargets(t *testing.T) {
 		t.Fatal("unsupported deployment intent was saved", targets, err)
 	}
 }
+
+// A linked library item is the single source for a name. A machine capture of
+// the same name is an observation of that item, not a second library entry, so
+// the Library shows the linked item once and sync keeps maintaining it.
+func TestCanonicalLibraryShowsOneEntryWhenAMachineCopyDuplicatesALinkedSkill(t *testing.T) {
+	s, uid, agent, _ := observationFixture(t)
+	if err := s.ClaimPublishingUsername(uid, "writer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveHostedSkill(uid, canonicalHostedFixture("demo", "hosted instructions")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveMachineSkillImportFor(uid, agent.ID, machineImportFixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.LibraryViewFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("a linked skill and its machine copy became %d library entries: %+v", len(items), items)
+	}
+	if !hasAlias(items[0], "hosted") {
+		t.Fatalf("the linked item was not the one kept: %+v", items[0])
+	}
+	if err := s.SetSyncLibraryOrigin(uid, "https://reet.example"); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.SyncLibraryViewFor(uid, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Skills) != 1 || view.Skills[0].Name != "demo" {
+		t.Fatalf("automatic sync did not resolve the same source: %+v", view)
+	}
+}
+
+// A skill that exists only on a machine can still be added to the library by
+// hand. Adding a linked item of the same name later makes that item the single
+// source, so the manual copy is no longer a second entry.
+func TestCanonicalLibraryKeepsAManuallyAddedMachineCopyUntilALinkedSourceExists(t *testing.T) {
+	s, uid, agent, _ := observationFixture(t)
+	if _, err := s.SaveMachineSkillImportFor(uid, agent.ID, machineImportFixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.LibraryViewFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || linkedLibraryItem(items[0]) {
+		t.Fatalf("a manual machine copy was not kept as its own source: %+v", items)
+	}
+	if err := s.ClaimPublishingUsername(uid, "writer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveHostedSkill(uid, canonicalHostedFixture("demo", "hosted instructions")); err != nil {
+		t.Fatal(err)
+	}
+	items, err = s.LibraryViewFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || !hasAlias(items[0], "hosted") {
+		t.Fatalf("the linked source did not replace the manual copy: %+v", items)
+	}
+}
+
+// Two machine copies with their own explicit locations are separate items, not
+// duplicates: only a linked item makes an unlinked copy of the same name fold.
+func TestCanonicalLibraryKeepsDistinctUnlinkedSameNameCopies(t *testing.T) {
+	s, uid, agent, _ := observationFixture(t)
+	base := ""
+	for i, id := range []string{strings.Repeat("e", 32), strings.Repeat("f", 32)} {
+		location := LibraryLocation{ID: id, Application: "shared", Path: "/fixture/skills/" + id}
+		if _, err := s.RegisterLibraryLocationFor(uid, agent.ID, location); err != nil {
+			t.Fatal(err)
+		}
+		fixture := machineImportFixture(t)
+		in := LibraryLocationImport{LocationID: id, Name: "demo", RequestID: fmt.Sprintf("location_duplicate_%04d", i), ExpectedBase: &base, Files: fixture.Files}
+		if _, err := s.ImportLibraryLocationFor(uid, agent.ID, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := s.LibraryViewFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("unlinked same-name copies were folded: %+v", items)
+	}
+}
+
+func hasAlias(item LibraryItem, kind string) bool {
+	for _, alias := range item.Aliases {
+		if alias.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// Selection and scheduler code reads LibraryFor, so it must keep the manual
+// copy even when the Library view folds it under a linked same-name item.
+func TestCanonicalLibraryForKeepsEveryItemForSelection(t *testing.T) {
+	s, uid, agent, _ := observationFixture(t)
+	if err := s.ClaimPublishingUsername(uid, "writer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveHostedSkill(uid, canonicalHostedFixture("demo", "hosted instructions")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveMachineSkillImportFor(uid, agent.ID, machineImportFixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.LibraryFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("LibraryFor dropped an item a selection could name: %+v", all)
+	}
+	view, err := s.LibraryViewFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view) != 1 {
+		t.Fatalf("the view did not fold the duplicate: %+v", view)
+	}
+}
+
+// More than one linked source for one name is a real conflict the sync library
+// settles; the Library view must not pick a winner by itself.
+func TestCanonicalLibraryViewKeepsTwoLinkedSources(t *testing.T) {
+	s, uid, _, _ := observationFixture(t)
+	if err := s.ClaimPublishingUsername(uid, "writer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveHostedSkill(uid, canonicalHostedFixture("demo", "hosted instructions")); err != nil {
+		t.Fatal(err)
+	}
+	r, err := ref.Parse("owner/repo/demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	if _, err := s.UpsertFor(uid, r, Patch{Used: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.LibraryViewFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view) != 2 {
+		t.Fatalf("the view chose between two linked sources: %+v", view)
+	}
+}
+
+func TestLinkedLibraryItemTreatsALegacySourceAsLinked(t *testing.T) {
+	cases := []struct {
+		name string
+		item LibraryItem
+		want bool
+	}{
+		{"hosted alias", LibraryItem{Aliases: []LibraryAlias{{Kind: "hosted", Reference: "demo"}}}, true},
+		{"github source", LibraryItem{Metadata: &Skill{Source: "owner/repo", SourceType: "github"}}, true},
+		{"source saved before its type", LibraryItem{Metadata: &Skill{Source: "owner/repo"}}, true},
+		{"local source", LibraryItem{Metadata: &Skill{Source: "demo", SourceType: "local"}}, false},
+		{"no source", LibraryItem{Metadata: &Skill{}}, false},
+		{"no metadata", LibraryItem{}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := linkedLibraryItem(c.item); got != c.want {
+				t.Fatalf("linkedLibraryItem = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// The Skills page asks for one card per name. It must not need a second copy
+// of a skill the account already has from a known source.
+func TestListCanonicalFoldsAnUnlinkedCopyOfALinkedSkill(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	yes := true
+	linked, err := ref.Parse("owner/repo/demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertFor(uid, linked, Patch{Used: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLocalFor(uid, "demo", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	all, counts, err := s.ListFor(uid, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 || counts.All != 2 {
+		t.Fatalf("fixture has %d skills, counts %+v", len(all), counts)
+	}
+	one, canonical, err := s.ListFor(uid, Filter{Canonical: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(one) != 1 || one[0].SourceType == "local" || canonical.All != 1 || canonical.Used != 1 {
+		t.Fatalf("canonical list = %+v, counts %+v", one, canonical)
+	}
+}
+
+func TestListCanonicalKeepsAManualCopyAndTwoLinkedSources(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	if _, err := s.UpsertLocalFor(uid, "solo", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	one, _, err := s.ListFor(uid, Filter{Canonical: true})
+	if err != nil || len(one) != 1 || one[0].SourceType != "local" {
+		t.Fatalf("manual copy = %+v %v", one, err)
+	}
+	first, _ := ref.Parse("owner/repo/demo")
+	second, _ := ref.Parse("other/repo/demo")
+	if _, err := s.UpsertFor(uid, first, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertFor(uid, second, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	both, counts, err := s.ListFor(uid, Filter{Canonical: true})
+	if err != nil || len(both) != 3 || counts.All != 3 {
+		t.Fatalf("two linked sources were folded: %+v %+v %v", both, counts, err)
+	}
+}
+
+// Identity is the exact name, as the sync library uses it. A case difference
+// is not silently merged on the shelf.
+func TestListCanonicalMatchesTheExactName(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	linked, _ := ref.Parse("owner/repo/demo")
+	if _, err := s.UpsertFor(uid, linked, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLocalFor(uid, "Demo", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	all, _, err := s.ListFor(uid, Filter{Canonical: true})
+	if err != nil || len(all) != 2 {
+		t.Fatalf("case difference was folded: %+v %v", all, err)
+	}
+}
+
+// Hiding the second card must not hide the machine that reported the copy: the
+// view carries the observed folders onto the linked item.
+func TestCanonicalLibraryViewMergesTheFoldedMachineObservation(t *testing.T) {
+	s := newStore(t)
+	uid, _ := s.DefaultOwner()
+	linked, _ := ref.Parse("owner/repo/demo")
+	if _, err := s.UpsertFor(uid, linked, Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLocalFor(uid, "demo", Patch{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordEnvironmentFor(uid, "local/demo", "laptop", "claude", "", "/home/me/.claude/skills", "/home/me/.claude/skills/demo"); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.LibraryViewFor(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view) != 1 || view[0].Metadata == nil {
+		t.Fatalf("view = %+v", view)
+	}
+	if len(view[0].Metadata.Environments) != 1 || view[0].Metadata.Environments[0].Host != "laptop" || view[0].Metadata.EnvironmentCount != 1 {
+		t.Fatalf("machine observation was not carried onto the linked item: %+v", view[0].Metadata)
+	}
+}

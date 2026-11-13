@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/sealed"
 	"github.com/eyupio/reet.sh/internal/store"
@@ -17,6 +16,7 @@ import (
 // The Factory's MCP tools read for any writer's connection and control only
 // for one with management scope; a read-only account gets neither.
 func TestFactoryMCPToolsReadForWritersAndControlOnlyWithManagementScope(t *testing.T) {
+	t.Parallel()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -46,16 +46,16 @@ func TestFactoryMCPToolsReadForWritersAndControlOnlyWithManagementScope(t *testi
 	}
 	missing := strings.Repeat("a", 32)
 	for name := range mcpFactoryReads {
-		if _, err := s.executeMCPFactory(ctx, viewer, name, map[string]any{"outcome_id": missing}); !errors.Is(err, gaffer.ErrContextForbidden) {
+		if _, err := s.executeMCPFactory(ctx, viewer, name, map[string]any{"outcome_id": missing}); !errors.Is(err, errFactoryForbidden) {
 			t.Fatalf("viewer %s: %v", name, err)
 		}
 	}
 	for name := range mcpFactoryWrites {
 		args := map[string]any{"outcome_id": missing, "pipeline": "a", "mode": "by_itself", "confirm": true}
-		if _, err := s.executeMCPFactory(ctx, read, name, args); !errors.Is(err, gaffer.ErrContextForbidden) {
+		if _, err := s.executeMCPFactory(ctx, read, name, args); !errors.Is(err, errFactoryForbidden) {
 			t.Fatalf("read scope %s: %v", name, err)
 		}
-		if _, err := s.executeMCPFactory(ctx, viewer, name, args); !errors.Is(err, gaffer.ErrContextForbidden) {
+		if _, err := s.executeMCPFactory(ctx, viewer, name, args); !errors.Is(err, errFactoryForbidden) {
 			t.Fatalf("viewer %s: %v", name, err)
 		}
 		// With the scope, a control still changes nothing for an outcome that is not there.
@@ -64,11 +64,43 @@ func TestFactoryMCPToolsReadForWritersAndControlOnlyWithManagementScope(t *testi
 		}
 	}
 	// What cannot be undone, or lets a merge happen unasked, needs the explicit confirmation.
-	for _, name := range []string{"reet_move_pipeline_on", "reet_approve_pipeline_merge", "reet_stop_outcome", "reet_start_outcome", "reet_add_pipelines", "reet_send_pipeline_back"} {
+	for _, name := range []string{"reet_tell_pipeline_agent", "reet_move_pipeline_on", "reet_approve_pipeline_merge", "reet_stop_outcome", "reet_start_outcome", "reet_add_pipelines", "reet_send_pipeline_back"} {
 		_, err := s.executeMCPFactory(ctx, write, name, map[string]any{"outcome_id": missing, "pipeline": "a", "mode": "by_itself"})
 		if err == nil || !strings.Contains(err.Error(), "confirm=true") {
 			t.Fatalf("%s without confirm: %v", name, err)
 		}
+	}
+	// A missing outcome is named as such, not as a skill.
+	if _, err := s.executeMCPFactory(ctx, write, "reet_get_factory_outcome", map[string]any{"outcome_id": missing}); err == nil || !strings.Contains(err.Error(), "That outcome is not available") {
+		t.Fatalf("missing outcome: %v", err)
+	}
+	// An outcome on YOLO has agents that act without approvals: a client cannot
+	// tell them, add to them or send their work back.
+	yolo, err := s.st.CreateGafferOutcomeFor(user.ID, store.GafferOutcome{ID: strings.Repeat("b", 32), Objective: "Ship it.", Yolo: true, Sessions: []store.GafferOutcomeSession{{Key: "a", Title: "Part", Prompt: "Do it.", RequestID: strings.Repeat("8", 32)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"reet_tell_pipeline_agent", "reet_add_pipelines", "reet_send_pipeline_back"} {
+		_, err := s.executeMCPFactory(ctx, write, name, map[string]any{"outcome_id": yolo.ID, "pipeline": "a", "confirm": true, "stage": "code", "reason": "Again.", "text": "Do more.", "request_id": strings.Repeat("c", 32), "pipelines": []any{map[string]any{"title": "More", "brief": "Do more."}}})
+		if err == nil || !strings.Contains(err.Error(), "runs on YOLO") {
+			t.Fatalf("%s on a YOLO outcome: %v", name, err)
+		}
+	}
+	// A fenced controller accepts no Factory change over MCP, as its browser routes accept none.
+	if _, err := s.st.SetFence("https://new.example"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.executeMCPFactory(ctx, write, "reet_stop_outcome", map[string]any{"outcome_id": yolo.ID, "confirm": true}); err == nil || strings.Contains(err.Error(), "confirm") {
+		t.Fatalf("a write on a fenced controller: %v", err)
+	}
+	if _, err := s.executeMCPFactory(ctx, write, "reet_list_factory", map[string]any{}); err != nil {
+		t.Fatalf("a read on a fenced controller: %v", err)
+	}
+	if after, err := s.st.GafferOutcomeFor(user.ID, yolo.ID); err != nil || after.Revision != yolo.Revision {
+		t.Fatalf("the fenced record changed: %+v %v", after, err)
+	}
+	if _, err := s.st.LiftFence(); err != nil {
+		t.Fatal(err)
 	}
 	// A client can make a pipeline wait, never let it merge by itself.
 	if _, err := s.executeMCPFactory(ctx, write, "reet_set_pipeline_merge", map[string]any{"outcome_id": missing, "pipeline": "a", "mode": "by_itself", "confirm": true}); err == nil || !strings.Contains(err.Error(), "only be made to wait") {

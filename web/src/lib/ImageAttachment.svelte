@@ -5,7 +5,7 @@
   import { ATTACHMENT_ACCEPT, attachmentMessage, validateAttachment } from './imageAttachment'
   import { formatImageSize } from './terminal/upload'
 
-  let { label, hint = 'PNG, JPEG or WebP · up to 5 MiB', disabled = false, busy = false, error = '', file = $bindable<File | null>(null) }: {
+  let { label, hint = 'Paste, or choose a PNG, JPEG or WebP · up to 5 MiB', disabled = false, busy = false, error = '', file = $bindable<File | null>(null) }: {
     label: string
     hint?: string
     disabled?: boolean
@@ -85,7 +85,7 @@
   .chosen img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; flex: none; background: var(--bg-sunk); }
   .facts { display: grid; gap: 2px; min-width: 0; flex: 1 1 auto; }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.875rem; }
-  .size { color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .size { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
   .chosen-actions { display: flex; gap: 8px; flex: none; }
   .link { border: 0; background: none; padding: 4px 0; color: var(--accent-text); font: 600 14px var(--sans); cursor: pointer; min-height: 44px; }
   .link:disabled { color: var(--muted); cursor: default; }

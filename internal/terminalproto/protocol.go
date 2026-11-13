@@ -14,14 +14,12 @@ import (
 )
 
 const (
-	Version               = 1
-	MaxControlBytes       = 64 << 10
-	MaxBinaryBytes        = 32 << 10
-	MaxQueuedOutputBytes  = 256 << 10
-	MaxTitleRunes         = 80
-	MaxSessionsPerAgent   = 8
-	MaxSessionsPerAccount = 32
-	MaxHistoryLines       = 2000
+	Version              = 1
+	MaxControlBytes      = 64 << 10
+	MaxBinaryBytes       = 32 << 10
+	MaxQueuedOutputBytes = 256 << 10
+	MaxTitleRunes        = 80
+	MaxHistoryLines      = 2000
 	// Counters also cross JSON/JavaScript boundaries without loss of precision.
 	MaxCounter int64 = 1<<53 - 1
 )

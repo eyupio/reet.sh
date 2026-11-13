@@ -24,7 +24,7 @@ const outcomes=[{id:'e'.repeat(32),revision:5,objective:'Ship CSV export for bil
  {key:'a',title:'Importer retry',prompt:'p',state:'done',note:'Every stage is done. Check the result; only you mark the work complete.',sessionId:'s4',conversationId:'4'.repeat(32),updatedAt:now,stage:3,autoMerge:true,stages:['code','test','pr','merge'].map(k=>st(k,'claude','','done',{summary:'ok'}))},
 ]}]
 const goals=[goal('1'.repeat(32),'s1','Export API','active',false,'The endpoint and its tests are committed. The review found one missing error case and is fixing it.'),goal('2'.repeat(32),'s2','Export button','needs_user',true,'The button is in, but the design leaves the empty state open. Which of the two do you want?'),goal('5'.repeat(32),'s5','Login tokens','active',false,'Checks are green.')]
-const sessions=['s1','s2','s3','s4','s5','s6'].map((id,n)=>({id,agentId:'a1',title:['Export API','Export button','Export docs','Importer retry','Login tokens','Docs refresh'][n],state:'running',structured:true,tool:'claude',dir:'/work/x',createdAt:now,updatedAt:now,exitCode:null}))
+const sessions=['s1','s2','s3','s4','s5','s6'].map((id,n)=>({id,agentId:'a1',title:['Export API','Export button','Export docs','Importer retry','Login tokens','Docs refresh'][n],state:'running',structured:true,tool:'claude',dir:'/work/x',createdAt:now,updatedAt:now,exitCode:null,...(id==='s5'?{projectId:'p1'}:{})}))
 const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available'},{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
 // What the working agents reported: the code stage's own count, and the review stage in hand with its context window.
 Object.assign(outcomes[0].sessions[0].stages[2],{agentInputTokens:60000,agentOutputTokens:24600,agentCachedTokens:410000,agentUsageReported:true})
@@ -33,8 +33,8 @@ Object.assign(outcomes[0].sessions[0].stages[3],{agentInputTokens:9000,agentOutp
 Object.assign(outcomes[0].sessions[0].stages[0],{closedBy:'person'});Object.assign(outcomes[0].sessions[0].stages[1],{closedBy:'gaffer'})
 Object.assign(outcomes[0].sessions[0].stages[3],{startedAt:now-42*60000,agentState:'working',agentActiveAt:now-20*60000})
 const story=[{id:9,at:now-60000,source:'gaffer',action:'gaffer-stage-started',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'review',reason:'The review stage is under way.'})},{id:8,at:now-120000,source:'gaffer',action:'gaffer-stage-handed-over',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'code',by:'gaffer',reason:'x'})}]
-const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',createdAt:now,updatedAt:now}]
-const routesFor=box=>({'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
+const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:0,version:1,createdAt:now,updatedAt:now},{id:'p2',host:'a1',machine:'workshop',dir:'/work/docs-site',name:'docs-site',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:1,version:1,createdAt:now,updatedAt:now}]
+const routesFor=box=>({'/api/v2/settings/yolo':{allowed:false},'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/history`]:{events:story},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/b/advance`]:request=>{box.moved.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[1];piece.stages[piece.stage].state='done';piece.stage++;piece.stages[piece.stage].state='running';piece.note='The review stage is under way.';o.revision++;return o},
@@ -62,6 +62,35 @@ try {
       await expect(page).toHaveURL(/\/factory$/);await expect(page).toHaveTitle(/Factory/)
       await expect(page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
       await expect(page.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:'Factory',exact:true}).first()).toHaveAttribute('aria-current','page')
+      // The project list is the page's left column on a desktop, as on Home. Choosing a project narrows the page to its
+      // outcomes, and the outcome dialog then opens on that project; the card's + does the same in one press.
+      const projectRail=page.getByRole('complementary',{name:'Projects'})
+      if(width>=1100){
+        await expect(projectRail).toBeVisible()
+        await projectRail.getByRole('button',{name:/^docs-site, /}).click()
+        await expect(page.locator('.scope')).toContainText('Showing docs-site. A new outcome starts in this project.')
+        await expect(page.getByRole('heading',{name:'Nothing in docs-site yet.',exact:true})).toBeVisible()
+        await expect(page.getByRole('article')).toHaveCount(0)
+        // Other sessions follow the chosen project: one in another project, or in none, is left out.
+        const others=page.getByRole('region',{name:'Other sessions',exact:true})
+        await expect(others).toContainText('Only those in docs-site are listed.')
+        await expect(others.getByRole('heading',{name:'Login tokens',exact:true})).toHaveCount(0)
+        await expect(others).not.toContainText('Docs refresh')
+        await page.getByRole('button',{name:'Give Gaffer an outcome in docs-site',exact:true}).click()
+        let asking=page.getByRole('dialog',{name:'Give Gaffer an outcome',exact:true})
+        await expect(asking.getByLabel('Project',{exact:true})).toHaveValue('p2')
+        await asking.getByRole('button',{name:'Close Give Gaffer an outcome',exact:true}).click()
+        await projectRail.getByRole('button',{name:/^billing, /}).click()
+        await expect(page.getByRole('article')).toHaveCount(2)
+        await expect(others.getByRole('heading',{name:'Login tokens',exact:true})).toBeVisible()
+        await expect(others).not.toContainText('Docs refresh')
+        await page.getByRole('button',{name:'Show all projects',exact:true}).click()
+        await expect(page.locator('.scope')).toHaveCount(0)
+        await projectRail.getByRole('button',{name:'New outcome in billing',exact:true}).click()
+        asking=page.getByRole('dialog',{name:'Give Gaffer an outcome',exact:true})
+        await expect(asking.getByLabel('Project',{exact:true})).toHaveValue('p1')
+        await asking.getByRole('button',{name:'Close Give Gaffer an outcome',exact:true}).click()
+      } else await expect(projectRail).toHaveCount(0)
       // A running pipeline is one line until opened; the ones that want the person start open. Then everything is opened for the rest of the run.
       const lines=page.getByRole('list',{name:'Pipelines of this outcome',exact:true}).first().locator(':scope > li')
       await expect(lines.nth(0).getByRole('button',{name:'Show details of Export API',exact:true})).toHaveAttribute('aria-expanded','false')
@@ -70,8 +99,8 @@ try {
       await expect(lines.nth(2).getByRole('button',{name:'Hide details of Export docs',exact:true})).toBeVisible()
       await lines.nth(0).getByRole('button',{name:'Show details of Export API',exact:true}).click()
       await expect(lines.nth(0).getByRole('list',{name:'Stages of Export API',exact:true})).toBeVisible()
-      await page.getByRole('button',{name:'Expand all pipelines',exact:true}).click()
-      await expect(page.getByRole('button',{name:'Collapse all pipelines',exact:true})).toHaveAttribute('aria-pressed','true')
+      await page.getByRole('button',{name:'Expand all',exact:true}).click()
+      await expect(page.getByRole('button',{name:'Collapse all',exact:true})).toHaveAttribute('aria-pressed','true')
       // The headline numbers say who has to act.
       const tiles=page.getByRole('list',{name:'Factory at a glance',exact:true}).getByRole('listitem')
       await expect(tiles).toHaveText(['1Need you · show me','1Ready to merge · show me','1Running','1Done'])
@@ -97,6 +126,12 @@ try {
       await expect(api).toContainText('The review found one missing error case')
       // A pipeline waiting on the person says so and why.
       await expect(pipes.nth(1)).toContainText('Needs you');await expect(pipes.nth(1)).toContainText('Gaffer brought a question back to you.')
+      // Every outcome folds, including one still moving, and opening it brings its pipelines back.
+      await first.getByRole('button',{name:'Hide details',exact:true}).click()
+      await expect(first.getByRole('list',{name:'Pipelines of this outcome'})).toHaveCount(0)
+      await expect(first).toContainText('3 pipelines, in progress')
+      await first.getByRole('button',{name:'Show details',exact:true}).click()
+      await expect(first.getByRole('list',{name:'Pipelines of this outcome'})).toHaveCount(1)
       // A finished pipeline that was allowed to merge says so.
       const done=page.getByRole('article',{name:/^Outcome: Fix the flaky importer test/})
       await expect(done).toContainText('Done');await expect(done).toContainText('By itself when green')
@@ -150,17 +185,18 @@ try {
       await agent.selectOption('codex')
       await add.getByRole('combobox',{name:'Model for Changelog entry',exact:true}).selectOption('gpt-5-codex')
       await add.getByRole('combobox',{name:'Effort for Changelog entry',exact:true}).selectOption('low')
-      // A crew can do its stages: the shipping stage goes back to the outcome's own agent, which reports no effort here.
+      // A crew can do its stages: the shipping stage goes back to the outcome's own agent. Its descriptor names no
+      // thought levels, but the machine can still start it with an effort, so the selector is usable and the choice is sent.
       await add.getByText('Choose who does what',{exact:true}).click()
       await expect(add.getByRole('combobox',{name:'Building agent for Changelog entry',exact:true})).toHaveValue('codex')
       await add.getByRole('combobox',{name:'Shipping agent for Changelog entry',exact:true}).selectOption('claude')
-      await expect(add.getByRole('combobox',{name:'Shipping effort for Changelog entry',exact:true})).toBeDisabled()
+      await add.getByRole('combobox',{name:'Shipping effort for Changelog entry',exact:true}).selectOption('low')
       await expect(add.getByText('2 agent sessions for 2 stages.',{exact:false})).toBeVisible()
       expect(await add.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await add.screenshot({path:`${shots}/gaffer-factory-add-${width}-${theme}.png`})
       await add.getByRole('button',{name:'Add pipeline',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Added'})).toHaveText('Added “Changelog entry”. The controller is starting it.')
-      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low'},{kind:'pr',tool:'claude',model:''}]}]}])
+      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low'},{kind:'pr',tool:'claude',model:'',effort:'low'}]}]}])
       await expect(pipes).toHaveCount(4);await expect(report.getByRole('list',{name:'Proposed pipelines',exact:true})).toHaveCount(0)
       await expect(totals).toContainText('Gaffer tokens4,884')
       expect(box.reviews).toEqual([{revision:6}])
@@ -169,10 +205,12 @@ try {
       await button.getByRole('button',{name:'Move to next stage',exact:true}).click()
       const move=page.getByRole('dialog',{name:/^Move “Export button” on to (review|test|pr)\?$/})
       await expect(move).toContainText('This is your call');await expect(move).toContainText('Nothing is merged by this.')
+      // The move names the stage the person was shown, so a pipeline that left it meanwhile is not moved again.
+      const seen=kinds[outcomes[0].sessions[1].stage]
       expect(box.moved).toEqual([])
       await move.getByRole('button',{name:'Move on',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Moved'})).toHaveText('Moved “Export button” on. The controller is starting its next stage.')
-      expect(box.moved).toEqual([{confirmed:true}])
+      expect(box.moved).toEqual([{confirmed:true,stage:seen}])
       // …and decide, per pipeline and at any time, whether its merge waits for them.
       await pipes.nth(0).getByRole('button',{name:'Let Export API merge by itself',exact:true}).click()
       await expect(pipes.nth(0)).toContainText('By itself when green');expect(box.modes).toEqual([{on:true}])

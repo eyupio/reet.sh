@@ -435,10 +435,6 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		h.sup.mu.Unlock()
 		return terminalproto.SessionChanged{}, terminalhost.ErrOperationConflict
 	}
-	if h.sup.quotaLocked() >= terminalproto.MaxSessionsPerAgent {
-		h.sup.mu.Unlock()
-		return terminalproto.SessionChanged{}, terminalhost.ErrSessionCapacity
-	}
 	consent := h.sup.opts.YoloConsent == nil || h.sup.opts.YoloConsent() != nil
 	if in.Yolo && consent {
 		h.sup.mu.Unlock()
@@ -641,8 +637,7 @@ func (s *chatSupervisor) conversationInUseLocked(tool, acpID string) bool {
 	return false
 }
 
-// quotaLocked counts the chats that hold a slot of MaxSessionsPerAgent; the
-// caller holds s.mu.
+// quotaLocked counts the chats that hold a live slot; the caller holds s.mu.
 func (s *chatSupervisor) quotaLocked() int {
 	n := 0
 	for _, cs := range s.sessions {

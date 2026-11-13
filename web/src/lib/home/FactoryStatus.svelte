@@ -21,7 +21,7 @@
   .rows{list-style:none;margin:0;padding:0;display:grid;gap:8px}
   a{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:12px;row-gap:2px;align-items:center;padding:10px 12px;min-height:44px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);text-decoration:none}
   a:hover{border-color:var(--line-strong)}a:focus-visible,.more:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  .badge{grid-row:1;align-self:start;padding:2px 10px;border-radius:999px;border:1px solid var(--line-strong);font-size:.8125rem;font-weight:600;white-space:nowrap}
+  .badge{grid-row:1;align-self:start;padding:2px 10px;border-radius:999px;border:1px solid var(--line-strong);font-size:.875rem;font-weight:600;white-space:nowrap}
   .badge.you{border-color:var(--accent);color:var(--accent-text)}.badge.bad{border-color:var(--bad);color:var(--bad)}
   .badge.busy{border-color:var(--good);color:var(--good)}.badge.busy::before{content:"";display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--good);animation:factory-row-blink 1.8s ease-in-out infinite}
   .badge.good{border-color:var(--good);color:var(--good)}.badge.good::before{content:"✓";margin-right:5px}

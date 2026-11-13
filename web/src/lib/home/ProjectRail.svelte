@@ -15,7 +15,7 @@
   // Select (the heading's menu, or a long press on a card on touch) turns the cards into checkboxes for Start in several
   // projects: 2 to 12 of them; the strip shows how many are chosen.
   let { projects, groups = undefined, failed = false, reporting, running, known = true, worktrees, savedWaiting = 0, chosen = '', busy, importing = false, pending, moving = false,
-    selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, embedded = false, userId = 0, scope = null, onscope,
+    selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, embedded = false, userId = 0, scope = null, onscope, startWord = 'New session',
     collapsed = false, oncollapsed,
     width = RAIL_DEFAULT, onwidth, onwidthcommit,
     onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour, onmanage,
@@ -59,6 +59,8 @@
     onchoose: (project: FolderProject, opener: HTMLElement) => void
     /** Starts a session in this project at once (the card's +, or New session here). Falls back to `onchoose`. */
     onnew?: (project: FolderProject, opener: HTMLElement) => void
+    /** What the card's + and its menu's first item start: 'New session' (Home), or 'New outcome' on the Factory. */
+    startWord?: string
     onedit: (project: FolderProject, opener: HTMLElement) => void
     onworktrees: (project: FolderProject, opener: HTMLElement) => void
     onremove: (project: FolderProject, opener: HTMLElement) => void
@@ -415,14 +417,14 @@
         <span class="name">{p.name}</span>
       </span>
       <span class="meta">
+        <span class="tag">{machineTag(p)}</span>
         {#if p.baseBranch}<span class="branch">{p.baseBranch}</span>{/if}
         {#if state}<span class="state {state.tone}">{state.text}</span>{/if}
-        <span class="tag">{machineTag(p)}</span>
         {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
       </span>
     </button>
     {#if !selecting}
-      {#if onnew}<button type="button" class="start" aria-label={`New session in ${p.name}`} title="Start a session in this project" onclick={(e) => startCard(p, e.currentTarget)}>
+      {#if onnew}<button type="button" class="start" aria-label={`${startWord} in ${p.name}`} title={startWord === 'New session' ? 'Start a session in this project' : `${startWord} in this project`} onclick={(e) => startCard(p, e.currentTarget)}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14" /></svg>
       </button>{/if}
       <button type="button" class="more" aria-label={`More for ${p.name}`} aria-haspopup="menu" aria-expanded={menuFor === p.id}
@@ -615,7 +617,7 @@
     {@const count = inGroup(gid).length}
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div class="menu" id={`${id}-menu-${project.id}`} style:left={`${menuX}px`} style:top={`${menuY}px`} role="menu" aria-label={project.name} tabindex="-1" onkeydown={menuKeys}>
-      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => startCard(target, o)) }}>New session here</button>
+      <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => startCard(target, o)) }}>{startWord} here</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onedit(target, o)) }}>Edit</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onworktrees(target, o)) }}>Worktrees</button>
       <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === 0} onclick={() => { const target = project; closeMenu(true); onmove(target, -1) }}>Move up</button>
@@ -654,10 +656,11 @@
   .rail-fold { display: grid; place-items: center; width: 24px; height: 24px; margin: 0 6px 0 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; flex: none; }
   .rail-fold:hover { background: var(--card); color: var(--ink); }
   .rail-fold svg { width: 15px; height: 15px; }
-  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-  .items { gap: 8px; }
-  .groups { display: flex; flex-direction: column; gap: 12px; }
-  .group-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; border-radius: 8px; }
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  /* Compact rows: a project is two short lines, not a card with a boxed machine tag. */
+  .items { gap: 4px; }
+  .groups { display: flex; flex-direction: column; gap: 8px; }
+  .group-block { display: flex; flex-direction: column; gap: 4px; min-width: 0; border-radius: 8px; }
   .group-block.captioned { gap: 6px; }
   .group-caption { margin: 0 4px; font: 600 14px/1.3 var(--sans); letter-spacing: 0.01em; color: var(--muted); }
   .group-head { display: flex; align-items: center; gap: 2px; padding: 3px 3px 3px 1px; border-radius: 8px; transition: background .15s; }
@@ -687,8 +690,8 @@
   .item.dragging { opacity: .45; }
   .card[draggable='true'] { cursor: grab; }
   .item.dragging .card { cursor: grabbing; }
-  .item { position: relative; display: flex; flex-direction: column; gap: 6px; }
-  .card { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+  .item { position: relative; display: flex; flex-direction: column; gap: 3px; }
+  .card { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
   .card:hover { border-color: var(--line-strong); }
   .card.chosen, .card.scoped { border-color: var(--accent); }
   .card.scoped { box-shadow: inset 0 0 0 1px var(--accent); }
@@ -700,9 +703,10 @@
   .icon.repo { fill: var(--repo); }
   .icon.folder { color: var(--muted); }
   /* A project's name is shown in full, over as many lines as it needs: two names that start the same must stay apart. */
-  .name { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
-  .tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); border: 1px solid var(--line-mid); border-radius: 6px; padding: 1px 8px; }
-  .meta { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; color: var(--muted); }
+  .name { flex: 1 1 auto; min-width: 0; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+  /* No pill around the machine: the compact row reads as one muted meta line. */
+  .tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); }
+  .meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 14px; color: var(--muted); }
   .branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
   .state { flex: none; }
   .state.good { color: var(--good); }

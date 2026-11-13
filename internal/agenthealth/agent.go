@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,7 +32,26 @@ const (
 	defaultCollectTimeout   = 3 * time.Second
 	defaultBackoffMin       = time.Second
 	defaultBackoffMax       = 15 * time.Second
-	controlReadTimeout      = 90 * time.Second
+	// controlReadTimeout is the agent's liveness deadline: a control
+	// connection that delivers nothing for this long is treated as dead. The
+	// controller's own read limit is five minutes and its health probe is sent
+	// every 30 seconds, so this fires only when a connection has genuinely
+	// stopped delivering, and it fires long before the controller gives up.
+	controlReadTimeout = 90 * time.Second
+	// controlWriteTimeout bounds one control message write. A write that cannot
+	// complete means the socket is no longer draining, which is itself proof of
+	// a dead connection. This is the previous per-write timeout, kept so a
+	// congested link is not newly treated as dead.
+	controlWriteTimeout = 5 * time.Second
+	// handshakeTimeout bounds the handshake write and the read of its
+	// acknowledgement together. Five seconds each turned a briefly busy
+	// controller into a dropped connection.
+	handshakeTimeout = 15 * time.Second
+	// stableSession is how long a connection must stay up before its loss stops
+	// multiplying the retry delay. A handshake that succeeds and is torn down
+	// immediately (a flapping link) is not evidence that the link is healthy,
+	// so it keeps backing off instead of reconnecting once a second forever.
+	stableSession = 30 * time.Second
 )
 
 // AgentConfig is the installed agent's private monitoring configuration. Health
@@ -145,6 +165,12 @@ type AgentConfig struct {
 	BackoffMin       time.Duration
 	BackoffMax       time.Duration
 	ConsentInterval  time.Duration
+	// ReadTimeout is the longest silence tolerated on a live control
+	// connection before it is treated as dead. Zero means controlReadTimeout.
+	ReadTimeout time.Duration
+	// StableSession is how long a connection must stay up before its loss stops
+	// multiplying the retry delay. Zero means stableSession.
+	StableSession time.Duration
 }
 
 // TerminalFactory is given only the authenticated private client's HTTP
@@ -158,6 +184,31 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 	if err := cfg.normalise(); err != nil {
 		return err
 	}
+	return reconnectLoop(ctx, cfg, func(ctx context.Context, sequence *int64) (bool, error) {
+		return runPrivateSession(ctx, cfg, sequence)
+	})
+}
+
+// reconnectLoop is RunAgent's retry policy, separated so it can be exercised
+// without a network. session reports whether the handshake was accepted; the
+// loop decides, from how long that session then stayed up, whether the retry
+// delay resets or keeps multiplying.
+func reconnectLoop(ctx context.Context, cfg AgentConfig, session func(context.Context, *int64) (bool, error)) error {
+	// The loop must be correct on its own, not only through RunAgent's
+	// normalise: a zero StableSession would otherwise make every session look
+	// stable and defeat the whole point of the policy.
+	if cfg.BackoffMin <= 0 {
+		cfg.BackoffMin = defaultBackoffMin
+	}
+	if cfg.BackoffMax < cfg.BackoffMin {
+		cfg.BackoffMax = max(defaultBackoffMax, cfg.BackoffMin)
+	}
+	if cfg.StableSession <= 0 {
+		cfg.StableSession = stableSession
+	}
+	if cfg.Logf == nil {
+		cfg.Logf = log.Printf
+	}
 	sequence := int64(0)
 	backoff := cfg.BackoffMin
 	lastError := ""
@@ -165,13 +216,27 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 		if ctx.Err() != nil {
 			return nil
 		}
-		connected, err := runPrivateSession(ctx, cfg, &sequence)
+		started := time.Now()
+		connected, err := session(ctx, &sequence)
 		if ctx.Err() != nil {
 			return nil
 		}
-		if connected {
+		// Only a session that was both accepted and stayed up resets the
+		// delay. Resetting on the handshake alone let a flapping link
+		// reconnect every second forever, and each reconnect fences the
+		// previous generation and detaches live terminals and chats.
+		stable := connected && time.Since(started) >= cfg.StableSession
+		if stable {
 			backoff = cfg.BackoffMin
 			lastError = ""
+		}
+		// A permanent rejection is not going to start working on the fourth try.
+		// Jump straight to the ceiling so the agent is not dialing a controller
+		// that will keep refusing it, while still retrying in case it is
+		// re-enrolled while the service runs.
+		var refused *enrollmentRefusedError
+		if errors.As(err, &refused) {
+			backoff = cfg.BackoffMax
 		}
 		if cfg.OnError != nil && err != nil {
 			cfg.OnError(err.Error())
@@ -183,20 +248,42 @@ func RunAgent(ctx context.Context, cfg AgentConfig) error {
 				lastError = message
 			}
 		}
-		timer := time.NewTimer(jitter(backoff))
+		timer := time.NewTimer(retryDelay(backoff, stable))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return nil
 		case <-timer.C:
 		}
-		if !connected {
+		if !stable {
 			backoff *= 2
 			if backoff > cfg.BackoffMax {
 				backoff = cfg.BackoffMax
 			}
 		}
 	}
+}
+
+// retryDelay waits before the next attempt. A session that stayed up for a
+// stable period gets its base interval with ±10% jitter, as before. A session
+// that was never accepted, or died inside one stable period, is spread over the
+// lower half of its (now growing) interval instead, so a fleet that lost the
+// controller together does not dial it in lockstep while the delay climbs.
+func retryDelay(backoff time.Duration, stable bool) time.Duration {
+	if stable {
+		return jitter(backoff)
+	}
+	return fullJitter(backoff)
+}
+
+// fullJitter returns a duration in [backoff/2, backoff). It never returns a
+// near-zero delay, so a failing attempt cannot hot-loop, and it decorrelates
+// machines far more than the ±10% jitter used on a healthy reconnect.
+func fullJitter(backoff time.Duration) time.Duration {
+	if backoff <= 0 {
+		return backoff
+	}
+	return time.Duration(float64(backoff) * (0.5 + 0.5*rand.Float64()))
 }
 
 func (cfg *AgentConfig) normalise() error {
@@ -272,7 +359,24 @@ func (cfg *AgentConfig) normalise() error {
 	if cfg.ConsentInterval <= 0 {
 		cfg.ConsentInterval = 5 * time.Second
 	}
+	if cfg.ReadTimeout <= 0 {
+		cfg.ReadTimeout = controlReadTimeout
+	}
+	if cfg.StableSession <= 0 {
+		cfg.StableSession = stableSession
+	}
 	return nil
+}
+
+// connectionError keeps the operator-facing sentence stable while preserving
+// the underlying cause for the agent log. Without the cause, every drop looked
+// identical ("private control connection lost") and could not be diagnosed.
+// The cause is a transport error, never a payload or a credential.
+func connectionError(sentence string, cause error) error {
+	if cause == nil {
+		return errors.New(sentence)
+	}
+	return fmt.Errorf("%s: %w", sentence, cause)
 }
 
 func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (bool, error) {
@@ -304,7 +408,7 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 	})
 	dialCancel()
 	if err != nil {
-		return false, errors.New("private control connection unavailable")
+		return false, connectionError("private control connection unavailable", err)
 	}
 	defer conn.CloseNow()
 	advertised := ""
@@ -335,21 +439,25 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
+		// A write needs to reach the peer, not merely be accepted by the local
+		// socket. Bounding it turns a half-open connection (writes buffered,
+		// nothing draining) into a detected failure instead of silence.
+		writeCtx, writeCancel := context.WithTimeout(ctx, controlWriteTimeout)
 		defer writeCancel()
 		return conn.Write(writeCtx, websocket.MessageText, data)
 	}
-	writeCtx, writeCancel := context.WithTimeout(sessionCtx, 5*time.Second)
-	err = conn.Write(writeCtx, websocket.MessageText, handshake)
-	writeCancel()
+	// The handshake write and its acknowledgement share one deadline: a
+	// controller that is briefly busy should not cost the whole connection.
+	handshakeCtx, handshakeCancel := context.WithTimeout(sessionCtx, handshakeTimeout)
+	err = conn.Write(handshakeCtx, websocket.MessageText, handshake)
 	if err != nil {
-		return false, errors.New("private handshake was not accepted")
+		handshakeCancel()
+		return false, connectionError("private handshake was not accepted", err)
 	}
-	readCtx, readCancel := context.WithTimeout(sessionCtx, 5*time.Second)
-	kind, replyData, err := conn.Read(readCtx)
-	readCancel()
+	kind, replyData, err := conn.Read(handshakeCtx)
+	handshakeCancel()
 	if err != nil || kind != websocket.MessageText {
-		return false, errors.New("private handshake was not acknowledged")
+		return false, connectionError("private handshake was not acknowledged", err)
 	}
 	reply, err := terminalproto.DecodeHandshakeReply(replyData)
 	valid := err == nil && reply.ProtocolVersion == terminalproto.Version &&
@@ -390,7 +498,7 @@ func runControlWorkers(ctx context.Context, cfg AgentConfig, conn *websocket.Con
 		control = gateMachineRequests(cfg, control, send)
 	}
 	start(func() {
-		readControlWithTerminal(sessionCtx, conn, generation, send, errorsSeen, terminalFeatures(cfg), control)
+		readControlWithTerminal(sessionCtx, conn, generation, send, errorsSeen, terminalFeatures(cfg), cfg.ReadTimeout, control)
 	})
 	start(func() { reportHealth(sessionCtx, cfg, generation, sequence, send, errorsSeen) })
 	if cfg.Consent != nil {
@@ -552,7 +660,7 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 }
 
 func readControl(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error) {
-	readControlWithTerminal(ctx, conn, generation, send, errorsSeen, "", nil)
+	readControlWithTerminal(ctx, conn, generation, send, errorsSeen, "", controlReadTimeout, nil)
 }
 
 // readControlWithTerminal answers probes on the reader itself and hands every
@@ -560,7 +668,10 @@ func readControl(ctx context.Context, conn *websocket.Conn, generation int64, se
 // queue. A slow terminal request (a worktree's git, for example) therefore
 // never delays a probe answer, and the terminal handler still sees one
 // message at a time, as its attachment bookkeeping requires.
-func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error, features string, terminal func(context.Context, terminalproto.Message) error) {
+func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generation int64, send Sender, errorsSeen chan<- error, features string, liveness time.Duration, terminal func(context.Context, terminalproto.Message) error) {
+	if liveness <= 0 {
+		liveness = controlReadTimeout
+	}
 	report := func(err error) {
 		select {
 		case errorsSeen <- err:
@@ -591,11 +702,19 @@ func readControlWithTerminal(ctx context.Context, conn *websocket.Conn, generati
 		defer dispatcher.Wait()
 	}
 	for {
-		readCtx, cancel := context.WithTimeout(ctx, controlReadTimeout)
+		// A read that delivers nothing for the whole liveness window means the
+		// connection is dead, even if no write has failed yet. The controller
+		// probes every 30 seconds, so silence is unambiguous here, and a
+		// half-open socket is noticed now rather than on the next request.
+		readCtx, cancel := context.WithTimeout(ctx, liveness)
 		kind, data, err := conn.Read(readCtx)
 		cancel()
 		if err != nil {
-			report(errors.New("private control connection lost"))
+			if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+				report(connectionError("private control connection lost", errors.New("nothing received within the liveness window")))
+			} else {
+				report(connectionError("private control connection lost", err))
+			}
 			return
 		}
 		if kind != websocket.MessageText {
@@ -747,6 +866,14 @@ func bootstrap(ctx context.Context, cfg AgentConfig) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			// A revoked or expired enrollment cannot be fixed by retrying, and
+			// retrying it at full speed hides the problem: the machine simply
+			// never appears connected and the agent log fills with identical
+			// lines. This is surfaced as a distinct, permanent cause so the loop
+			// backs off to its ceiling and the reason is named for the operator.
+			return "", &enrollmentRefusedError{status: resp.StatusCode}
+		}
 		return "", fmt.Errorf("private bootstrap was refused (HTTP %d)", resp.StatusCode)
 	}
 	var reply struct {
@@ -759,6 +886,19 @@ func bootstrap(ctx context.Context, cfg AgentConfig) (string, error) {
 		return "", errors.New("private bootstrap reply is invalid")
 	}
 	return reply.Address, nil
+}
+
+// enrollmentRefusedError is a bootstrap rejection retrying cannot fix. It is a
+// distinct type so the retry policy can treat it differently from a transport
+// failure, and so the operator is told the truth: re-enrolling is the remedy.
+type enrollmentRefusedError struct{ status int }
+
+func (e *enrollmentRefusedError) Error() string {
+	reason := "was refused"
+	if e.status == http.StatusUnauthorized {
+		reason = "was not accepted"
+	}
+	return fmt.Sprintf("this machine's enrollment %s (HTTP %d); re-enroll this machine, retrying cannot fix it", reason, e.status)
 }
 
 func authHeaders(cfg AgentConfig) http.Header {

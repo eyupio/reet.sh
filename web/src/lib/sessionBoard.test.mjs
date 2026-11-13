@@ -9,10 +9,13 @@ const draft = (id, over = {}) => ({ id, title: 'Improve checkout', prompt: 'Poli
 const session = (id, state = 'running', over = {}) => ({ id, title: 'Build search', state, agentId: 'm2', projectId: 'p2', dir: '/work/search', tool: 'claude', model: '', createdAt: 3, updatedAt: 4, ...over })
 const names = { machines: new Map([['m1', 'Studio'], ['m2', 'Laptop']]), projects: new Map([['p1', 'Shop'], ['p2', 'Search']]) }
 
-test('stages follow session lifecycle, including quiet and completed chat turns', () => {
+test('stages follow the status every surface shows, including completed chat turns', () => {
   for (const state of ['creating', 'running', 'end_requested']) assert.equal(sessionStage(session('a', state)), 'active')
   for (const state of ['ended', 'exited', 'lost']) assert.equal(sessionStage(session('a', state)), 'finished')
-  assert.equal(sessionStage(session('a', 'running', { attention: 'finished', structured: true })), 'active')
+  assert.equal(sessionStage(session('a', 'running', { attention: 'finished', structured: true })), 'finished')
+  assert.equal(sessionStage(session('a', 'running', { attention: 'quiet', attentionSource: 'chat' })), 'finished')
+  assert.equal(sessionStage(session('a', 'running', { attention: 'quiet', attentionSource: 'terminal' })), 'active')
+  assert.equal(sessionStage(session('a', 'running', { attention: 'working' })), 'active')
 })
 test('a launched backlog item is represented only by its real session', () => {
   const items = boardItems([draft('a'), draft('b', { sessionId: 'live' })], [session('live')])

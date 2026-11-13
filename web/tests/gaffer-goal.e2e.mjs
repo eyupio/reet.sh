@@ -81,7 +81,7 @@ try{
   await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
   try{
    await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
-   await expect(w.page.getByRole('link',{name:'Factory · Code 2 of 3',exact:true})).toHaveAttribute('href','/factory')
+   await expect(w.page.getByRole('link',{name:'Factory · Code 2 of 3',exact:true})).toHaveAttribute('href','/factory#pipeline-'+'o'.repeat(32)+'-a')
    await expect(w.page.getByRole('navigation',{name:'Terminal sessions',exact:true}).getByText('Factory · Code 2 of 3',{exact:true})).toBeVisible()
    await w.page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS||'.'}/sessions-factory-marker-1280-light.png`})
    await w.page.getByRole('button',{name:'Ask Gaffer',exact:true}).click()

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { UnauthorizedError } from '../api'
+  import { UnauthorizedError, listGafferOutcomes } from '../api'
+  import { factoryEndWarning, factoryMembers } from '../gafferOutcome'
   import { copyText } from '../clipboard'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import WorktreeDialog from '../WorktreeDialog.svelte'
@@ -70,7 +71,7 @@
     items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
   }
   // Rename, End (with the remove-from-history choice) and Remove from history, each confirmed; then the list is read again.
-  let action = $state<{ kind: 'rename' | 'end' | 'archive'; item: TerminalSession } | null>(null)
+  let action = $state<{ kind: 'rename' | 'end' | 'archive'; item: TerminalSession } | null>(null), warning = $state('')
   let rename = $state(''), removeOnEnd = $state(false), busy = $state(false)
   const endKeys = new Map<string, { key: string; remove: boolean }>()
   function begin(kind: 'rename' | 'end' | 'archive') {
@@ -80,6 +81,9 @@
     rename = item.title
     removeOnEnd = endKeys.get(item.id)?.remove ?? (item.state === 'end_requested' ? item.removeHistory ?? false : removeDefault)
     action = { kind, item }
+    // A session doing a Factory stage says so before it is ended: read fresh, so a stage that has moved on is not warned about.
+    warning = ''
+    if (kind !== 'rename') void listGafferOutcomes().then(found => { if (action?.item.id === item.id) warning = factoryEndWarning(factoryMembers(found).get(item.id), kind === 'archive') }).catch(() => { /* not a Factory account, or not readable: the ordinary wording stands */ })
   }
   function cancel() { action = null; returnFocus?.focus() }
   async function perform() {
@@ -144,11 +148,11 @@
 {#if action?.kind === 'rename'}
   <ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void perform()} oncancel={cancel}><label class="field">Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>
 {:else if action?.kind === 'end'}
-  <ConfirmDialog title={`End ${action.item.title}?`} body="This stops the shell and its running jobs. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void perform()} oncancel={cancel}>
+  <ConfirmDialog title={`End ${action.item.title}?`} body={`${warning ? `${warning} ` : ''}This stops the shell and its running jobs. If the machine is offline, the request stays pending until it reconnects.`} confirmLabel="End session" danger onconfirm={() => void perform()} oncancel={cancel}>
     <label class="option"><input type="checkbox" bind:checked={removeOnEnd} disabled={endKeys.has(action.item.id) || action.item.state === 'end_requested'} /><span>Remove from history when this session ends</span></label>
   </ConfirmDialog>
 {:else if action?.kind === 'archive'}
-  <ConfirmDialog title={`Remove ${action.item.title} from history?`} body={terminalArchiveBody(action.item.state)} confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel}>
+  <ConfirmDialog title={`Remove ${action.item.title} from history?`} body={`${warning ? `${warning} ` : ''}${terminalArchiveBody(action.item.state)}`} confirmLabel="Remove from history" onconfirm={() => void perform()} oncancel={cancel}>
   </ConfirmDialog>
 {/if}
 {#if removing && member}

@@ -105,6 +105,33 @@ export function wholeBetween(value: unknown, low: number, high: number): boolean
   return typeof value === 'number' && Number.isInteger(value) && value >= low && value <= high
 }
 
+export const MAX_OUTCOME_REPLY_BYTES = 2000
+// Tabs and newlines are ordinary typing; other controls are not sent to a provider.
+const REPLY_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
+/** Why a reply to Gaffer cannot be sent, or ''. The provider checks the same limit again. */
+export function replyBlocker(reply: string): string {
+  const text = reply.trim()
+  if (!text) return 'Write a reply to Gaffer first.'
+  if (bytes(text) > MAX_OUTCOME_REPLY_BYTES) return `Keep the reply within ${MAX_OUTCOME_REPLY_BYTES.toLocaleString('en-GB')} bytes.`
+  if (REPLY_CONTROL.test(text)) return 'The reply has a character that cannot be sent. Retype that part.'
+  return ''
+}
+
+/** One message in the plan review: the person's reply, or the proposal Gaffer returned. */
+export type PlanTurn = { from: 'you' | 'gaffer'; text: string }
+export type PlanPrevious = { summary: string; sessions: { title: string; stages: string[] }[] }
+/** The compact proposal a reply answers. A broken or half-edited title is replaced, never sent as an invalid one. */
+export function previousPlan(summary: string, sessions: PlanSession[]): PlanPrevious {
+  return {
+    summary: summary.trim(),
+    sessions: sessions.map((item, index) => {
+      const title = item.title.trim()
+      const keeps = title && [...title].length <= MAX_PLAN_TITLE && !/[\u0000-\u001F\u007F]/.test(title) && !/\p{Cf}/u.test(title)
+      return { title: keeps ? title : `Session ${index + 1}`, stages: [...(item.stages ?? [])] }
+    }),
+  }
+}
+
 /** Why the plan cannot be approved yet, or ''. */
 export function planBlocker(sessions: PlanSession[], room: number): string {
   if (!sessions.length) return 'Add at least one session.'
@@ -209,7 +236,7 @@ export const STAGES = [
 ] as const
 export type StageKind = typeof STAGES[number]['kind']
 export type CrewRole = 'think' | 'build' | 'ship'
-export type Crew = Record<CrewRole, { tool: string; model: string; effort?: string }>
+export type Crew = Record<CrewRole, { tool: string; model: string; effort?: string; source?: string }>
 export const CREW_ROLES: { role: CrewRole; label: string; does: string }[] = [
   { role: 'think', label: 'Thinking', does: 'Plan, design and review. Worth a stronger model.' },
   { role: 'build', label: 'Building', does: 'Code and test. Most of the tokens go here.' },
@@ -225,21 +252,23 @@ export function orderStages(kinds: Iterable<string>): StageKind[] {
   return STAGES.filter(stage => chosen.has(stage.kind)).map(stage => stage.kind)
 }
 
-/** What is sent for one pipeline: each chosen stage with the agent and model of the crew role that does it. */
-export function stagePlan(kinds: Iterable<string>, crew: Crew): { kind: string; tool: string; model: string; effort?: string }[] {
+/** What is sent for one pipeline: each chosen stage with the agent and model of the crew role that does it. A Cline
+ *  stage carries its chosen billing source when the machine takes one; empty is Cline's own choice and is left out. */
+export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true): { kind: string; tool: string; model: string; effort?: string; provider?: string }[] {
   return orderStages(kinds).map(kind => {
     const role = STAGES.find(stage => stage.kind === kind)!.role
-    return { kind, tool: crew[role].tool, model: crew[role].model.trim(), ...(crew[role].effort ? { effort: crew[role].effort } : {}) }
+    const source = sourceSupported && crew[role].tool === 'cline' ? (crew[role].source ?? '').trim() : ''
+    return { kind, tool: crew[role].tool, model: crew[role].model.trim(), ...(crew[role].effort ? { effort: crew[role].effort } : {}), ...(source ? { provider: source } : {}) }
   })
 }
 
-/** How many separate agent sessions a pipeline will use: a new one each time the agent, model or effort changes. */
-export function sessionCount(plan: { tool: string; model: string; effort?: string }[]): number {
-  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') ? 1 : 0), 0)
+/** How many separate agent sessions a pipeline will use: a new one each time the agent, model, effort or source changes. */
+export function sessionCount(plan: { tool: string; model: string; effort?: string; provider?: string }[]): number {
+  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') || (stage.provider ?? '') !== (plan[index - 1].provider ?? '') ? 1 : 0), 0)
 }
 
-export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; summary: string; moved: boolean }
-type PipelinePiece = { state: string; stage?: number; stages?: { kind: string; tool: string; model?: string; state: string; summary?: string; closedBy?: string }[] }
+export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; source?: string; summary: string; moved: boolean }
+type PipelinePiece = { state: string; stage?: number; stages?: { kind: string; tool: string; model?: string; provider?: string; state: string; summary?: string; closedBy?: string }[] }
 /** A pipeline's stages as the page draws them. The stage in hand shows the pipeline's own state: running, waiting on the person, or failed. */
 export function track(piece: PipelinePiece): TrackNode[] {
   const at = piece.stage ?? 0
@@ -251,12 +280,13 @@ export function track(piece: PipelinePiece): TrackNode[] {
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
     // A stage the person moved on was closed on their word, not on Gaffer's review of it.
-    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat') }
+    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', source: stage.provider, summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat') }
   })
 }
 
 /** One word for where a pipeline stands, for its badge. */
-export function pipelineStatus(piece: { state: string }, attention: boolean): { label: string; tone: 'good' | 'busy' | 'you' | 'bad' | 'idle' } {
+export function pipelineStatus(piece: { state: string; sessionState?: string }, attention: boolean): { label: string; tone: 'good' | 'busy' | 'you' | 'bad' | 'idle' } {
+  if (sessionLost(piece)) return { label: 'Needs you', tone: 'you' }
   if (piece.state === 'ready_to_merge') return { label: 'Ready to merge', tone: 'you' }
   if (piece.state === 'done') return { label: 'Done', tone: 'good' }
   if (piece.state === 'failed' || piece.state === 'cancelled') return { label: 'Not started', tone: 'bad' }
@@ -266,19 +296,23 @@ export function pipelineStatus(piece: { state: string }, attention: boolean): { 
   return { label: 'Running', tone: 'busy' }
 }
 
+/** A pipeline that is still followed but whose session was ended or removed: nothing can move it but the person. */
+export const sessionLost = (piece: { state: string; sessionState?: string }) => piece.state === 'following' && (piece.sessionState === 'ended' || piece.sessionState === 'gone')
+export const SESSION_ENDED_WHY = 'This stage’s session was ended, so nothing is working on it. What it committed is still in the pipeline’s folder and branch.'
+
 /** An outcome is finished when it is not starting sessions and no pipeline is moving. Only a finished one can be put away. */
 export function outcomeFinished(record: { state: string; sessions: { state: string }[] }): boolean {
   return record.state !== 'starting' && !record.sessions.some(piece => ['following', 'starting', 'advancing', 'waiting', 'ready_to_merge'].includes(piece.state))
 }
 
 /** The page's headline numbers across every outcome. */
-export function factoryTally(records: { sessions: { state: string; conversationId?: string }[] }[], attention: ReadonlySet<string>): { running: number; needYou: number; ready: number; done: number } {
+export function factoryTally(records: { sessions: { state: string; conversationId?: string; sessionState?: string }[] }[], attention: ReadonlySet<string>): { running: number; needYou: number; ready: number; done: number } {
   const out = { running: 0, needYou: 0, ready: 0, done: 0 }
   for (const record of records) for (const piece of record.sessions) {
     if (piece.state === 'ready_to_merge') out.ready++
     else if (piece.state === 'done') out.done++
     else if (['following', 'starting', 'advancing', 'waiting'].includes(piece.state)) {
-      if (piece.conversationId && attention.has(piece.conversationId)) out.needYou++
+      if (sessionLost(piece) || piece.conversationId && attention.has(piece.conversationId)) out.needYou++
       else out.running++
     }
   }
@@ -359,20 +393,27 @@ export function timeLeft(expiresAt: number, now: number): string {
 
 // Which sessions belong to a Factory pipeline, so Home and the session lists can say so. Every stage's session is
 // included: a finished stage's session is still part of the pipeline it worked on.
-export type FactoryMember = { outcomeId: string; objective: string; pipeline: string; stage: string; step: number; steps: number; current: boolean }
+export type FactoryMember = { outcomeId: string; objective: string; pipeline: string; stage: string; step: number; steps: number; current: boolean; /** The pipeline is still being worked on in this session: ending it stops the pipeline. */ working: boolean; key: string }
 type MemberStage = { kind: string; sessionId?: string }
-type MemberPiece = { title: string; sessionId?: string; stage?: number; stages?: MemberStage[] }
+type MemberPiece = { key?: string; state?: string; title: string; sessionId?: string; stage?: number; stages?: MemberStage[] }
 export function factoryMembers(records: { id: string; objective: string; sessions: MemberPiece[] }[]): Map<string, FactoryMember> {
   const out = new Map<string, FactoryMember>()
   const label = (kind: string) => STAGES.find(item => item.kind === kind)?.label ?? kind
   for (const record of records) for (const piece of record.sessions) {
     const stages = piece.stages ?? []
-    const base = { outcomeId: record.id, objective: record.objective, pipeline: piece.title, steps: stages.length }
+    const moving = ['following', 'starting', 'advancing', 'ready_to_merge'].includes(piece.state ?? 'following')
+    const base = { outcomeId: record.id, objective: record.objective, pipeline: piece.title, steps: stages.length, key: piece.key ?? '' }
     // Later stages that keep one session overwrite earlier ones, so a session shows the latest stage it is doing.
-    stages.forEach((stage, index) => { if (stage.sessionId && index <= (piece.stage ?? 0)) out.set(stage.sessionId, { ...base, stage: label(stage.kind), step: index + 1, current: index === (piece.stage ?? 0) }) })
-    if (piece.sessionId && !out.has(piece.sessionId)) out.set(piece.sessionId, { ...base, stage: '', step: 0, current: true })
+    stages.forEach((stage, index) => { if (stage.sessionId && index <= (piece.stage ?? 0)) out.set(stage.sessionId, { ...base, stage: label(stage.kind), step: index + 1, current: index === (piece.stage ?? 0), working: moving && stage.sessionId === piece.sessionId }) })
+    if (piece.sessionId && !out.has(piece.sessionId)) out.set(piece.sessionId, { ...base, stage: '', step: 0, current: true, working: moving })
   }
   return out
+}
+/** What ending, or removing, a session costs a pipeline that is still working in it. '' when it costs nothing. */
+export function factoryEndWarning(member: FactoryMember | undefined, removing = false): string {
+  if (!member?.working) return ''
+  const what = member.stage ? `the ${member.stage.toLowerCase()} stage of the Factory pipeline “${member.pipeline}”` : `the Factory pipeline “${member.pipeline}”`
+  return `This session is doing ${what}. ${removing ? 'Removing' : 'Ending'} it stops that pipeline until you choose, on the Factory page, to run the stage again in a new session or to move it on. ${removing ? 'The session stays in history while the pipeline still works in its worktree.' : 'Its worktree is kept for the pipeline.'}`
 }
 /** "Factory · Plan 1 of 8", or "Factory" for a session with no stages. */
 export function factoryBadge(member: FactoryMember): string {
@@ -403,7 +444,7 @@ export function outcomeAgentUsage(pieces: { stages?: AgentStage[] }[]): { total:
   }
   return { total, byAgent: [...by].map(([tool, tokens]) => ({ tool, tokens })).sort((a, b) => b.tokens - a.tokens || a.tool.localeCompare(b.tool)) }
 }
-const compact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M` : n >= 10_000 ? `${Math.round(n / 1000)}k` : n.toLocaleString('en-GB')
+const compact = (n: number) => n >= 999_500 ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M` : n >= 10_000 ? `${Math.round(n / 1000)}k` : n.toLocaleString('en-GB')
 export function agentTokensText(usage: AgentUsage): string {
   if (!usage.reported) return 'Not reported'
   return usage.cached ? `${compact(usage.tokens)} · ${compact(usage.cached)} cached` : compact(usage.tokens)
@@ -420,7 +461,7 @@ export function contextLeft(stage: AgentStage | undefined): { text: string; low:
 export const pipelineAnchor = (outcomeId: string, key: string): string => `pipeline-${outcomeId}-${key}`
 
 export type FactoryRow = { id: string; href: string; title: string; objective: string; label: string; tone: 'good' | 'busy' | 'you' | 'bad' | 'idle'; stage: string; why: string }
-type RowPiece = { key: string; title: string; state: string; note?: string; conversationId?: string; stage?: number; stages?: { kind: string }[] }
+type RowPiece = { key: string; title: string; state: string; sessionState?: string; note?: string; conversationId?: string; stage?: number; stages?: { kind: string }[] }
 /** Every pipeline as one line for Home: what it is, where it stands and why, linking to its card on the Factory page.
  *  Pipelines that need the person come first, then the ones waiting for a merge decision, then the rest; finished ones last. */
 export function factoryRows(records: { id: string; objective: string; sessions: RowPiece[] }[], goals: ReadonlyMap<string, { attention: boolean; reason?: string; goal: { note: string } }>): FactoryRow[] {
@@ -433,13 +474,20 @@ export function factoryRows(records: { id: string; objective: string; sessions: 
     rows.push({
       id: pipelineAnchor(record.id, piece.key), href: `/factory#${pipelineAnchor(record.id, piece.key)}`, title: piece.title, objective: record.objective,
       label: status.label, tone: status.tone, stage: stages.length ? `${stageLabel(stages[at].kind)} · ${at + 1} of ${stages.length}` : '',
-      why: status.label === 'Needs you' ? (goal?.reason || goal?.goal.note || '') : (piece.note ?? ''),
+      why: sessionLost(piece) ? SESSION_ENDED_WHY : status.label === 'Needs you' ? (goal?.reason || goal?.goal.note || '') : (piece.note ?? ''),
     })
   }
   return rows.sort((a, b) => order[a.tone] - order[b.tone])
 }
 
-export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open'; label: string; primary?: boolean }
+export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'restart' | 'stop'; label: string; primary?: boolean }
+/** What the person can do about a pipeline whose session was ended or removed under it. `gone` is a session that was
+ *  removed from history, which cannot be opened. */
+export function sessionEndedChoices(last: boolean, gone: boolean): { why: string; choices: NeedChoice[] } {
+  const choices: NeedChoice[] = [{ id: 'restart', label: 'Run this stage again in a new session', primary: true }, { id: 'move', label: last ? 'Finish this stage' : 'Move to next stage' }, { id: 'stop', label: 'Stop following this outcome' }]
+  if (!gone) choices.push({ id: 'open', label: 'Read the ended session' })
+  return { why: SESSION_ENDED_WHY, choices }
+}
 type NeedGoal = { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean }
 /** What a pipeline that needs the person is waiting for, in one sentence, and the things they can do about it as
  *  buttons, the most likely first. `last` is whether the stage in hand is the pipeline's last. */

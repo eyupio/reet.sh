@@ -58,6 +58,7 @@ func toolText(result *mcp.CallToolResult) string {
 }
 
 func TestMCPTidyTools(t *testing.T) {
+	t.Parallel()
 	ts, st, browser, uid := mcpAccounts(t)
 	if _, err := st.UpsertLocalFor(uid, "seo-audit", store.Patch{}); err != nil {
 		t.Fatal(err)
@@ -270,6 +271,7 @@ func TestMCPTidyTools(t *testing.T) {
 }
 
 func TestMCPCompactSkillsFitsOnePage(t *testing.T) {
+	t.Parallel()
 	ts, st, browser, uid := mcpAccounts(t)
 	for i := 0; i < 64; i++ {
 		if _, err := st.UpsertLocalFor(uid, fmt.Sprintf("compact-skill-%03d", i), store.Patch{}); err != nil {
@@ -302,6 +304,7 @@ func TestMCPCompactSkillsFitsOnePage(t *testing.T) {
 // An MCP client can neither list nor release ownership records, so the codes that
 // refuse its delete and merge must name them and say what to do instead.
 func TestMCPEnvironmentRefusalsNameOwnershipReceiptsAndPins(t *testing.T) {
+	t.Parallel()
 	ts, st, browser, uid := mcpAccounts(t)
 	agent, _, err := st.EnrollSyncAgent(uid, "laptop", "test")
 	if err != nil {

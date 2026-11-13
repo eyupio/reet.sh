@@ -76,7 +76,7 @@ try {
       await expect(page.getByRole('heading',{name:'Factory',exact:true,level:1})).toBeVisible()
       const floor=page.locator('[data-floor]')
       await expect(floor.getByRole('list',{name:'Sessions Gaffer looks after',exact:true}).getByRole('listitem')).toHaveCount(2)
-      await expect(floor.getByRole('link',{name:'Open session',exact:true}).first()).toHaveAttribute('href','/sessions?agent=a1&session=worker-1&gaffer=1')
+      await expect(floor.getByRole('link',{name:'Open session',exact:true}).first()).toHaveAttribute('href','/sessions?agent=a1&session=worker-1')
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
       expect(writes).toEqual([])
       await floor.getByRole('button',{name:'Review goal',exact:true}).first().click()

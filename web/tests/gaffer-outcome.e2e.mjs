@@ -22,13 +22,16 @@ const proposed={summary:'Two independent halves: the endpoint, then the button.'
   {title:'Export API',prompt:'Add the CSV export endpoint with tests. Raise a pull request. Do not merge.'},
   {title:'Export button',prompt:'Add the export button to the billing page. Raise a pull request. Do not merge.'},
 ]}
+const revised={summary:'One session, end to end: the endpoint, its tests and the button together.',model:'gaffer-model',usageReported:true,inputTokens:25,outputTokens:35,sessions:[
+  {title:'Export, end to end',prompt:'Build the CSV export API and its button with tests. Raise a pull request. Do not merge.',stages:['plan','code','review','test','pr','babysit'].map(kind=>({kind}))},
+]}
 const cid=n=>String(n).repeat(32)
 const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0GQAAAAASUVORK5CYII=','base64')
 
 const oid='e'.repeat(32)
 // `settles` is how the controller's record moves on each read; false keeps it starting until it is stopped.
 function fixture({planFails=false,settles=true}={}){
-  const box={writes:[],plans:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false}
+  const box={writes:[],plans:[],replies:[],approved:[],stops:[],reads:0,goals:[],record:null,planFails,uploads:0,uploadFails:false}
   const general={conversation:{id:generalId,sessionId:'',providerId:pid,model:'',revision:1,createdAt:now,updatedAt:now},turns:[]}
   const item=(n,title,prompt,stages=[])=>({key:'abcde'[n],title,prompt,requestId:String(n).repeat(32),state:'waiting',note:'Waiting its turn.',updatedAt:now,stage:0,stages:stages.map(stage=>({...stage,state:'pending',requestId:'r'}))})
   // What the controller does between reads: start one session, follow it, refuse the second, start the third unfollowed.
@@ -61,8 +64,9 @@ function fixture({planFails=false,settles=true}={}){
     '/api/v2/gaffer/conversations':request=>new URL(request.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
     '/api/v2/terminal/sessions':request=>{expect(request.method()).toBe('GET');return {sessions:(box.record?.sessions??[]).filter(s=>s.sessionId).map(s=>({id:s.sessionId,agentId:'a1',title:s.title,state:'running',structured:true,tool:'claude',dir:'/work/billing',createdAt:now,updatedAt:now,exitCode:null}))}},
     [`/api/v2/gaffer/providers/${pid}/plan`]:request=>{
-      expect(request.method()).toBe('POST');box.plans.push(request.postDataJSON())
-      return box.planFails?{status:502,json:{error:'This model did not return a plan. Choose a model that supports tools, or write the plan yourself.'}}:proposed
+      expect(request.method()).toBe('POST');const input=request.postDataJSON();box.plans.push(input)
+      if(input.reply)box.replies.push(input)
+      return box.planFails?{status:502,json:{error:'This model did not return a plan. Choose a model that supports tools, or write the plan yourself.'}}:input.reply?revised:proposed
     },
     '/api/v2/gaffer/outcomes':request=>{
       if(request.method()!=='POST')return {outcomes:box.record?[box.record]:[]}
@@ -145,31 +149,31 @@ try {
       await expect(steps.locator('[aria-current="step"]')).toHaveText('2Plan')
       expect(f.box.plans).toEqual([{revision:4,objective,project:'billing',sessions:3}])
       await expect(outcome.getByText('Two independent halves: the endpoint, then the button.',{exact:true})).toBeVisible()
-      await expect(outcome.getByRole('textbox',{name:'Session 1 title',exact:true})).toHaveValue('Export API')
-      await expect(outcome.getByRole('textbox',{name:'Session 2 prompt',exact:true})).toHaveValue(/^Add the export button/)
+      await expect(outcome.getByRole('textbox',{name:'Pipeline 1 title',exact:true})).toHaveValue('Export API')
+      await expect(outcome.getByRole('textbox',{name:'Pipeline 2 prompt',exact:true})).toHaveValue(/^Add the export button/)
       await expect(outcome.getByText('with ordinary approvals (no YOLO)',{exact:false})).toBeVisible()
       // Every part of the plan is editable, and a session the person adds is as good as one Gaffer proposed.
-      await outcome.getByRole('textbox',{name:'Session 2 title',exact:true}).fill('Export button, renamed')
+      await outcome.getByRole('textbox',{name:'Pipeline 2 title',exact:true}).fill('Export button, renamed')
       // Each pipeline's stages are the person's to choose: this one gets a plan first and never merges.
-      const picks2=outcome.getByRole('group',{name:'Session 2 stages',exact:true})
+      const picks2=outcome.getByRole('group',{name:'Pipeline 2 stages',exact:true})
       await expect(picks2.getByRole('button',{pressed:true})).toHaveText(['Code','Review','Test','PR','Babysit','Merge'])
       await picks2.getByRole('button',{name:'Plan',exact:true}).click();await picks2.getByRole('button',{name:'Merge',exact:true}).click()
       await expect(picks2.getByRole('button',{pressed:true})).toHaveText(['Plan','Code','Review','Test','PR','Babysit'])
       // Thinking uses a different model from the rest, so the plan and the review each need a session of their own.
       await expect(outcome.getByText('4 agent sessions for 6 stages.',{exact:true})).toBeVisible()
-      await outcome.getByRole('button',{name:'Add a session',exact:true}).click()
+      await outcome.getByRole('button',{name:'Add a pipeline',exact:true}).click()
       const approve=outcome.getByRole('button',{name:/^Approve and start/})
       await expect(approve).toBeDisabled();await expect(outcome.getByText('Give session 3 a title.',{exact:true})).toBeVisible()
-      await outcome.getByRole('textbox',{name:'Session 3 title',exact:true}).fill('Export API')
-      await outcome.getByRole('textbox',{name:'Session 3 prompt',exact:true}).fill('Document the export in the README. Raise a pull request. Do not merge.')
+      await outcome.getByRole('textbox',{name:'Pipeline 3 title',exact:true}).fill('Export API')
+      await outcome.getByRole('textbox',{name:'Pipeline 3 prompt',exact:true}).fill('Document the export in the README. Raise a pull request. Do not merge.')
       await expect(outcome.getByText('Two sessions are both called “Export API”. Give each its own title.',{exact:true})).toBeVisible()
-      await outcome.getByRole('textbox',{name:'Session 3 title',exact:true}).fill('Export docs')
+      await outcome.getByRole('textbox',{name:'Pipeline 3 title',exact:true}).fill('Export docs')
       // The person may add up to the five an outcome can start, whatever size they asked Gaffer to plan.
-      await expect(outcome.getByRole('button',{name:'Add a session',exact:true})).toBeVisible()
+      await expect(outcome.getByRole('button',{name:'Add a pipeline',exact:true})).toBeVisible()
       // A prompt the launch would refuse, and a limit that is not a whole number, are caught before anything starts.
-      await outcome.getByRole('textbox',{name:'Session 3 prompt',exact:true}).fill('- Document the export')
+      await outcome.getByRole('textbox',{name:'Pipeline 3 prompt',exact:true}).fill('- Document the export')
       await expect(outcome.getByText('Start the prompt for “Export docs” with a word, not a dash.',{exact:true})).toBeVisible();await expect(approve).toBeDisabled()
-      await outcome.getByRole('textbox',{name:'Session 3 prompt',exact:true}).fill('Document the export in the README.\tRaise a pull request. Do not merge.')
+      await outcome.getByRole('textbox',{name:'Pipeline 3 prompt',exact:true}).fill('Document the export in the README.\tRaise a pull request. Do not merge.')
       await outcome.getByText('Change limits',{exact:true}).click()
       await outcome.getByRole('spinbutton',{name:'Review budget',exact:true}).fill('1.5')
       await expect(outcome.getByText('Choose a whole number of reviews from 1 to 48 and hours from 1 to 168.',{exact:true})).toBeVisible();await expect(approve).toBeDisabled()
@@ -182,7 +186,7 @@ try {
       await outcome.screenshot({path:`${shots}/gaffer-outcome-plan-${width}-${theme}.png`})
       // Until Approve, the only request made is the plan itself: no outcome, session, grant or goal.
       expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`])
-      await expect(approve).toHaveText('Approve and start 3 sessions');await approve.click()
+      await expect(approve).toHaveText('Approve and start 3 pipelines');await approve.click()
       // The browser hands the approved plan to the controller once, and from then on only reads its progress.
       await expect(outcome.getByRole('status')).toHaveText(/^Starting session \d of 3\. The controller carries on if you close this\.$/)
       await expect(outcome.getByRole('button',{name:'Close and let it run',exact:true})).toBeVisible()
@@ -196,7 +200,7 @@ try {
       await expect(results.nth(2)).toContainText('Started, but not followed: Its chat was not ready')
       const cheap=kind=>({kind,tool:'claude',model:''}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high'}),ship=kind=>({kind,tool:'claude',model:'',effort:'low'})
       const usual=[cheap('code'),strong('review'),cheap('test'),ship('pr'),ship('babysit'),ship('merge')]
-      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',trust:false,yolo:false,autoReport:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
+      expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
         {title:'Export API',prompt:proposed.sessions[0].prompt,stages:usual},
         {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge')]},
         {title:'Export docs',prompt:'Document the export in the README.    Raise a pull request. Do not merge.',stages:usual},
@@ -210,7 +214,7 @@ try {
       await expect(pipes).toHaveCount(3)
       await expect(pipes.nth(0)).toContainText('Running')
       // A running pipeline is one line until it is opened.
-      await w.page.getByRole('button',{name:'Expand all pipelines',exact:true}).click()
+      await w.page.getByRole('button',{name:'Expand all',exact:true}).click()
       const stages=pipes.nth(0).getByRole('list',{name:'Stages of Export API',exact:true}).getByRole('listitem')
       await expect(stages).toHaveText([/Code/,/Review/,/Test/,/PR/,/Babysit/,/Merge/])
       await expect(stages.first()).toHaveAttribute('aria-current','step')
@@ -240,6 +244,11 @@ try {
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
       // OpenCode runs a folder's plugins, so the person's own trust is asked for and sent; it is off until ticked.
       await outcome.getByRole('combobox',{name:'Agent',exact:true}).selectOption('opencode')
+      // OpenCode's descriptor names no thought levels, but the machine can start it with an effort, so the
+      // selector is usable and the chosen level travels with every stage.
+      const effort=outcome.getByRole('combobox',{name:'Effort',exact:true})
+      await expect(effort).toBeEnabled()
+      await effort.selectOption('high')
       await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
       const trust=outcome.getByRole('checkbox',{name:/^I trust this folder: OpenCode may run the plugins/})
       await expect(trust).not.toBeChecked();await trust.check()
@@ -249,7 +258,6 @@ try {
       // Reporting by itself spends Gaffer tokens unasked, so it is off until ticked.
       const reports=outcome.getByRole('checkbox',{name:/^Have Gaffer report across this outcome by itself/})
       await expect(reports).not.toBeChecked();await reports.check()
-      // OpenCode reports no effort levels on this machine, so none is offered for it.
       // YOLO is off until confirmed, and is this outcome's choice only.
       const approvals=outcome.getByRole('radiogroup',{name:'Approvals',exact:true})
       await expect(approvals.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
@@ -260,9 +268,9 @@ try {
       await expect(approvals.getByRole('radio',{name:'YOLO',exact:true})).toBeChecked()
       await expect(outcome.getByText('On YOLO the agents do not wait for you',{exact:false})).toBeVisible()
       await outcome.screenshot({path:`${shots}/gaffer-outcome-yolo-1280-light.png`})
-      await outcome.getByRole('button',{name:'Approve and start 2 sessions',exact:true}).click()
+      await outcome.getByRole('button',{name:'Approve and start 2 pipelines',exact:true}).click()
       expect(f.box.approved[0]).toMatchObject({tool:'opencode',trust:true,yolo:true,autoReport:true,model:'',autoMerge:true})
-      expect(f.box.approved[0].sessions[0].stages.every(stage=>stage.tool==='opencode')).toBe(true)
+      expect(f.box.approved[0].sessions[0].stages.every(stage=>stage.tool==='opencode'&&stage.effort==='high')).toBe(true)
       await expect(outcome.getByRole('status')).toHaveText('Starting session 1 of 2. The controller carries on if you close this.')
       await outcome.getByRole('button',{name:'Close and let it run',exact:true}).click();await expect(outcome).toHaveCount(0)
       const article=w.page.getByRole('article',{name:'Outcome: Ship CSV export for billing.',exact:true})
@@ -291,9 +299,9 @@ try {
       await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()
       await expect(outcome.getByRole('list',{name:'Planned sessions',exact:true}).getByRole('listitem')).toHaveCount(1)
       await expect(outcome.getByRole('button',{name:/^Approve and start/})).toBeDisabled()
-      await outcome.getByRole('textbox',{name:'Session 1 title',exact:true}).fill('Whole export')
-      await outcome.getByRole('textbox',{name:'Session 1 prompt',exact:true}).fill('Build the CSV export end to end. Raise a pull request. Do not merge.')
-      await expect(outcome.getByRole('button',{name:'Approve and start 1 session',exact:true})).toBeEnabled()
+      await outcome.getByRole('textbox',{name:'Pipeline 1 title',exact:true}).fill('Whole export')
+      await outcome.getByRole('textbox',{name:'Pipeline 1 prompt',exact:true}).fill('Build the CSV export end to end. Raise a pull request. Do not merge.')
+      await expect(outcome.getByRole('button',{name:'Approve and start 1 pipeline',exact:true})).toBeEnabled()
       // Back keeps the objective; closing starts nothing.
       await outcome.getByRole('button',{name:'Back',exact:true}).click()
       await expect(outcome.getByRole('textbox',{name:'Outcome',exact:true})).toHaveValue(objective)
@@ -349,5 +357,45 @@ try {
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, and the optional image attach/remove/upload, passed on desktop and phone.')
+  // A proposal can be answered back, and turned down on purpose, without starting anything.
+  {
+    const f=fixture(),w=await openWorkspace(browser,{width:1280,height:1000,terminalMachines:machines,routes:f.routes})
+    watch(w,f.box)
+    try {
+      const {outcome}=await openOutcome(w)
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
+      await expect(outcome.getByRole('list',{name:'Planned sessions',exact:true}).getByRole('listitem')).toHaveCount(2)
+      const replyText='Not that: keep the export in one session and put its tests with it.'
+      const replyBox=outcome.getByRole('textbox',{name:'Reply to Gaffer',exact:true})
+      await expect(replyBox).toBeVisible()
+      await expect(outcome.getByRole('button',{name:'Send reply',exact:true})).toBeDisabled()
+      await replyBox.fill(replyText)
+      await outcome.getByRole('button',{name:'Send reply',exact:true}).click()
+      // The reply is in the conversation, and Gaffer's revised proposal replaces the rows.
+      const talk=outcome.getByRole('region',{name:'Conversation with Gaffer',exact:true})
+      await expect(talk).toContainText(replyText)
+      await expect(talk).toContainText('One session, end to end: the endpoint, its tests and the button together.')
+      await expect(outcome.getByRole('textbox',{name:'Pipeline 1 title',exact:true})).toHaveValue('Export, end to end')
+      await expect(outcome.getByRole('list',{name:'Planned sessions',exact:true}).getByRole('listitem')).toHaveCount(1)
+      const stages=['code','review','test','pr','babysit','merge']
+      expect(f.box.replies).toEqual([{revision:4,objective,project:'billing',sessions:3,reply:replyText,previous:{summary:proposed.summary,sessions:[{title:'Export API',stages},{title:'Export button',stages}]}}])
+      // Declining is explicit, and nothing is started or sent.
+      await outcome.getByRole('button',{name:'Decline proposal',exact:true}).click()
+      const confirm=w.page.getByRole('dialog',{name:'Decline this proposal?',exact:true})
+      await expect(confirm).toContainText('Nothing has started.')
+      await confirm.getByRole('button',{name:'Decline proposal',exact:true}).click()
+      await expect(outcome.getByText('Proposal declined. Nothing was started.',{exact:false})).toBeVisible()
+      await expect(outcome.getByRole('list',{name:'Planned sessions',exact:true})).toHaveCount(0)
+      await expect(outcome.getByRole('button',{name:/^Approve and start/})).toHaveCount(0)
+      await expect(outcome.getByRole('textbox',{name:'Reply to Gaffer',exact:true})).toBeVisible()
+      expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,`POST /api/v2/gaffer/providers/${pid}/plan`])
+      expect(f.box.approved).toEqual([])
+      await outcome.getByRole('button',{name:'Back to the outcome',exact:true}).click()
+      await expect(outcome.getByRole('textbox',{name:'Outcome',exact:true})).toHaveValue(objective)
+      expect(w.errors).toEqual([])
+    } finally { await w.context.close() }
+  }
+  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, and replying to or declining a proposal, passed on desktop and phone.')
 } finally { await browser.close() }

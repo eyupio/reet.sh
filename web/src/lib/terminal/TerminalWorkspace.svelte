@@ -1,6 +1,6 @@
 <script lang="ts">
   import { listGafferOutcomes } from '../api'
-  import { factoryMembers, type FactoryMember } from '../gafferOutcome'
+  import { factoryEndWarning, factoryMembers, type FactoryMember } from '../gafferOutcome'
   let factory=$state<Map<string,FactoryMember>>(new Map())
  import { structuredAgent } from './api'
  import type { ChatState } from '../chat'
@@ -32,10 +32,13 @@
   import { renameTerminal, endTerminal, terminalArchiveBody, archiveTerminal, confirmDiscardWorktree, terminalClosed } from './api'
   import { TerminalError, reattachChat, validTerminalTitle } from './api'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
+  import NewSessionChoice, { type NewSessionKind } from './NewSessionChoice.svelte'
+  import { gafferChatEntry } from '../gafferContext'
   import TerminalCommandReference from './TerminalCommandReference.svelte'
   import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN } from './sizing'
   import { chromeFocus } from '../shell/chrome.svelte'
   import { ALWAYS_DOCKED, MINI_WIDTH, PANEL_MIN, SNAP_TO_MINI, keepOpen, PANEL_DEFAULT, changeMode, chevronNext, clampPanelWidth, defaultLayout, defaultPanelWidth, isPhone, layoutRecord, panelDocks, panelMode, readLayout, screenShortSide, widestPanel, type PanelMode } from './panelLayout'
+  import { clearOpenTerminalRequestId, openTerminalRequestId, reusableSessionFor, wantsOpenTerminal } from './openTerminal'
 
   let {userId=0,ontitle}:{userId?:number;ontitle?:(title:string)=>void}=$props()
   // svelte-ignore state_referenced_locally
@@ -103,6 +106,10 @@
   let projects = $state<FolderProject[] | undefined>()
   let selectedAgent = $state(new URLSearchParams(location.search).get('agent') || '')
   let selectedSession = $state(new URLSearchParams(location.search).get('session') || '')
+  // The machine card's Open terminal action (?open=1) is read before remember() rewrites the address, and acted on once.
+  const openTerminalIntent = wantsOpenTerminal(location.search)
+  const openTerminalLinkedSession = new URLSearchParams(location.search).has('session')
+  let openTerminalAttempted = false
   let sideSession = $state<TerminalSession | null>(null)
   // The open chat's word on whether it is busy, for the header's TUI switch; kept with the session it is about. Undefined
   // until its stream has replayed, so the header keeps to the row's word meanwhile.
@@ -258,7 +265,7 @@
     }
   }
 
-  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
+  function remember() { const url=new URL(location.href);if(!selectedAgent&&!selectedSession&&!url.searchParams.has('view'))return;url.searchParams.set('view','terminal');url.searchParams.delete('theatre');url.searchParams.delete('open');if(selectedAgent)url.searchParams.set('agent',selectedAgent);else url.searchParams.delete('agent');if(selectedSession)url.searchParams.set('session',selectedSession);else url.searchParams.delete('session');history.replaceState(null,'',url) }
   function chooseMachine(id: string) {
     if(selectedAgent && selectedSession)rememberedSessions.set(selectedAgent,selectedSession)
     selectedAgent=id
@@ -277,6 +284,31 @@
     return()=>window.removeEventListener('reet:show-session',showSession)
   })
   function chooseSession(item: TerminalSession) { if(selectedAgent&&selectedSession)rememberedSessions.set(selectedAgent,selectedSession);selectedAgent=item.agentId;selectedSession=item.id;title=creations[selectedAgent]?.title||'Shell';error='';remember();closeDrawer() }
+  // Open terminal on a machine (?open=1) is one action: join a usable session, or start one plain shell. It runs once,
+  // after the first listing read, and never on a deep link that already names a session.
+  function openTerminalFromCard(){
+    if(openTerminalAttempted)return
+    openTerminalAttempted=true
+    if(!openTerminalIntent||!selectedAgent||openTerminalLinkedSession)return
+    const agent=selectedAgent
+    const current=machines.find(item=>item.agentId===agent)
+    if(selectedSession){
+      // firstLoad already joined a running session (or the address named one): attach, but say when its machine is away.
+      if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
+      return
+    }
+    const target=reusableSessionFor(sessions,agent)
+    if(target){
+      chooseSession(target)
+      if(current&&(!current.ready||current.serverEnabled===false))error=`${current.host} is offline. This shell will reconnect when the machine is back.`
+      return
+    }
+    if(!current||current.serverEnabled===false||!current.ready||readiness(current)){error=`Open terminal needs ${current?.host||'that machine'} to be online. ${readiness(current)||'It is reconnecting. Try again when it is ready.'}`;return}
+    if(!canCreateFor(agent)){error=accountActive>=32?'Open terminal could not start a shell: your account already has 32 active sessions. End one and try again.':'Open terminal could not start a shell on this machine. Try again in a moment.';return}
+    selectTerminalMachine(agent)
+    creations={...creations,[agent]:{requestId:openTerminalRequestId(agent),title:autoName,dir:'',projectId:undefined,error:''}}
+    void create()
+  }
   async function refresh(signal?: AbortSignal) {
     if(disposed)return
     if(refreshing){refreshAgain=true;return}
@@ -304,6 +336,7 @@
       if(nextHealth.data){health=nextHealth.data;receivedAt=performance.now();elapsed=0}
       if(firstLoad&&!selectedSession)selectedSession=sessions.find(item=>item.agentId===selectedAgent&&item.state==='running')?.id||''
       remember()
+      if(firstLoad)openTerminalFromCard()
     } catch(e){
       if(!signal?.aborted&&!disposed){
         statusError=request.signal.aborted?'Status refresh timed out. Your existing shell is preserved.':e instanceof Error?e.message:'Could not refresh machines.'
@@ -337,9 +370,11 @@
     if(!machines.length||busy||accessDenied)return
     newSessionProject=project;newSessionOpener=opener;newSessionOpen=true
   }
-  async function chooseNewSession(kind:'agent'|'terminal'){
+  async function chooseNewSession(kind:NewSessionKind){
     const project=newSessionProject,opener=newSessionOpener
     newSessionOpen=false;newSessionProject=null;newSessionOpener=null
+    // An outcome is given on the Factory page, which opens its dialog on this project.
+    if(kind==='factory'){location.assign(`/factory?outcome=1${project?`&project=${encodeURIComponent(project.id)}`:''}`);return}
     await tick()
     if(kind==='agent'){
       if(project){openAgentStart(project.host,opener);agentStart={agent:project.host,opener,projectId:project.id};return}
@@ -369,11 +404,12 @@
       // determine visibility instead of reintroducing an archived session locally.
       if(!terminalClosed(created.state))sessions=[created,...sessions.filter(item=>item.id!==created.id)]
       if(creations[agent]?.requestId===operation.requestId){const next={...creations};delete next[agent];creations=next}
+      clearOpenTerminalRequestId(agent)
       if(selectedAgent===originAgent&&selectedSession===originSession){showCreate=false;chooseSession(created)}
       await refresh()
     } catch(e){
       if(disposed)return
-      if(e instanceof TerminalError&&[400,422].includes(e.status)){const next={...creations};delete next[agent];creations=next;if(e.status===422)terminalProjectId='';if(terminalAgent===agent)error=e.message}
+      if(e instanceof TerminalError&&[400,422].includes(e.status)){const next={...creations};delete next[agent];creations=next;clearOpenTerminalRequestId(agent);if(e.status===422)terminalProjectId='';if(terminalAgent===agent)error=e.message}
       else creations={...creations,[agent]:{...operation,error:e instanceof Error?e.message:'Creation could not be confirmed. Retry the same operation.'}}
     } finally{clearTimeout(timeout);busy=false}
   }
@@ -766,13 +802,8 @@
   <label class="machine-search">Machine or shell user<input type="search" bind:this={machineSearchInput} bind:value={machineSearch} placeholder="Search connected machines…" /></label>
   <nav class="machine-results" aria-label="Matching machines">{#each matchingMachines as item (item.agentId)}<button class="machine-result" aria-current={item.agentId===selectedAgent?'true':undefined} onclick={()=>chooseMachine(item.agentId)}><strong>{item.host}</strong><span>{item.capabilities?.osUser || 'Shell user unavailable'} · {item.ready?'Ready':readiness(item)}</span></button>{:else}<p>No machines match.</p>{/each}</nav>
 </WorkspaceDialog>{/if}
-{#if newSessionOpen}<WorkspaceDialog title={newSessionProject ? `New session in ${newSessionProject.name}` : 'New session'} onclose={() => { newSessionOpen = false; newSessionProject = null; newSessionOpener = null }}>
-  <p class="dialog-copy">Choose what to start {#if newSessionProject}in <strong>{newSessionProject.name}</strong> on <strong>{newSessionProject.machine || machine?.host || 'this machine'}</strong>{:else}on <strong>{machine?.host || 'your machine'}</strong>{/if}.</p>
-  <div class="new-session-choice">
-    <button type="button" class="new-session-option" aria-label="Agent session" onclick={() => void chooseNewSession('agent')}><strong>Agent session</strong><span>Give an agent a brief and let it work in a folder.</span></button>
-    <button type="button" class="new-session-option" aria-label="Terminal session" onclick={() => void chooseNewSession('terminal')}><strong>Terminal session</strong><span>A shell on the machine, with no agent.</span></button>
-  </div>
-</WorkspaceDialog>{/if}
+{#if newSessionOpen}<NewSessionChoice project={newSessionProject?.name ?? ''} machine={newSessionProject ? newSessionProject.machine || machine?.host || '' : machine?.host || ''} factory={!!$gafferChatEntry}
+  onchoose={kind => void chooseNewSession(kind)} onclose={() => { newSessionOpen = false; newSessionProject = null; newSessionOpener = null }} />{/if}
 {#if showCreate}<WorkspaceDialog title="New terminal session" onclose={() => showCreate = false}><p class="dialog-copy">Choose where your terminal will run.</p>{#if error}<p class="dialog-copy" role="alert">{error}</p>{/if}{@render createForm()}</WorkspaceDialog>{/if}
 {#if agentStart}<StartAgentDialog {machines} {projects} snapshot={agentFolders} initialAgent={agentStart.agent} projectId={agentStart.projectId ?? ''} opener={agentStart.opener} onstarted={agentStarted} onaddmachine={()=>location.assign('/machines#add-machine')} onclose={closeAgentStart} />{/if}
 {#if addingProject}<AddProjectDialog {machines} opener={addingProject.opener} onadded={projectAdded} onsignedout={()=>{accessDenied=true;addingProject=null}} onclose={()=>addingProject=null} />{/if}
@@ -785,7 +816,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   <TerminalCommandReference />
   <section class="shortcut-help"><h3>Keyboard &amp; clipboard</h3><p>Ctrl+C interrupts the shell. On Windows/Linux, Ctrl+C copies selected terminal output; use Interrupt to send Ctrl+C when text is selected. On Mac, Cmd+C copies.</p><p>Ctrl+V / Cmd+V pastes. Ctrl+Shift+C/V are alternatives. Right-click the terminal for Copy/Paste; Shift+right-click keeps the browser menu. Ctrl+X stays a shell/editor key; cut works normally in editable app fields.</p><p>Multiple lines, control characters and large pastes need review. Disconnect keeps the shell running. End session stops its running work.</p></section>
 </WorkspaceDialog>{/if}
-{#if action === 'rename'}<ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void performAction()} oncancel={() => action = null}><label>Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>{:else if action === 'end'}<ConfirmDialog title={`End ${actionTitle}?`} body="This stops the shell and its running jobs. Disconnecting keeps them running. If the machine is offline, the request stays pending until it reconnects." confirmLabel="End session" danger onconfirm={() => void performAction()} oncancel={() => action = null}><div class="end-options"><div class="option"><label><input type="checkbox" bind:checked={removeOnClose} disabled={endKeys.has(actionSession)||sessions.find(item=>item.id===actionSession)?.state==='end_requested'} /><span>Remove from history when this session ends</span></label><p>The worktree is removed when it can be; unsaved work stays listed for you to decide. Pending sessions remain visible until the machine confirms they have ended.</p></div><div class="option"><label><input type="checkbox" bind:checked={defaultOn} onchange={()=>defaultEdited=true} /><span>Remove from history by default</span></label><p>{defaultOn===removeDefault?(removeDefault?'This is your current default. Untick to change it.':'Not your current default. Tick to change it.'):(defaultOn?'Will become your default when you end this session.':'Your default will change to keeping history when you end this session.')}</p></div><a href="/account#profile">Manage terminal preferences →</a></div></ConfirmDialog>{:else if action === 'archive'}<ConfirmDialog title={`Remove ${actionTitle} from history?`} body={terminalArchiveBody(actionState)} confirmLabel="Remove from history" onconfirm={()=>void performAction()} oncancel={()=>action=null} />{/if}
+{#if action === 'rename'}<ConfirmDialog title="Rename session" body="Only the display name changes. The running shell stays the same." confirmLabel="Save name" onconfirm={() => void performAction()} oncancel={() => action = null}><label>Session name<input bind:value={rename} maxlength="80" required /></label></ConfirmDialog>{:else if action === 'end'}<ConfirmDialog title={`End ${actionTitle}?`} body={`${factoryEndWarning(factory.get(actionSession)) ? `${factoryEndWarning(factory.get(actionSession))} ` : ''}This stops the shell and its running jobs. Disconnecting keeps them running. If the machine is offline, the request stays pending until it reconnects.`} confirmLabel="End session" danger onconfirm={() => void performAction()} oncancel={() => action = null}><div class="end-options"><div class="option"><label><input type="checkbox" bind:checked={removeOnClose} disabled={endKeys.has(actionSession)||sessions.find(item=>item.id===actionSession)?.state==='end_requested'} /><span>Remove from history when this session ends</span></label><p>The worktree is removed when it can be; unsaved work stays listed for you to decide. Pending sessions remain visible until the machine confirms they have ended.</p></div><div class="option"><label><input type="checkbox" bind:checked={defaultOn} onchange={()=>defaultEdited=true} /><span>Remove from history by default</span></label><p>{defaultOn===removeDefault?(removeDefault?'This is your current default. Untick to change it.':'Not your current default. Tick to change it.'):(defaultOn?'Will become your default when you end this session.':'Your default will change to keeping history when you end this session.')}</p></div><a href="/account#profile">Manage terminal preferences →</a></div></ConfirmDialog>{:else if action === 'archive'}<ConfirmDialog title={`Remove ${actionTitle} from history?`} body={`${factoryEndWarning(factory.get(actionSession), true) ? `${factoryEndWarning(factory.get(actionSession), true)} ` : ''}${terminalArchiveBody(actionState)}`} confirmLabel="Remove from history" onconfirm={()=>void performAction()} oncancel={()=>action=null} />{/if}
 
 <style>
   .ended{position:relative;overflow:hidden}.ended>*{position:relative}.ended-glow{display:none}
@@ -804,9 +835,9 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .side-terminal-head button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: 0.875rem; }
   @media (max-width:650px){.workspace:has(:global(.session-screen)) .workspace-title>a{display:none}}
   .session-presentation{display:flex;flex:1;min-height:0;min-width:0;flex-direction:column}.session-presentation[hidden]{display:none}
-  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:0;border-radius:0;background:var(--bg);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:0.875rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:0.875rem;border-radius:6px;background:var(--tint);padding:1px 6px;font-variant-numeric:tabular-nums}.details-toggle{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:6px 10px;font-size:13px;border-color:var(--line-soft);background:none;color:var(--muted)}.workspace-actions .panel-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.workspace-actions .panel-toggle:hover{color:var(--ink)}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:0.875rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:0.875rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:0.875rem;color:var(--muted);line-height:1.5;margin:0 0 16px;font-variant-numeric:tabular-nums}.workspace-notice{margin:0;padding:8px 12px;background:var(--tint);font-size:0.875rem;flex-shrink:0;display:flex;align-items:center;gap:8px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:0.875rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:12px;border-radius:8px}.setup-notice pre{font-size:0.875rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:0.875rem;margin:0 0 8px}.shortcut-help p+p{margin-top:8px}
+  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:0;border-radius:0;background:var(--bg);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:0.875rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:0.875rem;border-radius:6px;background:var(--tint);padding:1px 6px;font-variant-numeric:tabular-nums}.details-toggle{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:6px 10px;font-size:14px;border-color:var(--line-soft);background:none;color:var(--muted)}.workspace-actions .panel-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.workspace-actions .panel-toggle:hover{color:var(--ink)}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:0.875rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:0.875rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:0.875rem;color:var(--muted);line-height:1.5;margin:0 0 16px;font-variant-numeric:tabular-nums}.workspace-notice{margin:0;padding:8px 12px;background:var(--tint);font-size:0.875rem;flex-shrink:0;display:flex;align-items:center;gap:8px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:0.875rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:12px;border-radius:8px}.setup-notice pre{font-size:0.875rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:0.875rem;margin:0 0 8px}.shortcut-help p+p{margin-top:8px}
   .creation-error{color:var(--bad)!important}.find-machine{font-size:0.875rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:0.875rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:4px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:0.875rem;color:var(--muted)}
-  .new-session-choice{display:grid;gap:8px}.new-session-option{display:grid;gap:4px;text-align:left;padding:12px 16px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.new-session-option:hover,.new-session-option:focus-visible{border-color:var(--accent)}.new-session-option strong{font-size:.9rem}.new-session-option span{font-size:0.875rem;color:var(--muted);line-height:1.5}
+  
   .end-options{display:grid;gap:12px;margin-top:16px;font-size:0.875rem}.end-options .option{display:grid;gap:4px}.end-options label{display:flex;align-items:flex-start;gap:8px;line-height:1.5;cursor:pointer}.end-options input{flex:none;width:16px;height:16px;min-height:0;margin:2px 0 0;padding:0;border:0;background:none;accent-color:var(--accent)}.end-options p,.end-options a{margin:0;font-size:0.875rem;line-height:1.6;color:var(--muted)}.end-options p{margin-left:24px}.end-options a{justify-self:start;color:var(--accent-text)}
   .mobile-label{display:none}
   .viewport-debug{position:fixed;top:4px;right:4px;z-index:200;margin:0;padding:4px 6px;max-width:calc(100vw - 8px);white-space:pre-wrap;font:14px/1.3 var(--mono);color:#fff;background:rgb(0 0 0 / .72);border-radius:4px;pointer-events:none;user-select:none}

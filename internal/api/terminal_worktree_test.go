@@ -472,6 +472,7 @@ func TestPrivateControlAdvertisesWorktreeBesideLaunch(t *testing.T) {
 // When a remove's reply is lost, the controller asks for status once: not
 // found means the remove happened, and it is audited as confirmed by status.
 func TestTerminalWorktreeRemoveWithALostReplyIsConfirmedByStatus(t *testing.T) {
+	t.Parallel()
 	f := launchAPIFixture(t, worktreeCaps("claude"))
 	for _, tc := range []struct {
 		name   string

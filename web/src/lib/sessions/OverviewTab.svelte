@@ -14,7 +14,7 @@
   import { onDestroy } from 'svelte'
   import { offerPrefill } from './composerPrefill'
   import { offerGoalPrefill } from './goalPrefill'
-  import type { FollowItem } from './stageActions'
+  import type { ActiveFollow, FollowItem } from './stageActions'
   import { copyNote, fixRoute } from './fixDelivery'
   import { fixMessage, type FixKind } from './fixMessages'
   import { deriveStages } from './overviewStages'
@@ -23,12 +23,14 @@
   import { runLine } from './runClock'
 
   // The panel owns reading and polling; the Overview only shows what it is handed, so it can grow cards without touching either.
-  let { id, session, host, status, project, skills, now, chat, supported, workspace, github, checking, base, remote, pending, errors, docked = false, onterminal, onpick, onfull }: {
+  let { id, session, host, status, project, skills, now, chat, supported, workspace, github, checking, base, remote, pending, errors, docked = false, following = null, unfollowBusy = false, onterminal, onunfollow, onpick, onfull }: {
     id: string; session: TerminalSession; host: string; status: FleetCard['status'] | undefined
     project: string; skills: FleetCard['skills'] | null | undefined; now: number; chat?: ChatState; supported: boolean
     workspace: SessionInsight | null; github: SessionInsight | null; checking: boolean; base?: string; remote?: string; pending: Record<string, boolean>; errors: Record<string, string>
     /** The panel sits beside the session; otherwise it is a sheet over it, which a filled composer must not stay behind. */
     docked?: boolean
+    /** The goal Gaffer is following this session with, if any, and the way to stop it from here. */
+    following?: ActiveFollow | null; unfollowBusy?: boolean; onunfollow?: () => void
     onterminal?: () => void; onpick: (tab: 'changes') => void; onfull: () => void
   } = $props()
   const chatAttention = $derived(chat?.connection === 'open' ? ({ working: 'working', waiting: 'waiting', starting: 'starting', idle: 'quiet', error: 'failed', ended: 'finished', cancelled: 'quiet' } as const)[chat.status.state as 'working' | 'waiting' | 'starting' | 'idle' | 'error' | 'ended' | 'cancelled'] : undefined)
@@ -116,7 +118,7 @@
   <!-- With no real start time there is nothing to say, and the line keeps its height empty. -->
   <p class="run-line one-line">{#if runText}<time datetime={startedIso} title={startedFull}>{runText}</time>{/if}</p>
 </section>
-<div class="stage-slot"><StageTracker {id} {stages} {now} onsession={() => onterminal?.()} onfix={fix} onfollow={follow} terminal={!session.structured} note={fixNote} stale={attention ? '' : githubMarker} /></div>
+<div class="stage-slot"><StageTracker {id} {stages} {now} onsession={() => onterminal?.()} onfix={fix} onfollow={follow} {following} {unfollowBusy} {onunfollow} terminal={!session.structured} note={fixNote} stale={attention ? '' : githubMarker} /></div>
 <div class="pull-slot"><PullCard {id} {pull} {placeholder} {now} {onfull} stale={githubMarker} /></div>
 <div class="prompt-slot"><PromptCard {session} {chat} {now} /></div>
 {#if session.structured}

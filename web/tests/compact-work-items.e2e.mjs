@@ -54,8 +54,8 @@ try {
    await active.getByRole('button',{name:'Show fewer',exact:true}).click();await expect(active.locator('.session-card')).toHaveCount(5);await expect(active.getByRole('button',{name:'Show 5 more',exact:true})).toBeFocused()
    if(width===1440){
     expect(await page.evaluate(()=>document.documentElement.scrollHeight<innerHeight*1.5)).toBe(true)
-    // The project list is embedded in the workspace panel and scrolls inside it.
-    const rail=page.locator('[data-workspace-rail]')
+    // Home's project rail is the page's left column and scrolls on its own.
+    const rail=page.locator('aside.rail .full')
     await rail.locator('.card').last().evaluate(el=>el.scrollIntoView({block:'center'}))
     expect(await rail.evaluate(el=>el.scrollTop)).toBeGreaterThan(0)
     await expect(rail.locator('.card').last()).toBeInViewport()

@@ -34,27 +34,55 @@ func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (stor
 	if err != nil {
 		return store.GafferOutcome{}, err
 	}
+	// A session that has ended, been lost or been removed cannot be followed
+	// again: its step is asked for afresh, in the folder the pipeline works in.
+	dead, orphan := "", ""
+	if current, err := s.store.GafferOutcomeFor(uid, id); err == nil {
+		for _, piece := range current.Sessions {
+			if piece.Key == key && piece.SessionID != "" && !s.sessionRunning(uid, piece.SessionID) {
+				dead, orphan = piece.SessionID, piece.ConversationID
+			}
+		}
+	}
 	found := false
 	o, err := s.store.UpdateGafferOutcomeFor(uid, id, revision, func(o *store.GafferOutcome) bool {
+		settleStoppedOutcome(o)
 		for i := range o.Sessions {
 			row := &o.Sessions[i]
-			if row.Key != key || row.State != "failed" && row.State != "unfollowed" && row.State != "cancelled" {
+			// A pipeline still marked as followed can be tried again only when
+			// the session it follows is no longer there to follow.
+			ended := row.State == "following" && dead != "" && row.SessionID == dead
+			if row.Key != key || !ended && row.State != "failed" && row.State != "unfollowed" && row.State != "cancelled" {
 				continue
 			}
 			staged := row.Stage < len(row.Stages)
-			if row.SessionID == "" {
-				// Nothing is running for this step, so it is asked for afresh.
-				if staged {
-					row.Stages[row.Stage].RequestID, row.Stages[row.Stage].State = fresh, "pending"
+			switch {
+			case staged && row.Stages[row.Stage].State == "done":
+				// The stage in hand was already handed over; what is left is to start the next.
+				row.State = "advancing"
+			default:
+				if dead != "" && row.SessionID == dead {
+					row.Retire(row.ConversationID)
+					row.SessionID, row.ConversationID = "", ""
+					if staged {
+						row.Stages[row.Stage].SessionID, row.Stages[row.Stage].ConversationID = "", ""
+					}
 				}
-				if !staged || row.Stage == 0 {
-					row.RequestID = fresh
+				if row.SessionID == "" {
+					// Nothing is running for this step, so it is asked for afresh.
+					if staged {
+						row.Stages[row.Stage].RequestID, row.Stages[row.Stage].State = fresh, "pending"
+					}
+					if !staged || row.Stage == 0 {
+						row.RequestID = fresh
+					}
+				}
+				row.State = "starting"
+				if row.SessionID == "" && (!staged || row.Stage == 0) {
+					row.State = "waiting"
 				}
 			}
-			row.State, row.Note, row.UpdatedAt = "starting", "Trying again…", time.Now().UnixMilli()
-			if row.SessionID == "" && (!staged || row.Stage == 0) {
-				row.State = "waiting"
-			}
+			row.Note, row.UpdatedAt = "Trying again…", time.Now().UnixMilli()
 			o.State, o.Note = "starting", ""
 			found = true
 			return true
@@ -66,6 +94,9 @@ func (s *Service) RetryPipeline(uid int64, id, key string, revision int64) (stor
 	}
 	if !found {
 		return outcomeView(o), invalid("retry", "That pipeline is not stopped, so there is nothing to try again.")
+	}
+	if dead != "" {
+		s.stopPipelineGoal(uid, orphan, "Its session ended. The pipeline carries on in a new session.")
 	}
 	s.wakeOutcomes()
 	return outcomeView(o), nil
@@ -125,9 +156,19 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 	for _, row := range current.Sessions {
 		taken[row.Title] = true
 	}
-	pieces, err := outcomePieces(in.Sessions, current.Tool, current.Model, false, taken, len(current.Sessions))
+	pieces, err := outcomePieces(in.Sessions, current.Tool, current.Model, current.Provider, false, taken, len(current.Sessions))
 	if err != nil {
 		return current, err
+	}
+	if !current.Trust {
+		// Trust is given once, when the outcome is approved, and Antigravity never starts without it.
+		for _, piece := range pieces {
+			for _, stage := range piece.Stages {
+				if stage.Tool == "antigravity" {
+					return current, invalid("trust", "This outcome was approved without folder trust, and Google Antigravity starts only in a trusted folder. Choose another agent for “"+piece.Title+"”, or give Gaffer a new outcome with folder trust ticked.")
+				}
+			}
+		}
 	}
 	if current.Yolo {
 		// The outcome runs without approvals, so a pipeline joins it only with agents that can.
@@ -140,6 +181,7 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 		}
 	}
 	o, err := s.store.UpdateGafferOutcomeFor(uid, id, current.Revision, func(o *store.GafferOutcome) bool {
+		settleStoppedOutcome(o)
 		now := time.Now().UnixMilli()
 		for i := range pieces {
 			pieces[i].State, pieces[i].UpdatedAt = "waiting", now
@@ -200,7 +242,7 @@ func (s *Service) reviewOutcome(parent context.Context, p Principal, id string, 
 		return outcomeView(o), err
 	}
 	defer done()
-	backend, client, err := s.open(p, cfg, old)
+	backend, client, err := s.open(p, cfg, old, "")
 	if err != nil {
 		return outcomeView(o), err
 	}
@@ -366,7 +408,11 @@ func outcomeReport(raw json.RawMessage, taken map[string]bool) (string, []store.
 // judgement from Gaffer's model: the person's word is the authority. The
 // stage's goal is closed and the controller starts the next stage as it would
 // after a hand-over.
-func (s *Service) MovePipelineOn(uid int64, id, key string) (store.GafferOutcome, error) {
+//
+// stage, when given, is the stage the person was looking at: if the pipeline
+// has left it meanwhile, nothing is moved, so a stage they never saw is not
+// closed on a decision made about another.
+func (s *Service) MovePipelineOn(uid int64, id, key, stage string) (store.GafferOutcome, error) {
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return store.GafferOutcome{}, err
 	}
@@ -383,6 +429,9 @@ func (s *Service) MovePipelineOn(uid int64, id, key string) (store.GafferOutcome
 		}
 		if piece.State != "following" || len(piece.Stages) == 0 || piece.Stage >= len(piece.Stages) || piece.ConversationID == "" {
 			return outcomeView(o), invalid("advance", "That pipeline has no stage in hand to move on from.")
+		}
+		if stage != "" && piece.Stages[piece.Stage].Kind != stage {
+			return outcomeView(o), invalid("advance", "That pipeline has already left the "+stage+" stage and is now at "+piece.Stages[piece.Stage].Kind+". Look at it again before moving it on.")
 		}
 		if err := s.movePipelineOn(uid, piece.ConversationID, "", "person"); err != nil {
 			return outcomeView(o), err
@@ -531,7 +580,7 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 			}
 		}
 	}
-	from := piece.Stages[at].Kind
+	from, left := piece.Stages[at].Kind, piece.SessionID
 	fresh := make([]string, len(piece.Stages))
 	for i := target; i < len(piece.Stages); i++ {
 		if fresh[i], err = newChatID(); err != nil {
@@ -545,18 +594,22 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 			if row.Key != key || len(row.Stages) != len(fresh) {
 				continue
 			}
+			// Sending work back is the person asking for it to be done: it sets a stopped outcome going again.
+			settleStoppedOutcome(o)
+			row.Retire(row.ConversationID)
+			for j := target; j < len(row.Stages); j++ {
+				row.Retire(row.Stages[j].ConversationID)
+			}
 			for j := target; j < len(row.Stages); j++ {
 				// A stage done again is asked for under a new request, so it gets a session of its own.
-				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, State: "pending", RequestID: fresh[j]}
+				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, Provider: row.Stages[j].Provider, State: "pending", RequestID: fresh[j]}
 			}
 			row.Stages[target].SentBack = "Sent back from the " + from + " stage. " + clipBytes(reason, 1500)
 			row.Stage, row.MergeApproved = target, false
 			// The session in hand belongs to the stage that was left; the stage done again starts its own.
 			row.SessionID, row.ConversationID = "", ""
 			row.State, row.Note, row.UpdatedAt = "advancing", "Sent back to the "+kind+" stage. Starting it again.", time.Now().UnixMilli()
-			if o.State != "stopped" {
-				o.State = "starting"
-			}
+			o.State, o.Note = "starting", ""
 			found = true
 			return true
 		}
@@ -568,6 +621,8 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 	if !found {
 		return outcomeView(o), store.ErrGafferOutcomeBusy
 	}
+	// The stage done again gets a session of its own; the one that was left is finished with.
+	s.endFinishedSession(context.Background(), o, key, left, "The pipeline was sent back to the "+kind+" stage.")
 	s.wakeOutcomes()
 	return outcomeView(o), nil
 }

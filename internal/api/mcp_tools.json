@@ -345,7 +345,7 @@
   {
     "name": "reet_move_pipeline_on",
     "title": "Move a pipeline to its next stage",
-    "description": "Requires management scope and a writer account. On the user’s word, close the stage in hand of one pipeline as it stands and have the controller start its next stage, without waiting for Gaffer’s review to find it done. Refused while Gaffer is reviewing that stage or when the pipeline has no stage in hand. It does not merge, approve or run anything. Use only when the user asked to continue, skip or accept that stage. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. On the user’s word, close the stage in hand of one pipeline as it stands and have the controller start its next stage, without waiting for Gaffer’s review to find it done. Refused while Gaffer is reviewing that stage or when the pipeline has no stage in hand. It does not merge, approve or run anything. Pass stage, the stage you read as in hand, so a pipeline that has moved since is not moved again. Use only when the user asked to continue, skip or accept that stage. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -359,6 +359,20 @@
           "minLength": 1,
           "maxLength": 4,
           "description": "The pipeline’s key from reet_list_factory or reet_get_factory_outcome, such as \"a\"."
+        },
+        "stage": {
+          "description": "The stage in hand that the user asked to move on from. Refused if the pipeline is at another stage.",
+          "type": "string",
+          "enum": [
+            "plan",
+            "design",
+            "code",
+            "review",
+            "test",
+            "pr",
+            "babysit",
+            "merge"
+          ]
         },
         "confirm": {
           "type": "boolean",
@@ -590,7 +604,7 @@
   {
     "name": "reet_stop_outcome",
     "title": "Stop an outcome",
-    "description": "Requires management scope and a writer account. Stop an outcome: sessions not yet started are not started, and pipelines waiting for their next stage stop there. Sessions already running keep running. It cannot be restarted as a whole. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Stop an outcome: sessions not yet started are not started, every pipeline stops being looked after, and nothing more is started or merged for it. Sessions already running keep running and nothing is closed. A stopped pipeline can be tried again one at a time. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -762,7 +776,12 @@
             "cline",
             "antigravity"
           ],
-          "description": "The coding agent that does every stage."
+          "description": "The coding agent that does every stage. It must be able to run a chat on the project’s machine. Google Antigravity needs folder trust, which is given on the Factory page only, so it is refused here."
+        },
+        "model": {
+          "description": "The model every stage runs on, as that agent names it. Omit for the agent’s default. A name the agent does not offer stops the pipeline at launch.",
+          "type": "string",
+          "maxLength": 200
         },
         "pipelines": {
           "minItems": 1,
@@ -774,7 +793,7 @@
               "title": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 120,
+                "maxLength": 80,
                 "description": "Short name for the pipeline, unique in the outcome."
               },
               "prompt": {
@@ -863,7 +882,7 @@
   {
     "name": "reet_add_pipelines",
     "title": "Add pipelines to an outcome",
-    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Add up to five pipelines to an existing outcome; the controller starts them with the outcome’s agent. An outcome holds at most ten pipelines. Added pipelines never merge by themselves. Refused for an outcome that runs on YOLO: pipelines join one on the Factory page only. This starts real agents. Use only when the user asked for exactly these, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -882,7 +901,7 @@
               "title": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 120,
+                "maxLength": 80,
                 "description": "Short name for the pipeline, unique in the outcome."
               },
               "prompt": {
@@ -964,7 +983,7 @@
   {
     "name": "reet_tell_pipeline_agent",
     "title": "Tell a pipeline’s agent what to do next",
-    "description": "Requires management scope and a writer account. Queue one instruction from the user for the working agent of a pipeline’s stage in hand, for its next turn. Supply a stable 32-character lowercase hex request_id: an identical retry reads the receipt. Sent means accepted by the agent, not completed work. It cannot interrupt, answer approvals or change YOLO. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Queue one instruction from the user for the working agent of a pipeline’s stage in hand, for its next turn. Supply a stable 32-character lowercase hex request_id: an identical retry reads the receipt. Sent means accepted by the agent, not completed work. It cannot interrupt, answer approvals or change YOLO. Refused for an outcome that runs on YOLO, whose agent acts without approvals: tell it on the Factory page. Use only when the user asked for exactly this, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -990,6 +1009,10 @@
           "maxLength": 8000,
           "description": "The instruction the user asked for."
         },
+        "confirm": {
+          "type": "boolean",
+          "description": "Must be true, and only when the user asked for exactly this change."
+        },
         "response_format": {
           "default": "json",
           "description": "JSON or a Markdown JSON code block.",
@@ -1004,7 +1027,8 @@
         "outcome_id",
         "pipeline",
         "request_id",
-        "text"
+        "text",
+        "confirm"
       ],
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false
@@ -1034,7 +1058,7 @@
   {
     "name": "reet_send_pipeline_back",
     "title": "Send a pipeline back to an earlier stage",
-    "description": "Requires management scope and a writer account. Have the stage in hand, or an earlier one, done again: that stage and every later one start over in a fresh agent session in the same folder and branch, and the agent is told the reason. Nothing already committed is undone. Use only when the user asked for it, with confirm=true. Returns {data: object} as structured content and text.",
+    "description": "Requires management scope and a writer account. Have the stage in hand, or an earlier one, done again: that stage and every later one start over in a fresh agent session in the same folder and branch, and the agent is told the reason. Nothing already committed is undone. Refused for an outcome that runs on YOLO: send it back on the Factory page. Use only when the user asked for it, with confirm=true. Returns {data: object} as structured content and text.",
     "inputSchema": {
       "type": "object",
       "properties": {

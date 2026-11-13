@@ -56,24 +56,23 @@ starter prompt as at least two words.").
 
 ## The rail
 
-On a desktop the project list is part of the left workspace panel, under Home, Sessions, Machines, Skills and
-More; Home itself is one column, so the board gets the rest of the width. The panel starts at 300 px and its
-own separator can widen it to 460 px; that width is remembered for Home separately from the navigation-only
-panel. The **Projects** heading carries its own fold: folded, it keeps the heading, **Add** and the fold
-control and hides the cards. **Add** opens the folder browser. Folding the whole navigation leaves the list in
-Home's own column, where from 1100 to 1239 px it is a 56 px strip with **Add**,
-**Open the project rail** (marked with a dot, and named, when a migration note or folders are waiting), then one
-button per project showing its initial, its base branch in mono (cut short), the repository diamond, a running
-dot and the worktrees in use as a small count, each named in full. Open the project rail shows the full rail over
-the page as a 301 px panel starting where the strip is on screen, with every card menu, note and prompt and a
-Close button; while it is open the toggle is named "Close the project rail", Tab stays inside the panel, and
-Escape, Close, the toggle or a press outside closes it and gives focus back to the toggle. On a tablet or phone
-it is on the Sessions screen, under the session groups (PR H). A card's menu (its button, or a right-click on
+On a desktop the project list is Home's own left column. The primary tabs (Home, Factory, Sessions, Machines,
+Skills and More) live in the top bar on every signed-in page, as they do on the session screen; they are not
+part of this panel. The rail starts at 301 px and its separator can widen it to 460 px (240 px minimum), and
+that width is remembered in this browser (`reet.rail.width`). The **Projects** heading carries the fold:
+folded, the rail becomes a 56 px strip with **Add**, **Open the project rail** (marked with a dot, and named,
+when a migration note or folders are waiting), then one button per project showing its initial, its base branch
+in mono (cut short), the repository diamond, a running dot and the worktrees in use as a small count, each named
+in full. Open the project rail shows the full rail over the page as a 301 px panel starting where the strip is
+on screen, with every card menu, note and prompt and a Close button; while it is open the toggle is named
+"Close the project rail", Tab stays inside the panel, and Escape, Close, the toggle or a press outside closes it
+and gives focus back to the toggle. From 1100 to 1239 px the rail is always the strip. On a tablet or phone it
+is on the Sessions screen, under the session groups (PR H). A card's menu (its button, or a right-click on
 the card) sets the project's colour; the colour is saved on the project and follows the person to every
 browser.
 
-Each card shows, in words: a repository diamond (or a folder icon for a plain folder), the name, the
-machine, the base branch (mono) when one is set, the state and the worktrees in use. The state is
+Each compact card shows two lines, in words: a repository diamond (or a folder icon for a plain folder) and the
+name, then the machine, the base branch (mono) when one is set, the state and the worktrees in use. The state is
 "N running" (its own running and starting sessions, by each session's project id), "machine offline"
 when its machine is known not to be reporting, else "idle". Worktrees in use are the distinct
 worktrees its live sessions are working in; the session listing has no record of removed worktrees,
@@ -391,7 +390,7 @@ can be kept unchanged in an edit; moving it to a new folder on that machine is r
 
 ### Check and remove a run's worktree
 
-reet never removes a worktree by itself, apart from undoing its own failed create: when a create
+reet removes a clean worktree when its session is removed from history and in the scheduled clean-up ([machine maintenance](machine-maintenance.md)). It also undoes its own failed create: when a create
 fails part-way, the machine removes the worktree and deletes the branch that same call had just made,
 and nothing else (see [Worktrees](terminal-worktrees.md)). *Remove worktree* is offered only for a member that started
 with a worktree and whose session the page has read as ended:

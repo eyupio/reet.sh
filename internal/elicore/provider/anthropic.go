@@ -39,6 +39,38 @@ func NewAnthropic(cfg Config) *Anthropic {
 	return &Anthropic{cfg: cfg, base: base}
 }
 
+// ephemeralCache marks one breakpoint in the prompt cache. Anthropic caches
+// the prefix before each mark, so a repeated system prompt, tool list or
+// conversation prefix is billed at the cheaper cached rate instead of being
+// sent and charged in full every turn. The marks are always sent: a prefix
+// below the model's minimum is simply not cached, and a gateway that does not
+// support the field ignores it.
+func ephemeralCache() map[string]any {
+	return map[string]any{"type": "ephemeral"}
+}
+
+// cacheLastMessage puts one breakpoint at the end of the newest turn, which
+// is what lets the next turn reuse the whole conversation so far. Anthropic
+// accepts the mark on a text, tool_use or tool_result block, so the content is
+// always sent as blocks here rather than as a bare string.
+func cacheLastMessage(msgs []map[string]any) {
+	if len(msgs) == 0 {
+		return
+	}
+	last := msgs[len(msgs)-1]
+	switch content := last["content"].(type) {
+	case string:
+		last["content"] = []any{map[string]any{"type": "text", "text": content, "cache_control": ephemeralCache()}}
+	case []any:
+		if len(content) == 0 {
+			return
+		}
+		if block, ok := content[len(content)-1].(map[string]any); ok {
+			block["cache_control"] = ephemeralCache()
+		}
+	}
+}
+
 func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 	if maxTokens <= 0 {
 		maxTokens = anthropicDefaultMaxTokens
@@ -75,6 +107,7 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 			msgs = append(msgs, map[string]any{"role": "user", "content": m.Content})
 		}
 	}
+	cacheLastMessage(msgs)
 	out := map[string]any{"model": p.model(req.Model), "max_tokens": maxTokens, "messages": msgs, "stream": true}
 	system := req.System
 	for _, m := range req.Messages {
@@ -83,16 +116,24 @@ func (p *Anthropic) body(req elicore.Request, maxTokens int) ([]byte, error) {
 		}
 	}
 	if system != "" {
-		out["system"] = system
+		// A breakpoint after the system prompt caches it together with the
+		// tool definitions, which are the two parts every turn repeats.
+		out["system"] = []any{map[string]any{"type": "text", "text": system, "cache_control": ephemeralCache()}}
 	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, 0, len(req.Tools))
-		for _, t := range req.Tools {
+		for i, t := range req.Tools {
 			schema := t.Parameters
 			if len(schema) == 0 {
 				schema = json.RawMessage(`{"type":"object"}`)
 			}
-			tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": schema})
+			tool := map[string]any{"name": t.Name, "description": t.Description, "input_schema": schema}
+			// A breakpoint on the last tool caches the whole list even when
+			// there is no system prompt.
+			if i == len(req.Tools)-1 {
+				tool["cache_control"] = ephemeralCache()
+			}
+			tools = append(tools, tool)
 		}
 		out["tools"] = tools
 	}

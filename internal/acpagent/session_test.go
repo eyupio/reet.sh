@@ -1159,6 +1159,7 @@ func TestSilentRecoveryDoesNotOutliveTheTurn(t *testing.T) {
 }
 
 func TestSilentRecoverySkipsTurnsWithProgress(t *testing.T) {
+	t.Parallel()
 	t.Run("progress before the check", func(t *testing.T) {
 		opts, got := options(t, "progress-first", testVersion)
 		opts.StillWorkingAfter = 20 * time.Millisecond
@@ -1307,6 +1308,7 @@ func TestActiveTurnOutlivesTheIdleTimeout(t *testing.T) {
 }
 
 func TestQuietCommandOutlivesTheIdleTimeout(t *testing.T) {
+	t.Parallel()
 	opts, got := options(t, "quiet-command", testVersion)
 	opts.StillWorkingAfter = 20 * time.Millisecond
 	opts.TurnTimeout = 100 * time.Millisecond
@@ -1746,6 +1748,7 @@ func TestCancelIgnoredByTheAgentEndsTheChatAfterTheGracePeriod(t *testing.T) {
 // A cancel the agent honours must not end the chat, and the force-stop armed for
 // that turn must not touch the next turn that is running when it fires.
 func TestForceStopIsBoundToTheCancelledTurn(t *testing.T) {
+	t.Parallel()
 	opts, got := options(t, "progress-after-silence-hang", testVersion)
 	opts.TurnTimeout = time.Minute
 	opts.ForceStopGrace = 300 * time.Millisecond
@@ -2005,6 +2008,7 @@ func TestStopBeforePromptWriteDoesNotStartWork(t *testing.T) {
 // ends the chat, retires the process group and says so; Stop with nothing running
 // only cancels the turn and leaves the chat usable.
 func TestStopEndsTheChatOnlyWhileACommandRunsWhenTheProfileAsksFor(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		scenario string
 		flag     bool
@@ -2220,6 +2224,7 @@ func TestUnansweredModeSwitchIsNeverReportedAsTheOldMode(t *testing.T) {
 // Strict read-back is the Claude contract measured by the SC2 probe. Only the
 // fake child's identity/mode are overridden; its replies exercise that profile.
 func TestModelSwitchAcknowledgementContract(t *testing.T) {
+	t.Parallel()
 	for _, strict := range []bool{false, true} {
 		profile := "opencode"
 		if strict {
@@ -2286,6 +2291,7 @@ func TestModelSwitchAcknowledgementContract(t *testing.T) {
 }
 
 func TestStartupRequiresTheChosenModelToBeConfirmed(t *testing.T) {
+	t.Parallel()
 	for _, profile := range []string{"opencode", "claude"} {
 		for _, resume := range []bool{false, true} {
 			for _, shape := range []string{"matching", "other", "missing", "empty", "null", "no-value", "wrong-type", "duplicate", "duplicate-same"} {

@@ -203,13 +203,12 @@ try {
    expect((await page.locator('.workspace-heading').boundingBox()).height).toBeLessThanOrEqual(130)
    expect(await page.evaluate(()=>localStorage.getItem('reet.home.view.1'))).toBeNull()
    if(width>=1100){
-    // The project list lives inside the workspace panel, so Projects folds the list in place rather than the column.
+    // Projects folds the rail to its 56 px strip; the board keeps its own column.
     const projects=page.locator('.workspace-heading').getByRole('button',{name:'Projects',exact:true}),projectRail=rail(page)
-    await expect(page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
-    await expect(page.locator('main aside.rail')).toHaveCount(0)
+    await expect(page.locator('main aside.rail')).toHaveCount(1)
     await expect(projects).toHaveAttribute('aria-expanded','false')
-    await expect(projectRail.getByRole('button',{name:'Show the project list',exact:true})).toHaveAttribute('aria-expanded','false')
-    await expect(projectRail.locator('.full .card')).toHaveCount(0)
+    await expect(projectRail.getByRole('button',{name:'Expand the project rail',exact:true})).toBeVisible()
+    await expect(projectRail.locator('.full .card').first()).toBeHidden()
     expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBe('1')
     await projects.click();await expect(projects).toHaveAttribute('aria-expanded','true')
     expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBe('0')
@@ -217,7 +216,7 @@ try {
     await page.reload();await expect(projects).toHaveAttribute('aria-expanded','true')
     await projects.click();await expect(projects).toHaveAttribute('aria-expanded','false')
     expect(await page.evaluate(()=>localStorage.getItem('reet.rail.collapsed'))).toBe('1')
-    await expect(projectRail.locator('.full .card')).toHaveCount(0)
+    await expect(projectRail.locator('.full .card').first()).toBeHidden()
    }
    const search=page.getByRole('searchbox',{name:'Search sessions',exact:true})
    await search.fill('release')
@@ -236,6 +235,7 @@ try {
    expect(await noSideways(page)).toBe(true)
    if(process.env.REET_UI_SCREENSHOTS)await page.screenshot({path:`${process.env.REET_UI_SCREENSHOTS}/home-continue-${theme}-${width}.png`,fullPage:true})
    await page.getByRole('button',{name:'New session',exact:true}).click()
+   await page.getByRole('dialog',{name:'New session',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
    const start=page.getByRole('dialog',{name:'Start an agent',exact:true})
    await expect(start).toBeVisible()
    await page.keyboard.press('Escape');await expect(start).toHaveCount(0)
@@ -293,6 +293,8 @@ try {
   await page.goto(base)
   await expect(page.locator('details.quick-launch')).toHaveCount(0)
   await rail(page).getByRole('button',{name:'New session in Store rewrite'}).click()
+  // A project's + asks what to start in it; an agent session goes on to Start an agent.
+  await page.getByRole('dialog',{name:'New session in Store rewrite',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   let dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(dialog).toBeVisible()
   await expect(dialog.getByLabel('Project')).toHaveValue('fp1')
@@ -305,21 +307,22 @@ try {
   // The card's menu does the same from a right-click.
   await rail(page).getByRole('button',{name:/^Store rewrite, /}).click({button:'right'})
   await page.getByRole('menu',{name:'Store rewrite'}).getByRole('menuitem',{name:'New session here'}).click()
+  await page.getByRole('dialog',{name:'New session in Store rewrite',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button',{name:'Start',exact:true}).click()
   await expect.poll(() => box.createdBody?.projectId ?? null).toBe('fp1')
   await expect(page).toHaveURL(/\/sessions\?/)
   await page.goto(base)
-  // The machine's + offers what to start there; New session asks which of its own projects, not another machine's.
+  // The machine's + offers what to start there; New session asks what kind: an agent, a terminal, or a Factory outcome.
   await strip(page).getByRole('button',{name:'New on studio'}).click()
   const create = page.getByRole('menu',{name:'studio'})
   await expect(create.getByRole('menuitem')).toHaveText(['New session…','New project…','New terminal'])
   await create.getByRole('menuitem',{name:'New session…'}).click()
-  const chooser = page.getByRole('dialog',{name:'Start on studio',exact:true})
+  const chooser = page.getByRole('dialog',{name:'New session',exact:true})
   await expect(chooser).toBeVisible()
-  await expect(chooser.getByRole('button',{name:/^Store rewrite/})).toBeVisible()
-  await expect(chooser.getByRole('button',{name:/^Notes/})).toHaveCount(0)
+  await expect(chooser).toContainText('Choose what to start on studio.')
+  await expect(chooser.getByRole('button')).toHaveText([/^Close/,/^Agent session/,/^Terminal session/,/^Factory outcome/])
   await chooser.getByRole('button',{name:/^Terminal session/}).click()
   await expect.poll(() => box.createdBody?.title ?? null).toBe('Terminal')
   expect(box.createdBody).toMatchObject({agentId:'a1', title:'Terminal'})
@@ -380,12 +383,12 @@ try {
   await page.goto(base)
   await strip(page).getByRole('button',{name:'New on studio'}).click()
   await page.getByRole('menu',{name:'studio'}).getByRole('menuitem',{name:'New session…'}).click()
-  await page.getByRole('dialog',{name:'Start on studio',exact:true}).getByRole('button',{name:/^Terminal session/}).click()
+  await page.getByRole('dialog',{name:'New session',exact:true}).getByRole('button',{name:/^Terminal session/}).click()
   await expect.poll(() => posts.length).toBe(1)
   await expect(page.getByText(/may have started/)).toBeVisible()
   await strip(page).getByRole('button',{name:'New on studio'}).click()
   await page.getByRole('menu',{name:'studio'}).getByRole('menuitem',{name:'New session…'}).click()
-  await page.getByRole('dialog',{name:'Start on studio',exact:true}).getByRole('button',{name:/^Terminal session/}).click()
+  await page.getByRole('dialog',{name:'New session',exact:true}).getByRole('button',{name:/^Terminal session/}).click()
   await expect.poll(() => posts.length).toBe(2)
   expect(posts[1].requestId).toBe(posts[0].requestId)
   await expect(page).toHaveURL(/\/sessions\?/)
@@ -621,8 +624,8 @@ try {
   await expect(notes.locator('.icon.folder')).toHaveCount(1)
   await expect(notes.locator('.branch')).toHaveCount(0)
   await expect(r.getByText('Folders are browsed live on the machine',{exact:true})).toHaveCount(0)
-  // The rail is embedded in the workspace panel, so it takes the panel's content width rather than a column of its own.
-  await expect(page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
+  // The rail is Home's left column, as wide as the person drags it.
+  await expect(page.locator('main aside.rail')).toHaveCount(1)
   expect(Math.round(await r.evaluate(el => el.getBoundingClientRect().width))).toBeGreaterThanOrEqual(240)
   // Choosing a card narrows the board to it (and marks it); its + opens Start an agent on that folder and machine.
   await notes.click()
@@ -632,6 +635,8 @@ try {
   await expect(notes).not.toHaveAttribute('aria-current','true')
   await page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>t</title>'}))
   await rail(page).getByRole('button',{name:'New session in Store rewrite'}).click()
+  // A project's + asks what to start in it; an agent session goes on to Start an agent.
+  await page.getByRole('dialog',{name:'New session in Store rewrite',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   const start = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(start.getByLabel('Project')).toHaveValue('fp1')
   await start.getByRole('button',{name:'Start',exact:true}).click()
@@ -680,14 +685,14 @@ try {
   await expect(page.locator('main')).not.toContainText(/healthy|verified/i)
   expect(errors).toEqual([])
   await context.close()
-  // At 1200 px the workspace panel is on screen too, so the project list is embedded there and still reaches Add.
+  // At 1200 px the rail is its 56 px strip: every project is a mini button and Add is still in reach.
   const narrow = await home({width:1200})
   await narrow.page.goto(base)
   const n = rail(narrow.page)
-  await expect(narrow.page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
+  await expect(narrow.page.locator('main aside.rail')).toHaveCount(1)
   await expect(n.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})).toBeVisible()
   await expect(n.getByRole('button',{name:'Add a project'})).toBeVisible()
-  expect(Math.round(await n.evaluate(el => el.getBoundingClientRect().width))).toBeGreaterThanOrEqual(240)
+  expect(Math.round(await n.evaluate(el => el.getBoundingClientRect().width))).toBe(56)
   expect(await noSideways(narrow.page)).toBe(true)
   await narrow.context.close()
  }
@@ -724,6 +729,7 @@ try {
   const menu = page.getByRole('menu',{name:'Notes'})
   await expect(menu.getByRole('menuitem',{name:'New session here'})).toBeFocused()
   await menu.getByRole('menuitem',{name:'New session here'}).click()
+  await page.getByRole('dialog',{name:'New session in Notes',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   await expect(menu).toBeHidden()
   const startDialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(startDialog).toBeVisible()
@@ -741,12 +747,13 @@ try {
   await expect(r.getByRole('button',{name:/^Store rewrite, Blue, studio, main/})).toBeVisible()
   expect(errors).toEqual([])
   await context.close()
-  // At 1200 px the project list is embedded in the workspace panel: New session here sets the bar the same way.
-  const narrow = await home({width:1200})
+  // At 1240 px the desktop rail is still its full cards: New session here sets the bar the same way.
+  const narrow = await home({width:1240})
   await narrow.page.goto(base)
   await rail(narrow.page).getByRole('button',{name:'More for Notes',exact:true}).click()
   await expect(narrow.page.getByRole('menu',{name:'Notes'}).getByRole('menuitem',{name:'New session here'})).toBeFocused()
   await narrow.page.keyboard.press('Enter')
+  await narrow.page.getByRole('dialog',{name:'New session in Notes',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   const narrowDialog = narrow.page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(narrowDialog).toBeVisible()
   await expect(narrowDialog.getByLabel('Project')).toHaveValue('fp2')
@@ -895,52 +902,20 @@ try {
   await context.close()
  }
 
- // At 1100 to 1239 px the workspace panel is on screen too, so the project list is embedded there: every card action is
- // reachable, and folding the list leaves its heading, Add and the fold button in the panel.
- if (run('embedded rail reaches every action at narrow desktops')) {
+ // At 1100 to 1239 px the project rail is its 56 px strip: every project is a mini button named in full, and Add stays
+ // in reach. The board keeps its own column.
+ if (run('narrow desktop project rail is a strip')) {
   for (const width of [1239, 1100]) {
-   const {context,page,errors,box} = await home({width, savedWaiting:2, projects:[fproject('fp1','Store rewrite','a1','/home/dev/store',{baseBranch:'main',note:'Old shop'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]})
+   const {context,page,errors} = await home({width, projects:[fproject('fp1','Store rewrite','a1','/home/dev/store',{baseBranch:'main'}), fproject('fp2','Notes','a2','/home/dev/notes',{isRepo:false,position:1})]})
    await page.goto(`${base}/?project=fp1`)
    const r = rail(page)
-   await expect(page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
-   const panel = r.locator('.full')
-   const store = panel.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})
+   await expect(page.locator('main aside.rail')).toHaveCount(1)
+   expect(Math.round(await r.evaluate(el => el.getBoundingClientRect().width))).toBe(56)
+   await expect(r.locator('.full')).toBeHidden()
+   const store = r.getByRole('button',{name:'Store rewrite, studio, main, 1 running, 1 worktree in use',exact:true})
    await expect(store, `${width}`).toBeVisible()
-   await expect(store).toHaveAttribute('aria-current','true')
-   await expect(panel.getByRole('button',{name:/^Notes, /})).not.toHaveAttribute('aria-current','true')
-   await expect(store.locator('.icon.repo')).toHaveCount(1)
-   await expect(store.locator('.branch')).toHaveText('main')
-   await expect(store.locator('.wt')).toHaveText('1 worktree in use')
-   // Folding the list leaves the heading, Add and the fold button in the panel.
-   await panel.getByRole('button',{name:'Hide the project list',exact:true}).click()
-   await expect(store).toBeHidden()
-   await expect(r.getByRole('heading',{name:'Projects'})).toBeVisible()
+   await expect(store.locator('.mini-initial')).toHaveText('S')
    await expect(r.getByRole('button',{name:'Add a project'})).toBeVisible()
-   await r.getByRole('button',{name:'Show the project list',exact:true}).click()
-   await expect(store).toBeVisible()
-   // The card menu by keyboard.
-   await panel.getByRole('button',{name:'More for Store rewrite',exact:true}).focus()
-   await page.keyboard.press('Enter')
-   const menu = page.getByRole('menu',{name:'Store rewrite'})
-   await expect(menu.getByRole('menuitem')).toHaveText(['New session here','Edit','Worktrees','Move up','Move down','Remove from reet'])
-   await expect(menu.getByRole('menuitem',{name:'New session here'})).toBeFocused()
-   // The menu also has a Move to group section (one radio per group, and No group).
-   for (const item of ['Edit','Worktrees','Move down','No group','Remove from reet']) {
-    await page.keyboard.press('ArrowDown')
-    if (item !== 'Edit') continue
-    await expect(menu.getByRole('menuitem',{name:'Edit'})).toBeFocused()
-   }
-   await expect(menu.getByRole('menuitem',{name:'Remove from reet'})).toBeFocused()
-   await page.keyboard.press('Escape')
-   // The note's Dismiss and the saved folders prompt.
-   const dismiss = panel.getByRole('button',{name:'Dismiss the note on Store rewrite',exact:true})
-   await dismiss.focus()
-   await page.keyboard.press('Enter')
-   await expect.poll(() => box.writes.filter(w => w.method === 'PATCH').length).toBe(1)
-   const bring = panel.getByRole('button',{name:'Add the waiting folders (2)',exact:true})
-   await bring.focus()
-   await page.keyboard.press('Enter')
-   await expect.poll(() => box.writes.filter(w => w.path === '/api/v2/folder-projects/import-saved').length).toBe(1)
    expect(await noSideways(page)).toBe(true)
    expect(errors).toEqual([])
    await context.close()
@@ -983,6 +958,8 @@ try {
   await expect(launchBar(page)).toHaveCount(0)
   await expect(page.getByRole('dialog',{name:'Start an agent'})).toHaveCount(0)
   await rail(page).getByRole('button',{name:'New session in Store rewrite'}).click()
+  // A project's + asks what to start in it; an agent session goes on to Start an agent.
+  await page.getByRole('dialog',{name:'New session in Store rewrite',exact:true}).getByRole('button',{name:'Agent session',exact:true}).click()
   const dialog = page.getByRole('dialog',{name:'Start an agent',exact:true})
   await expect(dialog).toBeVisible()
   const barBox = await dialog.boundingBox()
@@ -1208,8 +1185,7 @@ try {
    await expect(page.getByRole('region',{name:'Active'})).toBeVisible()
    if (width >= 1100) {
     await expect(rail(page)).toBeVisible()
-    await expect(page.locator('.workspace-sidebar aside.rail')).toHaveCount(1)
-    await expect(page.locator('main aside.rail')).toHaveCount(0)
+    await expect(page.locator('main aside.rail')).toHaveCount(1)
    } else await expect(page.locator('main aside.rail')).toHaveCount(0)
    await expect(card(page,'studio')).toBeVisible()
    if (width < 651) {
@@ -1335,8 +1311,8 @@ try {
   await context.close()
  }
 
- // Status is never colour alone: a phone chip that is not online says so in words, and the embedded rail names each
- // Project's state in its card.
+ // Status is never colour alone: a phone chip that is not online says so in words, and the rail names each Project's
+ // state in its card (or in its mini button at a narrow desktop).
  if (run('status in words on phone chips and the rail cards')) {
   const phone = await home({width:390,touch:true})
   await phone.page.goto(base)

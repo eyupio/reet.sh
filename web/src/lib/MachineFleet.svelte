@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
   import { cardReadiness, folderProjectList, terminalMachines, type FolderProject, type HealthResponse, type TerminalMachine, type TerminalSession } from './terminal/api'
+  import { openTerminalHref } from './terminal/openTerminal'
   import StartAgentDialog from './StartAgentDialog.svelte'
   import { getMachineHealth as machineHealth } from './api'
   import MachineHealthStrip from './terminal/MachineHealthStrip.svelte'
@@ -585,7 +586,7 @@
 
         {#if terminalAccess && enrolled}
           <div class="actions">
-            <a class="btn" class:primary={sync.tone === 'synced' || sync.tone === 'setup'} href={`/machines?view=terminal&agent=${encodeURIComponent(enrolled.id)}`}>Open terminal</a>
+            <a class="btn" class:primary={sync.tone === 'synced' || sync.tone === 'setup'} href={openTerminalHref(enrolled.id)}>Open terminal</a>
             <button class="btn" type="button" disabled={!!agentReadiness(enrolled.id)} aria-describedby={agentReadiness(enrolled.id) ? `start-agent-${m}` : undefined} onclick={(event) => void beginStart(enrolled.id, event.currentTarget)}>Start an agent</button>
           </div>
         {/if}

@@ -462,6 +462,110 @@ func (s *Store) LibraryFor(uid int64) ([]LibraryItem, error) {
 	return items, nil
 }
 
+// LibraryViewFor is LibraryFor as a person reads it: one canonical copy per
+// name. Selection and scheduler code must keep using LibraryFor, which returns
+// every item, so a saved selection is never dropped merely because a linked
+// copy of the same name exists elsewhere in the library.
+func (s *Store) LibraryViewFor(uid int64) ([]LibraryItem, error) {
+	items, err := s.LibraryFor(uid)
+	if err != nil {
+		return nil, err
+	}
+	return oneCanonicalCopyPerName(items), nil
+}
+
+// linkedLibraryItem reports whether an item has a known source: an authored or
+// hosted alias, or a shelf skill linked to an install source. An unlinked
+// machine capture is only an observation of a skill, not a source of its own.
+// Source alone also counts, matching the sync library, so rows saved before
+// source types were recorded stay linked.
+func linkedLibraryItem(item LibraryItem) bool {
+	for _, alias := range item.Aliases {
+		if alias.Kind == "hosted" {
+			return true
+		}
+	}
+	return item.Metadata != nil && item.Metadata.Source != "" && item.Metadata.SourceType != "local"
+}
+
+// oneCanonicalCopyPerName drops unlinked machine captures when the account
+// already holds a linked library item of the same name. The linked item is the
+// single source: automatic sync maintains it, and manually importing or linking
+// an unlinked copy is how that copy becomes a source of its own. Distinct
+// same-name items that each have a known source are left alone, because the
+// sync library settles which copy one machine receives.
+func oneCanonicalCopyPerName(items []LibraryItem) []LibraryItem {
+	linked := map[string]bool{}
+	for _, item := range items {
+		if linkedLibraryItem(item) {
+			linked[item.Name] = true
+		}
+	}
+	if len(linked) == 0 {
+		return items
+	}
+	out := make([]LibraryItem, 0, len(items))
+	dropped := map[string][]LibraryItem{}
+	for _, item := range items {
+		if linked[item.Name] && !linkedLibraryItem(item) {
+			dropped[item.Name] = append(dropped[item.Name], item)
+			continue
+		}
+		out = append(out, item)
+	}
+	for name, copies := range dropped {
+		kept := -1
+		for i := range out {
+			if out[i].Name != name || !linkedLibraryItem(out[i]) {
+				continue
+			}
+			if kept >= 0 {
+				// More than one linked source of this name: the sync library
+				// decides which copy a machine receives, so there is no single
+				// entry to put the observation on.
+				kept = -1
+				break
+			}
+			kept = i
+		}
+		if kept < 0 {
+			continue
+		}
+		for _, copy := range copies {
+			mergeLibraryObservations(&out[kept], copy)
+		}
+	}
+	return out
+}
+
+// mergeLibraryObservations carries a machine copy's observed folders onto the
+// linked entry it was folded into, so hiding the second card does not hide the
+// machine that reported it. It changes the returned view only, never the store.
+func mergeLibraryObservations(into *LibraryItem, from LibraryItem) {
+	if into.Metadata == nil || from.Metadata == nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, e := range into.Metadata.Environments {
+		seen[environmentKey(e)] = true
+	}
+	for _, e := range from.Metadata.Environments {
+		if seen[environmentKey(e)] {
+			continue
+		}
+		into.Metadata.Environments = append(into.Metadata.Environments, e)
+		seen[environmentKey(e)] = true
+	}
+	into.Metadata.EnvironmentCount = len(into.Metadata.Environments)
+}
+
+func environmentKey(e Environment) string {
+	if e.ID != "" {
+		return e.ID
+	}
+	return e.Host + "\x00" + e.Agent + "\x00" + e.Project + "\x00" + e.Path
+}
+
 func (s *Store) materializeLibraryHosted(uid int64) error {
 	hosted, err := s.HostedSkillsFor(uid)
 	if err != nil {

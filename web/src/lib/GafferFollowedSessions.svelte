@@ -15,10 +15,12 @@
   import GafferProse from './GafferProse.svelte'
   import { formatWhen } from './time'
 
-  let { onclose, onchanged, onselect, onhistory, onerror, userId=0, timeZone='', dateFormat='locale', startWithOutcome=false, inline=false, hidden=[], hiddenSessions=[] }: {
+  let { onclose, onchanged, onselect, onhistory, onerror, userId=0, timeZone='', dateFormat='locale', startWithOutcome=false, inline=false, hidden=[], hiddenSessions=[], projectIds=undefined }: {
     startWithOutcome?:boolean;
     /** On the Factory page the floor is part of the page, not a dialog, and the page shows outcomes itself. `hidden` are goals the page already draws as pipelines. */
     inline?:boolean; hidden?:string[]; hiddenSessions?:string[];
+    /** The projects the page is narrowed to: only their sessions are listed. A session with no project is then left out. */
+    projectIds?:string[];
     onclose:()=>void; onchanged:()=>void|Promise<void>; onselect:()=>void; onhistory:()=>void; userId?:number;
     onerror:(e:unknown)=>string; timeZone?:string; dateFormat?:string
   } = $props()
@@ -52,13 +54,16 @@
   }
   let refreshButton=$state<HTMLButtonElement>()
   let controller:AbortController|undefined, epoch=0, returnFocus:HTMLElement|undefined
-  const rows=$derived((view?.goals??[]).filter(row=>!hidden.includes(row.goal.conversationId)))
+  const inProjects=(sessionId:string)=>!projectIds||projectIds.includes(sessions.find(item=>item.id===sessionId)?.projectId??'')
+  const allRows=$derived((view?.goals??[]).filter(row=>!hidden.includes(row.goal.conversationId)))
+  const rows=$derived(allRows.filter(row=>inProjects(row.goal.sessionId)))
   const needsYou=$derived(rows.filter(row=>row.attention).length)
   const following=$derived(rows.filter(row=>row.goal.state==='active'&&!row.attention).length)
   // A session is offered only when it has no goal at all and is not a pipeline's own session.
-  const candidates=$derived(view?floorCandidates(sessions,view.goals.map(row=>row.goal)).filter(item=>!hiddenSessions.includes(item.id)):[])
+  const candidates=$derived(view?floorCandidates(sessions,view.goals.map(row=>row.goal)).filter(item=>!hiddenSessions.includes(item.id)&&inProjects(item.id)):[])
   const chosen=$derived(floorChosen(candidates,ticked))
-  const room=$derived(floorRoom(rows.map(row=>row.goal)))
+  // Room is the account's, whatever the page is narrowed to, and counts the pipelines' own goals that the page draws elsewhere.
+  const room=$derived(floorRoom((view?.goals??[]).map(row=>row.goal)))
   const showCandidates=$derived(!outcomeFilter&&(filter==='all'||filter==='idle'))
   const outcomes=$derived(floorOutcomes(records,rows))
   const chosenOutcome=$derived(outcomes.find(group=>group.id===outcomeFilter))
@@ -74,7 +79,8 @@
       const [next,owned,found]=await Promise.all([
         listGafferGoals(current.signal),
         // Outcome records are an addition: a controller without them, or a failed read, leaves the floor as it was.
-        listGafferOutcomes(current.signal).catch(()=>null),
+        // The page that shows this inline reads the outcomes itself.
+        inline?Promise.resolve(null):listGafferOutcomes(current.signal).catch(()=>null),
         terminalSessions(current.signal).then(list=>({list,error:''}),e=>({list:null,error:e instanceof Error?e.message:'Running sessions could not be read.'})),
       ])
       if(mine!==epoch)return
@@ -101,7 +107,8 @@
   function tick_(id:string,on:boolean){const next=new Set(ticked);if(on)next.add(id);else next.delete(id);ticked=next}
   function tickAll(){ticked=chosen.length===candidates.length?new Set():new Set(candidates.map(item=>item.id))}
   async function closeReview(){reviewing=false;await load(true);await tick();(lookAfterButton?.isConnected?lookAfterButton:refreshButton)?.focus({preventScroll:true})}
-  // Opening a running chat from the floor shows it with its own Gaffer conversation. It enables and sends nothing.
+  // Opening a running chat from the floor shows the session itself. It enables and sends nothing, and Gaffer's chat
+  // stays closed unless the person opens it from its own controls.
   function openCandidate(event:MouseEvent,item:TerminalSession) {
     if(event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return
     const request=new CustomEvent('reet:show-session',{detail:item.id,cancelable:true})
@@ -180,7 +187,7 @@
           {#if row.session}<p class="muted">Retained session state: {row.session.state}. Worker availability is checked when dispatching.</p>{/if}
         </div></details>
         <div class="actions">
-          {#if row.available&&row.session}<a class="btn" href={`/sessions?agent=${encodeURIComponent(row.session.agentId)}&session=${encodeURIComponent(row.session.id)}&gaffer=1`} onclick={event=>openSession(event,row)}>Open session</a><button class="btn quiet" onclick={event=>{returnFocus=event.currentTarget;managing=row}}>Review goal</button>
+          {#if row.available&&row.session}<a class="btn" href={sessionHref(row.session)} onclick={event=>openSession(event,row)}>Open session</a><button class="btn quiet" onclick={event=>{returnFocus=event.currentTarget;managing=row}}>Review goal</button>
           {:else}<button class="btn quiet" disabled={bulkBusy} onclick={()=>removing=row}>Remove</button>{#if !inline}<button class="btn quiet" onclick={onhistory}>Conversation history</button>{/if}{/if}
         </div>
       </li>{/each}
@@ -192,7 +199,7 @@
       {#if candidates.length}
         <p class="muted">Tick the running chats Gaffer should look after. Ticking shares nothing and starts nothing; one review follows.</p>
         <div class="picks" role="group" aria-label="Running chats not followed">
-          {#each candidates as item (item.id)}<div class="pick-row"><label class="pick"><input type="checkbox" checked={ticked.has(item.id)} onchange={event=>tick_(item.id,event.currentTarget.checked)}/><span class="pick-text"><strong>{item.title}</strong><span>{toolName(item.tool??'')||'Agent'} · {item.dir||'Directory not reported'}</span></span></label><a class="pick-open" href={`${sessionHref(item)}&gaffer=1`} aria-label={`Open ${item.title}`} onclick={event=>openCandidate(event,item)}>Open</a></div>{/each}
+          {#each candidates as item (item.id)}<div class="pick-row"><label class="pick"><input type="checkbox" checked={ticked.has(item.id)} onchange={event=>tick_(item.id,event.currentTarget.checked)}/><span class="pick-text"><strong>{item.title}</strong><span>{toolName(item.tool??'')||'Agent'} · {item.dir||'Directory not reported'}</span></span></label><a class="pick-open" href={sessionHref(item)} aria-label={`Open ${item.title}`} onclick={event=>openCandidate(event,item)}>Open</a></div>{/each}
         </div>
         {#if chosen.length>room}<p class="warning" role="status">{room?`Gaffer has room for ${room} more active ${room===1?'goal':'goals'}. Untick ${chosen.length-room}.`:'Gaffer is already following ten sessions. Pause or stop one first.'}</p>{/if}
         <div class="actions"><button class="btn primary" type="button" bind:this={lookAfterButton} disabled={!chosen.length||chosen.length>room} onclick={()=>{quick=$gafferStanding;reviewing=true}}>{chosen.length?`Look after ${chosen.length} selected`:'Look after selected'}</button>{#if $gafferStanding}<button class="btn quiet" type="button" disabled={!chosen.length||chosen.length>room} onclick={()=>{quick=false;reviewing=true}}>Review first</button>{/if}</div>
@@ -240,7 +247,7 @@
   .filters{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;padding-bottom:2px}.filter{flex:none;white-space:nowrap}
   .outcome-list>li{border:1px solid var(--line);border-radius:12px;background:var(--bg);overflow:hidden}.outcome-list>li.open{border-color:var(--accent)}
   .outcome{border:0;border-radius:0}.outcome-detail{display:grid;gap:10px;padding:0 14px 12px}.plan-state{background:var(--card)}.plan-state li.bad span{color:var(--bad)}
-  .belongs{color:var(--ink)}.eyebrow-inline{font-size:0.8125rem;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-right:4px}.part{color:var(--muted)}
+  .belongs{color:var(--ink)}.eyebrow-inline{font-size:0.875rem;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-right:4px}.part{color:var(--muted)}
   .clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
   .callout{padding:8px 12px;border-radius:8px;background:var(--tint);border:1px solid var(--accent);color:var(--ink)}
   .goals>li{gap:8px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.foot{border-top:1px solid var(--line);padding-top:12px}

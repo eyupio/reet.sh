@@ -64,7 +64,7 @@ try {
       await expect(overview.getByText('Check the failing test and report back. Do not merge.',{exact:true})).toBeVisible()
       await expect(overview.getByText('Handoff records delivery to the worker, not completion of the work.',{exact:true})).toBeVisible()
       await overview.getByRole('button',{name:/^Following/}).click();await expect(overview.getByRole('listitem')).toHaveCount(1)
-      await expect(overview.getByRole('link',{name:'Open session',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=followed-session-2&gaffer=1')
+      await expect(overview.getByRole('link',{name:'Open session',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=followed-session-2')
       f.active.delivery.state='queued';await overview.getByRole('button',{name:'Refresh',exact:true}).click()
       await expect(overview.getByText('Queued for next turn',{exact:true}).first()).toBeVisible()
       await overview.getByRole('button',{name:'Review goal',exact:true}).click()

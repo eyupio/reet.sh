@@ -62,8 +62,9 @@
   .copy { display: grid; gap: 18px; }
   .hero-title { height: clamp(34px, 4.4vw, 52px); width: 94%; }
   .hero-title.short { width: 68%; }
-  .home { height: 100%; min-height: calc(100dvh - 100px); }
-  /* Home's project list lives inside the workspace panel, so the page skeleton is one column. */
+  /* Home draws its project rail as the page's left column, so the skeleton keeps that column's room and content starts
+     where the real board will. The boot script leaves --boot-home-rail for exactly this handover. */
+  .home { height: 100%; min-height: calc(100dvh - 100px); padding-left: var(--boot-home-rail, 0px); box-sizing: border-box; }
   .home .structure { grid-template-columns: minmax(0, 1fr); min-height: inherit; gap: 0; }
   .home .workspace-content { padding: 20px 24px; }
   .workspace-content { padding: 24px; display: flex; flex-direction: column; gap: 24px; min-width: 0; }

@@ -346,7 +346,7 @@ func (s *chatSupervisor) resumeChat(rec chatRecord) {
 	cs := &chatSession{id: rec.ID, title: rec.Title, tool: rec.Tool, dir: dir, model: rec.Model, effort: rec.Effort, acpID: rec.ACPSID,
 		state: terminalproto.Running, busy: true, yolo: yolo, trust: rec.Trust, worktreePath: rec.WorktreePath, worktreeRepo: rec.WorktreeRepo}
 	s.mu.Lock()
-	if s.closed || s.quotaLocked() >= terminalproto.MaxSessionsPerAgent {
+	if s.closed {
 		s.mu.Unlock()
 		return
 	}

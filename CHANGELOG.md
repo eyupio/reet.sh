@@ -5,6 +5,9 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- An agent whose binary has only just been written, by an install or an
+  update, is no longer refused as having "no version". Starting it could fail
+  for an instant with "text file busy"; the version check now waits that out.
 - A machine no longer loses its connection part-way through starting an agent
   session. The controller ended a machine's connection whenever the machine
   sent a kind of message missing from its list of accepted answers, and the

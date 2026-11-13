@@ -29,7 +29,7 @@ this file existed releases were described on their GitHub release pages.
   clone and says so, and an empty repository is added with a blank base.
   Removing the project leaves `~/reet/repos/owner/name` on the machine; the
   hidden folder a clone cut off part-way leaves is removed the next time that
-  repository is cloned.
+  repository is cloned, but only when reet can tell it is that repository's.
 - A machine no longer loses its connection part-way through starting an agent
   session. The controller ended a machine's connection whenever the machine
   sent a kind of message missing from its list of accepted answers, and the

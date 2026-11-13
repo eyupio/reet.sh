@@ -247,22 +247,21 @@ func sshRefused(out []byte) bool {
 //  4. it last changed more than leftoverAge ago;
 //  5. it is not a clone reet made under that name: its marker does not name
 //     <owner>/<its own name>;
-//  6. its origin says it is a leftover of this repository: it has no .git
-//     entry at all; or its .git is a real directory (not a file, not a
-//     symlink) that git accepts as a repository, and either its own config
-//     has no remote.origin.url (`git config --local --get` exits 1: a clone
-//     cut off before git wrote the remote) or that origin parses with
-//     GitHubRemote to <owner>/<repo>, the repository being cloned, ignoring
-//     case. The origin is read from the candidate's own config only
-//     (--local: the person's global and system config never answer for
-//     it), as adoptClone reads it, pinned to the folder, with no rewrites,
-//     through the ordinary per-call git bound. Every other outcome keeps the
-//     folder: a .git file or symlink; a .git git does not accept (`--local`
-//     outside a repository exits 128); git failing otherwise or timing out;
-//     an origin that names anything else (the folder's own name, another
-//     repository, another host, something GitHubRemote cannot parse). So a
-//     clone cut off between `git init` and a valid .git is kept for good:
-//     that is the safe side.
+//  6. there is proof it is a leftover of this repository, one of:
+//     (a) it has no .git entry at all; or
+//     (b) its .git is a real directory (not a file, not a symlink) whose
+//     config is a regular file of its own (not a symlink, not a directory),
+//     with no commondir and no config.worktree beside it, and
+//     `git config --local --get remote.origin.url` (pinned to the folder,
+//     no rewrites, the ordinary per-call git bound) exits 0 with an origin
+//     that GitHubRemote parses to <owner>/<repo>, the repository being
+//     cloned, ignoring case.
+//     Every other outcome keeps the folder, including git's exit 1: git
+//     answers 1 both for an origin that is not set and for one it could not
+//     see (an unreadable config, an include, a worktree config), so it is
+//     never taken as "not set". A clone cut off after git made .git but
+//     before it wrote the origin is therefore kept for good: that is the
+//     safe side.
 //
 // Only that folder is removed, and a failure to remove it is ignored.
 func removeLeftovers(ctx context.Context, ownerDir string, req terminalproto.RepoClone) {
@@ -295,30 +294,45 @@ func removeLeftovers(ctx context.Context, ownerDir string, req terminalproto.Rep
 	}
 }
 
-// originIsLeftover reports whether the folder at path is, by its origin, a
-// leftover of req's repository: it has no .git, or its .git is a real
-// directory git accepts whose own config has no origin, or whose origin names
-// req's repository on github.com. Anything else, including an origin that
-// cannot be read, is not.
+// originIsLeftover reports whether there is proof the folder at path is a
+// leftover of req's repository: it has no .git, or its own plain config
+// (ownConfig) names req's repository on github.com as its origin. Anything
+// else, including an origin git does not report, is not proof.
 func originIsLeftover(ctx context.Context, path string, req terminalproto.RepoClone) bool {
 	gitDir := filepath.Join(path, ".git")
 	if _, err := os.Lstat(gitDir); os.IsNotExist(err) {
 		return true
-	} else if err != nil || !realDir(gitDir) {
+	} else if err != nil || !ownConfig(gitDir) {
 		return false
 	}
 	// `git config --local --get` reads the candidate's own config only and
-	// fails (128) outside a repository git accepts; it applies no
-	// url.<base>.insteadOf rewrite: this is the origin as configured.
+	// applies no url.<base>.insteadOf rewrite: this is the origin as
+	// configured. Only a found origin is an answer.
 	out, err := leftoverGit(pinGitDir(ctx, path), path, "config", "--local", "--get", "remote.origin.url")
 	if err != nil {
-		// Exit status 1 is git's own answer for a key that is not set; any
-		// other failure means the origin could not be read.
-		var exit *exec.ExitError
-		return errors.As(err, &exit) && exit.ExitCode() == 1
+		return false
 	}
 	owner, repo, ok := GitHubRemote(strings.TrimSuffix(string(out), "\n"))
 	return ok && sameRepo(owner+"/"+repo, req)
+}
+
+// ownConfig reports whether gitDir is a real directory whose config is its
+// own and the only one `git config --local` reads: config a regular file
+// (not a symlink, not a directory), and no commondir (which would read
+// another repository's config) and no config.worktree beside it.
+func ownConfig(gitDir string) bool {
+	if !realDir(gitDir) {
+		return false
+	}
+	if info, err := os.Lstat(filepath.Join(gitDir, "config")); err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	for _, name := range []string{"commondir", "config.worktree"} {
+		if _, err := os.Lstat(filepath.Join(gitDir, name)); !os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }
 
 // lowerHex16 reports whether s is exactly 16 lower-case hex characters, the
@@ -356,7 +370,7 @@ func hasCaseTwin(dir, name string) bool {
 // changes nothing in the folder, and never writes a marker into it.
 func adoptClone(ctx context.Context, dest string, req terminalproto.RepoClone, git GitRunner) terminalproto.RepoCloneResult {
 	exists := terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneExists}
-	if !realDir(dest) || !realDir(filepath.Join(dest, ".git")) {
+	if !realDir(dest) || !ownConfig(filepath.Join(dest, ".git")) {
 		return exists
 	}
 	// `git config --local --get` reads the folder's own config only (never

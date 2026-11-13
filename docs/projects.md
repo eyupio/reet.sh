@@ -188,8 +188,10 @@ What the clone does, and what it leaves:
 - Removing the project leaves `~/reet/repos/owner/name` on the machine. A later change will offer to
   delete it.
 - A clone cut off part-way (the connector stopped, the machine lost power) leaves a hidden folder
-  `~/reet/repos/owner/.name.cloning-…`. It is removed the next time that repository is cloned, once it
-  is more than 15 minutes old; nothing else there is removed.
+  `~/reet/repos/owner/.name.cloning-…`. The next time that repository is cloned, reet removes it only
+  when it can tell the folder is that repository's: it is more than 15 minutes old and either holds no
+  git data yet or its own git settings name that repository. Anything else, including a folder git had
+  started but not yet given an origin, is left for you to remove; nothing else there is removed.
 
 ## Routes and shapes
 

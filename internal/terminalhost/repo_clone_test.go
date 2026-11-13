@@ -1074,7 +1074,7 @@ func TestCloneRepoLeftoverOrigin(t *testing.T) {
 		{"a .git without an origin", func(t *testing.T, f *cloneFixture, path string) {
 			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
 			testGit(t, path, "config", "--unset", "remote.origin.url")
-		}, false},
+		}, true},
 		{"an origin naming x in another case", func(t *testing.T, f *cloneFixture, path string) {
 			makeLeftoverOf(t, path, "https://github.com/O/X", time.Hour)
 		}, false},
@@ -1196,12 +1196,12 @@ func TestCloneRepoLeftoverOriginIsItsOwn(t *testing.T) {
 			makeLeftoverOf(t, path, "", time.Hour)
 			testGit(t, path, "init", "-q")
 			return nil
-		}, false},
+		}, true},
 		{"no origin of its own, this one globally", "https://github.com/o/x", func(t *testing.T, f *cloneFixture, path string) []string {
 			makeLeftoverOf(t, path, "", time.Hour)
 			testGit(t, path, "init", "-q")
 			return nil
-		}, false},
+		}, true},
 	} {
 		t.Run(tc.test, func(t *testing.T) {
 			f := newCloneFixture(t)
@@ -1251,7 +1251,10 @@ func TestCloneRepoLeftoverOriginIsItsOwn(t *testing.T) {
 					t.Fatalf("asked %q", args)
 				}
 			}
-			if !tc.kept && len(asked) != 1 {
+			// A candidate git accepts as a repository is asked once (with
+			// --local, above); one it does not, or whose .git is not a real
+			// directory, may not be asked at all.
+			if tc.global != "" && len(asked) != 1 {
 				t.Fatalf("asked %q", asked)
 			}
 		})
@@ -1289,5 +1292,183 @@ func TestCloneRepoAdoptsOnlyItsOwnOrigin(t *testing.T) {
 		if slices.Contains(args, "remote.origin.url") && !slices.Equal(args[len(args)-4:], []string{"config", "--local", "--get", "remote.origin.url"}) {
 			t.Fatalf("origin read %q", args)
 		}
+	}
+}
+
+// A leftover is removed only on proof it is this repository's: no .git at
+// all, or a .git with a plain config of its own whose origin names o/x. Every
+// way the origin could be set where `git config --local` does not see it, or
+// see it alone, keeps the folder.
+func TestCloneRepoRemovesALeftoverOnlyOnProof(t *testing.T) {
+	const name = ".x.cloning-0123456789abcdef"
+	for _, tc := range []struct {
+		test string
+		make func(t *testing.T, f *cloneFixture, path string) []string
+		kept bool
+	}{
+		{"a valid .git with no origin", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "", time.Hour)
+			testGit(t, path, "init", "-q")
+			return nil
+		}, true},
+		{"no .git", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "", time.Hour)
+			return nil
+		}, false},
+		{"a clone-shaped repository with origin o/x", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
+			return nil
+		}, false},
+		{"origin o/other", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "https://github.com/o/other.git", time.Hour)
+			return nil
+		}, true},
+		{"config is a directory", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
+			config := filepath.Join(path, ".git", "config")
+			if err := os.Remove(config); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(config, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		}, true},
+		{"config is a dangling symlink", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
+			config := filepath.Join(path, ".git", "config")
+			if err := os.Remove(config); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(f.home, "nowhere"), config); err != nil {
+				t.Fatal(err)
+			}
+			return nil
+		}, true},
+		{"config is a symlink to one naming o/x", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "https://github.com/o/x.git", time.Hour)
+			config := filepath.Join(path, ".git", "config")
+			elsewhere := filepath.Join(f.home, "config-elsewhere")
+			if err := os.Rename(config, elsewhere); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, config); err != nil {
+				t.Fatal(err)
+			}
+			return []string{elsewhere}
+		}, true},
+		{"config unreadable", func(t *testing.T, f *cloneFixture, path string) []string {
+			if os.Geteuid() == 0 {
+				t.Skip("root reads a file of mode 000")
+			}
+			makeLeftoverOf(t, path, "https://github.com/o/other.git", time.Hour)
+			config := filepath.Join(path, ".git", "config")
+			if err := os.Chmod(config, 0); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(config, 0o600) })
+			return nil
+		}, true},
+		{"origin set only through include.path", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "", time.Hour)
+			testGit(t, path, "init", "-q")
+			included := filepath.Join(f.home, "included")
+			writeFile(t, included, "[remote \"origin\"]\n\turl = https://github.com/o/other\n")
+			testGit(t, path, "config", "include.path", included)
+			return []string{included}
+		}, true},
+		{"origin in config.worktree", func(t *testing.T, f *cloneFixture, path string) []string {
+			makeLeftoverOf(t, path, "", time.Hour)
+			testGit(t, path, "init", "-q")
+			testGit(t, path, "config", "extensions.worktreeConfig", "true")
+			writeFile(t, filepath.Join(path, ".git", "config.worktree"), "[remote \"origin\"]\n\turl = https://github.com/o/other\n")
+			return nil
+		}, true},
+		{"commondir pointing at a clone of o/x", func(t *testing.T, f *cloneFixture, path string) []string {
+			target := filepath.Join(f.home, "elsewhere")
+			f.handClone(t, target, "https://github.com/o/x.git")
+			makeLeftoverOf(t, path, "", time.Hour)
+			testGit(t, path, "init", "-q")
+			writeFile(t, filepath.Join(path, ".git", "commondir"), filepath.Join(target, ".git")+"\n")
+			return []string{target}
+		}, true},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			f.name = "x"
+			owner := filepath.Join(f.repos(), "o")
+			path := filepath.Join(owner, name)
+			others := tc.make(t, f, path)
+			agePath(t, path, time.Hour)
+			all := append([]string{path}, others...)
+			var before [][]string
+			for _, p := range all {
+				before = append(before, snapshot(t, p))
+			}
+			r := f.clone(t, "o", "x")
+			if r != (terminalproto.RepoCloneResult{Dir: filepath.Join(owner, "x"), DefaultBranch: "main", Marked: true}) {
+				t.Fatalf("result = %+v", r)
+			}
+			for i, p := range all {
+				if i == 0 && !tc.kept {
+					wantMissing(t, path)
+					continue
+				}
+				if after := snapshot(t, p); !slices.Equal(before[i], after) {
+					t.Fatalf("%s changed:\n%q\n%q", p, before[i], after)
+				}
+			}
+		})
+	}
+}
+
+// A destination whose .git shares another repository's config (commondir),
+// or whose config is not a plain file of its own, is not adopted.
+func TestCloneRepoAdoptsOnlyAPlainConfig(t *testing.T) {
+	for _, tc := range []struct {
+		test string
+		make func(t *testing.T, f *cloneFixture, dest string)
+	}{
+		{"commondir", func(t *testing.T, f *cloneFixture, dest string) {
+			f.handClone(t, filepath.Join(f.home, "elsewhere"), "https://github.com/o/r.git")
+			if err := os.MkdirAll(dest, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			testGit(t, dest, "init", "-q")
+			writeFile(t, filepath.Join(dest, ".git", "commondir"), filepath.Join(f.home, "elsewhere", ".git")+"\n")
+		}},
+		{"config.worktree", func(t *testing.T, f *cloneFixture, dest string) {
+			f.handClone(t, dest, "https://github.com/o/r.git")
+			writeFile(t, filepath.Join(dest, ".git", "config.worktree"), "")
+		}},
+		{"config a symlink", func(t *testing.T, f *cloneFixture, dest string) {
+			f.handClone(t, dest, "https://github.com/o/r.git")
+			config := filepath.Join(dest, ".git", "config")
+			elsewhere := filepath.Join(f.home, "config-elsewhere")
+			if err := os.Rename(config, elsewhere); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, config); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dest := filepath.Join(f.repos(), "o", "r")
+			tc.make(t, f, dest)
+			before := snapshot(t, dest)
+			wantReason(t, f.clone(t, "o", "r"), terminalproto.RepoCloneExists)
+			if after := snapshot(t, dest); !slices.Equal(before, after) {
+				t.Fatalf("destination changed:\n%q\n%q", before, after)
+			}
+		})
+	}
+	// A real clone is still adopted.
+	f := newCloneFixture(t)
+	dest := filepath.Join(f.repos(), "o", "r")
+	f.handClone(t, dest, "https://github.com/o/r.git")
+	if r := f.clone(t, "o", "r"); r != (terminalproto.RepoCloneResult{Dir: dest, DefaultBranch: "main", Adopted: true}) {
+		t.Fatalf("result = %+v", r)
 	}
 }

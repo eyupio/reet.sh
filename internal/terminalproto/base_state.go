@@ -1,5 +1,24 @@
 package terminalproto
 
+import "strings"
+
+// BaseFreshFeature lets a machine start each worktree from the base as GitHub
+// has it, fetched when the worktree is made, and report on session_changed
+// which commit it started from. It is negotiated separately from worktree-v1
+// because answering it runs `git fetch` against github.com.
+const BaseFreshFeature = "base-fresh-v1"
+
+// SupportsBaseFresh reports whether the peer advertised base-fresh-v1 in
+// X-Reet-Terminal-Features. A BaseState is never sent without it.
+func SupportsBaseFresh(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == BaseFreshFeature {
+			return true
+		}
+	}
+	return false
+}
+
 // BaseRelation says how the repository's own base branch stood against the
 // same branch on GitHub when a worktree's starting commit was chosen.
 type BaseRelation string

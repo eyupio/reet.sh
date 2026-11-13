@@ -68,6 +68,7 @@ type AgentConfig struct {
 	branches           bool
 	branchPrune        bool
 	branchSync         bool
+	baseFresh          bool
 	browseAllowed      bool
 	clipboard          bool
 	clipboardAllowed   bool
@@ -924,6 +925,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.branches = terminalproto.SupportsBranches(advertised)
 	cfg.branchPrune = terminalproto.SupportsBranchPrune(advertised)
 	cfg.branchSync = terminalproto.SupportsBranchSync(advertised)
+	cfg.baseFresh = terminalproto.SupportsBaseFresh(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
@@ -1006,6 +1008,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.branchSync {
 		features = append(features, terminalproto.BranchSyncFeature)
+	}
+	if cfg.baseFresh {
+		features = append(features, terminalproto.BaseFreshFeature)
 	}
 	if cfg.clipboard {
 		features = append(features, terminalproto.ClipboardFeature)
@@ -1304,6 +1309,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		Branches:        cfg.branches && worktree && enabled,
 		BranchPrune:     cfg.branchPrune && worktree && enabled,
 		BranchSync:      cfg.branchSync && worktree && enabled,
+		BaseFresh:       cfg.baseFresh && worktree,
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,

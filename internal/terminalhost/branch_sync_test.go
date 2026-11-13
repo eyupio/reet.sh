@@ -4,7 +4,9 @@ package terminalhost
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,7 +16,7 @@ import (
 // syncFixture is a repository with a bare origin and a second clone that
 // pushes new work to main, as a merged pull request would.
 type syncFixture struct {
-	home, repo, other string
+	home, repo, other, origin string
 }
 
 func newSyncFixture(t *testing.T) syncFixture {
@@ -29,7 +31,7 @@ func newSyncFixture(t *testing.T) syncFixture {
 	testGit(t, home, "clone", "-q", origin, other)
 	testGit(t, other, "config", "user.email", "t@example.com")
 	testGit(t, other, "config", "user.name", "t")
-	return syncFixture{home: home, repo: repo, other: other}
+	return syncFixture{home: home, repo: repo, other: other, origin: origin}
 }
 
 func (f syncFixture) pushMerged(t *testing.T, name string) {
@@ -120,5 +122,63 @@ func TestSyncBranchRefusesAFolderOutsideHome(t *testing.T) {
 	r := SyncBranch(context.Background(), home, terminalproto.BranchSync{Dir: "/"}, ExecGit)
 	if r.Reason == "" {
 		t.Fatalf("result = %+v, want a refusal", r)
+	}
+}
+
+// fakeGh puts an executable named gh at the front of PATH and returns its
+// path, as a machine the person has signed in to gh on has.
+func fakeGh(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	gh := filepath.Join(dir, "gh")
+	if err := os.WriteFile(gh, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return gh
+}
+
+// A sync of a github.com repository fetches with the machine's own gh
+// sign-in, and a repository hosted anywhere else is fetched exactly as before.
+func TestSyncBranchFetchCarriesTheGhHelper(t *testing.T) {
+	f := newSyncFixture(t)
+	gh := fakeGh(t)
+	helper := "credential.https://github.com.helper=!" + gh + " auth git-credential"
+	var fetches [][]string
+	record := func(args []string) {
+		if slices.Contains(args, "fetch") {
+			fetches = append(fetches, slices.Clone(args))
+		}
+	}
+	plain := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		record(args)
+		return ExecGit(ctx, dir, args...)
+	}
+	if r := SyncBranch(context.Background(), f.home, terminalproto.BranchSync{Dir: f.repo}, plain); r.Reason != "" {
+		t.Fatalf("sync refused: %+v", r)
+	}
+	if len(fetches) != 1 || slices.Contains(fetches[0], helper) {
+		t.Fatalf("a fetch from %s carried gh's credentials: %q", f.origin, fetches)
+	}
+
+	// The same repository, now hosted on github.com; the fixture's origin
+	// stands in for it so nothing reaches the network.
+	testGit(t, f.repo, "remote", "set-url", "origin", "https://github.com/o/r")
+	fetches = nil
+	onGitHub := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		record(args)
+		rewrite := []string{"-c", "url." + f.origin + ".insteadOf=https://github.com/o/r"}
+		return ExecGit(ctx, dir, append(rewrite, args...)...)
+	}
+	f.pushMerged(t, "merged-pr")
+	r := SyncBranch(context.Background(), f.home, terminalproto.BranchSync{Dir: f.repo}, onGitHub)
+	if r.Status != terminalproto.BranchSyncUpdated {
+		t.Fatalf("result = %+v, want updated", r)
+	}
+	if len(fetches) != 1 || !slices.Contains(fetches[0], helper) {
+		t.Fatalf("a fetch from github.com did not carry gh's credentials: %q", fetches)
+	}
+	if reset := slices.Index(fetches[0], "credential.helper="); reset < 1 || fetches[0][reset-1] != "-c" {
+		t.Fatalf("a fetch from github.com kept the inherited credential helpers: %q", fetches[0])
 	}
 }

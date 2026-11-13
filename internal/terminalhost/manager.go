@@ -268,6 +268,12 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	s := ManagedSession{ID: sessionID, Title: in.Title, Tool: in.Tool, State: terminalproto.Creating, CreatedAt: at, UpdatedAt: at, CreateRequestID: requestID}
 	if in.Worktree != "" {
 		s.WorktreePath, s.WorktreeRepo = worktree.Path, filepath.Base(filepath.Dir(worktree.Path))
+		if worktree.Created {
+			// Only this call's own worktree has a base it resolved; an adopted
+			// one was started from a base another call chose.
+			base := worktree.Base
+			s.Base = &base
+		}
 	}
 	r.Sessions[sessionID] = s
 	r.Operations[key] = operationReceipt{RequestID: requestID, SessionID: sessionID, Kind: "create", Create: &in}

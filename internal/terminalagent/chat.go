@@ -559,7 +559,13 @@ func (h *chatHost) openChat(requestID, sessionID string, in terminalproto.Create
 		h.sup.publish(cs, acpagent.Event{Kind: "user", Text: in.Prompt})
 		h.startPrompt(cs, in.Prompt, nil)
 	}
-	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(in.Tool, acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo}, nil
+	// Only this call's own worktree has a base it resolved; an adopted one was
+	// started from a base another call chose.
+	var base *terminalproto.BaseState
+	if worktree.Created {
+		base = &worktree.Base
+	}
+	return terminalproto.SessionChanged{State: terminalproto.Running, ACPSessionID: reportedACP(in.Tool, acpID, h.link.history), WorktreePath: cs.worktreePath, WorktreeRepo: cs.worktreeRepo, Base: base}, nil
 }
 
 // yoloAnswers reports whether YOLO may answer a permission card for this chat, whether the card arrives now or was already waiting

@@ -680,7 +680,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 						if err != nil {
 							reply.Body = chatResult(err)
 						} else {
-							reply.Body = changed
+							reply.Body = changed.ForFeatures(featureHeader)
 						}
 						_ = send(callCtx, reply)
 					}(*op)
@@ -913,6 +913,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 							ExitStatus:   s.ExitCode,
 							WorktreePath: s.WorktreePath,
 							WorktreeRepo: s.WorktreeRepo,
+							Base:         s.Base,
 						}.ForFeatures(featureHeader)
 					}
 					_ = send(callCtx, reply)

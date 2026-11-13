@@ -60,8 +60,15 @@ func SyncBranch(ctx context.Context, home string, req terminalproto.BranchSync, 
 		return answer(terminalproto.BranchSyncNoRemote)
 	}
 	remoteRef := "refs/remotes/origin/" + base
-	if _, err := git(ctx, dir, "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags", "--no-write-fetch-head", "origin",
-		"+refs/heads/"+base+":"+remoteRef); err != nil || ctx.Err() != nil {
+	// A github.com origin is fetched with the machine's own gh sign-in, for
+	// github.com only, and with no terminal prompt to block on; any other
+	// host is fetched exactly as before, with hooks off and nothing else.
+	fetchCtx, fetchArgs := ctx, []string{"-c", "core.hooksPath=/dev/null"}
+	if githubOrigin(ctx, git, dir) {
+		fetchCtx, fetchArgs = withGitEnv(ctx, networkGitEnv()...), networkGitArgs()
+	}
+	fetchArgs = append(fetchArgs, "fetch", "--no-tags", "--no-write-fetch-head", "origin", "+refs/heads/"+base+":"+remoteRef)
+	if _, err := git(fetchCtx, dir, fetchArgs...); err != nil || ctx.Err() != nil {
 		return answer(terminalproto.BranchSyncFetchFailed)
 	}
 	remote, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", remoteRef+"^{commit}")

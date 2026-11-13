@@ -22,7 +22,7 @@ import (
 // `git config --get remote.origin.url` is not rewritten, so ResolveBase still
 // sees a github.com origin.
 type baseFixture struct {
-	repo, remote string
+	home, repo, remote string
 
 	mu    sync.Mutex
 	calls [][]string
@@ -35,7 +35,7 @@ func newBaseFixture(t *testing.T) *baseFixture {
 	repo := filepath.Join(home, "local")
 	testGit(t, home, "clone", "-q", remote, repo)
 	testGit(t, repo, "remote", "set-url", "origin", "https://github.com/o/r")
-	return &baseFixture{repo: repo, remote: remote}
+	return &baseFixture{home: home, repo: repo, remote: remote}
 }
 
 // git is the GitRunner ResolveBase is given: it records the arguments and
@@ -50,6 +50,25 @@ func (f *baseFixture) git(ctx context.Context, dir string, args ...string) ([]by
 
 // fetched reports whether any call was a fetch.
 func (f *baseFixture) fetched() bool { return f.count("fetch") > 0 }
+
+// forget drops the calls recorded so far, so a later one can be read alone.
+func (f *baseFixture) forget() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = nil
+}
+
+// fetchArgs is the arguments of the first recorded fetch, or nil.
+func (f *baseFixture) fetchArgs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, args := range f.calls {
+		if slices.Contains(args, "fetch") {
+			return args
+		}
+	}
+	return nil
+}
 
 // count is how many calls had sub as one of their arguments.
 func (f *baseFixture) count(sub string) int {
@@ -280,4 +299,21 @@ func TestBaseWithoutFetchAndWithoutATrackingRefUsesLocal(t *testing.T) {
 	testGit(t, f.repo, "update-ref", "-d", "refs/remotes/origin/main")
 	local := commitOf(t, f.repo, "refs/heads/main")
 	wantBase(t, f.resolve(t, "main", false), terminalproto.BaseNoRemote, local)
+}
+
+// The one call that reaches github.com runs with the repository's hooks off
+// and moves nothing but refs/remotes/origin/<base>: no tags, no FETCH_HEAD.
+func TestBaseFetchArgvIsHardened(t *testing.T) {
+	f := newBaseFixture(t)
+	f.resolve(t, "main", true)
+	args := f.fetchArgs()
+	hooks := slices.Index(args, "core.hooksPath=/dev/null")
+	if hooks < 1 || args[hooks-1] != "-c" {
+		t.Fatalf("fetch %q does not disable the repository's hooks", args)
+	}
+	for _, want := range []string{"--no-tags", "--no-write-fetch-head"} {
+		if !slices.Contains(args, want) {
+			t.Fatalf("fetch %q is missing %s", args, want)
+		}
+	}
 }

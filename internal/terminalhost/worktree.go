@@ -250,11 +250,15 @@ func worktreeDetail(out []byte) string {
 
 // Worktree is a run's worktree. Created is true only when this call made it;
 // Undo then removes it and its branch. An adopted worktree (Created false,
-// from a retry) is never undone.
+// from a retry) is never undone, and has no Base: only the call that made the
+// worktree resolved one.
 type Worktree struct {
 	Path, Branch string
 	Created      bool
-	repo         string
+	// Base is what this call started the worktree from (see ResolveBase),
+	// set whenever Created is true.
+	Base terminalproto.BaseState
+	repo string
 }
 
 // Undo removes a worktree this call created, after a later step failed before
@@ -286,8 +290,13 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 //     directory inside home) and must be the root of a normal working tree:
 //     `.git` a real directory (not a file, not a symlink, not bare), equal to
 //     `git rev-parse --show-toplevel`, no merge, rebase, cherry-pick, revert or
-//     bisect in progress, and HEAD a commit. A dirty tree is allowed. A named base is resolved
-//     to a local branch commit, then a remote-tracking branch commit.
+//     bisect in progress, and HEAD a commit. A dirty tree is allowed. The base
+//     is resolved with ResolveBase, which fetches it from a github.com origin
+//     and starts from GitHub's commit unless the repository's own branch is
+//     ahead of it; with no github.com origin it is the local branch, then the
+//     remote-tracking branch, as it has always been. What it chose is Base.
+//     With no base named, the run still starts at HEAD unless GitHub answered
+//     about the repository's default branch.
 //  2. The destination is <home>/.reet/worktrees/<project slug>/<repo slug>/<run>
 //     and the branch reet/<project slug>-<run>. Every folder up to the
 //     destination's parent must be a real directory owned by this user (new
@@ -296,7 +305,8 @@ var busyMarkers = []string{"MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY
 //     exactly that path on exactly that branch for this repository (Created
 //     false); anything else is refused.
 //  4. Otherwise it runs exactly
-//     `git -C <repo> -c core.hooksPath=/dev/null worktree add -b <branch> <destination> <commit>` (HEAD when base is empty).
+//     `git -C <repo> -c core.hooksPath=/dev/null worktree add -b <branch> <destination> <commit>`
+//     (the literal HEAD when no base was named and GitHub answered nothing).
 //
 // Refusals are *WorktreeError (errors.Is ErrWorktreeRefused); a folder that
 // ResolveDir refuses keeps its ErrLaunchUnavailable error.
@@ -354,10 +364,11 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 	if err != nil || top != repoPath {
 		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "the folder is not the top of its working tree")
 	}
-	if out, err := git(ctx, repoPath, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err != nil || strings.TrimSpace(string(out)) == "" {
-		if errors.Is(err, errGitMissing) || ctx.Err() != nil {
-			return Worktree{}, gitFailed(out, err)
-		}
+	head, err := gitCommit(ctx, git, repoPath, "HEAD")
+	if err != nil {
+		return Worktree{}, err
+	}
+	if head == "" {
 		return Worktree{}, refuseWorktree(terminalproto.WorktreeNotRepoRoot, "HEAD does not point at a commit yet")
 	}
 
@@ -399,27 +410,21 @@ func prepareWorktree(ctx context.Context, home, repo, project, run, base string,
 
 	// A retry adopts above without depending on whether the original base
 	// branch still exists. New worktrees pin the chosen branch to a commit.
-	start := "HEAD"
-	if base != "" {
-		start = ""
-		for _, prefix := range []string{"refs/heads/", "refs/remotes/"} {
-			out, err := git(ctx, repoPath, "rev-parse", "--verify", "--end-of-options", prefix+base+"^{commit}")
-			if err != nil {
-				if errors.Is(err, errGitMissing) || ctx.Err() != nil {
-					return Worktree{}, gitFailed(out, err)
-				}
-				continue
-			}
-			start = strings.TrimSpace(string(out))
-			if !validHeadLine("HEAD " + start) {
-				return Worktree{}, gitFailed(nil, errors.New("git returned an invalid commit"))
-			}
-			break
-		}
-		if start == "" {
-			return Worktree{}, refuseWorktree(terminalproto.WorktreeBaseMissing, "")
-		}
+	state, err := ResolveBase(ctx, repoPath, base, true, git)
+	if err != nil {
+		return Worktree{}, err
 	}
+	start := state.Start
+	// With no base named, only GitHub's own answer about the repository's
+	// default branch moves the start: a repository with no github.com origin,
+	// or one GitHub could not be reached for, begins where it stands, exactly
+	// as it always has.
+	unanswered := state.Relation == terminalproto.BaseNoRemote || state.Relation == terminalproto.BaseFetchFailed
+	if base == "" && unanswered {
+		state = terminalproto.BaseState{Relation: terminalproto.BaseNoRemote, Start: head}
+		start = "HEAD"
+	}
+	w.Base = state
 
 	out, err = git(ctx, repoPath, "-c", "core.hooksPath=/dev/null", "worktree", "add", "-b", branch, dest, start)
 	if err != nil {

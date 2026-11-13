@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/syncproof"
 )
@@ -206,5 +207,43 @@ func TestFollowMovesIsALocalSwitchThatDefaultsToOn(t *testing.T) {
 	var out bytes.Buffer
 	if err := RunAgentInput([]string{"follow-moves", "sideways", "--config", config}, strings.NewReader(""), &out, "test"); err == nil {
 		t.Fatal("an unknown word was accepted")
+	}
+}
+
+// While the new controller is being set up the old one refuses the agent every
+// five seconds. The log says so once, not four lines a cycle for an hour.
+func TestAWaitingAgentSaysItsControllerMovedOnceAndAsksItOncePerCycle(t *testing.T) {
+	old := fencedAt(t, "")
+	config := enrolledMachine(t, old.URL)
+	c := loaded(t, config)
+	var out bytes.Buffer
+	last := time.Time{}
+	echo := &movedEcho{}
+	said := 0
+	for i := 0; i < 3; i++ {
+		err := agentCycle(context.Background(), c, config, &out, "test", &last, false)
+		if _, moved := movedTo(err); !moved {
+			t.Fatalf("cycle %d: want the moved refusal, got %v", i, err)
+		}
+		if echo.worthSaying(err) {
+			said++
+		}
+	}
+	if said != 1 {
+		t.Fatalf("the refusal was worth saying %d times, want once", said)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("the cycle printed about work it could not do: %s", out.String())
+	}
+	if n := len(old.requests()); n != 3 {
+		t.Fatalf("the fenced controller was asked %d times in three cycles, want one each", n)
+	}
+	// A different refusal, and the same one after a good cycle, are news again.
+	if !echo.worthSaying(movedRefusal("https://reet.new.example")) || !echo.worthSaying(errors.New("connection refused")) {
+		t.Fatal("a changed reason was kept quiet")
+	}
+	echo.worthSaying(nil)
+	if !echo.worthSaying(movedRefusal("https://reet.new.example")) {
+		t.Fatal("the refusal was kept quiet after the agent had got through")
 	}
 }

@@ -159,7 +159,7 @@ func libraryError(w http.ResponseWriter, err error) {
 }
 
 func (s *server) canonicalLibrary(w http.ResponseWriter, r *http.Request) {
-	items, err := s.st.LibraryFor(s.uid(r))
+	items, err := s.st.LibraryViewFor(s.uid(r))
 	if err != nil {
 		libraryError(w, err)
 		return

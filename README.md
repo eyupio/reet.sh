@@ -249,6 +249,8 @@ Uncheck **Publish publicly** and save to unpublish, or delete the skill to remov
 
 ## Adding skills
 
+Your personal library is the single source of truth for a skill. Automatic sync maintains the skills you select on each machine, and manual imports, authored skills and links all land in the same library item. A machine copy of a skill that already has a known source is an observation of that item, not a second card. See [one source for each skill](docs/skills-single-source.md).
+
 ### MCP integration
 
 Open **Account → MCP access** and copy the hosted MCP URL into Claude or another

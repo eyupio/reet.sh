@@ -155,6 +155,7 @@ nav:
     - Folder browse: folder-browse.md
   - Skills and sync:
     - Skills and Sync: skills-machines-ux.md
+    - One source for each skill: skills-single-source.md
     - Enrolled machines: controller-sync.md
     - Environments: environment-sync.md
     - Connect an AI client with MCP: mcp.md

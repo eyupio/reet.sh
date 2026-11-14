@@ -8,7 +8,7 @@
   import { TerminalConnection, type ConnectionState } from './connection'
   import { terminalArchivable, terminalClosed, terminalUpload, refusalSentence, getSessionSkills, type TerminalSession } from './api'
   import { terminalShortcut } from './keyboard'
-  import { modifiers, stripKeys, comboKeys, navigationKeys, functionKeys, symbolKeys, withModifier, type Modifier } from './virtualKeys'
+  import { activeModifiers, afterKey, arrowKeys, barKeys, BAR_KEYS_BEFORE_MODIFIERS, keyGroups, modifiers, noModifiers, repeats, REPEAT_AFTER, REPEAT_EVERY, tapModifier, withModifiers, type Held, type Modifier, type VirtualKey } from './virtualKeys'
   import { terminalScrolling } from './scrolling'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
   import TerminalAppearance from './TerminalAppearance.svelte'
@@ -58,7 +58,7 @@
   let landscape=$state(false)
   let touch=$state(false)
   function toggleSessions(){if(maximised){maximised=false;if(!sessionsVisible)onsessions?.()}else onsessions?.()}
-  function openScrollback(){historyOpen=false;keysOpen=false;scrollbackOpen=true}
+  function openScrollback(){historyOpen=false;scrollbackOpen=true}
   async function closeScrollback(){scrollbackOpen=false;await tick();terminal?.focus()}
   function openSelect(){
     if(scrollbackOpen){feedback='Return to live output before copying.';return}
@@ -69,8 +69,13 @@
   }
   async function closeSelect(){selectOpen=false;selectModel='';await tick();restoreFocus()}
   let applyTheme:(()=>void)|undefined
-  let modifier = $state<Modifier|null>(null)
+  // The on-screen keys: which modifiers are on, whether the second row is open and which of its groups shows. The row
+  // and its group are remembered in this browser, as the font and palette are.
+  let held = $state<Held>(noModifiers())
   let keysOpen = $state(false)
+  let keyGroup = $state(keyGroups[0].id)
+  const shownGroup = $derived(keyGroups.find(group=>group.id===keyGroup)??keyGroups[0])
+  try{keysOpen=localStorage.getItem('reet-terminal-keys-open')==='1';const stored=localStorage.getItem('reet-terminal-keys-group');if(stored&&keyGroups.some(group=>group.id===stored))keyGroup=stored}catch{/* optional preference */}
   export function disconnect(){connection?.detach()}
   function choosePalette(id:string){palette=id;try{localStorage.setItem('reet-terminal-palette',id)}catch{/* optional preference */}applyTheme?.()}
   function chooseCursor(shape:CursorShape){cursor=shape;if(terminal)terminal.options.cursorStyle=shape;try{localStorage.setItem('reet-terminal-cursor',shape)}catch{/* optional preference */}}
@@ -270,7 +275,7 @@
     if(pasteTooLarge(clean)){feedback='Paste is too large. Limit it to 240 KiB.';return}
     const {review:needsReview}=pasteNeedsReview(clean,{bracketed:terminal?.modes.bracketedPasteMode===true,force:review})
     if(needsReview){pendingPaste={text:clean,generation};return}
-    modifier=null;terminal?.paste(clean)
+    held=afterKey(held);terminal?.paste(clean)
     const lines=clean.split('\n').length
     if(lines>1)feedback=`Pasted ${lines} lines as one block.`
   }
@@ -281,7 +286,7 @@
     if(!alive||!live||pending.generation!==generation){feedback=pending.execute?'Connection changed. Choose the command again after reconnecting; nothing was sent.':'Connection changed. Paste again after reconnecting; nothing was sent.';return}
     const text=sanitizePaste(pending.text)
     if(!text){feedback='Nothing to paste.';terminal?.focus();return}
-    modifier=null;terminal?.paste(text)
+    held=afterKey(held);terminal?.paste(text)
     if(pending.execute)feedback=connection?.text('\r')?'Command sent to the active terminal.':'Connection changed while sending. Check the terminal before retrying.'
     terminal?.focus()
   }
@@ -319,13 +324,33 @@
       if(alive)feedback='Clipboard access was denied. Paste with your keyboard inside the terminal.'
     } finally {restoreFocus()}
   }
-  // A key from the on-screen keyboard: the compact row takes the selected modifier
-  // with it; a combination or symbol is already the exact bytes the shell expects.
-  function key(value:string) { if(!live||scrollbackOpen)return; modifier=null; connection?.text(value); terminal?.focus() }
-  function modifiedKey(value:string) { if(!live||scrollbackOpen)return; const text=withModifier(value,modifier); modifier=null; connection?.text(text); terminal?.focus() }
-  function toggleModifier(next:Modifier) { modifier=modifier===next?null:next; terminal?.focus() }
-  function toggleKeys() { keysOpen=!keysOpen; terminal?.focus() }
-  function keyPadKeys(event:KeyboardEvent) { if(event.key==='Escape'){event.preventDefault();event.stopPropagation();keysOpen=false;terminal?.focus()} }
+  // A key from the on-screen keys. The modifiers that are on join it as xterm sends them, and those on for one key are
+  // then used up. On a touch screen the focus is left where it was: the keys never take it (onpointerdown), so a
+  // terminal that had it keeps it and the phone's own keyboard stays as it was, open or closed. With a mouse the
+  // terminal takes the focus, as it always did.
+  function press(value:string) { if(!live||scrollbackOpen)return; const text=withModifiers(value,activeModifiers(held)); held=afterKey(held); connection?.text(text); if(!touch)terminal?.focus() }
+  // The toolbar's Interrupt is Ctrl+C exactly, whatever modifiers are on.
+  function interrupt() { if(!live||scrollbackOpen)return; connection?.text('\x03'); terminal?.focus() }
+  function tapModifierKey(name:Modifier) { held=tapModifier(held,name); if(!touch)terminal?.focus() }
+  function toggleKeys() { keysOpen=!keysOpen; try{localStorage.setItem('reet-terminal-keys-open',keysOpen?'1':'0')}catch{/* optional preference */} if(!touch)terminal?.focus() }
+  function chooseKeyGroup(id:string) { keyGroup=id; try{localStorage.setItem('reet-terminal-keys-group',id)}catch{/* optional preference */} }
+  const modifierLabel=(name:Modifier)=>held[name]==='locked'?`${name} locked`:held[name]==='next'?`${name} on for the next key`:`${name} for the next key`
+  // One key: a tap sends it once. A key that repeats (an arrow, Backspace, Delete, Page Up or Down) sends again and
+  // again while it is held, after a pause, as a keyboard does; letting go, sliding off it or the row starting to
+  // scroll stops it, and the tap that ends a hold sends nothing more.
+  function keycapAction(node:HTMLButtonElement,value:string) {
+    let wait:ReturnType<typeof setTimeout>|undefined,again:ReturnType<typeof setInterval>|undefined,repeated=false
+    const stop=()=>{clearTimeout(wait);clearInterval(again);wait=again=undefined}
+    const down=(event:PointerEvent)=>{
+      stop();repeated=false
+      if(event.button||!repeats(value))return
+      wait=setTimeout(()=>{repeated=true;press(value);again=setInterval(()=>{if(node.disabled)stop();else press(value)},REPEAT_EVERY)},REPEAT_AFTER)
+    }
+    const click=()=>{stop();if(repeated){repeated=false;return}press(value)}
+    const ends=['pointerup','pointercancel','pointerleave'] as const
+    node.addEventListener('pointerdown',down);node.addEventListener('click',click);for(const type of ends)node.addEventListener(type,stop)
+    return {update(next:string){value=next},destroy(){stop();node.removeEventListener('pointerdown',down);node.removeEventListener('click',click);for(const type of ends)node.removeEventListener(type,stop)}}
+  }
   $effect(()=>{const query=matchMedia(LANDSCAPE_PHONE),update=()=>landscape=query.matches;update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update)})
   $effect(()=>{if(searching)searchInput?.focus()})
   $effect(()=>{if(contextMenu)menu?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()})
@@ -443,9 +468,9 @@
     const sizes = new ResizeObserver(resize); sizes.observe(element);fit.fit()
     fitTerminal=resize
     // Refresh after parsing and fitting so accessibility rows match full redraws.
-    connection = new TerminalConnection({nativeView,session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size=grid();clip();sender.known(size);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;modifier=null;if(next!=='live')keysOpen=false;if(next==='access_denied'){historyOpen=false;scrollbackOpen=false;selectOpen=false;selectModel='';pendingCopy=null};connectionState=next;if(next==='live'){if(attached)redraw();attached=true}message=detail;term.options.disableStdin=next!=='live';if(visible&&next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())term.focus()}})
+    connection = new TerminalConnection({nativeView,session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size=grid();clip();sender.known(size);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;held=noModifiers();if(next==='access_denied'){historyOpen=false;scrollbackOpen=false;selectOpen=false;selectModel='';pendingCopy=null};connectionState=next;if(next==='live'){if(attached)redraw();attached=true}message=detail;term.options.disableStdin=next!=='live';if(visible&&next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())term.focus()}})
     term.options.disableStdin=true
-    const input=term.onData((text)=>{if(scrollbackOpen)return;const value=withModifier(text,modifier);modifier=null;connection?.text(value)})
+    const input=term.onData((text)=>{if(scrollbackOpen)return;const value=withModifiers(text,activeModifiers(held));held=afterKey(held);connection?.text(value)})
     const binary=term.onBinary((data)=>!scrollbackOpen&&connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))
     const online=()=>connection?.recover(),pageVisible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',pageVisible)
@@ -470,7 +495,7 @@
       <button onclick={()=>void readClipboard()} disabled={!live||scrollbackOpen} aria-label="Paste" title="Paste clipboard"><TerminalIcon name="paste"/><span class="tool-label">Paste</span></button>
       {#if uploadsSupported||uploadsOff}<button onclick={chooseImages} disabled={uploadsOff} aria-label="Attach image" title={uploadsOff?uploadsOffSentence:'Attach a PNG, JPEG, GIF or WebP image'}><TerminalIcon name="image"/><span class="tool-label">Attach</span></button>{#if uploadsOff}<span class="upload-off" role="status">Image uploads are off on this machine.</span>{/if}{/if}
       <span class="tool-divider" aria-hidden="true"></span>
-      <button onclick={()=>key("\x03")} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
+      <button onclick={interrupt} disabled={!live||scrollbackOpen} aria-label="Interrupt shell" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="tool-label">Interrupt</span></button>
       <button onclick={()=>commandsOpen=true} aria-label="Saved commands" title="Your saved commands"><TerminalIcon name="commands"/><span>Commands</span></button>
       <button bind:this={promptButton} onclick={()=>promptsOpen=true} aria-haspopup="dialog" aria-label="Prompts" title="Insert one of your saved prompts"><span>Prompts</span></button>
       {#if session.tool}<button onclick={openSkills} disabled={!!skillsOff} aria-haspopup="dialog" aria-label="Skills" title={skillsOff||'Insert a skill into the agent'}><span>Skills</span></button>{/if}
@@ -481,28 +506,36 @@
       <button onclick={()=>{maximised=!maximised;fitTerminal?.()}} aria-pressed={maximised} aria-label={maximised?'Restore size':'Maximise'} title={maximised?'Restore size':'Maximise terminal'}><TerminalIcon name="expand"/></button>
     </div>
   {/snippet}
+  {#snippet keycap(item:VirtualKey)}
+    <button class="keycap" class:key-interrupt={item.value==='\x03'} type="button" disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} use:keycapAction={item.value} aria-label={item.aria??`Send ${item.label}`} title={item.title}>{#if item.icon}<TerminalIcon name={item.icon}/>{:else}{item.label}{/if}</button>
+  {/snippet}
   {#snippet keys()}
     <div class="key-tray" data-floating-clearance={landscape ? undefined : ''}>
       {#if keysOpen}
-        <!-- The expanded pad sits over the terminal so the row itself never costs the shell another line. -->
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape closes the pad; its keys keep terminal focus) -->
-        <div class="key-pad" id="terminal-extra-keys" role="group" aria-label="More terminal keys" onkeydown={keyPadKeys}>
-          <div class="key-pad-head"><strong>Extra keys</strong><button type="button" onclick={()=>{keysOpen=false;terminal?.focus()}} aria-label="Close extra keys">Close</button></div>
-          {#each [{title:'Combinations',keys:comboKeys},{title:'Navigation',keys:navigationKeys},{title:'Function keys',keys:functionKeys},{title:'Symbols',keys:symbolKeys}] as group}
-            <section class="key-group" aria-label={group.title}>
-              <h3>{group.title}</h3>
-              <div class="key-grid">{#each group.keys as item}<button type="button" disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} onclick={()=>key(item.value)} aria-label={item.aria??`Send ${item.label}`} title={item.title}>{#if item.icon}<TerminalIcon name={item.icon}/>{/if}{#if item.caption}<span class="key-caption">{item.label}</span>{:else if !item.icon}{item.label}{/if}</button>{/each}</div>
-            </section>
-          {/each}
+        <!-- The second row: every other key, one group at a time. It is a row of its own above the first, so the keys a
+             thumb reaches most stay where they were. -->
+        <div class="key-row key-more" id="terminal-extra-keys" role="group" aria-label="More terminal keys">
+          <div class="key-tabs" role="group" aria-label="Key groups">
+            {#each keyGroups as group (group.id)}<button class="key-tab" type="button" aria-pressed={keyGroup===group.id} onpointerdown={e=>e.preventDefault()} onclick={()=>chooseKeyGroup(group.id)} aria-label={group.title} title={group.title}>{group.tab}</button>{/each}
+          </div>
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex (a row that scrolls sideways must be reachable by keyboard, even while its keys are disabled) -->
+          <div class="tools key-scroll" role="group" aria-label={`${shownGroup.title} keys`} tabindex="0" use:edges>
+            {#each shownGroup.keys as item (item.value)}{@render keycap(item)}{/each}
+          </div>
         </div>
       {/if}
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex (a row that scrolls sideways must be reachable by keyboard, even while its keys are disabled) -->
-      <div class="tools mobile-keys" role="group" aria-label="Terminal extra keys" tabindex="0" use:edges>
-        {#each modifiers as mod}<button class="keycap key-modifier" type="button" disabled={!live||scrollbackOpen} aria-pressed={modifier===mod.name} onpointerdown={e=>e.preventDefault()} onclick={()=>toggleModifier(mod.name)} aria-label={`${mod.name} for the next key`} title={mod.title}><TerminalIcon name={mod.icon}/><span class="key-caption">{mod.name}</span></button>{/each}
-        <span class="key-divider" aria-hidden="true"></span>
-        {#each stripKeys as item}<button class="keycap" type="button" disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} onclick={()=>modifiedKey(item.value)} aria-label={item.aria??`Send ${item.label}`} title={item.title}>{#if item.icon}<TerminalIcon name={item.icon}/>{/if}{#if item.caption}<span class="key-caption">{item.label}</span>{/if}</button>{/each}
-        <button class="keycap key-interrupt" type="button" disabled={!live||scrollbackOpen} onpointerdown={e=>e.preventDefault()} onclick={()=>key('\x03')} aria-label="Send Ctrl+C" title="Interrupt · Ctrl+C"><TerminalIcon name="interrupt"/><span class="key-caption">Ctrl+C</span></button>
-        <button class="keycap key-more" type="button" disabled={!live||scrollbackOpen} aria-pressed={keysOpen} aria-expanded={keysOpen} aria-controls="terminal-extra-keys" onpointerdown={e=>e.preventDefault()} onclick={toggleKeys} aria-label={keysOpen?'Hide extra keys':'More terminal keys'} title="Home, End, F1–F12, symbols and common combinations"><TerminalIcon name="keyboard"/></button>
+      <div class="key-row">
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (a row that scrolls sideways must be reachable by keyboard, even while its keys are disabled) -->
+        <div class="tools mobile-keys" role="group" aria-label="Terminal extra keys" tabindex="0" use:edges>
+          {#each barKeys.slice(0,BAR_KEYS_BEFORE_MODIFIERS) as item (item.value)}{@render keycap(item)}{/each}
+          {#each modifiers as mod (mod.name)}<button class="keycap key-modifier" type="button" disabled={!live||scrollbackOpen} aria-pressed={held[mod.name]!=='off'} data-modifier={held[mod.name]} onpointerdown={e=>e.preventDefault()} onclick={()=>tapModifierKey(mod.name)} aria-label={modifierLabel(mod.name)} title={mod.title}>{mod.name}</button>{/each}
+          {#each barKeys.slice(BAR_KEYS_BEFORE_MODIFIERS) as item (item.value)}{@render keycap(item)}{/each}
+        </div>
+        <!-- The arrows and the second row's button do not scroll away. -->
+        <div class="key-fixed" role="group" aria-label="Arrow keys">
+          {#each arrowKeys as item (item.value)}{@render keycap(item)}{/each}
+          <button class="keycap key-more-toggle" type="button" aria-pressed={keysOpen} aria-expanded={keysOpen} aria-controls="terminal-extra-keys" onpointerdown={e=>e.preventDefault()} onclick={toggleKeys} aria-label={keysOpen?'Hide extra keys':'More terminal keys'} title="Enter, Home, End, symbols, Ctrl combinations and F1–F12"><TerminalIcon name="keyboard"/></button>
+        </div>
       </div>
     </div>
   {/snippet}
@@ -550,27 +583,30 @@
   .tools input {min-width:0;max-width:180px;font-size:0.875rem}
   .tools button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
   .tools button[aria-pressed=true] {border-color:var(--accent);color:var(--accent-text)}
-  .tools.mobile-keys {display:none;border-top:1px solid var(--line);border-bottom:0}
-  /* The virtual keyboard: a compact key row with the expanded pad above it. The
-     pad is absolute so opening it never takes a row from the shell. */
-  .key-tray {position:relative;min-width:0;flex-shrink:0}
-  .key-tray>.mobile-keys {min-width:0}
-  .keycap {display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 6px!important;font:600 .8125rem var(--mono);line-height:1}
-  .key-caption {font-size:.5625rem;line-height:1;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .key-divider {flex:none;width:1px;height:18px;background:var(--line);margin:0 2px}
-  .key-modifier[aria-pressed=true] {background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-  .key-modifier[aria-pressed=true] .key-caption {color:inherit}
+  /* The on-screen keys: one row that stays, and a second row above it when it is open. Each row is a part that scrolls
+     sideways beside a part that does not, so the arrows and the group buttons are always in view. They show on a
+     narrow window and on any touch screen, whatever its width: a tablet has no Esc or arrow keys either. */
+  .key-tray {display:none;min-width:0;flex-shrink:0;border-top:1px solid var(--line);background:var(--bg)}
+  .key-row {display:flex;align-items:stretch;min-width:0}
+  .key-row+.key-row {border-top:1px solid var(--line)}
+  .key-row>.tools {flex:1 1 auto;min-width:0;border:0;background:transparent}
+  .key-fixed,.key-tabs {display:flex;flex:none;align-items:center;gap:4px;padding:2px 4px}
+  .key-fixed {border-left:1px solid var(--line)}
+  .key-tabs {border-right:1px solid var(--line)}
+  .keycap,.key-tab {display:inline-flex;flex:none;align-items:center;justify-content:center;min-width:40px;min-height:36px;padding:4px 9px;font:600 .875rem var(--mono);line-height:1;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+  .key-tray button:hover:not(:disabled) {border-color:var(--accent);background:var(--tint)}
+  .key-tab {color:var(--muted)}
+  .key-tab[aria-pressed=true],.key-more-toggle[aria-pressed=true] {border-color:var(--accent);color:var(--accent-text);background:var(--tint)}
+  /* A modifier that is on is filled; one that is locked also carries a bar along its foot. The selectors are this
+     specific so the label keeps its own colour over the row's rule for a pressed button, hovered or not. */
+  .key-tray .tools .key-modifier[aria-pressed=true],.key-tray .tools .key-modifier[aria-pressed=true]:hover:not(:disabled) {background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .key-tray .tools .key-modifier[data-modifier=locked] {box-shadow:inset 0 -3px 0 var(--accent-ink);text-decoration:underline;text-underline-offset:3px}
+  /* A row that scrolls sideways fades at the end that hides more keys, at any width. */
+  .key-row>.tools:global(.more-end) {-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}
+  .key-row>.tools:global(.more-start) {-webkit-mask-image:linear-gradient(to left,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to left,#000 calc(100% - 28px),transparent)}
+  .key-row>.tools:global(.more-start.more-end) {-webkit-mask-image:linear-gradient(to right,transparent,#000 28px,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,transparent,#000 28px,#000 calc(100% - 28px),transparent)}
+  .key-row>.tools:focus-visible {outline:2px solid var(--accent);outline-offset:-2px}
   .key-interrupt {color:var(--bad)}
-  .key-pad {position:absolute;left:8px;right:8px;bottom:calc(100% + 6px);z-index:30;display:grid;gap:10px;max-height:min(60vh,360px);overflow:auto;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);box-shadow:var(--shadow)}
-  .key-pad-head {display:flex;align-items:center;justify-content:space-between;gap:12px}
-  .key-pad-head strong {font-size:.875rem}
-  .key-pad-head button {min-height:32px}
-  .key-group {display:grid;gap:5px}
-  .key-group h3 {margin:0;font-size:.6875rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-  .key-grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:5px}
-  .key-grid button {min-height:40px;padding:5px 6px;font:600 .75rem var(--mono);border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);display:inline-flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap}
-  .key-grid button:hover:not(:disabled),.key-grid button:focus-visible {border-color:var(--accent);background:var(--tint)}
-  .key-grid button .key-caption {font-size:inherit;color:inherit}
   .upload-input {display:none}
   .screen-frame {position:relative;flex:1;height:0;min-height:0;min-width:0;overflow:hidden;padding:12px 12px 8px 16px}
   .screen {height:100%;min-height:0;min-width:0;overflow:hidden;padding:0}
@@ -613,15 +649,12 @@
     .tools {padding:2px 4px;gap:4px}
     .tools button {min-height:32px;font-size:0.875rem;padding:5px 8px}
     .terminal-toolbar .tool-label{display:none}.terminal-toolbar{padding:2px 4px}.terminal-toolbar button{padding:6px;min-width:30px}.terminal-toolbar .tool-divider{margin:0 2px}.terminal-toolbar .tool-space{display:none}
-    .tools.mobile-keys {display:flex}
-    .mobile-keys button {min-width:34px;min-height:32px}
-    .key-pad {left:4px;right:4px;padding:10px}
-    .key-grid {grid-template-columns:repeat(auto-fill,minmax(48px,1fr))}
+    .key-tray {display:block}
     /* Rows that scroll sideways fade at the end that hides more controls. */
     .tools:global(.more-end) {-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent)}
     .tools:global(.more-start) {-webkit-mask-image:linear-gradient(to left,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to left,#000 calc(100% - 36px),transparent)}
     .tools:global(.more-start.more-end) {-webkit-mask-image:linear-gradient(to right,transparent,#000 36px,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to right,transparent,#000 36px,#000 calc(100% - 36px),transparent)}
-    .mobile-keys:focus-visible {outline:2px solid var(--accent);outline-offset:-2px}
+    .mobile-keys:focus-visible,.key-scroll:focus-visible {outline:2px solid var(--accent);outline-offset:-2px}
     .screen-frame {padding:4px}
     footer {font-size:0.875rem;padding:2px 8px}
     footer span {max-width:75%}
@@ -632,15 +665,15 @@
     .pane.maximised {inset:0;top:var(--terminal-top,0px);height:var(--terminal-viewport,100dvh);border-radius:0}
     .pane.maximised footer {padding-bottom:max(2px,env(safe-area-inset-bottom))}
   }
-  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary,.clipboard-menu button {min-width:40px;min-height:40px}.key-pad-head button,.key-grid button{min-width:44px;min-height:44px}}
+  @media(pointer:coarse) {.tools button,.controls>button,.session-menu>summary,.clipboard-menu button,.key-tray button {min-width:40px;min-height:40px}.key-tray {display:block}}
   /* Touch targets keep a 40 × 40 px hit area; on phones the rows lose their padding instead. */
-  @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.terminal-toolbar button,.mobile-keys button {min-width:40px}.controls>button,.session-menu>summary,footer button {min-width:40px;min-height:40px}footer {padding-top:0;padding-bottom:0}}
+  @media(max-width:650px) and (pointer:coarse),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {header,.tools,.terminal-toolbar {padding-top:0;padding-bottom:0}.terminal-toolbar button,.key-tray button {min-width:40px}.key-fixed,.key-tabs {padding-top:0;padding-bottom:0}.controls>button,.session-menu>summary,footer button {min-width:40px;min-height:40px}footer {padding-top:0;padding-bottom:0}}
   /* Sideways: tools and extra keys share one row, and the footer gives its line to the screen (the state stays in the header). */
   @media(max-height:500px) and (pointer:coarse) and (orientation:landscape) {
     .tool-rows {display:flex;flex-shrink:0;min-width:0;border-bottom:1px solid var(--line)}
     .tool-rows>.tools {flex:1 1 50%;min-width:0;border-bottom:0}
     .tool-rows>.key-tray {flex:1 1 50%;min-width:0}
-    .tool-rows .mobile-keys {border-top:0;border-left:1px solid var(--line)}
+    .tool-rows>.key-tray {border-top:0;border-left:1px solid var(--line)}
     .pane>footer {display:none}
     /* With the keyboard open there are too few rows for the header; it returns when the keyboard closes. */
     .pane.keyboard>header {display:none}
@@ -654,5 +687,7 @@
   /* The Alt+Shift+M advice is for a hardware keyboard; the Restore size button stays. */
   @media(hover:none) and (pointer:coarse) {.maximise-hint {display:none}}
   /* A touch tablet: the pane's header, menu and footer controls are 44 px; the terminal's own keys (toolbar and extra keys) stay 40 px, as the spec allows. */
-  @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px) {.controls>button,.session-menu>summary,.session-menu button,footer button {min-height:44px;min-width:44px}.terminal-toolbar button,.mobile-keys button {min-width:40px;min-height:40px}}
+  @media(pointer:coarse) and (min-width:651px) and (max-width:1099px) and (min-height:501px) {.controls>button,.session-menu>summary,.session-menu button,footer button {min-height:44px;min-width:44px}.terminal-toolbar button {min-width:40px;min-height:40px}}
+  /* On a touch screen larger than a phone, of any width, the on-screen keys are 44 px. */
+  @media(pointer:coarse) and (min-width:651px) and (min-height:501px) {.key-tray button {min-width:44px;min-height:44px}}
 </style>

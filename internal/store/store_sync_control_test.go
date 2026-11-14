@@ -925,6 +925,13 @@ func TestStalePlanOutsideRunIsReplannedAutomatically(t *testing.T) {
 	if err = s.FinishSyncJob(uid, agent.ID, job.ID, "replan", "", "local skills changed; preview again", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
+	if err = s.FinishSyncJob(uid, agent.ID, job.ID, "replan", "", "local skills changed; preview again", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	queued, _ := s.SyncJobsFor(uid)
+	if len(queued) != 2 {
+		t.Fatalf("replayed result queued a duplicate repair: %+v", queued)
+	}
 	next, err := s.ClaimSyncJob(uid, agent)
 	if err != nil || next == nil || next.Kind != "preview" || next.TargetID != target {
 		t.Fatalf("stale plan was not replanned: %+v %v", next, err)

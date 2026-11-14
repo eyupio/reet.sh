@@ -56,6 +56,13 @@ func gitAvailable() bool {
 	return err == nil && filepath.IsAbs(path)
 }
 
+// ghAvailable reports whether gh is on PATH at an absolute path, for
+// cloning GitHub repositories with the machine's own sign-in.
+func ghAvailable() bool {
+	path, err := exec.LookPath("gh")
+	return err == nil && filepath.IsAbs(path)
+}
+
 // browseAllowed re-reads the enrollment: folder browsing is allowed while it
 // is still this enrollment, terminal access is on and browse is not off
 // locally (reet terminal browse off).

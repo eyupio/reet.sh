@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { tick, type Snippet } from 'svelte'
+  import { tick, untrack, type Snippet } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { UnauthorizedError } from '../api'
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import { addedLine } from '../folderBrowser'
   import type { ProjectColour } from '../projectColour'
-  import { createProjectGroup, deleteFolderProject, deleteProjectGroup, getFolderProject, importSavedProjects, refusalSentence, reorderFolderProjects,
+  import { lostCloneLine, outstandingClone, rememberClone, watchClone, type CloneEnd, type OutstandingClone } from '../githubRepo'
+  import { cloneStatus, createProjectGroup, deleteFolderProject, deleteProjectGroup, getFolderProject, importSavedProjects, refusalSentence, reorderFolderProjects,
     reorderProjectGroups, setFolderProjectGroup, terminalMachines, updateFolderProject, updateProjectGroup, TerminalError,
     type FolderProject, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import AddProjectDialog from './AddProjectDialog.svelte'
@@ -23,7 +24,7 @@
   let { projects, groups = undefined, failed = false, savedWaiting = 0, sessions, sessionsFailed = false, reporting, running, known, worktrees, chosen = '',
     selecting = false, selected = [], onselecting, ontoggle, onchoose, onnew, signal, onsettle, onsettlegroups, onwaiting, onmachines, onnotice, onreload, onsignedout,
     variant = 'home', selectAction, rail = true, embedded = false, userId = 0, scope = null, onscope, startWord = undefined, collapsed = false, oncollapsed,
-    width = RAIL_DEFAULT, onwidth, onwidthcommit }: {
+    width = RAIL_DEFAULT, onwidth, onwidthcommit, onpick }: {
     projects: FolderProject[] | undefined
     /** The account's project groups, in rail order. */
     groups?: ProjectGroup[] | undefined
@@ -78,6 +79,8 @@
     width?: number
     onwidth?: (width: number) => void
     onwidthcommit?: (width: number) => void
+    /** Selects a project in the rail as a press on its card would (Home): a project cloned from GitHub when it is done. */
+    onpick?: (project: FolderProject) => void
   } = $props()
 
   const refused = (e: unknown) => e instanceof UnauthorizedError || (e instanceof TerminalError && e.status === 401)
@@ -139,6 +142,40 @@
       if (e instanceof TerminalError && e.status === 404) onreload()
     } finally { checking = false }
   }
+  // A project from GitHub: the page's one outstanding clone, read every two seconds while this rail's page is open, whether
+  // or not the dialog is (the dialog only shows it). It lives in memory for the page's life; a page that opens later picks
+  // it up again, and one that never does finds the project in its list.
+  let clone = $state<OutstandingClone | null>(outstandingClone())
+  let addDialog = $state<AddProjectDialog>()
+  function cloneStarted(next: OutstandingClone) { rememberClone(next); clone = next }
+  $effect(() => {
+    const watching = clone
+    if (!watching) return
+    const stop = new AbortController()
+    untrack(() => watchClone(watching, { status: cloneStatus, signal: stop.signal, onend: end => cloneEnded(end, watching) }))
+    return () => stop.abort()
+  })
+  function cloneEnded(end: CloneEnd, watched: OutstandingClone) {
+    if (end.state === 'signedout') { signOut(); return }
+    // A clone the controller no longer knows is said as a failure is, and the list is read again: it may have finished.
+    const lost = end.state === 'gone'
+    if (lost) end = { state: 'failed', code: 'clone_not_found', sentence: lostCloneLine(watched.repo) }
+    // The open dialog shows the outcome first (it closes on done, or puts the sentence in its error slot), then the clone
+    // leaves it.
+    const shown = adding ? addDialog?.cloneEnded(end) ?? false : false
+    clone = null
+    if (end.state === 'done') {
+      const p = end.project
+      onsettle([...(projects ?? []).filter(x => x.id !== p.id), p].sort((a, b) => a.position - b.position))
+      onnotice({ text: addedLine(p.name) })
+      onpick?.(p)
+      onreload()
+    } else if (end.state === 'failed') {
+      if (!shown) onnotice({ text: end.sentence, bad: true })
+      if (lost) onreload()
+    } else onreload()
+  }
+
   function added(p: FolderProject, wasEdit: boolean) {
     onsettle([...(projects ?? []).filter(x => x.id !== p.id), p].sort((a, b) => a.position - b.position))
     onnotice({ text: wasEdit ? `Sorted. ${p.name} saved.` : addedLine(p.name) })
@@ -398,7 +435,8 @@
 
 {#if adding && terminals}
   {@const wasEdit = !!adding.project}
-  <AddProjectDialog machines={terminals} project={adding.project} initialHost={adding.host} opener={adding.opener} onadded={(p) => added(p, wasEdit)} onsignedout={signOut} onclose={() => (adding = null)} />
+  <AddProjectDialog bind:this={addDialog} machines={terminals} project={adding.project} initialHost={adding.host} opener={adding.opener} {clone} onclone={cloneStarted}
+    onadded={(p) => added(p, wasEdit)} onsignedout={signOut} onclose={() => (adding = null)} />
 {/if}
 {#if removing}
   {@const p = removing.project}

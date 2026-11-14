@@ -548,7 +548,7 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 		p.b.lateReplies.Add(1)
 		return nil
 	case *terminalproto.BaseCheckResult, *terminalproto.BranchSyncResult, *terminalproto.BranchPrunePlanResult, *terminalproto.BranchPruneResult,
-		*terminalproto.SoftwareApplyResult, *terminalproto.NativeViewResult:
+		*terminalproto.SoftwareApplyResult, *terminalproto.RepoCloneResult, *terminalproto.NativeViewResult:
 		// An answer whose call already gave up. Refusing it here would end the
 		// machine's connection over an answer that merely came late, so it is
 		// counted and dropped. For a check, a plan, a sync or a view nothing is

@@ -58,6 +58,8 @@ The machine makes an outbound connection to the controller. Reet does not need a
 
 Install and authenticate your chosen coding agent on the connected machine. Reet can start **Claude Code**, **Codex** or **OpenCode** when the machine reports it as available. Its own OpenCode copy can also be managed on [supported Linux machines](agent-software.md).
 
+Add a project with **Add** in the project rail on Home: a folder on a machine, or **From GitHub**, a repository the machine clones for you into `~/reet/repos/owner/name` (that machine needs terminal access on, git and the GitHub CLI signed in with `gh auth login`; see [Projects](projects.md#adding-from-github)).
+
 Choose **Start an agent**, pick a project and a machine, then an agent. Choose **No project — start in a folder** to pick a folder instead. Press **Start** and you arrive in the new session. Your coding tool’s provider access and approval rules still apply.
 
 A started terminal means the program started; it does not prove the tool is signed in or making progress. If the session needs attention, use the reason shown in the UI and check the tool on the machine.

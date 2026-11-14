@@ -299,7 +299,7 @@ func TestPrivatePeerRepliesIncludeModelsAndChatEvents(t *testing.T) {
 		&terminalproto.NativeViewResult{}, &terminalproto.ACPPreviewResult{}, &terminalproto.InspectResult{},
 		&terminalproto.LaunchProgress{}, &terminalproto.BaseCheckResult{},
 		&terminalproto.BranchSyncResult{}, &terminalproto.BranchPrunePlanResult{}, &terminalproto.BranchPruneResult{},
-		&terminalproto.SoftwareApplyResult{},
+		&terminalproto.SoftwareApplyResult{}, &terminalproto.RepoCloneResult{},
 	} {
 		if !isPeerReply(body) {
 			t.Fatalf("%T is not forwarded", body)

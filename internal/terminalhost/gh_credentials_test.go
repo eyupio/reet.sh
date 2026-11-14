@@ -15,6 +15,11 @@ func TestGitHubRemoteAcceptsOnlyGitHubDotCom(t *testing.T) {
 		"https://github.com/eyupio/reet.sh":     "eyupio/reet.sh",
 		"git@github.com:eyupio/reet.sh.git":     "eyupio/reet.sh",
 		"ssh://git@github.com/eyupio/reet.sh":   "eyupio/reet.sh",
+		"https://GitHub.com/eyupio/reet.sh":     "eyupio/reet.sh",
+		"git@GITHUB.COM:eyupio/reet.sh.git":     "eyupio/reet.sh",
+		"git@github.com:443/reet.sh":            "443/reet.sh",
+		"https://github.com/a/.github":          "a/.github",
+		"https://github.com/a/-x":               "a/-x",
 	} {
 		o, r, ok := GitHubRemote(in)
 		if !ok || o+"/"+r != want {
@@ -30,6 +35,14 @@ func TestGitHubRemoteAcceptsOnlyGitHubDotCom(t *testing.T) {
 		"https://evil@github.com.x/a/b",
 		"https://github.com/-a/b",
 		"https://github.com/a/..",
+		"https://github.com:443/owner",
+		"https://github.com:443/owner/repo",
+		"ssh://git@github.com:22/owner/repo",
+		"https://github.com:/owner/repo",
+		"https://GitHub.com.evil.example/a/b",
+		"https://github.com/a/.git",
+		"https://github.com/a/...",
+		"https://github.com/a/b.",
 	} {
 		if _, _, ok := GitHubRemote(in); ok {
 			t.Fatal("accepted", in)

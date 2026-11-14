@@ -48,6 +48,8 @@ func (s *server) registerFolderProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/folder-projects", s.folderAccess(s.folderProjectWrite(s.folderProjectCreate)))
 	mux.HandleFunc("POST /api/v2/folder-projects/reorder", s.folderAccess(s.folderProjectWrite(s.folderProjectReorder)))
 	mux.HandleFunc("POST /api/v2/folder-projects/import-saved", s.folderAccess(s.folderProjectWrite(s.folderProjectImportSaved)))
+	mux.HandleFunc("POST /api/v2/folder-projects/from-github", s.folderAccess(s.folderProjectWrite(s.folderProjectFromGitHub)))
+	mux.HandleFunc("GET /api/v2/folder-projects/clones/{id}", s.folderAccess(s.folderProjectClone))
 	mux.HandleFunc("GET /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectGet))
 	mux.HandleFunc("PATCH /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectUpdate)))
 	mux.HandleFunc("DELETE /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectDelete)))
@@ -332,13 +334,18 @@ type folderProjectView struct {
 	ID string `json:"id"`
 	// Host is the machine's enrollment id (the agentId of browse, branches
 	// and terminal create); Machine is its current name, "" once forgotten.
-	Host             string  `json:"host"`
-	Machine          string  `json:"machine"`
-	Dir              string  `json:"dir"`
-	Name             string  `json:"name"`
-	IsRepo           bool    `json:"isRepo"`
-	BaseBranch       string  `json:"baseBranch"`
-	Colour           string  `json:"colour"`
+	Host       string `json:"host"`
+	Machine    string `json:"machine"`
+	Dir        string `json:"dir"`
+	Name       string `json:"name"`
+	IsRepo     bool   `json:"isRepo"`
+	BaseBranch string `json:"baseBranch"`
+	Colour     string `json:"colour"`
+	// Origin is the GitHub repository (owner/name) the project was added
+	// from; Cloned says reet made that clone. Both are left out for a folder
+	// added by path.
+	Origin           string  `json:"origin,omitempty"`
+	Cloned           bool    `json:"cloned,omitempty"`
 	WorktreeDefault  string  `json:"worktreeDefault"`
 	DefaultTool      string  `json:"defaultTool"`
 	DefaultModel     string  `json:"defaultModel"`
@@ -359,7 +366,7 @@ type folderProjectView struct {
 
 func viewFolderProject(p store.FolderProject, names map[string]string) folderProjectView {
 	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
-		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, DefaultYolo: p.DefaultYolo, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Note: p.Note, Position: p.Position,
+		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, DefaultYolo: p.DefaultYolo, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Origin: p.Origin, Cloned: p.Cloned, Note: p.Note, Position: p.Position,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 
@@ -367,7 +374,12 @@ func viewFolderProject(p store.FolderProject, names map[string]string) folderPro
 // name as host, as a terminal launch records them), folder and name. The
 // starter prompt is never part of it.
 func (s *server) auditFolderProject(uid int64, action string, p store.FolderProject, names map[string]string) {
-	s.event(uid, "ui", action, "", map[string]any{"project": p.ID, "machine": p.Host, "host": names[p.Host], "folder": p.Dir, "name": p.Name})
+	s.event(uid, "ui", action, "", folderAuditDetail(p, names))
+}
+
+// folderAuditDetail is what a folder project's audit row records.
+func folderAuditDetail(p store.FolderProject, names map[string]string) map[string]any {
+	return map[string]any{"project": p.ID, "machine": p.Host, "host": names[p.Host], "folder": p.Dir, "name": p.Name}
 }
 
 func (s *server) writeFolderProjects(w http.ResponseWriter, uid int64) {

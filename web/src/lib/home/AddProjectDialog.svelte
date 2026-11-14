@@ -12,19 +12,25 @@
     type BrowseRepo, type BrowseResult, type FolderProject, type FolderProjectInput, type TerminalMachine, type WorktreeDefault } from '../terminal/api'
   import { cleanPath } from '../projects'
   import FolderBrowser from './FolderBrowser.svelte'
+  import AddFromGitHub from './AddFromGitHub.svelte'
+  import type { CloneEnd, OutstandingClone } from '../githubRepo'
 
   // Add a project (one folder on one machine), or change one. The folder is typed or picked by browsing the machine's folders
   // live; leaving the typed field asks the machine once whether it exists and is a repository. A machine that cannot browse
   // (offline, an older reet, browsing switched off) still takes a typed path, checked again at launch. One save per press; a
   // change names the version it was read at. The starter prompt lives only in this component while it is open: never in
   // browser storage, the URL or a log.
-  let { machines, project, initialHost, opener = null, onadded, onsignedout, onclose }: {
+  let { machines, project, initialHost, opener = null, clone = null, onclone, onadded, onsignedout, onclose }: {
     machines: TerminalMachine[]
     /** The project to change, read with its starter prompt (the single read); absent adds a new one. */
     project?: FolderProject
     /** The machine a machine card's New project named, chosen before the usual browseable one; absent when adding elsewhere. */
     initialHost?: string
     opener?: HTMLElement | null
+    /** The page's outstanding clone from GitHub, shown on From GitHub while it runs. */
+    clone?: OutstandingClone | null
+    /** A clone from GitHub has started: the page reads it until it ends. Without it there is no From GitHub choice. */
+    onclone?: (clone: OutstandingClone) => void
     /** After a save: the project as the server answered it. The dialog then closes; the page shows the success line. */
     onadded: (project: FolderProject) => void
     /** Hands a lost sign-in (401) to the page, as the other dialogs do; the dialog closes. */
@@ -341,6 +347,39 @@
   function openPicker() { if (busy || !defaultTool) return; pickerOpen = true }
   function pickModel(value: string) { defaultModel = value; edited() }
 
+  // Adding offers two ways in: a folder on a machine (the default) or a repository from GitHub that a machine clones.
+  type Way = 'folder' | 'github'
+  const ways = $derived(!editing && !!onclone)
+  let way = $state<Way>('folder')
+  let github = $state<AddFromGitHub>()
+  // A From GitHub start on its way: the tabs wait for its answer, so focus is never left in a panel being hidden.
+  const starting = $derived(!!github?.busy())
+  function chooseWay(next: Way, focus = false) {
+    way = next
+    if (focus) void tick().then(() => dialog?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-tab-${next}`)}`)?.focus())
+  }
+  function wayKeys(event: KeyboardEvent) {
+    const order: Way[] = ['folder', 'github']
+    const at = order.indexOf(way)
+    // Two choices: either arrow moves to the other one.
+    const next = event.key === 'ArrowRight' || event.key === 'ArrowLeft' ? order[1 - at] : event.key === 'Home' ? order[0] : event.key === 'End' ? order[1] : null
+    if (!next) return
+    event.preventDefault()
+    chooseWay(next, true)
+  }
+  /** The page's clone ended while this dialog is open. On From GitHub the dialog closes when it is done, and a failure's
+   *  sentence goes in its error slot; the answer says whether the dialog showed it, so the page need not. */
+  export function cloneEnded(end: CloneEnd): boolean {
+    if (life.signal.aborted || way !== 'github') return false
+    if (end.state === 'done') { shutdown(true); onclose(); return true }
+    return github?.ended(end) ?? false
+  }
+  function githubSignedOut(e: unknown) {
+    if (!onsignedout) { close(); return }
+    const out = onsignedout
+    shutdown(false); onclose(); out(e)
+  }
+
   function shutdown(returnFocus: boolean) {
     life.abort()
     starterPrompt = ''
@@ -349,8 +388,9 @@
     dialog?.close()
     if (returnFocus && opener?.isConnected) opener.focus()
   }
-  // While a save is in flight the dialog stays: the 15-second limit ends the wait.
-  function close() { if (busy) return; shutdown(true); onclose() }
+  // While a save is in flight the dialog stays: the 15-second limit ends the wait. A From GitHub start on its way holds it
+  // the same way, so a clone the controller began is always followed: once it answers, the status line and Close appear.
+  function close() { if (busy || starting) return; shutdown(true); onclose() }
   // A change clears a refusal. After a lost reply the fields are locked, so Try again sends exactly what was sent.
   function edited() { if (!busy && !operation && message) { message = ''; failed = false } }
 
@@ -561,17 +601,26 @@
   })
 </script>
 
-<dialog bind:this={dialog} use:shell={{ sheet: 'full' }} class:browsing aria-labelledby={`${id}-title`} oncancel={(event) => { event.preventDefault(); close() }}>
+<dialog bind:this={dialog} use:shell={{ sheet: 'full' }} class:browsing={browsing && way === 'folder'} class:ways aria-labelledby={`${id}-title`} oncancel={(event) => { event.preventDefault(); close() }}>
   <header data-shell-head>
     <div class="titles">
-      <p class="eyebrow">Projects</p>
+      <p class="eyebrow" data-shell-aside>Projects</p>
       <h2 id={`${id}-title`}>{editing ? `Edit ${editing.name}` : 'Add a project'}</h2>
     </div>
-    <button type="button" class="close" onclick={close} disabled={busy} aria-label="Close" data-shell-close>
+    <button type="button" class="close" onclick={close} disabled={busy || starting} aria-label="Close" data-shell-close>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
     </button>
   </header>
-  <form onsubmit={(event) => { event.preventDefault(); void save() }} oninput={edited}>
+  {#if ways}
+    <div class="ways" role="tablist" aria-label="How to add the project" tabindex="-1" onkeydown={wayKeys}>
+      <button type="button" id={`${id}-tab-folder`} role="tab" aria-selected={way === 'folder'} aria-controls={`${id}-panel-folder`} tabindex={way === 'folder' ? 0 : -1}
+        disabled={busy || starting} onclick={() => chooseWay('folder')}>Folder on a machine</button>
+      <button type="button" id={`${id}-tab-github`} role="tab" aria-selected={way === 'github'} aria-controls={`${id}-panel-github`} tabindex={way === 'github' ? 0 : -1}
+        disabled={busy || starting} onclick={() => chooseWay('github')}>From GitHub</button>
+    </div>
+  {/if}
+  <form id={`${id}-panel-folder`} role={ways ? 'tabpanel' : undefined} aria-labelledby={ways ? `${id}-tab-folder` : undefined} hidden={ways && way !== 'folder'}
+    onsubmit={(event) => { event.preventDefault(); void save() }} oninput={edited}>
     <div class="body" data-shell-body>
       {#if mine}
         <section class="mine" aria-labelledby={`${id}-mine`}>
@@ -717,6 +766,10 @@
       </div>
     </footer>
   </form>
+  {#if ways && onclone}
+    <AddFromGitHub bind:this={github} {machines} {clone} {initialHost} {id} hidden={way !== 'github'}
+      onstart={onclone} onsignedout={githubSignedOut} onclose={close} />
+  {/if}
   {#if pickerOpen}
     <SlotPicker label="Default model" options={modelOptionsFor()} value={defaultModel} sheet={touch} opener={modelButton}
       filter="Filter models" status={modelStatusLine}
@@ -729,6 +782,15 @@
   dialog { width: min(640px, calc(100vw - 28px)); max-height: calc(100dvh - 56px); padding: 0; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 24px 60px var(--scrim); line-height: 1.3; }
   dialog.browsing { height: min(844px, calc(100dvh - 56px)); }
   dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  dialog.ways[open] { grid-template-rows: auto auto minmax(0, 1fr); }
+  /* The two ways in, as the house's tabs: the chosen one is underlined and in full ink, not told by colour alone. */
+  .ways { display: flex; gap: 4px; padding: 0 24px; border-bottom: 1px solid var(--line-soft); }
+  .ways button { min-height: 44px; padding: 0 14px 2px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: 600 14px var(--sans); cursor: pointer; }
+  .ways button:hover:not(:disabled) { color: var(--ink); }
+  .ways button[aria-selected='true'] { color: var(--ink); border-bottom-color: var(--accent); }
+  .ways button:disabled { cursor: default; }
+  form[hidden] { display: none; }
+  dialog.ways .body { padding-top: 16px; }
   dialog::backdrop { background: var(--scrim); }
   header { display: flex; align-items: center; gap: 12px; padding: 20px 24px 12px; }
   .titles { flex-grow: 1; min-width: 0; }
@@ -823,11 +885,17 @@
     dialog.browsing { height: auto; }
     header, form { background: var(--bg); }
     header { height: 60px; flex: none; padding: 0 8px 0 16px; border-bottom: 1px solid var(--line-soft); }
+    /* A short screen (a phone held sideways, or the keyboard open): the eyebrow is gone (data-shell-aside), so the header
+       is one row around the 44 px Close, leaving the tabs and the focused field room above the footer. */
+    dialog:global([data-shell-short]) header { height: 48px; }
+    dialog:global([data-shell-short]) .cancel, dialog:global([data-shell-short]) .submit { height: 44px; }
+    .ways { padding: 0 16px; background: var(--bg); }
     .eyebrow { font-size: 14px; letter-spacing: .09em; }
     h2 { margin: 0; font-size: 21px; }
     .close { border: 0; }
     .close svg { width: 20px; height: 20px; }
     .body { padding: 14px 16px 16px; font-size: 15px; }
+    dialog.ways .body { padding-top: 14px; }
     fieldset { gap: 12px; }
     dialog.browsing fieldset { height: auto; }
     .machine-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

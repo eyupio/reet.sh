@@ -108,6 +108,8 @@ type server struct {
 	// Folder-project writes per account (folder_projects.go).
 	folderWritesMu sync.Mutex
 	folderWrites   *auth.Limiter
+	// Clones of GitHub repositories that become projects (folder_projects_github.go).
+	clones repoClones
 	// Bounded lock stripes serialize start/recovery of one backlog request.
 	backlogStarts [64]sync.Mutex
 	// Session cleanup after a confirmed close (session_isolation.go).
@@ -291,6 +293,7 @@ func (s *Server) Close() error {
 		})
 	}
 	s.s.workers.Wait()
+	s.s.clones.close()
 	if s.s.gafferProviders != nil {
 		s.s.gafferProviders.Close()
 	}

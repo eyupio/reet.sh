@@ -84,17 +84,19 @@ try {
   for (const width of [1360, 390, 320]) {
    await page.setViewportSize({ width, height: 900 })
    await expect(line).toBeVisible()
-   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
+   // The workspace lays itself out from script after a resize, so each check waits for the layout to settle rather
+   // than measuring the first frame; a layout that settles wrong still fails.
+   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
    // The figure stays inside the status line at every width.
-   expect(await page.evaluate(() => {
+   await expect.poll(() => page.evaluate(() => {
     const strip = document.querySelector('.conversation-status').getBoundingClientRect(), chip = document.querySelector('[data-chat-usage]').getBoundingClientRect()
     return chip.left >= strip.left && chip.right <= strip.right + 0.5 && chip.top >= strip.top && chip.bottom <= strip.bottom + 0.5
-   })).toBe(true)
+   }), { message: `the usage figure inside the status line at ${width}px, ${theme}` }).toBe(true)
    // Nothing floats over it: from one end to the other, the element on top is the figure itself.
-   expect(await page.evaluate(() => {
+   await expect.poll(() => page.evaluate(() => {
     const chip = document.querySelector('[data-chat-usage]'), box = chip.getBoundingClientRect(), y = box.top + box.height / 2
     return [box.left + 3, box.left + box.width / 2, box.right - 3].every(x => chip.contains(document.elementFromPoint(x, y)))
-   })).toBe(true)
+   }), { message: `nothing over the usage figure at ${width}px, ${theme}` }).toBe(true)
    if (process.env.REET_UI_SCREENSHOTS) await page.screenshot({ path: `${process.env.REET_UI_SCREENSHOTS}/chat-usage-${theme}-${width}.png` })
   }
  }

@@ -1016,4 +1016,11 @@ func TestStaleApplyOutsideRunReplansAndAppliesAutomatically(t *testing.T) {
 	if err != nil || next == nil || next.Kind != "auto" || next.TargetID != target {
 		t.Fatalf("stale apply was not repaired automatically: %+v %v", next, err)
 	}
+	if err = s.FinishSyncJob(uid, agent.ID, next.ID, "awaiting-approval", strings.Repeat("d", 64), "", plan); err != nil {
+		t.Fatal(err)
+	}
+	apply, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || apply == nil || apply.Kind != "apply" || apply.ID != next.ID {
+		t.Fatalf("repaired plan did not apply without another confirmation: %+v %v", apply, err)
+	}
 }

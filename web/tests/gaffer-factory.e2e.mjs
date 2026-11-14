@@ -25,7 +25,7 @@ const outcomes=[{id:'e'.repeat(32),revision:5,objective:'Ship CSV export for bil
 ]}]
 const goals=[goal('1'.repeat(32),'s1','Export API','active',false,'The endpoint and its tests are committed. The review found one missing error case and is fixing it.'),goal('2'.repeat(32),'s2','Export button','needs_user',true,'The button is in, but the design leaves the empty state open. Which of the two do you want?'),goal('5'.repeat(32),'s5','Login tokens','active',false,'Checks are green.')]
 const sessions=['s1','s2','s3','s4','s5','s6'].map((id,n)=>({id,agentId:'a1',title:['Export API','Export button','Export docs','Importer retry','Login tokens','Docs refresh'][n],state:'running',structured:true,tool:'claude',dir:'/work/x',createdAt:now,updatedAt:now,exitCode:null,...(id==='s5'?{projectId:'p1'}:{})}))
-const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available'},{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
+const machines=[{agentId:'a1',host:'workshop',ready:true,capabilities:{launch:true,acp:true,acpLiveControls:true,acpStartOptions:true,acpAgents:[{tool:'claude',adapter:'claude-agent-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]},{tool:'codex',adapter:'codex-acp',state:'available',options:[{id:'effort',category:'thought_level',values:['default','low','high']}]}]}}]
 // What the working agents reported: the code stage's own count, and the review stage in hand with its context window.
 Object.assign(outcomes[0].sessions[0].stages[2],{agentInputTokens:60000,agentOutputTokens:24600,agentCachedTokens:410000,agentUsageReported:true})
 Object.assign(outcomes[0].sessions[0].stages[3],{agentInputTokens:9000,agentOutputTokens:3400,agentUsageReported:true,contextUsed:176000,contextSize:200000})
@@ -185,8 +185,8 @@ try {
       await agent.selectOption('codex')
       await add.getByRole('combobox',{name:'Model for Changelog entry',exact:true}).selectOption('gpt-5-codex')
       await add.getByRole('combobox',{name:'Effort for Changelog entry',exact:true}).selectOption('low')
-      // A crew can do its stages: the shipping stage goes back to the outcome's own agent. Its descriptor names no
-      // thought levels, but the machine can still start it with an effort, so the selector is usable and the choice is sent.
+      // A crew can do its stages: the shipping stage goes back to the outcome's own agent, and the level this
+      // machine reports for it travels with that stage.
       await add.getByText('Choose who does what',{exact:true}).click()
       await expect(add.getByRole('combobox',{name:'Building agent for Changelog entry',exact:true})).toHaveValue('codex')
       await add.getByRole('combobox',{name:'Shipping agent for Changelog entry',exact:true}).selectOption('claude')

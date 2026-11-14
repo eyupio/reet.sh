@@ -17,11 +17,11 @@
   import { yoloCanStart, type YoloGate } from './launchBar'
   import { CATALOGUE } from './catalogue'
   import type { MachineModels, ModelFavourite } from './models'
-  import { launchEfforts } from './terminal/launchOptions'
+  import { reportedEfforts } from './terminal/launchOptions'
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_ROLES, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, sessionCount, stagePlan, startingProgress, wholeBetween, type Crew, type PlanSession, type PlanTurn } from './gafferOutcome'
+  import { CREW_ROLES, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, sessionCount, stagePlan, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn } from './gafferOutcome'
   import { gafferAutoMerge } from './gafferMotion'
 
   let { room, userId = 0, projectId: wantedProject = '', onclose, onstarted }: { room: number; userId?: number;
@@ -132,7 +132,17 @@
     }
   })
   // Every session here is a chat, so the efforts are the agent's own thinking levels as this machine reports them.
-  const efforts = (id: string) => launchEfforts(id, machine?.capabilities, true)
+  // A level this machine does not report is never carried: an unattended stage the agent refuses fails the whole launch.
+  const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
+  // A chosen level the agent no longer reports (another project's machine, or a crew role's own agent) goes back to the
+  // agent's default, so what is shown is what the outcome will start with.
+  $effect(() => {
+    if (effort && !efforts(tool).includes(effort)) effort = ''
+    for (const item of CREW_ROLES) {
+      const role = crew[item.role]
+      if (role.effort && !efforts(role.tool).includes(role.effort)) crew[item.role] = { ...role, effort: '' }
+    }
+  })
   const offeredFor = (id: string) => machine ? offered[`${machine.agentId}:${id}`] ?? null : null
   const yoloGates = $derived.by((): YoloGate[] => {
     const account = yoloSetting?.allowed === true
@@ -247,7 +257,7 @@
     try {
       record = await createGafferOutcome({
         objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: stagePlan(item.stages ?? DEFAULT_STAGES, crew, machine?.capabilities?.acpProvider === true) })),
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crew, machine?.capabilities?.acpProvider === true), efforts) })),
       }, life.signal)
       step = 'results'; clearImage()
       watch(record.id)

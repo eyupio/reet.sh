@@ -120,6 +120,13 @@ try {
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-notes')
       await expect(outcome.getByText('not a git repository',{exact:false})).toBeVisible()
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      // A level this machine reports can be chosen; another project's machine that reports none drops it back to the
+      // agent's default, so what is shown is what the outcome would start with.
+      await outcome.getByRole('combobox',{name:'Effort',exact:true}).selectOption('max')
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-attic')
+      await expect(outcome.getByRole('combobox',{name:'Effort',exact:true})).toHaveValue('')
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      await expect(outcome.getByRole('combobox',{name:'Effort',exact:true})).toHaveValue('')
       // Only an agent whose chat adapter is installed on that machine is offered.
       await expect(outcome.getByRole('combobox',{name:'Agent',exact:true}).getByRole('option')).toHaveText(['Claude Code','OpenCode'])
       await expect(outcome.getByRole('combobox',{name:'Sessions',exact:true})).toHaveValue('3')
@@ -244,11 +251,11 @@ try {
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
       // OpenCode runs a folder's plugins, so the person's own trust is asked for and sent; it is off until ticked.
       await outcome.getByRole('combobox',{name:'Agent',exact:true}).selectOption('opencode')
-      // OpenCode's descriptor names no thought levels, but the machine can start it with an effort, so the
-      // selector is usable and the chosen level travels with every stage.
+      // OpenCode's descriptor names no thought levels, so no level is guessed: a stage the agent cannot confirm
+      // would fail the whole launch. The selector says so and stays at the agent's default.
       const effort=outcome.getByRole('combobox',{name:'Effort',exact:true})
-      await expect(effort).toBeEnabled()
-      await effort.selectOption('high')
+      await expect(effort).toBeDisabled()
+      await expect(effort).toHaveValue('')
       await outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true}).click()
       const trust=outcome.getByRole('checkbox',{name:/^I trust this folder: OpenCode may run the plugins/})
       await expect(trust).not.toBeChecked();await trust.check()
@@ -270,7 +277,7 @@ try {
       await outcome.screenshot({path:`${shots}/gaffer-outcome-yolo-1280-light.png`})
       await outcome.getByRole('button',{name:'Approve and start 2 pipelines',exact:true}).click()
       expect(f.box.approved[0]).toMatchObject({tool:'opencode',trust:true,yolo:true,autoReport:true,model:'',autoMerge:true})
-      expect(f.box.approved[0].sessions[0].stages.every(stage=>stage.tool==='opencode'&&stage.effort==='high')).toBe(true)
+      expect(f.box.approved[0].sessions[0].stages.every(stage=>stage.tool==='opencode'&&!stage.effort)).toBe(true)
       await expect(outcome.getByRole('status')).toHaveText('Starting session 1 of 2. The controller carries on if you close this.')
       await outcome.getByRole('button',{name:'Close and let it run',exact:true}).click();await expect(outcome).toHaveCount(0)
       const article=w.page.getByRole('article',{name:'Outcome: Ship CSV export for billing.',exact:true})

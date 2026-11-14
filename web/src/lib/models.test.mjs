@@ -52,6 +52,24 @@ test('a chat whose descriptor omits effort still offers the start levels a live 
  assert.deepEqual(launchOptions.launchEfforts('opencode', defaultOnly, true), [''])
 })
 
+test('a Gaffer stage is offered only the effort levels its machine reports', () => {
+ // An outcome starts its stages with nobody watching, so a level the agent has not reported is never guessed:
+ // the agent would refuse it for the chosen model and fail the whole launch.
+ const caps = { acp: true, acpLiveControls: true, acpStartOptions: true, acpAgents: [
+  { tool: 'codex', adapter: 'codex-acp', state: 'available', options: [{ id: 'reasoning_effort', category: 'thought_level', values: ['low','high','ultra'] }] },
+  { tool: 'opencode', adapter: 'opencode', state: 'available' },
+ ] }
+ assert.deepEqual(launchOptions.reportedEfforts('codex', caps), ['', 'low','high','ultra'])
+ // The start dialog may still fall back for a live session, but a pipeline does not: OpenCode reports no levels,
+ // so the outcome offers only the agent's own default.
+ assert.deepEqual(launchOptions.reportedEfforts('opencode', caps), [''])
+ assert.deepEqual(launchOptions.reportedEfforts('opencode', { ...caps, acpStartOptions: false }), [''])
+ assert.deepEqual(launchOptions.reportedEfforts('claude', caps), [''])
+ // A descriptor that names only its default offers no level to choose, rather than an empty or invented one.
+ const defaultOnly = { ...caps, acpAgents: [{ tool: 'claude', adapter: 'claude-agent-acp', state: 'available', options: [{ id: 'effort', category: 'thought_level', values: ['default'] }] }] }
+ assert.deepEqual(launchOptions.reportedEfforts('claude', defaultOnly), [''])
+})
+
 test('a terminal launch of Claude Code offers the three thinking levels a start carries', () => {
  assert.deepEqual(effortChoices('claude'), ['', 'low', 'medium', 'high'])
 })

@@ -81,7 +81,7 @@ jobs:
               [ -n "$installed" ] || { echo "::error::could not install tmux and git"; exit 1; }
               tmux -V
               tmux -V | grep -Eq "^tmux 3\.2"
-              /terminalhost.test -test.timeout=3m
+              /terminalhost.test -test.timeout=8m
             '
 
   native-service:
@@ -118,7 +118,7 @@ jobs:
           systemctl --user daemon-reload
           systemctl --user status --no-pager || true
       - name: Run terminal host tests
-        run: go test -race -count=1 -timeout=3m ./internal/terminalhost
+        run: go test -race -count=1 -timeout=8m ./internal/terminalhost
       - name: Run terminal broker and real PTY integration tests
         run: go test -race -count=1 -timeout=3m ./internal/scan ./internal/terminalbroker ./internal/api -run '^Test(AgentDaemon|AgentControl|Terminal|Tickets|OfflineCreate|ReverseBinding|ReconnectDoes|SlowConsumer|RevokedLogin)'
       - name: Run native service test

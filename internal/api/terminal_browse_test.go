@@ -434,18 +434,23 @@ func TestBrowseOfflineMachineAnswersAtOnce(t *testing.T) {
 func TestBrowseMachineDisconnectsMidRequest(t *testing.T) {
 	f := browseAPIFixture(t, browseCaps())
 	f.answering(func(terminalproto.Body) terminalproto.Body { return nil })
+	// Timed from the disconnect, not from the request: signing in and the
+	// store reads before the machine is asked are not waiting on it, and on a
+	// busy CI runner they alone took over two seconds. A request that missed
+	// the disconnect would instead wait out the browse deadline and answer 504.
+	closed := make(chan time.Time, 1)
 	go func() {
 		for f.heldCount() == 0 {
 			time.Sleep(5 * time.Millisecond)
 		}
 		f.peers[f.agent].Close()
+		closed <- time.Now()
 	}()
-	start := time.Now()
 	code, out, raw := f.get(t, f.cookie, browsePath(f.agent, browseNonce(), nil))
 	if code != 503 || out["code"] != "machine_unavailable" || out["error"] != readinessSentence {
 		t.Fatal(code, raw)
 	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
+	if elapsed := time.Since(<-closed); elapsed > 2*time.Second {
 		t.Fatal("the request in flight waited past the disconnect", elapsed)
 	}
 }

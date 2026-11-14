@@ -11,6 +11,31 @@ this file existed releases were described on their GitHub release pages.
   marks the figure when 15% or less is left. The numbers were already kept
   for the Factory page; an ordinary chat showed none of them. An agent that
   reports nothing shows nothing.
+- You can add a project from a GitHub repository that isn't on any machine
+  yet. **Add** in the project rail now offers **From GitHub** beside **Folder
+  on a machine**: write `owner/name` or paste the github.com link, choose the
+  machine, and reet clones it there into `~/reet/repos/owner/name` and adds it
+  as a repository project, with the repository's default branch as its base.
+  The machine clones with its own GitHub CLI sign-in, so it needs a current
+  reet, git, `gh auth login` done there and terminal access on; a sign-in held
+  only in a `GH_TOKEN` variable or a custom gh config folder isn't seen. No
+  GitHub credential reaches the controller. A clone can take minutes: you can
+  close the dialog, and the project appears in the rail when it's done. The
+  project records which repository it came from, and a project reet cloned
+  itself is not asked where a session starts (a clone of the same repository
+  that was already there, and that reet didn't make, is used as it is and is
+  still asked); what a session started from is recorded on the session and in
+  Activity. Editing the project to another machine or folder clears where it
+  came from. The clone is a full, normal one with its tags; Git LFS files stay
+  pointer files in the clone's own folder, while other content filters in the
+  machine's git settings still run. A machine clones one repository at a time,
+  a dropped connection or a controller restart ends a clone in progress (adding
+  the repository again picks up whatever finished, and the page says it lost
+  track of the clone), a git setting that sends github.com over ssh stops the
+  clone and says so, and an empty repository is added with a blank base.
+  Removing the project leaves `~/reet/repos/owner/name` on the machine; the
+  hidden folder a clone cut off part-way leaves is removed the next time that
+  repository is cloned, but only when reet can tell it is that repository's.
 - An agent whose binary has only just been written, by an install or an
   update, is no longer refused as having "no version". Starting it could fail
   for an instant with "text file busy"; the version check now waits that out.

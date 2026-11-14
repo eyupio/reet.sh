@@ -1,4 +1,5 @@
 import type { BaseState } from '../baseNotice'
+import type { CloneStatus } from '../githubRepo'
 import type { InsightView, SessionInsight } from '../sessionInsights'
 import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 import type { MachineModels } from '../models'
@@ -24,7 +25,7 @@ export type TerminalSession = { id: string; agentId: string; title: string; stat
   /** What the session's worktree started from, when the machine reported it: the branch (`baseName`), how it stood
    *  against GitHub (`baseRelation`, one of baseNotice's relations) and the commit it was cut at (`baseStart`). */
   baseName?: string; baseRelation?: string; baseStart?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number }
-export type Capabilities = { nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -315,9 +316,11 @@ export type FolderProject = {
   /** The machine's current name for display; "" once the machine is no longer enrolled. */
   machine: string
   dir: string; name: string; isRepo: boolean; baseBranch: string; worktreeDefault: WorktreeDefault
-  /** Reet cloned this repository on the machine itself and keeps it up to date, so where a session starts needs no
-   *  confirmation. Nothing sends it yet: a project without it is asked about (`needsConfirm`). */
+  /** Reet cloned this repository on the machine itself (From GitHub), so where a session starts needs no confirmation
+   *  (`needsConfirm`). Absent when false. */
   cloned?: boolean
+  /** The GitHub repository the project was added from, as `owner/name`; absent for a folder added from a machine. */
+  origin?: string
   /** The rail colour's id from projectColour.ts, "" when none. */
   colour: string
   /** The group that holds the project; absent or "" when ungrouped. */
@@ -407,6 +410,17 @@ export async function updateFolderProject(id: string, input: FolderProjectInput,
 export async function deleteFolderProject(id: string, version: number, signal?: AbortSignal): Promise<RemovedFolderProject> {
   const headers = versionHeader(version)
   return (await terminalRequest(folderProjectPath(id), { method: 'DELETE', signal: within(signal), headers })).json()
+}
+/** Starts cloning a GitHub repository (`owner/name` or its github.com link) on a machine that reports `repoClone`, to be
+ *  saved as a project when it is done (202). Read the clone with `cloneStatus`; asking again while it runs answers the
+ *  same id. `name` "" names the project after the repository. */
+export async function addFromGitHub(host: string, repo: string, name: string, signal?: AbortSignal): Promise<{ cloneId: string; dir: string }> {
+  return (await terminalRequest('/api/v2/folder-projects/from-github', { method: 'POST', signal: within(signal), body: JSON.stringify({ host, repo, name }) })).json()
+}
+/** A clone's state: cloning, done with the saved project, or failed with the controller's sentence; 404 `clone_not_found`
+ *  once the controller no longer knows it. */
+export async function cloneStatus(id: string, signal?: AbortSignal): Promise<CloneStatus> {
+  return (await terminalRequest(`/api/v2/folder-projects/clones/${encodeURIComponent(id)}`, { signal: within(signal) })).json()
 }
 /** Every project once, each with the version read; answers the list in its new order with the new versions.
  *  `groupIds`, when given, also settles each project's group ("" for ungrouped). */

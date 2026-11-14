@@ -525,3 +525,138 @@ func TestRepoProjectForDirOnlyFindsSavedRepos(t *testing.T) {
 		}
 	}
 }
+
+// A row written before projects recorded their GitHub origin reads with no
+// origin and not cloned, and the table gains both columns once.
+func TestFolderProjectOriginMigratesWithDefaults(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := projectUser(t, s, "a")
+	for _, col := range []string{"origin", "cloned"} {
+		if _, err := s.db.Exec(`ALTER TABLE folder_projects DROP COLUMN ` + col); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,position,legacy_project_id,note,created_at,updated_at,version)
+		VALUES('old',?,'laptop','/old','old','old',1,'main','inherit','','','',0,'','',0,NULL,'',1,1,1)`, uid); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	for i := 0; i < 2; i++ {
+		s, err = Open(dir)
+		if err != nil {
+			t.Fatal("reopen", i, err)
+		}
+		got, err := s.FolderProjectFor(uid, "old")
+		if err != nil || got.Origin != "" || got.Cloned || !got.IsRepo || got.BaseBranch != "main" {
+			t.Fatalf("open %d: %+v %v", i, got, err)
+		}
+		s.Close()
+	}
+}
+
+// Origin and Cloned are stored on create, read back everywhere, and kept by
+// an update, which cannot change them.
+func TestFolderProjectOriginRoundTripAndIsKeptWhileTheFolderIs(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	made := mustFP(t, s, uid, FolderProject{Host: "laptop", Dir: "/home/a/reet/repos/acme/site", IsRepo: true, BaseBranch: "main", Origin: "acme/site", Cloned: true})
+	if made.Origin != "acme/site" || !made.Cloned || made.Name != "site" {
+		t.Fatalf("create: %+v", made)
+	}
+	read, err := s.FolderProjectFor(uid, made.ID)
+	if err != nil || read != made {
+		t.Fatalf("read: %v %+v", err, read)
+	}
+	list, err := s.ListFolderProjectsFor(uid)
+	if err != nil || len(list) != 1 || list[0] != made {
+		t.Fatalf("list: %v %+v", err, list)
+	}
+	edit := read
+	edit.Name, edit.Origin, edit.Cloned = "Site", "other/thing", false
+	updated, err := s.UpdateFolderProjectFor(uid, edit, read.Version)
+	if err != nil || updated.Name != "Site" || updated.Origin != "acme/site" || !updated.Cloned {
+		t.Fatalf("update: %v %+v", err, updated)
+	}
+	if again, _ := s.FolderProjectFor(uid, made.ID); again != updated {
+		t.Fatalf("stored after update: %+v", again)
+	}
+	// A folder written the same way after normalizing is no change of folder.
+	edit = updated
+	edit.Dir = updated.Dir + "/"
+	if kept, err := s.UpdateFolderProjectFor(uid, edit, updated.Version); err != nil || kept.Origin != "acme/site" || !kept.Cloned {
+		t.Fatalf("same folder: %v %+v", err, kept)
+	}
+	for name, p := range map[string]FolderProject{
+		"origin not owner/name": {Host: "laptop", Dir: "/x1", Origin: "acme"},
+		"origin with a host":    {Host: "laptop", Dir: "/x2", Origin: "github.com/acme/site"},
+		"origin link":           {Host: "laptop", Dir: "/x3", Origin: "https://github.com/acme/site"},
+		"cloned without origin": {Host: "laptop", Dir: "/x4", Cloned: true},
+	} {
+		if _, err := s.CreateFolderProjectFor(uid, p); !errors.Is(err, ErrFolderProjectInvalid) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+// The room check answers what a create would, before anything is made: the
+// account's limit, then a name another project has.
+func TestFolderProjectRoomFor(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	mustFP(t, s, uid, FolderProject{Host: "m", Dir: "/site", Name: "Site"})
+	if err := s.FolderProjectRoomFor(uid, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FolderProjectRoomFor(uid, "Other"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FolderProjectRoomFor(uid, "SITE"); !errors.Is(err, ErrFolderProjectName) {
+		t.Fatalf("taken name: %v", err)
+	}
+	if err := s.FolderProjectRoomFor(projectUser(t, s, "b"), "Site"); err != nil {
+		t.Fatalf("another account's name: %v", err)
+	}
+	for i := 1; i < MaxFolderProjects; i++ {
+		mustFP(t, s, uid, fp("m", fmt.Sprintf("/d/%d", i)))
+	}
+	if err := s.FolderProjectRoomFor(uid, ""); !errors.Is(err, ErrFolderProjectLimit) {
+		t.Fatalf("full: %v", err)
+	}
+}
+
+// Moving a project to another folder or machine makes it a project of that
+// folder: where the old one came from, and that reet cloned it, no longer
+// hold, so both are cleared in the same write.
+func TestFolderProjectOriginIsClearedWhenTheFolderChanges(t *testing.T) {
+	for name, move := range map[string]func(*FolderProject){
+		"folder":  func(p *FolderProject) { p.Dir = "/home/a/code/site" },
+		"machine": func(p *FolderProject) { p.Host = "desktop" },
+		"both":    func(p *FolderProject) { p.Host, p.Dir = "desktop", "/home/a/code/site" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newStore(t)
+			uid := projectUser(t, s, "a")
+			made := mustFP(t, s, uid, FolderProject{Host: "laptop", Dir: "/home/a/reet/repos/acme/site", IsRepo: true, BaseBranch: "main", Origin: "acme/site", Cloned: true})
+			edit := made
+			move(&edit)
+			updated, err := s.UpdateFolderProjectFor(uid, edit, made.Version)
+			if err != nil || updated.Origin != "" || updated.Cloned || updated.Dir != edit.Dir || updated.Host != edit.Host {
+				t.Fatalf("update: %v %+v", err, updated)
+			}
+			if again, _ := s.FolderProjectFor(uid, made.ID); again != updated {
+				t.Fatalf("stored after update: %+v", again)
+			}
+			// Moving it back does not bring them back: the edit cannot know
+			// the folder is still that clone.
+			back := updated
+			back.Host, back.Dir = made.Host, made.Dir
+			if restored, err := s.UpdateFolderProjectFor(uid, back, updated.Version); err != nil || restored.Origin != "" || restored.Cloned {
+				t.Fatalf("moved back: %v %+v", err, restored)
+			}
+		})
+	}
+}

@@ -5,21 +5,18 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
-
-// ghOwner matches a GitHub owner (user or organization) segment: letters,
-// digits and hyphens, at most 39 characters, never starting or ending with a
-// hyphen.
-var ghOwner = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
-
-// ghRepo matches a GitHub repository name segment: letters, digits, dots,
-// hyphens and underscores, at most 100 characters.
-var ghRepo = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
 
 // ghRemote matches the owner and repo path of a github.com remote URL, in
 // any of the forms git, ssh or https deals in:
-// "github.com/OWNER/REPO", "github.com:OWNER/REPO".
-var ghRemote = regexp.MustCompile(`^(?:https://|ssh://(?:[^@/]+@)?|[^@/]+@)?github\.com[:/]([^/]+)/([^/]+?)/?$`)
+// "github.com/OWNER/REPO", "github.com:OWNER/REPO". The host is matched
+// without regard to case. The first group is the URL scheme, when there is
+// one, and the second the separator after the host: a ":" after a scheme
+// starts a port, which is refused, while in the scp-like form it starts the
+// path.
+var ghRemote = regexp.MustCompile(`^(?:(https://|ssh://)(?:[^@/]+@)?|[^@/]+@)?(?i:github\.com)([:/])([^/]+)/([^/]+?)/?$`)
 
 // GitHubRemote reports the owner and repo a remote URL names, only for
 // github.com: "https://github.com/OWNER/REPO[.git]", "git@github.com:OWNER/REPO.git"
@@ -32,9 +29,11 @@ func GitHubRemote(url string) (owner, repo string, ok bool) {
 	if m == nil {
 		return "", "", false
 	}
-	owner, repo = m[1], m[2]
-	repo = strings.TrimSuffix(repo, ".git")
-	if repo == "." || repo == ".." || !ghOwner.MatchString(owner) || !ghRepo.MatchString(repo) {
+	if m[1] != "" && m[2] == ":" {
+		return "", "", false
+	}
+	owner, repo = m[3], strings.TrimSuffix(m[4], ".git")
+	if !terminalproto.ValidGitHubOwner(owner) || !terminalproto.ValidGitHubRepo(repo) {
 		return "", "", false
 	}
 	return owner, repo, true

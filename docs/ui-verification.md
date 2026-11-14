@@ -3730,3 +3730,57 @@ answers:
 check: every answer here is synthetic. The backlog path was checked at 1280 px in light only (its dialog is the same
 component as the other two, which were checked at both widths and in both themes). A start in several projects and a
 Factory outcome's launches do not ask, by design, and were not exercised here.
+
+## Add a project From GitHub — 13 November 2026
+
+The Add project dialog (`web/src/lib/home/AddProjectDialog.svelte`) now offers two ways in as tabs, **Folder on a
+machine** (the default, unchanged) and **From GitHub** (`web/src/lib/home/AddFromGitHub.svelte`). From GitHub takes a
+repository as `owner/name` or its github.com link, read as the controller reads it (`web/src/lib/githubRepo.ts`), a
+machine from those that report `repoClone`, and an optional name. The page reads the clone every two seconds from the
+rail's host (`web/src/lib/home/ProjectRailHost.svelte`), with the dialog open or closed.
+
+Validation, after the final review's fixes, against the production build (`npm run build`, served by `npm run preview`)
+in Chromium (Google Chrome for Testing 153) with synthetic answers:
+
+- `web/tests/add-project-github.e2e.mjs` passes. At 1280 px and at 390 px with a coarse pointer, each in light and
+  dark: the tabs by keyboard (the arrows move between them, Tab reaches the Repository field), only the machine that can
+  clone is offered and is chosen already, an unreadable repository says the controller's sentence only once the field
+  is left, the line naming `~/reet/repos/eyupio/reet.sh on studio` appears once it reads, **Clone and add** is disabled
+  until then, Enter sends one start, the status line replaces the form (in a live region) with focus on **Close**, the
+  clone is read every two seconds (the gap between the first two reads is at least 1.8 s) and not at all once it has
+  ended, the dialog closes when it is done with focus back on what opened it (the rail's Add at 1280 px, studio's **+**
+  at 390 px), the project is in the rail with the repository diamond and base `main` and is the chosen card (on the
+  phone, the board's scope names it), the page has no sideways scroll, every control in the dialog is at least 44 px on
+  touch, and nothing about the clone is in browser storage. At 1280 px in light only: closing mid-clone keeps the reads
+  going and the project is chosen when done; reopening Add during the clone shows its status, not a second form; a new
+  page load after leaving Home mid-clone reads nothing and finds the project in the list; a failure with the dialog
+  closed is said in Home's status line; six failures with the dialog open (not signed in, no access, folder exists,
+  timed out, git settings that send github.com over ssh, terminal access off) show the controller's sentence in the
+  dialog's status line with the typed repository and name kept and focus on **Clone and add**; a clone the controller
+  no longer knows (404) says "reet lost track of cloning eyupio/reet.sh. Add it again; if the clone finished, reet
+  picks it up." in the dialog's status line with the repository kept, or in Home's status line with the dialog closed,
+  and reads the project list again; while the start is on its way the header's Close is disabled and Close, Escape and
+  a press outside all leave the dialog open, the tabs wait, and once the start answers the status line, **Close** and
+  the reads follow; seven refusals of the start (`invalid_repo`, `repo_clone_unsupported`, `machine_offline`,
+  `clone_limit`, `project_limit`, `name_taken`, `read_only`) show their sentence and start no reads; with two machines
+  that can clone none is chosen and the button waits for one; `http`, another host, a trailing `owner/name/`, a port
+  and an all-dot name keep it disabled; no machine that can clone shows the sentence and no form; a 401 at the start
+  goes to sign in; a viewer sees no Add and no From GitHub; a project with `cloned: true` whose base check answers
+  `behind` starts from the launch bar with no **Check where this starts** dialog. The held-dialog case and both
+  lost-clone cases were seen failing against the build before this change first.
+- `web/tests/phone-dialogs.e2e.mjs` passes for all 24 dialogs at 320 × 568, 360 × 640, 390 × 844, 412 × 915, 844 × 390
+  and 915 × 412. It now includes the Add dialog on its From GitHub tab. Before this change the Add dialog failed at
+  844 × 390 and 915 × 412 with the keyboard open (the focused folder field was cut off, and at 844 × 390 covered by
+  the footer's button), on both tabs; on a short screen the dialog now hides its eyebrow, its header is 48 px and the
+  footer's buttons are 44 px, so the field is whole above the footer at both sizes.
+- `githubRepo.test.mjs` runs every case of the Go `TestParseGitHubRepo` with the same answer, plus Go's whitespace,
+  case-insensitive `https://GITHUB.COM/` and look-alike letters; the clone watcher; and the lost-clone sentence.
+- `web/tests/add-project.e2e.mjs`, `add-project-edit.e2e.mjs`, `projects.e2e.mjs`, `launch-base.e2e.mjs`,
+  `home.e2e.mjs` and `sessions-phone.e2e.mjs` pass.
+- `npm run check` (unit tests and `svelte-check`, 0 errors, 0 warnings) and `npm run build` pass.
+
+**Not checked.** No physical phone, Safari or Firefox, and no screen reader (the live regions were checked as markup,
+not heard). No real machine cloned anything: every answer here is synthetic, so the clone itself, `gh` on a desktop
+keyring and the ten-minute limit were not exercised in a browser (the clone is covered by the Go tests with real git
+against a local repository standing in for GitHub). The Sessions screen and Factory hold the same rail and read an
+outstanding clone too; neither was exercised with one.

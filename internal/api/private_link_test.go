@@ -21,6 +21,7 @@ func TestPrivateControlKeepsTheLinkForEveryMachineAnswer(t *testing.T) {
 		"branch_prune_plan_result": terminalproto.BranchPrunePlanResult{Reason: terminalproto.BranchesGitFailed},
 		"native_view_result":       terminalproto.NativeViewResult{Reason: "not available"},
 		"software_apply_result":    terminalproto.SoftwareApplyResult{Tool: "claude", Action: terminalproto.SoftwareActionRemove, State: terminalproto.SoftwareApplyRefused, Reason: terminalproto.SoftwareApplyBusy},
+		"repo_clone_result":        terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneFailed},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newGM6Harness(t)

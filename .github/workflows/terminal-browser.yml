@@ -239,9 +239,9 @@ jobs:
         include:
           # The dialog contract, the launch bar on Home (with the question it asks about where a session starts), the phone
           # cases of the Sessions page and the terminal's clipboard and upload. The Add project dialog's folder browser (about 15-20 s) runs here too: it serves its own component
-          # fixture with Vite and needs no preview server.
+          # fixture with Vite and needs no preview server. Its From GitHub choice (about 90 s) runs on Home, so it is one of the scripts.
           - job: phone-dialogs
-            scripts: phone-dialogs launch launch-base sessions-phone terminal-clipboard terminal-upload
+            scripts: phone-dialogs launch launch-base add-project-github sessions-phone terminal-clipboard terminal-upload
           # Chat sessions for each agent: controls, the usage line, previews, recovery, launch options and the question card.
           - job: phone-chat
             scripts: chat chat-controls chat-usage chat-previews launch-options chat-recovery chat-claude chat-codex chat-cline chat-cline-source chat-antigravity question-card

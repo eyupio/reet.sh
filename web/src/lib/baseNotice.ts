@@ -48,8 +48,8 @@ export function baseSentence(state: BaseState, host: string): string | null {
 
 /**
  * Whether to ask before starting: there is something to say, and the repository is not one reet cloned itself (nothing
- * local can be behind or ahead in a checkout reet made and keeps). `cloned` does not exist yet, so in this phase every
- * saved repository asks.
+ * local can be behind or ahead in a checkout reet made and keeps). A project added From GitHub carries `cloned`; every
+ * other saved repository asks.
  */
 export function needsConfirm(state: BaseState, project: { cloned?: boolean }): boolean {
   return NOTEWORTHY.has(String(state?.relation ?? '')) && project?.cloned !== true

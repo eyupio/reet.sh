@@ -1213,6 +1213,36 @@ try{
  await page.keyboard.press('Escape')
  tmachines[0].capabilities.agentsV2=true
 
+ // GitHub Copilot starts in a terminal session only: it has no Session choice. It sends its tool id, a typed model,
+ // effort and a one-word prompt, and is refused on a machine that does not report it.
+ d=await openAt(A);p=parts(d)
+ await expect(p.opt('GitHub Copilot')).toBeDisabled()
+ await expect(p.agentWhy).toContainText('GitHub Copilot · Not installed on dev-laptop')
+ await page.keyboard.press('Escape')
+ tmachines[0].capabilities.tools.push('copilot')
+ d=await openAt(A);p=parts(d)
+ await p.pick('GitHub Copilot')
+ await expect(d.getByLabel('Session',{exact:true})).toHaveCount(0)
+ await expect(d.getByText('Starts GitHub Copilot in')).toBeVisible()
+ await expect(p.effort).toBeVisible()
+ await p.effort.selectOption('medium')
+ await pickOtherModel(d,'typed-model')
+ await p.prompt.fill('update')
+ await expect(d.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked()
+ const copilotPosts=posts.length
+ await p.start.click()
+ await expect(d).toHaveCount(0)
+ await expect.poll(()=>posts.length).toBe(copilotPosts+1)
+ expect(JSON.parse(posts.at(-1))).toMatchObject({tool:'copilot',model:'typed-model',effort:'medium',prompt:'update'})
+ expect(JSON.parse(posts.at(-1))).not.toHaveProperty('yolo')
+ expect(JSON.parse(posts.at(-1))).not.toHaveProperty('structured')
+ tmachines[0].capabilities.agentsV2=false
+ d=await openAt(A);p=parts(d)
+ await expect(p.opt('GitHub Copilot')).toBeDisabled()
+ await expect(p.agentWhy).toContainText('GitHub Copilot · Update reet on that machine')
+ await page.keyboard.press('Escape')
+ tmachines[0].capabilities.agentsV2=true
+
  // A chat whose descriptor names no thought levels still offers the start levels when the machine can carry effort,
  // and the chosen level is sent with the create. Without start options the selector stays closed with its explanation.
  tmachines[0].capabilities.tools.push('opencode')

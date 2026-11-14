@@ -39,6 +39,39 @@ this file existed releases were described on their GitHub release pages.
   simply appears, without the "lost track" message. A machine that refuses a
   clone now says "studio refused to clone: terminal access is off there, or git
   or the GitHub CLI is missing." instead of naming terminal access alone.
+- A machine now says which of its agents are signed in. Its Settings →
+  **Agents** shows, for Claude Code and Codex, whether an account is signed in
+  there, whose it is and which plan it is on, read from the agents' own files
+  on the machine; **Check sign-ins** reads them again. Starting an agent on a
+  machine where no sign-in was found says so first, where before the first
+  message was simply refused. A sign-in kept in the macOS keychain or a system
+  keyring is not opened, and is shown as not readable or not found, never as
+  signed out.
+- Plan limits, off until you turn them on. With **Settings → Agents → Plan
+  limits** on, each of your machines with terminal access on also reads how
+  much of each Claude or ChatGPT plan is left (the session window, the week,
+  and a model's own weekly window) and when it starts again. The machine asks
+  the agent's provider itself, with the agent's own sign-in; that sign-in
+  never leaves the machine and is never renewed by reet, and the controller
+  keeps only the account's name, the plan and percentages. A token that has
+  run out is reported as needing renewal: start the agent on that machine
+  once. The providers' endpoints are the ones the agents' own clients use and
+  are not published interfaces, so a changed answer shows as a failed read
+  with the last figures kept. Both machines and the controller need updating.
+- You can start GitHub Copilot in a terminal session. Install the Copilot
+  CLI's `copilot` command on a machine, sign in there with `copilot login` and
+  update reet on that machine; the agent picker then offers **GitHub Copilot**
+  with an optional model, an opening prompt and a thinking level. Approvals
+  stay on unless you choose YOLO, which needs the same account setting, machine
+  switch and confirmation as for every other agent. An opening prompt goes
+  through the CLI's interactive option, not the one that answers once and
+  exits. Not there yet: a Gaffer chat for it, **Continue session…** on a closed
+  session, and a model list read from the machine (type the model name under
+  **Other…**). reet doesn't install the CLI or sign in for you. Both the
+  controller and the machine need this version: an older one is never sent the
+  new agent's name, so Copilot just isn't offered there until it is updated.
+  The arguments reet starts it with were taken from the help of Copilot CLI
+  1.0.112; they have not been run with a signed-in account.
 - An agent in a terminal that stops to ask now shows as needing you. Claude
   Code, Codex and OpenCode do not always ring the terminal bell when they ask
   before running a command or changing a file, so such a session looked the

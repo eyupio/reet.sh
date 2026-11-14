@@ -11,7 +11,7 @@ in [Launch requests](terminal-launch.md). The design spec was removed in the doc
 (see git history before bd9e56c).
 
 The browser never sends a command line. It names a tool id (`claude`, `codex`, `opencode`,
-`gemini`, `cline` or `antigravity`) and the values you chose. The machine looks the tool up in a table built into its own
+`gemini`, `cline`, `antigravity` or `copilot`) and the values you chose. The machine looks the tool up in a table built into its own
 connector and decides the program and its flags itself. Approval-bypass flags are sent only
 when you choose YOLO and the account and machine allow it.
 
@@ -20,6 +20,19 @@ Antigravity desktop app alone does not count as installed. It supports an option
 an interactive opening prompt (including one word), and low/medium/high thinking. Update
 the machine's reet connector if AGY is installed but not offered. Its model defaults and
 sign-in remain AGY's own; reet does not install it or sign in for you.
+
+**GitHub Copilot** uses the Copilot CLI's `copilot` command on the machine's PATH. It
+starts in a terminal session only, so the dialog shows no **Session** choice for it. It
+supports an optional model, an interactive opening prompt (including one word) and
+low/medium/high thinking; which levels a model takes is Copilot's own rule. **YOLO**
+starts it with all of its permission prompts off (`--allow-all`), behind the same account,
+machine and confirmation controls as every other agent. Update the machine's reet
+connector if Copilot is installed but not offered. A closed Copilot session has no
+**Continue session…** yet, and the machine's model list is not read for it: type a model
+name under **Other…** or leave **Agent default**. Its model defaults and sign-in remain
+Copilot's own; reet does not install it or sign in for you. Sign in with `copilot login`
+on that machine first. Copilot's help says it asks, in its own terminal, whether to trust
+a folder it does not yet trust.
 
 Paste an image into the **Opening prompt**, or use **Attach images**, and each file is uploaded to the
 machine before the session starts; its absolute path joins the opening prompt, so the agent starts
@@ -259,9 +272,9 @@ It is one screen:
 | --- | --- |
 | **Project** (required) | The folder projects this account can start in. A project on a machine that isn't ready is listed but can't be chosen. **No project — start in a folder** is an explicit choice which reveals the folder fields. |
 | **Machine** (required) | Every terminal machine. A machine that isn't ready is listed but can't be chosen. Only a machine an action named is preselected; otherwise nothing is chosen. A machine change leaves a project that belongs to another machine. **Not listed? Add a machine** opens [Add a machine](add-machine-in-context.md). |
-| **Agent** | Claude Code, Codex, OpenCode and, on a machine with `agents-v2`, Cline and Google Antigravity (AGY). Only an agent the machine reports as installed can be chosen. Any other is listed but disabled, with the reason "Not installed on <machine>." |
+| **Agent** | Claude Code, Codex, OpenCode and, on a machine with `agents-v2`, Cline, Google Antigravity (AGY) and GitHub Copilot. Only an agent the machine reports as installed can be chosen. Any other is listed but disabled, with the reason "Not installed on <machine>." |
 | **Model** (optional) | The shared picker: **Agent default**, the account's favourites for this agent, the machine's list by provider, reet's suggestions and **Other…** for any model name made of letters, digits and `. _ : / @ + -`, up to 100 characters. A star adds or removes a favourite. A list is only a hint; if a model name doesn't exist, the agent says so itself. Nothing is sent for Agent default. |
-| **Thinking** | Only for an agent that takes an effort level (Claude Code, Cline and Google Antigravity): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
+| **Thinking** | Only for an agent that takes an effort level (Claude Code, Cline, Google Antigravity and GitHub Copilot): **Agent default**, low, medium or high. Nothing is sent for Agent default. |
 | **Source** | Only for a Cline Gaffer chat on a machine that negotiated `acp-provider-v1`: **Cline's own choice**, **Usage-Billing** or **ClinePass**. It opens on your saved default source; a saved source reet has no label for is shown as given and sent, because the dialog cannot know what the machine's Cline offers; Cline's own refusal at launch is what says no. The star saves or clears the default. Nothing is sent for Cline's own choice. If Cline cannot use the chosen source the chat is not started and the dialog says so. The default model is offered only while the chosen source is your default source. |
 | **Folder** (only under **No project**) | **Home folder**, the project folders that machine has reported, and **Type a path…**. A typed path must be absolute. The machine decides whether it may start there: the folder must exist and be inside the home folder it was enrolled with. |
 | **Opening prompt** (optional) | Up to 8,000 bytes, with a byte counter. It can't start with a dash. For Claude Code, Codex and Cline it must be at least two words, because a single word could be read as one of their subcommands. "Secrets don't belong here." |

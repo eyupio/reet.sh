@@ -164,6 +164,10 @@ func TestCreateUnsupportedAgentOptionsRefusedBeforeReserving(t *testing.T) {
 		{"cline without agents-v2", false, map[string]any{"tool": "cline"}, 409, "launch_option_unsupported", updateSentence},
 		{"antigravity without agents-v2", false, map[string]any{"tool": "antigravity"}, 409, "launch_option_unsupported", updateSentence},
 		{"antigravity not advertised", true, map[string]any{"tool": "antigravity"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
+		{"copilot without agents-v2", false, map[string]any{"tool": "copilot"}, 409, "launch_option_unsupported", updateSentence},
+		// A connector whose catalogue predates GitHub Copilot never reports the id, so it is never sent one.
+		{"copilot not advertised", true, map[string]any{"tool": "copilot"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
+		{"copilot with options not advertised", true, map[string]any{"tool": "copilot", "effort": "high", "model": "m", "prompt": "update"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
 		{"tool not advertised", true, map[string]any{"tool": "opencode"}, 422, "tool_not_installed", "That agent isn't installed on that machine."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -202,6 +206,29 @@ func TestCreateAntigravityAcceptedOnAgentsV2(t *testing.T) {
 	}
 	if sent := f.sent(); len(sent) != 1 || sent[0].Tool != "antigravity" || sent[0].Effort != "high" || sent[0].Model != "custom-model" || sent[0].Prompt != "update" || sent[0].Yolo {
 		t.Fatalf("%v", sent)
+	}
+}
+
+func TestCreateCopilotAcceptedOnAgentsV2(t *testing.T) {
+	caps := launchCaps("copilot")
+	caps.AgentsV2 = true
+	f := launchAPIFixture(t, caps)
+	status, out, _ := f.create(t, launchBody(f.agent.ID, terminalbroker.ID(), map[string]any{"tool": "copilot", "effort": "medium", "model": "custom-model", "prompt": "update"}))
+	if status != 200 || out["tool"] != "copilot" || out["effort"] != "medium" {
+		t.Fatalf("%d %v", status, out)
+	}
+	if sent := f.sent(); len(sent) != 1 || sent[0].Tool != "copilot" || sent[0].Effort != "medium" || sent[0].Model != "custom-model" || sent[0].Prompt != "update" || sent[0].Yolo || sent[0].Structured {
+		t.Fatalf("%v", sent)
+	}
+	// GitHub Copilot starts in a terminal session only: a Gaffer chat for it is not a valid request, and nothing is
+	// reserved or sent.
+	request := terminalbroker.ID()
+	status, out, _ = f.create(t, launchBody(f.agent.ID, request, map[string]any{"tool": "copilot", "structured": true}))
+	if status != 400 || len(f.sent()) != 1 {
+		t.Fatalf("copilot chat: %d %v sent=%v", status, out, f.sent())
+	}
+	if op, err := f.st.TerminalOperationFor(f.uid, f.agent.ID, "create", request); err == nil {
+		t.Fatalf("a copilot chat reserved an operation: %+v", op)
 	}
 }
 

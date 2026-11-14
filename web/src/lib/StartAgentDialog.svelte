@@ -14,6 +14,8 @@
  import { CATALOGUE } from './catalogue'
  import { launchEfforts, effortHelp } from './terminal/launchOptions'
  import { chatAdapterHint, chatAdapterInstall, HINTED_TOOLS } from './chatAdapter'
+ import { accountFor, startHint, type MachineAccounts } from './agentAccounts'
+ import { machineAccounts } from './terminal/api'
  import { KNOWN_SOURCES, resolveStartSource } from './clineSource'
  import ClineSourceSelect from './ClineSourceSelect.svelte'
  import { defaultLabel, favouriteKey, modelOptions, modelStatus, resolveLaunchDefaults, starLabel, type MachineModels, type ModelFavourite } from './models'
@@ -121,6 +123,18 @@
  const choices = $derived(toolChoices(machine))
  // While a request is held or its outcome unknown, the tool is the one it asked for: a machine-list refresh can't change it.
  const chosenTool = $derived(operation ? operation.launch.tool : choices.find(c => c.id === tool && c.available)?.id ?? choices.find(c => c.available)?.id ?? '')
+ // What the chosen machine last said of its agents' sign-ins, so a start that the agent would refuse for want of one can
+ // be said first. It is a hint: the read is never waited for and never holds a start up, and a machine that cannot say
+ // shows nothing.
+ let signIns = $state<{ agentId: string; answer: MachineAccounts } | null>(null)
+ $effect(() => {
+  const target = machine
+  if (!target?.ready || target.capabilities?.agentAccounts !== true) return
+  const id = target.agentId, abort = new AbortController()
+  machineAccounts(id, abort.signal).then(answer => { if (!abort.signal.aborted) signIns = { agentId: id, answer } }).catch(() => {})
+  return () => abort.abort()
+ })
+ const signInHint = $derived(machine && signIns?.agentId === machine.agentId && chosenTool ? startHint(accountFor(signIns.answer, chosenTool), toolName(chosenTool), machine.host) : '')
  const availableAgents = $derived(choices.filter(c => c.available).map(c => c.id))
  // A Cline chat on a machine that negotiated acp-provider-v1 can start on a chosen billing source. The default model follows
  // the saved default source, so the chosen source feeds the defaults below.
@@ -850,6 +864,8 @@
    {#if chosenTool === 'opencode' && machine && !chatCapable}
     <p class="hint">This machine does not currently offer Gaffer for OpenCode. This starts the OpenCode TUI instead.</p>
    {/if}
+
+   {#if signInHint}<p class="hint sign-in-hint" data-sign-in-hint>{signInHint}</p>{/if}
 
    {#if HINTED_TOOLS.includes(chosenTool)}
     {@const adapterHint = chatAdapterHint(chosenTool, machine)}

@@ -158,12 +158,16 @@ type Capabilities struct {
 	// repo-clone-remove-v1: the machine can report what a clone reet made
 	// holds, and delete it.
 	RepoCloneRemove bool `json:"repoCloneRemove,omitempty"`
-	BrowseOff       bool `json:"browseOff,omitempty"`
-	Clipboard       bool `json:"clipboard,omitempty"`
-	Uploads         bool `json:"uploads,omitempty"`
-	UploadsOff      bool `json:"uploadsOff,omitempty"`
-	Models          bool `json:"models,omitempty"`
-	ModelsOff       bool `json:"modelsOff,omitempty"`
+	// AgentAccounts is sent only on a connection that negotiated
+	// agent-accounts-v1, and only while terminal access is on: the machine
+	// can say which agents are signed in and read their plan allowance.
+	AgentAccounts bool `json:"agentAccounts,omitempty"`
+	BrowseOff     bool `json:"browseOff,omitempty"`
+	Clipboard     bool `json:"clipboard,omitempty"`
+	Uploads       bool `json:"uploads,omitempty"`
+	UploadsOff    bool `json:"uploadsOff,omitempty"`
+	Models        bool `json:"models,omitempty"`
+	ModelsOff     bool `json:"modelsOff,omitempty"`
 	// ModelsRefresh is sent only on a connection that negotiated
 	// models-refresh-v1: a refresh may then ask for a listing that ignores the
 	// connector's short cache.
@@ -258,6 +262,12 @@ func (c Capabilities) Validate() error {
 			break
 		}
 	}
+	for _, tool := range c.Tools {
+		if tool == "copilot" {
+			features = append(features, CopilotFeature)
+			break
+		}
+	}
 	if c.ACPAgents != nil {
 		features = append(features, ACPAgentsFeature)
 		for _, entry := range *c.ACPAgents {
@@ -281,6 +291,9 @@ func (c Capabilities) Validate() error {
 	}
 	if c.RepoCloneRemove {
 		features = append(features, RepoCloneRemoveFeature)
+	}
+	if c.AgentAccounts {
+		features = append(features, AgentAccountsFeature)
 	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
@@ -332,6 +345,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		if tool == "antigravity" && !SupportsAntigravity(features) {
 			validToolList = false
 		}
+		if tool == "copilot" && !SupportsCopilot(features) {
+			validToolList = false
+		}
 	}
 	toolsValid := validLaunch && toolsNeedLaunch && validToolList
 	if !toolsValid {
@@ -364,6 +380,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.RepoCloneRemove && !(c.Worktree && SupportsRepoCloneRemove(features)) {
+		return ErrInvalid
+	}
+	if c.AgentAccounts && !(c.TerminalControl && c.TerminalEnabled && SupportsAgentAccounts(features)) {
 		return ErrInvalid
 	}
 	uploadRule := c.Uploads && !c.TerminalControl
@@ -915,6 +934,10 @@ func Decode(data []byte) (Message, error) {
 		b = &RepoCloneRemove{}
 	case "repo_clone_removed":
 		b = &RepoCloneRemoved{}
+	case "accounts":
+		b = &Accounts{}
+	case "accounts_result":
+		b = &AccountsResult{}
 	case "upload":
 		b = &Upload{}
 	case "models":

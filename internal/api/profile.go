@@ -66,6 +66,7 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 		DefaultEffort         *string          `json:"defaultEffort"`
 		DefaultClineSource    *string          `json:"defaultClineSource"`
 		ChatAgents            *map[string]bool `json:"chatAgents"`
+		PlanLimits            *bool            `json:"planLimits"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -286,6 +287,10 @@ func (s *server) profileSave(w http.ResponseWriter, r *http.Request) {
 			profile.ChatAgents[tool] = on
 		}
 		detail["chatAgents"] = *in.ChatAgents
+	}
+	if in.PlanLimits != nil {
+		profile.PlanLimits = *in.PlanLimits
+		detail["planLimits"] = *in.PlanLimits
 	}
 	if err := s.st.SaveProfileFor(user.ID, profile); err != nil {
 		writeErr(w, 500, err.Error())

@@ -4,6 +4,7 @@ import type { InsightView, SessionInsight } from '../sessionInsights'
 import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../projects'
 import type { MachineModels } from '../models'
 import type { SessionSkills } from './skills'
+import type { MachineAccounts } from '../agentAccounts'
 import type { ChatUsage } from '../chatUsage'
 
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
@@ -25,7 +26,7 @@ export type TerminalSession = { id: string; agentId: string; title: string; stat
   /** What the session's worktree started from, when the machine reported it: the branch (`baseName`), how it stood
    *  against GitHub (`baseRelation`, one of baseNotice's relations) and the commit it was cut at (`baseStart`). */
   baseName?: string; baseRelation?: string; baseStart?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number }
-export type Capabilities = { nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { /** The machine can say which agents are signed in (agent-accounts-v1, with terminal access on). */ agentAccounts?: boolean; nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -137,6 +138,15 @@ export async function machineModels(agentId: string, tool: string, signal?: Abor
 }
 export async function refreshMachineModels(agentId: string, tool: string, signal?: AbortSignal): Promise<MachineModels> {
   return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/models/refresh`, { method: 'POST', signal, body: JSON.stringify({ tool }) })).json()
+}
+/** Which of a machine's agents are signed in and, when the account has plan limits on, how much of each plan is left. The
+ *  controller answers what it kept while that is recent, and otherwise asks the machine once. */
+export async function machineAccounts(agentId: string, signal?: AbortSignal): Promise<MachineAccounts> {
+  return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/accounts`, { signal })).json()
+}
+/** A person asking now: the machine reads its agents' sign-ins again, and fresh limits when the account has them on. */
+export async function refreshMachineAccounts(agentId: string, signal?: AbortSignal): Promise<MachineAccounts> {
+  return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/accounts/refresh`, { method: 'POST', signal })).json()
 }
 export type AllModels = { machines: (Omit<MachineModels, 'tool'> & { agentId: string; host: string; tool?: string })[] }
 export async function allModels(tool: string, signal?: AbortSignal): Promise<AllModels> {

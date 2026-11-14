@@ -118,9 +118,11 @@ jobs:
           systemctl --user daemon-reload
           systemctl --user status --no-pager || true
       - name: Run terminal host tests
+        # On macOS under the race detector this package takes about 2 min 35 s without the tests that
+        # remove a clone and passed 3 minutes with them. The job's own 15 minutes still bounds a hang.
         run: go test -race -count=1 -timeout=8m ./internal/terminalhost
       - name: Run terminal broker and real PTY integration tests
-        run: go test -race -count=1 -timeout=3m ./internal/scan ./internal/terminalbroker ./internal/api -run '^Test(AgentDaemon|AgentControl|Terminal|Tickets|OfflineCreate|ReverseBinding|ReconnectDoes|SlowConsumer|RevokedLogin)'
+        run: go test -race -count=1 -timeout=5m ./internal/scan ./internal/terminalbroker ./internal/api -run '^Test(AgentDaemon|AgentControl|Terminal|Tickets|OfflineCreate|ReverseBinding|ReconnectDoes|SlowConsumer|RevokedLogin)'
       - name: Run native service test
         env:
           REET_NATIVE_SERVICE_TESTS: '1'

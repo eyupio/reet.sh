@@ -83,7 +83,10 @@ type Manager struct {
 	// prompts remembers, per agent session, what the last look at its screen
 	// found, so a question still on screen raises attention once.
 	prompts map[string]promptWatch
-	changed chan struct{}
+	// promptEvery and promptAgain replace promptReadEvery and promptReadAgain
+	// when set, so a test need not wait out the real gaps.
+	promptEvery, promptAgain time.Duration
+	changed                  chan struct{}
 }
 
 func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {

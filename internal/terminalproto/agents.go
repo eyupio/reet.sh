@@ -18,6 +18,20 @@ func SupportsAntigravity(features string) bool {
 	return false
 }
 
+// CopilotFeature keeps the copilot tool id off the wire to controllers and
+// connectors whose catalogue predates GitHub Copilot. Their strict decoders
+// reject unknown ids.
+const CopilotFeature = "copilot-cli-v1"
+
+func SupportsCopilot(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == CopilotFeature {
+			return true
+		}
+	}
+	return false
+}
+
 func SupportsAgents(features string) bool {
 	for _, feature := range strings.Split(features, ",") {
 		if strings.TrimSpace(feature) == AgentsFeature {
@@ -38,6 +52,7 @@ var agentOptions = map[string]struct{ effort, model, yolo bool }{
 	"opencode":    {model: true, yolo: true},
 	"cline":       {effort: true, model: true, yolo: true},
 	"antigravity": {effort: true, model: true, yolo: true},
+	"copilot":     {effort: true, model: true, yolo: true},
 }
 
 // ValidToolV2 accepts the agents started under agents-v2.

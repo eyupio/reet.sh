@@ -18,6 +18,70 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## COPILOT-CLI-1: GitHub Copilot in a terminal session (14 November 2026)
+
+Branch `claude/copilot-agent`, four local commits, not pushed and no pull request when this was written.
+
+- **Added.** Tool id `copilot`, display name **GitHub Copilot**: a launch preset in `internal/terminalhost/catalogue.go`
+  (binary `copilot`), its row in the controller's option table (`terminalproto/agents.go`), its display name and greeting
+  word for automatic titles, and its row in the browser catalogue (`web/src/lib/catalogue.ts`). It is a terminal session
+  only. No ACP descriptor, chat adapter, model listing, sign-in or plan display, install or update was added, and the
+  Gaffer and MCP agent lists were left alone because they name chat agents.
+- **What the help proved** (GitHub Copilot CLI 1.0.112, npm package `@github/copilot`, bin `copilot`; captured in
+  `internal/terminalhost/testdata/help/copilot.txt`, sources and integrity in `sources.json`). Only `--version`, `--help`,
+  `help sessions` and `help permissions` ran, from a scratch directory with an empty home, a cleared environment and no
+  credentials.
+  - Opening prompt: `-i, --interactive <prompt>`, "Start interactive mode and automatically execute this prompt". The
+    preset passes `--interactive <prompt>`. `-p, --prompt <text>` is "non-interactive mode (exits after completion)" and
+    is never used; a test refuses it.
+  - Model: `--model <model>`.
+  - Effort: `--reasoning-effort <level>`, possible values none, minimal, low, medium, high, xhigh, max; the three a
+    launch carries are mapped. The help adds "supported levels depend on the model".
+  - YOLO: `--allow-all`, "Enable all permissions (equivalent to --allow-all-tools --allow-all-paths --allow-all-urls)".
+    `--yolo` has the same description; `--allow-all` is the one sent.
+  - Continue: **not mapped.** `--continue` is "Resume the most recent session", which `help sessions` qualifies as
+    "preferring one from the current branch, repository or directory", so it can open another folder's conversation; and
+    "A resumed session keeps its conversation, model, agent mode and allow-all state", so it could bring back approvals a
+    machine with YOLO switched off refuses. The browser row has no `resume`, so **Continue session…** is not offered.
+  - Session id: **not mapped.** `-r, --resume [<value>]` takes one, but the help's examples write only
+    `--resume=<session-id>`, and the only path that supplies a session id is a Gaffer chat, which Copilot does not have.
+- **Compatibility.** New token `copilot-cli-v1` keeps the id from a controller or connector that predates it, whose
+  strict decoder would refuse it: the controller advertises it (`internal/api/private_control.go`); the connector
+  claims it only with `agents-v2`, lists the tool only when it was negotiated and tells the dispatcher
+  (`internal/agenthealth/agent.go`); a create for the id is refused as `launch_option_unsupported` on a connection
+  without it (`internal/terminalagent/agent.go`); `Capabilities.ValidateFor` refuses the id without it; and a create is
+  sent only to a machine that lists the tool, as for every agent. A model-list request also names a tool and is sent to
+  any machine with `models-v1`, so `terminalbroker.models` answers `not_installed` itself for `copilot` unless the
+  machine lists the tool: a connector that predates the id fails to decode such a request and ends its connection
+  (`agenthealth` read loop). **The same request for `antigravity` is still sent unchecked**; that was read in the code,
+  not reproduced, and is not changed here.
+- **Tests seen failing with the piece removed** (each piece taken out in turn, the named test run, the piece put back):
+  the capability check, the connector's tool filter and its `agents-v2` condition, the dispatcher's create refusal, the
+  advertised token, the model-list gate, the prompt flag, the YOLO argument, the effort flag, resume arguments added, a
+  flag the help lacks, the option-table row, the display name and the greeting word; in the browser, the catalogue row,
+  the greeting word and a `resume` flag added.
+- **Checks run and their results:** in `web/`, `npm ci --no-audit --no-fund && npm run check && npm run build` passed
+  (unit tests, svelte-check 458 files with 0 errors and 0 warnings, build), before any Go build. `go vet ./...` clean.
+  `go test -race -count=1 -timeout=60m` on `internal/terminalproto`, `terminalhost`, `agenthealth`, `terminalagent` and
+  `terminalbroker`: all ok. `go test -count=1 -timeout=30m ./internal/api` without the race detector: ok in 147 s, on
+  the second run; the first failed on one new assertion that expected the wrong refusal for a Copilot chat request (it is
+  400, an invalid request), which was corrected. `go test -count=1 ./internal/scan`: only
+  `TestLibraryManagedRemovalExecutor/journal_refused` fails, as it does whenever the suite runs as root. In Chromium
+  against the dev server with mocked APIs: `start-agent.e2e.mjs` (changed here) and `launch.e2e.mjs` and
+  `account.e2e.mjs` (unchanged; they draw the catalogue) passed. `git diff --check` clean. Not run: `go test -race ./...`
+  as a whole, the `mcp` tests (nothing there was touched) and the documentation site build (mkdocs is not installed here).
+- **Not verified.** Nothing was run signed in: no session was started, no model was reached, and the measured arguments
+  were never given to the real interactive CLI. So unverified: that `--interactive` leaves the session open in practice;
+  how the folder-trust question and an opening prompt interact; what the CLI does with an effort level the model lacks,
+  or with a model name it does not know; any Copilot CLI older or newer than 1.0.112 (the preset has no version floor);
+  macOS and Windows; an installation that is not on the connector's `PATH`. The help names an environment variable,
+  `COPILOT_ALLOW_ALL`, that turns tool approvals off; reet does not set it, and whether a launch inherits it from the
+  machine was not checked. A real older controller or connector was not connected; the compatibility rules are covered
+  by unit and API tests only.
+- **Next:** a device check of one signed-in Copilot terminal launch (plain, with a prompt, with YOLO) before calling the
+  arguments verified; then decide resume from what that shows. First files: `internal/terminalhost/catalogue.go`,
+  `internal/terminalhost/testdata/help/README.md`, `docs/terminal-launch.md`.
+
 ## CI-FLAKE-1: two checks that failed on unchanged code (13 November 2026)
 
 Both failed once on a pull request that touched neither, and passed on a re-run. Each had a cause.

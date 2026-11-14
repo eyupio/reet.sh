@@ -275,7 +275,7 @@ export async function getSessionSkills(sessionId: string, signal?: AbortSignal):
 
 // Saved Projects, kept to read: the list, their runs and a run, and the worktree status and remove a run's worktree
 // takes. Same cookie-only requests as terminals; every call gives up after 15 seconds. Nothing here changes a Project.
-const within = (signal?: AbortSignal): AbortSignal => (signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000))
+const within = (signal?: AbortSignal, ms = 15000): AbortSignal => (signal ? AbortSignal.any([signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms))
 const projectPath = (id: string): string => `/api/v2/projects/${encodeURIComponent(id)}`
 const ifMatch = (version: number): Record<string, string> => ({ 'If-Match': `"${version}"` })
 
@@ -338,7 +338,7 @@ export type FolderProject = {
 /** A create sends host (the machine's enrollment id) and dir at least; an update sends only what changed (absent keeps, "" clears a text field).
  * `note` can only be cleared (anything else is 422 `invalid_note`). */
 export type FolderProjectInput = Partial<Pick<FolderProject, 'host' | 'dir' | 'name' | 'isRepo' | 'baseBranch' | 'worktreeDefault' | 'colour' | 'defaultTool' | 'defaultModel' | 'defaultEffort' | 'defaultYolo' | 'starterPrompt'>> & { note?: '' }
-export type RemovedFolderProject = { ok: boolean; message: string }
+export type RemovedFolderProject = { ok: boolean; message: string; cloneDeleted?: boolean }
 /** The rail's list; `savedWaiting` counts saved Project repositories still waiting for room (offer `importSavedProjects`). */
 export type FolderProjectList = { projects: FolderProject[]; savedWaiting: number }
 /** What bringing in the waiting saved repositories did, with the list as it now is and one sentence to show. */
@@ -406,10 +406,27 @@ export async function updateFolderProject(id: string, input: FolderProjectInput,
   const headers = versionHeader(version)
   return withVersion(await terminalRequest(folderProjectPath(id), { method: 'PATCH', signal: within(signal), body: JSON.stringify(input), headers }))
 }
-export async function deleteFolderProject(id: string, version: number, signal?: AbortSignal): Promise<RemovedFolderProject> {
+/** Removes a project from reet. With `clone` (the fingerprint `projectClone` gave for a removable clone) the machine first
+ *  deletes the clone reet made, and the project goes only when the machine confirms that: 409 `clone_changed` when the
+ *  clone is no longer what was shown, 409 `clone_kept` with why, 409 `clone_unconfirmed` when reet cannot say whether the
+ *  folder went. The machine answers a delete within a minute, so that request waits longer than the others. */
+export async function deleteFolderProject(id: string, version: number, signal?: AbortSignal, clone?: { fingerprint: string }): Promise<RemovedFolderProject> {
   const headers = versionHeader(version)
-  return (await terminalRequest(folderProjectPath(id), { method: 'DELETE', signal: within(signal), headers })).json()
+  if (!clone) return (await terminalRequest(folderProjectPath(id), { method: 'DELETE', signal: within(signal), headers })).json()
+  const body = JSON.stringify({ deleteClone: true, fingerprint: clone.fingerprint })
+  return (await terminalRequest(folderProjectPath(id), { method: 'DELETE', signal: within(signal, CLONE_REMOVE_MS), headers, body })).json()
 }
+/** How long a delete that also removes the clone waits: the controller gives the machine 60 seconds. */
+export const CLONE_REMOVE_MS = 75000
+/** What the clone of a project reet cloned holds, as its machine sees it now (GET …/{id}/clone). `removable` comes with
+ *  the `fingerprint` a delete must repeat; otherwise `sentence` says why the clone stays. 404 `not_cloned` for a project
+ *  reet did not clone. The machine answers within 15 seconds. */
+export type ProjectClone = { removable: boolean; worktrees: number; changed: number; stashes: number; unpushed: number; fingerprint?: string; sentence: string }
+export async function projectClone(id: string, signal?: AbortSignal): Promise<ProjectClone> {
+  return (await terminalRequest(`${folderProjectPath(id)}/clone`, { signal: within(signal, 20000) })).json()
+}
+/** The codes a delete that also removes the clone is refused with while the project stays. */
+export const CLONE_REMOVE_CODES = ['clone_changed', 'clone_kept', 'clone_unconfirmed'] as const
 /** Starts cloning a GitHub repository (`owner/name` or its github.com link) on a machine that reports `repoClone`, to be
  *  saved as a project when it is done (202). Read the clone with `cloneStatus`; asking again while it runs answers the
  *  same id. `name` "" names the project after the repository. */

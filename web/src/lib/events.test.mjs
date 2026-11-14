@@ -61,6 +61,10 @@ test('folder project activity reads as plain sentences and never names a prompt'
   assert.equal(eventLabel(event('project-update', { project: 'p1', machine: 'a1', host: 'studio', folder: '/home/me/reet', name: 'reet' })), 'Updated project reet')
   assert.equal(eventLabel(event('project-remove', { project: 'p1', machine: 'a1', host: 'studio', folder: '/home/me/reet', name: 'reet' })), 'Removed project reet; its folder on studio is untouched')
   assert.equal(eventLabel(event('project-remove')), 'Removed a project')
+  assert.equal(eventLabel(event('project-remove', { project: 'p1', machine: 'a1', host: 'studio', folder: '/home/me/reet/repos/acme/site', name: 'site', cloneDeleted: true, clonePath: '/home/me/reet/repos/acme/site' })),
+    'Removed project site and deleted its clone, /home/me/reet/repos/acme/site on studio')
+  assert.equal(eventLabel(event('project-clone-delete', { host: 'studio', name: 'site', cloneDeleted: true, clonePath: '/home/me/reet/repos/acme/site' })),
+    'Deleted the clone of project site, /home/me/reet/repos/acme/site on studio; the project stayed')
   assert.equal(eventLabel(event('folder-browse', { machine: 'a1', path: '~', pages: 3 })), 'Browsed folders from ~ (3 pages)')
   assert.equal(eventLabel(event('folder-browse', { machine: 'a1', path: '/srv/site', pages: 1 })), 'Browsed folders from /srv/site (1 page)')
   assert.equal(eventLabel(event('folder-browse')), 'Browsed folders on a machine')

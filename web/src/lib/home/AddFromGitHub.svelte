@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import { cloneFolder, parseGitHubRepo, type CloneEnd, type OutstandingClone } from '../githubRepo'
+  import { cloneFolder, parseGitHubRepo, startUnheardLine, timedOut, type CloneEnd, type OutstandingClone } from '../githubRepo'
   import { addFromGitHub, refusalSentence, TerminalError, type TerminalMachine } from '../terminal/api'
 
   // Add a project From GitHub, the Add project dialog's second choice: a repository, a machine that can clone it and an
@@ -64,7 +64,9 @@
       if (life.signal.aborted) return
       if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return }
       failed = true
-      message = refusalSentence(e)
+      // No answer inside the request's 15 seconds: the controller may have started the clone, and this page has no id to
+      // follow it with, so it says that and not that the request never arrived.
+      message = timedOut(e) ? startUnheardLine : refusalSentence(e)
       const field = e instanceof TerminalError ? e.field : undefined
       void tick().then(() => (field === 'repo' ? repoInput : field === 'host' ? document.getElementById(`${id}-gh-machine`) : field === 'name' ? document.getElementById(`${id}-gh-name`) : submitButton)?.focus())
     } finally {

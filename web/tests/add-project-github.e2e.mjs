@@ -33,6 +33,30 @@ const scope = () => ({id:'s1',host:'studio',name:'studio',kind:'agent',agent:'cl
 const sync = () => ({environments:[scope()],machines:[{host:'studio',groups:[scope()],skillCount:0}],runs:[],updateJobs:[],targets:[],jobs:[],
  agents:[{id:'a1',host:'studio',version:'1',lastSeen:Date.now(),paused:false,autoUpdate:false},{id:'a2',host:'desk',version:'1',lastSeen:Date.now(),paused:false,autoUpdate:false}]})
 
+// Removing the cloned project: what the controller answers about its clone, and for a delete that took the clone too.
+const FINGERPRINT = 'ab'.repeat(32)
+const REMOVABLE = {removable:true, worktrees:0, changed:0, stashes:0, unpushed:0, fingerprint:FINGERPRINT, sentence:''}
+const keptClone = (sentence, counts={}) => ({removable:false, worktrees:0, changed:0, stashes:0, unpushed:0, sentence, ...counts})
+const GONE = 'Project removed. ~/reet/repos/eyupio/reet.sh was deleted from studio.'
+const REMOVED = {ok:true, cloneDeleted:true, message:GONE}
+const PLAIN = 'Project removed. Its sessions and any worktrees stay on studio.'
+const CHECKING = 'Checking the clone on studio…'
+const TICK = 'Also delete ~/reet/repos/eyupio/reet.sh from studio'
+const IGNORED = 'Files git ignores there, such as .env or build output, are deleted too.'
+const CHANGED = 'The clone changed just now, so nothing was removed. Check again.'
+const UNCONFIRMED = "reet couldn't confirm whether the clone on studio was removed. Check again."
+const KEPT = {
+ cantAsk:"The clone on studio is kept: studio can't be asked right now.",
+ accessOff:'The clone on studio is kept: terminal access is off on studio.',
+ notFound:"The clone on studio is kept: reet can't find it at ~/reet/repos/eyupio/reet.sh.",
+ notPlain:'The clone on studio is kept: the folder there is no longer a plain clone of eyupio/reet.sh.',
+ oneWorktree:'The clone on studio is kept: 1 session still has a worktree from it. Remove that session first.',
+ worktrees:'The clone on studio is kept: 2 sessions still have worktrees from it. Remove those sessions first.',
+ work:"The clone on studio is kept: it holds work that isn't on GitHub.",
+ mayHoldWork:"The clone on studio is kept: it may hold work that isn't on GitHub.",
+ notReets:"The clone on studio is kept: reet didn't make that folder.",
+}
+
 const SENT = {host:'a1', repo:'eyupio/reet.sh', name:''}
 const CLONING = "Cloning eyupio/reet.sh on studio… You can close this; the project appears when it's done."
 const INVALID = 'Write the repository as owner/name, or paste its github.com link.'
@@ -40,7 +64,7 @@ const INVALID = 'Write the repository as owner/name, or paste its github.com lin
 // A writer's Home. `box.outcome` is what the clone becomes once `box.finish` is set: the reads before that answer
 // `cloning`. Every start and every read of the clone is recorded with its time.
 async function scene(options={}) {
- const box = {starts:[], reads:[], finish:false, outcome:{state:'done', project:cloned()}, projects:options.projects ?? [notes()], start:options.start, posts:[], checks:[], confirms:0}
+ const box = {cloneReads:[], deletes:[], cloneState:REMOVABLE, remove:REMOVED, starts:[], reads:[], finish:false, outcome:{state:'done', project:cloned()}, projects:options.projects ?? [notes()], start:options.start, posts:[], checks:[], confirms:0}
  const routes = {
   '/api/v2/machines/health': health,
   '/api/v2/terminal/machines': () => ({machines:tmachines(options.clone)}),
@@ -55,6 +79,26 @@ async function scene(options={}) {
    if (!box.finish) return {state:'cloning'}
    if (box.outcome.state === 'done' && !box.projects.some(p => p.id === box.outcome.project.id)) box.projects = [...box.projects, box.outcome.project]
    return typeof box.outcome === 'function' ? box.outcome() : box.outcome
+  },
+  // Remove from reet for the cloned project: what its clone holds (read when the dialog opens) and the delete itself,
+  // each recorded. `box.cloneState` and `box.remove` are what the controller answers; either may be a function.
+  '/api/v2/folder-projects/fp9/clone': async () => {
+   box.cloneReads.push(Date.now())
+   return typeof box.cloneState === 'function' ? await box.cloneState() : box.cloneState
+  },
+  '/api/v2/folder-projects/fp9': async request => {
+   if (request.method() !== 'DELETE') return cloned()
+   const sent = {body:request.postData() ? request.postDataJSON() : null, match:request.headers()['if-match']}
+   box.deletes.push(sent)
+   const answer = typeof box.remove === 'function' ? await box.remove(sent) : box.remove
+   if (!answer.status || answer.status < 300) box.projects = box.projects.filter(p => p.id !== 'fp9')
+   return answer
+  },
+  '/api/v2/folder-projects/fp2': request => {
+   if (request.method() !== 'DELETE') return notes()
+   box.deletes.push({body:request.postData() ? request.postDataJSON() : null, match:request.headers()['if-match'], id:'fp2'})
+   box.projects = box.projects.filter(p => p.id !== 'fp2')
+   return {ok:true, message:'Project removed. Its sessions and any worktrees stay on studio.'}
   },
   '/api/v2/settings/yolo': () => ({allowed:true, changedBy:'Owner', changedAt:Date.now()}),
   '/api/v2/terminal/sessions': request => {
@@ -88,7 +132,7 @@ async function scene(options={}) {
    return show.apply(this, args)
   }
  })
- await opened.page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>session</title>'}))
+ if (!options.sessionsPage) await opened.page.route(url => new URL(url).pathname === '/sessions', route => route.fulfill({status:200, contentType:'text/html', body:'<title>session</title>'}))
  return {...opened, box}
 }
 
@@ -100,6 +144,20 @@ const machineField = page => dialog(page).getByRole('combobox',{name:'Machine',e
 const cloneButton = page => dialog(page).getByRole('button',{name:'Clone and add',exact:true})
 const footClose = page => dialog(page).locator('footer').getByRole('button',{name:'Close',exact:true})
 const errorSlot = page => dialog(page).locator('[role=tabpanel]:not([hidden]) footer .status')
+const removeDialog = (page, name='reet.sh') => page.getByRole('dialog',{name:`Remove ${name} from reet?`,exact:true})
+const tickBox = page => removeDialog(page).getByRole('checkbox',{name:TICK,exact:true})
+const removeButton = (page, name) => removeDialog(page, name).getByRole('button',{name:'Remove from reet',exact:true})
+// Remove from reet from the project's card menu: in Home's rail on a desktop, in the Sessions screen's on a phone.
+async function openRemove(page, name='reet.sh') {
+ const more = page.getByRole('button',{name:`More for ${name}`,exact:true}).first()
+ await more.scrollIntoViewIfNeeded()
+ await more.click()
+ await page.getByRole('menu',{name}).getByRole('menuitem',{name:'Remove from reet',exact:true}).click()
+ await expect(removeDialog(page, name)).toBeVisible()
+ return more
+}
+// Where the Remove dialog is reached: Home's rail on a desktop, the Sessions screen's on a phone.
+const railPage = screen => base + (screen.touch ? '/sessions?view=list' : '')
 const noSideways = page => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
 // Add a project from the rail on a desktop, from studio's New project on a phone (where Home has no rail).
 async function openAdd(page, touch) {
@@ -408,15 +466,20 @@ try {
   const headerClose = dialog(page).locator('header').getByRole('button',{name:'Close',exact:true})
   await expect(headerClose).toBeDisabled()
   await headerClose.click({force:true})
-  await page.keyboard.press('Escape')
+  // Escape again and again: a browser closes a dialog on the second press without asking, and that close must neither
+  // hide the dialog now nor be left to happen when the start answers.
+  for (let i = 0; i < 4; i++) { await page.keyboard.press('Escape'); await page.waitForTimeout(60) }
   await page.mouse.click(4, 4)
   await page.waitForTimeout(300)
   await expect(dialog(page)).toBeVisible()
+  expect(await dialog(page).evaluate(el => el.matches(':modal'))).toBe(true)
   release()
   await expect(dialog(page).getByText(CLONING,{exact:true})).toBeVisible()
   await expect(footClose(page)).toBeFocused()
   await expect(headerClose).toBeEnabled()
   await expect.poll(() => box.reads.length, {timeout:10000}).toBeGreaterThan(0)
+  await page.waitForTimeout(300)
+  await expect(dialog(page)).toBeVisible()
   await footClose(page).click()
   await expect(dialog(page)).toBeHidden()
   await expect(add).toBeFocused()
@@ -512,7 +575,278 @@ try {
   await context.close()
  }
 
- console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; 1280 and 390 px, light and dark.')
+ // Removing a project reet cloned (Task 12). The dialog reads what the clone holds when it opens; the tick is offered only
+ // when the machine says nothing would be lost, off by default and off again on every open; with it the delete names the
+ // fingerprint that was shown. At both widths and in both themes.
+ for (const screen of [{width:1280, theme:'light'}, {width:1280, theme:'dark'}, {width:390, height:780, theme:'light', touch:true}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`remove offers to delete the clone (${screen.width} px, ${screen.theme})`)) continue
+  const {context,page,errors,box} = await scene({...screen, sessionsPage:true, projects:[cloned({position:0}), notes()]})
+  let release
+  box.cloneState = () => new Promise(r => { release = () => r(REMOVABLE) })
+  await page.goto(railPage(screen))
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme ?? 'light')).toBe(screen.theme)
+  await openRemove(page)
+  const d = removeDialog(page)
+  // While the machine is asked: one quiet line, in a status region that was there from the start; no tick yet. Cancel has
+  // the focus, as in every confirmation.
+  await expect(d.getByText(CHECKING,{exact:true})).toBeVisible()
+  await expect(d.locator('[role=status]').filter({hasText:CHECKING})).toHaveCount(1)
+  await expect(d.getByRole('checkbox')).toHaveCount(0)
+  await expect(d.getByRole('button',{name:'Cancel',exact:true})).toBeFocused()
+  await expect(removeButton(page)).toBeEnabled()
+  await expect.poll(() => box.cloneReads.length).toBe(1)
+  release()
+  // Removable: a real, labelled checkbox, off, with the line about ignored files beside it.
+  await expect(tickBox(page)).toBeVisible()
+  await expect(tickBox(page)).not.toBeChecked()
+  await expect(d.getByText(IGNORED,{exact:true})).toBeVisible()
+  expect(await tickBox(page).evaluate(el => [el.tagName, el.type, el.getAttribute('aria-describedby') && document.getElementById(el.getAttribute('aria-describedby')).textContent])).toEqual(['INPUT', 'checkbox', IGNORED])
+  await expect(d.getByText(CHECKING,{exact:true})).toHaveCount(0)
+  await expect(d).not.toContainText('is kept')
+  // The status regions stay in the tree, empty and taking no room, so a later sentence is announced.
+  expect(await d.locator('[role=status]').evaluateAll(els => els.map(el => [el.getAttribute('aria-live'), el.textContent.trim(), getComputedStyle(el).display !== 'none', el.offsetHeight]))).toEqual([['polite', '', true, 0], ['polite', '', true, 0]])
+  // It fits: nothing scrolls sideways, the dialog is inside the screen, and on a phone every control is 44 px.
+  expect(await noSideways(page)).toBe(true)
+  const fit = await d.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && el.scrollWidth <= el.clientWidth })
+  expect(fit, 'the dialog fits the screen').toBe(true)
+  if (screen.touch) {
+   const small = await d.locator('button:visible, label:visible').evaluateAll(els => els.map(el => [el.textContent.trim(), el.offsetHeight]).filter(([, h]) => h < 44))
+   expect(small, 'touch targets under 44 px').toEqual([])
+  }
+  // The keyboard reaches the tick from Cancel and Space sets it.
+  await page.keyboard.press('Shift+Tab')
+  if (!(await tickBox(page).evaluate(el => el === document.activeElement))) { await page.keyboard.press('Tab'); await page.keyboard.press('Tab'); await page.keyboard.press('Tab') }
+  await expect(tickBox(page)).toBeFocused()
+  await page.keyboard.press('Space')
+  await expect(tickBox(page)).toBeChecked()
+  // Cancel sends nothing; the next open reads the clone again and the tick is off again.
+  await d.getByRole('button',{name:'Cancel',exact:true}).click()
+  await expect(d).toBeHidden()
+  expect(box.deletes).toEqual([])
+  box.cloneState = REMOVABLE
+  const opener = await openRemove(page)
+  await expect(tickBox(page)).toBeVisible()
+  await expect(tickBox(page)).not.toBeChecked()
+  expect(box.cloneReads.length).toBe(2)
+  // With the tick: one delete, naming the version read and the fingerprint shown, and nothing else.
+  await tickBox(page).check()
+  await removeButton(page).click()
+  await expect(d).toBeHidden()
+  await expect(page.getByText(GONE,{exact:true})).toBeVisible()
+  expect(box.deletes).toEqual([{body:{deleteClone:true, fingerprint:FINGERPRINT}, match:'"1"'}])
+  await expect(page.getByRole('button',{name:'More for reet.sh',exact:true})).toHaveCount(0)
+  await expect(opener).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A clone that stays: no tick, and the controller's sentence in the status region, for each condition. The plain remove
+ // still works, sends no body, and leaves the folder alone.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`a kept clone says why (${screen.width} px)`)) continue
+  const {context,page,errors,box} = await scene({...screen, sessionsPage:true, projects:[cloned({position:0}), notes()]})
+  await page.goto(railPage(screen))
+  for (const sentence of Object.values(KEPT)) {
+   box.cloneState = keptClone(sentence, sentence === KEPT.worktrees ? {worktrees:2} : {})
+   await openRemove(page)
+   const d = removeDialog(page)
+   await expect(d.locator('[role=status]').filter({hasText:sentence})).toHaveCount(1)
+   await expect(d.getByText(sentence,{exact:true})).toBeVisible()
+   await expect(d.getByRole('checkbox')).toHaveCount(0)
+   await expect(d).not.toContainText(IGNORED)
+   expect(await noSideways(page)).toBe(true)
+   expect(await d.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight })).toBe(true)
+   await d.getByRole('button',{name:'Cancel',exact:true}).click()
+   await expect(d).toBeHidden()
+  }
+  // The read itself failing is said as a clone that stays, never as a tick.
+  box.cloneState = {status:500, json:{error:"reet couldn't do that just now. Try again.", code:'server_error'}}
+  await openRemove(page)
+  await expect(removeDialog(page).getByText("The clone on studio is kept: reet couldn't check it just now.",{exact:true})).toBeVisible()
+  await expect(removeDialog(page).getByRole('checkbox')).toHaveCount(0)
+  expect(box.deletes).toEqual([])
+  box.remove = {ok:true, message:PLAIN}
+  await removeButton(page).click()
+  await expect(removeDialog(page)).toBeHidden()
+  await expect(page.getByText(PLAIN,{exact:true})).toBeVisible()
+  expect(box.deletes).toEqual([{body:null, match:'"1"'}])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Review Focus 5 in the browser: the clone gained work between the dialog and the click. The delete is refused, the
+ // dialog stays with the sentence, the clone is read again, the tick is off, and the project is still in the rail.
+ for (const screen of [{width:1280, theme:'light'}, {width:1280, theme:'dark'}, {width:390, height:780, theme:'light', touch:true}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`a refused delete keeps the project (${screen.width} px, ${screen.theme})`)) continue
+  const {context,page,errors,box} = await scene({...screen, sessionsPage:true, projects:[cloned({position:0}), notes()]})
+  box.remove = {status:409, json:{error:CHANGED, code:'clone_changed'}}
+  await page.goto(railPage(screen))
+  await openRemove(page)
+  const d = removeDialog(page)
+  await tickBox(page).check()
+  await removeButton(page).click()
+  await expect(d.locator('[role=status]').filter({hasText:CHANGED})).toHaveCount(1)
+  await expect(d.getByText(CHANGED,{exact:true})).toBeVisible()
+  await expect.poll(() => box.cloneReads.length).toBe(2)
+  await expect(tickBox(page)).toBeVisible()
+  await expect(tickBox(page)).not.toBeChecked()
+  await expect(removeButton(page)).toBeFocused()
+  await expect(removeButton(page)).toBeEnabled()
+  expect(box.deletes).toHaveLength(1)
+  expect(await noSideways(page)).toBe(true)
+  expect(await d.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight })).toBe(true)
+  // The answer was lost: nothing is claimed, and the second look says where things stand. The clone is gone, so there is
+  // no tick, and the project can still be removed without it.
+  box.remove = {status:409, json:{error:UNCONFIRMED, code:'clone_unconfirmed'}}
+  box.cloneState = keptClone(KEPT.notFound)
+  await tickBox(page).check()
+  await removeButton(page).click()
+  await expect(d.getByText(UNCONFIRMED,{exact:true})).toBeVisible()
+  await expect(d.getByText(KEPT.notFound,{exact:true})).toBeVisible()
+  await expect(d.getByRole('checkbox')).toHaveCount(0)
+  await expect(removeButton(page)).toBeFocused()
+  expect(box.cloneReads.length).toBe(3)
+  // A refusal that only repeats why the clone stays is said once.
+  box.cloneState = REMOVABLE
+  await d.getByRole('button',{name:'Cancel',exact:true}).click()
+  await openRemove(page)
+  box.remove = {status:409, json:{error:KEPT.cantAsk, code:'clone_kept'}}
+  box.cloneState = keptClone(KEPT.cantAsk)
+  await tickBox(page).check()
+  await removeButton(page).click()
+  await expect(d.getByText(KEPT.cantAsk,{exact:true})).toHaveCount(1)
+  await expect(d.getByRole('checkbox')).toHaveCount(0)
+  // Through all of it the project stayed.
+  await d.getByRole('button',{name:'Cancel',exact:true}).click()
+  await expect(d).toBeHidden()
+  await expect(page.getByRole('button',{name:'More for reet.sh',exact:true}).first()).toBeVisible()
+  expect(box.deletes.map(x => x.body)).toEqual([{deleteClone:true, fingerprint:FINGERPRINT}, {deleteClone:true, fingerprint:FINGERPRINT}, {deleteClone:true, fingerprint:FINGERPRINT}])
+  box.remove = {ok:true, message:PLAIN}
+  await openRemove(page)
+  await removeButton(page).click()
+  await expect(page.getByText(PLAIN,{exact:true})).toBeVisible()
+  expect(box.deletes[3]).toEqual({body:null, match:'"1"'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // While the delete is on its way the dialog cannot be closed: Cancel, Escape (pressed again and again) and a press outside
+ // all wait for the machine's answer.
+ if (run('the remove dialog waits for the delete')) {
+  let release
+  const {context,page,errors,box} = await scene({projects:[cloned({position:0}), notes()]})
+  box.remove = () => new Promise(r => { release = () => r(REMOVED) })
+  await page.goto(base)
+  await openRemove(page)
+  const d = removeDialog(page)
+  await tickBox(page).check()
+  await removeButton(page).click()
+  await expect.poll(() => box.deletes.length).toBe(1)
+  await expect(d.getByRole('button',{name:'Removing…',exact:true})).toBeDisabled()
+  await expect(d.getByRole('button',{name:'Cancel',exact:true})).toBeDisabled()
+  await expect(tickBox(page)).toBeDisabled()
+  await d.getByRole('button',{name:'Cancel',exact:true}).click({force:true})
+  for (let i = 0; i < 4; i++) { await page.keyboard.press('Escape'); await page.waitForTimeout(60) }
+  await page.mouse.click(4, 4)
+  await page.waitForTimeout(300)
+  await expect(d).toBeVisible()
+  expect(await d.evaluate(el => el.matches(':modal'))).toBe(true)
+  expect(box.deletes).toHaveLength(1)
+  release()
+  await expect(d).toBeHidden()
+  await expect(page.getByText(GONE,{exact:true})).toBeVisible()
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The plain remove never waits for the check: with the machine still silent, Remove from reet removes the project only.
+ if (run('the plain remove does not wait for the check')) {
+  const {context,page,errors,box} = await scene({projects:[cloned({position:0}), notes()]})
+  box.cloneState = () => new Promise(() => {})
+  box.remove = {ok:true, message:PLAIN}
+  await page.goto(base)
+  await openRemove(page)
+  await expect(removeDialog(page).getByText(CHECKING,{exact:true})).toBeVisible()
+  await removeButton(page).click()
+  await expect(removeDialog(page)).toBeHidden()
+  await expect(page.getByText(PLAIN,{exact:true})).toBeVisible()
+  expect(box.deletes).toEqual([{body:null, match:'"1"'}])
+  await expect(rail(page).getByRole('button',{name:/^reet\.sh, /})).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A project reet did not clone: the confirmation is what it was, and the machine is asked nothing.
+ if (run('a project reet did not clone is removed as before')) {
+  const {context,page,errors,box} = await scene({projects:[cloned({position:0}), notes(), fproject('fp3','adopted','/home/dev/reet/repos/eyupio/adopted',{origin:'eyupio/adopted',position:2})]})
+  const asked = []
+  page.on('request', r => { if (/\/clone$/.test(new URL(r.url()).pathname)) asked.push(r.url()) })
+  await page.goto(base)
+  for (const name of ['adopted', 'Notes']) {
+   await openRemove(page, name)
+   const d = removeDialog(page, name)
+   await expect(d).toContainText("It leaves the rail. Its sessions and any worktrees stay on studio, and the folder isn't touched.")
+   await expect(d.getByRole('checkbox')).toHaveCount(0)
+   await expect(d).not.toContainText('clone')
+   await page.waitForTimeout(300)
+   if (name === 'Notes') { await removeButton(page, name).click(); await expect(page.getByText(PLAIN,{exact:true})).toBeVisible() }
+   else await d.getByRole('button',{name:'Cancel',exact:true}).click()
+   await expect(d).toBeHidden()
+  }
+  expect(asked).toEqual([])
+  expect(box.cloneReads).toEqual([])
+  expect(box.deletes).toEqual([{body:null, match:'"1"', id:'fp2'}])
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Carried over from Phase 2. A clone the controller lost track of that had finished: the list is read first, and with
+ // the project in it nothing is said about losing track; the open dialog closes as it does when a clone is done.
+ for (const open of [true, false]) {
+  if (!run(`a lost clone that finished is not called lost (${open ? 'dialog open' : 'on Home'})`)) continue
+  const {context,page,errors,box} = await scene()
+  box.outcome = () => { box.projects = [notes(), cloned()]; return {status:404, json:{error:"That clone isn't on this account.", code:'clone_not_found'}} }
+  await page.goto(base)
+  await openAdd(page)
+  await toGitHub(page)
+  await repoField(page).fill('eyupio/reet.sh')
+  await cloneButton(page).click()
+  await expect(dialog(page).getByText(CLONING,{exact:true})).toBeVisible()
+  if (!open) { await footClose(page).click(); await expect(dialog(page)).toBeHidden() }
+  box.finish = true
+  await expect(rail(page).getByRole('button',{name:/^reet\.sh, studio, main/})).toBeVisible({timeout:10000})
+  await expect(dialog(page)).toBeHidden()
+  await page.waitForTimeout(500)
+  await expect(page.locator('.notice.bad')).toHaveCount(0)
+  await expect(page.locator('body')).not.toContainText('lost track')
+  // Nothing more is read once it has ended.
+  const reads = box.reads.length
+  await page.waitForTimeout(2500)
+  expect(box.reads.length).toBe(reads)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Carried over from Phase 2. The start got no answer inside its 15 seconds: the controller may have begun the clone and
+ // this page cannot follow it, so it says that, in the error slot, rather than nothing or that the request never arrived.
+ if (run('a start with no answer is said')) {
+  const {context,page,errors,box} = await scene({start:() => new Promise(() => {})})
+  await page.goto(base)
+  await openAdd(page)
+  await toGitHub(page)
+  await repoField(page).fill('eyupio/reet.sh')
+  await cloneButton(page).click()
+  await expect.poll(() => box.starts.length).toBe(1)
+  await expect(errorSlot(page)).toHaveText("reet didn't hear back about starting the clone. Check the project list in a minute.", {timeout:20000})
+  await expect(dialog(page)).not.toContainText("That didn't reach reet")
+  await expect(cloneButton(page)).toBeFocused()
+  await expect(repoField(page)).toHaveValue('eyupio/reet.sh')
+  expect(box.reads).toEqual([])
+  expect(errors).toEqual([])
+  await context.close().catch(() => {})
+ }
+
+ console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; 1280 and 390 px, light and dark.')
 } finally {
  await browser.close()
 }

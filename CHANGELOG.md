@@ -5,6 +5,28 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Removing a project reet cloned from GitHub can now delete the clone too.
+  **Remove from reet** asks the machine what the clone holds and, when nothing
+  would be lost, offers a tick, off by default: "Also delete
+  ~/reet/repos/owner/name from studio". Files git ignores there, such as .env
+  or build output, are deleted with it. The tick is not offered, and one
+  sentence says why, when a session still has a worktree from the clone, when
+  it has uncommitted files, a stash or commits that aren't on GitHub, when it
+  holds something reet can't check (a repository inside it, a rebase under
+  way), when reet didn't make the folder, or when the machine can't be asked.
+  The machine looks again before it deletes: if the clone changed since the
+  dialog, nothing is removed and the project stays. If the machine's answer is
+  lost, reet says it couldn't confirm and keeps the project. Removing without
+  the tick works as before and never touches the folder, and reet never
+  deletes a folder it did not clone. Activity records the deletion with the
+  folder. The machine needs a current reet for this; an older one keeps the
+  clone.
+- Adding from GitHub: if starting the clone gets no answer in 15 seconds the
+  dialog now says "reet didn't hear back about starting the clone. Check the
+  project list in a minute." instead of saying the request never arrived;
+  pressing Escape repeatedly while the start is on its way no longer hides the
+  dialog; and when reet loses track of a clone that had finished, the project
+  simply appears, without the "lost track" message.
 - You can add a project from a GitHub repository that isn't on any machine
   yet. **Add** in the project rail now offers **From GitHub** beside **Folder
   on a machine**: write `owner/name` or paste the github.com link, choose the
@@ -27,7 +49,8 @@ this file existed releases were described on their GitHub release pages.
   the repository again picks up whatever finished, and the page says it lost
   track of the clone), a git setting that sends github.com over ssh stops the
   clone and says so, and an empty repository is added with a blank base.
-  Removing the project leaves `~/reet/repos/owner/name` on the machine; the
+  Removing the project leaves `~/reet/repos/owner/name` on the machine unless
+  you ask for it to be deleted (below); the
   hidden folder a clone cut off part-way leaves is removed the next time that
   repository is cloned, but only when reet can tell it is that repository's.
 - An agent whose binary has only just been written, by an install or an

@@ -380,7 +380,10 @@
     shutdown(false); onclose(); out(e)
   }
 
+  // True once this component has closed its dialog, so a close the browser makes on its own can be told apart.
+  let shut = false
   function shutdown(returnFocus: boolean) {
+    shut = true
     life.abort()
     starterPrompt = ''
     pickerOpen = false
@@ -391,6 +394,14 @@
   // While a save is in flight the dialog stays: the 15-second limit ends the wait. A From GitHub start on its way holds it
   // the same way, so a clone the controller began is always followed: once it answers, the status line and Close appear.
   function close() { if (busy || starting) return; shutdown(true); onclose() }
+  // A browser closes a dialog on a second Escape even when the first was refused, without asking again. While a save or
+  // a From GitHub start is on its way that close is undone, so the dialog is there when the answer comes; at any other
+  // time it is a Close.
+  function closedByBrowser() {
+    if (shut) return
+    if (busy || starting) { dialog?.showModal(); return }
+    close()
+  }
   // A change clears a refusal. After a lost reply the fields are locked, so Try again sends exactly what was sent.
   function edited() { if (!busy && !operation && message) { message = ''; failed = false } }
 
@@ -595,13 +606,14 @@
     coarse.addEventListener?.('change', readPointer)
     void loadFavourites()
     return () => {
+      shut = true
       life.abort(); starterPrompt = ''
       coarse.removeEventListener?.('change', readPointer)
     }
   })
 </script>
 
-<dialog bind:this={dialog} use:shell={{ sheet: 'full' }} class:browsing={browsing && way === 'folder'} class:ways aria-labelledby={`${id}-title`} oncancel={(event) => { event.preventDefault(); close() }}>
+<dialog bind:this={dialog} use:shell={{ sheet: 'full' }} class:browsing={browsing && way === 'folder'} class:ways aria-labelledby={`${id}-title`} oncancel={(event) => { event.preventDefault(); close() }} onclose={closedByBrowser}>
   <header data-shell-head>
     <div class="titles">
       <p class="eyebrow" data-shell-aside>Projects</p>

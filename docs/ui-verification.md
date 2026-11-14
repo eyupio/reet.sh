@@ -3764,3 +3764,60 @@ not heard). No real machine cloned anything: every answer here is synthetic, so 
 keyring and the ten-minute limit were not exercised in a browser (the clone is covered by the Go tests with real git
 against a local repository standing in for GitHub). The Sessions screen and Factory hold the same rail and read an
 outstanding clone too; neither was exercised with one.
+
+## Remove from reet offers to delete the clone — 14 November 2026
+
+**Remove from reet** on a project reet cloned from GitHub opens `web/src/lib/home/RemoveProjectDialog.svelte` instead of
+the plain confirmation. It reads what the clone holds (`GET /api/v2/folder-projects/{id}/clone`) when it opens, offers a
+tick that also deletes the clone only when the machine says nothing would be lost, and otherwise shows the
+controller's sentence saying why the clone stays. Every other project still gets the plain confirmation.
+
+Validation against the production build (`npm run build`, served by `npm run preview`) in Chromium (Google Chrome for
+Testing 153) with synthetic answers:
+
+- `web/tests/add-project-github.e2e.mjs` passes. From the project's card menu, in Home's rail at 1280 px and in the
+  Sessions screen's rail at 390 px with a coarse pointer, each in light and dark:
+  - While the read is held back the dialog shows "Checking the clone on studio…" in a status region, no checkbox,
+    focus on **Cancel**, and **Remove from reet** enabled. Once it answers removable: a native checkbox named "Also
+    delete ~/reet/repos/eyupio/reet.sh from studio", not checked, described by "Files git ignores there, such as .env
+    or build output, are deleted too."; both status regions are in the tree, empty and 0 px tall; the page has no
+    sideways scroll; the dialog is inside the screen; on touch the buttons and the checkbox's label are at least 44 px.
+    The keyboard reaches the checkbox and Space sets it. **Cancel** sends nothing. A second open reads the clone again
+    and the checkbox is off again. With the tick, one DELETE goes out with `If-Match` and exactly `{deleteClone: true,
+    fingerprint}`; the dialog closes, the page says "Project removed. ~/reet/repos/eyupio/reet.sh was deleted from
+    studio." and the project leaves the rail.
+  - A refused delete (409 `clone_changed`): the dialog stays with "The clone changed just now, so nothing was removed.
+    Check again." in a status region, the clone is read a second time, the checkbox is back and off, focus is on
+    **Remove from reet**, and the project is still in the rail. Then 409 `clone_unconfirmed` with a second look that
+    says the folder is not there: both sentences show, there is no checkbox, and **Remove from reet** removes the
+    project with no body. A `clone_kept` refusal whose sentence the second look repeats is shown once.
+- At 1280 px in light and at 390 px in dark: each of the nine sentences for a clone that stays shows in the status
+  region with no checkbox and no line about ignored files, without sideways scroll; a failed read shows "The clone on
+  studio is kept: reet couldn't check it just now."; the plain remove then sends a DELETE with no body.
+- At 1280 px in light only: while the delete is on its way **Cancel**, the checkbox and the button ("Removing…") are
+  disabled, and Cancel, four presses of Escape and a press outside leave the dialog open and modal, with one DELETE
+  sent; with the read never answering, **Remove from reet** removes the project at once with no body; a project added
+  by path and one adopted from GitHub without reet's marker show the old confirmation, no checkbox, and no request
+  ending in `/clone` is made.
+- Carried over from the From GitHub work, at 1280 px in light: a clone the controller lost (404) while the project is
+  in the list says nothing about losing track, shows no error, closes the open dialog and stops reading; a start that
+  gets no answer in 15 seconds says "reet didn't hear back about starting the clone. Check the project list in a
+  minute." in the dialog's status line with the repository kept and focus on **Clone and add**; four presses of Escape
+  while the start is on its way leave the dialog open and modal, and it is still open 300 ms after the start answers.
+- Seen failing first against the build without this change: the checking line, the sentences, the refused delete, the
+  held dialog, the lost clone that finished (both ways), the repeated Escape (the dialog was no longer modal), and the
+  start with no answer (it said "That didn't reach reet. Check your connection, then try again.").
+- `web/tests/phone-dialogs.e2e.mjs` passes at 320 × 568, 360 × 640, 390 × 844, 412 × 915, 844 × 390 and 915 × 412. It
+  now includes this dialog twice, with the tick set and with the longest sentence for a clone that stays: a bottom
+  sheet upright, inside the screen sideways, the page behind held still, and **Remove from reet** in view and not
+  covered. The dialog has no text field, so the test's keyboard checks do not apply to it.
+- Screenshots at 1280 px (dark with the tick, light with a kept clone, dark after a refusal) and at 390 × 844 and
+  844 × 390 were looked at: nothing clipped or overlapping, and the refusal is in the error colour.
+- `web/tests/add-project.e2e.mjs`, `projects.e2e.mjs`, `home.e2e.mjs` and `sessions-phone.e2e.mjs` pass.
+- `npm run check` (unit tests and `svelte-check`, 0 errors, 0 warnings) and `npm run build` pass.
+
+**Not checked.** No physical phone, Safari or Firefox, and no screen reader (the status regions and the checkbox's
+name and description were checked as markup, not heard). No real machine was asked: the clone's state and the delete
+are synthetic here, and are covered by the Go tests (`internal/api` with a stand-in machine, `internal/terminalhost`
+with real git). The same dialog opened from Manage projects and from the Factory's rail was not exercised. The real
+60-second wait of a slow delete was not exercised in a browser.

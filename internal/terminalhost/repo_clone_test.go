@@ -2774,12 +2774,155 @@ func TestCloneStatusFailsWhenTheFiltersCannotBeListed(t *testing.T) {
 }
 
 func TestFilterOffArgs(t *testing.T) {
-	got := filterOffArgs([]byte("filter.lfs.clean\x00filter.my x.process\x00filter.a.required\x00filter.a.smudge\x00core.editor\x00\x00"))
+	got, ok := filterOffArgs([]byte("filter.lfs.clean\x00filter.my x.process\x00filter.a.required\x00filter.a.smudge\x00\x00"))
 	want := []string{"-c", "filter.lfs.clean=", "-c", "filter.my x.process=", "-c", "filter.a.required=false", "-c", "filter.a.smudge="}
-	if !slices.Equal(got, want) {
-		t.Fatalf("filterOffArgs = %q, want %q", got, want)
+	if !ok || !slices.Equal(got, want) {
+		t.Fatalf("filterOffArgs = %q, %v, want %q", got, ok, want)
 	}
-	if got := filterOffArgs(nil); len(got) != 0 {
-		t.Fatalf("filterOffArgs(nil) = %q", got)
+	if got, ok := filterOffArgs(nil); !ok || len(got) != 0 {
+		t.Fatalf("filterOffArgs(nil) = %q, %v", got, ok)
+	}
+	// The listing comes with git's stderr: anything in it that is not a
+	// filter setting may have swallowed one, so nothing is trusted.
+	for _, out := range []string{
+		"warning: something odd\nfilter.x.clean\x00filter.x.required\x00",
+		"filter.x.clean\x00core.editor\x00",
+		"filter.x.clean\x00warning: at the end\n",
+		" filter.x.clean\x00",
+	} {
+		if got, ok := filterOffArgs([]byte(out)); ok || got != nil {
+			t.Errorf("filterOffArgs(%q) = %q, %v, want a refusal", out, got, ok)
+		}
+	}
+}
+
+// A warning git printed before the filter listing would hide the first
+// filter: the check fails instead of running with that filter left on.
+func TestCloneStatusFailsWhenTheFilterListingIsNotOnlyFilters(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	shown := f.status(t, dir, "o/r")
+	var later [][]string
+	listed := false
+	noisy := func(ctx context.Context, d string, args ...string) ([]byte, error) {
+		if slices.Contains(args, `^filter\..*\.(clean|smudge|process|required)$`) {
+			listed = true
+			out, err := f.git(ctx, d, args...)
+			return append([]byte("warning: unable to access '/x/.gitconfig': Permission denied\n"), out...), err
+		}
+		if listed {
+			later = append(later, args)
+		}
+		return f.git(ctx, d, args...)
+	}
+	before := snapshot(t, f.home)
+	if s := f.statusWith(t, dir, "o/r", noisy); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneFailed}) || !listed {
+		t.Fatalf("state = %+v (listed %v), want failed", s, listed)
+	}
+	if len(later) != 0 {
+		t.Fatalf("git ran after an unreadable listing: %q", later)
+	}
+	wantKept(t, f.removeWith(t, dir, "o/r", shown.Fingerprint, noisy), terminalproto.RepoCloneFailed, f.home, before)
+}
+
+// origin's remote-tracking branches stand for GitHub only when fetches come
+// from this repository on GitHub and nothing else writes into them.
+func TestCloneStatusRefusesRemoteBranchesThatAreNotGitHubs(t *testing.T) {
+	const pushToGitHub = "[url \"https://github.com/\"]\n\tpushInsteadOf = https://github.com/\n"
+	for _, tc := range []struct {
+		test string
+		make func(t *testing.T, f *cloneFixture, dir string)
+		want terminalproto.RepoCloneReason
+	}{
+		{"fetches rewritten to a mirror, pushes to GitHub", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[url \"https://mirror.example/\"]\n\tinsteadOf = https://github.com/\n"+pushToGitHub)
+		}, terminalproto.RepoCloneExists},
+		{"fetches rewritten to another repository, pushes to GitHub", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[url \"https://github.com/o/fork\"]\n\tinsteadOf = https://github.com/o/r\n[url \"https://github.com/o/r\"]\n\tpushInsteadOf = https://github.com/o/r\n")
+		}, terminalproto.RepoCloneExists},
+		{"fetches rewritten to ssh on GitHub", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[url \"git@github.com:\"]\n\tinsteadOf = https://github.com/\n"+pushToGitHub)
+		}, ""},
+		{"another remote fetching into origin's branches", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "fork", f.remote)
+			testGit(t, dir, "config", "remote.fork.fetch", "+refs/heads/*:refs/remotes/origin/*")
+		}, terminalproto.RepoCloneExists},
+		{"another remote fetching into one of origin's branches", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "fork", f.remote)
+			testGit(t, dir, "config", "--add", "remote.fork.fetch", "refs/heads/main:refs/remotes/origin/main")
+		}, terminalproto.RepoCloneExists},
+		{"another remote fetching into every remote's branches", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "fork", f.remote)
+			testGit(t, dir, "config", "remote.fork.fetch", "+refs/heads/*:refs/remotes/*")
+		}, terminalproto.RepoCloneExists},
+		{"another remote fetching into all refs", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "fork", f.remote)
+			testGit(t, dir, "config", "remote.fork.fetch", "+refs/*:refs/*")
+		}, terminalproto.RepoCloneExists},
+		{"another remote in the person's config fetching into origin's branches", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[remote \"fork\"]\n\turl = "+f.remote+"\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
+		}, terminalproto.RepoCloneExists},
+		{"origin fetching one branch only", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
+		}, terminalproto.RepoCloneExists},
+		{"origin fetching without force", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "remote.origin.fetch", "refs/heads/*:refs/remotes/origin/*")
+		}, terminalproto.RepoCloneExists},
+		{"origin with a second refspec", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "--add", "remote.origin.fetch", "+refs/pull/*/head:refs/remotes/origin/pr/*")
+		}, terminalproto.RepoCloneExists},
+		{"origin with no refspec", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "--unset", "remote.origin.fetch")
+		}, terminalproto.RepoCloneExists},
+		{"another remote with branches of its own", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "fork", f.remote)
+			testGit(t, dir, "config", "--add", "remote.fork.fetch", "+refs/tags/*:refs/tags/fork/*")
+		}, ""},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			tc.make(t, f, dir)
+			before := snapshot(t, f.home)
+			s := f.status(t, dir, "o/r")
+			if tc.want == "" {
+				wantCounts(t, s, 0, 0, 0, 0)
+				return
+			}
+			if s != (terminalproto.RepoCloneState{Reason: tc.want}) {
+				t.Fatalf("state = %+v, want %s", s, tc.want)
+			}
+			wantKept(t, f.remove(t, dir, "o/r", anyFingerprint), tc.want, f.home, before)
+		})
+	}
+	// A refspec listing git could not give is a failure; a fetch address it
+	// could not give is not proof of one.
+	for _, tc := range []struct {
+		test  string
+		fails func(args []string) bool
+		out   string
+		want  terminalproto.RepoCloneReason
+	}{
+		{"the refspecs", func(args []string) bool { return slices.Contains(args, `^remote\..*\.fetch$`) }, "fatal: bad config\n", terminalproto.RepoCloneFailed},
+		{"the fetch address", func(args []string) bool {
+			return gitSub(args) == "remote" && !slices.Contains(args, "--push")
+		}, "", terminalproto.RepoCloneExists},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			shown := f.status(t, dir, "o/r")
+			failing := func(ctx context.Context, d string, args ...string) ([]byte, error) {
+				if tc.fails(args) {
+					return []byte(tc.out), errors.New("exit status 128")
+				}
+				return f.git(ctx, d, args...)
+			}
+			before := snapshot(t, f.home)
+			if s := f.statusWith(t, dir, "o/r", failing); s != (terminalproto.RepoCloneState{Reason: tc.want}) {
+				t.Fatalf("state = %+v, want %s", s, tc.want)
+			}
+			wantKept(t, f.removeWith(t, dir, "o/r", shown.Fingerprint, failing), tc.want, f.home, before)
+		})
 	}
 }

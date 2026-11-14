@@ -287,6 +287,7 @@ func TestRepoCloneRemoveEndToEndWithRealGit(t *testing.T) {
 		{"init", "-q", "-b", "main"},
 		{"-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "first"},
 		{"config", "remote.origin.url", "https://github.com/o/r.git"},
+		{"config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"},
 		{"update-ref", "refs/remotes/origin/main", "HEAD"},
 	} {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)

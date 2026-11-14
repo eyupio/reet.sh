@@ -72,6 +72,11 @@ type cloneAt struct {
 // or an address `git remote get-url --all --push origin` gives (the person's
 // insteadOf and pushInsteadOf rewrites applied) that is not exactly one
 // naming <owner>/<repo> on github.com. github.com over ssh is still GitHub.
+// The same holds for fetches: `git remote get-url --all origin` must be
+// exactly one such address, remote.origin.fetch exactly the one default
+// refspec "+refs/heads/*:refs/remotes/origin/*", and no other remote's
+// refspec, in any config git reads, may write under refs/remotes/origin/
+// (originRefsAreOrigins). A refspec listing git could not give is failed.
 //
 // Marked is true only when the marker CloneRepo writes is there and names
 // the repository. Without it the folder is a person's own: nothing is
@@ -236,7 +241,11 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 	if err != nil || len(keys) == 0 || len(keys) >= gitOutputLimit {
 		return refuse(failed(err))
 	}
-	checked, off := git, filterOffArgs(keys)
+	off, listed := filterOffArgs(keys)
+	if !listed {
+		return refuse(terminalproto.RepoCloneFailed)
+	}
+	checked := git
 	git = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		return checked(ctx, dir, append(append([]string{}, off...), args...)...)
 	}
@@ -268,6 +277,33 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 	case err != nil && (ctx.Err() != nil || errors.Is(err, errGitMissing)):
 		return refuse(failed(err))
 	case err != nil || !originNames(out, req):
+		return refuse(terminalproto.RepoCloneExists)
+	}
+	// Fetches must come from the same repository too, with the person's
+	// insteadOf rewrites applied: a mirror's branches are not GitHub's.
+	out, err = git(pinGitDir(ctx, at.dest), at.dest, "remote", "get-url", "--all", "origin")
+	switch {
+	case err != nil && (ctx.Err() != nil || errors.Is(err, errGitMissing)):
+		return refuse(failed(err))
+	case err != nil || !originNames(out, req):
+		return refuse(terminalproto.RepoCloneExists)
+	}
+	// And only origin's own default refspec may write refs/remotes/origin/*.
+	out, err = git(pinGitDir(ctx, at.dest), at.dest, "config", "-z", "--get-regexp", `^remote\..*\.fetch$`)
+	switch {
+	case err != nil && (ctx.Err() != nil || errors.Is(err, errGitMissing) || len(out) > 0):
+		return refuse(failed(err))
+	case err != nil:
+		// git's exit 1 with nothing said: no remote has a refspec, origin
+		// included, so origin's branches are not what a fetch would write.
+		return refuse(terminalproto.RepoCloneExists)
+	case len(out) >= gitOutputLimit:
+		return refuse(terminalproto.RepoCloneFailed)
+	}
+	switch only, readable := originRefsAreOrigins(out); {
+	case !readable:
+		return refuse(terminalproto.RepoCloneFailed)
+	case !only:
 		return refuse(terminalproto.RepoCloneExists)
 	}
 	if marker, marked := cloneMarked(at.dest); !marked || !sameRepo(marker, req) {
@@ -533,6 +569,45 @@ func unpushedTips(ctx context.Context, dest string, git GitRunner, tips []string
 		}
 	}
 	return count, nil
+}
+
+// originRefsAreOrigins reads `git config -z --get-regexp ^remote\..*\.fetch$`
+// (every scope, "key\nvalue" entries NUL-separated) and reports whether
+// refs/remotes/origin/* is written by origin's default refspec and nothing
+// else: remote.origin.fetch must be exactly the one value
+// "+refs/heads/*:refs/remotes/origin/*", and no other remote's refspec may
+// have a destination that is, or with its wildcard could be, under
+// refs/remotes/origin/. readable is false for output that is not such a
+// listing.
+func originRefsAreOrigins(out []byte) (only, readable bool) {
+	const namespace = "refs/remotes/origin/"
+	origins := 0
+	only = true
+	for _, entry := range strings.Split(string(out), "\x00") {
+		if entry == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(entry, "\n")
+		if !ok || !strings.HasPrefix(key, "remote.") || !strings.HasSuffix(key, ".fetch") {
+			return false, false
+		}
+		if key == "remote.origin.fetch" {
+			origins++
+			if value != "+refs/heads/*:"+namespace+"*" {
+				only = false
+			}
+			continue
+		}
+		_, dst, ok := strings.Cut(strings.TrimLeft(value, "+^"), ":")
+		if !ok {
+			continue // nothing is stored locally
+		}
+		fixed, _, wild := strings.Cut(dst, "*")
+		if strings.HasPrefix(fixed+"/", namespace) || (wild && strings.HasPrefix(namespace, fixed)) {
+			only = false
+		}
+	}
+	return only && origins == 1, true
 }
 
 // walkCloneDir walks a clone without following symlinks; tests replace it.

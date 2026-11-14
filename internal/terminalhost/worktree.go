@@ -108,12 +108,17 @@ var filterKeysArgs = []string{"config", "-z", "--name-only", "--get-regexp", `^f
 // filterOffArgs is, for each filter setting in keys (the output of
 // filterKeysArgs), a -c argument that empties it, or sets required to
 // false: git then runs no clean, smudge or process command, whatever the
-// repository's attributes select.
-func filterOffArgs(keys []byte) []string {
-	var args []string
+// repository's attributes select. The output is git's stdout and stderr
+// together, so anything in it that is not a filter setting (a warning) may
+// have joined a setting and hidden it: ok is then false and no arguments
+// are returned.
+func filterOffArgs(keys []byte) (args []string, ok bool) {
 	for _, key := range strings.Split(string(keys), "\x00") {
-		if !strings.HasPrefix(key, "filter.") {
+		if key == "" {
 			continue
+		}
+		if !strings.HasPrefix(key, "filter.") {
+			return nil, false
 		}
 		value := ""
 		if strings.HasSuffix(key, ".required") {
@@ -121,7 +126,7 @@ func filterOffArgs(keys []byte) []string {
 		}
 		args = append(args, "-c", key+"="+value)
 	}
-	return args
+	return args, true
 }
 
 var readOnlyGitArgs = []string{"-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "core.attributesFile=/dev/null"}

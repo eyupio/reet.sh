@@ -79,7 +79,12 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 		r.Reason = "git_failed"
 		return r
 	}
-	filterArgs = filterOffArgs(keys)
+	offArgs, listed := filterOffArgs(keys)
+	if !listed {
+		r.Reason = "git_failed"
+		return r
+	}
+	filterArgs = offArgs
 	branch, _ := git("symbolic-ref", "--quiet", "--short", "HEAD")
 	r.Branch = inspectPlain(strings.TrimSpace(string(branch)), 1024)
 	// The page links the repository before any pull request exists, so the status

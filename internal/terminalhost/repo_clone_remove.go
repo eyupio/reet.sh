@@ -119,7 +119,14 @@ type cloneAt struct {
 // Looking runs nothing the clone's or the person's configuration names:
 // every git call carries cloneCheckArgs (no fsmonitor hook, which could
 // also hide an edit, no untracked cache, no hooks, no external diff, no
-// outside attributes file, no LFS filter).
+// outside attributes file) and switches off every content filter the clone's
+// config or the person's names (filterOffArgs), LFS included. If the
+// filters cannot be listed the answer is failed.
+//
+// A clone is also kept, on the safe side, when it is too large to look at:
+// the walk for nested repositories has no entry limit and answers timed_out
+// when the 10 seconds of a status run out, and a clone whose file listing
+// passes 4 MiB (some tens of thousands of tracked files) answers failed.
 func CloneStatus(ctx context.Context, home string, req terminalproto.RepoCloneStatus, git GitRunner) terminalproto.RepoCloneState {
 	ctx, cancel := context.WithTimeout(ctx, cloneStatusTimeout)
 	defer cancel()
@@ -219,6 +226,19 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 	}
 	if !ownConfig(filepath.Join(at.dest, ".git")) {
 		return refuse(terminalproto.RepoCloneExists)
+	}
+	// No content filter runs while the clone is looked at: every filter the
+	// clone's config or the person's names is switched off for the calls
+	// that follow, as InspectSession does. cloneCheckArgs already names the
+	// LFS filter, so the listing is never empty: a call that fails, lists
+	// nothing or may be cut short means the filters are not known.
+	keys, err := git(pinGitDir(ctx, at.dest), at.dest, filterKeysArgs...)
+	if err != nil || len(keys) == 0 || len(keys) >= gitOutputLimit {
+		return refuse(failed(err))
+	}
+	checked, off := git, filterOffArgs(keys)
+	git = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		return checked(ctx, dir, append(append([]string{}, off...), args...)...)
 	}
 	// As adoptClone reads it: the folder's own config only, no rewrite, and
 	// exactly one origin. git's exit 1 is never taken as "no origin".

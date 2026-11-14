@@ -70,7 +70,7 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 	r.Repo = true
 	// Status and diff may apply repository clean/process filters while comparing the
 	// working copy. Disable every configured driver before either operation.
-	keys, configErr := git("config", "--name-only", "--get-regexp", `^filter\..*\.(clean|process|required)$`)
+	keys, configErr := git(filterKeysArgs...)
 	if len(keys) >= 128<<10 {
 		r.Reason = "git_failed"
 		return r
@@ -79,15 +79,7 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 		r.Reason = "git_failed"
 		return r
 	}
-	for _, key := range strings.Fields(string(keys)) {
-		if strings.HasPrefix(key, "filter.") {
-			value := ""
-			if strings.HasSuffix(key, ".required") {
-				value = "false"
-			}
-			filterArgs = append(filterArgs, "-c", key+"="+value)
-		}
-	}
+	filterArgs = filterOffArgs(keys)
 	branch, _ := git("symbolic-ref", "--quiet", "--short", "HEAD")
 	r.Branch = inspectPlain(strings.TrimSpace(string(branch)), 1024)
 	// The page links the repository before any pull request exists, so the status

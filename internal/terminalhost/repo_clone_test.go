@@ -2672,3 +2672,114 @@ func TestRemoveCloneRefusesAFolderAnotherUserOwns(t *testing.T) {
 		})
 	}
 }
+
+// A content filter the clone's own config or the person's names is never
+// run by a status or a remove, even for a file git must read again.
+func TestCloneStatusRunsNoContentFilter(t *testing.T) {
+	for _, tc := range []struct {
+		test string
+		// make names the filter; marker is the file its command leaves.
+		make func(t *testing.T, f *cloneFixture, dir, marker string)
+		// removable says whether the clone still holds nothing.
+		removable bool
+	}{
+		// The attributes are in .git/info, so the clone holds nothing new: it
+		// is removable, and removed.
+		{"in the clone's config, attributes in .git/info", func(t *testing.T, f *cloneFixture, dir, marker string) {
+			testGit(t, dir, "config", "filter.x.clean", "sh -c 'echo ran >> "+marker+"; cat'")
+			testGit(t, dir, "config", "filter.x.smudge", "sh -c 'echo ran >> "+marker+"; cat'")
+			testGit(t, dir, "config", "filter.x.required", "true")
+			writeFile(t, filepath.Join(dir, ".git", "info", "attributes"), "README filter=x\n")
+		}, true},
+		// An untracked .gitattributes is itself a change: one entry, kept.
+		{"in the clone's config, a .gitattributes file", func(t *testing.T, f *cloneFixture, dir, marker string) {
+			testGit(t, dir, "config", "filter.x.clean", "sh -c 'echo ran >> "+marker+"; cat'")
+			writeFile(t, filepath.Join(dir, ".gitattributes"), "README filter=x\n")
+		}, false},
+		{"in the person's config", func(t *testing.T, f *cloneFixture, dir, marker string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[filter \"g\"]\n\tclean = \"sh -c 'echo ran >> "+marker+"; cat'\"\n\trequired = true\n")
+			writeFile(t, filepath.Join(dir, ".git", "info", "attributes"), "README filter=g\n")
+		}, true},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			marker := filepath.Join(f.home, "filter-ran")
+			tc.make(t, f, dir, marker)
+			// Stale stat info: git must read the file again to compare it.
+			agePath(t, filepath.Join(dir, "README"), time.Hour)
+			before := snapshot(t, f.home)
+			s := f.status(t, dir, "o/r")
+			if tc.removable {
+				wantCounts(t, s, 0, 0, 0, 0)
+			} else {
+				wantCounts(t, s, 0, 1, 0, 0)
+			}
+			wantMissing(t, marker)
+			if after := snapshot(t, f.home); !slices.Equal(after, before) {
+				t.Fatal("status changed the home")
+			}
+			r := f.remove(t, dir, "o/r", s.Fingerprint)
+			if tc.removable {
+				if r != (terminalproto.RepoCloneRemoved{Dir: dir}) {
+					t.Fatalf("remove = %+v", r)
+				}
+				wantMissing(t, dir)
+			} else {
+				wantKept(t, r, terminalproto.RepoCloneNotRemovable, f.home, before)
+			}
+			wantMissing(t, marker)
+		})
+	}
+}
+
+// A listing of the configured filters that git could not give, or that may
+// be cut short, is a failure: nothing is looked at with filters left on.
+func TestCloneStatusFailsWhenTheFiltersCannotBeListed(t *testing.T) {
+	for _, tc := range []struct {
+		test string
+		out  []byte
+		err  error
+	}{
+		{"git failed", nil, errors.New("exit status 128")},
+		{"nothing listed", nil, errors.New("exit status 1")},
+		{"a listing that may be cut short", []byte(strings.Repeat("filter.x.clean\x00", gitOutputLimit/15+1)), nil},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			shown := f.status(t, dir, "o/r")
+			var later [][]string
+			listed := false
+			odd := func(ctx context.Context, d string, args ...string) ([]byte, error) {
+				if slices.Contains(args, "--get-regexp") {
+					listed = true
+					return tc.out, tc.err
+				}
+				if listed {
+					later = append(later, args)
+				}
+				return f.git(ctx, d, args...)
+			}
+			before := snapshot(t, f.home)
+			if s := f.statusWith(t, dir, "o/r", odd); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneFailed}) || !listed {
+				t.Fatalf("state = %+v (listed %v), want failed", s, listed)
+			}
+			if len(later) != 0 {
+				t.Fatalf("git ran after the listing failed: %q", later)
+			}
+			wantKept(t, f.removeWith(t, dir, "o/r", shown.Fingerprint, odd), terminalproto.RepoCloneFailed, f.home, before)
+		})
+	}
+}
+
+func TestFilterOffArgs(t *testing.T) {
+	got := filterOffArgs([]byte("filter.lfs.clean\x00filter.my x.process\x00filter.a.required\x00filter.a.smudge\x00core.editor\x00\x00"))
+	want := []string{"-c", "filter.lfs.clean=", "-c", "filter.my x.process=", "-c", "filter.a.required=false", "-c", "filter.a.smudge="}
+	if !slices.Equal(got, want) {
+		t.Fatalf("filterOffArgs = %q, want %q", got, want)
+	}
+	if got := filterOffArgs(nil); len(got) != 0 {
+		t.Fatalf("filterOffArgs(nil) = %q", got)
+	}
+}

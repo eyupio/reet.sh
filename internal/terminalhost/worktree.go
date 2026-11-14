@@ -100,6 +100,30 @@ var errGitMissing = errors.New("git is not installed")
 // and from trusting what such a program cached: no file-system monitor
 // hook (which could also hide an edit from status), no untracked cache, no
 // hooks, no external diff, no attributes file from outside the repository.
+// filterKeysArgs lists, NUL-separated, the name of every setting of every
+// configured content filter; filterOffArgs turns the listing into the -c
+// arguments that switch them all off.
+var filterKeysArgs = []string{"config", "-z", "--name-only", "--get-regexp", `^filter\..*\.(clean|smudge|process|required)$`}
+
+// filterOffArgs is, for each filter setting in keys (the output of
+// filterKeysArgs), a -c argument that empties it, or sets required to
+// false: git then runs no clean, smudge or process command, whatever the
+// repository's attributes select.
+func filterOffArgs(keys []byte) []string {
+	var args []string
+	for _, key := range strings.Split(string(keys), "\x00") {
+		if !strings.HasPrefix(key, "filter.") {
+			continue
+		}
+		value := ""
+		if strings.HasSuffix(key, ".required") {
+			value = "false"
+		}
+		args = append(args, "-c", key+"="+value)
+	}
+	return args
+}
+
 var readOnlyGitArgs = []string{"-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "core.attributesFile=/dev/null"}
 
 // ExecGit runs git found by exec.LookPath as an argument vector, never through

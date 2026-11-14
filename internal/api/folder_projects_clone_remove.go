@@ -125,6 +125,48 @@ func (s *server) cloneStateSentence(uid int64, p store.FolderProject, machine st
 	return cloneStays(machine, "it holds work that isn't on GitHub.")
 }
 
+// cloneOpenSessions counts the account's sessions that have not stopped and
+// run in the clone's own folder or below it on the project's machine: a
+// plain terminal, a resumed conversation, a chat. A session in a worktree of
+// its own is recorded under the worktree's folder and is the machine's to
+// count. A session started after this look is not seen.
+func (s *server) cloneOpenSessions(uid int64, p store.FolderProject) (int, error) {
+	sessions, err := s.st.TerminalSessionsFor(uid)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, t := range sessions {
+		inside := t.Dir == p.Dir || strings.HasPrefix(t.Dir, p.Dir+"/")
+		if t.AgentID == p.Host && !t.State.Closed() && inside {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// cloneBusySentence is why a clone with n open sessions in it stays.
+func cloneBusySentence(machine string, n int) string {
+	if n == 1 {
+		return cloneStays(machine, "1 session is still open in it. End that session first.")
+	}
+	return cloneStays(machine, fmt.Sprintf("%d sessions are still open in it. End those sessions first.", n))
+}
+
+// cloneHeldBack is the sentence that keeps the clone before any machine is
+// asked: sessions open in it, or a list of sessions that cannot be read (the
+// clone then stays, as when its machine cannot be asked). "" when neither.
+func (s *server) cloneHeldBack(uid int64, p store.FolderProject, machine string) string {
+	n, err := s.cloneOpenSessions(uid, p)
+	if err != nil {
+		return cloneCantAsk(machine)
+	}
+	if n > 0 {
+		return cloneBusySentence(machine, n)
+	}
+	return ""
+}
+
 // cloneReachable reports whether the project's machine can be asked about
 // its clone now: connected, with terminal access on, and a reet that knows
 // how. Nothing is sent to a machine that is not.
@@ -171,6 +213,10 @@ func (s *server) folderProjectCloneState(w http.ResponseWriter, r *http.Request)
 		kept(terminalproto.RepoCloneState{}, cloneNotFound(machine, p))
 		return
 	}
+	if sentence := s.cloneHeldBack(uid, p, machine); sentence != "" {
+		kept(terminalproto.RepoCloneState{}, sentence)
+		return
+	}
 	if !s.cloneReachable(uid, p.Host) {
 		kept(terminalproto.RepoCloneState{}, cloneCantAsk(machine))
 		return
@@ -215,6 +261,10 @@ func (s *server) removeProjectClone(uid int64, p store.FolderProject, machine, f
 	if !s.cloneReachable(uid, p.Host) {
 		return kept(cloneCantAsk(machine))
 	}
+	// Looked at last, just before the machine is asked.
+	if sentence := s.cloneHeldBack(uid, p, machine); sentence != "" {
+		return kept(sentence)
+	}
 	ctx, cancel := context.WithTimeout(s.baseContext(), terminalbroker.RepoCloneRemoveCallTimeout)
 	defer cancel()
 	removed, err := s.terminals.RemoveClone(ctx, uid, p.Host, terminalproto.RepoCloneRemove{Dir: dir, Origin: origin, Fingerprint: fingerprint})
@@ -230,7 +280,12 @@ func (s *server) removeProjectClone(uid int64, p store.FolderProject, machine, f
 	}
 	switch removed.Reason {
 	case "":
-		return removed.Dir, nil
+		if removed.Dir != dir {
+			// The machine names another folder than the one it was asked
+			// about: what happened to the clone is not known.
+			return "", unconfirmed
+		}
+		return dir, nil
 	case terminalproto.RepoCloneChanged, terminalproto.RepoCloneNotRemovable:
 		// It was removable when shown, so not removable now is a change too.
 		return "", &projectRefusal{http.StatusConflict, "clone_changed", "", sentenceCloneChanged, ""}

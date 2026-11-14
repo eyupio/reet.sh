@@ -1,13 +1,18 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -564,5 +569,240 @@ func TestCloneFolderIsOnlyTheCloneOfTheStoredOrigin(t *testing.T) {
 		if ok != c.ok || (ok && (dir != c.p.Dir || origin != c.p.Origin)) || (!ok && (dir != "" || origin != "")) {
 			t.Errorf("%s: cloneFolder = %q %q %v", c.name, dir, origin, ok)
 		}
+	}
+}
+
+// openSession records a session of the account on agent in dir, in state.
+func (f *browseAPI) openSession(t *testing.T, agent, dir string, state terminalproto.SessionState, worktree string) {
+	t.Helper()
+	rec, err := f.st.RemoteCapabilitiesFor(f.uid, agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := terminalproto.Create{Title: "Agent", Cols: 80, Rows: 24, Tool: "claude", Dir: dir}
+	if worktree != "" {
+		create.Worktree, create.Project = worktreeTestRun, worktreeTestProject
+	}
+	session, _, err := f.st.ReserveTerminalCreateFor(f.uid, agent, terminalbroker.ID(), rec.Generation, create)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worktree != "" {
+		if err := f.st.RecordTerminalWorktreeFor(f.uid, agent, session.ID, worktree, "site"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state == terminalproto.Creating {
+		return
+	}
+	if err := f.st.ObserveTerminalStateFor(f.uid, agent, session.ID, rec.Generation, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+	if state == terminalproto.Ended {
+		if err := f.st.ObserveTerminalStateFor(f.uid, agent, session.ID, rec.Generation, terminalproto.EndRequested, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state != terminalproto.Running {
+		var exit *int
+		if state == terminalproto.Exited {
+			exit = new(int)
+		}
+		if err := f.st.ObserveTerminalStateFor(f.uid, agent, session.ID, rec.Generation, state, exit); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A session running in the clone's own folder keeps the clone, and the
+// machine is not asked at all.
+func TestCloneWithOpenSessionsIsKept(t *testing.T) {
+	const one = "The clone on studio is kept: 1 session is still open in it. End that session first."
+	const three = "The clone on studio is kept: 3 sessions are still open in it. End those sessions first."
+	check := func(t *testing.T, f *browseAPI, id, sentence string) {
+		t.Helper()
+		code, out, raw := f.cloneRoute(t, f.cookie, id)
+		if code != 200 || out["removable"] != false || out["sentence"] != sentence {
+			t.Fatalf("clone = %d %s", code, raw)
+		}
+		if _, present := out["fingerprint"]; present {
+			t.Fatalf("a kept clone gave a fingerprint: %s", raw)
+		}
+		f.freshWrites()
+		status, answer := f.remove(t, f.cookie, id, deleteCloneBody(cloneFingerprint), `"1"`)
+		if status != http.StatusConflict || answer["code"] != "clone_kept" || answer["error"] != sentence {
+			t.Fatalf("remove = %d %v", status, answer)
+		}
+		if sent := f.sentRequests(); len(sent) != 0 {
+			t.Fatalf("the machine was asked %+v", sent)
+		}
+		f.projectKept(t, id)
+	}
+	t.Run("one", func(t *testing.T) {
+		f := browseAPIFixture(t, cloneRemoveCaps())
+		p := f.clonedProject(t)
+		f.machineClone(cleanClone(), terminalproto.RepoCloneRemoved{Dir: siteCloneDir})
+		f.openSession(t, f.agent, siteCloneDir, terminalproto.Running, "")
+		check(t, f, p.ID, one)
+	})
+	t.Run("three, one starting, one ending, one below the folder", func(t *testing.T) {
+		f := browseAPIFixture(t, cloneRemoveCaps())
+		p := f.clonedProject(t)
+		f.machineClone(cleanClone(), terminalproto.RepoCloneRemoved{Dir: siteCloneDir})
+		f.openSession(t, f.agent, siteCloneDir, terminalproto.Creating, "")
+		f.openSession(t, f.agent, siteCloneDir, terminalproto.EndRequested, "")
+		f.openSession(t, f.agent, siteCloneDir+"/web", terminalproto.Running, "")
+		check(t, f, p.ID, three)
+	})
+	// Sessions that do not count: closed ones, one on another machine, one in
+	// a folder that only starts with the same letters, and one in a worktree
+	// of its own (the machine counts those).
+	t.Run("none that count", func(t *testing.T) {
+		f := browseAPIFixture(t, cloneRemoveCaps())
+		p := f.clonedProject(t)
+		f.machineClone(cleanClone(), terminalproto.RepoCloneRemoved{Dir: siteCloneDir})
+		other := f.addMachine(t, "attic", cloneRemoveCaps())
+		for _, state := range []terminalproto.SessionState{terminalproto.Ended, terminalproto.Exited, terminalproto.Lost} {
+			f.openSession(t, f.agent, siteCloneDir, state, "")
+		}
+		f.openSession(t, other, siteCloneDir, terminalproto.Running, "")
+		f.openSession(t, f.agent, siteCloneDir+"-old", terminalproto.Running, "")
+		f.openSession(t, f.agent, siteCloneDir, terminalproto.Running, worktreeTestPath)
+		code, out, raw := f.cloneRoute(t, f.cookie, p.ID)
+		if code != 200 || out["removable"] != true {
+			t.Fatalf("clone = %d %s", code, raw)
+		}
+		f.freshWrites()
+		status, answer := f.remove(t, f.cookie, p.ID, deleteCloneBody(cloneFingerprint), `"1"`)
+		if status != 200 || answer["cloneDeleted"] != true {
+			t.Fatalf("remove = %d %v", status, answer)
+		}
+	})
+}
+
+// The folder in the audit row is the one reet asked about; a machine that
+// says it deleted another folder has confirmed nothing.
+func TestRemoveProjectDoesNotTrustAnotherFolderInTheAnswer(t *testing.T) {
+	f := browseAPIFixture(t, cloneRemoveCaps())
+	p := f.clonedProject(t)
+	f.machineClone(cleanClone(), terminalproto.RepoCloneRemoved{Dir: browseTestHome + "/reet/repos/acme/docs"})
+	code, out := f.remove(t, f.cookie, p.ID, deleteCloneBody(cloneFingerprint), `"1"`)
+	if code != http.StatusConflict || out["code"] != "clone_unconfirmed" || out["error"] != "reet couldn't confirm whether the clone on studio was removed. Check again." {
+		t.Fatalf("remove = %d %v", code, out)
+	}
+	f.projectKept(t, p.ID)
+}
+
+// Two tabs: the project went while the machine deleted the clone. The clone's
+// deletion is recorded under its own name, never as a second project-remove.
+func TestRemoveProjectAlreadyGoneRecordsOnlyTheClone(t *testing.T) {
+	f := browseAPIFixture(t, cloneRemoveCaps())
+	p := f.clonedProject(t)
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		if err := f.st.DeleteFolderProjectFor(f.uid, p.ID, 0); err != nil {
+			t.Error(err)
+		}
+		return terminalproto.RepoCloneRemoved{Dir: siteCloneDir}
+	})
+	code, out := f.remove(t, f.cookie, p.ID, deleteCloneBody(cloneFingerprint), `"1"`)
+	if code != 200 || out["cloneDeleted"] != true {
+		t.Fatalf("remove = %d %v", code, out)
+	}
+	if rows := projectEvents(t, f.st, f.uid, "project-remove"); len(rows) != 0 {
+		t.Fatalf("a second project-remove row: %v", rows)
+	}
+	rows := projectEvents(t, f.st, f.uid, "project-clone-delete")
+	if len(rows) != 1 || rows[0]["cloneDeleted"] != true || rows[0]["clonePath"] != siteCloneDir || rows[0]["project"] != p.ID {
+		t.Fatalf("audit %v", rows)
+	}
+}
+
+// The browser going away does not stop a delete the machine was asked for:
+// when the machine confirms, the project is removed.
+func TestRemoveProjectOutlivesTheRequest(t *testing.T) {
+	f := browseAPIFixture(t, cloneRemoveCaps())
+	p := f.clonedProject(t)
+	f.answering(func(terminalproto.Body) terminalproto.Body { return nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	r := httptest.NewRequest("DELETE", "/api/v2/folder-projects/"+p.ID, strings.NewReader(deleteCloneBody(cloneFingerprint))).WithContext(ctx)
+	r.Header.Set("Origin", "https://reet.example")
+	r.Header.Set("Content-Type", "application/json")
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: f.cookie})
+	done := make(chan struct{})
+	go func() { f.srv.ServeHTTP(httptest.NewRecorder(), r); close(done) }()
+	f.waitHeld(t, 1)
+	cancel()
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-done:
+		t.Fatal("the delete was given up when the request ended")
+	default:
+	}
+	f.release(t, terminalproto.RepoCloneRemoved{Dir: siteCloneDir})
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the delete never finished")
+	}
+	if _, err := f.st.FolderProjectFor(f.uid, p.ID); err == nil {
+		t.Fatal("the project is still there")
+	}
+	if rows := projectEvents(t, f.st, f.uid, "project-remove"); len(rows) != 1 || rows[0]["cloneDeleted"] != true || rows[0]["clonePath"] != siteCloneDir {
+		t.Fatalf("audit %v", rows)
+	}
+}
+
+// The clone is gone and the store then fails: the answer says so, and the
+// deletion is still recorded.
+func TestRemoveProjectSaysWhenTheCloneWentButTheProjectStayed(t *testing.T) {
+	f := browseAPIFixture(t, cloneRemoveCaps())
+	p := f.clonedProject(t)
+	f.machineClone(cleanClone(), terminalproto.RepoCloneRemoved{Dir: siteCloneDir})
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(f.st.Path(), "reet.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TRIGGER keep_projects BEFORE DELETE ON folder_projects BEGIN SELECT RAISE(ABORT,'disk fault'); END`); err != nil {
+		t.Fatal(err)
+	}
+	code, out := f.remove(t, f.cookie, p.ID, deleteCloneBody(cloneFingerprint), `"1"`)
+	if code != http.StatusInternalServerError || out["code"] != "clone_deleted_project_kept" || out["error"] != "The clone on studio was deleted, but reet couldn't remove the project just now. Remove it again." {
+		t.Fatalf("remove = %d %v", code, out)
+	}
+	if _, err := f.st.FolderProjectFor(f.uid, p.ID); err != nil {
+		t.Fatalf("the project is gone: %v", err)
+	}
+	if rows := projectEvents(t, f.st, f.uid, "project-remove"); len(rows) != 0 {
+		t.Fatalf("a removal that did not happen was audited: %v", rows)
+	}
+	if rows := projectEvents(t, f.st, f.uid, "project-clone-delete"); len(rows) != 1 || rows[0]["clonePath"] != siteCloneDir {
+		t.Fatalf("audit %v", rows)
+	}
+}
+
+// Reading the clone makes a machine run git and spends the write budget, so
+// a page on another site must not be able to make a browser ask.
+func TestCloneRouteRefusesAnotherSite(t *testing.T) {
+	f := browseAPIFixture(t, cloneRemoveCaps())
+	p := f.clonedProject(t)
+	f.machineClone(cleanClone(), terminalproto.RepoCloneRemoved{Dir: siteCloneDir})
+	path := "/api/v2/folder-projects/" + p.ID + "/clone"
+	for name, headers := range map[string][]string{
+		"cross-site":     {"Sec-Fetch-Site", "cross-site"},
+		"same-site":      {"Sec-Fetch-Site", "same-site"},
+		"another origin": {"Sec-Fetch-Site", "same-origin", "Origin", "https://evil.example"},
+	} {
+		f.freshWrites()
+		code, out, raw := f.get(t, f.cookie, path, headers...)
+		if code != http.StatusForbidden || out["code"] != "origin_refused" {
+			t.Fatalf("%s = %d %s", name, code, raw)
+		}
+	}
+	if sent := f.sentRequests(); len(sent) != 0 {
+		t.Fatalf("the machine was asked %+v", sent)
+	}
+	if code, _, raw := f.get(t, f.cookie, path, "Origin", "https://reet.example"); code != 200 {
+		t.Fatalf("own origin = %d %s", code, raw)
 	}
 }

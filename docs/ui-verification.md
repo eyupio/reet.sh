@@ -3735,7 +3735,7 @@ in Chromium (Google Chrome for Testing 153) with synthetic answers:
   going and the project is chosen when done; reopening Add during the clone shows its status, not a second form; a new
   page load after leaving Home mid-clone reads nothing and finds the project in the list; a failure with the dialog
   closed is said in Home's status line; six failures with the dialog open (not signed in, no access, folder exists,
-  timed out, git settings that send github.com over ssh, terminal access off) show the controller's sentence in the
+  timed out, git settings that send github.com over ssh, the machine refusing to clone) show the controller's sentence in the
   dialog's status line with the typed repository and name kept and focus on **Clone and add**; a clone the controller
   no longer knows (404) says "reet lost track of cloning eyupio/reet.sh. Add it again; if the clone finished, reet
   picks it up." in the dialog's status line with the repository kept, or in Home's status line with the dialog closed,
@@ -3791,7 +3791,8 @@ Testing 153) with synthetic answers:
     **Remove from reet**, and the project is still in the rail. Then 409 `clone_unconfirmed` with a second look that
     says the folder is not there: both sentences show, there is no checkbox, and **Remove from reet** removes the
     project with no body. A `clone_kept` refusal whose sentence the second look repeats is shown once.
-- At 1280 px in light and at 390 px in dark: each of the nine sentences for a clone that stays shows in the status
+- At 1280 px in light and at 390 px in dark: each of the eleven sentences for a clone that stays (the two for sessions
+  still open in it included) shows in the status
   region with no checkbox and no line about ignored files, without sideways scroll; a failed read shows "The clone on
   studio is kept: reet couldn't check it just now."; the plain remove then sends a DELETE with no body.
 - At 1280 px in light only: while the delete is on its way **Cancel**, the checkbox and the button ("Removing…") are
@@ -3799,6 +3800,11 @@ Testing 153) with synthetic answers:
   sent; with the read never answering, **Remove from reet** removes the project at once with no body; a project added
   by path and one adopted from GitHub without reet's marker show the old confirmation, no checkbox, and no request
   ending in `/clone` is made.
+- At 1280 px in light only, added after review: a delete answered 504 with no body leaves the dialog open with "reet
+  couldn't confirm whether the clone on studio was removed. Check again.", never "The terminal connection is
+  unavailable.", no error on the page behind, the clone read a second time and focus on **Remove from reet**; a 500
+  carrying the controller's `clone_deleted_project_kept` shows the controller's sentence in the dialog, which stays
+  open. The 504 case was seen failing first (the dialog closed).
 - Carried over from the From GitHub work, at 1280 px in light: a clone the controller lost (404) while the project is
   in the list says nothing about losing track, shows no error, closes the open dialog and stops reading; a start that
   gets no answer in 15 seconds says "reet didn't hear back about starting the clone. Check the project list in a

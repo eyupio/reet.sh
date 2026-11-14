@@ -55,6 +55,8 @@ const KEPT = {
  work:"The clone on studio is kept: it holds work that isn't on GitHub.",
  mayHoldWork:"The clone on studio is kept: it may hold work that isn't on GitHub.",
  notReets:"The clone on studio is kept: reet didn't make that folder.",
+ openSession:'The clone on studio is kept: 1 session is still open in it. End that session first.',
+ openSessions:'The clone on studio is kept: 3 sessions are still open in it. End those sessions first.',
 }
 
 const SENT = {host:'a1', repo:'eyupio/reet.sh', name:''}
@@ -346,7 +348,7 @@ try {
   ['exists', '~/reet/repos/eyupio/reet.sh on studio already holds something else. Move it, or add that folder as a project.'],
   ['timed_out', 'Cloning eyupio/reet.sh took longer than 10 minutes and was stopped. Nothing was kept.'],
   ['ssh_rewrite', "studio's git settings send github.com over ssh, which reet doesn't use for cloning. Clone eyupio/reet.sh there yourself and add the folder as a project."],
-  ['denied', 'Terminal access is off on studio. Turn it on there, then try again.'],
+  ['denied', 'studio refused to clone: terminal access is off there, or git or the GitHub CLI is missing.'],
  ]) {
   if (!run(`a failed clone (${code}) returns to the form`)) continue
   const {context,page,errors,box} = await scene()
@@ -726,6 +728,49 @@ try {
   await removeButton(page).click()
   await expect(page.getByText(PLAIN,{exact:true})).toBeVisible()
   expect(box.deletes[3]).toEqual({body:null, match:'"1"'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // A delete whose answer is a server or gateway error says nothing about the folder: the machine may be deleting it. The
+ // dialog stays, never claims an outcome it does not know, and looks at the clone again. A 504 with no body (a proxy
+ // that gave up waiting) is said as unconfirmed; a 5xx that carries the controller's own code is said in its words.
+ if (run('a gateway error during the delete keeps the dialog')) {
+  const {context,page,errors,box} = await scene({projects:[cloned({position:0}), notes()]})
+  let gateway = true
+  await page.route(url => new URL(url).pathname === '/api/v2/folder-projects/fp9', route => {
+   if (route.request().method() !== 'DELETE' || !gateway) return route.fallback()
+   box.deletes.push({gateway:true})
+   return route.fulfill({status:504, body:''})
+  })
+  await page.goto(base)
+  await openRemove(page)
+  const d = removeDialog(page)
+  await tickBox(page).check()
+  box.cloneState = keptClone(KEPT.notFound)
+  await removeButton(page).click()
+  await expect(d.locator('[role=status]').filter({hasText:UNCONFIRMED})).toHaveCount(1)
+  await expect(d.getByText(KEPT.notFound,{exact:true})).toBeVisible()
+  await expect(d).not.toContainText('The terminal connection is unavailable.')
+  await expect(page.locator('.notice.bad')).toHaveCount(0)
+  await expect(d.getByRole('checkbox')).toHaveCount(0)
+  await expect(removeButton(page)).toBeFocused()
+  expect(box.cloneReads.length).toBe(2)
+  expect(box.deletes).toEqual([{gateway:true}])
+  await d.getByRole('button',{name:'Cancel',exact:true}).click()
+  // The controller's own 500: the clone went and the project could not be removed. Its sentence, in the dialog.
+  gateway = false
+  const WENT = "The clone on studio was deleted, but reet couldn't remove the project just now. Remove it again."
+  box.cloneState = REMOVABLE
+  box.remove = {status:500, json:{error:WENT, code:'clone_deleted_project_kept'}}
+  await openRemove(page)
+  await tickBox(page).check()
+  box.cloneState = keptClone(KEPT.notFound)
+  await removeButton(page).click()
+  await expect(d.getByText(WENT,{exact:true})).toBeVisible()
+  await expect(d.getByText(KEPT.notFound,{exact:true})).toBeVisible()
+  await expect(d).toBeVisible()
+  await expect(page.getByRole('button',{name:'More for reet.sh',exact:true}).first()).toBeAttached()
   expect(errors).toEqual([])
   await context.close()
  }

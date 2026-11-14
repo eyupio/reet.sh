@@ -88,9 +88,13 @@
       if (life.signal.aborted) return
       if (e instanceof TerminalError && e.status === 401) { shut(); onsignedout(); return }
       const aboutClone = !!refusalCode(e, CLONE_REMOVE_CODES)
-      if (e instanceof TerminalError && !aboutClone) { shut(); onrefused(e); return }
-      // The clone was refused, or the answer never came: say so here, and look at the clone again.
-      refusal = e instanceof TerminalError ? e.message : `reet couldn't confirm whether the clone on ${machine} was removed. Check again.`
+      // A server or gateway error says nothing about the folder: the machine may be deleting it (a proxy that stops
+      // waiting answers 504 while the delete goes on). Like an answer that never came, it stays in the dialog.
+      const unknown = !(e instanceof TerminalError) || e.status >= 500
+      if (!aboutClone && !unknown) { shut(); onrefused(e); return }
+      // The controller's own sentence when the answer is its own (it carries a code); otherwise nothing is claimed.
+      refusal = e instanceof TerminalError && e.code ? e.message : `reet couldn't confirm whether the clone on ${machine} was removed. Check again.`
+      // Then the clone is looked at again.
       const still = await check()
       if (!still) return
       // The same sentence is not said twice.

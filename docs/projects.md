@@ -156,8 +156,8 @@ which hold the same rail) is open, with the dialog open or not; when it is done 
 and chosen in the rail, with "Sorted. name added." The clone being read is kept in memory for the
 page's life only; a page opened later simply finds the project in its list. A failure is the
 controller's sentence ("studio isn't signed in to GitHub. Run gh auth login there, then try again.",
-"GitHub has no owner/name that studio's sign-in can read.", "Terminal access is off on studio. Turn it
-on there, then try again.", the folder holding something else, ten minutes running out) in the dialog's
+"GitHub has no owner/name that studio's sign-in can read.", "studio refused to clone: terminal access
+is off there, or git or the GitHub CLI is missing.", the folder holding something else, ten minutes running out) in the dialog's
 status line with what was typed still there, or in Home's status line when the dialog was closed. When
 the controller no longer knows the clone (it restarted mid-clone, or the clone ended more than ten
 minutes ago), the same place says "reet lost track of cloning owner/name. Add it again; if the clone
@@ -212,7 +212,8 @@ time the dialog opens:
 
 With the tick, the machine looks at the clone again, deletes the folder, and only then is the project
 removed: "Project removed. ~/reet/repos/owner/name was deleted from studio." The dialog cannot be
-closed while that is on its way (a minute at most). The owner's folder `~/reet/repos/owner` goes too
+closed while that is on its way (about a minute at most: the machine has 60 seconds, and the browser
+waits up to 75). The owner's folder `~/reet/repos/owner` goes too
 when that left it empty; `~/reet/repos` and everything above it are never touched.
 
 What goes with the folder: everything in it. That includes files git ignores (`.env`, build output,
@@ -223,6 +224,7 @@ The tick is not offered, and one sentence says why, when any of these is true (f
 
 | What the machine found | The dialog says |
 | --- | --- |
+| A session is running in the clone's own folder or below it (a plain terminal, a resumed conversation, a chat); the machine is not asked | The clone on studio is kept: 1 session is still open in it. End that session first. |
 | The machine is offline, runs an older reet, is busy, or did not answer in time | The clone on studio is kept: studio can't be asked right now. |
 | Terminal access is off on the machine | The clone on studio is kept: terminal access is off on studio. |
 | Nothing is at `~/reet/repos/owner/name`, or the folders down to it are not plain folders of that user | The clone on studio is kept: reet can't find it at ~/reet/repos/owner/name. |
@@ -231,6 +233,10 @@ The tick is not offered, and one sentence says why, when any of these is true (f
 | A session still has a worktree from the clone, a finished one waiting for the clean-up included | The clone on studio is kept: 2 sessions still have worktrees from it. Remove those sessions first. |
 | Uncommitted or untracked files, a stash, or a local branch (or a detached HEAD) with commits that are on no branch of `origin` | The clone on studio is kept: it holds work that isn't on GitHub. |
 | Something reet cannot check: a repository inside the clone (a submodule, or one in an ignored folder), files git was told not to look at, a rebase, a patch series or a merge under way, or git writing at that moment | The clone on studio is kept: it may hold work that isn't on GitHub. |
+
+Open sessions are counted from reet's own record just before the machine is asked, when the dialog
+opens and again at the delete. A session started in the instant between that last look and the delete
+is not seen and can lose its folder.
 
 A machine with terminal access off usually reads as "can't be asked right now", because the
 controller does not ask it at all; the terminal access sentence is for a machine that answers and
@@ -244,7 +250,8 @@ tracked files, or one that takes more than ten seconds to walk) is kept as "can'
 Between the dialog and the click the clone can change. The delete names exactly what the dialog was
 shown, and the machine refuses when it differs: "The clone changed just now, so nothing was removed.
 Check again." The project and the folder both stay, the dialog reads the clone again and the tick is
-off. If the machine's answer never arrives, reet does not guess: "reet couldn't confirm whether the
+off. If the machine's answer never arrives, or something between the browser and reet answers
+with an error of its own, reet does not guess: "reet couldn't confirm whether the
 clone on studio was removed. Check again." The project stays and the dialog looks again. If the
 folder did go, it then says reet can't find it, and **Remove from reet** without the tick removes the
 project.
@@ -285,12 +292,14 @@ plain sentence, and a field refusal names the field so the dialog can move focus
   true, "fingerprint": "…"}` (the fingerprint the clone read gave) the machine deletes the clone first and
   the answer is `{ok, cloneDeleted: true, message}`; the project stays on 422 `not_cloned` (reet did
   not clone it; nothing is sent), 422 `invalid_fingerprint`, 409 `clone_changed`, 409 `clone_kept`
-  (with why) and 409 `clone_unconfirmed` (the answer was lost, or the delete may have begun). No other
+  (with why) and 409 `clone_unconfirmed` (the answer was lost, or the delete may have begun). 500
+  `clone_deleted_project_kept` means the clone went and the project could not be removed. No other
   field is accepted, so a request cannot name a folder.
 - `GET /folder-projects/{id}/clone` → `{removable, worktrees, changed, stashes, unpushed, sentence,
-  fingerprint?}` for a project reet cloned, as its machine sees the clone now: `fingerprint` only
-  when `removable`, `sentence` only when not. 404 `not_cloned` for any other project. It counts
-  towards the write limit, because it makes a machine run git.
+  fingerprint?}` for a project reet cloned, as its machine sees the clone now: `sentence` is always
+  there, `""` when `removable`; `fingerprint` is there only when `removable`. 404 `not_cloned` for any
+  other project. It makes a machine run git, so it counts towards the write limit and, unlike the
+  other reads, refuses a request a browser marks as coming from another site (403 `origin_refused`).
 - `POST /folder-projects/reorder` with `{ids, versions}` naming every project once → the list.
 - `POST /folder-projects/import-saved` with `{}` → the list plus `{created, skipped, message}`.
 - `POST /folder-projects/from-github` with `{host, repo, name}` (`repo` as `owner/name` or its
@@ -621,7 +630,8 @@ kept." *Remove worktree* never deletes the branch.
 `project-add`, `project-update` and `project-remove` record the project's id, machine (id and name),
 folder and name (and, for a project added from GitHub, its `origin` and `cloned`; for a removal that also deleted the clone,
 `cloneDeleted: true` and `clonePath`, the folder the machine said it deleted, written only once the machine confirmed it;
-if the clone was deleted and the project then could not be removed, the row is `project-clone-delete` instead); `projects-migrated` the saved Project's name and the folder projects made from it;
+if the clone was deleted and the project then could not be removed, or another tab had already removed it, the row is
+`project-clone-delete` instead); `projects-migrated` the saved Project's name and the folder projects made from it;
 `folder-browse` one row per opened browser (machine, starting folder, pages). None carries a starter
 prompt. Activity reads them as, for example, "Added project reet (/home/me/reet on studio)", "Removed
 project reet; its folder on studio is untouched", "Removed project site and deleted its clone,

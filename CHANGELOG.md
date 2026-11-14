@@ -11,12 +11,14 @@ this file existed releases were described on their GitHub release pages.
   ~/reet/repos/owner/name from studio". Files git ignores there, such as .env
   or build output, are deleted with it. The tick is not offered, and one
   sentence says why, when a session still has a worktree from the clone, when
+  a session is still running in the clone's own folder, when
   it has uncommitted files, a stash or commits that aren't on GitHub, when it
   holds something reet can't check (a repository inside it, a rebase under
   way), when reet didn't make the folder, or when the machine can't be asked.
   The machine looks again before it deletes: if the clone changed since the
   dialog, nothing is removed and the project stays. If the machine's answer is
-  lost, reet says it couldn't confirm and keeps the project. Removing without
+  lost, or a proxy in front of reet gives up waiting, reet says it couldn't
+  confirm and keeps the project. Removing without
   the tick works as before and never touches the folder, and reet never
   deletes a folder it did not clone. Activity records the deletion with the
   folder. The machine needs a current reet for this; an older one keeps the
@@ -26,7 +28,9 @@ this file existed releases were described on their GitHub release pages.
   project list in a minute." instead of saying the request never arrived;
   pressing Escape repeatedly while the start is on its way no longer hides the
   dialog; and when reet loses track of a clone that had finished, the project
-  simply appears, without the "lost track" message.
+  simply appears, without the "lost track" message. A machine that refuses a
+  clone now says "studio refused to clone: terminal access is off there, or git
+  or the GitHub CLI is missing." instead of naming terminal access alone.
 - You can add a project from a GitHub repository that isn't on any machine
   yet. **Add** in the project rail now offers **From GitHub** beside **Folder
   on a machine**: write `owner/name` or paste the github.com link, choose the

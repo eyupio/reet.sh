@@ -283,7 +283,7 @@ func TestAddFromGitHubReportsEachRefusal(t *testing.T) {
 		{terminalproto.RepoCloneTimedOut, "Cloning Acme/Site took longer than 10 minutes and was stopped. Nothing was kept."},
 		{terminalproto.RepoCloneFailed, "Couldn't clone Acme/Site on studio."},
 		{terminalproto.RepoCloneBusy, "studio is already cloning a repository. Try again when it finishes."},
-		{terminalproto.RepoCloneDenied, "Terminal access is off on studio. Turn it on there, then try again."},
+		{terminalproto.RepoCloneDenied, "studio refused to clone: terminal access is off there, or git or the GitHub CLI is missing."},
 		{terminalproto.RepoCloneSSHRewrite, "studio's git settings send github.com over ssh, which reet doesn't use for cloning. Clone Acme/Site there yourself and add the folder as a project."},
 	} {
 		t.Run(string(c.reason), func(t *testing.T) {

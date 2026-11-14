@@ -333,7 +333,9 @@ func cloneRefusal(err error, reason terminalproto.RepoCloneReason, machine, repo
 	case terminalproto.RepoCloneBusy:
 		return string(reason), machine + " is already cloning a repository. Try again when it finishes."
 	case terminalproto.RepoCloneDenied:
-		return string(reason), "Terminal access is off on " + machine + ". Turn it on there, then try again."
+		// The machine answers denied for each of these and the controller is
+		// not told which: a missing gh is not advertised again.
+		return string(reason), machine + " refused to clone: terminal access is off there, or git or the GitHub CLI is missing."
 	case terminalproto.RepoCloneSSHRewrite:
 		return string(reason), machine + "'s git settings send github.com over ssh, which reet doesn't use for cloning. Clone " + repo + " there yourself and add the folder as a project."
 	}

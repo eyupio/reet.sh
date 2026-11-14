@@ -160,6 +160,12 @@ An ordinary chat now shows them too.
   source ([structured sessions](docs/structured-sessions.md#what-the-agent-has-used)).
 - **Not done:** the sessions list and the hover card show no usage; no price; no plan or rate-limit allowance (that is
   separate work); nothing was run against a signed-in agent, so which agents actually send the figures is still unknown.
+- **Later the same day:** `chat-usage.e2e.mjs` failed once in CI and about one run in twelve here. It measured the
+  figure in the instant after the window shrank from 1360 to 390 px, before the page had changed to its phone
+  arrangement (the status line was 58 px wide for that moment and right 300 ms later). The three measurements now
+  wait for the arrangement the page settles in. 60 runs passed, and the check was again seen failing with the
+  clearance removed. The moment itself, a wide arrangement squeezed into a narrow window until the page reacts, was
+  not looked into.
 
 ## CI-FLAKE-1: two checks that failed on unchanged code (13 November 2026)
 

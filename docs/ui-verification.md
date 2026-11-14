@@ -1,5 +1,24 @@
 # UI verification — 4 November 2026
 
+## The on-screen terminal keys (14 November 2026)
+
+The terminal's on-screen keys were rebuilt: shown on every touch screen, a row that leads with Esc, Tab and the
+modifiers with the arrows fixed at its end, modifiers that lock, keys that repeat when held, and a second row in place
+of the floating pad.
+
+Commands run in this container:
+
+- `cd web && npm ci --no-audit --no-fund`, `npm run check`, `npm run build`.
+- `npm run dev -- --host 127.0.0.1 --port 4175` and, with `REET_UI_URL` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` set,
+  `node tests/terminal-phone.e2e.mjs`: passes. The same test run against main's code fails at the first new check (the
+  arrows are not in the fixed part of the row). Five behaviours were each broken in turn and the test seen to fail.
+- The existing suites `sessions`, `phone-layout`, `phone-zoom`, `terminal-workspace`, `terminal-lifecycle`,
+  `terminal-clipboard`, `terminal-upload`, `calm-session` and `sessions-phone`: pass.
+- Screenshots of both rows at 320, 390, 625 and 1000 px wide on an emulated touch screen were looked at, with one
+  modifier on for the next key and one locked.
+
+Not checked: a physical phone or tablet (touch is emulated and holds are mouse presses), Firefox, Safari.
+
 ## Moving a controller from the Backups page (13 November 2026)
 
 **Admin → Backups** gained **Move this controller away** (fence, final copy

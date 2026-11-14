@@ -18,6 +18,53 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## TERMINAL-KEYS-1: the on-screen terminal keys, rebuilt (14 November 2026)
+
+The owner asked for the on-screen keys to be checked and made more like a phone SSH client's extra-key row, and chose
+the scope: **the rebuilt bar**, without a settings panel to customise it and without swipe gestures.
+
+What was wrong, each seen by running it at phone and tablet sizes:
+
+- The keys were hidden on any touch screen wider than 650 px (a tablet), unless it was a sideways phone.
+- At 390 px the row's 13 keys needed 616 px: everything after the Up arrow was off screen until scrolled.
+- The pad's navigation keys were clipped to "Ho…", "E…", "Pg…", "Pg…", "I…", "D…".
+- A modifier applied to one key only, one modifier at a time; nothing repeated when held.
+- A modifier that was on drew its label in the fill's colour unless the pointer was over it (`.tools button[aria-pressed]`
+  outranked `.key-modifier[aria-pressed]`).
+- Every key called `terminal.focus()`, which opens the device's keyboard on a phone.
+
+What changed (browser only; nothing in Go, the protocol or the machine):
+
+- `web/src/lib/terminal/virtualKeys.ts`: the keys (`barKeys`, `arrowKeys`, `keyGroups`), the modifier state
+  (`noModifiers`, `tapModifier`: off → next → locked → off; `afterKey`; `activeModifiers`), `withModifiers` for several
+  modifiers at once (xterm's parameter is one plus Shift 1, Alt 2, Ctrl 4), and `repeats`.
+- `TerminalPane.svelte`: one row that stays (a part that scrolls, then the arrows and the second row's button, which do
+  not), a second row above it with four groups, `keycapAction` for tap and hold-to-repeat, the modifiers joining typed
+  input through `term.onData`, no forced focus on touch, and the row shown under `(pointer:coarse)` at any width with
+  44 px keys above phone size. The floating pad and its styles are gone.
+- The second row takes its height from the screen, so opening it resizes the terminal once. That is the owner's choice
+  over the pad that floated above the screen.
+- Docs: [On-screen keys](docs/terminal-workspace.md#on-screen-keys).
+
+Checked: `terminal-keys.test.mjs` (six cases) and `terminal-phone.e2e.mjs`, which now covers the fixed arrows, the
+modifier cycle, two modifiers on one key, a locked modifier joining typed input, the label's colour, hold-to-repeat to
+the millisecond with the page's clock held, sliding off a held key, a key that acts once, the second row's groups and
+bytes, its height, clipped caps, what is remembered, and touch tablets at 820 × 1180 and 1180 × 820. The new test fails
+on the old code, and five behaviours were each broken in turn and seen to fail (nothing repeats, the tap after a hold
+sends one more, sliding off does not stop, the old label colour, hidden on tablets). The existing suites `sessions`,
+`phone-layout`, `phone-zoom`, `terminal-workspace`, `terminal-lifecycle`, `terminal-clipboard`, `terminal-upload`,
+`calm-session` and `sessions-phone` pass.
+
+Not verified: a real phone or tablet. Touch is emulated in Chromium and the holds are mouse presses, so how a held key
+behaves under a real finger (a long press, a scroll that starts on a key, the device's own keyboard staying down) was
+not seen. Firefox and Safari were not run.
+
+Not done: choosing or reordering the keys; swipe gestures for the arrows; hiding the row on a tablet that has a hardware
+keyboard attached (it cannot be told apart); a locked modifier is let go when the connection changes state.
+
+Also seen and left alone: [the phone docs](docs/terminal-workspace.md#phones) say a sideways 844 × 390 phone shows 13
+rows; the test prints 9 on main before this change too.
+
 ## CI-FLAKE-1: two checks that failed on unchanged code (13 November 2026)
 
 Both failed once on a pull request that touched neither, and passed on a re-run. Each had a cause.

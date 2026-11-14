@@ -79,7 +79,7 @@ func (f *modelsAPI) addMachine(t *testing.T, host string, caps terminalproto.Cap
 		switch op := m.Body.(type) {
 		case terminalproto.Reconcile:
 			reply.Body = terminalproto.Reconcile{Complete: true, Sessions: []terminalproto.SessionSnapshot{}}
-		case terminalproto.Models:
+		case terminalproto.Models, terminalproto.Accounts:
 			f.mu.Lock()
 			f.asked = append(f.asked, op)
 			answer := f.answer

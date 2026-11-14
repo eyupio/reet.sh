@@ -127,7 +127,7 @@ const TITLE_TRAIL = /[ ,:;.!?\-–—]+$/
 // Leading words that ask rather than say: greetings, "please", "can you", "I'd like you to", "help me", "let's".
 // English only; any other language passes through untouched.
 const TITLE_FILLER = [
-  /^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|cline|agy|antigravity|there|team|all|everyone))?[ ,!.:;-]*/i,
+  /^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|cline|agy|antigravity|copilot|there|team|all|everyone))?[ ,!.:;-]*/i,
   /^(?:please|pls|kindly)\b[ ,:-]*/i,
   /^(?:can|could|would|will) you(?: please| kindly)?\b[ ,:-]*/i,
   /^i(?:['’]d| would)? (?:like|love|want|need) (?:you )?to\b[ ,:-]*/i,

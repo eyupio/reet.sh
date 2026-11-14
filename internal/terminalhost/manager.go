@@ -80,7 +80,13 @@ type Manager struct {
 	closed         bool
 	attachments    map[string]*Attachment
 	deadSeen       map[string]time.Time
-	changed        chan struct{}
+	// prompts remembers, per agent session, what the last look at its screen
+	// found, so a question still on screen raises attention once.
+	prompts map[string]promptWatch
+	// promptEvery and promptAgain replace promptReadEvery and promptReadAgain
+	// when set, so a test need not wait out the real gaps.
+	promptEvery, promptAgain time.Duration
+	changed                  chan struct{}
 }
 
 func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
@@ -450,6 +456,7 @@ func (m *Manager) Forget(ctx context.Context, sessionID string) error {
 		delete(m.attachments, sessionID)
 	}
 	delete(m.deadSeen, sessionID)
+	delete(m.prompts, sessionID)
 	_ = m.removeUploads(sessionID)
 	return nil
 }
@@ -538,6 +545,7 @@ func (m *Manager) cleanupClosedSessions(r *hostRegistry) {
 			delete(m.attachments, id)
 		}
 		_ = m.removeUploads(id)
+		delete(m.prompts, id)
 	}
 }
 
@@ -610,6 +618,14 @@ func (m *Manager) reconcileLocked(ctx context.Context, r *hostRegistry) error {
 					}
 					if bellAt > s.BellAt {
 						s.BellAt = bellAt
+					}
+				}
+				// An agent that stops to ask does not always ring the bell. A
+				// question newly on its screen counts as one; a bell that
+				// already rang says as much, so the screen is not read then.
+				if !belled && m.askedOnScreen(ctx, id, s, rows) {
+					if at := time.Now().UnixMilli(); at > s.BellAt {
+						s.BellAt = at
 					}
 				}
 			} else {

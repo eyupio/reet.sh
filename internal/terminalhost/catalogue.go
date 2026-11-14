@@ -51,6 +51,12 @@ type Preset struct {
 // denial and interactive mode; its default otherwise auto-approves tools.
 // Antigravity CLI 1.5.0 help confirms interactive prompts, model, effort and
 // explicit permission bypass. Use its agy alias, not the desktop app's binary.
+// GitHub Copilot CLI 1.0.112 help confirms --interactive (an opening prompt that
+// keeps the session interactive), --model, --reasoning-effort and --allow-all.
+// Its -p/--prompt exits after one answer and is never used. It has no resume
+// arguments: its --continue only prefers the launch folder's session, and a
+// resumed session keeps the allow-all state it had, which a machine with YOLO
+// switched off must not be handed.
 var Catalogue = []Preset{
 	{ID: "claude", Name: "Claude Code", Binary: "claude", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--dangerously-skip-permissions"}, ResumeArgs: []string{"--continue"}, SessionArgs: []string{"--resume"}, EffortArgs: map[string][]string{"low": {"--effort", "low"}, "medium": {"--effort", "medium"}, "high": {"--effort", "high"}}, ACP: "adapter"},
 	{ID: "codex", Name: "Codex", Binary: "codex", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--ask-for-approval", "never"}, ResumeArgs: []string{"resume", "--last"}, SessionArgs: []string{"resume"}, EffortArgs: map[string][]string{"low": {"-c", "model_reasoning_effort=low"}, "medium": {"-c", "model_reasoning_effort=medium"}, "high": {"-c", "model_reasoning_effort=high"}}, OptionsFloor: "0.156.1", ACP: "adapter"},
@@ -59,6 +65,7 @@ var Catalogue = []Preset{
 	{ID: "cursor", Name: "Cursor Agent", Binary: "cursor-agent", DisabledReason: "CLI help and permission defaults have not been confirmed."},
 	{ID: "cline", Name: "Cline", Binary: "cline", ModelFlag: "--model", PromptPositional: true, YoloArgs: []string{"--yolo", "--tui"}, SafeArgs: []string{"--auto-approve", "false", "--tui"}, EffortArgs: map[string][]string{"low": {"--thinking", "low"}, "medium": {"--thinking", "medium"}, "high": {"--thinking", "high"}}, ACP: "native"},
 	{ID: "antigravity", Name: "Google Antigravity (AGY)", Binary: "agy", ModelFlag: "--model", PromptFlag: "--prompt-interactive", YoloArgs: []string{"--dangerously-skip-permissions"}, EffortArgs: map[string][]string{"low": {"--effort", "low"}, "medium": {"--effort", "medium"}, "high": {"--effort", "high"}}, ACP: "native"},
+	{ID: "copilot", Name: "GitHub Copilot", Binary: "copilot", ModelFlag: "--model", PromptFlag: "--interactive", YoloArgs: []string{"--allow-all"}, EffortArgs: map[string][]string{"low": {"--reasoning-effort", "low"}, "medium": {"--reasoning-effort", "medium"}, "high": {"--reasoning-effort", "high"}}},
 }
 
 // launchPreset is a private execution view of the confirmed catalogue rows.

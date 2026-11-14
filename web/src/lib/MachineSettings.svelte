@@ -8,7 +8,8 @@
   import { chatAdapterHint, chatAdapterInstall, HINTED_TOOLS } from './chatAdapter'
   import { softwareLine, softwarePlanActions, type SoftwarePlanAction } from './software'
   import { formatAge, type MachineModels } from './models'
-  import { allModels, applyMachineSoftware, machineModels, machineSoftwarePlan, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
+  import { allModels, applyMachineSoftware, machineAccounts, machineModels, machineSoftwarePlan, refreshMachineAccounts, refreshMachineModels, type SoftwareEntry, type SoftwarePlan, type TerminalMachine } from './terminal/api'
+  import { accountFor, limitLines, limitsNote, PLAN_LIMITS_OFF_HINT, readAgo, signInLine, type MachineAccounts } from './agentAccounts'
 
   // A machine's policies live here rather than beside the buttons that act on
   // it, so a card says what is happening and this dialog says how it is set.
@@ -50,6 +51,51 @@
   type ModelRead = { loading: boolean; machine: MachineModels | null; error: string; refreshError: string }
   let reads = $state<Record<string, ModelRead>>({})
   let refreshing = $state('')
+
+  // Which agents are signed in on this machine, and their plan limits when the account has them on. The controller
+  // answers what it kept while that is recent and otherwise asks the machine once; Check sign-ins asks it now.
+  let accounts = $state<MachineAccounts | null>(null)
+  let accountsLoading = $state(false), accountsChecking = $state(false), accountsError = $state('')
+  let accountsNow = $state(Date.now())
+  // Only a machine that reports the capability is asked about. For the others the reason is known here, as it is for models.
+  const reportsAccounts = $derived(terminal?.capabilities?.agentAccounts === true)
+  const canCheckAccounts = $derived(!!terminal && terminal.ready && reportsAccounts)
+  const accountsHint = $derived.by(() => {
+    if (!terminal || reportsAccounts) return ''
+    if (terminal.capabilities?.terminalControl && terminal.capabilities.terminalEnabled === false) return `Terminal access is off on ${machine.host}, so reet doesn't read its agents' sign-ins.`
+    return `Update reet on ${machine.host} to see which agents are signed in.`
+  })
+  const accountsLine = $derived.by(() => {
+    if (accountsLoading && !accounts) return 'Reading sign-ins…'
+    if (!accounts) return ''
+    const age = readAgo(accounts.checkedAt, accountsNow)
+    if (accounts.state !== 'read') return `${accounts.sentence}${age ? ` Showing what was read ${age}.` : ''}`
+    return age ? `Sign-ins read ${age}.` : ''
+  })
+  async function loadAccounts(signal: AbortSignal) {
+    if (!terminal) return
+    accountsLoading = true; accountsError = ''
+    try {
+      const answer = await machineAccounts(terminal.agentId, signal)
+      if (!signal.aborted) { accounts = answer; accountsNow = Date.now() }
+    } catch {
+      if (!signal.aborted) accountsError = "Couldn't read this machine's sign-ins just now."
+    } finally {
+      if (!signal.aborted) accountsLoading = false
+    }
+  }
+  async function checkAccounts() {
+    if (!terminal || !canCheckAccounts || accountsChecking) return
+    accountsChecking = true; accountsError = ''
+    try {
+      accounts = await refreshMachineAccounts(terminal.agentId)
+      accountsNow = Date.now()
+    } catch (err) {
+      accountsError = err instanceof Error && err.message ? err.message : "Couldn't check sign-ins just now. Showing the last read."
+    } finally {
+      accountsChecking = false
+    }
+  }
 
   const syncTools = $derived(machine.groups.map(group => group.agent === 'agents' ? 'codex' : group.agent))
   const installed = $derived.by(() => {
@@ -197,6 +243,13 @@
     for (const item of installed) void loadModels(item.id, abort.signal)
     return () => abort.abort()
   })
+
+  onMount(() => {
+    if (!installed.length || !terminal || !reportsAccounts) return
+    const abort = new AbortController()
+    void loadAccounts(abort.signal)
+    return () => abort.abort()
+  })
 </script>
 
 <dialog bind:this={dialog} use:shell onclose={onclose} aria-labelledby={`${id}-title`}>
@@ -259,6 +312,18 @@
       <h3 id={`${id}-agents`}>Agents</h3>
       <p class="hint">Installed agents and the model list this machine last read. A list is a suggestion; a start never waits for it.</p>
       {#if refreshHint}<p class="hint">{refreshHint}</p>{/if}
+      {#if installed.length && terminal}
+        <div class="row sign-ins" data-accounts-state={accounts?.state ?? ''}>
+          <div class="copy">
+            <strong>Sign-ins</strong>
+            <small aria-live="polite">{accountsError || accountsLine || accountsHint || 'Which agents are signed in on this machine, read from their own files.'}</small>
+            {#if accounts && !accounts.planLimits}<small class="limits-off">{PLAN_LIMITS_OFF_HINT}</small>{/if}
+          </div>
+          <button class="btn" type="button" disabled={!canCheckAccounts || accountsChecking || accountsLoading} onclick={() => void checkAccounts()}>
+            {accountsChecking ? 'Checking…' : 'Check sign-ins'}
+          </button>
+        </div>
+      {/if}
       {#if installed.length === 0}
         <p class="hint">No launchable agents have reported from this machine yet.</p>
       {:else}
@@ -269,6 +334,19 @@
           <div class="row agent" data-agent={item.id} data-model-state={modelState}>
             <div class="copy">
               <strong>{item.name}</strong>
+              {#if accountFor(accounts, item.id)}
+                {@const account = accountFor(accounts, item.id)}
+                {@const note = limitsNote(account, item.name, accountsNow)}
+                <small class="sign-in" data-sign-in={account?.state}>{signInLine(account)}</small>
+                {#if accounts?.planLimits && account?.limits?.length}
+                  <ul class="limits" aria-label={`${item.name} plan limits`}>
+                    {#each limitLines(account, accountsNow) as line (line.key)}
+                      <li class:low={line.low}><span class="limit-meter" aria-hidden="true"><span style:width={`${line.left}%`}></span></span><span>{line.text}</span>{#if line.resets}<small>{line.resets}</small>{/if}</li>
+                    {/each}
+                  </ul>
+                {/if}
+                {#if accounts?.planLimits && note}<small class="limits-note">{note}</small>{/if}
+              {/if}
               <small class="model-state" aria-live="polite">{modelLine(read)}</small>
               {#if HINTED_TOOLS.includes(item.id)}
                 {@const adapterHint = chatAdapterHint(item.id, terminal)}
@@ -415,6 +493,16 @@
   .model-state { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .software-detail { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .chat-adapter { overflow-wrap: anywhere; }
+  .sign-in { overflow-wrap: anywhere; color: var(--ink-soft); }
+  .sign-in[data-sign-in=none], .sign-in[data-sign-in=unreadable] { color: var(--muted); }
+  .limits { list-style: none; display: grid; gap: 4px; margin: 4px 0 2px; padding: 0; font-size: 0.875rem; line-height: 1.5; font-variant-numeric: tabular-nums; }
+  .limits li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+  .limits li small { color: var(--muted); }
+  .limits li.low { color: var(--warn); }
+  .limit-meter { display: block; flex: none; width: 56px; height: 4px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
+  .limit-meter > span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+  .limits li.low .limit-meter > span { background: var(--warn); }
+  .limits-note, .limits-off, .sign-ins small { overflow-wrap: anywhere; }
   .plan { display: grid; gap: 6px; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
   .plan p, .plan ol { margin: 0; }
   .plan ol { display: grid; gap: 4px; padding-left: 18px; }

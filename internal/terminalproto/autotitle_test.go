@@ -80,7 +80,7 @@ func TestAutoTitleIsAlwaysAValidTitle(t *testing.T) {
 		if got := PromptTitle(prompt); got != "" && (!ValidTitle(got) || utf8.RuneCountInString(got) > MaxTitleRunes) {
 			t.Errorf("PromptTitle(%q) = %q is not a valid title", prompt, got)
 		}
-		for _, tool := range []string{"", "claude", "antigravity", "not-a-tool"} {
+		for _, tool := range []string{"", "claude", "antigravity", "copilot", "not-a-tool"} {
 			for _, dir := range []string{"", "/", "/a/b", "/a/" + strings.Repeat("y", 300), "/a/\u200bb", "/a/\xff"} {
 				if got := AutoTitle(tool, prompt, dir); !ValidTitle(got) {
 					t.Errorf("AutoTitle(%q, %q, %q) = %q is not a valid title", tool, prompt, dir, got)

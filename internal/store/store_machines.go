@@ -244,7 +244,11 @@ func (s *Store) ForgetMachineFor(userID int64, host string) error {
 			return fmt.Errorf("forget machine: %w", err)
 		}
 		// Cached model lists go with the machine; they describe that machine.
-		return deleteMachineModelsTx(tx, userID, host)
+		if err := deleteMachineModelsTx(tx, userID, host); err != nil {
+			return err
+		}
+		// So does what it last said of its agents' sign-ins.
+		return deleteMachineAccountsTx(tx, userID, host)
 	})
 }
 

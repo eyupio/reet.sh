@@ -42,6 +42,11 @@
    "want": "Debug the CSV import"
   },
   {
+   "name": "a greeting that names Copilot",
+   "prompt": "Hey Copilot, could you tidy the session list?",
+   "want": "Tidy the session list"
+  },
+  {
    "name": "stacked filler",
    "prompt": "Hey, please could you fix it",
    "want": "Fix it"
@@ -319,6 +324,13 @@
    "prompt": "",
    "dir": "/x",
    "want": "Cline · x"
+  },
+  {
+   "name": "copilot",
+   "tool": "copilot",
+   "prompt": "",
+   "dir": "/home/dev/site",
+   "want": "GitHub Copilot · site"
   },
   {
    "name": "codex",

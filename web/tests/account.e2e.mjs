@@ -203,6 +203,50 @@ try {
     await context.close()
   }
 
+  // Plan limits are off for every account until it turns them on: reading them has a machine use an agent's own
+  // sign-in to ask its provider, so the box starts clear, says what turning it on does, and sends only its own setting.
+  if (run('plan limits switch')) {
+    const {context, page, errors} = await open()
+    const group = page.getByRole('group', {name:'Plan limits'})
+    await expect(group).toBeVisible()
+    await expect(group.getByText(/Off until you turn it on\..*uses an agent's own sign-in to ask that agent's provider.*The sign-in stays on the machine and is never renewed by reet/)).toBeVisible()
+    const box = group.getByRole('checkbox', {name:"Show how much of each agent's plan is left"})
+    await expect(box).not.toBeChecked()
+    await box.check()
+    await expect.poll(() => patches.length).toBe(1)
+    expect(patches[0]).toEqual({planLimits:true})
+    await expect(box).toBeChecked()
+    await expect(page.getByRole('status').filter({hasText:'Plan limits are on.'})).toBeVisible()
+    await box.uncheck()
+    await expect.poll(() => patches.length).toBe(2)
+    expect(patches[1]).toEqual({planLimits:false})
+    await expect(box).not.toBeChecked()
+    await expect(page.getByRole('status').filter({hasText:'Plan limits are off. No machine will ask a provider for them.'})).toBeVisible()
+    // The chats' own switches are untouched by it.
+    await expect(page.getByRole('group', {name:'Gaffer chats still being verified'}).getByRole('checkbox', {name:'Claude Code in Gaffer'})).not.toBeChecked()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  if (run('a refused plan limits switch puts the box back')) {
+    const {context, page} = await open()
+    const box = page.getByRole('group', {name:'Plan limits'}).getByRole('checkbox', {name:"Show how much of each agent's plan is left"})
+    await expect(box).not.toBeChecked()
+    profileFailure = true
+    await box.click()
+    await expect(page.getByRole('alert')).toHaveText('down')
+    await expect(box).not.toBeChecked()
+    expect(patches).toEqual([])
+    profileFailure = false
+    await context.close()
+  }
+
+  if (run('plan limits switch is read-only for a viewer')) {
+    const {context, page} = await open({user:viewer})
+    await expect(page.getByRole('group', {name:'Plan limits'}).getByRole('checkbox', {name:"Show how much of each agent's plan is left"})).toBeDisabled()
+    await context.close()
+  }
+
   if (run('gated chat switches are read-only for a viewer')) {
     const {context, page, errors} = await open({user:viewer})
     const group = page.getByRole('group', {name:'Gaffer chats still being verified'})

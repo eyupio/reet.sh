@@ -16,6 +16,7 @@ turns each on for itself in Settings > Agents.
 | 2. Claude: real login and no login | Runs A and B output, `authenticatedHint`, the logged-out error text, Run C | Run A and Run C recorded 4 November; Run B (signed in) not run |
 | 3. Codex sign-in | the signed-in Run B result or its "Authentication required" answer, `authStatusUpdates`, then Run A | Run A recorded 4 November; Run B (signed in) deferred by the owner on 2 November, not run |
 | 4. `gh` sign-in reaches hardened git | the `ls-remote` output while signed in, then the no-prompt failure after `gh auth logout` | Owed by the owner, not run |
+| 5. A terminal agent's question shows as Needs you | for each of Claude Code, Codex and OpenCode: the agent's version, whether the session counted under Needs you, and the last 16 screen lines when it did not | Not run |
 
 Record each result here with the date and the pull request that carries it, and in `docs/structured-chat-plan.md` beside the
 slice it unblocks. A pass recorded anywhere else does not remove a gate.
@@ -184,3 +185,22 @@ env -i HOME="$HOME" PATH="$PATH" LANG=C GIT_TERMINAL_PROMPT=0 git -c core.hooksP
 ```
 
 **Record.** Expected outcomes: signed in, one line with a commit id; then, run again after `gh auth logout`, a non-zero exit within seconds and no prompt. This is owed by the owner; no result is recorded yet, and the rest of the plan depends on the first outcome holding.
+
+## 5. A terminal agent's question shows as Needs you
+
+The machine reads an agent's terminal screen for the agent's own question (`internal/terminalhost/agent_prompt.go`).
+The patterns were written from how Claude Code, Codex and OpenCode draw a question and tested with screens written for
+the tests, never against a signed-in agent. Run this once per agent, on a machine with a current reet and the agent
+signed in:
+
+1. Start the agent's TUI in a terminal session from reet, in a scratch folder, with approvals on (not YOLO).
+2. Ask for something it must ask about first: "run `ls` and tell me what is there", or "create a file called
+   `check.txt`".
+3. Go to Home without answering. Within a few seconds the session should count under **Needs you**, as a bell would
+   make it.
+4. Open the session and answer. Ask again for something it must ask about; it should count again.
+5. While the agent is working or idle with no question, it should not count.
+
+Record the agent and its version and each result above. When step 3 fails, copy the last 16 lines of the screen as the
+agent drew them (they are the machine's own text; remove anything private) so the pattern can be corrected. A false
+count in step 5 is recorded the same way.

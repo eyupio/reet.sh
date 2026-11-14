@@ -9,6 +9,7 @@
   import { CATALOGUE } from './catalogue'
   import { KNOWN_SOURCES } from './clineSource'
   import { CHAT_GATE_HELP, chatToggles, chatTogglePatch } from './chatAgents'
+  import { PLAN_LIMITS_HELP, PLAN_LIMITS_LABEL } from './agentAccounts'
   import { cleanModel, modelSuggestions, toolName, validateModel } from './agentLaunch'
   import {
     dedupeModels, defaultLabel, effortChoices, favouriteKey, modelOptions, starLabel,
@@ -23,6 +24,10 @@
   const life = new AbortController()
   let loading = $state(true), busy = $state(''), profileLoaded = $state(false)
   let chatOn = $state<Record<string, boolean>>({})
+  // Whether this account's machines read plan limits. Its box behaves as a gated chat's does: it applies at once, and a
+  // refused save puts it back as the server has it.
+  let planLimits = $state(false)
+  let planLimitsBox = $state<HTMLInputElement | null>(null)
   // The checkboxes themselves: a click changes the box before the save answers, and Svelte does not write an unchanged
   // value back, so a refused save has to put the box back by hand.
   const chatBoxes: Record<string, HTMLInputElement | undefined> = {}
@@ -109,6 +114,7 @@
       if (life.signal.aborted) return
       fillProfile(answer.profile)
       chatOn = answer.chatEnabled ?? {}
+      planLimits = answer.profile.planLimits === true
     } catch (e) {
       if (life.signal.aborted) return
       fail(e)
@@ -425,6 +431,23 @@
     }
   }
 
+  async function togglePlanLimits(on: boolean) {
+    busy = 'limits'; formMessage = ''; notice = ''
+    try {
+      const answer = await saveProfile({ planLimits: on })
+      if (life.signal.aborted) return
+      planLimits = answer.profile.planLimits === true
+      notice = planLimits ? 'Plan limits are on. Each machine reads them the next time it is asked.' : 'Plan limits are off. No machine will ask a provider for them.'
+    } catch (err) {
+      if (life.signal.aborted) return
+      fail(err)
+      if (planLimitsBox) planLimitsBox.checked = planLimits
+      formMessage = err instanceof ApiError && err.message ? err.message : "Couldn't change that just now. Try again."
+    } finally {
+      if (!life.signal.aborted) busy = ''
+    }
+  }
+
   onMount(() => {
     const coarse = matchMedia('(pointer: coarse)')
     const readPointer = () => { touch = coarse.matches }
@@ -509,6 +532,12 @@
     {#each chatToggles(chatOn) as chat (chat.id)}
       <label class="check"><input type="checkbox" bind:this={chatBoxes[chat.id]} checked={chat.on} onchange={event => void toggleChat(chat.id, event.currentTarget.checked)} /> <span>{chat.label}</span></label>
     {/each}
+  </fieldset>
+
+  <fieldset class="chatgate" data-plan-limits disabled={!canWrite || loading || !profileLoaded || busy !== ''}>
+    <legend>Plan limits</legend>
+    <p class="muted">{PLAN_LIMITS_HELP}</p>
+    <label class="check"><input type="checkbox" bind:this={planLimitsBox} checked={planLimits} onchange={event => void togglePlanLimits(event.currentTarget.checked)} /> <span>{PLAN_LIMITS_LABEL}</span></label>
   </fieldset>
 
   <h3>Favourite models</h3>

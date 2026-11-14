@@ -39,6 +39,7 @@ var toolNames = map[string]string{
 	"opencode":    "OpenCode",
 	"cline":       "Cline",
 	"antigravity": "Google Antigravity (AGY)",
+	"copilot":     "GitHub Copilot",
 }
 
 var (
@@ -46,7 +47,7 @@ var (
 	// "I'd like you to", "help me", "let's". English only; any other language
 	// passes through untouched.
 	titleFiller = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|cline|agy|antigravity|there|team|all|everyone))?[ ,!.:;-]*`),
+		regexp.MustCompile(`(?i)^(?:hi|hey|hello|hiya|yo)\b(?: (?:claude|codex|opencode|cline|agy|antigravity|copilot|there|team|all|everyone))?[ ,!.:;-]*`),
 		regexp.MustCompile(`(?i)^(?:please|pls|kindly)\b[ ,:-]*`),
 		regexp.MustCompile(`(?i)^(?:can|could|would|will) you(?: please| kindly)?\b[ ,:-]*`),
 		regexp.MustCompile("(?i)^i(?:['’]d| would)? (?:like|love|want|need) (?:you )?to\\b[ ,:-]*"),

@@ -6,7 +6,7 @@ import ts from 'typescript'
 const { outputText } = ts.transpileModule(readFileSync(new URL('./controllerMove.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
 const {
   NOT_FENCED, addressLines, addressProblem, cleanAddress, copyPasswordProblem, copySource, createFenceWatch, fenceFromRefusal,
-  fenceSentence, finalCopy, isLiveSourceRefusal, moveFeatures, setServerCommand,
+  fenceSentence, finalCopy, followProblem, isLiveSourceRefusal, machineMoveState, moveFeatures, moveProgress, moveStateLine,
 } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const fence = (over = {}) => ({ fenced: true, since: 1000, movedTo: 'https://reet.new.example', ...over })
@@ -15,13 +15,14 @@ const copy = (over = {}) => ({ id: 'c1', takenAt: 2000, local: true, fenced: tru
 // The page offers a step only when the controller says it holds it, so an older controller is never sent a field or
 // a route it would not understand.
 test('a controller that lists no features is offered no part of a move', () => {
-  const none = { fence: false, copyOrigin: false, publicUrl: false, copyPassword: false }
+  const none = { fence: false, copyOrigin: false, publicUrl: false, copyPassword: false, fenceAddress: false, fenceMachines: false }
   assert.deepEqual(moveFeatures(undefined), none)
   assert.deepEqual(moveFeatures(null), none)
   assert.deepEqual(moveFeatures('fence'), none)
   assert.deepEqual(moveFeatures([]), none)
-  assert.deepEqual(moveFeatures(['fence', 'copy-password-request']), { fence: true, copyOrigin: false, publicUrl: false, copyPassword: true })
-  assert.deepEqual(moveFeatures(['copy-origin', 'fence', 'restore-public-url', 'copy-password-request']), { fence: true, copyOrigin: true, publicUrl: true, copyPassword: true })
+  assert.deepEqual(moveFeatures(['fence', 'copy-password-request']), { ...none, fence: true, copyPassword: true })
+  assert.deepEqual(moveFeatures(['copy-origin', 'fence', 'restore-public-url', 'copy-password-request', 'fence-address', 'fence-machines']),
+    { fence: true, copyOrigin: true, publicUrl: true, copyPassword: true, fenceAddress: true, fenceMachines: true })
 })
 
 // A banner that appeared on any 423, or on a body the controller did not write, would tell people the controller had
@@ -78,9 +79,47 @@ test('a copy password follows the controller\'s rule of twelve characters', () =
   assert.equal(copyPasswordProblem('twelve-chars'), '')
 })
 
-test('the command for a machine names the new address, or a placeholder nobody could mistake for one', () => {
-  assert.equal(setServerCommand('https://reet.new.example/'), 'reet agent set-server https://reet.new.example')
-  assert.equal(setServerCommand(''), 'reet agent set-server https://NEW-ADDRESS')
+// A machine sends its credentials over HTTPS only, so the page says so before the fence names an address no machine
+// would follow.
+test('an http address elsewhere is fenced but not followed, and the page says so', () => {
+  for (const ok of ['', 'https://reet.new.example', 'http://localhost:8080', 'http://127.0.0.1:8080', 'not an address']) {
+    assert.equal(followProblem(ok), '', ok)
+  }
+  assert.match(followProblem('http://reet.new.example'), /https:\/\//)
+})
+
+const machine = (over = {}) => ({ id: 'm', host: 'studio', owner: 'o', lastSeen: 0, toldAt: 0, leftAt: 0, leftTo: '', held: '', ...over })
+
+// Each machine's place in the move comes from what it did, not from a guess: it said it moved, said it holds back,
+// is being turned away now, was turned away and went quiet, or has not asked at all.
+test('a machine is moved only when it said so, and waiting only while it is still asking', () => {
+  const now = 1_000_000
+  assert.equal(machineMoveState(machine({ toldAt: now - 5000, leftAt: now, leftTo: 'https://n' }), now), 'moved')
+  assert.equal(machineMoveState(machine({ toldAt: now - 5000, held: 'follow-off' }), now), 'held')
+  assert.equal(machineMoveState(machine({ toldAt: now - 5000 }), now), 'waiting')
+  assert.equal(machineMoveState(machine({ toldAt: now - 10 * 60 * 1000 }), now), 'quiet')
+  assert.equal(machineMoveState(machine({ lastSeen: now }), now), 'unseen')
+  assert.equal(moveStateLine(machine({ leftAt: now, leftTo: 'https://n' }), now), 'Moved to https://n')
+  assert.match(moveStateLine(machine({ held: 'follow-off' }), now), /set-server/)
+})
+
+// A fence with no address turns machines away without telling them where to go, so they wait for the owner, not for
+// the new controller.
+test('with no address yet, a machine being turned away waits for the address', () => {
+  const now = 1_000_000
+  const asking = machine({ toldAt: now - 5000 })
+  assert.match(moveStateLine(asking, now, true), /waiting for the new controller/)
+  assert.match(moveStateLine(asking, now, false), /waiting for you to give the new address/)
+  assert.doesNotMatch(moveStateLine(machine({ toldAt: now - 10 * 60 * 1000 }), now, false), /new controller|given the new address/)
+  assert.match(moveStateLine(machine({ leftAt: now, leftTo: 'https://n' }), now, false), /Moved to/)
+})
+
+test('the move is done once every machine says it has moved, and not with none', () => {
+  const now = 1_000_000
+  assert.equal(moveProgress([], now).done, false)
+  const half = moveProgress([machine({ leftAt: 1 }), machine({ toldAt: now })], now)
+  assert.deepEqual({ ...half }, { moved: 1, held: 0, waiting: 1, quiet: 0, unseen: 0, total: 2, done: false })
+  assert.equal(moveProgress([machine({ leftAt: 1 }), machine({ leftAt: 2 })], now).done, true)
 })
 
 test('the banner sentence says since when and where to, and nothing when there is no fence', () => {

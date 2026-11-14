@@ -283,6 +283,30 @@ Both failed once on a pull request that touched neither, and passed on a re-run.
   are unchanged. Tests in `scripts/bench_gate_test.go`; the gate was also run against real benchstat with a
   synthetic 29% regression (caught, named) and the measure-again step was run by hand.
 
+## MOVE-FOLLOW-2: nothing to run on a machine (14 November 2026)
+
+The Move page still asked for `reet agent set-server` on each machine. Three gaps made that necessary, all closed:
+
+- **No address at the fence.** `PATCH /api/v2/admin/fence` (owner, fenced only, 409 `not_fenced` otherwise) sets or
+  changes `movedTo` keeping the date (`store.SetFenceAddress`); `SetFence` still never changes a raised fence.
+- **The hint was only in memory.** The agent saves it as `movingTo` in the enrollment (`moveFollower.remember`) and
+  tries it only when the old controller does not answer at all: a transport error or a 502/503/504
+  (`controllerUnreachable`), never a local failure. Any other answer from the controller means the fence was lifted and
+  clears it (`controllerAnswered`, `settled`), as does a fence that no longer names an address (`forget`).
+  `set-server` and a completed follow clear it, as does a fence naming an address the agent refuses.
+- The departure report is kept as `leftFrom`/`leftAt` and retried once a minute (`departureReport`) until the old
+  controller answers at all, or for a week. The held report is said once per reason and address and again after a
+  good cycle. A new fence address clears `address-refused` rows only (`SetFenceAddress`). With no address yet, the
+  page says a turned-away machine waits for the address, not the new controller.
+- **Nobody could see who had moved.** `fence_machines` (emptied on raise, lift and restore) records `told_at` when
+  the fence gate refuses a request carrying a valid `X-Reet-Agent`/key, and `left_at`/`left_to`/`held` from
+  `POST /api/v2/sync/moved` (open path, fence-exempt, the machine's own id and secret, 401 otherwise, 409 unfenced).
+  The agent posts `{"to"}` after following and `{"held": "follow-off"|"address-refused"}` once when it will not.
+  `GET /api/v2/admin/fence/machines` (admin) lists them; the page derives moved / held / waiting (told within two
+  minutes) / quiet / unseen (`controllerMove.ts`). Features `fence-address` and `fence-machines`.
+- `tellOldFn` is replaced in `internal/scan` tests (`agent_follow_pending_test.go`) so no test reaches the network.
+  The `remember` step was seen failing a test when removed. See `docs/ui-verification.md` for the live run.
+
 ## MOVE-FOLLOW-1 and MOVE-OWNER-1: machines follow a move, and a restore can make an owner (13 November 2026)
 
 - **Machines follow.** `internal/scan/agent_follow.go`: a running agent that is refused with 423 `controller_moved`

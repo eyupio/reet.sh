@@ -1,5 +1,28 @@
 # UI verification — 4 November 2026
 
+## Machines follow a move with nothing run on them (14 November 2026)
+
+The Move page's step 4 was a `reet agent set-server` command to copy. It is now **Machines follow on their own**: a
+list of every enrolled machine and where it is in the move, polled every ten seconds while the fence stands. A fence
+raised with no address asks for one, and **Change the address** corrects it, without lifting the fence.
+
+Commands run in this container:
+
+- `cd web && npm run check`: 0 errors, 0 warnings; `controllerMove.test.mjs` covers the states, the tally and the
+  `http://` warning.
+- `npm run build`, `npx vite preview --port 4173 --strictPort` and `node tests/admin-backups.e2e.mjs`: passes. It now
+  checks that no `set-server` command is on the page, the four machine states with their words, the `http://`
+  warning, giving and changing the address while fenced (PATCH sent, nothing lifted), and at 390 and 320 px in both
+  themes no sideways scroll and 44 px buttons. Screenshots at 390 dark and 320 light were looked at; the list first
+  inherited the steps' list padding and was fixed.
+- A live run with no fixtures: one controller and one enrolled agent (built as `v99.0.0`, because the controller's
+  automatic update otherwise replaces a `dev` binary with the published release mid-test). Fenced with no address,
+  the agent said so and the fence recorded it as told. A second controller was started from a copy of the database,
+  the address was given with PATCH, and the agent moved to it on its own within a minute; the old controller listed
+  it as moved to that address. Then the second controller was fenced naming a third, switched off, and the agent
+  restarted before the third was up: it kept the address, was refused once, and moved on the next try.
+
+Not checked: a tablet-width screenshot, a real HTTPS address, more than one machine for real.
 ## The on-screen terminal keys (14 November 2026)
 
 The terminal's on-screen keys were rebuilt: shown on every touch screen, a row that leads with Esc, Tab and the

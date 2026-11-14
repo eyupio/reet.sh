@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,9 +108,22 @@ func (f *moveFollower) follow(ctx context.Context, cycleErr error, c agentConfig
 	hint, moved := movedTo(cycleErr)
 	switch {
 	case moved && hint == "":
+		// The fence is the authority on where to go. One that no longer
+		// names an address has withdrawn the one this machine kept.
+		f.forget(config, c)
 		f.say(out, "This machine's controller has moved and did not say where. It follows on its own once the controller's owner gives the new address on the Move page; or run: reet agent set-server URL")
 		return false
 	case !moved && (cycleErr == nil || f.pending == ""):
+		return false
+	case !moved && controllerAnswered(cycleErr):
+		// The controller took a request without its fence, so the move is
+		// off; going to the kept address now would split the machines
+		// between two live controllers.
+		f.settled(config, c, out)
+		return false
+	case !moved && !controllerUnreachable(cycleErr):
+		// A local failure (a scan, a file) says nothing about where the
+		// controller is.
 		return false
 	case !moved:
 		// The old controller is not answering, but it said where it went
@@ -187,8 +202,58 @@ func (f *moveFollower) remember(config string, c agentConfig, server string) {
 	}
 }
 
+// controllerUnreachable is a cycle error that means the controller did not
+// answer at all: the connection failed, or a proxy in front of it says it is
+// down. Only then does a kept address stand in for it.
+func controllerUnreachable(err error) bool {
+	var refusal controllerError
+	if errors.As(err, &refusal) {
+		switch refusal.Status {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return true
+		}
+		return false
+	}
+	var transport *url.Error
+	if errors.As(err, &transport) {
+		return true
+	}
+	var network net.Error
+	return errors.As(err, &network)
+}
+
+// controllerAnswered is a cycle error the controller itself gave without its
+// fence. A fenced controller refuses every agent request with 423 before
+// anything else, so any other answer means it is taking requests again.
+func controllerAnswered(err error) bool {
+	var refusal controllerError
+	if !errors.As(err, &refusal) || controllerUnreachable(err) {
+		return false
+	}
+	_, moved := movedTo(err)
+	return !moved
+}
+
+// forget drops a kept address the fence has withdrawn.
+func (f *moveFollower) forget(config string, c agentConfig) {
+	if f.pending == "" {
+		return
+	}
+	saved, err := loadAgentConfig(config)
+	if err != nil || saved.ID != c.ID || saved.Secret != c.Secret {
+		return
+	}
+	if saved.MovingTo != "" {
+		saved.MovingTo = ""
+		if writePrivate(config, saved) != nil {
+			return
+		}
+	}
+	f.pending = ""
+}
+
 // settled forgets a move that is off: the controller this machine points at
-// took a whole cycle again, so its fence was lifted.
+// answered without its fence, so the fence was lifted.
 func (f *moveFollower) settled(config string, c agentConfig, out io.Writer) {
 	if f.pending == "" {
 		return

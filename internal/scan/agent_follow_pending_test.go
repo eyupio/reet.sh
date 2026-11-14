@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +30,12 @@ func init() {
 		toldOld.said[c.Server] = append(toldOld.said[c.Server], body)
 		return nil
 	}
+}
+
+// unreachable is what a cycle returns when the controller does not answer at
+// all, as the HTTP client reports it.
+func unreachable() error {
+	return &url.Error{Op: "Post", URL: "https://old.example.com/api/v2/sync/poll", Err: errors.New("dial tcp: connection refused")}
 }
 
 func saidTo(server string) []map[string]string {
@@ -64,7 +71,7 @@ func TestAMachineFinishesTheMoveAfterTheOldControllerHasGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	f = &moveFollower{pending: loaded(t, config).MovingTo}
-	if !f.follow(context.Background(), errors.New("dial tcp: connection refused"), loaded(t, config), config, &out, "test") {
+	if !f.follow(context.Background(), unreachable(), loaded(t, config), config, &out, "test") {
 		t.Fatalf("the kept address was not followed: %s", out.String())
 	}
 	now := loaded(t, config)
@@ -86,7 +93,7 @@ func TestAKeptAddressIsProvedBeforeAnyCredentialIsSent(t *testing.T) {
 	})
 	f := &moveFollower{pending: stranger.URL}
 	var out bytes.Buffer
-	if f.follow(context.Background(), errors.New("connection refused"), loaded(t, config), config, &out, "test") {
+	if f.follow(context.Background(), unreachable(), loaded(t, config), config, &out, "test") {
 		t.Fatal("followed a place with no record")
 	}
 	noCredentialEverSent(t, stranger)
@@ -171,5 +178,77 @@ func TestSetServerClearsAPendingMoveAndTellsTheOldController(t *testing.T) {
 	}
 	if got := saidTo(old); len(got) != 1 || got[0]["to"] != next.URL {
 		t.Fatalf("the old controller was told %v", got)
+	}
+}
+
+// A move that was called off must not be finished by a local failure. Only a
+// controller that does not answer at all lets the kept address stand in for it.
+func TestALocalFailureDoesNotSendAMachineToTheKeptAddress(t *testing.T) {
+	config := enrolledMachine(t, "https://old-local.example.com")
+	next := honest(t)
+	c := loaded(t, config)
+	c.MovingTo = next.URL
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	f := &moveFollower{pending: next.URL}
+	var out bytes.Buffer
+	for _, local := range []error{errors.New("scan: open /home/dev/.claude: permission denied"), errors.New("invalid character in agent.json.result")} {
+		if f.follow(context.Background(), local, loaded(t, config), config, &out, "test") {
+			t.Fatalf("%v sent the machine to the kept address", local)
+		}
+	}
+	if len(next.requests()) != 0 {
+		t.Fatalf("the kept address was asked: %+v", next.requests())
+	}
+	// A proxy saying the controller is down counts as not answering.
+	if !f.follow(context.Background(), controllerError{Status: http.StatusBadGateway, Message: "bad gateway"}, loaded(t, config), config, &out, "test") {
+		t.Fatalf("a 502 did not count as the controller being gone: %s", out.String())
+	}
+}
+
+// The controller answering without its fence means the fence was lifted: the
+// kept address is dropped there and then, even if the rest of the cycle fails.
+func TestAControllerAnsweringWithoutItsFenceCallsTheMoveOff(t *testing.T) {
+	config := enrolledMachine(t, "https://old-answering.example.com")
+	next := honest(t)
+	c := loaded(t, config)
+	c.MovingTo = next.URL
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	f := &moveFollower{pending: next.URL}
+	var out bytes.Buffer
+	if f.follow(context.Background(), controllerError{Status: http.StatusForbidden, Message: "no"}, loaded(t, config), config, &out, "test") {
+		t.Fatal("followed although the controller answered")
+	}
+	if loaded(t, config).MovingTo != "" || f.pending != "" {
+		t.Fatal("the kept address survived a controller that answered without its fence")
+	}
+	// Later, with the controller gone, there is nothing to go to.
+	if f.follow(context.Background(), unreachable(), loaded(t, config), config, &out, "test") || len(next.requests()) != 0 {
+		t.Fatal("the abandoned address was followed")
+	}
+}
+
+// A fence that stops naming an address has withdrawn the one this machine kept.
+func TestAFenceWithNoAddressWithdrawsTheKeptOne(t *testing.T) {
+	config := enrolledMachine(t, "https://old-withdrawn.example.com")
+	next := honest(t)
+	c := loaded(t, config)
+	c.MovingTo = next.URL
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	f := &moveFollower{pending: next.URL}
+	var out bytes.Buffer
+	if f.follow(context.Background(), movedRefusal(""), loaded(t, config), config, &out, "test") {
+		t.Fatal("followed a fence with no address")
+	}
+	if loaded(t, config).MovingTo != "" || f.pending != "" {
+		t.Fatal("the withdrawn address was kept")
+	}
+	if f.follow(context.Background(), unreachable(), loaded(t, config), config, &out, "test") || len(next.requests()) != 0 {
+		t.Fatal("the withdrawn address was followed once the controller went away")
 	}
 }

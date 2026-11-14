@@ -94,7 +94,7 @@ When a controller moves (see [backups](backups.md#moving-a-controller-the-order-
 3. Once a minute the agent asks the new address to prove it holds this machine's record. When the new controller is up and passes both checks below, the agent saves the new address, clears `movingTo` and restarts itself.
 4. It tells the old controller it has gone (`POST /api/v2/sync/moved`, with its own credentials, to the controller it already uses). The old controller's Move page counts it as moved.
 
-A machine switched off during the move catches up when its agent next starts: if it already heard the address it uses the saved one; if not, it hears it from the old controller, so keep that one fenced and running until every machine shows as moved. If the fence is lifted instead, the agent forgets the saved address on its next good cycle.
+A machine switched off during the move catches up when its agent next starts: if it already heard the address it uses the saved one; if not, it hears it from the old controller, so keep that one fenced and running until every machine shows as moved. If the fence is lifted instead, the agent forgets the saved address as soon as the controller answers it without the fence, and a fence that stops naming an address withdraws it too. The saved address only stands in for the old controller when that controller does not answer at all (the connection fails, or a proxy in front of it reports it down), never because of a failure on the machine itself.
 
 **The machine does not hand its credentials to just any address.** The address is a hint and nothing more. Before it trusts the new controller the machine runs two checks, in order, and changes nothing unless both pass:
 

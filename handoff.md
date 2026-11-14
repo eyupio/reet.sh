@@ -104,8 +104,10 @@ The Move page still asked for `reet agent set-server` on each machine. Three gap
 - **No address at the fence.** `PATCH /api/v2/admin/fence` (owner, fenced only, 409 `not_fenced` otherwise) sets or
   changes `movedTo` keeping the date (`store.SetFenceAddress`); `SetFence` still never changes a raised fence.
 - **The hint was only in memory.** The agent saves it as `movingTo` in the enrollment (`moveFollower.remember`) and
-  tries it when the old controller stops answering at all (`follow` with `pending`). A good cycle against the current
-  controller means the fence was lifted and clears it (`settled`). `set-server` and a completed follow clear it.
+  tries it only when the old controller does not answer at all: a transport error or a 502/503/504
+  (`controllerUnreachable`), never a local failure. Any other answer from the controller means the fence was lifted and
+  clears it (`controllerAnswered`, `settled`), as does a fence that no longer names an address (`forget`).
+  `set-server` and a completed follow clear it.
 - **Nobody could see who had moved.** `fence_machines` (emptied on raise, lift and restore) records `told_at` when
   the fence gate refuses a request carrying a valid `X-Reet-Agent`/key, and `left_at`/`left_to`/`held` from
   `POST /api/v2/sync/moved` (open path, fence-exempt, the machine's own id and secret, 401 otherwise, 409 unfenced).

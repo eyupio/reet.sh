@@ -4,6 +4,13 @@ import { baseSentence } from './baseNotice'
 
 type Detail = {
   host?: string
+  /** A project removal that also deleted the clone reet made, and the folder the machine said it deleted. */
+  cloneDeleted?: boolean
+  clonePath?: string
+  /** A delete of that clone the machine was asked for, whose outcome reet never learned. */
+  unconfirmed?: boolean
+  /** The project was a clone reet made (a removal that left the clone alone records it). */
+  cloned?: boolean
   name?: string
   action?: string
   version?: string
@@ -125,7 +132,15 @@ export function eventLabel(e: Event): string {
       return n > 0 ? `Moved saved Project ${d.project} into the rail as ${n} ${n === 1 ? 'project' : 'projects'}` : `Looked at saved Project ${d.project}: none of its folders could become a project`
     }
     case 'project-add': return d.name ? `Added project ${d.name}${d.folder ? ` (${d.folder} on ${d.host || 'a machine'})` : ''}` : 'Added a project'
-    case 'project-remove': return d.name ? `Removed project ${d.name}; its folder on ${d.host || 'its machine'} is untouched` : 'Removed a project'
+    case 'project-remove':
+      if (d.name && d.cloneDeleted === true) return `Removed project ${d.name} and deleted its clone, ${d.clonePath || 'the folder reet made'} on ${d.host || 'its machine'}`
+      // A clone reet made, removed without the tick: this removal left it alone, but an earlier delete that reet could
+      // not confirm may have taken it, so nothing is said about the folder's state.
+      if (d.name && d.cloned === true) return `Removed project ${d.name}; this removal did not delete its clone on ${d.host || 'its machine'}`
+      return d.name ? `Removed project ${d.name}; its folder on ${d.host || 'its machine'} is untouched` : 'Removed a project'
+    case 'project-clone-delete':
+      if (d.unconfirmed === true) return `Asked ${d.host || 'its machine'} to delete the clone at ${d.clonePath || 'the folder reet made'}; reet could not confirm it was deleted`
+      return `Deleted the clone of project ${d.name || 'a project'}, ${d.clonePath || 'the folder reet made'} on ${d.host || 'its machine'}`
     case 'folder-browse': return d.path ? `Browsed folders from ${d.path}${typeof d.pages === 'number' ? ` (${d.pages} ${d.pages === 1 ? 'page' : 'pages'})` : ''}` : 'Browsed folders on a machine'
     case 'worktree-remove': return `Removed a worktree on ${d.host || 'a machine'}${d.branch ? `; the branch ${d.branch} is kept` : ''}`
     case 'worktree-kept': return `Kept a session's worktree on ${d.host || 'a machine'}; it has work that needs your decision`

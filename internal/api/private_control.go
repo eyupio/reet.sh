@@ -17,7 +17,7 @@ import (
 // agreedControlFeatures is the feature list this connection negotiates: every
 // private control feature, with agents-v2 only for a machine that claims it.
 func agreedControlFeatures(c terminalproto.Capabilities) string {
-	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.ResumeFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.BranchPruneFeature, terminalproto.BranchSyncFeature, terminalproto.BaseFreshFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature, terminalproto.ModelsFeature, terminalproto.ModelsRefreshFeature, terminalproto.ACPFeature, terminalproto.ACPWorktreeFeature, terminalproto.ACPAgentsFeature, terminalproto.ACPHistoryFeature, terminalproto.ACPApprovalFeature, terminalproto.SessionModeFeature, terminalproto.NativeViewFeature, terminalproto.ChatReattachFeature, terminalproto.ChatReattachDetailFeature, terminalproto.ACPQuestionFeature, terminalproto.ACPModelFeature, terminalproto.ACPModelCatalogueFeature, terminalproto.ACPLiveControlsFeature, terminalproto.ACPStartOptionsFeature, terminalproto.ACPProviderFeature, terminalproto.ACPPreviewsFeature, terminalproto.ACPUsageFeature, terminalproto.ACPAgentModeFeature, terminalproto.ACPAgentOptionsFeature, terminalproto.ACPAgentReattachFeature, terminalproto.ACPToolDetailsFeature, terminalproto.ACPImageFeature, terminalproto.ShellDirFeature, terminalproto.AttentionFeature, terminalproto.SoftwareFeature, terminalproto.SoftwareApplyFeature, terminalproto.ProgressFeature, terminalproto.InspectFeature, terminalproto.AntigravityFeature, terminalproto.AntigravityACPFeature, terminalproto.CopilotFeature, terminalproto.ChatGateFeature, terminalproto.RepoCloneFeature, terminalproto.AgentAccountsFeature}
+	features := []string{terminalproto.CommandHistoryFeature, terminalproto.LaunchFeature, terminalproto.ResumeFeature, terminalproto.WorktreeFeature, terminalproto.BrowseFeature, terminalproto.BranchesFeature, terminalproto.BranchPruneFeature, terminalproto.BranchSyncFeature, terminalproto.BaseFreshFeature, terminalproto.ClipboardFeature, terminalproto.UploadFeature, terminalproto.ModelsFeature, terminalproto.ModelsRefreshFeature, terminalproto.ACPFeature, terminalproto.ACPWorktreeFeature, terminalproto.ACPAgentsFeature, terminalproto.ACPHistoryFeature, terminalproto.ACPApprovalFeature, terminalproto.SessionModeFeature, terminalproto.NativeViewFeature, terminalproto.ChatReattachFeature, terminalproto.ChatReattachDetailFeature, terminalproto.ACPQuestionFeature, terminalproto.ACPModelFeature, terminalproto.ACPModelCatalogueFeature, terminalproto.ACPLiveControlsFeature, terminalproto.ACPStartOptionsFeature, terminalproto.ACPProviderFeature, terminalproto.ACPPreviewsFeature, terminalproto.ACPUsageFeature, terminalproto.ACPAgentModeFeature, terminalproto.ACPAgentOptionsFeature, terminalproto.ACPAgentReattachFeature, terminalproto.ACPToolDetailsFeature, terminalproto.ACPImageFeature, terminalproto.ShellDirFeature, terminalproto.AttentionFeature, terminalproto.SoftwareFeature, terminalproto.SoftwareApplyFeature, terminalproto.ProgressFeature, terminalproto.InspectFeature, terminalproto.AntigravityFeature, terminalproto.AntigravityACPFeature, terminalproto.CopilotFeature, terminalproto.ChatGateFeature, terminalproto.RepoCloneFeature, terminalproto.AgentAccountsFeature, terminalproto.RepoCloneRemoveFeature}
 	if c.AgentsV2 {
 		features = append(features, terminalproto.AgentsFeature)
 	}
@@ -38,14 +38,14 @@ func isPeerReply(body terminalproto.Body) bool {
 		*terminalproto.WorktreeState, *terminalproto.WorktreeResult,
 		*terminalproto.BrowseResult, *terminalproto.BranchesResult, *terminalproto.ModelsResult,
 		*terminalproto.NativeViewResult, *terminalproto.ACPEvent, *terminalproto.ACPControlResult, *terminalproto.ACPPreviewResult, *terminalproto.InspectResult,
-		*terminalproto.RepoCloneResult,
+		*terminalproto.RepoCloneResult, *terminalproto.RepoCloneState, *terminalproto.RepoCloneRemoved,
 		// A kind left off this list ends the machine's connection the moment
 		// the machine sends it, answer or not. Every answer and note a machine
 		// may send belongs here; TestPrivateControlKeepsTheLinkForEveryMachineAnswer
 		// sends each one over a real connection.
 		*terminalproto.LaunchProgress, *terminalproto.BaseCheckResult,
 		*terminalproto.BranchSyncResult, *terminalproto.BranchPrunePlanResult, *terminalproto.BranchPruneResult,
-		*terminalproto.SoftwareApplyResult:
+		*terminalproto.SoftwareApplyResult, *terminalproto.AccountsResult:
 		return true
 	}
 	return false

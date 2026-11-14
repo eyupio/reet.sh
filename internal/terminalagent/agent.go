@@ -36,6 +36,20 @@ var (
 	inspectWorkspace = terminalhost.InspectSession
 	// cloneRepo is terminalhost.CloneRepo; tests replace it to hold a clone.
 	cloneRepo = terminalhost.CloneRepo
+	// cloneStatus and removeClone are terminalhost.CloneStatus and
+	// terminalhost.RemoveClone; tests replace them to hold a remove.
+	cloneStatus = terminalhost.CloneStatus
+	removeClone = terminalhost.RemoveClone
+	// repoCloneStatusAnswerAfter bounds a clone status that has not returned.
+	// Its own deadline is 10 s, which is under this answer, and this answer
+	// is under the controller's 15 s (terminalbroker.RepoCloneStatusCallTimeout).
+	repoCloneStatusAnswerAfter = 12 * time.Second
+	// repoCloneRemoveAnswerAfter is when a clone remove that has not returned
+	// is answered timed_out, under the controller's 60 s
+	// (terminalbroker.RepoCloneRemoveCallTimeout). Its checks end at 10 s;
+	// only the delete itself, which cannot be stopped, can outlast this, and
+	// it keeps the clone slot until it ends.
+	repoCloneRemoveAnswerAfter = 55 * time.Second
 	// browseAnswerAfter is when a browse that has not returned is answered
 	// unreadable and its slot freed: after Browse's own 3 s deadline, before
 	// the controller's 6 s. Browse cannot cut short every call (resolving the
@@ -96,7 +110,9 @@ var (
 	inspectsRunning atomic.Int32
 	controlsRunning atomic.Int32
 	clonesRunning   atomic.Int32
-	accountsRunning atomic.Int32
+	// cloneStatusesRunning counts clone status work, as browsesRunning does.
+	cloneStatusesRunning atomic.Int32
+	accountsRunning      atomic.Int32
 )
 
 // accountsSlot allows one sign-in read at a time on this connector process,
@@ -132,7 +148,9 @@ func accountReader(home string) *agentaccounts.Reader {
 // clone on the next connection may start while the ended one is still
 // removing its temporary folder; each clone removes only its own. It is not
 // the slot prune, sync and base check share: a clone takes minutes and must
-// not hold those up.
+// not hold those up. A clone remove takes this slot too, so a clone and a
+// remove never run together; a remove holds it until its delete has ended,
+// even after the connector answered for it.
 var cloneSlot = make(chan struct{}, 1)
 
 // softwareSlot serialises software applies on this connector process, not just
@@ -283,6 +301,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		browseSlot := make(chan struct{}, 1)
 		branchesSlot := make(chan struct{}, 1)
 		pruneSlot := make(chan struct{}, 1)
+		// cloneStatusSlot allows one clone status at a time on this
+		// connection. It only reads, so it has a slot of its own: neither a
+		// clone nor a sync holds it up.
+		cloneStatusSlot := make(chan struct{}, 1)
 		modelsSlot := make(chan struct{}, 1)
 		// modelsMu guards the per-tool last listing used for the floor.
 		var modelsMu sync.Mutex
@@ -295,7 +317,11 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		// work has not returned after the given time; the slot is freed then
 		// even if work is stuck, and a result that comes later is dropped. A
 		// request whose connection has ended answers nothing.
-		aside := func(callCtx context.Context, reply terminalproto.Message, slot chan struct{}, running *atomic.Int32, after time.Duration, busy, late terminalproto.Body, work func(context.Context) terminalproto.Body) error {
+		//
+		// With hold, for work that cannot be stopped (a delete), the slot is
+		// freed only when work itself returns, never at the deadline: nothing
+		// that shares the slot starts beside work that is still running.
+		asideHolding := func(callCtx context.Context, reply terminalproto.Message, slot chan struct{}, running *atomic.Int32, after time.Duration, hold bool, busy, late terminalproto.Body, work func(context.Context) terminalproto.Body) error {
 			select {
 			case slot <- struct{}{}:
 			default:
@@ -310,7 +336,14 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 			}
 			done := make(chan terminalproto.Body, 1)
 			// Not in wg: cleanup must not wait for work stuck in a syscall.
-			go func() { defer running.Add(-1); done <- work(callCtx) }()
+			go func() {
+				defer running.Add(-1)
+				body := work(callCtx)
+				if hold {
+					<-slot
+				}
+				done <- body
+			}()
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -336,7 +369,9 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				}
 				// Free the slot before answering, so a request the controller
 				// sends once it has this answer is not busy.
-				<-slot
+				if !hold {
+					<-slot
+				}
 				if callCtx.Err() != nil {
 					return
 				}
@@ -344,6 +379,9 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				_ = send(callCtx, reply)
 			}()
 			return nil
+		}
+		aside := func(callCtx context.Context, reply terminalproto.Message, slot chan struct{}, running *atomic.Int32, after time.Duration, busy, late terminalproto.Body, work func(context.Context) terminalproto.Body) error {
+			return asideHolding(callCtx, reply, slot, running, after, false, busy, late, work)
 		}
 		// Dispatch is called by one control reader; only stream workers use their
 		// own immutable attachment. Cleanup happens after that reader has stopped.
@@ -584,6 +622,36 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneTimedOut},
 					func(ctx context.Context) terminalproto.Body {
 						return cloneRepo(ctx, home, req, git, terminalhost.ExecGH)
+					})
+			case *terminalproto.RepoCloneStatus:
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneDenied}
+					return send(callCtx, reply)
+				}
+				req, home, git := *op, opts.Home, opts.Git
+				if git == nil {
+					git = terminalhost.ExecGit
+				}
+				return aside(callCtx, reply, cloneStatusSlot, &cloneStatusesRunning, repoCloneStatusAnswerAfter,
+					terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneTimedOut},
+					func(ctx context.Context) terminalproto.Body {
+						return cloneStatus(ctx, home, req, git)
+					})
+			case *terminalproto.RepoCloneRemove:
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneDenied}
+					return send(callCtx, reply)
+				}
+				req, home, git := *op, opts.Home, opts.Git
+				if git == nil {
+					git = terminalhost.ExecGit
+				}
+				// The clone slot, held until the delete has ended: a clone and
+				// a remove never run together.
+				return asideHolding(callCtx, reply, cloneSlot, &clonesRunning, repoCloneRemoveAnswerAfter, true,
+					terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneTimedOut},
+					func(ctx context.Context) terminalproto.Body {
+						return removeClone(ctx, home, req, git)
 					})
 			case *terminalproto.Accounts:
 				if !allowed(opts.Consent) {
@@ -1267,6 +1335,10 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.RepoClone:
 		if !has(terminalproto.RepoCloneFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.RepoCloneStatus, *terminalproto.RepoCloneRemove:
+		if !has(terminalproto.RepoCloneRemoveFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.Models:

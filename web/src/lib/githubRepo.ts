@@ -43,6 +43,18 @@ export function parseGitHubRepo(input: string): { owner: string; repo: string } 
  *  expired): the page cannot tell how it ended. `repo` is owner/name. */
 export const lostCloneLine = (repo: string): string => `reet lost track of cloning ${repo}. Add it again; if the clone finished, reet picks it up.`
 
+/** What is said when the request that starts a clone got no answer in time: the controller may have started it all the
+ *  same, and this page then has no clone to follow. */
+export const startUnheardLine = "reet didn't hear back about starting the clone. Check the project list in a minute."
+/** Whether a request ended because its own time limit ran out (AbortSignal.timeout), not because it never arrived. */
+export const timedOut = (e: unknown): boolean => (e as { name?: string } | undefined)?.name === 'TimeoutError'
+
+/** The project in `list` that a clone became: the same machine and repository (GitHub names ignore letter case). */
+export function clonedProject<P extends { host: string; origin?: string }>(list: readonly P[], clone: Pick<OutstandingClone, 'host' | 'repo'>): P | undefined {
+  const repo = clone.repo.toLowerCase()
+  return list.find(p => p.host === clone.host && !!p.origin && p.origin.toLowerCase() === repo)
+}
+
 /** Where the machine puts the clone, as the person reads it. */
 export const cloneFolder = (r: { owner: string; repo: string }): string => `~/reet/repos/${r.owner}/${r.repo}`
 

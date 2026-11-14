@@ -15,6 +15,44 @@ this file existed releases were described on their GitHub release pages.
   given up now sends nothing, and a message already being written finishes
   under its own five-second limit. The controller and `reet agent` each
   protect their own end of the connection.
+- A machine no longer loses its connection when it answers which of its
+  agents are signed in. The controller ended the connection on that answer,
+  so opening the sign-in list could drop the machine and its sessions for a
+  moment.
+- Removing a project reet cloned from GitHub can now delete the clone too.
+  **Remove from reet** asks the machine what the clone holds and, when nothing
+  would be lost, offers a tick, off by default: "Also delete
+  ~/reet/repos/owner/name from studio". Files git ignores there, such as .env
+  or build output, are deleted with it. The tick is not offered, and one
+  sentence says why, when a session still has a worktree from the clone, when
+  a session is still running in the clone's own folder, when
+  it has uncommitted files, a stash or commits that aren't on GitHub, when it
+  holds something reet can't check (a submodule or another repository inside
+  it, a mounted folder, a rebase under way), when reet can't be sure it is
+  still a plain clone of that repository (the machine's git settings can
+  cause this), when reet didn't make the folder, or when the machine can't be
+  asked. A `reet/…` branch with commits that were never pushed keeps the
+  clone after its session is gone.
+  The machine looks again before it deletes: if the clone changed since the
+  dialog, nothing is removed and the project stays. If the machine's answer is
+  lost, or a proxy in front of reet gives up waiting, reet says it couldn't
+  confirm, keeps the project, and records in Activity that the machine was
+  asked and the delete could not be confirmed. reet then says only what it
+  knows: "reet finds no clone it can delete at ~/reet/repos/owner/name on
+  studio." Removing without the tick works as before and never touches the
+  folder, and reet never deletes a folder it did not clone. Activity records
+  the deletion with the folder, and for a project reet cloned that is removed
+  without the tick it says that removal did not delete the clone, not that
+  the folder is untouched. The machine needs a current reet for this; an
+  older one keeps the clone.
+- Adding from GitHub: if starting the clone gets no answer in 15 seconds the
+  dialog now says "reet didn't hear back about starting the clone. Check the
+  project list in a minute." instead of saying the request never arrived;
+  pressing Escape repeatedly while the start is on its way no longer hides the
+  dialog; and when reet loses track of a clone that had finished, the project
+  simply appears, without the "lost track" message. A machine that refuses a
+  clone now says "studio refused to clone: terminal access is off there, or git
+  or the GitHub CLI is missing." instead of naming terminal access alone.
 - Machines now follow a moved controller without anyone touching them, and
   the Move page shows them do it. The `reet agent set-server` command is gone
   from the page. A fence raised before the new address was known can be given
@@ -115,7 +153,8 @@ this file existed releases were described on their GitHub release pages.
   the repository again picks up whatever finished, and the page says it lost
   track of the clone), a git setting that sends github.com over ssh stops the
   clone and says so, and an empty repository is added with a blank base.
-  Removing the project leaves `~/reet/repos/owner/name` on the machine; the
+  Removing the project leaves `~/reet/repos/owner/name` on the machine unless
+  you ask for it to be deleted (below); the
   hidden folder a clone cut off part-way leaves is removed the next time that
   repository is cloned, but only when reet can tell it is that repository's.
 - An agent whose binary has only just been written, by an install or an

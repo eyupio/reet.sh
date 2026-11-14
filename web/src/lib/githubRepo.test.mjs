@@ -10,7 +10,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
-const { parseGitHubRepo, cloneFolder, lostCloneLine, watchClone, outstandingClone, rememberClone } = await import(asURL(compile('./githubRepo.ts')))
+const { parseGitHubRepo, cloneFolder, lostCloneLine, startUnheardLine, timedOut, clonedProject, watchClone, outstandingClone, rememberClone } = await import(asURL(compile('./githubRepo.ts')))
 
 const shown = r => r ? `${r.owner}/${r.repo}` : null
 
@@ -180,4 +180,22 @@ test('the first read waits one interval', async () => {
 
 test('a clone the controller lost is said with its repository', () => {
   assert.equal(lostCloneLine('eyupio/reet.sh'), 'reet lost track of cloning eyupio/reet.sh. Add it again; if the clone finished, reet picks it up.')
+})
+
+test('a start that got no answer in time is said as that, never as a request that did not arrive', () => {
+  assert.equal(startUnheardLine, "reet didn't hear back about starting the clone. Check the project list in a minute.")
+  assert.equal(timedOut(new DOMException('The operation timed out.', 'TimeoutError')), true)
+  assert.equal(timedOut(new DOMException('Aborted', 'AbortError')), false)
+  assert.equal(timedOut(new TypeError('Failed to fetch')), false)
+  assert.equal(timedOut(undefined), false)
+})
+
+test('a lost clone is found in the list by its machine and repository', () => {
+  const lost = { id: 'c1', host: 'a1', machine: 'studio', repo: 'Eyupio/Reet.sh' }
+  const p = (over) => ({ id: 'fp9', host: 'a1', origin: 'eyupio/reet.sh', ...over })
+  assert.equal(clonedProject([p({ id: 'x', origin: undefined }), p({})], lost)?.id, 'fp9')
+  assert.equal(clonedProject([p({ host: 'a2' })], lost), undefined)
+  assert.equal(clonedProject([p({ origin: 'eyupio/other' })], lost), undefined)
+  assert.equal(clonedProject([p({ origin: undefined })], lost), undefined)
+  assert.equal(clonedProject([], lost), undefined)
 })

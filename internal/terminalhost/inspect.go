@@ -52,7 +52,7 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 
 	var filterArgs []string
 	git := func(args ...string) ([]byte, error) {
-		fixed := []string{"--no-optional-locks", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "core.attributesFile=/dev/null"}
+		fixed := append([]string{"--no-optional-locks", "--literal-pathspecs"}, readOnlyGitArgs...)
 		fixed = append(fixed, filterArgs...)
 		cmd := exec.CommandContext(ctx, gitPath, append([]string{"-C", dir}, append(fixed, args...)...)...)
 		cmd.Env = append(gitEnvironment(os.Environ()), "GIT_DIR="+meta, "GIT_WORK_TREE="+dir, "GIT_CEILING_DIRECTORIES="+filepath.Dir(dir), "GIT_NO_LAZY_FETCH=1", "GIT_OPTIONAL_LOCKS=0")
@@ -70,7 +70,7 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 	r.Repo = true
 	// Status and diff may apply repository clean/process filters while comparing the
 	// working copy. Disable every configured driver before either operation.
-	keys, configErr := git("config", "--name-only", "--get-regexp", `^filter\..*\.(clean|process|required)$`)
+	keys, configErr := git(filterKeysArgs...)
 	if len(keys) >= 128<<10 {
 		r.Reason = "git_failed"
 		return r
@@ -79,15 +79,12 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 		r.Reason = "git_failed"
 		return r
 	}
-	for _, key := range strings.Fields(string(keys)) {
-		if strings.HasPrefix(key, "filter.") {
-			value := ""
-			if strings.HasSuffix(key, ".required") {
-				value = "false"
-			}
-			filterArgs = append(filterArgs, "-c", key+"="+value)
-		}
+	offArgs, listed := filterOffArgs(keys)
+	if !listed {
+		r.Reason = "git_failed"
+		return r
 	}
+	filterArgs = offArgs
 	branch, _ := git("symbolic-ref", "--quiet", "--short", "HEAD")
 	r.Branch = inspectPlain(strings.TrimSpace(string(branch)), 1024)
 	// The page links the repository before any pull request exists, so the status

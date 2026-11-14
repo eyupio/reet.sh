@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/eyupio/reet.sh/internal/agentaccounts"
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
 	"github.com/eyupio/reet.sh/internal/privateconn"
@@ -64,6 +65,11 @@ var (
 	// answered timed_out and its slot freed. ListModels kills its process at
 	// 10 s; this leaves room for the reply and process reaping.
 	modelsAnswerAfter = 12 * time.Second
+	// accountsAnswerAfter is when a sign-in read that has not returned is
+	// answered timed_out. The providers are asked side by side, ten seconds
+	// at most; this leaves room for the reply and is under the controller's
+	// wait (terminalbroker.AccountsCallTimeout).
+	accountsAnswerAfter = 12 * time.Second
 	// softwareAnswerAfter is when an apply that has not returned is answered
 	// timed_out. The install continues under softwareApplyWorkTimeout, and a
 	// later reconcile observes the version it left.
@@ -90,7 +96,35 @@ var (
 	inspectsRunning atomic.Int32
 	controlsRunning atomic.Int32
 	clonesRunning   atomic.Int32
+	accountsRunning atomic.Int32
 )
+
+// accountsSlot allows one sign-in read at a time on this connector process,
+// across its connections, so a provider is never asked twice at once.
+var accountsSlot = make(chan struct{}, 1)
+
+// accountReaders holds one reader per home folder for the life of the
+// process, so the figures it remembers outlive a reconnect and a provider is
+// not asked again because the connection dropped.
+var (
+	accountReadersMu sync.Mutex
+	accountReaders   = map[string]*agentaccounts.Reader{}
+	// newAccountReader makes a reader; tests replace it so no provider is asked.
+	newAccountReader = func(home string) *agentaccounts.Reader {
+		return agentaccounts.New(agentaccounts.Options{Home: home, Env: os.Environ()})
+	}
+)
+
+func accountReader(home string) *agentaccounts.Reader {
+	accountReadersMu.Lock()
+	defer accountReadersMu.Unlock()
+	reader := accountReaders[home]
+	if reader == nil {
+		reader = newAccountReader(home)
+		accountReaders[home] = reader
+	}
+	return reader
+}
 
 // cloneSlot allows one repository clone at a time on this connector process,
 // across its connections: a clone holds it for as long as it runs on its
@@ -546,6 +580,17 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneTimedOut},
 					func(ctx context.Context) terminalproto.Body {
 						return cloneRepo(ctx, home, req, git, terminalhost.ExecGH)
+					})
+			case *terminalproto.Accounts:
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.AccountsResult{Reason: terminalproto.AccountsOff}
+					return send(callCtx, reply)
+				}
+				req, reader := *op, accountReader(opts.Home)
+				return aside(callCtx, reply, accountsSlot, &accountsRunning, accountsAnswerAfter,
+					terminalproto.AccountsResult{Reason: terminalproto.AccountsConflict}, terminalproto.AccountsResult{Reason: terminalproto.AccountsTimedOut},
+					func(ctx context.Context) terminalproto.Body {
+						return terminalproto.AccountsResult{Accounts: reader.Read(ctx, req.Limits, req.Refresh)}
 					})
 			case *terminalproto.Models:
 				if !terminalproto.ValidToolV2(op.Tool) {
@@ -1222,6 +1267,10 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.Models:
 		if !has(terminalproto.ModelsFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.Accounts:
+		if !has(terminalproto.AgentAccountsFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.SoftwareApply:

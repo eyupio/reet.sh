@@ -133,12 +133,15 @@ type signIn struct {
 }
 
 // Read answers for every agent with a reviewed reader, in a fixed order. With
-// limits it also reads each signed-in plan's allowance from its provider;
-// refresh asks again instead of answering figures read in the last few
-// minutes. It never returns an error: what could not be read is a state.
+// limits it also reads each signed-in plan's allowance from its provider, the
+// providers side by side; refresh asks again instead of answering figures
+// read in the last few minutes. It never returns an error: what could not be
+// read is a state.
 func (r *Reader) Read(ctx context.Context, limits, refresh bool) []terminalproto.AgentAccount {
-	out := make([]terminalproto.AgentAccount, 0, 2)
-	for _, read := range []func() signIn{r.claude, r.codex} {
+	readers := []func() signIn{r.claude, r.codex}
+	out := make([]terminalproto.AgentAccount, len(readers))
+	var wg sync.WaitGroup
+	for i, read := range readers {
 		s := read()
 		a := s.account
 		a.LimitsState = terminalproto.AccountLimitsNotAsked
@@ -147,10 +150,13 @@ func (r *Reader) Read(ctx context.Context, limits, refresh bool) []terminalproto
 		case a.Method != terminalproto.AccountSubscription:
 			a.LimitsState = terminalproto.AccountLimitsUnsupported
 		case limits:
-			a = r.withLimits(ctx, s, refresh)
+			wg.Add(1)
+			go func() { defer wg.Done(); out[i] = r.withLimits(ctx, s, refresh) }()
+			continue
 		}
-		out = append(out, a)
+		out[i] = a
 	}
+	wg.Wait()
 	return out
 }
 

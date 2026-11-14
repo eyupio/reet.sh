@@ -5,6 +5,15 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A machine's connection no longer drops because a request to it gave up. A
+  request that ended at the wrong moment could close the connection that all
+  of a machine's terminals and chats share, at either end: everything on the
+  machine detached until it reconnected, and Gaffer's goal follow-up, finding
+  the machine reconnecting, waited a minute before looking again. It happened
+  mostly when the controller was busy. A request that has given up now sends
+  nothing, and a message already being written finishes under its own
+  five-second limit. The controller and `reet agent` each protect their own
+  end, so updating either helps.
 - The terminal's on-screen keys are rebuilt, and tablets get them. They were
   hidden on any touch screen wider than 650 px, so a tablet had no Esc, Tab,
   Ctrl or arrow keys; they now show on every touch screen. The row leads with

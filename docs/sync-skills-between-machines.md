@@ -108,9 +108,9 @@ Start with the default mode. Move to exact or bidirectional only when you want t
 
 - **A machine is skipped.** It is offline, paused, stale or incomplete, or a preview is already pending. The reason is shown in the UI.
 - **Apply fails without changing anything.** Remote apply is off on that machine. Run `reet agent allow-apply on` there, or re-enrol with `--allow-apply`.
-- **The plan changed before it ran.** The files, source revision or target changed between preview and apply. Preview again and review the new plan.
+- **The plan changed before it ran.** The files, source revision or target changed between preview and apply. Reet asks the machine for a fresh plan automatically and continues, up to a bounded number of attempts; after that, preview again and review the new plan.
 - **A skill is unknown or unlinked.** Link it to its source, or publish a supported bundle, before selecting it for installation.
-- **Two known sources have the same name.** When you choose skills yourself, resolve the source conflict explicitly. reet does not guess which one you meant. If the plan disagrees with a copy another agent already holds on the same machine, **Auto fix** follows the installed source after a confirmation and syncs again, changing no installed files; a name installed from more than one source is left for you to unlink. The shared library behind **Sync all machines** is different: only one copy of a name fits in a skills folder, so it keeps the copy a saved plan already installs (otherwise the oldest on your shelf), leaves the other where it is, and names it on the Sync page.
+- **Two known sources have the same name.** When you choose skills yourself, resolve the source conflict explicitly. reet does not guess which one you meant. If the plan disagrees with a copy another agent already holds on the same machine, sync follows the one installed source automatically and records what it changed; when a name is installed from more than one source there is no single safe source to follow, so it is left for you to unlink and the Sync page says why. The shared library behind **Sync all machines** is different: only one copy of a name fits in a skills folder, so it keeps the copy a saved plan already installs (otherwise the oldest on your shelf), leaves the other where it is, and names it on the Sync page.
 
 ## Limits
 

@@ -84,3 +84,13 @@ test('a duplicate-name problem offers the shelf dedupe action', () => {
   assert.equal(offersDedupe('Sync selection needs attention: More than one source uses the name improve-animations. Remove the duplicate from your shelf before syncing.'), true)
   assert.equal(offersDedupe('the source machine went offline'), false)
 })
+
+test('an ambiguous installed source is reported, not changed automatically', () => {
+  const message = 'Auto fix could not settle this one: one is installed from more than one source (x/y, z/w); unlink one copy on the machine before syncing'
+  assert.equal(offersSourceFix(message), false)
+  const problem = explainSyncFailure(message, context)
+  assert.equal(problem.kind, 'source')
+  assert.equal(problem.autoFix, false)
+  assert.match(problem.detail, /did not change this automatically/)
+  assert.match(problem.detail, /no single installed source/)
+})

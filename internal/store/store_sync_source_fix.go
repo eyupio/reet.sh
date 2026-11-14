@@ -34,6 +34,14 @@ func canonicalSyncSource(source string) string {
 // to overwrite, so following it is the non-destructive resolution. More than one
 // installed source is genuinely ambiguous and is left for a person.
 func resolveSyncSourceFixes(target SyncTarget, envs []SyncEnvironment) ([]SyncSourceFix, []SyncSkill, error) {
+	return resolveSyncSourceFixesFor(target, envs, false)
+}
+
+// resolveSyncSourceFixesFor is resolveSyncSourceFixes with a choice about the
+// target's own scope. Automatic repair only follows a copy another agent holds,
+// because a differing copy in the target's own scope is what a normal sync is
+// meant to replace with the selected source.
+func resolveSyncSourceFixesFor(target SyncTarget, envs []SyncEnvironment, onlyOtherAgents bool) ([]SyncSourceFix, []SyncSkill, error) {
 	type copyRef struct {
 		skill SyncSkill
 		agent string
@@ -41,6 +49,9 @@ func resolveSyncSourceFixes(target SyncTarget, envs []SyncEnvironment) ([]SyncSo
 	installed := map[string][]copyRef{}
 	for _, env := range envs {
 		if !strings.EqualFold(env.Host, target.Target.Host) || env.Project != target.Target.Project {
+			continue
+		}
+		if onlyOtherAgents && env.ID == target.Target.ID {
 			continue
 		}
 		for _, sk := range env.Skills {
@@ -134,7 +145,16 @@ func (s *Store) ResolveSyncSourceConflictsFor(uid int64, targetIDs []string, dry
 	if dryRun || len(fixes) == 0 {
 		return fixes, nil
 	}
-	err = s.withTx(func(tx *sql.Tx) error {
+	if err = s.applySyncSourceFixes(uid, plans); err != nil {
+		return nil, err
+	}
+	return fixes, nil
+}
+
+// applySyncSourceFixes saves the adopted sources. It changes the saved plan and
+// its baseline, never files on a machine.
+func (s *Store) applySyncSourceFixes(uid int64, plans map[string][]SyncSkill) error {
+	return s.withTx(func(tx *sql.Tx) error {
 		for id, desired := range plans {
 			data, e := json.Marshal(desired)
 			if e != nil {
@@ -160,8 +180,36 @@ func (s *Store) ResolveSyncSourceConflictsFor(uid int64, targetIDs []string, dry
 		}
 		return nil
 	})
+}
+
+// AutoResolveSyncSourceConflictsFor repairs one saved plan that an installed
+// copy has blocked. It only follows a copy another agent holds and only when
+// that name has exactly one source there; anything ambiguous is returned as an
+// error so the caller can report why it was left alone.
+func (s *Store) AutoResolveSyncSourceConflictsFor(uid int64, targetID string) ([]SyncSourceFix, error) {
+	targets, err := s.SyncTargetsFor(uid)
 	if err != nil {
 		return nil, err
 	}
-	return fixes, nil
+	envs, err := s.SyncEnvironmentsFor(uid)
+	if err != nil {
+		return nil, err
+	}
+	for _, target := range targets {
+		if target.Target.ID != targetID || target.Canonical {
+			continue
+		}
+		fixes, desired, err := resolveSyncSourceFixesFor(target, envs, true)
+		if err != nil {
+			return nil, err
+		}
+		if len(fixes) == 0 {
+			return nil, nil
+		}
+		if err = s.applySyncSourceFixes(uid, map[string][]SyncSkill{targetID: desired}); err != nil {
+			return nil, err
+		}
+		return fixes, nil
+	}
+	return nil, nil
 }

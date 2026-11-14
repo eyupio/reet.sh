@@ -904,3 +904,109 @@ func TestSyncPartialPlanDoesNotAcknowledgeWholeDestination(t *testing.T) {
 		})
 	}
 }
+
+func TestStalePlanOutsideRunIsReplannedAutomatically(t *testing.T) {
+	s, uid, target := controlFixture(t)
+	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.QueueSyncJob(uid, agent.ID, target, "preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || claimed == nil || claimed.ID != job.ID {
+		t.Fatalf("claim: %+v %v", claimed, err)
+	}
+	if err = s.FinishSyncJob(uid, agent.ID, job.ID, "replan", "", "local skills changed; preview again", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || next == nil || next.Kind != "preview" || next.TargetID != target {
+		t.Fatalf("stale plan was not replanned: %+v %v", next, err)
+	}
+	jobs, _ := s.SyncJobsFor(uid)
+	for _, item := range jobs {
+		if item.ID == job.ID {
+			if item.Status != "failed" || !strings.Contains(item.Message, "continues automatically") {
+				t.Fatalf("failed attempt was not reported honestly: %+v", item)
+			}
+		}
+		if item.ID == next.ID && !strings.Contains(item.Message, "planning again automatically") {
+			t.Fatalf("automatic repair was not reported: %+v", item)
+		}
+	}
+}
+
+func TestStalePlanOutsideRunStopsAfterLimit(t *testing.T) {
+	s, uid, target := controlFixture(t)
+	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.QueueSyncJob(uid, agent.ID, target, "preview"); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt <= syncRunReplanLimit; attempt++ {
+		job, err := s.ClaimSyncJob(uid, agent)
+		if err != nil || job == nil {
+			t.Fatalf("attempt %d: %+v %v", attempt, job, err)
+		}
+		if err = s.FinishSyncJob(uid, agent.ID, job.ID, "replan", "", "local skills changed; preview again", json.RawMessage(`{}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if job, err := s.ClaimSyncJob(uid, agent); err != nil || job != nil {
+		t.Fatalf("auto fix did not stop: %+v %v", job, err)
+	}
+	jobs, _ := s.SyncJobsFor(uid)
+	last := jobs[0]
+	if !strings.Contains(last.Message, "Auto fix stopped after repeated attempts") {
+		t.Fatalf("limit was not reported: %+v", last)
+	}
+}
+
+func TestStaleApplyOutsideRunReplansAndAppliesAutomatically(t *testing.T) {
+	s, uid, target := controlFixture(t)
+	if err := s.SaveDesiredFor(uid, "owner", DesiredSelection{TargetID: target, SourceID: "shelf", SkillIDs: []string{"a/b/one"}, Mode: "additive"}); err != nil {
+		t.Fatal(err)
+	}
+	agent, _, err := s.EnrollSyncAgent(uid, "laptop", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := s.QueueSyncJob(uid, agent.ID, target, "preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || claimed == nil || claimed.ID != preview.ID {
+		t.Fatalf("preview claim: %+v %v", claimed, err)
+	}
+	hash := strings.Repeat("c", 64)
+	plan := json.RawMessage(`{"actions":[{"add":true,"skill":{"slug":"one"}}]}`)
+	if err = s.FinishSyncJob(uid, agent.ID, preview.ID, "awaiting-approval", hash, "", plan); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ControlSyncJob(uid, preview.ID, "approve", hash); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || job == nil || job.Kind != "apply" {
+		t.Fatalf("apply claim: %+v %v", job, err)
+	}
+	if err = s.FinishSyncJob(uid, agent.ID, job.ID, "replan", "", "local skills changed; preview again", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || next == nil || next.Kind != "auto" || next.TargetID != target {
+		t.Fatalf("stale apply was not repaired automatically: %+v %v", next, err)
+	}
+}

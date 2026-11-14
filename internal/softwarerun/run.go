@@ -207,8 +207,12 @@ func (o *Orchestrator) drive(k batchKey, d *driving) {
 		o.mu.Unlock()
 		terminal := o.pass(k)
 		o.mu.Lock()
-		stop := terminal || !d.again
-		if stop || o.closed {
+		// A Start that arrives while a terminal pass is unwinding (a retry racing
+		// the stop it answers) still asks for one more look: the batch may have
+		// work again now, and dropping that Start would leave it running with
+		// nobody driving it.
+		stop := terminal && !d.again || o.closed
+		if stop {
 			delete(o.runs, k)
 			o.mu.Unlock()
 			return

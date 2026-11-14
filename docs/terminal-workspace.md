@@ -119,8 +119,8 @@ beside it). Its parts:
   terminal's right edge, from under the header to the foot of the screen; every target in the header, the toolbar, the
   tabs, the sheet, the docked sessions panel (its rows, menus and swatches; the separator has a 44 × 88 px grip that
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
-  track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; only the pane's terminal toolbar and
-  extra keys are 40 × 40 px.
+  track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; so are the on-screen keys, and only the pane's terminal
+  toolbar is 40 × 40 px.
 - **Phones** keep the same session actions as desktop. Outside a Gaffer chat's super focus, the identity row shows the
   session and its state, with labelled **Focus**, **Theatre**, **Details** and **More** controls. Interface and approval
   choices stay visible below it, with 44 px touch targets; the toolbar wraps instead of moving them into the menu.
@@ -234,9 +234,11 @@ last selected session while this workspace is mounted. The selected user/host
 remains visible on phones; moving from desktop to phone closes the panel.
 
 **New session** first asks what to start: an **Agent session** opens the Start an
-agent dialog, and a **Terminal session** opens the shell form (asking for a
-machine first when none is selected). An unconfirmed creation skips the question
-and opens its own retry instead.
+agent dialog, a **Terminal session** opens the shell form (asking for a machine
+first when none is selected), and, where the account has Gaffer, a **Factory
+outcome** opens the Factory page with its outcome dialog ready (on the chosen
+project's folder when the session was started from a project). An unconfirmed
+creation skips the question and opens its own retry instead.
 
 Each unconfirmed creation keeps its immutable request ID and original title per
 machine while the workspace is mounted. Switching machines cannot discard or
@@ -467,7 +469,7 @@ new direct SSH adapter. Phone viewport emulation is not a physical keyboard test
   fitting parent `screen` has no padding. FitAddon reads that parent's dimensions
   without subtracting parent padding. Keep this split to prevent an oversized
   grid clipping its final row. `keyboard.ts` classifies terminal-only shortcuts;
-  `virtualKeys.ts` holds the extra-key rows and how a selected modifier joins the next
+  `virtualKeys.ts` holds the on-screen key rows and how the modifiers that are on join the next
   key, covered by `web/tests/terminal-keys.test.mjs`. `connection.ts` retains lease,
   recovery, generation and input-replay boundaries.
   The pane requests a full xterm refresh after each parsed batch and fit, keeping
@@ -636,18 +638,51 @@ columns at 390 px instead of 41. A stored size (10–22) always wins.
 
 **Chrome.** The pane header is one line, with the user/host still shown and truncated.
 The pane header, terminal toolbar, extra-key row and footer lose their vertical padding. On a
-touch screen every toolbar button and extra key is at least 40 × 40 px; on a touch phone so
+touch screen every toolbar button and on-screen key is at least 40 × 40 px; on a touch phone so
 are the workspace toolbar's buttons (back, +, Sessions, New session, Details & help), the pane
 header's controls and the footer's Focus terminal (a touch tablet makes all but the terminal
-toolbar and extra keys 44 px). The screen frame padding is 4 px. The toolbar and key row
-scroll sideways; the end that hides more controls fades. The key row is focusable, so
+toolbar 44 px). The screen frame padding is 4 px. The toolbar and the key rows
+scroll sideways; the end that hides more controls fades. A key row is focusable, so
 arrow keys scroll it; that tab stop also appears in mouse windows narrower than 650 px,
-where the key row shows too. The key row carries Ctrl, Alt and Shift toggles, Esc, Tab,
-Backspace, Enter and the four arrows; a keyboard button opens an expanded pad over the
-terminal with common Ctrl combinations, Home/End/PgUp/PgDn/Ins/Del, F1–F12 and symbols,
-without taking a row from the shell. A selected modifier joins the next key as xterm
-sends it (Ctrl with Up is `CSI 1;5A`). The Alt+Shift+M advice is hidden on touch screens
+where the keys show too. The keys themselves are described under
+[On-screen keys](#on-screen-keys). The Alt+Shift+M advice is hidden on touch screens
 (no hover, coarse pointer); Restore size stays.
+
+### On-screen keys
+
+A phone or tablet keyboard has no Esc, Tab, Ctrl or arrow keys, so the terminal draws its own
+under the screen. They show on any touch screen, whatever its width, and in a mouse window
+650 px wide or less.
+
+- **The row that stays** leads with **Esc**, **Tab**, **Ctrl**, **Alt** and **Shift**, then
+  **^C** (Ctrl+C) and `/` `|` `-` `~`. That part scrolls sideways. The four arrows and the
+  button for the second row sit at its end and do not scroll, so they are always in view. On
+  a 390 px phone Esc, Tab and Ctrl are in view before any scrolling; on a tablet the whole row is.
+- **Modifiers.** Tap Ctrl, Alt or Shift once and it is on for the next key only; tap it again
+  and it is locked on, shown with a bar along its foot, until a third tap lets it go. Several
+  can be on at once. They join a key as xterm sends it: Ctrl with Up is `CSI 1;5A`, Ctrl and
+  Shift with Right is `CSI 1;6C`, Ctrl with `c` is `0x03`, Alt leads with Escape. They join
+  what the device's own keyboard types too, so a locked Ctrl and the letter `l` clears the
+  screen. Pasted text is never changed, and uses up a modifier that was on for one key.
+- **Hold to repeat.** An arrow, Backspace, Delete, Page Up or Page Down sends once on a tap
+  and, held, again every 70 ms after 400 ms, as a keyboard does. Letting go, sliding off the
+  key or the row starting to scroll stops it. Keys that act once (Esc, Tab, Enter, Ctrl
+  combinations, F keys) never repeat.
+- **The second row** opens above the first from the keyboard button and takes one row's
+  height from the screen; the first row does not move. It holds every other key, one group at
+  a time: **Edit** (Enter, Backspace, Delete, Home, End, Page Up, Page Down, Insert), **#+=**
+  (symbols a phone buries behind a symbol page), **^X** (common Ctrl combinations) and **Fn**
+  (F1–F12). The group buttons stay in view while a group's keys scroll. Whether the row is
+  open, and which group, is remembered in this browser.
+- **Focus.** On a touch screen a key never moves the focus, so the device's keyboard stays as
+  it was, open or closed: the arrows and Esc can drive an agent's interface with the keyboard
+  down and the whole screen in view. With a mouse the terminal takes the focus, as before.
+- Every key is a button with its own name for a screen reader ("Send Up arrow", "Ctrl locked").
+  The toolbar's **Interrupt** is Ctrl+C exactly, whatever modifiers are on.
+
+The keys and how modifiers join them are in `web/src/lib/terminal/virtualKeys.ts`
+(`web/tests/terminal-keys.test.mjs`); the rows are in `TerminalPane.svelte`
+(`web/tests/terminal-phone.e2e.mjs`).
 
 **Sideways phones.** The toolbar and the extra keys share one row, each scrolling with
 its own fade, and the pane footer is hidden (the state stays in the header). At 844 ×

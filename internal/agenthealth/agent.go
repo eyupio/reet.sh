@@ -63,6 +63,7 @@ type AgentConfig struct {
 	agentsV2           bool
 	antigravity        bool
 	antigravityACP     bool
+	copilot            bool
 	worktree           bool
 	browse             bool
 	branches           bool
@@ -945,6 +946,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.agentsV2 = terminalproto.SupportsAgents(advertised)
 	cfg.antigravity = cfg.agentsV2 && terminalproto.SupportsAntigravity(advertised)
 	cfg.antigravityACP = cfg.antigravity && terminalproto.SupportsAntigravityACP(advertised)
+	cfg.copilot = cfg.agentsV2 && terminalproto.SupportsCopilot(advertised)
 	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
@@ -1013,6 +1015,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.antigravityACP {
 		features = append(features, terminalproto.AntigravityACPFeature)
+	}
+	if cfg.copilot {
+		features = append(features, terminalproto.CopilotFeature)
 	}
 	if cfg.launch {
 		features = append(features, terminalproto.LaunchFeature)
@@ -1131,6 +1136,9 @@ func launchTools(cfg AgentConfig) []string {
 	var tools []string
 	for _, tool := range cfg.LaunchTools() {
 		if tool == "antigravity" && !cfg.antigravity {
+			continue
+		}
+		if tool == "copilot" && !cfg.copilot {
 			continue
 		}
 		validTool := terminalproto.ValidTool(tool) || (cfg.agentsV2 && terminalproto.ValidToolV2(tool))

@@ -5,6 +5,20 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- You can start GitHub Copilot in a terminal session. Install the Copilot
+  CLI's `copilot` command on a machine, sign in there with `copilot login` and
+  update reet on that machine; the agent picker then offers **GitHub Copilot**
+  with an optional model, an opening prompt and a thinking level. Approvals
+  stay on unless you choose YOLO, which needs the same account setting, machine
+  switch and confirmation as for every other agent. An opening prompt goes
+  through the CLI's interactive option, not the one that answers once and
+  exits. Not there yet: a Gaffer chat for it, **Continue session…** on a closed
+  session, and a model list read from the machine (type the model name under
+  **Other…**). reet doesn't install the CLI or sign in for you. Both the
+  controller and the machine need this version: an older one is never sent the
+  new agent's name, so Copilot just isn't offered there until it is updated.
+  The arguments reet starts it with were taken from the help of Copilot CLI
+  1.0.112; they have not been run with a signed-in account.
 - An agent in a terminal that stops to ask now shows as needing you. Claude
   Code, Codex and OpenCode do not always ring the terminal bell when they ask
   before running a command or changing a file, so such a session looked the

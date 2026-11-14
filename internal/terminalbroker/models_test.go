@@ -308,3 +308,51 @@ func TestModelsRequiresTheCurrentCapabilityGeneration(t *testing.T) {
 		t.Fatal("a stale-generation request reached the machine", sent)
 	}
 }
+
+// A connector whose catalogue predates GitHub Copilot decodes tool ids
+// strictly: a models request naming copilot would end its connection. Such a
+// connector never lists the tool, so the request is answered here and nothing
+// is sent. A connector that lists it is asked as usual.
+func TestModelsNeverNamesCopilotToAMachineThatDoesNotListIt(t *testing.T) {
+	older := launchCapabilities("antigravity", "claude", "cline", "codex", "opencode")
+	older.AgentsV2, older.Models, older.ModelsRefresh = true, true, true
+	f := modelsFixture(t, older)
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.ModelsResult{Tool: "copilot", Reason: terminalproto.ModelsUnsupported}
+	})
+	for name, ask := range map[string]func(context.Context, int64, string, string) (terminalproto.ModelsResult, error){"read": f.b.Models, "refresh": f.b.ModelsRefresh} {
+		got, err := ask(t.Context(), f.uid, f.agent, "copilot")
+		if err != nil || got.Tool != "copilot" || got.Reason != terminalproto.ModelsNotInstalled {
+			t.Fatal(name, got, err)
+		}
+	}
+	if sent := f.sentRequests(); len(sent) != 0 {
+		t.Fatal("the copilot id reached a machine that does not list it", sent)
+	}
+	select {
+	case <-f.peer.Done():
+		t.Fatal("answering for the machine ended its connection")
+	default:
+	}
+	// The other tools on that machine are still asked.
+	if _, err := f.b.Models(t.Context(), f.uid, f.agent, "antigravity"); err == nil {
+		t.Fatal("the stand-in answer names another tool and must be refused")
+	}
+	if sent := f.sentRequests(); len(sent) != 1 || sent[0] != (terminalproto.Models{Tool: "antigravity"}) {
+		t.Fatal("another tool's request changed", sent)
+	}
+
+	current := launchCapabilities("claude", "copilot")
+	current.AgentsV2, current.Models = true, true
+	g := modelsFixture(t, current)
+	g.answering(func(terminalproto.Body) terminalproto.Body {
+		return terminalproto.ModelsResult{Tool: "copilot", Reason: terminalproto.ModelsUnsupported}
+	})
+	got, err := g.b.Models(t.Context(), g.uid, g.agent, "copilot")
+	if err != nil || got.Reason != terminalproto.ModelsUnsupported {
+		t.Fatal(got, err)
+	}
+	if sent := g.sentRequests(); len(sent) != 1 || sent[0] != (terminalproto.Models{Tool: "copilot"}) {
+		t.Fatal("a machine that lists copilot was not asked", sent)
+	}
+}

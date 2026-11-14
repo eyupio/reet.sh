@@ -37,6 +37,9 @@ func TestLaunchFieldsRequireNegotiatedFeature(t *testing.T) {
 		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity"}, terminalproto.LaunchOptionUnsupported},
 		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.AntigravityFeature + "," + terminalproto.ACPFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity", Structured: true, Trust: true}, terminalproto.LaunchOptionUnsupported},
 		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.AntigravityFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "antigravity"}, terminalproto.Unavailable},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "copilot"}, terminalproto.LaunchOptionUnsupported},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.AntigravityFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "copilot"}, terminalproto.LaunchOptionUnsupported},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.CopilotFeature, terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "copilot"}, terminalproto.Unavailable},
 		{"", terminalproto.Create{Title: "a", Cols: 80, Rows: 24}, terminalproto.Unavailable},
 	} {
 		var got terminalproto.Message

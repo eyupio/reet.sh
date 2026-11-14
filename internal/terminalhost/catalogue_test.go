@@ -20,26 +20,26 @@ import (
 //go:embed testdata/help/*.txt testdata/help/sources.json
 var catalogueHelp embed.FS
 
-func TestCatalogueHasEightAgents(t *testing.T) {
+func TestCatalogueListsEveryAgent(t *testing.T) {
 	var ids []string
 	for _, p := range Catalogue {
 		ids = append(ids, p.ID)
 	}
-	if !reflect.DeepEqual(ids, []string{"claude", "codex", "opencode", "pi", "cursor", "cline", "antigravity"}) {
+	if !reflect.DeepEqual(ids, []string{"claude", "codex", "opencode", "pi", "cursor", "cline", "antigravity", "copilot"}) {
 		t.Fatal(ids)
 	}
 }
 
 // A machine may still have the retired agent's binary on its PATH; it is never reported.
 func TestOldControllerSeesOnlyThreeTools(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "gemini", "pi", "cursor-agent", "cline", "agy")
+	look := fakeLookPath("claude", "codex", "opencode", "gemini", "pi", "cursor-agent", "cline", "agy", "copilot")
 	want := []string{"claude", "codex", "opencode"}
 	if got := InstalledTools(look, false); !reflect.DeepEqual(got, want) {
 		t.Fatal(got)
 	}
 	// New launch modes remain unavailable until captured CLI help establishes
 	// their prompt, model, and permission arguments.
-	if got := InstalledTools(look, true); !reflect.DeepEqual(got, []string{"antigravity", "claude", "cline", "codex", "opencode"}) {
+	if got := InstalledTools(look, true); !reflect.DeepEqual(got, []string{"antigravity", "claude", "cline", "codex", "copilot", "opencode"}) {
 		t.Fatal("unconfirmed preset advertised", got)
 	}
 }
@@ -68,6 +68,114 @@ func TestLaunchArgvAntigravityOptions(t *testing.T) {
 		got, err := LaunchArgv(in, fakeLookPath("agy"))
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatal(got, err)
+		}
+	}
+}
+
+// GitHub Copilot CLI 1.0.112: the npm package's bin is `copilot`. The model,
+// effort and prompt flags and the single allow-all argument are the ones its
+// captured help describes.
+func TestLaunchArgvCopilotOptions(t *testing.T) {
+	look := fakeLookPath("copilot")
+	if got := InstalledTools(look, true); !reflect.DeepEqual(got, []string{"copilot"}) {
+		t.Fatal(got)
+	}
+	// An older controller's three-tool contract never gains the id.
+	if got := InstalledTools(look, false); len(got) != 0 {
+		t.Fatal("copilot reported without agents-v2", got)
+	}
+	for _, yolo := range []bool{false, true} {
+		in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: "copilot", Model: "custom-model", Effort: "high", Prompt: "update", Yolo: yolo}
+		want := []string{"/opt/fake/bin/copilot"}
+		if yolo {
+			want = append(want, "--allow-all")
+		}
+		want = append(want, "--reasoning-effort", "high", "--model", in.Model, "--interactive", in.Prompt)
+		got, err := LaunchArgv(in, look)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatal(got, err)
+		}
+	}
+	for _, level := range []string{"low", "medium", "high"} {
+		got, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "copilot", Effort: level}, look)
+		if want := []string{"/opt/fake/bin/copilot", "--reasoning-effort", level}; err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("effort %s: got %q, %v; want %q", level, got, err, want)
+		}
+	}
+	// With nothing chosen the CLI starts bare: its own interactive session.
+	if got, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "copilot"}, look); err != nil || !reflect.DeepEqual(got, []string{"/opt/fake/bin/copilot"}) {
+		t.Fatal(got, err)
+	}
+}
+
+// Copilot's -p/--prompt answers once and exits, so a terminal session would
+// end under the person. The opening prompt goes through --interactive only,
+// and no argument that runs without a person is ever part of an ordinary launch.
+func TestCopilotLaunchStaysInteractive(t *testing.T) {
+	look := fakeLookPath("copilot")
+	raw, err := catalogueHelp.ReadFile("testdata/help/copilot.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	help := string(raw)
+	if block := flagBlock(help, "--interactive"); !strings.Contains(block, "Start interactive mode") {
+		t.Fatalf("captured help no longer describes --interactive as interactive: %q", block)
+	}
+	if block := flagBlock(help, "--prompt"); !strings.Contains(block, "non-interactive") {
+		t.Fatalf("captured help no longer describes --prompt as non-interactive: %q", block)
+	}
+	if block := flagBlock(help, "--allow-all"); !strings.Contains(block, "Enable all permissions") {
+		t.Fatalf("captured help no longer describes --allow-all: %q", block)
+	}
+	for _, in := range []terminalproto.Create{
+		{Title: "a", Cols: 80, Rows: 24, Tool: "copilot", Prompt: "fix the failing tests"},
+		{Title: "a", Cols: 80, Rows: 24, Tool: "copilot", Prompt: "hello", Model: "m", Effort: "low"},
+		{Title: "a", Cols: 80, Rows: 24, Tool: "copilot", Prompt: "fix the failing tests", Yolo: true},
+	} {
+		argv, err := LaunchArgv(in, look)
+		if err != nil || len(argv) < 3 || argv[len(argv)-2] != "--interactive" || argv[len(argv)-1] != in.Prompt {
+			t.Fatal("the prompt did not follow --interactive", argv, err)
+		}
+		for _, arg := range argv[1 : len(argv)-1] {
+			switch arg {
+			case "-p", "--prompt", "--autopilot", "--yolo", "--allow-all-tools", "--trust-folder", "--acp":
+				t.Fatal("unreviewed copilot argument", arg, argv)
+			}
+			if arg == "--allow-all" && !in.Yolo {
+				t.Fatal("allow-all without YOLO", argv)
+			}
+		}
+	}
+}
+
+// The captured help says --continue resumes "the most recent session,
+// preferring one from the current branch, repository or directory" and that a
+// resumed session keeps its allow-all state. Neither a continue nor a session
+// id is therefore mapped: both are refused before anything starts.
+func TestCopilotHasNoResumeArguments(t *testing.T) {
+	look := fakeLookPath("copilot")
+	if SupportsResume("copilot") {
+		t.Fatal("copilot resume advertised")
+	}
+	if argv, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "copilot", Resume: true}, look); argv != nil || !errors.Is(err, ErrLaunchOptionUnsupported) {
+		t.Fatal("copilot continue reached argv", argv, err)
+	}
+	in := terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: "copilot", LaunchSession: "11111111-2222-3333-4444-555555555555"}
+	if argv, err := LaunchArgv(in, look); argv != nil || err == nil {
+		t.Fatal("copilot session id reached argv", argv, err)
+	}
+	for _, p := range Catalogue {
+		if p.ID == "copilot" && (len(p.ResumeArgs) > 0 || len(p.SessionArgs) > 0 || p.PromptPositional || len(p.SafeArgs) > 0 || p.ModelList != nil) {
+			t.Fatalf("copilot preset gained an unmeasured argument: %#v", p)
+		}
+	}
+	raw, err := catalogueHelp.ReadFile("testdata/help/copilot.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"preferring one from the current", "A resumed session keeps its conversation, model, agent mode and allow-all state."} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("the reason resume is off is no longer in the captured help: %q", want)
 		}
 	}
 }
@@ -476,6 +584,7 @@ func TestYoloNeverWithoutFlag(t *testing.T) {
 		{"cline", []string{"--yolo"}},
 		{"antigravity", []string{"--dangerously-skip-permissions"}},
 		{"claude", []string{"--dangerously-skip-permissions"}},
+		{"copilot", []string{"--allow-all", "--yolo", "--allow-all-tools", "--allow-all-paths", "--allow-all-urls"}},
 	} {
 		in := terminalproto.Create{Title: "test", Cols: 80, Rows: 24, Tool: tc.tool}
 		got, err := LaunchArgv(in, fakeLookPath(tc.tool, "agy"))
@@ -512,7 +621,7 @@ func TestOnlyOpenCodeHasAConfirmedModelListing(t *testing.T) {
 	if !ListsModels("opencode") {
 		t.Fatal("OpenCode should list models")
 	}
-	for _, tool := range []string{"claude", "codex", "cline", "antigravity", "pi", "cursor", "unknown"} {
+	for _, tool := range []string{"claude", "codex", "cline", "antigravity", "copilot", "pi", "cursor", "unknown"} {
 		if ListsModels(tool) {
 			t.Fatalf("%s should not run a model listing", tool)
 		}

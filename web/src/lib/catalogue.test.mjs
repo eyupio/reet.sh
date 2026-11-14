@@ -11,7 +11,7 @@ test('installed first, then not installed, then disabled', () => {
   assert.deepEqual(choices.filter(c => c.available).map(c => c.agent.id), ['codex'])
   assert.equal(choices.find(c => c.agent.id === 'claude').reason, 'Not installed on studio')
   assert.equal(new Set(CATALOGUE.map(a => a.id)).size, CATALOGUE.length)
-  assert.deepEqual(CATALOGUE.filter(a => a.enabled).map(a => a.id), ['claude', 'codex', 'opencode', 'cline', 'antigravity'])
+  assert.deepEqual(CATALOGUE.filter(a => a.enabled).map(a => a.id), ['claude', 'codex', 'opencode', 'cline', 'antigravity', 'copilot'])
 })
 test('old machine offers only three', () => {
   const choices = agentChoices(machine(['codex', 'pi'], false))
@@ -48,6 +48,18 @@ test('Google Antigravity requires installation and agents-v2', () => {
   assert.equal(choice.agent.yolo, true)
   assert.equal(agentChoices(machine([])).find(c => c.agent.id === 'antigravity').reason, 'Not installed on studio')
   assert.equal(agentChoices(machine(['antigravity'], false)).find(c => c.agent.id === 'antigravity').reason, 'Update reet on that machine')
+})
+test('GitHub Copilot requires installation and agents-v2, and is not offered a resume', () => {
+  const choice = agentChoices(machine(['copilot'])).find(c => c.agent.id === 'copilot')
+  assert.equal(choice?.available, true)
+  assert.equal(choice.agent.name, 'GitHub Copilot')
+  assert.equal(agentDisplayName('copilot'), 'GitHub Copilot')
+  assert.equal(choice.agent.effort, true)
+  assert.equal(choice.agent.yolo, true)
+  // The connector has no measured resume arguments for it, so Continue is never offered.
+  assert.notEqual(choice.agent.resume, true)
+  assert.equal(agentChoices(machine([])).find(c => c.agent.id === 'copilot').reason, 'Not installed on studio')
+  assert.equal(agentChoices(machine(['copilot'], false)).find(c => c.agent.id === 'copilot').reason, 'Update reet on that machine')
 })
 test('Claude Code offers thinking effort, resume and YOLO because its captured help supports them', () => {
   const choice = agentChoices(machine(['claude'])).find(c => c.agent.id === 'claude')

@@ -102,6 +102,37 @@
         "codex resume --help"
       ],
       "notes": "Version and help only, run in an empty temporary HOME and CODEX_HOME with no credentials and no model request. The native binary is in the platform package @openai/codex@0.166.0-linux-x64 (sha512-CxDm3+D1cpbGJeHrdzINoG+3wn9BVncP4qpZaaNYkxe8iPtRJOYyCJnnPoVjWRIBvI9vPKbRoifsMSA5xDaUpw==). The earlier capture was 0.163.0."
+    },
+    {
+      "capture": "copilot",
+      "package": "@github/copilot",
+      "version": "1.0.112",
+      "capturedAt": "2026-11-14",
+      "repository": {
+        "url": "git+https://github.com/github/copilot-cli.git",
+        "type": "git"
+      },
+      "tarball": "https://registry.npmjs.org/@github/copilot/-/copilot-1.0.112.tgz",
+      "integrity": "sha512-OieokPh6qDlniqP4LqTSSuw+y87b3g0CPgFOVB3w6U523aEAfruniP/DWca7IaFq5FMtgwTi6JdfOBCBEtNsew==",
+      "commands": [
+        "copilot --version",
+        "copilot --help",
+        "copilot help sessions",
+        "copilot help permissions"
+      ],
+      "notes": "The package's bin is copilot (npm-loader.js), which starts the native binary of the platform package below. Installed with lifecycle scripts disabled into a scratch directory outside the repository and run from an empty project folder with an empty temporary HOME, a cleared environment and no credentials. Only version and help ran: no sign-in, no session, no model request."
+    },
+    {
+      "capture": "copilot-platform",
+      "package": "@github/copilot-linux-x64",
+      "version": "1.0.112",
+      "repository": {
+        "url": "git+https://github.com/github/copilot-cli.git",
+        "type": "git"
+      },
+      "tarball": "https://registry.npmjs.org/@github/copilot-linux-x64/-/copilot-linux-x64-1.0.112.tgz",
+      "integrity": "sha512-uvlB+3hFwrcg2Il+i/amD9jlrDqN1nG0MKRAsXkTCXaVNuW38QS1LLbzN2jNj6CVfuU/dGtulqU93qJzbcJXBQ==",
+      "commands": []
     }
   ],
   "limits": [
@@ -110,6 +141,7 @@
     "Pi remains disabled: its README says no permission popups; its parser treats @ text as file input and does not implement the -- separator.",
     "Cursor remains disabled: the official cursor.com install destination was refused by network policy.",
     "The original four preset arguments retain prior reviewed evidence; only installed Codex help was captured in this environment.",
-    "The OpenCode capture is the probe report's verbatim 1.19.5 output; only version, help and models listing were run, with models fetch disabled."
+    "The OpenCode capture is the probe report's verbatim 1.19.5 output; only version, help and models listing were run, with models fetch disabled.",
+    "The GitHub Copilot capture ran signed out. What its interactive session does with the measured arguments was not run."
   ]
 }

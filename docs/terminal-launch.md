@@ -1,7 +1,7 @@
 # Launch requests: starting an agent in a terminal session
 
 A launch request asks a machine to start one of its installed agent CLIs (`claude`,
-`codex`, `opencode`, `cline`, `antigravity`) in a chosen folder, with an optional model and an
+`codex`, `opencode`, `cline`, `antigravity`, `copilot`) in a chosen folder, with an optional model and an
 optional opening prompt, instead of the plain login shell that a terminal session
 starts today. It is an optional field set on the existing create-session call.
 Nothing changes for a plain shell: the arguments the connector gives tmux for a
@@ -47,7 +47,7 @@ comparable struct and `omitempty` keeps a plain create unchanged. They are named
 
 | Field | Meaning | Limits |
 | --- | --- | --- |
-| `tool` | Tool id | One of `claude`, `codex`, `opencode`; `cline` and `antigravity` under `agents-v2`. `gemini` is retired and refused like any unknown tool |
+| `tool` | Tool id | One of `claude`, `codex`, `opencode`; `cline`, `antigravity` and `copilot` under `agents-v2`. `gemini` is retired and refused like any unknown tool |
 | `model` | Model id, optional | 1 to 100 bytes; letters, digits and `. _ : / @ + -`; the first character must be a letter or digit |
 | `dir` | Folder, optional | Absolute; at most 4,096 bytes; valid UTF-8; no control characters |
 | `prompt` | Opening prompt, optional | At most 8,000 bytes; valid UTF-8; no control characters except newline; must not begin with `-` |
@@ -91,7 +91,7 @@ whose reply was lost asks for the same session under the same name. It is:
    60 characters it is cut at the last space (not earlier than the 20th character), or at 60 if there is
    none, and ends in an ellipsis.
 2. **Otherwise the agent and folder**: the agent's name ("Claude Code", "Codex", "OpenCode",
-   "Cline", "Google Antigravity (AGY)") or "Terminal" for a plain shell, then · and the last
+   "Cline", "Google Antigravity (AGY)", "GitHub Copilot") or "Terminal" for a plain shell, then · and the last
    part of the folder when there is one and it holds no control or format characters.
 
 The rules live in `terminalproto.PromptTitle` and `terminalproto.AutoTitle`. The browser mirrors them
@@ -123,8 +123,8 @@ because tmux hands a one-argument command to `sh -c`; a binary at any other path
 is treated as not installed. The model and the prompt are each exactly one
 argument element. No preset uses an approval-bypass, auto-approve, print, exec or
 other one-shot flag unless the person chose YOLO and the machine accepts it. A
-test pins the ordinary flags to `--model`, `--prompt` and
-`--prompt-interactive`, and the YOLO flags to the reviewed rows below.
+test pins the ordinary flags to `--model`, `--prompt`,
+`--prompt-interactive` and `--interactive`, and the YOLO flags to the reviewed rows below.
 
 | Tool | Arguments (with a model and a prompt) | Confirmed from |
 | --- | --- | --- |
@@ -132,6 +132,7 @@ test pins the ordinary flags to `--model`, `--prompt` and
 | `codex` | `codex [--ask-for-approval never] [resume --last \| resume <id>] [-c model_reasoning_effort=<level>] [--model <model>] [-- <prompt>]` | `codex --help` and `codex resume --help` on codex-cli 0.166.0, captured in `internal/terminalhost/testdata/help/codex.txt` with the registry tarball and integrity in `sources.json`: `--model`, `-a/--ask-for-approval`, `-c/--config <key=value>` and a `resume` subcommand that takes the same options plus `--last`, with an optional `PROMPT`. Codex has no effort flag, so the level is a `model_reasoning_effort` config override, which the help does not name; the argv was run through the real terminal UI under a pty against a stand-in provider (no account, network or real model) on codex-cli 0.156.1 and 0.166.0, and the provider received the chosen model, effort and approval policy and, for `resume`, the earlier turns (probe report, "Codex terminal probes"). |
 | `opencode` | `opencode --model <model> --prompt <prompt>` | https://opencode.ai/docs/cli/: "opencode [project]" starts the terminal UI, with `--prompt` and `--model`. The positional is a project path, so the prompt goes through the flag. |
 | `antigravity` | `agy --model <model> --prompt-interactive <prompt>` | Antigravity CLI 1.5.0 captured version/help in `internal/terminalhost/testdata/help/agy.txt`; official archive and verified SHA-256 in `sources.json`. `--prompt` is a print-mode alias and is not used. The `agy` alias distinguishes the CLI from the desktop app. |
+| `copilot` | `copilot [--allow-all] [--reasoning-effort <level>] [--model <model>] [--interactive <prompt>]` | `copilot --help`, `copilot help sessions` and `copilot help permissions` on GitHub Copilot CLI 1.0.112, captured in `internal/terminalhost/testdata/help/copilot.txt` with the registry tarballs and integrity in `sources.json`: `-i, --interactive <prompt>` ("Start interactive mode and automatically execute this prompt"), `--model <model>`, `--reasoning-effort <level>` and `--allow-all` ("Enable all permissions"). `-p, --prompt` is "non-interactive mode (exits after completion)" and is not used. Only version and help were run, signed out. |
 
 ## Models read from the machine
 
@@ -298,7 +299,7 @@ and the Activity label for `terminal-launch` are described in
 
 The controller advertises `agents-v2` alongside the existing feature tokens. A
 connector reports `agentsV2:true` and optional `osVersion` only after negotiating
-that token. The additional `antigravity-cli-v1` token gates the AGY tool id: an older controller whose `agents-v2` catalogue predates AGY receives no AGY claim. Without `agents-v2`, the connector reports only the original three tool ids
+that token. The additional `antigravity-cli-v1` token gates the AGY tool id: an older controller whose `agents-v2` catalogue predates AGY receives no AGY claim. `copilot-cli-v1` gates the `copilot` tool id in both directions: a connector lists the tool only to a controller that advertised the token, refuses a create that names it on a connection without the token, and a controller sends the id (in a create or a model-list request) only to a machine that lists the tool. Without `agents-v2`, the connector reports only the original three tool ids
 and never sends the added capability fields. OS version is informational: Linux
 reports its kernel release and macOS its product version; a failed local reading
 leaves it absent.
@@ -321,12 +322,12 @@ machine: a `base-fresh-v1` connector starts from the repository's default branch
 on GitHub, and an older one keeps the existing HEAD behaviour.
 
 Effort accepts `low`, `medium` or `high`. Cline 3.0.74 maps these to its
-confirmed `--thinking` option, Claude Code 2.1.319 and Antigravity CLI 1.5.0 to `--effort` (Claude Code's own help also lists `xhigh` and `max`, which a launch does not carry), and Codex to a `-c model_reasoning_effort=<level>` override (its CLI does not check the value, so only these three are sent; `ultra` is not, because a model that lacks it falls back to `medium`); other presets have no effort mapping until their
+confirmed `--thinking` option, Claude Code 2.1.319 and Antigravity CLI 1.5.0 to `--effort` (Claude Code's own help also lists `xhigh` and `max`, which a launch does not carry), GitHub Copilot CLI 1.0.112 to `--reasoning-effort` (its help lists more levels and says the supported ones depend on the model), and Codex to a `-c model_reasoning_effort=<level>` override (its CLI does not check the value, so only these three are sent; `ultra` is not, because a model that lacks it falls back to `medium`); other presets have no effort mapping until their
 exact CLI arguments have captured help evidence. An
 unsupported mapping answers `launch_option_unsupported`; it never silently
 ignores the choice. YOLO maps to a reviewed option only for Claude Code
 (`--dangerously-skip-permissions`), Codex (`--ask-for-approval never`), OpenCode (`--auto`), Cline
-(`--yolo --tui`) and Antigravity (`--dangerously-skip-permissions`); every other preset refuses it with
+(`--yolo --tui`), Antigravity (`--dangerously-skip-permissions`) and GitHub Copilot (`--allow-all`); every other preset refuses it with
 `launch_option_unsupported`. A machine switch (`reet terminal yolo off`) refuses
 it with `yolo_refused`, and the account setting must allow it first. A Claude Code chat in Gaffer takes YOLO through the
 same three gates: the account setting, the machine switch and the confirmation.
@@ -364,6 +365,23 @@ Homebrew `antigravity-cli` cask. The connector resolves only `agy`, reports the
 sent for an ordinary launch. Terminal model listing and terminal resume remain
 unreviewed. The separate native Gaffer integration requires `antigravity-acp-v1`;
 see [AGY in Gaffer](https://github.com/eyupio/reet.sh/blob/main/docs/structured-sessions.md#google-antigravity-agy-in-gaffer).
+
+GitHub Copilot CLI 1.0.112 is enabled after capturing only version and help from the
+npm package `@github/copilot` (bin `copilot`) in an empty home and project, signed
+out. The connector resolves only `copilot`, reports the `copilot` tool id only after
+both `agents-v2` and `copilot-cli-v1` are negotiated, and passes an opening prompt
+through `--interactive` as one argument: the option its help describes as starting
+interactive mode, where `--prompt` exits after one answer. No print, approval-bypass
+or mode flag is sent for an ordinary launch; YOLO
+adds `--allow-all` and nothing else. Terminal resume is left off on purpose: the
+help says `--continue` resumes "the most recent session, preferring one from the
+current branch, repository or directory", which may be a conversation from another
+folder, and that "A resumed session keeps its conversation, model, agent mode and
+allow-all state", which a machine with YOLO switched off must not be handed. A
+session id is not mapped either: nothing in reet supplies one for Copilot. Its
+`--acp` server, a Gaffer chat and a model listing are not enabled, and nothing was
+run signed in: how the interactive session behaves with these arguments is not
+verified.
 
 The session listing retains tool, model and effort; it never includes the opening
 prompt. The launch audit records `effort`, `base` and `yolo`, without prompt text.

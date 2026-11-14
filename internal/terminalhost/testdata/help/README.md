@@ -51,3 +51,32 @@ the `agy` alias, which is the only binary this preset resolves. The capture
 confirms `--model`, `--prompt-interactive`, `--effort` low/medium/high and the
 separate `--dangerously-skip-permissions` flag. `--prompt` aliases print mode and
 is never used. Resume, ACP and model listing were not run or enabled.
+
+GitHub Copilot CLI 1.0.112 is the npm package `@github/copilot`, whose `bin` is
+`copilot`; its native binary comes from the platform package
+`@github/copilot-linux-x64`. Both were installed on 14 November 2026 with
+lifecycle scripts disabled, into a scratch directory outside the repository, and
+run from an empty project folder with an empty temporary home, a cleared
+environment and no credentials. Only `--version`, `--help`, `help sessions` and
+`help permissions` ran; the last two follow the main help in `copilot.txt` under
+their own `$` lines. The capture establishes:
+
+- `-i, --interactive <prompt>` ("Start interactive mode and automatically execute
+  this prompt"): the opening prompt. `-p, --prompt <text>` is "non-interactive
+  mode (exits after completion)" and is never used.
+- `--model <model>`.
+- `--reasoning-effort <level>`, whose possible values include low, medium and
+  high. The help adds that "supported levels depend on the model"; what the CLI
+  does with a level a model lacks was not run.
+- `--allow-all` ("Enable all permissions (equivalent to --allow-all-tools
+  --allow-all-paths --allow-all-urls)"), the one argument a YOLO launch adds.
+  `--yolo` is described in the same words; `--allow-all` is the one sent.
+
+Resume is left off. `--continue` resumes "the most recent session, preferring
+one from the current branch, repository or directory", so it may open a
+conversation from another folder, and "A resumed session keeps its conversation,
+model, agent mode and allow-all state", so it could bring back approvals a
+machine with YOLO switched off refuses. `-r, --resume [<value>]` takes a session
+id, but the help's examples write only `--resume=<session-id>`, and nothing in
+reet supplies a Copilot session id. `--acp` and model listing were not run or
+enabled.

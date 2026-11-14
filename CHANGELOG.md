@@ -5,6 +5,16 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Leaving a chat no longer risks dropping its machine's connection. An open
+  chat asks for its live controls every 1.5 seconds and abandons the request
+  when you leave it; on a busy controller the request was often still waiting
+  to be sent, and sending it could close the connection that all of the
+  machine's terminals and chats share. Everything on the machine detached until
+  it reconnected, and Gaffer's goal follow-up, finding the machine
+  reconnecting, waited a minute before looking again. Any request that has
+  given up now sends nothing, and a message already being written finishes
+  under its own five-second limit. The controller and `reet agent` each
+  protect their own end of the connection.
 - A machine no longer loses its connection when it answers which of its
   agents are signed in. The controller ended the connection on that answer,
   so opening the sign-in list could drop the machine and its sessions for a

@@ -56,6 +56,11 @@ async function start(marker,budget){
 }
 const goalData=async marker=>(await api(`/api/v2/gaffer/conversations/${conversations[marker]}/goal`)).goal
 const receipt=async marker=>(await api(`/api/v2/gaffer/conversations/${conversations[marker]}`)).messages?.at(0)
+// A worker prompt that does not come is the goal loop's to explain, so a timeout says what the goal was doing.
+async function waitPrompts(marker,count){
+  try{await expect.poll(async()=>(await state()).workers[marker].prompts.length,{timeout:60000}).toBe(count)}
+  catch(error){const g=await goalData(marker).catch(()=>null);throw new Error(`${marker} did not receive ${count} worker prompt(s); its goal is ${g?.state}: ${g?.note}`,{cause:error})}
+}
 async function waitGoal(marker,stateName){await expect.poll(async()=>(await goalData(marker))?.state,{timeout:90000}).toBe(stateName)}
 async function resume(){
   await goal().getByRole('button',{name:'Resume after review',exact:true}).click()
@@ -109,7 +114,7 @@ try{
   await resume()
   expect((await goalData('ALPHA')).usedReviews).toBe(1)
   await command('progress',{marker:'ALPHA'})
-  await expect.poll(async()=>(await state()).workers.ALPHA.prompts.length,{timeout:60000}).toBe(2)
+  await waitPrompts('ALPHA',2)
   await waitGoal('ALPHA','limit')
   const limited=await goalData('ALPHA');expect(limited.usedReviews).toBe(2);expect(limited.maxReviews).toBe(2)
   await command('progress',{marker:'ALPHA'})
@@ -118,7 +123,7 @@ try{
 
   await session('BRAVO');await option('Look after this session');await resume()
   await command('progress',{marker:'BRAVO'})
-  await expect.poll(async()=>(await state()).workers.BRAVO.prompts.length,{timeout:60000}).toBe(1)
+  await waitPrompts('BRAVO',1)
   await waitGoal('BRAVO','limit')
   await goal().getByRole('button',{name:'Mark goal complete',exact:true}).click()
   await page.getByRole('dialog',{name:'Mark this goal complete?',exact:true}).getByRole('button',{name:'Mark complete',exact:true}).click()

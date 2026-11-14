@@ -18,6 +18,59 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## LINK-WRITE-1: a request that gives up no longer drops a machine's connection (14 November 2026)
+
+The Gaffer offline acceptance test (`scripts/test-gaffer-offline.sh`, CI job `offline (native)` and once `offline
+(docker)`) failed about one run in six for two days, on branches that changed nothing near it. Every failure was a wait
+for a worker prompt or receipt timing out after a goal was resumed or set going. The owner asked for the cause.
+
+**The cause is in the product.** Both ends of a machine's control connection wrote each message under the context of the
+request it belonged to (`internal/api/private_control.go` `write`, `internal/agenthealth/agent.go` `send`).
+`coder/websocket` closes the whole connection when a write's context ends, and does so even when the context had ended
+before the write began: each of its two write locks is a `select` between "context done" and "lock free", Go picks at
+random when both are ready, and once past them `context.AfterFunc` on the done context closes the connection at once.
+So a request that had given up closed the connection about one time in four, and every terminal and chat on the machine
+detached until it reconnected (see `docs/remote-machine-operations.md`).
+
+**Who gave up.** An open chat's pane asks for its live controls every 1.5 s (`ChatPane.svelte`) and abandons the request
+when the person leaves the chat. Under load the controller had often not yet sent it. With call paths recorded on a
+loaded run, all 11 writes for a request that had given up were that one (`terminalChatControls` → `ChatControl` →
+`callWithin` → `write`); none had waited for the write lock (about 1 µs), so they had given up before reaching it. On the
+machine's side, a launch-stage note is sent with a one-second budget (`terminalagent/agent.go`); that end was not seen
+failing, but it has the same shape.
+
+**Why the test failed.** It opens and leaves chats as a person does. After a dropped connection, the goal loop's next
+check of the worker failed ("terminal machine is reconnecting"), so it noted "The worker is unavailable" and waited a
+minute (`internal/gaffer/goals.go`): exactly the test's 60 s. A drop at other moments refused Gaffer's instruction as
+`blocked` or kept a turn open past a 10 s wait.
+
+- **What changed:** `agenthealth.WriteControl` is how both ends write on the control connection. A caller that has given
+  up sends nothing; a write that has begun runs under its own limit (`context.WithoutCancel`), five seconds as before. A
+  write that cannot finish in that time still ends the connection, as it should for a half-open socket.
+- **The fixture, which had two bugs of its own** (`internal/api/gaffer_integration_test.go`): its `progress` returned once
+  the worker's events were sent, not recorded, so a resume straight after could treat a paused worker's progress as new
+  and spend a review (seen locally once); it now waits until the session's progress has risen by both events. And after
+  dialling again it sent its second event under the old link's generation, so the controller closed the new link at once
+  (CI's #793 failure logged "dialling again" just before timing out); each message now carries the generation of the link
+  it goes on. It also logs the moment the controller ends its link, which the `main` failure's log could not show, and
+  the browser test's prompt waits say what the goal was doing when they time out.
+- **Checked:** reproduced with logging in a scratch copy, the race-enabled binary CI uses, twelve flows at a time on four
+  cores. Before: 5 failures in 16 runs, every one starting with the controller's read loop ending on `use of closed
+  network connection` straight after a write for a request that had given up; no passing run had such a close. After:
+  36 runs, no connection closed mid-run; 17 writes for requests that had given up were refused and the connection stayed;
+  the 3 failures were the browser's 5 s waits for page elements while I ran Go tests on top, none at a goal-loop step.
+  New tests: `TestWriteControlForACallerThatGaveUpLeavesTheLinkUp`, `TestWriteControlOutlivesTheCallersDeadline`
+  (a 32 MiB write the peer reads after the caller's 50 ms deadline), and `TestACallThatGaveUpLeavesTheMachineLinkUp`
+  (40 calls through the broker over a real link). Putting back the old write fails all three, the last with the
+  controller resetting the link; keeping the early return but not detaching the write fails the second.
+  `TestGafferWorkerLinkRedialsAfterItIsLost` now fails under the old fixture's stale generation. `go vet ./...`, and
+  `go test -race` on `agenthealth`, `terminalagent`, `terminalbroker` and `api`, pass.
+- **Not verified:** macOS; a real machine and controller under real load; the connector-side drop was reasoned from the
+  code, not seen.
+- **Left as it is:** `ChatControl` holds a per-session lock (`controlMu`) with no deadline while it waits for the
+  machine, so a busy session's callers queue behind each other; a stalled controller can still end a connection by the
+  five-second write limit, which is the existing design.
+
 ## TERMINAL-KEYS-1: the on-screen terminal keys, rebuilt (14 November 2026)
 
 The owner asked for the on-screen keys to be checked and made more like a phone SSH client's extra-key row, and chose

@@ -9,10 +9,11 @@ import (
 )
 
 // A call whose caller has already given up must not end the machine's control
-// link, which every session on the machine shares. Under load a goal's check
-// queues behind other calls for the same session past its own three seconds;
-// when that check's write ended the link, the goal's next look found the
-// machine reconnecting and waited a minute before trying again.
+// link, which every session on the machine shares. Leaving a chat abandons the
+// page's request for its live controls; on a busy controller that request was
+// often still waiting to be sent, and sending it ended the link. A goal check
+// that then found the machine reconnecting waited a minute before looking
+// again.
 func TestACallThatGaveUpLeavesTheMachineLinkUp(t *testing.T) {
 	t.Parallel()
 	h := newGM6Harness(t)

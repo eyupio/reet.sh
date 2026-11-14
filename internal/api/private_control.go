@@ -108,9 +108,9 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var writeMu sync.Mutex
-	// A caller that gives up, such as a goal check that queued behind other
-	// sessions' calls past its own deadline, must not end the link that every
-	// session on this machine shares: see agenthealth.WriteControl.
+	// A caller that gives up, such as the page of a chat the person has just
+	// left, must not end the link that every session on this machine shares:
+	// see agenthealth.WriteControl.
 	write := func(ctx context.Context, payload []byte) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()

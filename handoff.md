@@ -186,11 +186,17 @@ limit and was already close to it. The first run on `main` after the merge, and 
 - **Checked:** the tests 15 times under `-race`; six rules each broken and a test seen to fail (recorded on every
   read, every session read, settled screens read again, settled at once, no gap, the test's gaps ignored).
   `go test -race ./internal/terminalhost`: 55 s here, 67 s before.
+- **That was not all of it.** With the tests fast the package still took 154 s on macOS in a run that passed
+  (`ok ... internal/terminalhost 154.269s`) and reached the 180 s limit again in the next run, on a branch that had
+  this fix. The package had grown to the edge of its limit before TERMINAL-ASK-1; that change was what first pushed a
+  run over. `native-services.yml` now gives the terminal host step and the broker and PTY step 5 minutes each (the
+  second took 130 s of its 3 minutes in the same run). The job's 15 minutes still bounds a hang. Why macOS takes
+  three times as long as Linux here was not looked into; the worktree and clone tests, which run `git` many times,
+  are where both timeouts were caught.
 - **Not verified:** macOS was not run here; the pull request's own `native service (macos-latest)` job is the check.
-- **Left as it is:** the package's margin on macOS is still small (the step took 2 min 38 s of its 3 minutes on
-  `main` before TERMINAL-ASK-1). The same run on `main` also failed `native service (ubuntu-latest)` once, in the
-  root recovery test, with `could not run tmux -V`: the 3-second probe in `FindTmux` ran out straight after a
-  76-second compile. Nothing in TERMINAL-ASK-1 touches that probe.
+- **Left as it is:** the same run on `main` also failed `native service (ubuntu-latest)` once, in the root recovery
+  test, with `could not run tmux -V`: the 3-second probe in `FindTmux` ran out straight after a 76-second compile.
+  Nothing in TERMINAL-ASK-1 touches that probe, and it has passed since.
 
 ## TERMINAL-ASK-1: an agent's question on its terminal screen counts as a bell (14 November 2026)
 

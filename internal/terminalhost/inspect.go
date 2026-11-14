@@ -52,7 +52,7 @@ func InspectSession(ctx context.Context, home string, req terminalproto.Inspect)
 
 	var filterArgs []string
 	git := func(args ...string) ([]byte, error) {
-		fixed := []string{"--no-optional-locks", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "core.attributesFile=/dev/null"}
+		fixed := append([]string{"--no-optional-locks", "--literal-pathspecs"}, readOnlyGitArgs...)
 		fixed = append(fixed, filterArgs...)
 		cmd := exec.CommandContext(ctx, gitPath, append([]string{"-C", dir}, append(fixed, args...)...)...)
 		cmd.Env = append(gitEnvironment(os.Environ()), "GIT_DIR="+meta, "GIT_WORK_TREE="+dir, "GIT_CEILING_DIRECTORIES="+filepath.Dir(dir), "GIT_NO_LAZY_FETCH=1", "GIT_OPTIONAL_LOCKS=0")

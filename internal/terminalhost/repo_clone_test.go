@@ -5,6 +5,7 @@ package terminalhost
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,6 +56,11 @@ func (f *cloneFixture) git(ctx context.Context, dir string, args ...string) ([]b
 	}
 	f.mu.Unlock()
 	real := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		// Only the clone is sent to the stand-in: every other call must see
+		// the remote as the person's own configuration gives it.
+		if !slices.Contains(args, "clone") {
+			return ExecGit(ctx, dir, args...)
+		}
 		rewrite := []string{"-c", "url." + f.remote + ".insteadOf=https://github.com/o/" + f.name + ".git"}
 		return ExecGit(ctx, dir, append(rewrite, args...)...)
 	}
@@ -1548,6 +1554,17 @@ func (f *cloneFixture) push(t *testing.T, dir, branch string) {
 	testGit(t, dir, "-c", "url."+f.remote+".insteadOf=https://github.com/o/"+f.name+".git", "push", "-q", "origin", branch)
 }
 
+// gitSub is the git subcommand of args, after any leading "-c name=value".
+func gitSub(args []string) string {
+	for len(args) >= 2 && args[0] == "-c" {
+		args = args[2:]
+	}
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
+}
+
 // anyFingerprint stands for a fingerprint a person was never shown.
 const anyFingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
@@ -1988,11 +2005,15 @@ func TestCloneStatusFailsWhenGitFailsForACount(t *testing.T) {
 		make func(t *testing.T, dir string)
 	}{
 		{"the working tree's top", func(args []string) bool { return slices.Contains(args, "--show-toplevel") }, nil},
-		{"the worktree list", func(args []string) bool { return args[0] == "worktree" }, nil},
-		{"status", func(args []string) bool { return args[0] == "status" }, nil},
-		{"the refs", func(args []string) bool { return args[0] == "for-each-ref" }, nil},
-		{"the unpushed count", func(args []string) bool { return args[0] == "rev-list" && !slices.Contains(args, "--walk-reflogs") }, nil},
-		{"the hidden entries", func(args []string) bool { return args[0] == "ls-files" }, nil},
+		{"the worktree list", func(args []string) bool { return gitSub(args) == "worktree" }, nil},
+		{"status", func(args []string) bool { return gitSub(args) == "status" }, nil},
+		{"the refs", func(args []string) bool { return gitSub(args) == "for-each-ref" }, nil},
+		{"the unpushed count", func(args []string) bool {
+			return gitSub(args) == "rev-list" && !slices.Contains(args, "--walk-reflogs")
+		}, nil},
+		{"the hidden entries", func(args []string) bool { return gitSub(args) == "ls-files" && slices.Contains(args, "-v") }, nil},
+		{"the index entries", func(args []string) bool { return gitSub(args) == "ls-files" && slices.Contains(args, "--stage") }, nil},
+
 		{"the stash count", func(args []string) bool { return slices.Contains(args, "--walk-reflogs") }, func(t *testing.T, dir string) {
 			writeFile(t, filepath.Join(dir, "README"), "stashed\n")
 			testGit(t, dir, "-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "stash", "-q")
@@ -2000,7 +2021,7 @@ func TestCloneStatusFailsWhenGitFailsForACount(t *testing.T) {
 		{"a detached HEAD", func(args []string) bool { return slices.Contains(args, "HEAD^{commit}") }, func(t *testing.T, dir string) {
 			testGit(t, dir, "checkout", "-q", "--detach")
 		}},
-		{"what is staged", func(args []string) bool { return args[0] == "diff-index" }, func(t *testing.T, dir string) {
+		{"what is staged", func(args []string) bool { return gitSub(args) == "diff-index" }, func(t *testing.T, dir string) {
 			writeFile(t, filepath.Join(dir, "new"), "x")
 		}},
 	} {
@@ -2046,7 +2067,7 @@ func TestCloneStatusFailsOnUnreadableGitOutput(t *testing.T) {
 			f := newCloneFixture(t)
 			dir := f.madeClone(t)
 			odd := func(ctx context.Context, d string, args ...string) ([]byte, error) {
-				if args[0] == tc.sub {
+				if gitSub(args) == tc.sub {
 					return []byte(tc.out), nil
 				}
 				return f.git(ctx, d, args...)
@@ -2295,6 +2316,358 @@ func TestCloneRepoRemovesAStaleLeftoverWhenTheFolderIsThere(t *testing.T) {
 			}
 			if calls := f.cloneCalls(); len(calls) != 0 {
 				t.Fatalf("cloned: %q", calls)
+			}
+		})
+	}
+}
+
+// fsmonitorHook configures, in the clone's own config, a core.fsmonitor hook
+// that says nothing changed and leaves a marker each time it runs. It primes
+// the index as a person's own `git status` would and returns the marker.
+func fsmonitorHook(t *testing.T, f *cloneFixture, dir string) string {
+	t.Helper()
+	marker := filepath.Join(f.home, "hook-ran")
+	hook := filepath.Join(f.home, "fsmonitor-hook")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho ran >> '"+marker+"'\nprintf 'token\\0'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, dir, "config", "core.fsmonitor", hook)
+	testGit(t, dir, "config", "core.fsmonitorHookVersion", "2")
+	testGit(t, dir, "status")
+	testGit(t, dir, "status")
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("the hook did not run for the person's own status:", err)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	return marker
+}
+
+// A hook the clone's config names (core.fsmonitor) is never run, and cannot
+// hide an edit from the count.
+func TestCloneStatusRunsNoHookAndCountsWhatItWouldHide(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	marker := fsmonitorHook(t, f, dir)
+	clean := f.status(t, dir, "o/r")
+	wantCounts(t, clean, 0, 0, 0, 0)
+	writeFile(t, filepath.Join(dir, "README"), "edited behind the hook\n")
+	before := snapshot(t, f.home)
+	s := f.status(t, dir, "o/r")
+	wantCounts(t, s, 0, 1, 0, 0)
+	wantKept(t, f.remove(t, dir, "o/r", clean.Fingerprint), terminalproto.RepoCloneChanged, f.home, before)
+	wantKept(t, f.remove(t, dir, "o/r", s.Fingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+	wantMissing(t, marker)
+}
+
+// Every git call a status or a remove makes carries the hardening.
+func TestCloneStatusHardensEveryGitCall(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	writeFile(t, filepath.Join(dir, "new"), "x")
+	testGit(t, dir, "checkout", "-q", "--detach")
+	f.calls = nil
+	s := f.status(t, dir, "o/r")
+	wantCounts(t, s, 0, 1, 0, 0)
+	f.remove(t, dir, "o/r", s.Fingerprint)
+	if len(f.calls) < 16 {
+		t.Fatalf("only %d git calls: %q", len(f.calls), f.calls)
+	}
+	for _, args := range f.calls {
+		for _, want := range []string{"core.fsmonitor=false", "core.untrackedCache=false", "core.hooksPath=/dev/null", "diff.external=", "core.attributesFile=/dev/null",
+			"filter.lfs.process=", "filter.lfs.smudge=", "filter.lfs.clean=", "filter.lfs.required=false"} {
+			at := slices.Index(args, want)
+			if at < 1 || args[at-1] != "-c" || at > slices.Index(args, gitSub(args)) {
+				t.Fatalf("git call without -c %s before its subcommand: %q", want, args)
+			}
+		}
+	}
+}
+
+// The read-only listings keep their large output bound behind -c arguments.
+func TestOutputLimitLooksPastConfigArguments(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want int
+	}{
+		{[]string{"status", "--porcelain"}, gitListLimit},
+		{[]string{"-c", "core.fsmonitor=false", "-c", "x=y", "status"}, gitListLimit},
+		{[]string{"-c", "x=y", "for-each-ref"}, gitListLimit},
+		{[]string{"-c", "x=y", "ls-files", "-v"}, gitListLimit},
+		{[]string{"-c", "x=y", "worktree", "list"}, gitListLimit},
+		{[]string{"-c", "x=y", "worktree", "remove"}, gitOutputLimit},
+		{[]string{"-c", "x=y", "rev-parse"}, gitOutputLimit},
+		{[]string{"-c", "status"}, gitOutputLimit},
+		{[]string{"-c"}, gitOutputLimit},
+		{nil, gitOutputLimit},
+	} {
+		if got := outputLimit(tc.args); got != tc.want {
+			t.Errorf("outputLimit(%q) = %d, want %d", tc.args, got, tc.want)
+		}
+	}
+}
+
+// nestedRepo makes a repository with one commit that exists nowhere else.
+func nestedRepo(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, path, "init", "-q", "-b", "main")
+	commitIn(t, path, "only-here")
+}
+
+// A repository inside the clone has history of its own that is on no
+// remote: the clone is never removed with one in it, however it is hidden.
+func TestCloneStatusRefusesANestedRepository(t *testing.T) {
+	commit := func(t *testing.T, dir string) {
+		t.Helper()
+		testGit(t, dir, "-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "sub")
+	}
+	for _, tc := range []struct {
+		test string
+		make func(t *testing.T, f *cloneFixture, dir string)
+	}{
+		{"committed as a gitlink and pushed", func(t *testing.T, f *cloneFixture, dir string) {
+			nestedRepo(t, filepath.Join(dir, "sub"))
+			testGit(t, dir, "-c", "advice.addEmbeddedRepo=false", "add", "sub")
+			commit(t, dir)
+			f.push(t, dir, "main")
+		}},
+		{"a gitlink whose folder is gone", func(t *testing.T, f *cloneFixture, dir string) {
+			nestedRepo(t, filepath.Join(dir, "sub"))
+			testGit(t, dir, "-c", "advice.addEmbeddedRepo=false", "add", "sub")
+			commit(t, dir)
+			f.push(t, dir, "main")
+			if err := os.RemoveAll(filepath.Join(dir, "sub")); err != nil {
+				t.Fatal(err)
+			}
+			// Told not to look for the folder, status says nothing of it.
+			testGit(t, dir, "update-index", "--skip-worktree", "sub")
+		}},
+		{"inside an ignored folder", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), "vendor/\n")
+			nestedRepo(t, filepath.Join(dir, "vendor", "deep", "lib"))
+		}},
+		{"a .git file inside an ignored folder", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), "vendor/\n")
+			if err := os.MkdirAll(filepath.Join(dir, "vendor", "lib"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(dir, "vendor", "lib", ".git"), "gitdir: /somewhere/else\n")
+		}},
+		{"a .git symlink inside an ignored folder", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), "vendor/\n")
+			nestedRepo(t, filepath.Join(f.home, "outside"))
+			if err := os.MkdirAll(filepath.Join(dir, "vendor", "lib"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(f.home, "outside", ".git"), filepath.Join(dir, "vendor", "lib", ".git")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			tc.make(t, f, dir)
+			before := snapshot(t, f.home)
+			s := f.status(t, dir, "o/r")
+			if s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneNotRemovable}) {
+				t.Fatalf("state = %+v, want not_removable", s)
+			}
+			wantKept(t, f.remove(t, dir, "o/r", anyFingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+		})
+	}
+}
+
+// A folder the walk for nested repositories cannot read is a failure, not
+// a clean clone. A symlink is not followed out of the clone.
+func TestCloneStatusWalksTheCloneWithoutFollowingSymlinks(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), "vendor\n")
+	nestedRepo(t, filepath.Join(f.home, "outside"))
+	if err := os.Symlink(filepath.Join(f.home, "outside"), filepath.Join(dir, "vendor")); err != nil {
+		t.Fatal(err)
+	}
+	wantCounts(t, f.status(t, dir, "o/r"), 0, 0, 0, 0)
+
+	original := walkCloneDir
+	walkCloneDir = func(root string, fn fs.WalkDirFunc) error {
+		return original(root, func(path string, d fs.DirEntry, err error) error {
+			if path == filepath.Join(dir, "README") {
+				return fn(path, d, errors.New("input/output error"))
+			}
+			return fn(path, d, err)
+		})
+	}
+	t.Cleanup(func() { walkCloneDir = original })
+	before := snapshot(t, f.home)
+	if s := f.status(t, dir, "o/r"); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneFailed}) {
+		t.Fatalf("state = %+v, want failed", s)
+	}
+	wantKept(t, f.remove(t, dir, "o/r", anyFingerprint), terminalproto.RepoCloneFailed, f.home, before)
+}
+
+// A lock file means git is writing in the clone right now.
+func TestCloneStatusRefusesWhileGitIsWriting(t *testing.T) {
+	for _, lock := range []string{"index.lock", "HEAD.lock", "packed-refs.lock", "shallow.lock", "config.lock",
+		"refs/heads/main.lock", "refs/heads/reet/run.lock", "refs/remotes/origin/main.lock", "refs/stash.lock"} {
+		t.Run(lock, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			path := filepath.Join(dir, ".git", filepath.FromSlash(lock))
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			shown := f.status(t, dir, "o/r")
+			writeFile(t, path, "")
+			before := snapshot(t, f.home)
+			if s := f.status(t, dir, "o/r"); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneNotRemovable}) {
+				t.Fatalf("state = %+v, want not_removable", s)
+			}
+			wantKept(t, f.remove(t, dir, "o/r", shown.Fingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+		})
+	}
+}
+
+// When pushes do not go to this repository on GitHub, origin's
+// remote-tracking branches say nothing about what GitHub has.
+func TestCloneStatusRefusesPushesThatGoElsewhere(t *testing.T) {
+	for _, tc := range []struct {
+		test string
+		make func(t *testing.T, f *cloneFixture, dir string)
+		want terminalproto.RepoCloneReason
+	}{
+		{"a push address of its own", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "remote.origin.pushurl", filepath.Join(f.home, "backup.git"))
+		}, terminalproto.RepoCloneExists},
+		{"a push address naming the same repository", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "remote.origin.pushurl", "https://github.com/o/r.git")
+		}, terminalproto.RepoCloneExists},
+		{"an empty push address", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "remote.origin.pushurl", "")
+		}, terminalproto.RepoCloneExists},
+		{"pushes rewritten by the person's own config", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[url \"https://example.com/\"]\n\tpushInsteadOf = https://github.com/\n")
+		}, terminalproto.RepoCloneExists},
+		{"every address rewritten by the person's own config", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[url \"https://example.com/\"]\n\tinsteadOf = https://github.com/\n")
+		}, terminalproto.RepoCloneExists},
+		{"pushes rewritten to another repository", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[url \"https://github.com/o/fork\"]\n\tpushInsteadOf = https://github.com/o/r\n")
+		}, terminalproto.RepoCloneExists},
+		{"github.com rewritten to ssh", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[url \"git@github.com:\"]\n\tinsteadOf = https://github.com/\n")
+		}, ""},
+		{"pushes rewritten to ssh", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[url \"ssh://git@github.com/\"]\n\tpushInsteadOf = https://github.com/\n")
+		}, ""},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			tc.make(t, f, dir)
+			before := snapshot(t, f.home)
+			s := f.status(t, dir, "o/r")
+			if tc.want == "" {
+				wantCounts(t, s, 0, 0, 0, 0)
+				return
+			}
+			if s != (terminalproto.RepoCloneState{Reason: tc.want}) {
+				t.Fatalf("state = %+v, want %s", s, tc.want)
+			}
+			wantKept(t, f.remove(t, dir, "o/r", anyFingerprint), tc.want, f.home, before)
+		})
+	}
+	// A push address git could not give is not proof of one.
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	shown := f.status(t, dir, "o/r")
+	failing := func(ctx context.Context, d string, args ...string) ([]byte, error) {
+		if gitSub(args) == "remote" {
+			return nil, errors.New("exit status 2")
+		}
+		return f.git(ctx, d, args...)
+	}
+	before := snapshot(t, f.home)
+	if s := f.statusWith(t, dir, "o/r", failing); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneExists}) {
+		t.Fatalf("state = %+v, want exists", s)
+	}
+	wantKept(t, f.removeWith(t, dir, "o/r", shown.Fingerprint, failing), terminalproto.RepoCloneExists, f.home, before)
+}
+
+// A folder put in the clone's place after it was checked is not the folder
+// that was checked, and is not deleted.
+func TestRemoveCloneRefusesAFolderSwappedInAfterTheCheck(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	shown := f.status(t, dir, "o/r")
+	// A clone that passes every check, standing by to take the place.
+	standby := filepath.Join(f.home, "standby")
+	f.handClone(t, standby, "https://github.com/o/r.git")
+	writeFile(t, filepath.Join(standby, ".git", cloneMarker), "o/r\n")
+	writeFile(t, filepath.Join(standby, ".git", "info", "exclude"), "precious\n")
+	writeFile(t, filepath.Join(standby, "precious"), "work\n")
+	moved := filepath.Join(f.home, "moved")
+	swaps := 0
+	swapping := func(ctx context.Context, d string, args ...string) ([]byte, error) {
+		out, err := f.git(ctx, d, args...)
+		// The last thing git is asked: every check after it reads the disk.
+		if gitSub(args) == "ls-files" && slices.Contains(args, "--stage") {
+			swaps++
+			if err := os.Rename(dir, moved); err != nil {
+				t.Error(err)
+			}
+			if err := os.Rename(standby, dir); err != nil {
+				t.Error(err)
+			}
+		}
+		return out, err
+	}
+	var deleted []string
+	original := removeCloneDir
+	removeCloneDir = func(path string) error { deleted = append(deleted, path); return original(path) }
+	t.Cleanup(func() { removeCloneDir = original })
+	r := f.removeWith(t, dir, "o/r", shown.Fingerprint, swapping)
+	if r != (terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneDenied}) || swaps != 1 {
+		t.Fatalf("remove = %+v after %d swaps, want denied", r, swaps)
+	}
+	if len(deleted) != 0 {
+		t.Fatalf("deleted %q", deleted)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "precious")); err != nil || string(data) != "work\n" {
+		t.Fatalf("the folder swapped in was touched: %q %v", data, err)
+	}
+	if !realDir(filepath.Join(moved, ".git")) {
+		t.Fatal("the folder that was checked is gone")
+	}
+}
+
+// A folder another user owns anywhere on the way is not this user's clone.
+// Only root can give a folder away, so this runs as root alone.
+func TestRemoveCloneRefusesAFolderAnotherUserOwns(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("giving a folder to another user needs root")
+	}
+	for _, which := range []string{"reet", "reet/repos", "reet/repos/o", "reet/repos/o/r"} {
+		t.Run(which, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			shown := f.status(t, dir, "o/r")
+			if err := os.Lchown(filepath.Join(f.home, filepath.FromSlash(which)), 65534, -1); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshot(t, f.home)
+			f.calls = nil
+			if s := f.status(t, dir, "o/r"); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneDenied}) {
+				t.Fatalf("state = %+v, want denied", s)
+			}
+			wantKept(t, f.remove(t, dir, "o/r", shown.Fingerprint), terminalproto.RepoCloneDenied, f.home, before)
+			if len(f.calls) != 0 {
+				t.Fatalf("git ran in a folder another user owns: %q", f.calls)
 			}
 		})
 	}

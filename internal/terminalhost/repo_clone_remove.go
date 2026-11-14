@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,20 @@ const (
 
 // removeCloneDir deletes a clone's folder; tests replace it.
 var removeCloneDir = os.RemoveAll
+
+// cloneCheckArgs go before every git call a clone status or remove makes:
+// readOnlyGitArgs, and no LFS filter in either direction (cloneFilterArgs
+// and an empty clean), so looking at a clone runs no program its
+// configuration names. A file LFS would have cleaned may then read as
+// changed, which only keeps the clone.
+var cloneCheckArgs = append(append(append([]string{}, readOnlyGitArgs...), cloneFilterArgs...), "-c", "filter.lfs.clean=")
+
+// hardenedCloneGit is git with cloneCheckArgs before every call.
+func hardenedCloneGit(git GitRunner) GitRunner {
+	return func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		return git(ctx, dir, append(append([]string{}, cloneCheckArgs...), args...)...)
+	}
+}
 
 // errCloneNotRemovable means the clone holds something the four counts do
 // not show and that deleting it could lose.
@@ -52,7 +67,11 @@ type cloneAt struct {
 // with its own regular config and no commondir or config.worktree
 // (ownConfig), and `git config --local --get-all remote.origin.url` exiting
 // 0 with exactly one origin that names <owner>/<repo> on github.com. Anything
-// else answers exists: something else is there.
+// else answers exists: something else is there. So does a clone whose
+// pushes do not go to that repository: a remote.origin.pushurl of its own,
+// or an address `git remote get-url --all --push origin` gives (the person's
+// insteadOf and pushInsteadOf rewrites applied) that is not exactly one
+// naming <owner>/<repo> on github.com. github.com over ssh is still GitHub.
 //
 // Marked is true only when the marker CloneRepo writes is there and names
 // the repository. Without it the folder is a person's own: nothing is
@@ -81,12 +100,26 @@ type cloneAt struct {
 //
 // A count git did not give is never zero: a failed or unreadable git call
 // answers failed, a request out of time timed_out. A clone that holds what
-// the counts cannot show answers not_removable: a file marked
-// assume-unchanged or skip-worktree (status does not look at it), a
-// submodule's repository under .git/modules, or a rebase, a patch series or
-// a merge in progress that may have set changes aside (.git/rebase-merge,
-// .git/rebase-apply, .git/MERGE_AUTOSTASH). A working tree that is not the
-// folder itself (core.worktree, a bare repository) answers failed.
+// the counts cannot show answers not_removable:
+//
+//   - a file marked assume-unchanged or skip-worktree (status does not look
+//     at it);
+//   - a gitlink (mode 160000) in the index, whether or not its folder is
+//     there, and any entry named .git below the clone's own, found by a walk
+//     that follows no symlink (nestedGit): another repository, in an ignored
+//     folder too, may hold history that is nowhere else;
+//   - a submodule's repository under .git/modules, or a rebase, a patch
+//     series or a merge in progress that may have set changes aside
+//     (.git/rebase-merge, .git/rebase-apply, .git/MERGE_AUTOSTASH);
+//   - a lock file in .git or under .git/refs: git is writing (gitWriting).
+//
+// A working tree that is not the folder itself (core.worktree, a bare
+// repository) and a folder the walk cannot read answer failed.
+//
+// Looking runs nothing the clone's or the person's configuration names:
+// every git call carries cloneCheckArgs (no fsmonitor hook, which could
+// also hide an edit, no untracked cache, no hooks, no external diff, no
+// outside attributes file, no LFS filter).
 func CloneStatus(ctx context.Context, home string, req terminalproto.RepoCloneStatus, git GitRunner) terminalproto.RepoCloneState {
 	ctx, cancel := context.WithTimeout(ctx, cloneStatusTimeout)
 	defer cancel()
@@ -156,6 +189,7 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 	if git == nil {
 		return refuse(terminalproto.RepoCloneFailed)
 	}
+	git = hardenedCloneGit(git)
 	owner, repo, ok := strings.Cut(origin, "/")
 	if !ok || !terminalproto.ValidGitHubOwner(owner) || !terminalproto.ValidGitHubRepo(repo) {
 		return refuse(terminalproto.RepoCloneDenied)
@@ -189,6 +223,27 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 	// As adoptClone reads it: the folder's own config only, no rewrite, and
 	// exactly one origin. git's exit 1 is never taken as "no origin".
 	out, err := git(pinGitDir(ctx, at.dest), at.dest, "config", "--local", "--get-all", "remote.origin.url")
+	switch {
+	case err != nil && (ctx.Err() != nil || errors.Is(err, errGitMissing)):
+		return refuse(failed(err))
+	case err != nil || !originNames(out, req):
+		return refuse(terminalproto.RepoCloneExists)
+	}
+	// Pushes must go to the same repository, or origin's remote-tracking
+	// branches say nothing about GitHub. A push address of the clone's own
+	// is refused whatever it names. Then the address git would really push
+	// to, with the person's own insteadOf and pushInsteadOf rewrites applied,
+	// must be exactly one and name the repository on github.com (over https
+	// or ssh). git's exit 1 for "no pushurl" is not relied on: the second
+	// call must succeed and prove the address.
+	_, err = git(pinGitDir(ctx, at.dest), at.dest, "config", "--local", "--get-all", "remote.origin.pushurl")
+	switch {
+	case err == nil:
+		return refuse(terminalproto.RepoCloneExists)
+	case ctx.Err() != nil || errors.Is(err, errGitMissing):
+		return refuse(failed(err))
+	}
+	out, err = git(pinGitDir(ctx, at.dest), at.dest, "remote", "get-url", "--all", "--push", "origin")
 	switch {
 	case err != nil && (ctx.Err() != nil || errors.Is(err, errGitMissing)):
 		return refuse(failed(err))
@@ -345,6 +400,31 @@ func cloneCounts(ctx context.Context, dest string, git GitRunner) (terminalproto
 	if hiddenEntries(hidden, dest) > 0 {
 		return none, errCloneNotRemovable
 	}
+	// A gitlink is another repository's commit: the repository it came from
+	// may live only inside this folder. This is the last git call; what
+	// follows reads the disk.
+	staged, err := run("ls-files", "--stage", "-z")
+	if err != nil {
+		return none, err
+	}
+	if len(staged) >= gitListLimit {
+		return none, unreadable
+	}
+	for _, entry := range strings.Split(string(staged), "\x00") {
+		if strings.HasPrefix(entry, "160000 ") {
+			return none, errCloneNotRemovable
+		}
+	}
+	if writing, err := gitWriting(filepath.Join(dest, ".git")); err != nil {
+		return none, err
+	} else if writing {
+		return none, errCloneNotRemovable
+	}
+	if nested, err := nestedGit(ctx, dest); err != nil {
+		return none, err
+	} else if nested {
+		return none, errCloneNotRemovable
+	}
 	// A submodule's repository, and what a rebase, a patch series or a merge
 	// in progress set aside (its autostash): work kept in .git itself.
 	for _, name := range []string{"modules", "rebase-merge", "rebase-apply", "MERGE_AUTOSTASH"} {
@@ -433,4 +513,59 @@ func unpushedTips(ctx context.Context, dest string, git GitRunner, tips []string
 		}
 	}
 	return count, nil
+}
+
+// walkCloneDir walks a clone without following symlinks; tests replace it.
+var walkCloneDir = filepath.WalkDir
+
+// gitWriting reports a lock file directly in gitDir (index.lock, HEAD.lock,
+// packed-refs.lock, shallow.lock, config.lock) or anywhere under its refs:
+// git is writing there, or was cut off while it did.
+func gitWriting(gitDir string) (bool, error) {
+	list, err := os.ReadDir(gitDir)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range list {
+		if strings.HasSuffix(entry.Name(), ".lock") {
+			return true, nil
+		}
+	}
+	writing := false
+	err = walkCloneDir(filepath.Join(gitDir, "refs"), func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(d.Name(), ".lock") {
+			writing = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return writing, err
+}
+
+// nestedGit reports an entry named .git (in any letter case; a folder, a
+// file or a symlink) anywhere under dest other than dest's own .git folder:
+// another repository or worktree, ignored or not, whose history may be
+// nowhere else. Symlinks are not followed. A folder that cannot be read, or
+// the end of ctx, is an error.
+func nestedGit(ctx context.Context, dest string) (bool, error) {
+	own := filepath.Join(dest, ".git")
+	nested := false
+	err := walkCloneDir(dest, func(path string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case ctx.Err() != nil:
+			return ctx.Err()
+		case path == own:
+			return fs.SkipDir
+		case strings.EqualFold(d.Name(), ".git") && path != dest:
+			nested = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return nested, err
 }

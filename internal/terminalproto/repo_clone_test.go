@@ -278,6 +278,13 @@ func TestRepoCloneStateValidAndRemovable(t *testing.T) {
 			valid, removeOK bool
 		}{RepoCloneState{Reason: reason}, true, false}
 	}
+	// Reasons of a clone, and of a remove alone, are not a state's.
+	for _, reason := range []RepoCloneReason{RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneSSHRewrite, RepoCloneChanged} {
+		cases["reason "+string(reason)] = struct {
+			s               RepoCloneState
+			valid, removeOK bool
+		}{RepoCloneState{Reason: reason}, false, false}
+	}
 	for name, c := range cases {
 		if got := c.s.valid(); got != c.valid {
 			t.Errorf("%s: valid() = %v, want %v", name, got, c.valid)
@@ -304,6 +311,13 @@ func TestRepoCloneRemovedValid(t *testing.T) {
 			r    RepoCloneRemoved
 			want bool
 		}{RepoCloneRemoved{Reason: reason}, true}
+	}
+	// Reasons of a clone are not a remove's.
+	for _, reason := range []RepoCloneReason{RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneSSHRewrite} {
+		cases["reason "+string(reason)] = struct {
+			r    RepoCloneRemoved
+			want bool
+		}{RepoCloneRemoved{Reason: reason}, false}
 	}
 	for name, c := range cases {
 		if got := c.r.valid(); got != c.want {

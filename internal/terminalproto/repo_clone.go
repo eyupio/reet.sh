@@ -145,6 +145,16 @@ func (r RepoCloneReason) removeOnly() bool {
 	return r == RepoCloneChanged || r == RepoCloneNotRemovable
 }
 
+// stateReason reports the reasons a RepoCloneState may carry; a
+// RepoCloneRemoved may carry these and changed.
+func (r RepoCloneReason) stateReason() bool {
+	switch r {
+	case RepoCloneDenied, RepoCloneExists, RepoCloneFailed, RepoCloneTimedOut, RepoCloneBusy, RepoCloneNotRemovable:
+		return true
+	}
+	return false
+}
+
 // RepoCloneResult answers a RepoClone. With Reason set nothing was cloned and
 // every other field is empty; otherwise Dir is the repository folder.
 // Adopted says the folder was already a clone of the repository and was
@@ -224,7 +234,7 @@ func (RepoCloneState) kind() string { return "repo_clone_state" }
 func (s RepoCloneState) valid() bool {
 	counted := s.Worktrees != 0 || s.Changed != 0 || s.Stashes != 0 || s.Unpushed != 0 || s.Fingerprint != ""
 	if s.Reason != "" {
-		return s.Reason.valid() && s.Reason != RepoCloneChanged && !s.Marked && !counted
+		return s.Reason.stateReason() && !s.Marked && !counted
 	}
 	if !s.Marked {
 		return !counted
@@ -269,7 +279,7 @@ type RepoCloneRemoved struct {
 func (RepoCloneRemoved) kind() string { return "repo_clone_removed" }
 func (r RepoCloneRemoved) valid() bool {
 	if r.Reason != "" {
-		return r.Reason.valid() && r.Dir == ""
+		return (r.Reason.stateReason() || r.Reason == RepoCloneChanged) && r.Dir == ""
 	}
 	return validDir(r.Dir)
 }

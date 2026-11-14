@@ -78,8 +78,12 @@ const (
 
 // outputLimit is gitListLimit for the read-only listings (including every
 // for-each-ref, which only reads) and gitOutputLimit
-// for every other git call.
+// for every other git call. Leading "-c name=value" arguments are looked
+// past, so a hardened listing keeps its bound.
 func outputLimit(args []string) int {
+	for len(args) >= 2 && args[0] == "-c" {
+		args = args[2:]
+	}
 	isListing := len(args) > 0 &&
 		(args[0] == "status" || args[0] == "ls-files" || args[0] == "for-each-ref")
 	isWorktreeList := len(args) > 1 && args[0] == "worktree" && args[1] == "list"
@@ -90,6 +94,13 @@ func outputLimit(args []string) int {
 }
 
 var errGitMissing = errors.New("git is not installed")
+
+// readOnlyGitArgs keep a git call that only looks at a repository from
+// running anything the repository's or the person's configuration names,
+// and from trusting what such a program cached: no file-system monitor
+// hook (which could also hide an edit from status), no untracked cache, no
+// hooks, no external diff, no attributes file from outside the repository.
+var readOnlyGitArgs = []string{"-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "core.attributesFile=/dev/null"}
 
 // ExecGit runs git found by exec.LookPath as an argument vector, never through
 // a shell: `git -C dir args...`, stdin empty, environment exactly HOME, PATH

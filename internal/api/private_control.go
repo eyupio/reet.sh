@@ -44,7 +44,7 @@ func isPeerReply(body terminalproto.Body) bool {
 		// sends each one over a real connection.
 		*terminalproto.LaunchProgress, *terminalproto.BaseCheckResult,
 		*terminalproto.BranchSyncResult, *terminalproto.BranchPrunePlanResult, *terminalproto.BranchPruneResult,
-		*terminalproto.SoftwareApplyResult:
+		*terminalproto.SoftwareApplyResult, *terminalproto.AccountsResult:
 		return true
 	}
 	return false

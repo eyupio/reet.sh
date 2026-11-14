@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A machine no longer loses its connection when it answers which of its
+  agents are signed in. The controller ended the connection on that answer,
+  so opening the sign-in list could drop the machine and its sessions for a
+  moment.
 - Removing a project reet cloned from GitHub can now delete the clone too.
   **Remove from reet** asks the machine what the clone holds and, when nothing
   would be lost, offers a tick, off by default: "Also delete

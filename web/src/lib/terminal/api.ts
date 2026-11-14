@@ -26,7 +26,7 @@ export type TerminalSession = { id: string; agentId: string; title: string; stat
   /** What the session's worktree started from, when the machine reported it: the branch (`baseName`), how it stood
    *  against GitHub (`baseRelation`, one of baseNotice's relations) and the commit it was cut at (`baseStart`). */
   baseName?: string; baseRelation?: string; baseStart?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number }
-export type Capabilities = { /** The machine can say which agents are signed in (agent-accounts-v1, with terminal access on). */ agentAccounts?: boolean; nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { /** The machine can say which agents are signed in (agent-accounts-v1, with terminal access on). */ agentAccounts?: boolean; nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; /** The machine can list the GitHub repositories its gh sign-in reaches (repo-list-v1). */ repoList?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -443,6 +443,15 @@ export const CLONE_REMOVE_CODES = ['clone_changed', 'clone_kept', 'clone_unconfi
  *  same id. `name` "" names the project after the repository. */
 export async function addFromGitHub(host: string, repo: string, name: string, signal?: AbortSignal): Promise<{ cloneId: string; dir: string }> {
   return (await terminalRequest('/api/v2/folder-projects/from-github', { method: 'POST', signal: within(signal), body: JSON.stringify({ host, repo, name }) })).json()
+}
+/** One repository a machine's GitHub sign-in reaches: `owner/name`, and when it was last pushed to (Unix seconds, 0 when
+ *  GitHub gave none). */
+export type GitHubRepo = { name: string; private: boolean; pushedAt: number }
+/** The repositories a machine can clone with its own gh sign-in (its own, its organizations' and those shared with it),
+ *  most recently pushed first, at most 200; `more` when GitHub had more. Refused 409 `repo_list_unsupported` by an
+ *  older reet there, 409 `not_signed_in` without a sign-in, each with a sentence to show. */
+export async function githubRepos(host: string, signal?: AbortSignal): Promise<{ repos: GitHubRepo[]; more: boolean }> {
+  return (await terminalRequest(`/api/v2/folder-projects/github-repos?host=${encodeURIComponent(host)}`, { signal: within(signal, 45_000) })).json()
 }
 /** A clone's state: cloning, done with the saved project, or failed with the controller's sentence; 404 `clone_not_found`
  *  once the controller no longer knows it. */

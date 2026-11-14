@@ -919,7 +919,110 @@ try {
   await context.close()
  }
 
- console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; 1280 and 390 px, light and dark.')
+ // The repository field lists what studio's GitHub sign-in reaches: typing filters it, the arrows and Enter (or a tap) choose
+ // one, Escape closes only the list, and anything can still be typed. A refusal is said under the field and typing still
+ // works; a machine that cannot list keeps the plain field and is never asked.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`repository list (${screen.width} px)`)) continue
+  const asked = []
+  let listAnswer = () => ({repos:[
+   {name:'eyupio/reet.sh', private:true, pushedAt:Math.floor(Date.now()/1000) - 7200},
+   {name:'eyupio/reet-docs', private:false, pushedAt:Math.floor(Date.now()/1000) - 3*86400},
+   {name:'someone/shared-tool', private:false, pushedAt:0},
+  ], more:false})
+  const listing = {...caps({repoClone:true, repoList:true})}
+  const routes = {
+   '/api/v2/terminal/machines': () => ({machines:[
+    {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:listing},
+    {agentId:'a2',host:'desk',ready:true,serverEnabled:true,capabilities:caps({repoClone:true})},
+   ]}),
+   '/api/v2/folder-projects/github-repos': request => { asked.push(new URL(request.url()).searchParams.get('host')); return listAnswer() },
+  }
+  const {context,page,errors,box} = await scene({...screen, routes})
+  await page.goto(base)
+  await openAdd(page, screen.touch)
+  await toGitHub(page)
+  const d = dialog(page)
+  await machineField(page).selectOption('a1')
+  const field = d.getByRole('combobox',{name:'Repository',exact:true})
+  const list = d.getByRole('listbox',{name:"studio's repositories"})
+  await expect(d.getByText("Choose from studio's GitHub repositories, or type owner/name or a github.com link",{exact:true})).toBeVisible()
+  expect(asked).toEqual(['a1'])
+  // Typing filters the list; the arrows and Enter choose without submitting.
+  await field.click()
+  await field.pressSequentially('reet')
+  await expect(list.getByRole('option')).toHaveCount(2)
+  await expect(list.getByRole('option').first()).toContainText('eyupio/reet.sh')
+  await expect(list.getByRole('option').first()).toContainText('private')
+  await expect(list.getByRole('option').first()).toContainText('pushed 2 hours ago')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(field).toHaveAttribute('aria-activedescendant', /option-1$/)
+  await page.keyboard.press('Enter')
+  await expect(field).toHaveValue('eyupio/reet-docs')
+  await expect(list).toBeHidden()
+  await expect(d.getByText('reet will clone it to ~/reet/repos/eyupio/reet-docs on studio.',{exact:true})).toBeVisible()
+  expect(box.starts).toEqual([])
+  // Escape closes the list and leaves the dialog open.
+  await field.fill('')
+  await field.pressSequentially('shared')
+  await expect(list.getByRole('option')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(list).toBeHidden()
+  await expect(d).toBeVisible()
+  // A tap or click chooses too.
+  await field.fill('')
+  await field.click()
+  await expect(list.getByRole('option')).toHaveCount(3)
+  await list.getByRole('option',{name:/someone\/shared-tool/}).click()
+  await expect(field).toHaveValue('someone/shared-tool')
+  await expect(field).toBeFocused()
+  // Something not listed is still taken.
+  await field.fill('torvalds/linux')
+  await expect(list).toBeHidden()
+  await expect(cloneButton(page)).toBeEnabled()
+  await cloneButton(page).click()
+  await expect.poll(() => box.starts).toEqual([{host:'a1', repo:'torvalds/linux', name:''}])
+  if (screen.touch) {
+   const small = await d.locator('[role=option]:visible').evaluateAll(els => els.map(el => el.offsetHeight).filter(h => h < 44))
+   expect(small, 'touch targets under 44 px').toEqual([])
+  }
+  expect(await noSideways(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+
+  // Refused (studio not signed in): the sentence under the field, and typing still works.
+  {
+   listAnswer = () => ({status:409, json:{code:'not_signed_in', error:"studio isn't signed in to GitHub. Run gh auth login there, then try again."}})
+   const {context,page,errors} = await scene({...screen, routes})
+   await page.goto(base)
+   await openAdd(page, screen.touch)
+   await toGitHub(page)
+   await machineField(page).selectOption('a1')
+   const d = dialog(page)
+   await expect(d.getByText("studio isn't signed in to GitHub. Run gh auth login there, then try again.",{exact:true})).toBeVisible()
+   await d.getByRole('combobox',{name:'Repository',exact:true}).fill('eyupio/reet.sh')
+   await expect(cloneButton(page)).toBeEnabled()
+   expect(errors.filter(e => !/409/.test(e))).toEqual([])
+   await context.close()
+  }
+  // desk runs an older reet: the plain field, never asked.
+  {
+   asked.length = 0
+   const {context,page} = await scene({...screen, routes})
+   await page.goto(base)
+   await openAdd(page, screen.touch)
+   await toGitHub(page)
+   await machineField(page).selectOption('a2')
+   await expect(repoField(page)).toBeVisible()
+   await expect(dialog(page).getByText('owner/name, or a github.com link',{exact:true})).toBeVisible()
+   await page.waitForTimeout(300)
+   expect(asked.filter(h => h === 'a2')).toEqual([])
+   await context.close()
+  }
+ }
+
+ console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; the repository list (filter, arrows, Enter, Escape, tap, anything typed, a refusal, an older machine); 1280 and 390 px, light and dark.')
 } finally {
  await browser.close()
 }

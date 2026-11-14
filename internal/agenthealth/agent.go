@@ -72,6 +72,7 @@ type AgentConfig struct {
 	baseFresh          bool
 	repoClone          bool
 	repoCloneRemove    bool
+	repoList           bool
 	agentAccounts      bool
 	browseAllowed      bool
 	clipboard          bool
@@ -579,6 +580,11 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 				m.Body = terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneDenied}
 				return send(ctx, m)
 			}
+		case *terminalproto.RepoList:
+			if cfg.repoList && !currentCapabilities(cfg).RepoList {
+				m.Body = terminalproto.RepoListResult{Reason: terminalproto.RepoListDenied}
+				return send(ctx, m)
+			}
 		case *terminalproto.Accounts:
 			// Terminal access gates reading a sign-in as it gates a shell,
 			// and it is read again here: switching it off holds at once.
@@ -708,6 +714,11 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 			return m, false
 		}
 		m.Body = terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneBusy}
+	case *terminalproto.RepoList:
+		if !terminalproto.SupportsRepoList(features) {
+			return m, false
+		}
+		m.Body = terminalproto.RepoListResult{Reason: terminalproto.RepoListBusy}
 	case *terminalproto.Accounts:
 		if !terminalproto.SupportsAgentAccounts(features) {
 			return m, false
@@ -988,6 +999,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.baseFresh = terminalproto.SupportsBaseFresh(advertised)
 	cfg.repoClone = terminalproto.SupportsRepoClone(advertised)
 	cfg.repoCloneRemove = terminalproto.SupportsRepoCloneRemove(advertised)
+	cfg.repoList = terminalproto.SupportsRepoList(advertised)
 	cfg.agentAccounts = terminalproto.SupportsAgentAccounts(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
@@ -1083,6 +1095,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.repoCloneRemove {
 		features = append(features, terminalproto.RepoCloneRemoveFeature)
+	}
+	if cfg.repoList {
+		features = append(features, terminalproto.RepoListFeature)
 	}
 	if cfg.agentAccounts {
 		features = append(features, terminalproto.AgentAccountsFeature)
@@ -1400,6 +1415,9 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// network, so they do not follow RepoClone: a machine that lost gh can
 		// still remove a clone. Terminal access must be on, as for a clone.
 		RepoCloneRemove: cfg.repoCloneRemove && worktree && enabled,
+		// Listing repositories reads what the machine's gh sign-in reaches, to
+		// offer them for a clone, so it is offered exactly where RepoClone is.
+		RepoList: cfg.repoList && worktree && enabled && cfg.GHAvailable != nil && cfg.GHAvailable(),
 		// Reading a sign-in follows terminal access: a machine with access
 		// off is not asked, and says so if it is.
 		AgentAccounts:   cfg.agentAccounts && control && enabled,

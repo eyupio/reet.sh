@@ -40,6 +40,12 @@ var (
 	// terminalhost.RemoveClone; tests replace them to hold a remove.
 	cloneStatus = terminalhost.CloneStatus
 	removeClone = terminalhost.RemoveClone
+	// listRepos is terminalhost.ListRepos; tests replace it so no gh runs.
+	listRepos = terminalhost.ListRepos
+	// repoListAnswerAfter bounds a repository listing that has not returned.
+	// Its own deadline is 30 s, which is under this answer, and this answer
+	// is under the controller's 40 s (terminalbroker.RepoListCallTimeout).
+	repoListAnswerAfter = 35 * time.Second
 	// repoCloneStatusAnswerAfter bounds a clone status that has not returned.
 	// Its own deadline is 10 s, which is under this answer, and this answer
 	// is under the controller's 15 s (terminalbroker.RepoCloneStatusCallTimeout).
@@ -112,7 +118,9 @@ var (
 	clonesRunning   atomic.Int32
 	// cloneStatusesRunning counts clone status work, as browsesRunning does.
 	cloneStatusesRunning atomic.Int32
-	accountsRunning      atomic.Int32
+	// repoListsRunning counts repository listings, as browsesRunning does.
+	repoListsRunning atomic.Int32
+	accountsRunning  atomic.Int32
 )
 
 // accountsSlot allows one sign-in read at a time on this connector process,
@@ -305,6 +313,9 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 		// connection. It only reads, so it has a slot of its own: neither a
 		// clone nor a sync holds it up.
 		cloneStatusSlot := make(chan struct{}, 1)
+		// repoListSlot allows one repository listing at a time on this
+		// connection. It only reads GitHub, so a clone does not hold it up.
+		repoListSlot := make(chan struct{}, 1)
 		modelsSlot := make(chan struct{}, 1)
 		// modelsMu guards the per-tool last listing used for the floor.
 		var modelsMu sync.Mutex
@@ -652,6 +663,16 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneBusy}, terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneTimedOut},
 					func(ctx context.Context) terminalproto.Body {
 						return removeClone(ctx, home, req, git)
+					})
+			case *terminalproto.RepoList:
+				if !allowed(opts.Consent) {
+					reply.Body = terminalproto.RepoListResult{Reason: terminalproto.RepoListDenied}
+					return send(callCtx, reply)
+				}
+				return aside(callCtx, reply, repoListSlot, &repoListsRunning, repoListAnswerAfter,
+					terminalproto.RepoListResult{Reason: terminalproto.RepoListBusy}, terminalproto.RepoListResult{Reason: terminalproto.RepoListTimedOut},
+					func(ctx context.Context) terminalproto.Body {
+						return listRepos(ctx, terminalhost.ExecGH, terminalhost.ExecGHList)
 					})
 			case *terminalproto.Accounts:
 				if !allowed(opts.Consent) {
@@ -1339,6 +1360,10 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		}
 	case *terminalproto.RepoCloneStatus, *terminalproto.RepoCloneRemove:
 		if !has(terminalproto.RepoCloneRemoveFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.RepoList:
+		if !has(terminalproto.RepoListFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.Models:

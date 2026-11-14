@@ -5,6 +5,16 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **From GitHub** now lists the repositories the chosen machine's GitHub
+  sign-in reaches (its own, its organizations' and those shared with it, the
+  200 most recently pushed) under the Repository field. Type to filter, then
+  choose with the arrows and Enter or a tap; anything typed as owner/name or a
+  github.com link still works. The machine asks GitHub with its own `gh`, so
+  the list is what that machine can clone. Both the controller and `reet agent`
+  need this release; a machine on an older reet keeps the plain field.
+- **Add a project** on the Sessions screen now offers **From GitHub** at every
+  width. Its desktop project list opened a copy of the dialog without it.
+
 - Leaving a chat no longer risks dropping its machine's connection. An open
   chat asks for its live controls every 1.5 seconds and abandons the request
   when you leave it; on a busy controller the request was often still waiting

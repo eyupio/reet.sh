@@ -196,6 +196,23 @@ What the clone does, and what it leaves:
   git data yet or its own git settings name that repository. Anything else, including a folder git had
   started but not yet given an origin, is left for you to remove; nothing else there is removed.
 
+### Choosing from the machine's repositories
+
+Once a machine is chosen, the Repository field lists the repositories that machine's GitHub sign-in reaches:
+its own, its organizations' and those shared with it, the 200 most recently pushed, newest first ("Reading
+studio's repositories from GitHub…" while the machine asks). Typing filters the list; the arrow keys and Enter, a
+click or a tap choose one; Escape closes the list and leaves the dialog open. Each repository shows whether it is
+private and when it was last pushed to. The list is only a shortcut: anything typed as `owner/name` or a github.com
+link is taken the same way, including a repository older than the 200 or a public one of someone else's.
+
+The machine asks GitHub itself, with its own `gh` (`gh api user/repos`), so the list is exactly what that machine
+could clone; only the names, the private mark and the push time reach the controller, and nothing is kept. The list is
+read once each time the dialog shows a machine. When it can't be read the field says why, under it, and still takes a
+typed repository: "studio isn't signed in to GitHub. Run gh auth login there, then try again.", "studio refused to list
+repositories: terminal access is off there, or the GitHub CLI is missing.", "GitHub didn't answer studio in time. Try
+again, or type one." A machine running an older reet keeps the plain field ("Update reet on studio to list its GitHub
+repositories. You can still type one." from the API) and is never asked.
+
 ## Removing a project from GitHub
 
 **Remove from reet** on a project reet cloned asks the same question as for any project, and looks at
@@ -309,6 +326,13 @@ plain sentence, and a field refusal names the field so the dialog can move focus
   github.com link; `name` `""` for the repository's) → 202 `{cloneId, dir}`, or at once 422
   `invalid_repo`, 409 `repo_clone_unsupported`, 409 `machine_offline`, 429 `clone_limit` (five running
   per account), or the create's own refusals (`project_limit`, `name_taken`, `unknown_machine`).
+- `GET /folder-projects/github-repos?host={agentId}` → `{repos: [{name, private, pushedAt}], more}`: what that
+  machine's gh sign-in reaches, most recently pushed first, at most 200 (`pushedAt` in Unix seconds, 0 when GitHub
+  gave none; `more` when GitHub had more). 422 `unknown_machine` for a missing, malformed or other account's machine;
+  409 `repo_list_unsupported` (an older reet, gh missing or terminal access off), `not_signed_in`, `denied`, `busy` or
+  `machine_offline`; 504 `timed_out` or `machine_timeout`; 502 `failed` or `machine_error`, each with a sentence. It
+  makes a machine run gh, so it counts towards the write limit and refuses a request a browser marks as coming from
+  another site (403 `origin_refused`).
 - `GET /folder-projects/clones/{id}` → `{state: "cloning"}`, `{state: "done", project}` or `{state:
   "failed", code, sentence}`; an unknown id, another account's, or one that ended more than 10 minutes
   ago is 404 `clone_not_found`.

@@ -50,6 +50,10 @@ func (s *server) registerFolderProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/folder-projects/import-saved", s.folderAccess(s.folderProjectWrite(s.folderProjectImportSaved)))
 	mux.HandleFunc("POST /api/v2/folder-projects/from-github", s.folderAccess(s.folderProjectWrite(s.folderProjectFromGitHub)))
 	mux.HandleFunc("GET /api/v2/folder-projects/clones/{id}", s.folderAccess(s.folderProjectClone))
+	// The repositories a machine's GitHub sign-in reaches, to choose one to
+	// clone. It makes the machine run gh, so it refuses another site and
+	// counts as a write, as a clone's state does.
+	mux.HandleFunc("GET /api/v2/folder-projects/github-repos", s.folderAccess(s.sameOriginRead(s.folderProjectWrite(s.folderProjectGitHubRepos))))
 	mux.HandleFunc("GET /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectGet))
 	// {part} is "clone" only. It makes a machine run git and counts as a
 	// write, so unlike the other reads it refuses a request from another site.

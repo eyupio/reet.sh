@@ -234,9 +234,11 @@ last selected session while this workspace is mounted. The selected user/host
 remains visible on phones; moving from desktop to phone closes the panel.
 
 **New session** first asks what to start: an **Agent session** opens the Start an
-agent dialog, and a **Terminal session** opens the shell form (asking for a
-machine first when none is selected). An unconfirmed creation skips the question
-and opens its own retry instead.
+agent dialog, a **Terminal session** opens the shell form (asking for a machine
+first when none is selected), and, where the account has Gaffer, a **Factory
+outcome** opens the Factory page with its outcome dialog ready (on the chosen
+project's folder when the session was started from a project). An unconfirmed
+creation skips the question and opens its own retry instead.
 
 Each unconfirmed creation keeps its immutable request ID and original title per
 machine while the workspace is mounted. Switching machines cannot discard or

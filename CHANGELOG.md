@@ -19,6 +19,12 @@ this file existed releases were described on their GitHub release pages.
   no longer opens the device's keyboard, so the arrows work with it down. A
   modifier that was on also drew its name in the colour of its fill until the
   pointer was over it; it can now be read.
+- A chat now shows what its agent reports using. The status line above the
+  message box ends with how much of the agent's context window is left, or
+  the chat's tokens when the agent never says how large its window is, and
+  marks the figure when 15% or less is left. The numbers were already kept
+  for the Factory page; an ordinary chat showed none of them. An agent that
+  reports nothing shows nothing.
 - You can add a project from a GitHub repository that isn't on any machine
   yet. **Add** in the project rail now offers **From GitHub** beside **Folder
   on a machine**: write `owner/name` or paste the github.com link, choose the

@@ -65,6 +65,31 @@ keyboard attached (it cannot be told apart); a locked modifier is let go when th
 Also seen and left alone: [the phone docs](docs/terminal-workspace.md#phones) say a sideways 844 × 390 phone shows 13
 rows; the test prints 9 on main before this change too.
 
+## CHAT-USAGE-1: a chat shows what its agent reports using (14 November 2026)
+
+The agent's tokens and context figures were already kept per session (`terminal_session_usage`, see "Agent tokens and
+context left" in the [factory floor handoff](docs/handoffs/gaffer-factory-floor.md)) and shown only on the Factory page.
+An ordinary chat now shows them too.
+
+- **Controller.** `GET /api/v2/terminal/sessions/{id}/chat/usage` (`internal/api/terminal_chat_usage.go`) answers the
+  stored `TerminalSessionUsage` for a structured session the account owns. It asks no machine, so an ended chat answers.
+  No schema, protocol or machine change.
+- **Browser.** `web/src/lib/chatUsage.ts` turns the record into the line's label and detail (nothing for an unreported
+  chat); `ChatStatus.svelte` renders it at the end of the status line; `ChatPane.svelte` reads it when the chat opens,
+  when a new status that is not a working one arrives, and every 30 s while working. The trigger is the status object,
+  not `working`: a turn that starts and ends inside one batch of events never shows as working.
+- **The floating Ask Gaffer circle** sits over the right-hand end of the status line on a desktop, so the line now keeps
+  68 px clear there while the circle is shown. By the same geometry the tool counts at that end sat under the circle
+  before; that was worked out from the layout, not looked at on its own.
+- **Checked:** `internal/api/terminal_chat_usage_test.go` (seen failing with no route); `chatUsage.test.mjs`;
+  `web/tests/chat-usage.e2e.mjs` (no figure for a quiet agent, the figure after a turn with no reload, a failed read
+  keeping the last figures, the low mark, tokens with no window, 1360/390/320 px in both themes, nothing floating over
+  the figure — that last check was seen failing with the clearance removed). The twelve existing chat and session
+  browser suites pass. The usage field names were compared with the published protocol schema and the Claude adapter's
+  source ([structured sessions](docs/structured-sessions.md#what-the-agent-has-used)).
+- **Not done:** the sessions list and the hover card show no usage; no price; no plan or rate-limit allowance (that is
+  separate work); nothing was run against a signed-in agent, so which agents actually send the figures is still unknown.
+
 ## CI-FLAKE-1: two checks that failed on unchanged code (13 November 2026)
 
 Both failed once on a pull request that touched neither, and passed on a re-run. Each had a cause.

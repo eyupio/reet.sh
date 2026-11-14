@@ -153,13 +153,17 @@ type Capabilities struct {
 	BaseFresh bool `json:"baseFresh,omitempty"`
 	// RepoClone is sent only on a connection that negotiated repo-clone-v1:
 	// the machine can clone a GitHub repository into its projects folder.
-	RepoClone  bool `json:"repoClone,omitempty"`
-	BrowseOff  bool `json:"browseOff,omitempty"`
-	Clipboard  bool `json:"clipboard,omitempty"`
-	Uploads    bool `json:"uploads,omitempty"`
-	UploadsOff bool `json:"uploadsOff,omitempty"`
-	Models     bool `json:"models,omitempty"`
-	ModelsOff  bool `json:"modelsOff,omitempty"`
+	RepoClone bool `json:"repoClone,omitempty"`
+	// AgentAccounts is sent only on a connection that negotiated
+	// agent-accounts-v1, and only while terminal access is on: the machine
+	// can say which agents are signed in and read their plan allowance.
+	AgentAccounts bool `json:"agentAccounts,omitempty"`
+	BrowseOff     bool `json:"browseOff,omitempty"`
+	Clipboard     bool `json:"clipboard,omitempty"`
+	Uploads       bool `json:"uploads,omitempty"`
+	UploadsOff    bool `json:"uploadsOff,omitempty"`
+	Models        bool `json:"models,omitempty"`
+	ModelsOff     bool `json:"modelsOff,omitempty"`
 	// ModelsRefresh is sent only on a connection that negotiated
 	// models-refresh-v1: a refresh may then ask for a listing that ignores the
 	// connector's short cache.
@@ -281,6 +285,9 @@ func (c Capabilities) Validate() error {
 	if c.RepoClone {
 		features = append(features, RepoCloneFeature)
 	}
+	if c.AgentAccounts {
+		features = append(features, AgentAccountsFeature)
+	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
 
@@ -363,6 +370,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.RepoClone && !(c.Worktree && SupportsRepoClone(features)) {
+		return ErrInvalid
+	}
+	if c.AgentAccounts && !(c.TerminalControl && c.TerminalEnabled && SupportsAgentAccounts(features)) {
 		return ErrInvalid
 	}
 	uploadRule := c.Uploads && !c.TerminalControl
@@ -906,6 +916,10 @@ func Decode(data []byte) (Message, error) {
 		b = &RepoClone{}
 	case "repo_clone_result":
 		b = &RepoCloneResult{}
+	case "accounts":
+		b = &Accounts{}
+	case "accounts_result":
+		b = &AccountsResult{}
 	case "upload":
 		b = &Upload{}
 	case "models":

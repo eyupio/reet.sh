@@ -1150,7 +1150,9 @@ export type Profile = { theme: 'system' | 'light' | 'dark'; timezone: string; da
   /** Launch defaults: the base branch for fresh worktrees ('' for none) and whether sessions get a worktree by default. */
   defaultBaseBranch?: string; worktreesByDefault?: boolean
   /** New sessions without a project: the agent, its model and its thinking level; '' is the agent's own default. */
-  defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string }
+  defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string
+  /** Whether this account's machines read how much of each agent's plan allowance is left. Off until turned on. */
+  planLimits?: boolean }
 /** chatEnabled is the effective on or off state of each gated chat (Claude Code, Codex); profile.chatAgents holds only the explicit choices. */
 export type ProfileInfo = { user: User; profile: Profile; chatEnabled?: Record<string, boolean>; sessionCount: number; accounts: boolean }
 export type ProfileSession = { id: string; device: string; createdAt: number; lastSeen: number; expiresAt: number; current: boolean }
@@ -1206,7 +1208,7 @@ export function applyTheme(theme: string) {
 export async function getProfile(): Promise<ProfileInfo> {
   return (await req('/api/v2/profile')).json()
 }
-export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; factoryRemoveMode?: 'archive' | 'delete'; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean> }): Promise<ProfileInfo> {
+export async function saveProfile(input: { name?: string; theme?: string; timezone?: string; dateFormat?: string; shelfView?: 'list' | 'board'; cardsExpanded?: boolean; terminalRemoveOnClose?: boolean; factoryRemoveMode?: 'archive' | 'delete'; gafferAnimations?: boolean; gafferCompact?: boolean; gafferStanding?: boolean; gafferAutoMerge?: boolean; hostedPrefix?: string; defaultBaseBranch?: string; worktreesByDefault?: boolean; defaultTool?: string; defaultModel?: string; defaultEffort?: string; defaultClineSource?: string; chatAgents?: Record<string, boolean>; planLimits?: boolean }): Promise<ProfileInfo> {
   return (await req('/api/v2/profile', { method: 'PATCH', body: json(input) })).json()
 }
 

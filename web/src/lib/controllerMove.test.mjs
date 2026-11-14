@@ -103,6 +103,17 @@ test('a machine is moved only when it said so, and waiting only while it is stil
   assert.match(moveStateLine(machine({ held: 'follow-off' }), now), /set-server/)
 })
 
+// A fence with no address turns machines away without telling them where to go, so they wait for the owner, not for
+// the new controller.
+test('with no address yet, a machine being turned away waits for the address', () => {
+  const now = 1_000_000
+  const asking = machine({ toldAt: now - 5000 })
+  assert.match(moveStateLine(asking, now, true), /waiting for the new controller/)
+  assert.match(moveStateLine(asking, now, false), /waiting for you to give the new address/)
+  assert.doesNotMatch(moveStateLine(machine({ toldAt: now - 10 * 60 * 1000 }), now, false), /new controller|given the new address/)
+  assert.match(moveStateLine(machine({ leftAt: now, leftTo: 'https://n' }), now, false), /Moved to/)
+})
+
 test('the move is done once every machine says it has moved, and not with none', () => {
   const now = 1_000_000
   assert.equal(moveProgress([], now).done, false)

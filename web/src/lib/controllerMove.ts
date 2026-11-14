@@ -149,9 +149,16 @@ export function machineMoveState(m: FenceMachine, now: number): MoveState {
   return 'unseen'
 }
 
-/** What a state means for the owner, in a few words. */
-export function moveStateLine(m: FenceMachine, now: number): string {
-  switch (machineMoveState(m, now)) {
+/**
+ * What a state means for the owner, in a few words. `hasAddress` is whether the fence names where to go: a machine the
+ * fence is turning away has no address to follow until it does.
+ */
+export function moveStateLine(m: FenceMachine, now: number, hasAddress = true): string {
+  const state = machineMoveState(m, now)
+  if (!hasAddress && (state === 'waiting' || state === 'quiet')) {
+    return state === 'waiting' ? 'Asking here; waiting for you to give the new address' : 'Asked here, then went quiet; it picks up the address when it is back'
+  }
+  switch (state) {
     case 'moved': return m.leftTo ? `Moved to ${m.leftTo}` : 'Moved'
     case 'held': return m.held === 'follow-off'
       ? 'Following is turned off on this machine; run reet agent set-server there'

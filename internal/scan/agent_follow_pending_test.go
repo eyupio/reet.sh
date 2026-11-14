@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // toldOld records what machines said to the controller they were leaving. The
@@ -250,5 +251,103 @@ func TestAFenceWithNoAddressWithdrawsTheKeptOne(t *testing.T) {
 	}
 	if f.follow(context.Background(), unreachable(), loaded(t, config), config, &out, "test") || len(next.requests()) != 0 {
 		t.Fatal("the withdrawn address was followed once the controller went away")
+	}
+}
+
+// A fence that swaps its address for one this machine will not use has still
+// replaced the old one: the old address is not followed later.
+func TestARefusedReplacementAddressDropsTheKeptOne(t *testing.T) {
+	config := enrolledMachine(t, "https://old-refused.example.com")
+	next := honest(t)
+	c := loaded(t, config)
+	c.MovingTo = next.URL
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	f := &moveFollower{pending: next.URL}
+	var out bytes.Buffer
+	f.follow(context.Background(), movedRefusal("http://plain.example.com"), loaded(t, config), config, &out, "test")
+	if loaded(t, config).MovingTo != "" || f.pending != "" {
+		t.Fatal("the replaced address was kept")
+	}
+	if f.follow(context.Background(), unreachable(), loaded(t, config), config, &out, "test") || len(next.requests()) != 0 {
+		t.Fatal("the replaced address was followed")
+	}
+}
+
+// What a machine holds back for is said again for a new address, and again
+// after the fence has been lifted and raised anew.
+func TestAMachineHoldingBackSaysSoForEachAddressAndEachFence(t *testing.T) {
+	const old = "https://old-held-again.example.com"
+	config := enrolledMachine(t, old)
+	c := loaded(t, config)
+	c.FollowOff = true
+	f := &moveFollower{}
+	var out bytes.Buffer
+	f.follow(context.Background(), movedRefusal("https://a.example.com"), c, config, &out, "test")
+	f.follow(context.Background(), movedRefusal("https://a.example.com"), c, config, &out, "test")
+	f.follow(context.Background(), movedRefusal("https://b.example.com"), c, config, &out, "test")
+	if n := len(saidTo(old)); n != 2 {
+		t.Fatalf("told %d times for two addresses, want 2", n)
+	}
+	f.settled(config, c, &out) // the fence was lifted: a good cycle
+	f.follow(context.Background(), movedRefusal("https://b.example.com"), c, config, &out, "test")
+	if n := len(saidTo(old)); n != 3 {
+		t.Fatalf("a new fence was not told: %d", n)
+	}
+}
+
+// A departure report the old controller did not take is kept and sent again
+// until it lands; any answer from the old controller ends it.
+func TestADepartureReportIsSentAgainUntilTheOldControllerTakesIt(t *testing.T) {
+	const old = "https://old-departure.example.com"
+	config := enrolledMachine(t, "https://new-departure.example.com")
+	c := loaded(t, config)
+	c.LeftFrom, c.LeftAt = old, time.Now().UnixMilli()
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	answer := error(unreachable())
+	saved := tellOldFn
+	tellOldFn = func(ctx context.Context, c agentConfig, body map[string]string, version string) error {
+		_ = saved(ctx, c, body, version)
+		return answer
+	}
+	t.Cleanup(func() { tellOldFn = saved })
+
+	(&departureReport{}).report(context.Background(), config, "test")
+	if loaded(t, config).LeftFrom != old {
+		t.Fatal("a report that did not land was dropped")
+	}
+	// Paced: the same report is not sent again within the minute.
+	d := &departureReport{}
+	d.report(context.Background(), config, "test")
+	d.report(context.Background(), config, "test")
+	if n := len(saidTo(old)); n != 2 {
+		t.Fatalf("sent %d times, want 2", n)
+	}
+	if got := saidTo(old)[0]; got["to"] != "https://new-departure.example.com" {
+		t.Fatalf("said %v", got)
+	}
+	// The old controller answers (here: it is no longer fenced), which ends it.
+	answer = controllerError{Status: http.StatusConflict, Code: "not_fenced"}
+	(&departureReport{}).report(context.Background(), config, "test")
+	if loaded(t, config).LeftFrom != "" {
+		t.Fatal("an answered report was kept")
+	}
+}
+
+// A week on, the old controller is retired; the machine stops asking.
+func TestADepartureReportIsDroppedAfterAWeek(t *testing.T) {
+	const old = "https://old-retired.example.com"
+	config := enrolledMachine(t, "https://new-retired.example.com")
+	c := loaded(t, config)
+	c.LeftFrom, c.LeftAt = old, time.Now().Add(-8*24*time.Hour).UnixMilli()
+	if err := writePrivate(config, c); err != nil {
+		t.Fatal(err)
+	}
+	(&departureReport{}).report(context.Background(), config, "test")
+	if loaded(t, config).LeftFrom != "" || len(saidTo(old)) != 0 {
+		t.Fatal("a week-old report was still sent or kept")
 	}
 }

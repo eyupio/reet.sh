@@ -130,8 +130,20 @@ func (s *Store) SetFenceAddress(movedTo string) (Fence, error) {
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(`INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-			SettingFenceMovedTo, movedTo)
+		var was string
+		if err := tx.QueryRow(`SELECT value FROM settings WHERE key=?`, SettingFenceMovedTo).Scan(&was); err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+			SettingFenceMovedTo, movedTo); err != nil {
+			return err
+		}
+		if was == movedTo {
+			return nil
+		}
+		// A machine that refused the old address has not been asked about
+		// this one; one with following turned off still will not follow.
+		_, err = tx.Exec(`UPDATE fence_machines SET held='' WHERE held='address-refused'`)
 		return err
 	})
 	if err != nil {

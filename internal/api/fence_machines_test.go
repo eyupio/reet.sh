@@ -120,3 +120,27 @@ func TestTheFenceReportsWhichMachinesHaveMoved(t *testing.T) {
 		t.Fatalf("left an unfenced controller: %d %s", r.code, r.text)
 	}
 }
+
+// A machine that refused an address has not been asked about the next one;
+// one with following turned off still will not follow, whatever the address.
+func TestANewAddressClearsRefusalsOfTheOldOneOnly(t *testing.T) {
+	tg := newTarget(t, false)
+	owner, _, _ := tg.st.OwnerUser()
+	studio, studioSecret, _ := tg.st.EnrollSyncAgent(owner.ID, "studio", "test")
+	desk, deskSecret, _ := tg.st.EnrollSyncAgent(owner.ID, "desk", "test")
+	tg.fenceCall(t, "POST", fencePath, "owner-token", `{"movedTo":"http://plain.example.com"}`)
+	tg.agentCall(t, "POST", fenceLeftPath, studio.ID, studioSecret, `{"held":"address-refused"}`)
+	tg.agentCall(t, "POST", fenceLeftPath, desk.ID, deskSecret, `{"held":"follow-off"}`)
+	// The same address again changes nothing.
+	tg.fenceCall(t, "PATCH", fencePath, "owner-token", `{"movedTo":"http://plain.example.com"}`)
+	if m := machineState(t, tg, studio.ID); m["held"] != "address-refused" {
+		t.Fatalf("an unchanged address cleared the refusal: %v", m)
+	}
+	tg.fenceCall(t, "PATCH", fencePath, "owner-token", `{"movedTo":"https://new.example.com"}`)
+	if m := machineState(t, tg, studio.ID); m["held"] != "" || m["toldAt"].(float64) == 0 {
+		t.Fatalf("the refusal of the old address survived, or the contact was lost: %v", m)
+	}
+	if m := machineState(t, tg, desk.ID); m["held"] != "follow-off" {
+		t.Fatalf("following turned off was forgotten: %v", m)
+	}
+}

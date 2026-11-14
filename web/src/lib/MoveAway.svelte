@@ -290,7 +290,7 @@
             <p class="muted">No machines are enrolled here, so there is nothing to move.</p>
           {:else}
             <p class="tally" role="status">
-              <strong>{progress.moved} of {progress.total}</strong> moved{#if progress.waiting}, {progress.waiting} waiting for the new controller{/if}{#if progress.quiet + progress.unseen}, {progress.quiet + progress.unseen} not asking right now{/if}{#if progress.held}, {progress.held} need a hand{/if}.
+              <strong>{progress.moved} of {progress.total}</strong> moved{#if progress.waiting}, {progress.waiting} {fence.movedTo ? 'waiting for the new controller' : 'waiting for the new address'}{/if}{#if progress.quiet + progress.unseen}, {progress.quiet + progress.unseen} not asking right now{/if}{#if progress.held}, {progress.held} need a hand{/if}.
             </p>
             <ul class="machines" aria-label="Machines">
               {#each machines as m (m.id)}
@@ -298,7 +298,7 @@
                 <li class="machine {state}">
                   <span class="dot" aria-hidden="true"></span>
                   <span class="host">{m.host}</span>
-                  <span class="what">{moveStateLine(m, now)}</span>
+                  <span class="what">{moveStateLine(m, now, !!fence.movedTo)}</span>
                 </li>
               {/each}
             </ul>

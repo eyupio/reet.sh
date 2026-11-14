@@ -107,7 +107,11 @@ The Move page still asked for `reet agent set-server` on each machine. Three gap
   tries it only when the old controller does not answer at all: a transport error or a 502/503/504
   (`controllerUnreachable`), never a local failure. Any other answer from the controller means the fence was lifted and
   clears it (`controllerAnswered`, `settled`), as does a fence that no longer names an address (`forget`).
-  `set-server` and a completed follow clear it.
+  `set-server` and a completed follow clear it, as does a fence naming an address the agent refuses.
+- The departure report is kept as `leftFrom`/`leftAt` and retried once a minute (`departureReport`) until the old
+  controller answers at all, or for a week. The held report is said once per reason and address and again after a
+  good cycle. A new fence address clears `address-refused` rows only (`SetFenceAddress`). With no address yet, the
+  page says a turned-away machine waits for the address, not the new controller.
 - **Nobody could see who had moved.** `fence_machines` (emptied on raise, lift and restore) records `told_at` when
   the fence gate refuses a request carrying a valid `X-Reet-Agent`/key, and `left_at`/`left_to`/`held` from
   `POST /api/v2/sync/moved` (open path, fence-exempt, the machine's own id and secret, 401 otherwise, 409 unfenced).

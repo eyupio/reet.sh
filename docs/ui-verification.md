@@ -3793,8 +3793,8 @@ Testing 153) with synthetic answers:
     project with no body. A `clone_kept` refusal whose sentence the second look repeats is shown once.
 - At 1280 px in light and at 390 px in dark: each of the eleven sentences for a clone that stays (the two for sessions
   still open in it included) shows in the status
-  region with no checkbox and no line about ignored files, without sideways scroll; a failed read shows "The clone on
-  studio is kept: reet couldn't check it just now."; the plain remove then sends a DELETE with no body.
+  region with no checkbox and no line about ignored files, without sideways scroll; a failed read shows "reet couldn't
+  check the clone on studio just now."; the plain remove then sends a DELETE with no body.
 - At 1280 px in light only: while the delete is on its way **Cancel**, the checkbox and the button ("Removing…") are
   disabled, and Cancel, four presses of Escape and a press outside leave the dialog open and modal, with one DELETE
   sent; with the read never answering, **Remove from reet** removes the project at once with no body; a project added
@@ -3821,6 +3821,13 @@ Testing 153) with synthetic answers:
   844 × 390 were looked at: nothing clipped or overlapping, and the refusal is in the error colour.
 - `web/tests/add-project.e2e.mjs`, `projects.e2e.mjs`, `home.e2e.mjs` and `sessions-phone.e2e.mjs` pass.
 - `npm run check` (unit tests and `svelte-check`, 0 errors, 0 warnings) and `npm run build` pass.
+
+- After the final review (same build and browser): the sentences changed to say only what reet knows ("reet finds no
+  clone it can delete at ~/reet/repos/eyupio/reet.sh on studio.", "…reet can't be sure the folder there is still a
+  plain clone of eyupio/reet.sh.", "…it may hold work or files that aren't on GitHub.", and "reet couldn't check the
+  clone on studio just now." for a failed read) and all show in the loop above; after the controller's 500 "was
+  deleted, but…" nothing in the dialog says a clone is kept; `phone-dialogs.e2e.mjs` now uses the "can't be sure"
+  sentence, the longest, for its kept case. `add-project-github`, `projects`, `home` and `phone-dialogs` pass.
 
 **Not checked.** No physical phone, Safari or Firefox, and no screen reader (the status regions and the checkbox's
 name and description were checked as markup, not heard). No real machine was asked: the clone's state and the delete

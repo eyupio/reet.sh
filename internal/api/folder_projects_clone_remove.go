@@ -39,8 +39,12 @@ func cloneCantAsk(machine string) string {
 	return cloneStays(machine, machine+" can't be asked right now.")
 }
 
+// cloneNotFound says reet has nothing at the clone's place that it may
+// delete. It claims neither that a clone is there nor that one is kept: the
+// machine gives the same answer for a folder that was never there, one whose
+// path it does not allow, and one reet has just deleted.
 func cloneNotFound(machine string, p store.FolderProject) string {
-	return cloneStays(machine, "reet can't find it at "+cloneShown(p)+".")
+	return "reet finds no clone it can delete at " + cloneShown(p) + " on " + machine + "."
 }
 
 func cloneUnconfirmed(machine string) string {
@@ -99,12 +103,16 @@ func (s *server) cloneReasonSentence(uid int64, p store.FolderProject, machine s
 		}
 		return cloneNotFound(machine, p)
 	case terminalproto.RepoCloneExists:
-		return cloneStays(machine, "the folder there is no longer a plain clone of "+p.Origin+".")
+		// The folder's own git data, or the person's git settings on that
+		// machine (a rewrite of github.com, a fetch setting): reet cannot
+		// tell which, only that it cannot vouch for the clone.
+		return cloneStays(machine, "reet can't be sure the folder there is still a plain clone of "+p.Origin+".")
 	case terminalproto.RepoCloneNotRemovable:
 		// What the counts cannot show: a repository inside the clone, files
 		// git was told not to look at, a rebase or merge under way, git
-		// writing. reet cannot say work is there, only that it may be.
-		return cloneStays(machine, "it may hold work that isn't on GitHub.")
+		// writing, another filesystem mounted inside. reet cannot say
+		// anything is there, only that it may be.
+		return cloneStays(machine, "it may hold work or files that aren't on GitHub.")
 	}
 	// busy, timed_out, failed, and anything a newer machine might add.
 	return cloneCantAsk(machine)
@@ -239,8 +247,10 @@ func (s *server) folderProjectCloneState(w http.ResponseWriter, r *http.Request)
 // it deleted. Every other outcome is a refusal and the project must stay:
 // 422 not_cloned or invalid_fingerprint before anything is sent, 409
 // clone_changed when the clone is no longer what was shown, 409 clone_kept
-// with why, and 409 clone_unconfirmed when the answer was lost or the
-// machine may have begun deleting, so neither outcome can be claimed.
+// with why (nothing was deleted; a machine that could not be asked was sent
+// nothing), and 409 clone_unconfirmed when the request was sent and the
+// answer was lost or the machine may have begun deleting, so neither outcome
+// can be claimed. The caller records an unconfirmed delete.
 //
 // The request does not end with the browser's: once the machine has been
 // asked, its answer decides whether the project goes, whoever is listening.
@@ -275,7 +285,10 @@ func (s *server) removeProjectClone(uid int64, p store.FolderProject, machine, f
 		return kept(cloneCantAsk(machine))
 	case err != nil:
 		// No answer, or one reet could not read: the machine may have
-		// deleted the folder.
+		// deleted the folder. The broker gives the same error for a
+		// connection that went before the request left (cloneReachable
+		// looked a moment ago, so that is a narrow window); it is treated
+		// as sent, which claims nothing untrue about the folder.
 		return "", unconfirmed
 	}
 	switch removed.Reason {

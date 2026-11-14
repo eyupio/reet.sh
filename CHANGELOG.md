@@ -13,15 +13,22 @@ this file existed releases were described on their GitHub release pages.
   sentence says why, when a session still has a worktree from the clone, when
   a session is still running in the clone's own folder, when
   it has uncommitted files, a stash or commits that aren't on GitHub, when it
-  holds something reet can't check (a repository inside it, a rebase under
-  way), when reet didn't make the folder, or when the machine can't be asked.
+  holds something reet can't check (a submodule or another repository inside
+  it, a mounted folder, a rebase under way), when reet can't be sure it is
+  still a plain clone of that repository (the machine's git settings can
+  cause this), when reet didn't make the folder, or when the machine can't be
+  asked. A `reet/…` branch with commits that were never pushed keeps the
+  clone after its session is gone.
   The machine looks again before it deletes: if the clone changed since the
   dialog, nothing is removed and the project stays. If the machine's answer is
   lost, or a proxy in front of reet gives up waiting, reet says it couldn't
-  confirm and keeps the project. Removing without
+  confirm, keeps the project, and records in Activity that the machine was
+  asked and did not answer. reet then says only what it knows: "reet finds no
+  clone it can delete at ~/reet/repos/owner/name on studio." Removing without
   the tick works as before and never touches the folder, and reet never
   deletes a folder it did not clone. Activity records the deletion with the
-  folder. The machine needs a current reet for this; an older one keeps the
+  folder, and for a project reet cloned that is removed without the tick it
+  says reet did not delete the clone, not that the folder is untouched. The machine needs a current reet for this; an older one keeps the
   clone.
 - Adding from GitHub: if starting the clone gets no answer in 15 seconds the
   dialog now says "reet didn't hear back about starting the clone. Check the

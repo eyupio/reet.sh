@@ -61,7 +61,8 @@
       if (e instanceof TerminalError && e.status === 401) { shut(); onsignedout(); return false }
       if (e instanceof TerminalError && e.code === 'project_not_found') { shut(); onrefused(e); return false }
       // A project reet did not clone has nothing to offer or to explain.
-      kept = e instanceof TerminalError && e.code === 'not_cloned' ? '' : `The clone on ${machine} is kept: reet couldn't check it just now.`
+      // A read that failed says only that: after a delete reet could not confirm, the clone may not be there to keep.
+      kept = e instanceof TerminalError && e.code === 'not_cloned' ? '' : `reet couldn't check the clone on ${machine} just now.`
     } finally {
       if (!life.signal.aborted) checking = false
     }

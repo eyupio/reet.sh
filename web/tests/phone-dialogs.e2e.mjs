@@ -50,8 +50,8 @@ const cloning = {'/api/v2/terminal/machines': {machines:tmachines.map(m => ({...
 const clonedSite = {'/api/v2/folder-projects': {projects:folderProjects.map(p => p.id === 'fp1' ? {...p, origin:'acme/site', cloned:true, dir:'/home/dev/reet/repos/acme/site'} : p), savedWaiting:0},
  '/api/v2/folder-projects/fp1/clone': {removable:true, worktrees:0, changed:0, stashes:0, unpushed:0, fingerprint:'ab'.repeat(32), sentence:''}}
 // The same, for a clone that stays: the longest sentence instead of the tick.
-const keptSite = {...clonedSite, '/api/v2/folder-projects/fp1/clone': {removable:false, worktrees:2, changed:0, stashes:0, unpushed:0,
- sentence:'The clone on dev-laptop is kept: 2 sessions still have worktrees from it. Remove those sessions first.'}}
+const keptSite = {...clonedSite, '/api/v2/folder-projects/fp1/clone': {removable:false, worktrees:0, changed:0, stashes:0, unpushed:0,
+ sentence:"The clone on dev-laptop is kept: reet can't be sure the folder there is still a plain clone of acme/site."}}
 const switchTui = async page => { await page.getByRole('button',{name:'Session actions',exact:true}).click(); await page.getByRole('dialog',{name:'Session actions',exact:true}).getByLabel('Session interface',{exact:true}).selectOption('chat') }
 // field: the text field typed into with the keyboard open. primary: the main action, when it is not the dialog's
 // button.primary or submit button. sheet: how it sits on an upright phone.
@@ -80,7 +80,7 @@ const DIALOGS = [
  {name:'remove project', path:'/sessions?view=list', open:menu('site', 'Remove from reet'), sheet:'bottom'},
  {name:'remove project (clone)', path:'/sessions?view=list', extra:clonedSite, sheet:'bottom', open:async p => { await menu('site', 'Remove from reet')(p); await p.locator('dialog[open]').getByRole('checkbox', {name:'Also delete ~/reet/repos/acme/site from dev-laptop', exact:true}).check() },
   check:async page => { await expect(page.locator('dialog[open]').last()).toContainText('Files git ignores there, such as .env or build output, are deleted too.') }},
- {name:'remove project (clone kept)', path:'/sessions?view=list', extra:keptSite, sheet:'bottom', open:async p => { await menu('site', 'Remove from reet')(p); await p.locator('dialog[open]').getByText('Remove those sessions first.').waitFor() }},
+ {name:'remove project (clone kept)', path:'/sessions?view=list', extra:keptSite, sheet:'bottom', open:async p => { await menu('site', 'Remove from reet')(p); await p.locator('dialog[open]').getByText('still a plain clone of acme/site.').waitFor() }},
  // An old Project run's worktree, from Runs from Projects in Activity.
  {name:'remove worktree', path:'/activity', extra:ended, open:async p => { await press(/^Site/)(p); await press(/^Remove worktree/)(p) }, sheet:'full'},
  {name:'new list', path:'/shared', open:press('Create a list'), field:TEXT, sheet:'full'},

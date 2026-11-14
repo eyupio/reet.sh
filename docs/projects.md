@@ -227,12 +227,12 @@ The tick is not offered, and one sentence says why, when any of these is true (f
 | A session is running in the clone's own folder or below it (a plain terminal, a resumed conversation, a chat); the machine is not asked | The clone on studio is kept: 1 session is still open in it. End that session first. |
 | The machine is offline, runs an older reet, is busy, or did not answer in time | The clone on studio is kept: studio can't be asked right now. |
 | Terminal access is off on the machine | The clone on studio is kept: terminal access is off on studio. |
-| Nothing is at `~/reet/repos/owner/name`, or the folders down to it are not plain folders of that user | The clone on studio is kept: reet can't find it at ~/reet/repos/owner/name. |
-| The folder is no longer a plain clone of that repository: another `origin`, pushes that go elsewhere, a `.git` that is not its own | The clone on studio is kept: the folder there is no longer a plain clone of owner/name. |
+| Nothing is at `~/reet/repos/owner/name` (reet may have just deleted it), or the folders down to it are not plain folders of that user | reet finds no clone it can delete at ~/reet/repos/owner/name on studio. |
+| reet can't vouch for the clone: its `origin` is another repository; pushes or fetches go somewhere other than that GitHub repository (a rewrite in the machine's git settings included); its fetch setting is not the default one, or another remote writes into origin's branches; or its `.git` is not its own | The clone on studio is kept: reet can't be sure the folder there is still a plain clone of owner/name. |
 | reet's marker is not in the folder (you made the clone, or the marker was removed) | The clone on studio is kept: reet didn't make that folder. |
 | A session still has a worktree from the clone, a finished one waiting for the clean-up included | The clone on studio is kept: 2 sessions still have worktrees from it. Remove those sessions first. |
 | Uncommitted or untracked files, a stash, or a local branch (or a detached HEAD) with commits that are on no branch of `origin` | The clone on studio is kept: it holds work that isn't on GitHub. |
-| Something reet cannot check: a repository inside the clone (a submodule, or one in an ignored folder), files git was told not to look at, a rebase, a patch series or a merge under way, or git writing at that moment | The clone on studio is kept: it may hold work that isn't on GitHub. |
+| Something reet cannot check: any submodule recorded in the repository, whether or not its folder is filled in; another repository inside the clone, in an ignored folder too; a folder inside it that holds another filesystem (a mount); files git was told not to look at; a rebase, a patch series or a merge under way; or git writing at that moment | The clone on studio is kept: it may hold work or files that aren't on GitHub. |
 
 Open sessions are counted from reet's own record just before the machine is asked, when the dialog
 opens and again at the delete. A session started in the instant between that last look and the delete
@@ -253,8 +253,11 @@ Check again." The project and the folder both stay, the dialog reads the clone a
 off. If the machine's answer never arrives, or something between the browser and reet answers
 with an error of its own, reet does not guess: "reet couldn't confirm whether the
 clone on studio was removed. Check again." The project stays and the dialog looks again. If the
-folder did go, it then says reet can't find it, and **Remove from reet** without the tick removes the
-project.
+folder did go, it then says reet finds no clone it can delete there, and **Remove from reet** without
+the tick removes the project. Activity records the delete reet could not confirm ("Asked studio to
+delete the clone at …; reet got no answer"), and a project reet cloned that is removed without the
+tick reads "Removed project site; reet did not delete the clone on studio", which says nothing about
+whether the folder is still there.
 
 reet never deletes a folder it did not clone. A project added by path, and a project from GitHub
 whose folder was already there without reet's marker, get the ordinary confirmation: no tick, and no
@@ -631,7 +634,9 @@ kept." *Remove worktree* never deletes the branch.
 folder and name (and, for a project added from GitHub, its `origin` and `cloned`; for a removal that also deleted the clone,
 `cloneDeleted: true` and `clonePath`, the folder the machine said it deleted, written only once the machine confirmed it;
 if the clone was deleted and the project then could not be removed, or another tab had already removed it, the row is
-`project-clone-delete` instead); `projects-migrated` the saved Project's name and the folder projects made from it;
+`project-clone-delete` instead; a delete the machine was asked for whose outcome reet never learned is a
+`project-clone-delete` row with `unconfirmed: true` and `clonePath`; a project reet cloned that is removed without the
+tick records `cloned: true`); `projects-migrated` the saved Project's name and the folder projects made from it;
 `folder-browse` one row per opened browser (machine, starting folder, pages). None carries a starter
 prompt. Activity reads them as, for example, "Added project reet (/home/me/reet on studio)", "Removed
 project reet; its folder on studio is untouched", "Removed project site and deleted its clone,

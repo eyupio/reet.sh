@@ -110,6 +110,23 @@ func (f *browseAPI) removesSent() []terminalproto.RepoCloneRemove {
 	return out
 }
 
+// unconfirmedRows is the Activity rows saying a machine was asked to delete
+// a clone and reet does not know whether it did.
+func (f *browseAPI) unconfirmedRows(t *testing.T) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, row := range projectEvents(t, f.st, f.uid, "project-clone-delete") {
+		if row["unconfirmed"] != true || row["clonePath"] != siteCloneDir || row["host"] != "studio" {
+			t.Fatalf("clone row %v", row)
+		}
+		if _, present := row["cloneDeleted"]; present {
+			t.Fatalf("an unconfirmed delete was recorded as done: %v", row)
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func (f *browseAPI) projectKept(t *testing.T, id string) {
 	t.Helper()
 	if _, err := f.st.FolderProjectFor(f.uid, id); err != nil {
@@ -168,6 +185,9 @@ func TestRemoveProjectKeepsTheProjectWhenTheCloneChanged(t *testing.T) {
 		t.Fatal("the machine was not asked")
 	}
 	f.projectKept(t, p.ID)
+	if rows := projectEvents(t, f.st, f.uid, "project-clone-delete"); len(rows) != 0 {
+		t.Fatalf("a refused delete was recorded: %v", rows)
+	}
 
 	// Removable when shown, not removable when asked: also "changed".
 	f.machineClone(cleanClone(), terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneNotRemovable})
@@ -185,8 +205,8 @@ func TestRemoveProjectKeepsBothForEachRefusal(t *testing.T) {
 		code, sentence string
 	}{
 		{terminalproto.RepoCloneBusy, "clone_kept", "The clone on studio is kept: studio can't be asked right now."},
-		{terminalproto.RepoCloneDenied, "clone_kept", "The clone on studio is kept: reet can't find it at ~/reet/repos/acme/site."},
-		{terminalproto.RepoCloneExists, "clone_kept", "The clone on studio is kept: the folder there is no longer a plain clone of acme/site."},
+		{terminalproto.RepoCloneDenied, "clone_kept", "reet finds no clone it can delete at ~/reet/repos/acme/site on studio."},
+		{terminalproto.RepoCloneExists, "clone_kept", "The clone on studio is kept: reet can't be sure the folder there is still a plain clone of acme/site."},
 		// A delete may have started: neither outcome is claimed.
 		{terminalproto.RepoCloneFailed, "clone_unconfirmed", "reet couldn't confirm whether the clone on studio was removed. Check again."},
 		{terminalproto.RepoCloneTimedOut, "clone_unconfirmed", "reet couldn't confirm whether the clone on studio was removed. Check again."},
@@ -200,6 +220,14 @@ func TestRemoveProjectKeepsBothForEachRefusal(t *testing.T) {
 				t.Fatalf("remove = %d %v", code, out)
 			}
 			f.projectKept(t, p.ID)
+			// Only a delete whose outcome is unknown is recorded, once.
+			want := 0
+			if c.code == "clone_unconfirmed" {
+				want = 1
+			}
+			if rows := f.unconfirmedRows(t); len(rows) != want {
+				t.Fatalf("%d unconfirmed rows, want %d", len(rows), want)
+			}
 		})
 	}
 }
@@ -226,6 +254,9 @@ func TestRemoveProjectClaimsNothingWhenTheAnswerIsLost(t *testing.T) {
 		t.Fatalf("remove = %d %v", got.code, got.out)
 	}
 	f.projectKept(t, p.ID)
+	if rows := f.unconfirmedRows(t); len(rows) != 1 {
+		t.Fatalf("unconfirmed rows %v", rows)
+	}
 }
 
 func TestRemoveProjectWithoutTheFlagNeverTouchesTheFolder(t *testing.T) {
@@ -252,6 +283,11 @@ func TestRemoveProjectWithoutTheFlagNeverTouchesTheFolder(t *testing.T) {
 				t.Fatalf("audit %v", rows[0])
 			}
 			if _, present := rows[0]["clonePath"]; present {
+				t.Fatalf("audit %v", rows[0])
+			}
+			// The row says the project was a clone reet made, so Activity
+			// does not claim to know what became of the folder.
+			if rows[0]["cloned"] != true {
 				t.Fatalf("audit %v", rows[0])
 			}
 		})
@@ -309,8 +345,8 @@ func TestCloneRouteGivesEachSentence(t *testing.T) {
 		{"busy", reason(terminalproto.RepoCloneBusy), cantAsk},
 		{"timed out", reason(terminalproto.RepoCloneTimedOut), cantAsk},
 		{"failed", reason(terminalproto.RepoCloneFailed), cantAsk},
-		{"denied", reason(terminalproto.RepoCloneDenied), "The clone on studio is kept: reet can't find it at ~/reet/repos/acme/site."},
-		{"exists", reason(terminalproto.RepoCloneExists), "The clone on studio is kept: the folder there is no longer a plain clone of acme/site."},
+		{"denied", reason(terminalproto.RepoCloneDenied), "reet finds no clone it can delete at ~/reet/repos/acme/site on studio."},
+		{"exists", reason(terminalproto.RepoCloneExists), "The clone on studio is kept: reet can't be sure the folder there is still a plain clone of acme/site."},
 		{"one worktree", counted(1, 0, 0, 0), "The clone on studio is kept: 1 session still has a worktree from it. Remove that session first."},
 		{"two worktrees", counted(2, 0, 0, 0), "The clone on studio is kept: 2 sessions still have worktrees from it. Remove those sessions first."},
 		{"worktrees before work", counted(3, 1, 1, 1), "The clone on studio is kept: 3 sessions still have worktrees from it. Remove those sessions first."},
@@ -319,7 +355,7 @@ func TestCloneRouteGivesEachSentence(t *testing.T) {
 		{"unpushed", counted(0, 0, 0, 1), work},
 		// What the counts cannot show (a nested repository, a rebase under
 		// way, a lock): reet cannot say there is work, only that there may be.
-		{"not removable", reason(terminalproto.RepoCloneNotRemovable), "The clone on studio is kept: it may hold work that isn't on GitHub."},
+		{"not removable", reason(terminalproto.RepoCloneNotRemovable), "The clone on studio is kept: it may hold work or files that aren't on GitHub."},
 		{"not marked", terminalproto.RepoCloneState{}, "The clone on studio is kept: reet didn't make that folder."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -357,6 +393,10 @@ func TestCloneRouteGivesEachSentence(t *testing.T) {
 			t.Fatalf("remove = %d %v", code, out)
 		}
 		f.projectKept(t, p.ID)
+		// Nothing was sent, so nothing is unconfirmed and nothing is recorded.
+		if rows := projectEvents(t, f.st, f.uid, "project-clone-delete"); len(rows) != 0 {
+			t.Fatalf("a delete that was never sent was recorded: %v", rows)
+		}
 	})
 
 	t.Run("older machine", func(t *testing.T) {
@@ -375,6 +415,10 @@ func TestCloneRouteGivesEachSentence(t *testing.T) {
 			t.Fatalf("an older machine was asked %+v", sent)
 		}
 		f.projectKept(t, p.ID)
+		// Nothing was sent, so nothing is unconfirmed and nothing is recorded.
+		if rows := projectEvents(t, f.st, f.uid, "project-clone-delete"); len(rows) != 0 {
+			t.Fatalf("a delete that was never sent was recorded: %v", rows)
+		}
 	})
 
 	t.Run("a machine answer reet cannot read", func(t *testing.T) {
@@ -432,7 +476,7 @@ func TestCloneRouteNeverSendsAFolderThatIsNotTheClone(t *testing.T) {
 				t.Fatal(err)
 			}
 			code, out, raw := f.cloneRoute(t, f.cookie, saved.ID)
-			if code != 200 || out["removable"] != false || !strings.HasPrefix(out["sentence"].(string), "The clone on studio is kept: reet can't find it at ") {
+			if code != 200 || out["removable"] != false || !strings.HasPrefix(out["sentence"].(string), "reet finds no clone it can delete at ~/reet/repos/acme/") {
 				t.Fatalf("clone = %d %s", code, raw)
 			}
 			f.freshWrites()
@@ -691,6 +735,9 @@ func TestRemoveProjectDoesNotTrustAnotherFolderInTheAnswer(t *testing.T) {
 		t.Fatalf("remove = %d %v", code, out)
 	}
 	f.projectKept(t, p.ID)
+	if rows := f.unconfirmedRows(t); len(rows) != 1 {
+		t.Fatalf("unconfirmed rows %v", rows)
+	}
 }
 
 // Two tabs: the project went while the machine deleted the clone. The clone's
@@ -804,5 +851,30 @@ func TestCloneRouteRefusesAnotherSite(t *testing.T) {
 	}
 	if code, _, raw := f.get(t, f.cookie, path, "Origin", "https://reet.example"); code != 200 {
 		t.Fatalf("own origin = %d %s", code, raw)
+	}
+}
+
+// A project edited while the machine deletes its clone is still removed: the
+// folder is gone, so the version read before no longer decides.
+func TestRemoveProjectEditedDuringTheDeleteIsStillRemoved(t *testing.T) {
+	f := browseAPIFixture(t, cloneRemoveCaps())
+	p := f.clonedProject(t)
+	f.answering(func(terminalproto.Body) terminalproto.Body {
+		edited := p
+		edited.Name = "Renamed meanwhile"
+		if _, err := f.st.UpdateFolderProjectFor(f.uid, edited, 1); err != nil {
+			t.Error(err)
+		}
+		return terminalproto.RepoCloneRemoved{Dir: siteCloneDir}
+	})
+	code, out := f.remove(t, f.cookie, p.ID, deleteCloneBody(cloneFingerprint), `"1"`)
+	if code != 200 || out["cloneDeleted"] != true {
+		t.Fatalf("remove = %d %v", code, out)
+	}
+	if _, err := f.st.FolderProjectFor(f.uid, p.ID); err == nil {
+		t.Fatal("the project is still there")
+	}
+	if rows := projectEvents(t, f.st, f.uid, "project-remove"); len(rows) != 1 || rows[0]["cloneDeleted"] != true {
+		t.Fatalf("audit %v", rows)
 	}
 }

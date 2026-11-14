@@ -48,12 +48,12 @@ const UNCONFIRMED = "reet couldn't confirm whether the clone on studio was remov
 const KEPT = {
  cantAsk:"The clone on studio is kept: studio can't be asked right now.",
  accessOff:'The clone on studio is kept: terminal access is off on studio.',
- notFound:"The clone on studio is kept: reet can't find it at ~/reet/repos/eyupio/reet.sh.",
- notPlain:'The clone on studio is kept: the folder there is no longer a plain clone of eyupio/reet.sh.',
+ notFound:'reet finds no clone it can delete at ~/reet/repos/eyupio/reet.sh on studio.',
+ notPlain:"The clone on studio is kept: reet can't be sure the folder there is still a plain clone of eyupio/reet.sh.",
  oneWorktree:'The clone on studio is kept: 1 session still has a worktree from it. Remove that session first.',
  worktrees:'The clone on studio is kept: 2 sessions still have worktrees from it. Remove those sessions first.',
  work:"The clone on studio is kept: it holds work that isn't on GitHub.",
- mayHoldWork:"The clone on studio is kept: it may hold work that isn't on GitHub.",
+ mayHoldWork:"The clone on studio is kept: it may hold work or files that aren't on GitHub.",
  notReets:"The clone on studio is kept: reet didn't make that folder.",
  openSession:'The clone on studio is kept: 1 session is still open in it. End that session first.',
  openSessions:'The clone on studio is kept: 3 sessions are still open in it. End those sessions first.',
@@ -664,7 +664,7 @@ try {
   // The read itself failing is said as a clone that stays, never as a tick.
   box.cloneState = {status:500, json:{error:"reet couldn't do that just now. Try again.", code:'server_error'}}
   await openRemove(page)
-  await expect(removeDialog(page).getByText("The clone on studio is kept: reet couldn't check it just now.",{exact:true})).toBeVisible()
+  await expect(removeDialog(page).getByText("reet couldn't check the clone on studio just now.",{exact:true})).toBeVisible()
   await expect(removeDialog(page).getByRole('checkbox')).toHaveCount(0)
   expect(box.deletes).toEqual([])
   box.remove = {ok:true, message:PLAIN}
@@ -769,6 +769,8 @@ try {
   await removeButton(page).click()
   await expect(d.getByText(WENT,{exact:true})).toBeVisible()
   await expect(d.getByText(KEPT.notFound,{exact:true})).toBeVisible()
+  // Beside "was deleted" nothing says a clone is kept.
+  await expect(d).not.toContainText('is kept')
   await expect(d).toBeVisible()
   await expect(page.getByRole('button',{name:'More for reet.sh',exact:true}).first()).toBeAttached()
   expect(errors).toEqual([])

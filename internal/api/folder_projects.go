@@ -692,6 +692,13 @@ func (s *server) folderProjectDelete(w http.ResponseWriter, r *http.Request) {
 		}
 		removed, refusal := s.removeProjectClone(uid, p, machine, in.Fingerprint)
 		if refusal != nil {
+			if refusal.code == "clone_unconfirmed" {
+				// The machine was asked and reet does not know what it did:
+				// that is recorded, so a later plain remove is never the only
+				// trace of a folder that may be gone.
+				detail["unconfirmed"], detail["clonePath"] = true, p.Dir
+				s.event(uid, "ui", "project-clone-delete", "", detail)
+			}
 			refusal.write(w)
 			return
 		}
@@ -700,6 +707,11 @@ func (s *server) folderProjectDelete(w http.ResponseWriter, r *http.Request) {
 		detail["cloneDeleted"], detail["clonePath"] = true, removed
 		answer["cloneDeleted"] = true
 		message = "Project removed. " + cloneShown(p) + " was deleted from " + machine + "."
+	}
+	if p.Cloned && !in.DeleteClone {
+		// A clone reet made, left alone by this removal. What became of it
+		// before (an earlier delete reet could not confirm) is not known here.
+		detail["cloned"] = true
 	}
 	err = s.st.DeleteFolderProjectFor(uid, id, expect)
 	if in.DeleteClone && errors.Is(err, store.ErrFolderProjectNotFound) {

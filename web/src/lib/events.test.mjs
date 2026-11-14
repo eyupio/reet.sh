@@ -63,6 +63,16 @@ test('folder project activity reads as plain sentences and never names a prompt'
   assert.equal(eventLabel(event('project-remove')), 'Removed a project')
   assert.equal(eventLabel(event('project-remove', { project: 'p1', machine: 'a1', host: 'studio', folder: '/home/me/reet/repos/acme/site', name: 'site', cloneDeleted: true, clonePath: '/home/me/reet/repos/acme/site' })),
     'Removed project site and deleted its clone, /home/me/reet/repos/acme/site on studio')
+  // A clone reet made, removed without the tick: Activity does not claim to know the folder is untouched.
+  assert.equal(eventLabel(event('project-remove', { project: 'p1', machine: 'a1', host: 'studio', folder: '/home/me/reet/repos/acme/site', name: 'site', cloned: true })),
+    'Removed project site; reet did not delete the clone on studio')
+  assert.equal(eventLabel(event('project-remove', { project: 'p1', machine: 'a1', host: '', folder: '/home/me/reet/repos/acme/site', name: 'site', cloned: true })),
+    'Removed project site; reet did not delete the clone on its machine')
+  // A delete the machine was asked for and never answered.
+  assert.equal(eventLabel(event('project-clone-delete', { host: 'studio', name: 'site', unconfirmed: true, clonePath: '/home/me/reet/repos/acme/site' })),
+    'Asked studio to delete the clone at /home/me/reet/repos/acme/site; reet got no answer')
+  assert.equal(eventLabel(event('project-clone-delete', { name: 'site', unconfirmed: true })),
+    'Asked its machine to delete the clone at the folder reet made; reet got no answer')
   assert.equal(eventLabel(event('project-clone-delete', { host: 'studio', name: 'site', cloneDeleted: true, clonePath: '/home/me/reet/repos/acme/site' })),
     'Deleted the clone of project site, /home/me/reet/repos/acme/site on studio')
   assert.equal(eventLabel(event('folder-browse', { machine: 'a1', path: '~', pages: 3 })), 'Browsed folders from ~ (3 pages)')

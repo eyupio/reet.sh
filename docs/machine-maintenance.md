@@ -18,7 +18,7 @@ Only sessions reet has a record of are listed. A worktree the controller never r
 
 ## Clones of projects from GitHub
 
-Maintenance never deletes a repository. The clone reet makes for a project added from GitHub (`~/reet/repos/owner/name`) is removed only when you remove that project and tick **Also delete … from studio**, and only when the machine finds nothing in it that would be lost. A worktree made from the clone keeps it: once its session is removed, here or by the scheduled clean-up, the clone can go. See [Removing a project from GitHub](projects.md#removing-a-project-from-github).
+Maintenance never deletes a repository. The clone reet makes for a project added from GitHub (`~/reet/repos/owner/name`) is removed only when you remove that project and tick **Also delete … from studio**, and only when the machine finds nothing in it that would be lost. A worktree made from the clone keeps it. Removing the session, here or by the scheduled clean-up, removes the worktree but keeps its `reet/…` branch, and that branch keeps the clone too while it has commits that are on no branch of `origin`: push it or delete it, and the clone can go. See [Removing a project from GitHub](projects.md#removing-a-project-from-github).
 
 ## Scheduled clean-up
 

@@ -18,6 +18,186 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## TERMINAL-KEYS-1: the on-screen terminal keys, rebuilt (14 November 2026)
+
+The owner asked for the on-screen keys to be checked and made more like a phone SSH client's extra-key row, and chose
+the scope: **the rebuilt bar**, without a settings panel to customise it and without swipe gestures.
+
+What was wrong, each seen by running it at phone and tablet sizes:
+
+- The keys were hidden on any touch screen wider than 650 px (a tablet), unless it was a sideways phone.
+- At 390 px the row's 13 keys needed 616 px: everything after the Up arrow was off screen until scrolled.
+- The pad's navigation keys were clipped to "Ho…", "E…", "Pg…", "Pg…", "I…", "D…".
+- A modifier applied to one key only, one modifier at a time; nothing repeated when held.
+- A modifier that was on drew its label in the fill's colour unless the pointer was over it (`.tools button[aria-pressed]`
+  outranked `.key-modifier[aria-pressed]`).
+- Every key called `terminal.focus()`, which opens the device's keyboard on a phone.
+
+What changed (browser only; nothing in Go, the protocol or the machine):
+
+- `web/src/lib/terminal/virtualKeys.ts`: the keys (`barKeys`, `arrowKeys`, `keyGroups`), the modifier state
+  (`noModifiers`, `tapModifier`: off → next → locked → off; `afterKey`; `activeModifiers`), `withModifiers` for several
+  modifiers at once (xterm's parameter is one plus Shift 1, Alt 2, Ctrl 4), and `repeats`.
+- `TerminalPane.svelte`: one row that stays (a part that scrolls, then the arrows and the second row's button, which do
+  not), a second row above it with four groups, `keycapAction` for tap and hold-to-repeat, the modifiers joining typed
+  input through `term.onData`, no forced focus on touch, and the row shown under `(pointer:coarse)` at any width with
+  44 px keys above phone size. The floating pad and its styles are gone.
+- The second row takes its height from the screen, so opening it resizes the terminal once. That is the owner's choice
+  over the pad that floated above the screen.
+- Docs: [On-screen keys](docs/terminal-workspace.md#on-screen-keys).
+
+Checked: `terminal-keys.test.mjs` (six cases) and `terminal-phone.e2e.mjs`, which now covers the fixed arrows, the
+modifier cycle, two modifiers on one key, a locked modifier joining typed input, the label's colour, hold-to-repeat to
+the millisecond with the page's clock held, sliding off a held key, a key that acts once, the second row's groups and
+bytes, its height, clipped caps, what is remembered, and touch tablets at 820 × 1180 and 1180 × 820. The new test fails
+on the old code, and five behaviours were each broken in turn and seen to fail (nothing repeats, the tap after a hold
+sends one more, sliding off does not stop, the old label colour, hidden on tablets). The existing suites `sessions`,
+`phone-layout`, `phone-zoom`, `terminal-workspace`, `terminal-lifecycle`, `terminal-clipboard`, `terminal-upload`,
+`calm-session` and `sessions-phone` pass.
+
+Not verified: a real phone or tablet. Touch is emulated in Chromium and the holds are mouse presses, so how a held key
+behaves under a real finger (a long press, a scroll that starts on a key, the device's own keyboard staying down) was
+not seen. Firefox and Safari were not run.
+
+Not done: choosing or reordering the keys; swipe gestures for the arrows; hiding the row on a tablet that has a hardware
+keyboard attached (it cannot be told apart); a locked modifier is let go when the connection changes state.
+
+Also seen and left alone: [the phone docs](docs/terminal-workspace.md#phones) say a sideways 844 × 390 phone shows 13
+rows; the test prints 9 on main before this change too.
+
+## AGENT-ACCOUNTS-1: which agents are signed in, and plan limits (14 November 2026)
+
+A machine now says which of its agents are signed in and, when the account turns plan limits on, how much of each plan's
+allowance is left. The owner chose the gate: **an account setting, off by default, on machines with terminal access on;
+no new switch on the machine.** Full contract: [agent sign-ins and plan limits](docs/agent-accounts.md).
+
+- **Machine reader** (`internal/agentaccounts`): Claude Code (`.credentials.json`, `.claude.json`) and Codex
+  (`auth.json`, identity-token claims) sign-ins from files; with limits, one GET each to the provider with the agent's
+  own token. The rules, each with a test that fails when the rule is removed: the token is never in an answer; an
+  expired token is never sent and never renewed; no redirect is followed; figures answer for five minutes; a provider is
+  asked at most once in 30 s; a failure keeps the last figures; another account never inherits figures; limits are not
+  read unless asked for.
+- **Protocol** (`internal/terminalproto/accounts.go`): feature `agent-accounts-v1`, `Accounts{limits, refresh}` and
+  `AccountsResult`, `Capabilities.AgentAccounts` (valid only with terminal control, terminal access and the feature).
+- **Connector** (`internal/agenthealth`, `internal/terminalagent`): negotiates the feature, reports the capability
+  only while terminal access is on, re-reads that switch per request, one read at a time per process, reader kept for
+  the process so its memory outlives a reconnect.
+- **Controller** (`internal/terminalbroker/accounts.go`, `internal/store/store_agent_accounts.go`,
+  `internal/api/accounts.go`): asks only a machine that reported the capability; keeps the last answer per account and
+  machine in `machine_agent_accounts` (replaced whole; goes with the enrollment); `GET /api/v2/machines/{id}/accounts`
+  and `POST …/accounts/refresh`; `user_profiles.plan_limits` (default 0) through `PATCH /api/v2/profile {planLimits}`.
+  With the setting off the machine is asked for sign-ins only and kept figures are not shown.
+- **Browser** (`web/src/lib/agentAccounts.ts`, `MachineSettings.svelte`, `StartAgentDialog.svelte`,
+  `AgentsSettings.svelte`): the machine dialog's Sign-ins row and per-agent lines; the Start dialog's hint when no
+  sign-in was found; the Plan limits switch in Settings > Agents. The machine dialog asks the controller only for a
+  machine that reports the capability; for the others it says why itself.
+- **Compatibility.** An older controller never advertises the feature, so a new machine sends nothing new; an older
+  machine never reports the capability, so a new controller never asks it and the page says to update reet there. A
+  machine with terminal access off is told apart from an old one. One schema addition (a table and a profile column),
+  both additive.
+- **Checked:** unit and package tests for every layer above (`go test -race` on `internal/agentaccounts`,
+  `terminalproto`, `agenthealth`, `terminalagent`, `terminalbroker`; `go test` on `internal/store`, `internal/backup`,
+  `internal/api`, `cmd/reet`); `agentAccounts.test.mjs`; browser suites `agent-accounts` (new) and `account` (three new
+  cases), and the existing `control`, `launch`, `launch-base`, `launch-options`, `add-machine`, `machines-search` and
+  `phone-dialogs` (machine settings and start agent). The phone dialogs suite caught two things on the way: the dialog
+  asking about machines that cannot answer, and a long host name widening it; both are fixed.
+- **Not verified:** nothing was run against a real Claude or ChatGPT account, so the providers' present answers and
+  the sign-in files' present shapes were not observed; they follow the agents' own clients. The endpoints are not
+  published interfaces. macOS was not run (the keychain case is a unit test with the OS name set).
+- **Not done:** GitHub Copilot, Google Antigravity, OpenCode and Cline; the macOS keychain and system keyrings;
+  several accounts per agent; signing in from the browser; limits beside a session or in the sessions list; an MCP
+  tool for the figures.
+## COPILOT-CLI-1: GitHub Copilot in a terminal session (14 November 2026)
+
+Branch `claude/copilot-agent`, four local commits, not pushed and no pull request when this was written.
+
+- **Added.** Tool id `copilot`, display name **GitHub Copilot**: a launch preset in `internal/terminalhost/catalogue.go`
+  (binary `copilot`), its row in the controller's option table (`terminalproto/agents.go`), its display name and greeting
+  word for automatic titles, and its row in the browser catalogue (`web/src/lib/catalogue.ts`). It is a terminal session
+  only. No ACP descriptor, chat adapter, model listing, sign-in or plan display, install or update was added, and the
+  Gaffer and MCP agent lists were left alone because they name chat agents.
+- **What the help proved** (GitHub Copilot CLI 1.0.112, npm package `@github/copilot`, bin `copilot`; captured in
+  `internal/terminalhost/testdata/help/copilot.txt`, sources and integrity in `sources.json`). Only `--version`, `--help`,
+  `help sessions` and `help permissions` ran, from a scratch directory with an empty home, a cleared environment and no
+  credentials.
+  - Opening prompt: `-i, --interactive <prompt>`, "Start interactive mode and automatically execute this prompt". The
+    preset passes `--interactive <prompt>`. `-p, --prompt <text>` is "non-interactive mode (exits after completion)" and
+    is never used; a test refuses it.
+  - Model: `--model <model>`.
+  - Effort: `--reasoning-effort <level>`, possible values none, minimal, low, medium, high, xhigh, max; the three a
+    launch carries are mapped. The help adds "supported levels depend on the model".
+  - YOLO: `--allow-all`, "Enable all permissions (equivalent to --allow-all-tools --allow-all-paths --allow-all-urls)".
+    `--yolo` has the same description; `--allow-all` is the one sent.
+  - Continue: **not mapped.** `--continue` is "Resume the most recent session", which `help sessions` qualifies as
+    "preferring one from the current branch, repository or directory", so it can open another folder's conversation; and
+    "A resumed session keeps its conversation, model, agent mode and allow-all state", so it could bring back approvals a
+    machine with YOLO switched off refuses. The browser row has no `resume`, so **Continue session…** is not offered.
+  - Session id: **not mapped.** `-r, --resume [<value>]` takes one, but the help's examples write only
+    `--resume=<session-id>`, and the only path that supplies a session id is a Gaffer chat, which Copilot does not have.
+- **Compatibility.** New token `copilot-cli-v1` keeps the id from a controller or connector that predates it, whose
+  strict decoder would refuse it: the controller advertises it (`internal/api/private_control.go`); the connector
+  claims it only with `agents-v2`, lists the tool only when it was negotiated and tells the dispatcher
+  (`internal/agenthealth/agent.go`); a create for the id is refused as `launch_option_unsupported` on a connection
+  without it (`internal/terminalagent/agent.go`); `Capabilities.ValidateFor` refuses the id without it; and a create is
+  sent only to a machine that lists the tool, as for every agent. A model-list request also names a tool and is sent to
+  any machine with `models-v1`, so `terminalbroker.models` answers `not_installed` itself for `copilot` unless the
+  machine lists the tool: a connector that predates the id fails to decode such a request and ends its connection
+  (`agenthealth` read loop). **The same request for `antigravity` is still sent unchecked**; that was read in the code,
+  not reproduced, and is not changed here.
+- **Tests seen failing with the piece removed** (each piece taken out in turn, the named test run, the piece put back):
+  the capability check, the connector's tool filter and its `agents-v2` condition, the dispatcher's create refusal, the
+  advertised token, the model-list gate, the prompt flag, the YOLO argument, the effort flag, resume arguments added, a
+  flag the help lacks, the option-table row, the display name and the greeting word; in the browser, the catalogue row,
+  the greeting word and a `resume` flag added.
+- **Checks run and their results:** in `web/`, `npm ci --no-audit --no-fund && npm run check && npm run build` passed
+  (unit tests, svelte-check 458 files with 0 errors and 0 warnings, build), before any Go build. `go vet ./...` clean.
+  `go test -race -count=1 -timeout=60m` on `internal/terminalproto`, `terminalhost`, `agenthealth`, `terminalagent` and
+  `terminalbroker`: all ok. `go test -count=1 -timeout=30m ./internal/api` without the race detector: ok in 147 s, on
+  the second run; the first failed on one new assertion that expected the wrong refusal for a Copilot chat request (it is
+  400, an invalid request), which was corrected. `go test -count=1 ./internal/scan`: only
+  `TestLibraryManagedRemovalExecutor/journal_refused` fails, as it does whenever the suite runs as root. In Chromium
+  against the dev server with mocked APIs: `start-agent.e2e.mjs` (changed here) and `launch.e2e.mjs` and
+  `account.e2e.mjs` (unchanged; they draw the catalogue) passed. `git diff --check` clean. Not run: `go test -race ./...`
+  as a whole, the `mcp` tests (nothing there was touched) and the documentation site build (mkdocs is not installed here).
+- **Not verified.** Nothing was run signed in: no session was started, no model was reached, and the measured arguments
+  were never given to the real interactive CLI. So unverified: that `--interactive` leaves the session open in practice;
+  how the folder-trust question and an opening prompt interact; what the CLI does with an effort level the model lacks,
+  or with a model name it does not know; any Copilot CLI older or newer than 1.0.112 (the preset has no version floor);
+  macOS and Windows; an installation that is not on the connector's `PATH`. The help names an environment variable,
+  `COPILOT_ALLOW_ALL`, that turns tool approvals off; reet does not set it, and whether a launch inherits it from the
+  machine was not checked. A real older controller or connector was not connected; the compatibility rules are covered
+  by unit and API tests only.
+- **Next:** a device check of one signed-in Copilot terminal launch (plain, with a prompt, with YOLO) before calling the
+  arguments verified; then decide resume from what that shows. First files: `internal/terminalhost/catalogue.go`,
+  `internal/terminalhost/testdata/help/README.md`, `docs/terminal-launch.md`.
+## TERMINAL-ASK-2: the screen tests wait for tmux, not the clock (14 November 2026)
+
+TERMINAL-ASK-1's tests against a real tmux waited out the real gaps between two reads of a screen: about 21 s on
+Linux in a package that took about 50 s, and more on macOS, where `native services` runs the package with a 3-minute
+limit and was already close to it. The first run on `main` after the merge, and the next pull request's, both ended
+`panic: test timed out after 3m0s` on macOS, each in a different worktree test.
+
+- **What changed:** `Manager.promptEvery` and `Manager.promptAgain` replace `promptReadEvery` and `promptReadAgain`
+  when set; nothing sets them outside tests, so the machine's behaviour is the same. The tests set a millisecond,
+  draw a screen, wait until `tmux capture-pane` shows it, and reconcile once. The four tests now take about 1.5 s
+  together; the one second left is tmux's whole-second activity, which the settled rule is about.
+- **One more rule has a test:** a screen just read is not read again inside the gap, whatever is drawn meanwhile
+  (`TestAScreenIsNotReadAgainInsideTheGap`). The gaps had no test before.
+- **Checked:** the tests 15 times under `-race`; six rules each broken and a test seen to fail (recorded on every
+  read, every session read, settled screens read again, settled at once, no gap, the test's gaps ignored).
+  `go test -race ./internal/terminalhost`: 55 s here, 67 s before.
+- **That was not all of it.** With the tests fast the package still took 154 s on macOS in a run that passed
+  (`ok ... internal/terminalhost 154.269s`) and reached the 180 s limit again in the next run, on a branch that had
+  this fix. The package had grown to the edge of its limit before TERMINAL-ASK-1; that change was what first pushed a
+  run over. `native-services.yml` now gives the terminal host step and the broker and PTY step 5 minutes each (the
+  second took 130 s of its 3 minutes in the same run). The job's 15 minutes still bounds a hang. Why macOS takes
+  three times as long as Linux here was not looked into; the worktree and clone tests, which run `git` many times,
+  are where both timeouts were caught.
+- **Not verified:** macOS was not run here; the pull request's own `native service (macos-latest)` job is the check.
+- **Left as it is:** the same run on `main` also failed `native service (ubuntu-latest)` once, in the root recovery
+  test, with `could not run tmux -V`: the 3-second probe in `FindTmux` ran out straight after a 76-second compile.
+  Nothing in TERMINAL-ASK-1 touches that probe, and it has passed since.
+
 ## TERMINAL-ASK-1: an agent's question on its terminal screen counts as a bell (14 November 2026)
 
 A terminal session showed "needs you" only when the agent rang the bell, and Claude Code, Codex and OpenCode do not
@@ -75,6 +255,12 @@ An ordinary chat now shows them too.
   source ([structured sessions](docs/structured-sessions.md#what-the-agent-has-used)).
 - **Not done:** the sessions list and the hover card show no usage; no price; no plan or rate-limit allowance (that is
   separate work); nothing was run against a signed-in agent, so which agents actually send the figures is still unknown.
+- **Later the same day:** `chat-usage.e2e.mjs` failed once in CI and about one run in twelve here. It measured the
+  figure in the instant after the window shrank from 1360 to 390 px, before the page had changed to its phone
+  arrangement (the status line was 58 px wide for that moment and right 300 ms later). The three measurements now
+  wait for the arrangement the page settles in. 60 runs passed, and the check was again seen failing with the
+  clearance removed. The moment itself, a wide arrangement squeezed into a narrow window until the page reacts, was
+  not looked into.
 
 ## CI-FLAKE-1: two checks that failed on unchanged code (13 November 2026)
 

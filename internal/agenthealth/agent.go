@@ -63,6 +63,7 @@ type AgentConfig struct {
 	agentsV2           bool
 	antigravity        bool
 	antigravityACP     bool
+	copilot            bool
 	worktree           bool
 	browse             bool
 	branches           bool
@@ -70,6 +71,7 @@ type AgentConfig struct {
 	branchSync         bool
 	baseFresh          bool
 	repoClone          bool
+	agentAccounts      bool
 	browseAllowed      bool
 	clipboard          bool
 	clipboardAllowed   bool
@@ -567,6 +569,13 @@ func gateMachineRequests(cfg AgentConfig, control func(context.Context, terminal
 				m.Body = terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneDenied}
 				return send(ctx, m)
 			}
+		case *terminalproto.Accounts:
+			// Terminal access gates reading a sign-in as it gates a shell,
+			// and it is read again here: switching it off holds at once.
+			if cfg.agentAccounts && !currentCapabilities(cfg).AgentAccounts {
+				m.Body = terminalproto.AccountsResult{Reason: terminalproto.AccountsOff}
+				return send(ctx, m)
+			}
 		}
 		return control(ctx, m)
 	}
@@ -679,6 +688,11 @@ func unavailable(m terminalproto.Message, features string) (terminalproto.Messag
 			return m, false
 		}
 		m.Body = terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneBusy}
+	case *terminalproto.Accounts:
+		if !terminalproto.SupportsAgentAccounts(features) {
+			return m, false
+		}
+		m.Body = terminalproto.AccountsResult{Reason: terminalproto.AccountsConflict}
 	default:
 		m.Body = terminalproto.Result{Code: terminalproto.Unavailable}
 	}
@@ -945,6 +959,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.agentsV2 = terminalproto.SupportsAgents(advertised)
 	cfg.antigravity = cfg.agentsV2 && terminalproto.SupportsAntigravity(advertised)
 	cfg.antigravityACP = cfg.antigravity && terminalproto.SupportsAntigravityACP(advertised)
+	cfg.copilot = cfg.agentsV2 && terminalproto.SupportsCopilot(advertised)
 	cfg.worktree = terminalproto.SupportsWorktree(advertised)
 	cfg.browse = terminalproto.SupportsBrowse(advertised)
 	cfg.branches = terminalproto.SupportsBranches(advertised)
@@ -952,6 +967,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.branchSync = terminalproto.SupportsBranchSync(advertised)
 	cfg.baseFresh = terminalproto.SupportsBaseFresh(advertised)
 	cfg.repoClone = terminalproto.SupportsRepoClone(advertised)
+	cfg.agentAccounts = terminalproto.SupportsAgentAccounts(advertised)
 	cfg.clipboard = terminalproto.SupportsClipboard(advertised)
 	cfg.uploads = terminalproto.SupportsUpload(advertised)
 	cfg.models = terminalproto.SupportsModels(advertised)
@@ -1014,6 +1030,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	if cfg.antigravityACP {
 		features = append(features, terminalproto.AntigravityACPFeature)
 	}
+	if cfg.copilot {
+		features = append(features, terminalproto.CopilotFeature)
+	}
 	if cfg.launch {
 		features = append(features, terminalproto.LaunchFeature)
 	}
@@ -1040,6 +1059,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.repoClone {
 		features = append(features, terminalproto.RepoCloneFeature)
+	}
+	if cfg.agentAccounts {
+		features = append(features, terminalproto.AgentAccountsFeature)
 	}
 	if cfg.clipboard {
 		features = append(features, terminalproto.ClipboardFeature)
@@ -1131,6 +1153,9 @@ func launchTools(cfg AgentConfig) []string {
 	var tools []string
 	for _, tool := range cfg.LaunchTools() {
 		if tool == "antigravity" && !cfg.antigravity {
+			continue
+		}
+		if tool == "copilot" && !cfg.copilot {
 			continue
 		}
 		validTool := terminalproto.ValidTool(tool) || (cfg.agentsV2 && terminalproto.ValidToolV2(tool))
@@ -1346,7 +1371,10 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// clone authenticates with, and terminal access on, as BranchSync does,
 		// so a machine with access off is not offered. The sign-in itself, and
 		// the machine's consent, are checked per clone.
-		RepoClone:       cfg.repoClone && worktree && enabled && cfg.GHAvailable != nil && cfg.GHAvailable(),
+		RepoClone: cfg.repoClone && worktree && enabled && cfg.GHAvailable != nil && cfg.GHAvailable(),
+		// Reading a sign-in follows terminal access: a machine with access
+		// off is not asked, and says so if it is.
+		AgentAccounts:   cfg.agentAccounts && control && enabled,
 		Software:        software,
 		SoftwareApply:   cfg.softwareApply && control && enabled,
 		TerminalControl: cfg.TerminalSession != nil,

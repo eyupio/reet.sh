@@ -10,6 +10,7 @@ export const CATALOGUE: CatalogueAgent[] = [
   { id: 'cursor', name: 'Cursor Agent', models: [], effort: false, enabled: false, disabledReason: "reet doesn't start this agent yet." },
   { id: 'cline', name: 'Cline', models: [], effort: true, enabled: true, yolo: true },
   { id: 'antigravity', name: 'Google Antigravity (AGY)', models: [], effort: true, enabled: true, yolo: true },
+  { id: 'copilot', name: 'GitHub Copilot', models: [], effort: true, enabled: true, yolo: true },
 ]
 const ORIGINAL = new Set(['claude', 'codex', 'opencode'])
 // Agents reet no longer offers. A past session, run or activity entry that names one still reads by its old name; no

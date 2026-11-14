@@ -57,3 +57,36 @@ func TestYoloCapabilityNeedsAgentsV2AndTheLocalSwitch(t *testing.T) {
 		t.Fatal("YOLO reported without agents-v2")
 	}
 }
+
+// A controller that does not advertise copilot-cli-v1 decodes tool ids
+// strictly, so a connector with the CLI installed must not name it there, and
+// the dispatcher must not be told the token either.
+func TestCopilotIsListedOnlyWhenItsFeatureIsNegotiated(t *testing.T) {
+	for _, tc := range []struct {
+		features string
+		want     []string
+	}{
+		{terminalproto.LaunchFeature, []string{"claude"}},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature, []string{"claude", "cline"}},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.AntigravityFeature, []string{"antigravity", "claude", "cline"}},
+		// The token without agents-v2 claims nothing.
+		{terminalproto.LaunchFeature + "," + terminalproto.CopilotFeature, []string{"claude"}},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.CopilotFeature, []string{"claude", "cline", "copilot"}},
+		{terminalproto.LaunchFeature + "," + terminalproto.AgentsFeature + "," + terminalproto.AntigravityFeature + "," + terminalproto.CopilotFeature, []string{"antigravity", "claude", "cline", "copilot"}},
+	} {
+		cfg := AgentConfig{TerminalSession: func(context.Context, *http.Client, http.Header, int64, Sender) (func(context.Context, terminalproto.Message) error, func()) {
+			return nil, nil
+		}, LaunchTools: func() []string { return []string{"copilot", "cline", "claude", "antigravity", "copilot"} }}
+		negotiateFeatures(&cfg, tc.features)
+		caps := capabilitiesFor(cfg, true, terminalproto.Ready)
+		if !slices.Equal(caps.Tools, tc.want) {
+			t.Fatalf("features=%s tools=%v want=%v", tc.features, caps.Tools, tc.want)
+		}
+		if err := caps.ValidateFor(tc.features); err != nil {
+			t.Fatalf("features=%s: the connector's own capabilities are refused: %v", tc.features, err)
+		}
+		if terminalproto.SupportsCopilot(terminalFeatures(cfg)) != slices.Contains(tc.want, "copilot") {
+			t.Fatalf("features=%s: the dispatcher's copilot token differs from the tool list", tc.features)
+		}
+	}
+}

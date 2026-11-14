@@ -148,6 +148,7 @@ nav:
     - Reet as the central control unit: control-centre.md
     - Agent software: agent-software.md
     - Agent models: agent-models.md
+    - Agent sign-ins and plan limits: agent-accounts.md
     - Start an agent session: start-agent-session.md
     - Terminal workspace: terminal-workspace.md
     - Terminal launch: terminal-launch.md

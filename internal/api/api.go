@@ -103,6 +103,9 @@ type server struct {
 	// Person-pressed model refreshes per account and machine (models.go).
 	modelsOnce   sync.Once
 	modelsLimits *modelLimits
+	// accountsLimits bounds person-pressed reads of a machine's agent sign-ins.
+	accountsOnce   sync.Once
+	accountsLimits *modelLimits
 	// Image uploads per account (terminal_upload.go).
 	uploadLimits uploadLimits
 	// Folder-project writes per account (folder_projects.go).
@@ -502,6 +505,7 @@ func (s *server) routes() http.Handler {
 	s.registerTerminalRoutes(mux)
 	s.registerBrowseRoutes(mux)
 	s.registerModelRoutes(mux)
+	s.registerAccountRoutes(mux)
 	s.registerSoftwareRoutes(mux)
 	s.registerProjectRoutes(mux)
 	s.registerFolderProjectRoutes(mux)

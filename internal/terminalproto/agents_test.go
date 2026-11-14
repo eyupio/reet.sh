@@ -58,7 +58,7 @@ func TestCreateStillComparable(t *testing.T) {
 	}
 }
 func TestCapabilitiesNewToolIDsNeedAgentsV2(t *testing.T) {
-	for _, tool := range []string{"cline", "antigravity"} {
+	for _, tool := range []string{"cline", "antigravity", "copilot"} {
 		c := Capabilities{Launch: true, TerminalControl: true, Tools: []string{tool}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
 		if c.Validate() == nil || c.ValidateFor("") == nil {
 			t.Fatal("old peer accepts new tool")
@@ -66,6 +66,9 @@ func TestCapabilitiesNewToolIDsNeedAgentsV2(t *testing.T) {
 		features := "launch-v1, agents-v2"
 		if tool == "antigravity" {
 			features += "," + AntigravityFeature
+		}
+		if tool == "copilot" {
+			features += "," + CopilotFeature
 		}
 		if c.ValidateFor(features) != nil {
 			t.Fatal("new peer refuses tool")
@@ -86,6 +89,34 @@ func TestAntigravityCapabilityRequiresItsNegotiatedFeature(t *testing.T) {
 	}
 	if !SupportsAntigravity(" launch-v1, "+AntigravityFeature+" ") || SupportsAntigravity(AntigravityFeature+"0") {
 		t.Fatal("AGY token matching changed")
+	}
+}
+
+// A controller or connector whose catalogue predates GitHub Copilot decodes
+// tool ids strictly, so the id is valid only where copilot-cli-v1 was
+// negotiated: not on agents-v2 alone, and not on another agent's token.
+func TestCopilotCapabilityRequiresItsNegotiatedFeature(t *testing.T) {
+	c := Capabilities{AgentsV2: true, Launch: true, TerminalControl: true, Tools: []string{"copilot"}, ProtocolVersion: Version, OS: "linux", OSUser: "test", TerminalEnabled: true, Readiness: Ready}
+	for _, features := range []string{AgentsFeature, AgentsFeature + "," + AntigravityFeature, CopilotFeature} {
+		if c.ValidateFor(features) == nil {
+			t.Fatalf("copilot claimed to a peer that negotiated only %q", features)
+		}
+	}
+	if c.Validate() != nil || c.ValidateFor(AgentsFeature+","+CopilotFeature) != nil {
+		t.Fatal("negotiated copilot refused")
+	}
+	c.Tools = []string{"antigravity", "claude", "codex", "copilot", "opencode"}
+	if c.ValidateFor(AgentsFeature+","+AntigravityFeature) == nil {
+		t.Fatal("copilot beside other tools claimed without its feature")
+	}
+	if c.Validate() != nil || c.ValidateFor(AgentsFeature+","+AntigravityFeature+","+CopilotFeature) != nil {
+		t.Fatal("negotiated copilot beside other tools refused")
+	}
+	if !SupportsCopilot(" launch-v1, "+CopilotFeature+" ") || SupportsCopilot(CopilotFeature+"0") || SupportsCopilot(AntigravityFeature) {
+		t.Fatal("copilot token matching changed")
+	}
+	if CopilotFeature != "copilot-cli-v1" {
+		t.Fatal("the copilot token is part of the wire contract", CopilotFeature)
 	}
 }
 func TestCapabilitiesYoloNeedsAgentsV2(t *testing.T) {
@@ -139,7 +170,7 @@ func TestAgentsV2ToolsAndOptions(t *testing.T) {
 	for _, tc := range []struct {
 		tool          string
 		effort, model bool
-	}{{"claude", true, true}, {"codex", true, true}, {"opencode", false, true}, {"cline", true, true}, {"antigravity", true, true}, {"pi", false, false}} {
+	}{{"claude", true, true}, {"codex", true, true}, {"opencode", false, true}, {"cline", true, true}, {"antigravity", true, true}, {"copilot", true, true}, {"pi", false, false}} {
 		if ToolTakesEffort(tc.tool) != tc.effort || ToolTakesModel(tc.tool) != tc.model {
 			t.Fatalf("%s: effort=%v model=%v", tc.tool, ToolTakesEffort(tc.tool), ToolTakesModel(tc.tool))
 		}

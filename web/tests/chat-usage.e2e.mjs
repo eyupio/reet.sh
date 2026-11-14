@@ -84,8 +84,8 @@ try {
   for (const width of [1360, 390, 320]) {
    await page.setViewportSize({ width, height: 900 })
    await expect(line).toBeVisible()
-   // The workspace lays itself out from script after a resize, so each check waits for the layout to settle rather
-   // than measuring the first frame; a layout that settles wrong still fails.
+   // The page changes between its wide and its phone arrangement a moment after the window does, so each
+   // measurement is of the arrangement it settles in, not of the moment between.
    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false)
    // The figure stays inside the status line at every width.
    await expect.poll(() => page.evaluate(() => {

@@ -23,6 +23,50 @@ Commands run in this container:
   restarted before the third was up: it kept the address, was refused once, and moved on the next try.
 
 Not checked: a tablet-width screenshot, a real HTTPS address, more than one machine for real.
+## The on-screen terminal keys (14 November 2026)
+
+The terminal's on-screen keys were rebuilt: shown on every touch screen, a row that leads with Esc, Tab and the
+modifiers with the arrows fixed at its end, modifiers that lock, keys that repeat when held, and a second row in place
+of the floating pad.
+
+Commands run in this container:
+
+- `cd web && npm ci --no-audit --no-fund`, `npm run check`, `npm run build`.
+- `npm run dev -- --host 127.0.0.1 --port 4175` and, with `REET_UI_URL` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` set,
+  `node tests/terminal-phone.e2e.mjs`: passes. The same test run against main's code fails at the first new check (the
+  arrows are not in the fixed part of the row). Five behaviours were each broken in turn and the test seen to fail.
+- The existing suites `sessions`, `phone-layout`, `phone-zoom`, `terminal-workspace`, `terminal-lifecycle`,
+  `terminal-clipboard`, `terminal-upload`, `calm-session` and `sessions-phone`: pass.
+- Screenshots of both rows at 320, 390, 625 and 1000 px wide on an emulated touch screen were looked at, with one
+  modifier on for the next key and one locked.
+
+Not checked: a physical phone or tablet (touch is emulated and holds are mouse presses), Firefox, Safari.
+
+## Agent sign-ins and plan limits (14 November 2026)
+
+A machine's **Settings → Agents** gained a **Sign-ins** row with **Check sign-ins**, a sign-in line per agent the machine
+can read, and that plan's limits when the account has them on. The Start dialog says when no sign-in was found, and
+**Settings → Agents** gained the **Plan limits** switch.
+
+Commands run in this container:
+
+- `cd web && npm ci --no-audit --no-fund`, `npm run check`, `npm run build`.
+- `npm run dev -- --host 127.0.0.1 --port 4174` and, with `REET_UI_URL` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` set,
+  `node tests/agent-accounts.e2e.mjs`: passes. Against fixtures it checks the sign-in lines with plan limits off, the
+  hint that says where to turn them on, **Check sign-ins** replacing the answer; with limits on, each window as what is
+  left with its reset, the low mark at 8%, a sign-in that needs renewing keeping the last figures and saying so, and a
+  failed read with no figures; a machine that turned terminal access off keeping what was read, and a machine on an
+  older reet not being asked at all; the Start dialog's hint for an agent with no sign-in and none for a signed-in one,
+  without changing whether the dialog can start; and at 390 and 320 px in both themes that nothing is wider than the
+  dialog, the page does not scroll sideways and the button is at least 44 px tall.
+- `node tests/account.e2e.mjs`: passes, with three new cases (the switch starts clear and sends only its own setting, a
+  refused save puts it back, a viewer cannot change it).
+- The existing suites `control`, `launch`, `launch-base`, `launch-options`, `add-machine`, `machines-search` and
+  `phone-dialogs` (machine settings and start agent, all six phone sizes): pass. `phone-dialogs` failed twice before
+  two fixes described in the handoff.
+- Screenshots of the machine dialog at 1280 px and of the Claude Code row at 390 px in the dark theme were looked at.
+
+Not checked: a real controller and machine with a real signed-in agent, Firefox, Safari, a physical phone.
 
 ## A chat's usage line (14 November 2026)
 

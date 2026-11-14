@@ -81,6 +81,28 @@ Branch `claude/copilot-agent`, four local commits, not pushed and no pull reques
 - **Next:** a device check of one signed-in Copilot terminal launch (plain, with a prompt, with YOLO) before calling the
   arguments verified; then decide resume from what that shows. First files: `internal/terminalhost/catalogue.go`,
   `internal/terminalhost/testdata/help/README.md`, `docs/terminal-launch.md`.
+## TERMINAL-ASK-2: the screen tests wait for tmux, not the clock (14 November 2026)
+
+TERMINAL-ASK-1's tests against a real tmux waited out the real gaps between two reads of a screen: about 21 s on
+Linux in a package that took about 50 s, and more on macOS, where `native services` runs the package with a 3-minute
+limit and was already close to it. The first run on `main` after the merge, and the next pull request's, both ended
+`panic: test timed out after 3m0s` on macOS, each in a different worktree test.
+
+- **What changed:** `Manager.promptEvery` and `Manager.promptAgain` replace `promptReadEvery` and `promptReadAgain`
+  when set; nothing sets them outside tests, so the machine's behaviour is the same. The tests set a millisecond,
+  draw a screen, wait until `tmux capture-pane` shows it, and reconcile once. The four tests now take about 1.5 s
+  together; the one second left is tmux's whole-second activity, which the settled rule is about.
+- **One more rule has a test:** a screen just read is not read again inside the gap, whatever is drawn meanwhile
+  (`TestAScreenIsNotReadAgainInsideTheGap`). The gaps had no test before.
+- **Checked:** the tests 15 times under `-race`; six rules each broken and a test seen to fail (recorded on every
+  read, every session read, settled screens read again, settled at once, no gap, the test's gaps ignored).
+  `go test -race ./internal/terminalhost`: 55 s here, 67 s before.
+- **Not verified:** macOS was not run here; the pull request's own `native service (macos-latest)` job is the check.
+- **Left as it is:** the package's margin on macOS is still small (the step took 2 min 38 s of its 3 minutes on
+  `main` before TERMINAL-ASK-1). The same run on `main` also failed `native service (ubuntu-latest)` once, in the
+  root recovery test, with `could not run tmux -V`: the 3-second probe in `FindTmux` ran out straight after a
+  76-second compile. Nothing in TERMINAL-ASK-1 touches that probe.
+
 ## TERMINAL-ASK-1: an agent's question on its terminal screen counts as a bell (14 November 2026)
 
 A terminal session showed "needs you" only when the agent rang the bell, and Claude Code, Codex and OpenCode do not

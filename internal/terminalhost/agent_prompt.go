@@ -149,13 +149,20 @@ func (m *Manager) askedOnScreen(ctx context.Context, id string, s ManagedSession
 		m.prompts = map[string]promptWatch{}
 	}
 	watch, seen := m.prompts[id]
+	every, again := promptReadEvery, promptReadAgain
+	if m.promptEvery > 0 {
+		every = m.promptEvery
+	}
+	if m.promptAgain > 0 {
+		again = m.promptAgain
+	}
 	now := time.Now()
 	changed := activity != watch.activity
 	switch {
 	case !seen:
 	case !changed && watch.settled:
 		return false
-	case changed && now.Sub(watch.at) < promptReadEvery, now.Sub(watch.at) < promptReadAgain:
+	case changed && now.Sub(watch.at) < every, now.Sub(watch.at) < again:
 		return false
 	}
 	// tmux counts activity in whole seconds, so more can still be drawn in the

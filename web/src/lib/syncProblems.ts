@@ -52,7 +52,7 @@ const stalePlan = /approved plan no longer matches|target identity or revision c
 const busy = /another sync may be running|cannot lock target/i
 const duplicateName = /More than one source uses the name/i
 const sharedAgentSource = /is shared with .+? from a different source|source conflict for .+?; inspect its local lock file/i
-const sharedSource = /has no linked install source yet|has no linked source|not in the saved sync source|no linked install source|is shared with|source conflict|local-only skill|no supported install source|has no supported install source|duplicate skill names/i
+const sharedSource = /has no linked install source yet|has no linked source|not in the saved sync source|no linked install source|is shared with|source conflict|installed from more than one source|local-only skill|no supported install source|has no supported install source|duplicate skill names/i
 const paused = /sync is paused/i
 const unconnected = /has no reet agent yet|no machine named|is connected\. refresh machines/i
 const needsReview = /local changes need review|reconcile/i
@@ -233,7 +233,7 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
       title: autoFix ? 'This skill is installed from a different source' : 'This skill needs a source decision',
       detail: autoFix
         ? `${sourceConflictSentence(text, host)} Auto fix keeps that copy and points the sync plan at it, then syncs again. No files on the machine are changed.`
-        : `${text} Link the skill to a source, or move the other copy aside, then retry.`,
+        : `${text} Reet did not change this automatically because there is no single installed source it can safely follow. Link the skill to a source, or move the other copy aside, then retry.`,
       commands: [],
       retry: false,
       local: false,

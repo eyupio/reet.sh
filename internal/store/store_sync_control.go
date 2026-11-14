@@ -894,9 +894,25 @@ func (s *Store) FinishSyncJob(uid int64, agentID, id, status, hash, message stri
 			if replanErr != nil {
 				return replanErr
 			}
-			replanMessage := "The plan changed before it ran. Retry to plan and sync the remaining changes."
+			var inRun int
+			if err = tx.QueryRow(`SELECT COUNT(*) FROM sync_run_jobs WHERE job_id=?`, id).Scan(&inRun); err != nil {
+				return err
+			}
+			if inRun == 0 {
+				// A job outside a run (an apply or preview a person started) gets
+				// the same repair: one fresh automatic plan for this scope.
+				requeued, replanErr = s.requeueStalePlanTx(tx, uid, id)
+				if replanErr != nil {
+					return replanErr
+				}
+			}
+			replanMessage := "The plan changed before it ran. Auto fix stopped after repeated attempts; preview again."
 			if requeued {
-				replanMessage = "The plan changed before it ran. Reet asked the machine for a fresh plan and continues with this scope."
+				if inRun > 0 {
+					replanMessage = "The plan changed before it ran. Reet asked the machine for a fresh plan and continues with this scope automatically."
+				} else {
+					replanMessage = "The plan changed before it ran. Reet asked the machine for a fresh plan and continues automatically."
+				}
 			}
 			if _, err = tx.Exec(`UPDATE sync_jobs SET message=? WHERE id=?`, replanMessage, id); err != nil {
 				return err

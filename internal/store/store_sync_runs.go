@@ -306,6 +306,50 @@ func (s *Store) replanSyncRunScopeTx(tx *sql.Tx, uid int64, jobID string) (bool,
 	return true, err
 }
 
+// requeueStalePlanTx repairs a stale-plan failure that is not part of a run.
+// It queues one fresh automatic job for the same scope, after the same bounded
+// number of attempts a run allows, so a machine that keeps changing is still
+// surfaced instead of being retried for ever. It reports whether it queued one.
+func (s *Store) requeueStalePlanTx(tx *sql.Tx, uid int64, jobID string) (bool, error) {
+	var targetID, agentID, kind string
+	if err := tx.QueryRow(`SELECT target_id,agent_id,kind FROM sync_jobs WHERE id=? AND user_id=?`, jobID, uid).Scan(&targetID, &agentID, &kind); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	if targetID == "" {
+		return false, nil
+	}
+	// A preview the person asked for stays a preview. An apply (or an automatic
+	// job) is repaired all the way: a fresh plan, then its additive changes.
+	nextKind := "auto"
+	if kind == "preview" {
+		nextKind = "preview"
+	}
+	// Do not queue beside work that is already waiting for this scope.
+	var pending int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND target_id=? AND status IN ('queued','running','awaiting-approval')`, uid, agentID, targetID).Scan(&pending); err != nil {
+		return false, err
+	}
+	if pending > 0 {
+		return false, nil
+	}
+	var attempts int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND target_id=? AND status='failed' AND message LIKE 'The plan changed before it ran%' AND created_at>?`, uid, targetID, now()-15*60*1000).Scan(&attempts); err != nil {
+		return false, err
+	}
+	if attempts >= syncRunReplanLimit {
+		return false, nil
+	}
+	job, err := insertSyncJobTx(tx, uid, agentID, targetID, nextKind)
+	if err != nil {
+		return false, err
+	}
+	_, err = tx.Exec(`UPDATE sync_jobs SET message=? WHERE id=?`, "Reet is planning again automatically after the machine changed.", job.ID)
+	return err == nil, err
+}
+
 // additivePlan reports whether a preview only installs or replaces entries.
 func additivePlan(plan json.RawMessage) bool {
 	var parsed struct {

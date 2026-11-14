@@ -110,3 +110,162 @@ func TestResolveSyncSourceConflictRefusesAmbiguousMachine(t *testing.T) {
 		t.Fatal("a refused fix changed the saved plan")
 	}
 }
+
+func TestMaintainSyncFollowsUnambiguousInstalledSourceAndReportsIt(t *testing.T) {
+	s, uid, target := sourceFixFixture(t)
+	agents, err := s.SyncAgentsFor(uid)
+	if err != nil || len(agents) != 1 {
+		t.Fatalf("agents: %+v %v", agents, err)
+	}
+	agent := agents[0]
+	if err = s.ControlSyncAgent(uid, agent.ID, "keep-sync-on"); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = s.SyncAgentsFor(uid)
+	if err != nil || len(agents) != 1 || !agents[0].KeepSynced {
+		t.Fatalf("keep synced: %+v %v", agents, err)
+	}
+	agent = agents[0]
+	job, err := s.QueueSyncJob(uid, agent.ID, target, "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || claimed == nil || claimed.ID != job.ID {
+		t.Fatalf("claim: %+v %v", claimed, err)
+	}
+	plan := []byte(`{"problems":{"one":"Claude Code already has this skill from x/y, so reet left it alone."}}`)
+	if err = s.FinishSyncJob(uid, agent.ID, job.ID, "awaiting-approval", strings.Repeat("a", 64), "", plan); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.MaintainSync(uid, "owner", agent); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.SyncTargetsFor(uid)
+	if err != nil || len(after) != 1 || after[0].Desired[0].Source != "x/y" {
+		t.Fatalf("source not followed: %+v %v", after, err)
+	}
+	next, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || next == nil || next.Kind != "auto" || !strings.Contains(next.Message, "Auto-fixed") {
+		t.Fatalf("repair job: %+v %v", next, err)
+	}
+	again, err := s.AutoResolveSyncSourceConflictsFor(uid, target)
+	if err != nil || len(again) != 0 {
+		t.Fatalf("the repair was not idempotent: %+v %v", again, err)
+	}
+}
+
+func TestMaintainSyncLeavesAmbiguousSourceConflictReported(t *testing.T) {
+	s, uid, target := sourceFixFixture(t)
+	if err := s.TouchEnvironmentFor(uid, "laptop", "cursor", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	cursor := EnvironmentIDFor(uid, "laptop", "cursor", "")
+	if err := s.RecordInventoryFor(uid, cursor, true, MachineInfo{}); err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.UpsertFor(uid, mustRef(t, "z/w/one"), Patch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordEnvironmentFor(uid, other.ID, "laptop", "cursor", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := s.SyncAgentsFor(uid)
+	if err != nil || len(agents) != 1 {
+		t.Fatalf("agents: %+v %v", agents, err)
+	}
+	agent := agents[0]
+	if err = s.ControlSyncAgent(uid, agent.ID, "keep-sync-on"); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = s.SyncAgentsFor(uid)
+	if err != nil || len(agents) != 1 || !agents[0].KeepSynced {
+		t.Fatalf("keep synced: %+v %v", agents, err)
+	}
+	agent = agents[0]
+	job, err := s.QueueSyncJob(uid, agent.ID, target, "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || claimed == nil || claimed.ID != job.ID {
+		t.Fatalf("claim: %+v %v", claimed, err)
+	}
+	plan := []byte(`{"problems":{"one":"Claude Code already has this skill from x/y, so reet left it alone."}}`)
+	if err = s.FinishSyncJob(uid, agent.ID, job.ID, "awaiting-approval", strings.Repeat("b", 64), "", plan); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.MaintainSync(uid, "owner", agent); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.SyncTargetsFor(uid)
+	if err != nil || len(after) != 1 || after[0].Desired[0].Source != "a/b" {
+		t.Fatalf("ambiguous conflict changed the plan: %+v %v", after, err)
+	}
+	if !strings.Contains(after[0].Problem, "more than one source") || !strings.Contains(after[0].Problem, "Auto fix could not settle") {
+		t.Fatalf("ambiguous conflict was not reported: %+v", after[0])
+	}
+	jobs, _ := s.SyncJobsFor(uid)
+	if len(jobs) != 1 {
+		t.Fatalf("an ambiguous conflict queued another job: %+v", jobs)
+	}
+	if err = s.MaintainSync(uid, "owner", agent); err != nil {
+		t.Fatal(err)
+	}
+	jobs, _ = s.SyncJobsFor(uid)
+	if len(jobs) != 1 {
+		t.Fatalf("an ambiguous conflict queued repeated jobs: %+v", jobs)
+	}
+}
+
+func TestMaintainSyncRepairsSourceConflictWhilePreviewAwaitsApproval(t *testing.T) {
+	s, uid, target := sourceFixFixture(t)
+	agents, err := s.SyncAgentsFor(uid)
+	if err != nil || len(agents) != 1 {
+		t.Fatalf("agents: %+v %v", agents, err)
+	}
+	agent := agents[0]
+	if err = s.ControlSyncAgent(uid, agent.ID, "keep-sync-on"); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = s.SyncAgentsFor(uid)
+	if err != nil || len(agents) != 1 || !agents[0].KeepSynced {
+		t.Fatalf("keep synced: %+v %v", agents, err)
+	}
+	agent = agents[0]
+	job, err := s.QueueSyncJob(uid, agent.ID, target, "preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || claimed == nil || claimed.ID != job.ID {
+		t.Fatalf("claim: %+v %v", claimed, err)
+	}
+	hash := strings.Repeat("c", 64)
+	plan := []byte(`{"problems":{"one":"Claude Code already has this skill from x/y, so reet left it alone."}}`)
+	if err = s.FinishSyncJob(uid, agent.ID, job.ID, "awaiting-approval", hash, "", plan); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.MaintainSync(uid, "owner", agent); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.SyncTargetsFor(uid)
+	if err != nil || len(after) != 1 || after[0].Desired[0].Source != "x/y" {
+		t.Fatalf("source not followed while a preview awaited: %+v %v", after, err)
+	}
+	jobs, _ := s.SyncJobsFor(uid)
+	var cancelled bool
+	for _, item := range jobs {
+		if item.ID == job.ID {
+			cancelled = item.Status == "cancelled" && strings.Contains(item.Message, "Source changed")
+		}
+	}
+	if !cancelled {
+		t.Fatalf("stale approval was not cancelled: %+v", jobs)
+	}
+	next, err := s.ClaimSyncJob(uid, agent)
+	if err != nil || next == nil || next.Kind != "auto" || !strings.Contains(next.Message, "Auto-fixed") {
+		t.Fatalf("repair job: %+v %v", next, err)
+	}
+}

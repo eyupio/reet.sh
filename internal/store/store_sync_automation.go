@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -189,6 +190,45 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 		if err := problem(""); err != nil {
 			return err
 		}
+		// A copy another agent already holds is a source conflict sync will not
+		// overwrite. When exactly one installed source settles it, follow that
+		// copy now instead of waiting for a person to press Auto fix. The saved
+		// plan changes; no file on the machine is touched. An ambiguous conflict
+		// stays reported with the reason it was left alone.
+		// A preview waiting for approval does not block the repair: the saved
+		// source is changing, so that approval is stale. Queued or running work
+		// is left alone until it settles.
+		var repairPending int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND target_id=? AND status IN ('queued','running')`, uid, agent.ID, target.Target.ID).Scan(&repairPending); err != nil {
+			return err
+		}
+		if repairPending == 0 && !target.Canonical && s.targetReportsSourceConflict(uid, target.Target.ID) {
+			fixes, fixErr := s.AutoResolveSyncSourceConflictsFor(uid, target.Target.ID)
+			if fixErr != nil {
+				if e := problem("Auto fix could not settle this one: " + fixErr.Error()); e != nil {
+					return e
+				}
+				// A conflict with no single safe source is reported, not retried:
+				// queueing the same plan again would only repeat the same failure.
+				continue
+			} else if len(fixes) > 0 {
+				err = s.withTx(func(tx *sql.Tx) error {
+					if e := endSyncJobsTx(tx, "cancelled", "Source changed; planning again automatically.", `j.user_id=? AND j.target_id=? AND j.status='awaiting-approval'`, uid, target.Target.ID); e != nil {
+						return e
+					}
+					job, e := insertSyncJobTx(tx, uid, agent.ID, target.Target.ID, "auto")
+					if e != nil {
+						return e
+					}
+					_, e = tx.Exec(`UPDATE sync_jobs SET message=? WHERE id=?`, syncSourceFixReport(fixes), job.ID)
+					return e
+				})
+				if err != nil {
+					return err
+				}
+				return nil
+			}
+		}
 		// A failed attempt needs a deliberate fix/retry. Continuous sync must not
 		// turn a permissions or provenance problem into hundreds of failed jobs.
 		var latestStatus string
@@ -246,4 +286,37 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 		return nil // one machine operation at a time
 	}
 	return nil
+}
+
+// syncSourceFixReport says what automatic source repair changed, in the same
+// words a person would use for the copy that already existed.
+func syncSourceFixReport(fixes []SyncSourceFix) string {
+	parts := make([]string, 0, len(fixes))
+	for _, fix := range fixes {
+		parts = append(parts, fmt.Sprintf("%s now follows %s, the copy %s already had", fix.Name, fix.To, fix.Agent))
+	}
+	return "Auto-fixed: " + strings.Join(parts, "; ") + ". Syncing again."
+}
+
+// targetReportsSourceConflict says whether the newest plan for this target
+// names a copy another agent already holds. Automatic repair waits for that
+// evidence so an ordinary install from a selected source is never turned into
+// following something else.
+func (s *Store) targetReportsSourceConflict(uid int64, targetID string) bool {
+	var plan string
+	if err := s.db.QueryRow(`SELECT plan FROM sync_jobs WHERE user_id=? AND target_id=? ORDER BY created_at DESC,updated_at DESC LIMIT 1`, uid, targetID).Scan(&plan); err != nil {
+		return false
+	}
+	var parsed struct {
+		Problems map[string]string `json:"problems"`
+	}
+	if json.Unmarshal([]byte(plan), &parsed) != nil {
+		return false
+	}
+	for _, reason := range parsed.Problems {
+		if strings.Contains(reason, "already has this skill from") || strings.Contains(reason, "different source uses this name") {
+			return true
+		}
+	}
+	return false
 }

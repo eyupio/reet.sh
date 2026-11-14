@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { ChatState } from '../chat'
   import { gafferProgress, type ChatProgressState } from '../gafferProgress'
+  import type { ChatUsageView } from '../chatUsage'
 
-  let { chat, dir = '', agent = 'Agent', replayed, ended, sessionFailed, reattaching }: ChatProgressState & { chat: ChatState; dir?: string; agent?: string } = $props()
+  let { chat, dir = '', agent = 'Agent', usage = null, replayed, ended, sessionFailed, reattaching }: ChatProgressState & { chat: ChatState; dir?: string; agent?: string; usage?: ChatUsageView | null } = $props()
   const view = $derived(gafferProgress(chat, dir, replayed, ended, agent, sessionFailed, reattaching))
   const attention = $derived(view.phase === 'approval' || view.phase === 'question')
   const problem = $derived(view.phase === 'error' || view.phase === 'reconnecting')
@@ -23,6 +24,12 @@
       {#if problem}Last seen: {/if}{view.completed} done{#if view.running && !problem}{' · '}{view.running} active{/if}{#if view.failed}<span class="failed">{' · '}{view.failed} failed</span>{/if}
     </span>
   {/if}
+  {#if usage}
+    <span class="usage" class:low={usage.low} title={usage.detail} data-chat-usage>
+      {#if usage.percentLeft !== null}<span class="usage-meter" aria-hidden="true"><span style:width={`${usage.percentLeft}%`}></span></span>{/if}
+      <span>{usage.label}</span><span class="vh">. {usage.detail}</span>
+    </span>
+  {/if}
 </div>
 
 <style>
@@ -37,7 +44,21 @@
   .detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .counts { flex: none; margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .failed { color: var(--bad); }
+  /* What the agent reports: context left, or the chat's tokens. After the counts when there are any, else at the end of the line. */
+  .usage { flex: none; display: inline-flex; align-items: center; gap: 6px; margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .counts + .usage { margin-left: 0; padding-left: 8px; border-left: 1px solid var(--line-soft); }
+  .usage.low { color: var(--warn); }
+  .usage-meter { display: block; width: 36px; height: 3px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
+  .usage-meter > span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+  .usage.low .usage-meter > span { background: var(--warn); }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @keyframes status-spin { to { transform: rotate(360deg); } }
   @container chat-status (max-width: 620px) { .detail { display: none; } }
+  @container chat-status (max-width: 420px) { .usage-meter { display: none; } }
+  /* On a desktop the floating Ask Gaffer circle sits over this line's right-hand end, above the composer. Keep the
+     figures out from under it; the circle is not shown beside a docked details panel or on a phone. */
+  @media (min-width: 768px) {
+    :global(html:has(.gaffer-launcher:not([data-side=left])):not(:has(.context-docked)):not(:has(.context-sheet))) .conversation-status { padding-right: 68px; }
+  }
   @media (prefers-reduced-motion: reduce) { .spinning svg { animation: none; } }
 </style>

@@ -29,7 +29,8 @@ import PromptPicker from '../prompts/PromptPicker.svelte'
 import { readPromptLibrary, type PromptLibrary } from '../prompts/library'
 import { promptTrigger, replacePromptTrigger } from './prompts'
 import { insertSkillPrompt } from '../skillPrompt'
-import { chatControls, chatSetting, chatEnqueue, type ChatControls } from './api'
+import { chatControls, chatSetting, chatEnqueue, chatUsage, type ChatControls } from './api'
+import { chatUsageView, type ChatUsage } from '../chatUsage'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
 import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
@@ -378,6 +379,33 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  // A dismissed `/` trigger re-arms whenever the draft stops being a leading-slash token, however the draft changed.
  $effect(() => { if (slashQuery(draft) === null) slashDismissed = false })
  const working = $derived(isWorking(chat))
+ // What the agent says it has used. Read from the controller when the chat opens, whenever its status settles (the agent
+ // reports a turn's tokens as the turn finishes) and every half minute while it works (its context fills as it goes). A
+ // failed read keeps the last figures: they are the agent's last word, not a live gauge.
+ let usage = $state<ChatUsage | null>(null)
+ const usageView = $derived(chatUsageView(usage, toolName))
+ let usageLife: AbortController | undefined, usageStatus: ChatState['status'] | undefined
+ async function readUsage(id: string, signal: AbortSignal) {
+  try { const answer = await chatUsage(id, signal); if (!signal.aborted) usage = answer } catch { /* keep the last figures */ }
+ }
+ $effect(() => {
+  const id = session.id
+  usage = null; usageStatus = undefined
+  const life = usageLife = new AbortController()
+  void readUsage(id, life.signal)
+  return () => life.abort()
+ })
+ $effect(() => {
+  // A new status that is not a working one is the end of something: a turn, a stop, an error. The status object is the
+  // signal, not `working`, because a turn short enough to start and finish in one batch of events never shows as working.
+  const id = session.id, status = chat.status, now = working
+  const settled = usageStatus !== undefined && usageStatus !== status && !now
+  usageStatus = status
+  const read = () => { if (usageLife) void readUsage(id, usageLife.signal) }
+  const soon = settled ? setTimeout(read, 150) : undefined
+  const timer = now ? setInterval(read, 30_000) : undefined
+  return () => { clearTimeout(soon); clearInterval(timer) }
+ })
  // One value says whether the message box can take text; the textarea, the Skills button and a pick all use it, so they cannot drift apart.
  const composerBlocked = $derived(sending || uploading || changingModel || working || chat.connection === 'reconnecting')
 const promptBlocked = $derived(reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting')
@@ -1015,7 +1043,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
    {/if}
   {/each}
  </div>
- <ChatStatus {chat} dir={session.dir} agent={toolName} {...progressState} />
+ <ChatStatus {chat} dir={session.dir} agent={toolName} usage={usageView} {...progressState} />
  {#if ended && !reattaching}
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}

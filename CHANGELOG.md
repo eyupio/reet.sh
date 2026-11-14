@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A chat now shows what its agent reports using. The status line above the
+  message box ends with how much of the agent's context window is left, or
+  the chat's tokens when the agent never says how large its window is, and
+  marks the figure when 15% or less is left. The numbers were already kept
+  for the Factory page; an ordinary chat showed none of them. An agent that
+  reports nothing shows nothing.
 - An agent whose binary has only just been written, by an install or an
   update, is no longer refused as having "no version". Starting it could fail
   for an instant with "text file busy"; the version check now waits that out.

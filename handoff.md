@@ -18,6 +18,49 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## AGENT-ACCOUNTS-1: which agents are signed in, and plan limits (14 November 2026)
+
+A machine now says which of its agents are signed in and, when the account turns plan limits on, how much of each plan's
+allowance is left. The owner chose the gate: **an account setting, off by default, on machines with terminal access on;
+no new switch on the machine.** Full contract: [agent sign-ins and plan limits](docs/agent-accounts.md).
+
+- **Machine reader** (`internal/agentaccounts`): Claude Code (`.credentials.json`, `.claude.json`) and Codex
+  (`auth.json`, identity-token claims) sign-ins from files; with limits, one GET each to the provider with the agent's
+  own token. The rules, each with a test that fails when the rule is removed: the token is never in an answer; an
+  expired token is never sent and never renewed; no redirect is followed; figures answer for five minutes; a provider is
+  asked at most once in 30 s; a failure keeps the last figures; another account never inherits figures; limits are not
+  read unless asked for.
+- **Protocol** (`internal/terminalproto/accounts.go`): feature `agent-accounts-v1`, `Accounts{limits, refresh}` and
+  `AccountsResult`, `Capabilities.AgentAccounts` (valid only with terminal control, terminal access and the feature).
+- **Connector** (`internal/agenthealth`, `internal/terminalagent`): negotiates the feature, reports the capability
+  only while terminal access is on, re-reads that switch per request, one read at a time per process, reader kept for
+  the process so its memory outlives a reconnect.
+- **Controller** (`internal/terminalbroker/accounts.go`, `internal/store/store_agent_accounts.go`,
+  `internal/api/accounts.go`): asks only a machine that reported the capability; keeps the last answer per account and
+  machine in `machine_agent_accounts` (replaced whole; goes with the enrollment); `GET /api/v2/machines/{id}/accounts`
+  and `POST …/accounts/refresh`; `user_profiles.plan_limits` (default 0) through `PATCH /api/v2/profile {planLimits}`.
+  With the setting off the machine is asked for sign-ins only and kept figures are not shown.
+- **Browser** (`web/src/lib/agentAccounts.ts`, `MachineSettings.svelte`, `StartAgentDialog.svelte`,
+  `AgentsSettings.svelte`): the machine dialog's Sign-ins row and per-agent lines; the Start dialog's hint when no
+  sign-in was found; the Plan limits switch in Settings > Agents. The machine dialog asks the controller only for a
+  machine that reports the capability; for the others it says why itself.
+- **Compatibility.** An older controller never advertises the feature, so a new machine sends nothing new; an older
+  machine never reports the capability, so a new controller never asks it and the page says to update reet there. A
+  machine with terminal access off is told apart from an old one. One schema addition (a table and a profile column),
+  both additive.
+- **Checked:** unit and package tests for every layer above (`go test -race` on `internal/agentaccounts`,
+  `terminalproto`, `agenthealth`, `terminalagent`, `terminalbroker`; `go test` on `internal/store`, `internal/backup`,
+  `internal/api`, `cmd/reet`); `agentAccounts.test.mjs`; browser suites `agent-accounts` (new) and `account` (three new
+  cases), and the existing `control`, `launch`, `launch-base`, `launch-options`, `add-machine`, `machines-search` and
+  `phone-dialogs` (machine settings and start agent). The phone dialogs suite caught two things on the way: the dialog
+  asking about machines that cannot answer, and a long host name widening it; both are fixed.
+- **Not verified:** nothing was run against a real Claude or ChatGPT account, so the providers' present answers and
+  the sign-in files' present shapes were not observed; they follow the agents' own clients. The endpoints are not
+  published interfaces. macOS was not run (the keychain case is a unit test with the OS name set).
+- **Not done:** GitHub Copilot, Google Antigravity, OpenCode and Cline; the macOS keychain and system keyrings;
+  several accounts per agent; signing in from the browser; limits beside a session or in the sessions list; an MCP
+  tool for the figures.
+
 ## CI-FLAKE-1: two checks that failed on unchanged code (13 November 2026)
 
 Both failed once on a pull request that touched neither, and passed on a re-run. Each had a cause.

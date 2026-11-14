@@ -1,5 +1,31 @@
 # UI verification — 4 November 2026
 
+## Agent sign-ins and plan limits (14 November 2026)
+
+A machine's **Settings → Agents** gained a **Sign-ins** row with **Check sign-ins**, a sign-in line per agent the machine
+can read, and that plan's limits when the account has them on. The Start dialog says when no sign-in was found, and
+**Settings → Agents** gained the **Plan limits** switch.
+
+Commands run in this container:
+
+- `cd web && npm ci --no-audit --no-fund`, `npm run check`, `npm run build`.
+- `npm run dev -- --host 127.0.0.1 --port 4174` and, with `REET_UI_URL` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` set,
+  `node tests/agent-accounts.e2e.mjs`: passes. Against fixtures it checks the sign-in lines with plan limits off, the
+  hint that says where to turn them on, **Check sign-ins** replacing the answer; with limits on, each window as what is
+  left with its reset, the low mark at 8%, a sign-in that needs renewing keeping the last figures and saying so, and a
+  failed read with no figures; a machine that turned terminal access off keeping what was read, and a machine on an
+  older reet not being asked at all; the Start dialog's hint for an agent with no sign-in and none for a signed-in one,
+  without changing whether the dialog can start; and at 390 and 320 px in both themes that nothing is wider than the
+  dialog, the page does not scroll sideways and the button is at least 44 px tall.
+- `node tests/account.e2e.mjs`: passes, with three new cases (the switch starts clear and sends only its own setting, a
+  refused save puts it back, a viewer cannot change it).
+- The existing suites `control`, `launch`, `launch-base`, `launch-options`, `add-machine`, `machines-search` and
+  `phone-dialogs` (machine settings and start agent, all six phone sizes): pass. `phone-dialogs` failed twice before
+  two fixes described in the handoff.
+- Screenshots of the machine dialog at 1280 px and of the Claude Code row at 390 px in the dark theme were looked at.
+
+Not checked: a real controller and machine with a real signed-in agent, Firefox, Safari, a physical phone.
+
 ## Moving a controller from the Backups page (13 November 2026)
 
 **Admin → Backups** gained **Move this controller away** (fence, final copy

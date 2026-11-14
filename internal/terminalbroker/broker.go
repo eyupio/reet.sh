@@ -548,11 +548,14 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 		p.b.lateReplies.Add(1)
 		return nil
 	case *terminalproto.BaseCheckResult, *terminalproto.BranchSyncResult, *terminalproto.BranchPrunePlanResult, *terminalproto.BranchPruneResult,
-		*terminalproto.SoftwareApplyResult, *terminalproto.RepoCloneResult, *terminalproto.NativeViewResult:
+		*terminalproto.SoftwareApplyResult, *terminalproto.RepoCloneResult, *terminalproto.NativeViewResult,
+		*terminalproto.RepoCloneState, *terminalproto.RepoCloneRemoved:
 		// An answer whose call already gave up. Refusing it here would end the
 		// machine's connection over an answer that merely came late, so it is
-		// counted and dropped. For a check, a plan, a sync or a view nothing is
-		// lost: asking again reads it again. A late branch prune or software
+		// counted and dropped. For a check, a plan, a sync, a view or a clone
+		// state nothing is lost: asking again reads it again. A late clone
+		// remove is read again the same way: the folder is gone or it is not.
+		// A late branch prune or software
 		// apply answer is different: the machine did the work, and the audit
 		// row and the stored software entry are written only by the call that
 		// was waiting, so that record is lost with it. It was lost before too,

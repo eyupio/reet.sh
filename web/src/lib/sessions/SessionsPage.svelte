@@ -3,10 +3,8 @@
   import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, UnauthorizedError } from '../api'
   import CommandLibrary from '../terminal/CommandLibrary.svelte'
-  import AddProjectDialog from '../home/AddProjectDialog.svelte'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
-  import { addedLine } from '../folderBrowser'
   import { attentionCount, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy, type NeedCard } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
@@ -182,20 +180,13 @@
     if (target) worktreesFor = { project: target.item, opener: target.opener }
   }
 
-  // Add a project: the machines are read again first, as on Home.
-  let adding = $state<{ opener: HTMLElement } | null>(null), addBusy = $state(false)
+  // Add a project goes through the rail's host at every width, so the desktop list offers From GitHub (and follows a
+  // clone to its end) as the phone rail and Home do. The host reads the machines again first.
+  let projectHost = $state<ProjectRailHost>()
   // Saved commands (owner ruling): the account's command library, without opening a session. Insert needs a live pane,
   // so it is not offered here; the pane's own entry stays.
   let commandsOpen = $state(false), commandsButton = $state<HTMLButtonElement>()
   async function closeCommands() { commandsOpen = false; await tick(); commandsButton?.focus() }
-  async function openAdd(opener: HTMLElement) {
-    if (addBusy) return
-    addBusy = true; notice = null
-    try { terminals = await terminalMachines(bounded()); adding = { opener } }
-    catch (e) { if (refused(e)) return signOut(); notice = { text: "Couldn't read your machines just now. Try again in a moment.", bad: true } }
-    finally { addBusy = false }
-  }
-  function added(p: FolderProject) { notice = { text: addedLine(p.name) }; void load(true) }
 
   const projectLabel = (p: FolderProject) => [p.name, p.machine || 'machine not enrolled', railState(sessions ? running.get(p.id) ?? 0 : null, health?.some(m => m.agentId === p.host) ? !offline.has(p.host) : undefined)?.text].filter(Boolean).join(', ')
   const clearFilters = () => { filter = { state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' } }
@@ -301,24 +292,24 @@
     {/if}
   {/if}
 
-  {#if narrow}
-    <!-- The phone rail: the projects with their menus, Select and state words. A card (or New session here) opens Home's launch
-         bar on that project; Select hands the chosen projects to it. -->
-    <div class="projects rail-host">
-      <ProjectRailHost variant="sessions" {projects} groups={projectGroups} failed={projectsFailed} {savedWaiting} {sessions} sessionsFailed={failed && sessions === undefined} reporting={reportingNow}
-        {running} known={sessions !== undefined} {worktrees} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected}
-        onchoose={(p) => location.assign(`/?project=${encodeURIComponent(p.id)}`)} signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={(n) => (savedWaiting = n)}
-        onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)} onsignedout={signOut}>
-        {#snippet selectAction()}
-          {#if selected.length >= 2}<a class="start-chosen" href={`/?projects=${selected.map(encodeURIComponent).join(',')}`}>Start in these on Home</a>{/if}
-        {/snippet}
-      </ProjectRailHost>
-    </div>
-  {:else}
+  <!-- On a phone or tablet the rail: the projects with their menus, Select and state words. A card (or New session here) opens
+       Home's launch bar on that project; Select hands the chosen projects to it. On a desktop the host shows no rail and holds
+       only the dialogs, which the list below opens. -->
+  <div class={narrow ? 'projects rail-host' : 'rail-dialogs'}>
+    <ProjectRailHost bind:this={projectHost} rail={narrow} variant="sessions" {projects} groups={projectGroups} failed={projectsFailed} {savedWaiting} {sessions} sessionsFailed={failed && sessions === undefined} reporting={reportingNow}
+      {running} known={sessions !== undefined} {worktrees} {selecting} {selected} onselecting={setSelecting} ontoggle={toggleSelected}
+      onchoose={(p) => location.assign(`/?project=${encodeURIComponent(p.id)}`)} signal={bounded} onsettle={settle} onsettlegroups={settleGroups} onwaiting={(n) => (savedWaiting = n)}
+      onmachines={(m) => (terminals = m)} onnotice={(n) => (notice = n)} onreload={() => void load(true)} onsignedout={signOut}>
+      {#snippet selectAction()}
+        {#if selected.length >= 2}<a class="start-chosen" href={`/?projects=${selected.map(encodeURIComponent).join(',')}`}>Start in these on Home</a>{/if}
+      {/snippet}
+    </ProjectRailHost>
+  </div>
+  {#if !narrow}
     <section class="projects" aria-labelledby="sessions-projects">
       <div class="projects-head">
         <h2 id="sessions-projects">{projects ? `Projects · ${projects.length}` : 'Projects'}</h2>
-        <button type="button" class="add" disabled={addBusy} onclick={event => void openAdd(event.currentTarget)}>Add a project</button>
+        <button type="button" class="add" onclick={event => void projectHost?.openAdd(event.currentTarget)}>Add a project</button>
       </div>
       {#if projectsFailed}<p class="none">Couldn't read your projects just now.</p>
       {:else if projects !== undefined && projects.length === 0}<p class="none">Add a project to start an agent in one of your folders.</p>
@@ -351,9 +342,6 @@
   onsignedout={signOut} onchanged={() => load(true)} onnotice={(n) => (notice = n)}
   onopen={(item) => (openActionsFor = item.id)} onclose={() => (openActionsFor = '')} />
 {#if commandsOpen}<CommandLibrary onclose={() => void closeCommands()} />{/if}
-{#if adding && terminals}
-  <AddProjectDialog machines={terminals} opener={adding.opener} onadded={added} onsignedout={signOut} onclose={() => (adding = null)} />
-{/if}
 {#if worktreesFor}
   <ProjectWorktrees project={worktreesFor.project} {sessions} sessionsFailed={failed && sessions === undefined} opener={worktreesFor.opener} onsignedout={signOut} onclose={() => (worktreesFor = null)} />
 {/if}
@@ -433,6 +421,7 @@
   .more { flex: none; width: 44px; display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
   .more:hover { color: var(--accent-text); background: var(--tint); }
   .more svg { width: 18px; height: 18px; }
+  .rail-dialogs { display: contents; }
   .projects { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
   .projects-head { display: flex; align-items: center; gap: 10px; }
   .start-chosen { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 16px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none; }

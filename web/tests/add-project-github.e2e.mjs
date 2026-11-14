@@ -893,7 +893,33 @@ try {
   await context.close().catch(() => {})
  }
 
- console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; 1280 and 390 px, light and dark.')
+ // The Sessions screen's own Add a project, at both widths: on a desktop its project list's button, on a phone the rail's
+ // heading. Both open the dialog with From GitHub, and a clone started there is followed to its end. Before, the desktop
+ // list opened a dialog of its own with only Folder on a machine.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`from GitHub on the Sessions screen (${screen.width} px)`)) continue
+  const {context,page,errors,box} = await scene({...screen, sessionsPage:true})
+  await page.goto(base + '/sessions?view=list')
+  const add = page.getByRole('button',{name:'Add a project',exact:true})
+  await add.scrollIntoViewIfNeeded()
+  await add.click()
+  await expect(dialog(page)).toBeVisible()
+  await expect(tab(page, 'Folder on a machine')).toHaveAttribute('aria-selected', 'true')
+  await toGitHub(page)
+  await repoField(page).fill('eyupio/reet.sh')
+  await expect(machineField(page)).toHaveValue('a1')
+  await cloneButton(page).click()
+  await expect(dialog(page).getByText(CLONING,{exact:true})).toBeVisible()
+  expect(box.starts).toEqual([SENT])
+  box.finish = true
+  await expect(dialog(page)).toBeHidden({timeout:10000})
+  await expect(page.getByText('Sorted. reet.sh added.',{exact:true})).toBeVisible()
+  expect(await noSideways(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; 1280 and 390 px, light and dark.')
 } finally {
  await browser.close()
 }

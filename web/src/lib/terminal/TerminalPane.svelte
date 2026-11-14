@@ -601,10 +601,11 @@
      specific so the label keeps its own colour over the row's rule for a pressed button, hovered or not. */
   .key-tray .tools .key-modifier[aria-pressed=true],.key-tray .tools .key-modifier[aria-pressed=true]:hover:not(:disabled) {background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
   .key-tray .tools .key-modifier[data-modifier=locked] {box-shadow:inset 0 -3px 0 var(--accent-ink);text-decoration:underline;text-underline-offset:3px}
-  /* A row that scrolls sideways fades at the end that hides more keys, at any width. */
-  .key-row>.tools:global(.more-end) {-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}
-  .key-row>.tools:global(.more-start) {-webkit-mask-image:linear-gradient(to left,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to left,#000 calc(100% - 28px),transparent)}
-  .key-row>.tools:global(.more-start.more-end) {-webkit-mask-image:linear-gradient(to right,transparent,#000 28px,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to right,transparent,#000 28px,#000 calc(100% - 28px),transparent)}
+  /* A row that scrolls sideways fades at the end that hides more keys, at any width. A mask only reads a colour's
+     opacity, so the opaque stop is the ink token and no literal colour is added. */
+  .key-row>.tools:global(.more-end) {-webkit-mask-image:linear-gradient(to right,var(--ink) calc(100% - 28px),transparent);mask-image:linear-gradient(to right,var(--ink) calc(100% - 28px),transparent)}
+  .key-row>.tools:global(.more-start) {-webkit-mask-image:linear-gradient(to left,var(--ink) calc(100% - 28px),transparent);mask-image:linear-gradient(to left,var(--ink) calc(100% - 28px),transparent)}
+  .key-row>.tools:global(.more-start.more-end) {-webkit-mask-image:linear-gradient(to right,transparent,var(--ink) 28px,var(--ink) calc(100% - 28px),transparent);mask-image:linear-gradient(to right,transparent,var(--ink) 28px,var(--ink) calc(100% - 28px),transparent)}
   .key-row>.tools:focus-visible {outline:2px solid var(--accent);outline-offset:-2px}
   .key-interrupt {color:var(--bad)}
   .upload-input {display:none}

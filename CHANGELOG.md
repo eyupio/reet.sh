@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Start an agent** and Factory's **Give Gaffer an outcome** can start in a
+  GitHub repository without adding a project first: choose **A repository
+  from GitHub…** in the Project field, then the repository (from the
+  machine's list, or typed). reet clones it on that machine and saves it as a
+  project as you start (or uses the project already cloned from it), then
+  starts there as on any project, worktree and base branch included.
 - **From GitHub** now lists the repositories the chosen machine's GitHub
   sign-in reaches (its own, its organizations' and those shared with it, the
   200 most recently pushed) under the Repository field. Type to filter, then

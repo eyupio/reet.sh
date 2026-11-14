@@ -1,5 +1,42 @@
 # UI verification — 4 November 2026
 
+## Start in a GitHub repository without adding a project (14 November 2026)
+
+Four changes to the From GitHub path:
+
+- **Add a project → From GitHub** lists the repositories the chosen machine's gh sign-in reaches, as a searchable
+  combobox (`RepoField.svelte`).
+- **Start an agent** and Factory's **Give Gaffer an outcome** gain **A repository from GitHub…** in their Project field.
+  The repository is cloned and saved as a project as you start, or the existing project is reused.
+- The Sessions screen's desktop **Add a project** now offers From GitHub.
+- A project from GitHub shows its `owner/name` on its rail card, in the Sessions list and in Manage projects.
+
+Commands run in this container:
+
+- `cd web && npm run check`: 0 errors, 0 warnings. `typeScale.test.mjs` caught a 13 px option line, which was raised
+  to 14 px.
+- `npm run build`, `npx vite preview --port 4173 --strictPort`, then each of these passes in full:
+  - `add-project-github.e2e.mjs`. New sections cover: the list at 1280 and 390 px (filter, arrows, Enter, Escape that
+    leaves the dialog open, tap, a typed repository that isn't listed, a refusal said under the field, an older machine
+    that is never asked); From GitHub through the Sessions screen's Add at both widths (the 1280 px section was seen
+    failing on main: no tabs); the source on the rail card.
+  - `start-agent.e2e.mjs`. It picks a repository from the list and Start clones it. The create goes to the new project
+    with a worktree, `base: "main"` and `projectId`. Picked again, the project is reused and nothing is cloned.
+  - `gaffer-outcome.e2e.mjs`. At 1440 and 390 px only a machine that can clone is offered. Ask Gaffer for a plan clones
+    first and plans in the new project. A repository already cloned is used as it is.
+  - `add-project.e2e.mjs`, `add-project-edit.e2e.mjs`, `sessions.e2e.mjs`, `sessions-phone.e2e.mjs`, `home.e2e.mjs`,
+    `phone-dialogs.e2e.mjs`, `loading-width.e2e.mjs` and `phone-zoom.e2e.mjs`.
+- Screenshots were looked at. The open list at 390 dark and 1280 light: on desktop the list first floated over the
+  dialog body and was clipped, so it now sits in the form's flow. The rail at 301 px and the phone Sessions screen: the
+  source first shared the details line and cut the machine and branch to "stu…" and "ma…", so it has a line of its own.
+- `go test -race` for `terminalproto`, `terminalhost`, `terminalagent`, `agenthealth`, `terminalbroker` and `api`:
+  passes.
+- Real `gh` output for the listing's `--jq` (compact JSON, RFC 3339 times) parses through `ListRepos`. Real `gh` run
+  with reet's clean environment and no login answers `not_signed_in`.
+
+Not checked: a real list from a signed-in account (this container's GitHub access cannot call `user/repos`), a real
+clone started from Start an agent or Factory, and a tablet-width screenshot.
+
 ## Machines follow a move with nothing run on them (14 November 2026)
 
 The Move page's step 4 was a `reet agent set-server` command to copy. It is now **Machines follow on their own**: a

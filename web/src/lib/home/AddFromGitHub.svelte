@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { cloneFolder, parseGitHubRepo, startUnheardLine, timedOut, type CloneEnd, type OutstandingClone } from '../githubRepo'
-  import { addFromGitHub, githubRepos, refusalSentence, TerminalError, type GitHubRepo, type TerminalMachine } from '../terminal/api'
-  import { elapsed } from '../time'
+  import { addFromGitHub, refusalSentence, TerminalError, type TerminalMachine } from '../terminal/api'
+  import RepoField from './RepoField.svelte'
 
   // Add a project From GitHub, the Add project dialog's second choice: a repository, a machine that can clone it and an
   // optional name. Clone and add asks the controller to start the clone; while it runs the form gives way to one line and
@@ -29,66 +29,13 @@
   // The repository field says it cannot read what was typed only once it is left, or on Enter.
   let left = $state(false)
   let starting = $state(false), message = $state(''), failed = $state(false)
-  let repoInput = $state<HTMLInputElement>(), submitButton = $state<HTMLButtonElement>(), closeButton = $state<HTMLButtonElement>()
+  let repoField = $state<RepoField>(), submitButton = $state<HTMLButtonElement>(), closeButton = $state<HTMLButtonElement>()
   const life = new AbortController()
 
   const parsed = $derived(parseGitHubRepo(repo))
   const machine = $derived(able.find(m => m.agentId === host))
   const ready = $derived(!!parsed && !!machine)
   const repoProblem = $derived(left && repo.trim() !== '' && !parsed ? INVALID : '')
-
-  // The repositories the chosen machine's gh sign-in reaches, read once per machine while this panel shows, offered under
-  // the field as it is typed in. Anything can still be typed: a repository that is not listed (older than the 200 most
-  // recently pushed, or a public one of someone else's) clones the same way. A machine that cannot list keeps the plain field.
-  type Listing = { state: 'loading' } | { state: 'ready'; repos: GitHubRepo[]; more: boolean } | { state: 'failed'; sentence: string }
-  let listings = $state<Record<string, Listing>>({})
-  const canList = $derived(!!machine?.capabilities?.repoList)
-  const listing = $derived(canList && machine ? listings[machine.agentId] : undefined)
-  let open = $state(false), active = $state(-1)
-  let listbox = $state<HTMLUListElement>()
-  const query = $derived(repo.trim().toLowerCase())
-  const matches = $derived(listing?.state === 'ready' ? listing.repos.filter(r => r.name.toLowerCase().includes(query)) : [])
-  const showList = $derived(open && listing?.state === 'ready' && matches.length > 0)
-  const optionId = (i: number) => `${id}-gh-repo-option-${i}`
-
-  async function list(agentId: string, label: string) {
-    listings[agentId] = { state: 'loading' }
-    try {
-      const answer = await githubRepos(agentId, life.signal)
-      if (life.signal.aborted) return
-      listings[agentId] = { state: 'ready', repos: answer.repos ?? [], more: !!answer.more }
-    } catch (e) {
-      if (life.signal.aborted) return
-      if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return }
-      listings[agentId] = { state: 'failed', sentence: timedOut(e) ? `${label} didn't list its repositories in time. Type one instead.` : refusalSentence(e) }
-    }
-  }
-  $effect(() => {
-    if (hidden || clone || !canList || !machine || listings[machine.agentId]) return
-    void list(machine.agentId, machine.host)
-  })
-  // The highlighted option stays in view as the arrows move it.
-  $effect(() => { if (showList && active >= 0) listbox?.querySelector(`#${CSS.escape(optionId(active))}`)?.scrollIntoView({ block: 'nearest' }) })
-
-  function choose(r: GitHubRepo) {
-    repo = r.name; open = false; active = -1; left = true
-    edited()
-  }
-  function repoKeys(event: KeyboardEvent) {
-    if (canList && listing?.state === 'ready') {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault()
-        if (!open) { open = true; active = event.key === 'ArrowDown' ? 0 : matches.length - 1; return }
-        active = event.key === 'ArrowDown' ? Math.min(active + 1, matches.length - 1) : Math.max(active - 1, 0)
-        return
-      }
-      if (event.key === 'Enter' && showList && active >= 0 && matches[active]) { event.preventDefault(); choose(matches[active]); return }
-      // Escape closes the list, not the dialog.
-      if (event.key === 'Escape' && showList) { event.preventDefault(); event.stopPropagation(); open = false; active = -1; return }
-    }
-    if (event.key === 'Enter' && !ready) left = true
-  }
-  const pushed = (r: GitHubRepo) => (r.pushedAt > 0 ? (elapsed(r.pushedAt * 1000) === 'just now' ? 'pushed just now' : `pushed ${elapsed(r.pushedAt * 1000)} ago`) : '')
 
   /** Whether the start is on its way, so the dialog holds its tabs until the answer. */
   export function busy(): boolean { return starting }
@@ -122,7 +69,7 @@
       // follow it with, so it says that and not that the request never arrived.
       message = timedOut(e) ? startUnheardLine : refusalSentence(e)
       const field = e instanceof TerminalError ? e.field : undefined
-      void tick().then(() => (field === 'repo' ? repoInput : field === 'host' ? document.getElementById(`${id}-gh-machine`) : field === 'name' ? document.getElementById(`${id}-gh-name`) : submitButton)?.focus())
+      void tick().then(() => (field === 'repo' ? { focus: () => repoField?.focus() } : field === 'host' ? document.getElementById(`${id}-gh-machine`) : field === 'name' ? document.getElementById(`${id}-gh-name`) : submitButton)?.focus())
     } finally {
       if (!life.signal.aborted) starting = false
     }
@@ -142,33 +89,8 @@
       <fieldset disabled={starting}>
         <div class="field">
           <label class="label" for={`${id}-gh-repo`}>Repository</label>
-          <div class="combo">
-            <input id={`${id}-gh-repo`} class="mono" bind:this={repoInput} bind:value={repo} onchange={() => (left = true)}
-              onkeydown={repoKeys} oninput={() => { open = true; active = -1 }} onclick={() => (open = true)} onblur={() => { open = false; active = -1 }}
-              role={canList ? 'combobox' : undefined} aria-autocomplete={canList ? 'list' : undefined}
-              aria-expanded={canList ? showList : undefined} aria-controls={canList ? `${id}-gh-repo-list` : undefined}
-              aria-activedescendant={showList && active >= 0 ? optionId(active) : undefined}
-              placeholder={listing?.state === 'ready' && listing.repos.length ? 'Search or type owner/name' : undefined}
-              autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="300"
-              aria-invalid={repoProblem ? 'true' : undefined} aria-describedby={`${id}-gh-repo-hint${repoProblem ? ` ${id}-gh-repo-note` : ''}`} />
-            {#if canList}
-              <!-- Always in the page, so aria-controls names it; shown while there is something to choose. -->
-              <ul class="options" id={`${id}-gh-repo-list`} role="listbox" aria-label={`${machine?.host ?? 'The machine'}'s repositories`} bind:this={listbox} hidden={!showList}>
-                {#each showList ? matches : [] as r, i (r.name)}
-                  <!-- The keyboard stays in the field (arrows, Enter, Escape) and names the option with aria-activedescendant, as
-                       a combobox does, so an option takes no keys of its own. -->
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <li id={optionId(i)} role="option" aria-selected={i === active} class:active={i === active}
-                    onpointerdown={(event) => event.preventDefault()} onclick={() => choose(r)}>
-                    <span class="option-name">{r.name}</span>
-                    <span class="option-meta">{#if r.private}<span class="private">private</span>{/if}{pushed(r)}</span>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
-          <p class="hint" id={`${id}-gh-repo-hint`}>{#if listing?.state === 'loading'}Reading {machine?.host}'s repositories from GitHub…{:else if listing?.state === 'failed'}{listing.sentence}{:else if listing?.state === 'ready' && listing.repos.length}Choose from {machine?.host}'s {listing.more ? `${listing.repos.length} most recently pushed ` : ''}GitHub repositories, or type owner/name or a github.com link{:else if listing?.state === 'ready'}{machine?.host}'s GitHub sign-in reaches no repositories. Type owner/name or a github.com link{:else}owner/name, or a github.com link{/if}</p>
-          {#if repoProblem}<p class="field-note bad" id={`${id}-gh-repo-note`}>{repoProblem}</p>{/if}
+          <RepoField bind:this={repoField} id={`${id}-gh-repo`} {machine} bind:value={repo} problem={repoProblem} hidden={hidden || !!clone}
+            onleave={() => (left = true)} {onsignedout} />
         </div>
         <div class="pair">
           <div class="field">
@@ -214,26 +136,14 @@
   .body { min-height: 0; overflow: auto; padding: 16px 24px; }
   fieldset { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
   .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  /* The list sits in the form's flow under the field, not over it: the dialog body scrolls and would clip a floating list. */
-  .combo { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  .options { max-height: min(280px, 45vh); overflow: auto; margin: 0; padding: 4px;
-    list-style: none; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card-raised, var(--card)); box-shadow: var(--shadow); }
-  .options[hidden] { display: none; }
-  .options li { display: flex; flex-direction: column; gap: 2px; min-height: 44px; justify-content: center; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
-  .options li.active, .options li:hover { background: var(--bg-sunk, var(--bg)); }
-  .option-name { font-family: var(--mono); font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
-  .option-meta { display: flex; gap: 8px; font-size: 14px; color: var(--muted); }
-  .private { padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 5px; }
   .label { color: var(--muted); font-size: 14px; }
   .optional { color: var(--faint); }
   input, select { width: 100%; min-width: 0; height: 42px; min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--sans); }
-  .mono { font-family: var(--mono); }
   input::placeholder { color: var(--faint); }
   .select-wrap { position: relative; }
   .select-wrap select { appearance: none; padding-right: 34px; cursor: pointer; }
   .chev { position: absolute; right: 12px; top: 14px; width: 14px; height: 14px; color: var(--muted); pointer-events: none; }
-  .hint, .field-note, .where, .lead { margin: 0; font-size: 14px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
-  .field-note.bad { color: var(--bad); }
+  .where, .lead { margin: 0; font-size: 14px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
   .where { color: var(--ink); }
   .path { font-family: var(--mono); }
   .lead { color: var(--ink); }
@@ -262,7 +172,6 @@
     .body { padding: 14px 16px 16px; font-size: 15px; }
     fieldset { gap: 12px; }
     input, select { height: 48px; min-height: 48px; border-radius: 10px; background: var(--card); font-size: 16px; }
-    .mono { font-size: 16px; }
     .chev { top: 17px; }
     .pair { flex-direction: column; }
     footer { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px 16px 16px; background: var(--bg-sunk); }

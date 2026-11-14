@@ -338,7 +338,7 @@ func TestRetiredToolsAreToleratedInAToolsList(t *testing.T) {
 	if !RetiredTool("gemini") {
 		t.Fatal("gemini is not retired")
 	}
-	for _, id := range []string{"claude", "antigravity", "", "vim"} {
+	for _, id := range []string{"claude", "antigravity", "copilot", "", "vim"} {
 		if RetiredTool(id) {
 			t.Fatalf("%q reported as retired", id)
 		}

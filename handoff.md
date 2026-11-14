@@ -81,6 +81,39 @@ Branch `claude/copilot-agent`, four local commits, not pushed and no pull reques
 - **Next:** a device check of one signed-in Copilot terminal launch (plain, with a prompt, with YOLO) before calling the
   arguments verified; then decide resume from what that shows. First files: `internal/terminalhost/catalogue.go`,
   `internal/terminalhost/testdata/help/README.md`, `docs/terminal-launch.md`.
+## TERMINAL-ASK-1: an agent's question on its terminal screen counts as a bell (14 November 2026)
+
+A terminal session showed "needs you" only when the agent rang the bell, and Claude Code, Codex and OpenCode do not
+always ring it when they stop to ask. `running` already meant the shell, not the agent (see "Terms that must not be
+conflated"), so such a session looked like one still working.
+
+- **What changed** (`internal/terminalhost/agent_prompt.go`, hooked into `reconcileLocked` in `manager.go`): for a
+  running session that an agent with rules was started in, and that has no bell set, the host reads the visible screen
+  (`tmux capture-pane -p`, 64 KiB at most) and matches the last 16 non-empty lines against that agent's patterns. A
+  question that the look before did not find sets `BellAt`, exactly as a bell does. Nothing else changes: no protocol,
+  controller, store or browser change, so the existing attention rule, Home, the bell and the sessions panel show it,
+  and an older controller works with a new machine.
+- **Read sparingly.** Only when the window's activity differs from the last read (a screen cannot change without
+  activity), at most every 2 s while it keeps changing and never twice within 500 ms; a screen read after the second
+  of its last activity is over is settled and not read again. A plain shell and an agent without rules are never read.
+- **Privacy.** The text stays inside `askedOnScreen`: it is not stored, logged or sent. The registry and the snapshot
+  carry a time. `docs/remote-machine-operations.md` says so beside the existing statement that terminal content is not
+  recorded.
+- **The patterns are narrow on purpose.** Each needs the marks of a question the agent drew (a numbered option with
+  the selection mark on it, the keys that answer it, OpenCode's heading with its allow and reject choices), not just
+  words an answer could contain, and only in the last lines. A screen no pattern knows is "not waiting".
+- **Checked:** `agent_prompt_test.go` (each agent's question, working and idle screens, the words alone, a question
+  that scrolled up, an agent without rules, a shell) and `agent_prompt_host_test.go` against a real tmux 3.4 (a
+  question recorded once, a redrawn question read again and not recorded again, an answered one and a second one, a
+  shell and an agent without rules never read, no screen text in the snapshot or the registry, a settled screen not
+  read again). Three rules were each removed and a test seen to fail (recorded on every read, every session read,
+  settled screens read again). `go test -race ./internal/terminalhost`: pass.
+- **Not verified:** the patterns were not run against a signed-in Claude Code, Codex or OpenCode; the screens in the
+  tests were written for them. [Device check 5](docs/device-checks.md) says how to confirm each and what to record
+  when one misses. macOS was not run.
+- **Not done:** Cline, Google Antigravity and any other agent; telling "working" from "idle" (the window's activity
+  still decides that); a word for it distinct from a bell's, so opening the session clears it as it clears a bell; a
+  switch to turn the read off.
 ## CHAT-USAGE-1: a chat shows what its agent reports using (14 November 2026)
 
 The agent's tokens and context figures were already kept per session (`terminal_session_usage`, see "Agent tokens and

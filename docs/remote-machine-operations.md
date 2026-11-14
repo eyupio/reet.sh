@@ -217,6 +217,13 @@ separately and securely. SQLite backups do not checkpoint/restore running OS
 processes or tmux scrollback. Losing the sealing key is not repaired by rotating
 the identity while pretending enrolled hosts are unchanged.
 
+One thing on the machine does read a screen. For a terminal session an agent was started in, and only for Claude
+Code, Codex and OpenCode, the connector reads the session's visible screen to tell whether the agent has stopped to
+ask a question, because an agent does not always ring the bell when it does. The text is matched against a few
+fixed patterns in the last 16 lines and dropped: it is not stored, logged or sent, and what leaves the machine is the
+same time a bell would have set. A plain shell, and an agent reet has no patterns for, are never read. The screen is
+read only when the window's activity says it may have changed, at most every two seconds while it keeps changing.
+
 Linux services use journal retention. Rotate macOS service logs and the detached
 fallback's private agent log with the host's log management; restart the agent
 after rotating a fallback log so its file descriptor reopens. Never rotate by

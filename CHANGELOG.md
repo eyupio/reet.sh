@@ -19,6 +19,18 @@ this file existed releases were described on their GitHub release pages.
   new agent's name, so Copilot just isn't offered there until it is updated.
   The arguments reet starts it with were taken from the help of Copilot CLI
   1.0.112; they have not been run with a signed-in account.
+- An agent in a terminal that stops to ask now shows as needing you. Claude
+  Code, Codex and OpenCode do not always ring the terminal bell when they ask
+  before running a command or changing a file, so such a session looked the
+  same as one still working. The machine now reads the visible screen of an
+  agent's terminal session and, when the agent's question is on it, records
+  that as it records a bell: the session counts under **Needs you** on Home,
+  in the bell and in the sessions panel until you open it. The screen's text
+  is matched on the machine and dropped; nothing of it is stored or sent. A
+  plain shell is never read. Only the machine needs updating. The patterns
+  were written from how these agents draw their questions and have not been
+  checked against a signed-in run of each, so a question in a shape they do
+  not know is missed, as every question was before.
 - A chat now shows what its agent reports using. The status line above the
   message box ends with how much of the agent's context window is left, or
   the chat's tokens when the agent never says how large its window is, and

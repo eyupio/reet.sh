@@ -300,6 +300,7 @@ func TestPrivatePeerRepliesIncludeModelsAndChatEvents(t *testing.T) {
 		&terminalproto.LaunchProgress{}, &terminalproto.BaseCheckResult{},
 		&terminalproto.BranchSyncResult{}, &terminalproto.BranchPrunePlanResult{}, &terminalproto.BranchPruneResult{},
 		&terminalproto.SoftwareApplyResult{}, &terminalproto.RepoCloneResult{},
+		&terminalproto.RepoCloneState{}, &terminalproto.RepoCloneRemoved{},
 	} {
 		if !isPeerReply(body) {
 			t.Fatalf("%T is not forwarded", body)
@@ -307,6 +308,12 @@ func TestPrivatePeerRepliesIncludeModelsAndChatEvents(t *testing.T) {
 	}
 	if isPeerReply(&terminalproto.Hello{}) {
 		t.Fatal("Hello should be handled before peer replies")
+	}
+	// Requests are what the controller sends, never what it receives.
+	for _, body := range []terminalproto.Body{&terminalproto.RepoClone{}, &terminalproto.RepoCloneStatus{}, &terminalproto.RepoCloneRemove{}} {
+		if isPeerReply(body) {
+			t.Fatalf("%T is accepted from a machine", body)
+		}
 	}
 }
 

@@ -154,6 +154,10 @@ type Capabilities struct {
 	// RepoClone is sent only on a connection that negotiated repo-clone-v1:
 	// the machine can clone a GitHub repository into its projects folder.
 	RepoClone bool `json:"repoClone,omitempty"`
+	// RepoCloneRemove is sent only on a connection that negotiated
+	// repo-clone-remove-v1: the machine can report what a clone reet made
+	// holds, and delete it.
+	RepoCloneRemove bool `json:"repoCloneRemove,omitempty"`
 	// AgentAccounts is sent only on a connection that negotiated
 	// agent-accounts-v1, and only while terminal access is on: the machine
 	// can say which agents are signed in and read their plan allowance.
@@ -285,6 +289,9 @@ func (c Capabilities) Validate() error {
 	if c.RepoClone {
 		features = append(features, RepoCloneFeature)
 	}
+	if c.RepoCloneRemove {
+		features = append(features, RepoCloneRemoveFeature)
+	}
 	if c.AgentAccounts {
 		features = append(features, AgentAccountsFeature)
 	}
@@ -370,6 +377,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.RepoClone && !(c.Worktree && SupportsRepoClone(features)) {
+		return ErrInvalid
+	}
+	if c.RepoCloneRemove && !(c.Worktree && SupportsRepoCloneRemove(features)) {
 		return ErrInvalid
 	}
 	if c.AgentAccounts && !(c.TerminalControl && c.TerminalEnabled && SupportsAgentAccounts(features)) {
@@ -916,6 +926,14 @@ func Decode(data []byte) (Message, error) {
 		b = &RepoClone{}
 	case "repo_clone_result":
 		b = &RepoCloneResult{}
+	case "repo_clone_status":
+		b = &RepoCloneStatus{}
+	case "repo_clone_state":
+		b = &RepoCloneState{}
+	case "repo_clone_remove":
+		b = &RepoCloneRemove{}
+	case "repo_clone_removed":
+		b = &RepoCloneRemoved{}
 	case "accounts":
 		b = &Accounts{}
 	case "accounts_result":

@@ -51,6 +51,11 @@ func (s *server) registerFolderProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/folder-projects/from-github", s.folderAccess(s.folderProjectWrite(s.folderProjectFromGitHub)))
 	mux.HandleFunc("GET /api/v2/folder-projects/clones/{id}", s.folderAccess(s.folderProjectClone))
 	mux.HandleFunc("GET /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectGet))
+	// {part} is "clone" only. It makes a machine run git and counts as a
+	// write, so unlike the other reads it refuses a request from another site.
+	// The pattern is spelled with a wildcard because
+	// ".../{id}/clone" and ".../clones/{id}" would both match ".../clones/clone".
+	mux.HandleFunc("GET /api/v2/folder-projects/{id}/{part}", s.folderAccess(s.sameOriginRead(s.folderProjectWrite(s.folderProjectCloneState))))
 	mux.HandleFunc("PATCH /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectUpdate)))
 	mux.HandleFunc("DELETE /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectDelete)))
 	s.registerProjectGroupRoutes(mux)
@@ -107,6 +112,22 @@ func folderProjectBody(w http.ResponseWriter, r *http.Request, out any) bool {
 		writeErrCode(w, http.StatusBadRequest, "invalid_request", "", "That request isn't a project reet can read.", "")
 	}
 	return false
+}
+
+// folderProjectOptionalBody is folderProjectBody for a request that may come
+// without a body: an empty one leaves out as it is.
+func folderProjectOptionalBody(w http.ResponseWriter, r *http.Request, out any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFolderProjectBodyBytes)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErrCode(w, http.StatusRequestEntityTooLarge, "too_large", "", "That request is too large for a project.", "")
+		return false
+	}
+	if strings.TrimSpace(string(raw)) == "" {
+		return true
+	}
+	r.Body = io.NopCloser(strings.NewReader(string(raw)))
+	return folderProjectBody(w, r, out)
 }
 
 // folderProjectInput is the body of a create or an update. On an update a
@@ -629,12 +650,23 @@ func (s *server) folderProjectUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-// folderProjectDelete removes the registry entry only; sessions and worktrees
-// stay on the machine. If-Match works as for an update.
+// folderProjectDelete removes the registry entry; sessions and worktrees stay
+// on the machine. If-Match works as for an update. With the body
+// {"deleteClone": true, "fingerprint": "..."} the clone reet made is deleted
+// from the machine first (removeProjectClone), and the project is removed
+// only when the machine confirms that; without it the folder is never
+// touched and no machine is asked anything.
 func (s *server) folderProjectDelete(w http.ResponseWriter, r *http.Request) {
 	expect, ok := ifMatch(r)
 	if !ok {
 		folderVersionRefused(w)
+		return
+	}
+	var in struct {
+		DeleteClone bool   `json:"deleteClone"`
+		Fingerprint string `json:"fingerprint"`
+	}
+	if !folderProjectOptionalBody(w, r, &in) {
 		return
 	}
 	uid := s.uid(r)
@@ -649,12 +681,62 @@ func (s *server) folderProjectDelete(w http.ResponseWriter, r *http.Request) {
 		folderRefusal(err, "").write(w)
 		return
 	}
-	if err := s.st.DeleteFolderProjectFor(uid, id, expect); err != nil {
-		folderRefusal(err, machineLabel(names, p.Host)).write(w)
+	machine := machineLabel(names, p.Host)
+	detail := folderAuditDetail(p, names)
+	message := "Project removed. Its sessions and any worktrees stay on " + machine + "."
+	answer := map[string]any{"ok": true}
+	if in.DeleteClone {
+		if expect != 0 && expect != p.Version {
+			folderRefusal(store.ErrFolderProjectChanged, machine).write(w)
+			return
+		}
+		removed, refusal := s.removeProjectClone(uid, p, machine, in.Fingerprint)
+		if refusal != nil {
+			if refusal.code == "clone_unconfirmed" {
+				// The machine was asked and reet does not know what it did:
+				// that is recorded, so a later plain remove is never the only
+				// trace of a folder that may be gone.
+				detail["unconfirmed"], detail["clonePath"] = true, p.Dir
+				s.event(uid, "ui", "project-clone-delete", "", detail)
+			}
+			refusal.write(w)
+			return
+		}
+		// The clone is gone, so the project goes whatever its version is now.
+		expect = 0
+		detail["cloneDeleted"], detail["clonePath"] = true, removed
+		answer["cloneDeleted"] = true
+		message = "Project removed. " + cloneShown(p) + " was deleted from " + machine + "."
+	}
+	if p.Cloned && !in.DeleteClone {
+		// A clone reet made, left alone by this removal. What became of it
+		// before (an earlier delete reet could not confirm) is not known here.
+		detail["cloned"] = true
+	}
+	err = s.st.DeleteFolderProjectFor(uid, id, expect)
+	if in.DeleteClone && errors.Is(err, store.ErrFolderProjectNotFound) {
+		// Another tab removed the project while the machine deleted the
+		// clone, and recorded that removal: only the clone is recorded here.
+		s.event(uid, "ui", "project-clone-delete", "", detail)
+		answer["message"] = message
+		writeJSON(w, http.StatusOK, answer)
 		return
 	}
-	s.auditFolderProject(uid, "project-remove", p, names)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "Project removed. Its sessions and any worktrees stay on " + machineLabel(names, p.Host) + "."})
+	if err != nil {
+		if in.DeleteClone {
+			// The folder is gone and the project is not: the deletion is
+			// still recorded, under its own name.
+			s.event(uid, "ui", "project-clone-delete", "", detail)
+			log.Printf("folder projects: store error after a clone was deleted: %v", err)
+			writeErrCode(w, http.StatusInternalServerError, "clone_deleted_project_kept", "", "The clone on "+machine+" was deleted, but reet couldn't remove the project just now. Remove it again.", "")
+			return
+		}
+		folderRefusal(err, machine).write(w)
+		return
+	}
+	s.event(uid, "ui", "project-remove", "", detail)
+	answer["message"] = message
+	writeJSON(w, http.StatusOK, answer)
 }
 
 // folderProjectReorder puts the account's projects in the order given. ids

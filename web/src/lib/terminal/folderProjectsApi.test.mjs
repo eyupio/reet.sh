@@ -207,6 +207,39 @@ test('an old Project id is looked up by id only, and a project made from none an
   assert.equal(await api.folderProjectForLegacy('p 1/x'), 'fp9')
   assert.equal(calls[0].url, '/api/v2/folder-projects?legacy=p+1%2Fx')
   cookieOnly(calls[0])
+  // With the clone: the fingerprint that was shown goes in the body, and nothing else names the folder.
+  const gone = 'Project removed. ~/reet/repos/eyupio/reet.sh was deleted from studio.'
+  calls = fetchReplying(200, { ok: true, cloneDeleted: true, message: gone })
+  assert.deepEqual(await api.deleteFolderProject('p1', 4, undefined, { fingerprint: 'f'.repeat(64) }), { ok: true, cloneDeleted: true, message: gone })
+  assert.equal(calls[0].url, '/api/v2/folder-projects/p1')
+  assert.equal(calls[0].init.method, 'DELETE')
+  assert.equal(calls[0].headers.get('If-Match'), '"4"')
+  assert.equal(calls[0].headers.get('Content-Type'), 'application/json')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { deleteClone: true, fingerprint: 'f'.repeat(64) })
+  cookieOnly(calls[0])
+  for (const [code, sentence] of [
+    ['clone_changed', 'The clone changed just now, so nothing was removed. Check again.'],
+    ['clone_kept', "The clone on studio is kept: studio can't be asked right now."],
+    ['clone_unconfirmed', "reet couldn't confirm whether the clone on studio was removed. Check again."],
+  ]) {
+    fetchReplying(409, { code, error: sentence })
+    const error = await api.deleteFolderProject('p1', 4, undefined, { fingerprint: 'f'.repeat(64) }).then(() => assert.fail(code), e => e)
+    assert.ok(error instanceof api.TerminalError)
+    assert.equal(error.code, code)
+    assert.equal(error.message, sentence)
+    assert.ok(api.CLONE_REMOVE_CODES.includes(error.code))
+  }
+
+  // What the clone holds, read when the Remove dialog opens.
+  const state = { removable: true, worktrees: 0, changed: 0, stashes: 0, unpushed: 0, fingerprint: 'f'.repeat(64), sentence: '' }
+  calls = fetchReplying(200, state)
+  assert.deepEqual(await api.projectClone('p/1'), state)
+  assert.equal(calls[0].url, '/api/v2/folder-projects/p%2F1/clone')
+  assert.equal(calls[0].init.method, undefined)
+  cookieOnly(calls[0])
+  fetchReplying(404, { code: 'not_cloned', error: "reet didn't clone that project's folder, so it won't delete it." })
+  assert.equal((await api.projectClone('p1').catch(e => e)).code, 'not_cloned')
+
   calls = fetchReplying(404, { error: "That project isn't on this account.", code: 'project_not_found' })
   assert.equal(await api.folderProjectForLegacy('nope'), null)
   calls = fetchReplying(500, { error: 'down' })

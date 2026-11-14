@@ -5,14 +5,15 @@
   import ConfirmDialog from '../ConfirmDialog.svelte'
   import { addedLine } from '../folderBrowser'
   import type { ProjectColour } from '../projectColour'
-  import { lostCloneLine, outstandingClone, rememberClone, watchClone, type CloneEnd, type OutstandingClone } from '../githubRepo'
-  import { cloneStatus, createProjectGroup, deleteFolderProject, deleteProjectGroup, getFolderProject, importSavedProjects, refusalSentence, reorderFolderProjects,
+  import { clonedProject, lostCloneLine, outstandingClone, rememberClone, watchClone, type CloneEnd, type OutstandingClone } from '../githubRepo'
+  import { cloneStatus, createProjectGroup, deleteFolderProject, deleteProjectGroup, folderProjectList, getFolderProject, importSavedProjects, refusalSentence, reorderFolderProjects,
     reorderProjectGroups, setFolderProjectGroup, terminalMachines, updateFolderProject, updateProjectGroup, TerminalError,
     type FolderProject, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import AddProjectDialog from './AddProjectDialog.svelte'
   import ManageProjectsDialog from './ManageProjectsDialog.svelte'
   import ProjectGroupDialog from './ProjectGroupDialog.svelte'
   import ProjectRail from './ProjectRail.svelte'
+  import RemoveProjectDialog from './RemoveProjectDialog.svelte'
   import { RAIL_DEFAULT } from '../shell/workspaceLayout'
   import ProjectWorktrees from './ProjectWorktrees.svelte'
 
@@ -157,9 +158,8 @@
   })
   function cloneEnded(end: CloneEnd, watched: OutstandingClone) {
     if (end.state === 'signedout') { signOut(); return }
-    // A clone the controller no longer knows is said as a failure is, and the list is read again: it may have finished.
-    const lost = end.state === 'gone'
-    if (lost) end = { state: 'failed', code: 'clone_not_found', sentence: lostCloneLine(watched.repo) }
+    // A clone the controller no longer knows may have finished all the same: the list is read before anything is said.
+    if (end.state === 'gone') { void cloneLost(watched); return }
     // The open dialog shows the outcome first (it closes on done, or puts the sentence in its error slot), then the clone
     // leaves it.
     const shown = adding ? addDialog?.cloneEnded(end) ?? false : false
@@ -172,8 +172,27 @@
       onreload()
     } else if (end.state === 'failed') {
       if (!shown) onnotice({ text: end.sentence, bad: true })
-      if (lost) onreload()
     } else onreload()
+  }
+  // The controller no longer knows a clone this page started (it restarted mid-clone, or the job expired). The project
+  // list is read again first: with the project in it there is nothing to say, and the open dialog closes as it does when
+  // a clone is done. Otherwise reet says it lost track, where a failure is said.
+  async function cloneLost(watched: OutstandingClone) {
+    let found: FolderProject | undefined
+    try {
+      const list = await folderProjectList(signal())
+      onsettle(list.projects)
+      onwaiting?.(list.savedWaiting)
+      found = clonedProject(list.projects, watched)
+    } catch (e) {
+      if (refused(e)) { signOut(); return }
+      // The list could not be read, so how the clone ended is still unknown; the page reads the list again.
+      onreload()
+    }
+    const end: CloneEnd = found ? { state: 'done', project: found } : { state: 'failed', code: 'clone_not_found', sentence: lostCloneLine(watched.repo) }
+    const shown = adding ? addDialog?.cloneEnded(end) ?? false : false
+    clone = null
+    if (end.state === 'failed' && !shown) onnotice({ text: end.sentence, bad: true })
   }
 
   function added(p: FolderProject, wasEdit: boolean) {
@@ -189,21 +208,27 @@
     const at = (projects ?? []).findIndex(p => p.id === project.id)
     try {
       const answer = await deleteFolderProject(project.id, project.version, signal())
-      onsettle((projects ?? []).filter(p => p.id !== project.id))
-      onnotice({ text: answer.message })
-      await tick()
-      const shown = (el: HTMLElement) => el.getClientRects().length > 0
-      // Manage projects keeps the focus in its own dialog: the rail behind it is not where the person is working.
-      if (managing) { document.querySelector<HTMLElement>('dialog[open] footer .btn:last-child')?.focus(); return }
-      const cards = [...document.querySelectorAll<HTMLElement>('aside.rail .card, aside.rail .mini')].filter(shown)
-      const add = [...document.querySelectorAll<HTMLElement>('aside.rail button[aria-label="Add a project"]')].find(shown)
-      ;(cards[Math.min(Math.max(at, 0), cards.length - 1)] ?? add)?.focus()
+      await removed(project, at, answer.message)
     } catch (e) {
-      if (refused(e)) { signOut(); return }
-      onnotice({ text: refusalSentence(e), bad: true })
-      if (opener?.isConnected) opener.focus()
-      onreload()
+      removeRefused(e, opener)
     } finally { pending.delete(project.id) }
+  }
+  async function removed(project: FolderProject, at: number, message: string) {
+    onsettle((projects ?? []).filter(p => p.id !== project.id))
+    onnotice({ text: message })
+    await tick()
+    const shown = (el: HTMLElement) => el.getClientRects().length > 0
+    // Manage projects keeps the focus in its own dialog: the rail behind it is not where the person is working.
+    if (managing) { document.querySelector<HTMLElement>('dialog[open] footer .btn:last-child')?.focus(); return }
+    const cards = [...document.querySelectorAll<HTMLElement>('aside.rail .card, aside.rail .mini')].filter(shown)
+    const add = [...document.querySelectorAll<HTMLElement>('aside.rail button[aria-label="Add a project"]')].find(shown)
+    ;(cards[Math.min(Math.max(at, 0), cards.length - 1)] ?? add)?.focus()
+  }
+  function removeRefused(e: unknown, opener: HTMLElement | null) {
+    if (refused(e)) { signOut(); return }
+    onnotice({ text: refusalSentence(e), bad: true })
+    if (opener?.isConnected) opener.focus()
+    onreload()
   }
   // Moving a card sends the whole order with the version of each project as read; a changed list is read again.
   async function move(project: FolderProject, by: -1 | 1) {
@@ -438,7 +463,15 @@
   <AddProjectDialog bind:this={addDialog} machines={terminals} project={adding.project} initialHost={adding.host} opener={adding.opener} {clone} onclone={cloneStarted}
     onadded={(p) => added(p, wasEdit)} onsignedout={signOut} onclose={() => (adding = null)} />
 {/if}
-{#if removing}
+{#if removing?.project.cloned}
+  <!-- A project reet cloned: the same confirmation, which can also delete the clone when the machine says nothing would be lost. -->
+  {@const p = removing.project}
+  <RemoveProjectDialog project={p} onsignedout={signOut}
+    onplain={() => { const target = p, opener = removing?.opener ?? null; removing = null; void remove(target, opener) }}
+    onremoved={(answer) => { const target = p, at = (projects ?? []).findIndex(x => x.id === p.id); removing = null; onnotice(null); void removed(target, at, answer.message) }}
+    onrefused={(e) => { const opener = removing?.opener ?? null; removing = null; removeRefused(e, opener) }}
+    oncancel={() => { const o = removing?.opener; removing = null; o?.focus() }} />
+{:else if removing}
   {@const p = removing.project}
   <ConfirmDialog title={`Remove ${p.name} from reet?`} body={`It leaves the rail. Its sessions and any worktrees stay on ${p.machine || 'its machine'}, and the folder isn't touched.`}
     confirmLabel="Remove from reet" danger onconfirm={() => { const target = p, opener = removing?.opener ?? null; removing = null; void remove(target, opener) }} oncancel={() => { const o = removing?.opener; removing = null; o?.focus() }} />

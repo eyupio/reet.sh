@@ -106,7 +106,10 @@ machine's own **+** on Home asks which project on that machine to start, or offe
   stale list is 409 `project_changed`, said as sent, and the list is read again.
 - **Remove from reet** asks first ("Remove reet from reet?" — "It leaves the rail. Its sessions and
   any worktrees stay on studio, and the folder isn't touched."), then answers "Project removed. Its
-  sessions and any worktrees stay on studio." Only the registry entry goes.
+  sessions and any worktrees stay on studio." Only the registry entry goes. For a project reet cloned
+  from GitHub the same question can also delete the clone
+  ([Removing a project from GitHub](#removing-a-project-from-github)); for every other project the
+  folder is never touched and its machine is asked nothing.
 
 **Select projects** in the rail heading's menu, or a long press on a card on touch, turns the cards
 into checkboxes for **Start in several projects** (2 to 12 projects; the 56 px strip shows how many
@@ -153,8 +156,8 @@ which hold the same rail) is open, with the dialog open or not; when it is done 
 and chosen in the rail, with "Sorted. name added." The clone being read is kept in memory for the
 page's life only; a page opened later simply finds the project in its list. A failure is the
 controller's sentence ("studio isn't signed in to GitHub. Run gh auth login there, then try again.",
-"GitHub has no owner/name that studio's sign-in can read.", "Terminal access is off on studio. Turn it
-on there, then try again.", the folder holding something else, ten minutes running out) in the dialog's
+"GitHub has no owner/name that studio's sign-in can read.", "studio refused to clone: terminal access
+is off there, or git or the GitHub CLI is missing.", the folder holding something else, ten minutes running out) in the dialog's
 status line with what was typed still there, or in Home's status line when the dialog was closed. When
 the controller no longer knows the clone (it restarted mid-clone, or the clone ended more than ten
 minutes ago), the same place says "reet lost track of cloning owner/name. Add it again; if the clone
@@ -185,13 +188,86 @@ What the clone does, and what it leaves:
   "https://github.com/"`) stops the clone, because reet doesn't clone over ssh: "studio's git settings
   send github.com over ssh, which reet doesn't use for cloning. Clone owner/name there yourself and add
   the folder as a project."
-- Removing the project leaves `~/reet/repos/owner/name` on the machine. A later change will offer to
-  delete it.
+- Removing the project leaves `~/reet/repos/owner/name` on the machine unless you tick the box that
+  deletes it ([Removing a project from GitHub](#removing-a-project-from-github)).
 - A clone cut off part-way (the connector stopped, the machine lost power) leaves a hidden folder
   `~/reet/repos/owner/.name.cloning-…`. The next time that repository is cloned, reet removes it only
   when it can tell the folder is that repository's: it is more than 15 minutes old and either holds no
   git data yet or its own git settings name that repository. Anything else, including a folder git had
   started but not yet given an origin, is left for you to remove; nothing else there is removed.
+
+## Removing a project from GitHub
+
+**Remove from reet** on a project reet cloned asks the same question as for any project, and looks at
+the clone while it asks. The dialog says "Checking the clone on studio…" until the machine answers
+(15 seconds at most). **Remove from reet** works the whole time and never waits for that answer:
+without the tick it removes the project from reet and leaves the folder alone.
+
+When the machine says the clone holds nothing that would be lost, the dialog offers a tick, off every
+time the dialog opens:
+
+> Also delete ~/reet/repos/owner/name from studio
+>
+> Files git ignores there, such as .env or build output, are deleted too.
+
+With the tick, the machine looks at the clone again, deletes the folder, and only then is the project
+removed: "Project removed. ~/reet/repos/owner/name was deleted from studio." The dialog cannot be
+closed while that is on its way (about a minute at most: the machine has 60 seconds, and the browser
+waits up to 75). The owner's folder `~/reet/repos/owner` goes too
+when that left it empty; `~/reet/repos` and everything above it are never touched.
+
+What goes with the folder: everything in it. That includes files git ignores (`.env`, build output,
+dependencies), files hidden by the clone's own exclude list, local tags and notes, and commits that
+only the reflog still holds. None of those are looked at when reet decides whether the clone can go.
+
+The tick is not offered, and one sentence says why, when any of these is true (first match):
+
+| What the machine found | The dialog says |
+| --- | --- |
+| A session is running in the clone's own folder or below it (a plain terminal, a resumed conversation, a chat); the machine is not asked | The clone on studio is kept: 1 session is still open in it. End that session first. |
+| The machine is offline, runs an older reet, is busy, or did not answer in time | The clone on studio is kept: studio can't be asked right now. |
+| Terminal access is off on the machine | The clone on studio is kept: terminal access is off on studio. |
+| Nothing is at `~/reet/repos/owner/name` (reet may have just deleted it), or the folders down to it are not plain folders of that user | reet finds no clone it can delete at ~/reet/repos/owner/name on studio. |
+| reet can't vouch for the clone: its `origin` is another repository; pushes or fetches go somewhere other than that GitHub repository (a rewrite in the machine's git settings included); its fetch setting is not the default one, or another remote writes into origin's branches; or its `.git` is not its own | The clone on studio is kept: reet can't be sure the folder there is still a plain clone of owner/name. |
+| reet's marker is not in the folder (you made the clone, or the marker was removed) | The clone on studio is kept: reet didn't make that folder. |
+| A session still has a worktree from the clone, a finished one waiting for the clean-up included | The clone on studio is kept: 2 sessions still have worktrees from it. Remove those sessions first. |
+| Uncommitted or untracked files, a stash, or a local branch (or a detached HEAD) with commits that are on no branch of `origin` | The clone on studio is kept: it holds work that isn't on GitHub. |
+| Something reet cannot check: any submodule recorded in the repository, whether or not its folder is filled in; another repository inside the clone, in an ignored folder too; a folder inside it that holds another filesystem (a mount); files git was told not to look at; a rebase, a patch series or a merge under way; or git writing at that moment | The clone on studio is kept: it may hold work or files that aren't on GitHub. |
+
+Open sessions are counted from reet's own record just before the machine is asked, when the dialog
+opens and again at the delete. A session started in the instant between that last look and the delete
+is not seen and can lose its folder.
+
+A machine with terminal access off usually reads as "can't be asked right now", because the
+controller does not ask it at all; the terminal access sentence is for a machine that answers and
+refuses. Remove does not clear worktrees for you: remove their sessions (or wait for the
+[scheduled clean-up](machine-maintenance.md#scheduled-clean-up)), then open the dialog again. A
+`reet/...` branch that is fully pushed does not keep the clone, with or without a pull request.
+What is on GitHub is read from what the clone last fetched, so a branch deleted on GitHub after a
+merge can keep the clone until it is deleted locally too. A very large clone (tens of thousands of
+tracked files, or one that takes more than ten seconds to walk) is kept as "can't be asked right now".
+
+Between the dialog and the click the clone can change. The delete names exactly what the dialog was
+shown, and the machine refuses when it differs: "The clone changed just now, so nothing was removed.
+Check again." The project and the folder both stay, the dialog reads the clone again and the tick is
+off. If the machine's answer never arrives, or something between the browser and reet answers
+with an error of its own, reet does not guess: "reet couldn't confirm whether the
+clone on studio was removed. Check again." The project stays and the dialog looks again. If the
+folder did go, it then says reet finds no clone it can delete there, and **Remove from reet** without
+the tick removes the project. Activity records the delete reet could not confirm ("Asked studio to
+delete the clone at …; reet could not confirm it was deleted"), and a project reet cloned that is
+removed without the tick reads "Removed project site; this removal did not delete its clone on
+studio", which says nothing about whether the folder is still there.
+
+reet never deletes a folder it did not clone. A project added by path, and a project from GitHub
+whose folder was already there without reet's marker, get the ordinary confirmation: no tick, and no
+request to the machine. The stored folder of a project is not trusted either: the controller asks
+only about `~/reet/repos/owner/name` for the repository the project records, the machine checks that
+against its own home folder, and no request from a browser can name a folder. Running git to look at
+the clone runs no hook, filter or other program the clone's settings name.
+
+If the project is removed and the clone kept, adding the same repository on the same machine uses
+the folder again, and it is again a project reet cloned as long as the marker is there.
 
 ## Routes and shapes
 
@@ -215,7 +291,18 @@ plain sentence, and a field refusal names the field so the dialog can move focus
   clears; `{"note": ""}` clears the migration note (any other note is 422 `invalid_note`). A stale
   version is 409 `project_changed`. A change of `host` or `dir` clears `origin` and `cloned` in the
   same write.
-- `DELETE /folder-projects/{id}` with `If-Match` → `{ok, message}`.
+- `DELETE /folder-projects/{id}` with `If-Match` → `{ok, message}`. With the body `{"deleteClone":
+  true, "fingerprint": "…"}` (the fingerprint the clone read gave) the machine deletes the clone first and
+  the answer is `{ok, cloneDeleted: true, message}`; the project stays on 422 `not_cloned` (reet did
+  not clone it; nothing is sent), 422 `invalid_fingerprint`, 409 `clone_changed`, 409 `clone_kept`
+  (with why) and 409 `clone_unconfirmed` (the answer was lost, or the delete may have begun). 500
+  `clone_deleted_project_kept` means the clone went and the project could not be removed. No other
+  field is accepted, so a request cannot name a folder.
+- `GET /folder-projects/{id}/clone` → `{removable, worktrees, changed, stashes, unpushed, sentence,
+  fingerprint?}` for a project reet cloned, as its machine sees the clone now: `sentence` is always
+  there, `""` when `removable`; `fingerprint` is there only when `removable`. 404 `not_cloned` for any
+  other project. It makes a machine run git, so it counts towards the write limit and, unlike the
+  other reads, refuses a request a browser marks as coming from another site (403 `origin_refused`).
 - `POST /folder-projects/reorder` with `{ids, versions}` naming every project once → the list.
 - `POST /folder-projects/import-saved` with `{}` → the list plus `{created, skipped, message}`.
 - `POST /folder-projects/from-github` with `{host, repo, name}` (`repo` as `owner/name` or its
@@ -544,10 +631,16 @@ kept." *Remove worktree* never deletes the branch.
 ## Audit
 
 `project-add`, `project-update` and `project-remove` record the project's id, machine (id and name),
-folder and name (and, for a project added from GitHub, its `origin` and `cloned`); `projects-migrated` the saved Project's name and the folder projects made from it;
+folder and name (and, for a project added from GitHub, its `origin` and `cloned`; for a removal that also deleted the clone,
+`cloneDeleted: true` and `clonePath`, the folder the machine said it deleted, written only once the machine confirmed it;
+if the clone was deleted and the project then could not be removed, or another tab had already removed it, the row is
+`project-clone-delete` instead; a delete the machine was asked for whose outcome reet never learned is a
+`project-clone-delete` row with `unconfirmed: true` and `clonePath`; a project reet cloned that is removed without the
+tick records `cloned: true`); `projects-migrated` the saved Project's name and the folder projects made from it;
 `folder-browse` one row per opened browser (machine, starting folder, pages). None carries a starter
 prompt. Activity reads them as, for example, "Added project reet (/home/me/reet on studio)", "Removed
-project reet; its folder on studio is untouched", "Moved saved Project Site into the rail as 2
+project reet; its folder on studio is untouched", "Removed project site and deleted its clone,
+/home/me/reet/repos/acme/site on studio", "Moved saved Project Site into the rail as 2
 projects" and "Browsed folders from ~ (3 pages)". The old runs' `project-run`, `project-run-retry`,
 `terminal-launch` and `worktree-remove` rows are unchanged.
 

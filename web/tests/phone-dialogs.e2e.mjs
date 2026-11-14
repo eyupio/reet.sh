@@ -20,7 +20,7 @@
 // REET_E2E_ONLY=<regexp> limits the dialogs, REET_E2E_VIEWPORTS=320x568,844x390 the screens. REET_DIALOG_SHOTS=<dir> saves a
 // screenshot of each state there, and REET_DIALOG_LOG=1 prints what was measured.
 import { chromium, expect } from '@playwright/test'
-import { installApi, LONGHOST, sessions, tmachines } from './helpers/longtext.mjs'
+import { folderProjects, installApi, LONGHOST, sessions, tmachines } from './helpers/longtext.mjs'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
 const browser = await chromium.launch({headless:true, executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
 const only = process.env.REET_E2E_ONLY ? new RegExp(process.env.REET_E2E_ONLY, 'i') : null
@@ -45,6 +45,13 @@ const switchable = {'/api/v2/terminal/sessions': {sessions:[moved, ...sessions]}
  '/api/v2/terminal/machines': {machines:tmachines.map(m => m.agentId === moved.agentId ? {...m, capabilities:{...m.capabilities, tools:[...m.capabilities.tools, 'opencode'], acp:true, acpHistory:true, sessionMode:true}} : m)}}
 // Add a project From GitHub: its form shows only when a machine can clone from GitHub.
 const cloning = {'/api/v2/terminal/machines': {machines:tmachines.map(m => ({...m, capabilities:{...m.capabilities, repoClone:true}}))}}
+// Remove from reet for a project reet cloned from GitHub: the confirmation with the tick that also deletes the clone,
+// offered because the machine says nothing in it would be lost.
+const clonedSite = {'/api/v2/folder-projects': {projects:folderProjects.map(p => p.id === 'fp1' ? {...p, origin:'acme/site', cloned:true, dir:'/home/dev/reet/repos/acme/site'} : p), savedWaiting:0},
+ '/api/v2/folder-projects/fp1/clone': {removable:true, worktrees:0, changed:0, stashes:0, unpushed:0, fingerprint:'ab'.repeat(32), sentence:''}}
+// The same, for a clone that stays: the longest sentence instead of the tick.
+const keptSite = {...clonedSite, '/api/v2/folder-projects/fp1/clone': {removable:false, worktrees:0, changed:0, stashes:0, unpushed:0,
+ sentence:"The clone on dev-laptop is kept: reet can't be sure the folder there is still a plain clone of acme/site."}}
 const switchTui = async page => { await page.getByRole('button',{name:'Session actions',exact:true}).click(); await page.getByRole('dialog',{name:'Session actions',exact:true}).getByLabel('Session interface',{exact:true}).selectOption('chat') }
 // field: the text field typed into with the keyboard open. primary: the main action, when it is not the dialog's
 // button.primary or submit button. sheet: how it sits on an upright phone.
@@ -71,6 +78,9 @@ const DIALOGS = [
  {name:'edit project', path:'/sessions?view=list', open:menu('site', 'Edit'), field:TEXT, sheet:'full'},
  {name:'project worktrees', path:'/sessions?view=list', open:menu('site', 'Worktrees'), sheet:'full'},
  {name:'remove project', path:'/sessions?view=list', open:menu('site', 'Remove from reet'), sheet:'bottom'},
+ {name:'remove project (clone)', path:'/sessions?view=list', extra:clonedSite, sheet:'bottom', open:async p => { await menu('site', 'Remove from reet')(p); await p.locator('dialog[open]').getByRole('checkbox', {name:'Also delete ~/reet/repos/acme/site from dev-laptop', exact:true}).check() },
+  check:async page => { await expect(page.locator('dialog[open]').last()).toContainText('Files git ignores there, such as .env or build output, are deleted too.') }},
+ {name:'remove project (clone kept)', path:'/sessions?view=list', extra:keptSite, sheet:'bottom', open:async p => { await menu('site', 'Remove from reet')(p); await p.locator('dialog[open]').getByText('still a plain clone of acme/site.').waitFor() }},
  // An old Project run's worktree, from Runs from Projects in Activity.
  {name:'remove worktree', path:'/activity', extra:ended, open:async p => { await press(/^Site/)(p); await press(/^Remove worktree/)(p) }, sheet:'full'},
  {name:'new list', path:'/shared', open:press('Create a list'), field:TEXT, sheet:'full'},

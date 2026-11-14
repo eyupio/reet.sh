@@ -9,6 +9,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
@@ -107,12 +108,13 @@ func (s *server) privateControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var writeMu sync.Mutex
+	// A caller that gives up, such as a goal check that queued behind other
+	// sessions' calls past its own deadline, must not end the link that every
+	// session on this machine shares: see agenthealth.WriteControl.
 	write := func(ctx context.Context, payload []byte) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer writeCancel()
-		return conn.Write(writeCtx, websocket.MessageText, payload)
+		return agenthealth.WriteControl(ctx, conn, payload, 5*time.Second)
 	}
 	if err := write(r.Context(), reply); err != nil {
 		return

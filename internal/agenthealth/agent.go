@@ -449,10 +449,9 @@ func runPrivateSession(ctx context.Context, cfg AgentConfig, sequence *int64) (b
 		defer writeMu.Unlock()
 		// A write needs to reach the peer, not merely be accepted by the local
 		// socket. Bounding it turns a half-open connection (writes buffered,
-		// nothing draining) into a detected failure instead of silence.
-		writeCtx, writeCancel := context.WithTimeout(ctx, controlWriteTimeout)
-		defer writeCancel()
-		return conn.Write(writeCtx, websocket.MessageText, data)
+		// nothing draining) into a detected failure instead of silence. The
+		// bound is the write's own, not the caller's: see WriteControl.
+		return WriteControl(ctx, conn, data, controlWriteTimeout)
 	}
 	// The handshake write and its acknowledgement share one deadline: a
 	// controller that is briefly busy should not cost the whole connection.

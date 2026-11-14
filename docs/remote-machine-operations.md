@@ -55,6 +55,13 @@ seconds, or a handshake that is not acknowledged within 15 seconds, also ends
 the connection; the underlying cause is recorded in the agent log, which is
 what makes a drop diagnosable.
 
+A request that gives up does not end the connection, at either end. The
+connection carries every terminal and chat on the machine, so a request that
+has already given up sends nothing, and a message already being written
+finishes under its own five-second limit rather than the request's. Before
+this, the websocket library closed the whole connection whenever the request
+that a write belonged to ended at the wrong moment.
+
 Reconnects back off exponentially from one second to 15 seconds. The delay
 resets only after a connection has stayed up for 30 seconds: a link that
 accepts the handshake and then drops at once keeps backing off, because each

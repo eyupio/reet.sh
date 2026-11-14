@@ -245,3 +245,10 @@ func (r AccountsResult) valid() bool {
 	data, err := json.Marshal(r)
 	return err == nil && len(data) <= MaxAccountsReplyBytes
 }
+
+// ValidAgentAccounts reports whether accounts is what a connector may answer:
+// each agent once, each entry within the rules above. The controller uses it
+// before it keeps or serves an answer.
+func ValidAgentAccounts(accounts []AgentAccount) bool {
+	return AccountsResult{Accounts: accounts}.valid()
+}

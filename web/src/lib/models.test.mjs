@@ -65,6 +65,9 @@ test('a Gaffer stage is offered only the effort levels its machine reports', () 
  assert.deepEqual(launchOptions.reportedEfforts('opencode', caps), [''])
  assert.deepEqual(launchOptions.reportedEfforts('opencode', { ...caps, acpStartOptions: false }), [''])
  assert.deepEqual(launchOptions.reportedEfforts('claude', caps), [''])
+ // A descriptor that names only its default offers no level to choose, rather than an empty or invented one.
+ const defaultOnly = { ...caps, acpAgents: [{ tool: 'claude', adapter: 'claude-agent-acp', state: 'available', options: [{ id: 'effort', category: 'thought_level', values: ['default'] }] }] }
+ assert.deepEqual(launchOptions.reportedEfforts('claude', defaultOnly), [''])
 })
 
 test('a terminal launch of Claude Code offers the three thinking levels a start carries', () => {

@@ -120,6 +120,13 @@ try {
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-notes')
       await expect(outcome.getByText('not a git repository',{exact:false})).toBeVisible()
       await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      // A level this machine reports can be chosen; another project's machine that reports none drops it back to the
+      // agent's default, so what is shown is what the outcome would start with.
+      await outcome.getByRole('combobox',{name:'Effort',exact:true}).selectOption('max')
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-attic')
+      await expect(outcome.getByRole('combobox',{name:'Effort',exact:true})).toHaveValue('')
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption('p-billing')
+      await expect(outcome.getByRole('combobox',{name:'Effort',exact:true})).toHaveValue('')
       // Only an agent whose chat adapter is installed on that machine is offered.
       await expect(outcome.getByRole('combobox',{name:'Agent',exact:true}).getByRole('option')).toHaveText(['Claude Code','OpenCode'])
       await expect(outcome.getByRole('combobox',{name:'Sessions',exact:true})).toHaveValue('3')

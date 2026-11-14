@@ -189,6 +189,25 @@ test('a crew role\'s effort is sent with its stages and starts a new session whe
   assert.equal(o.sessionCount(o.stagePlan(['plan', 'design', 'review'], crew)), 1)
 })
 
+test('a stage never carries an effort its machine does not report', () => {
+  const efforts = tool => tool === 'claude' ? ['', 'low', 'high'] : ['']
+  const plan = [
+    { kind: 'code', tool: 'claude', model: '', effort: 'high' },
+    { kind: 'review', tool: 'claude', model: '', effort: 'medium' },
+    { kind: 'pr', tool: 'opencode', model: '', effort: 'low' },
+    { kind: 'merge', tool: 'claude', model: '' },
+  ]
+  assert.deepEqual(o.withReportedEfforts(plan, efforts), [
+    { kind: 'code', tool: 'claude', model: '', effort: 'high' },
+    { kind: 'review', tool: 'claude', model: '' },
+    { kind: 'pr', tool: 'opencode', model: '' },
+    { kind: 'merge', tool: 'claude', model: '' },
+  ])
+  // A plan with nothing to drop is left as it is.
+  const clean = [{ kind: 'code', tool: 'claude', model: '', effort: 'low' }]
+  assert.equal(o.withReportedEfforts(clean, efforts)[0], clean[0])
+})
+
 test('a Cline crew role carries its billing source and a source change starts a new session', () => {
   const crew = { think: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, build: { tool: 'cline', model: '' }, ship: { tool: 'codex', model: '' } }
   assert.deepEqual(o.stagePlan(['review', 'code', 'pr'], crew), [

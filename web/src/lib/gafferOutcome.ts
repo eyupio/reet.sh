@@ -262,6 +262,17 @@ export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported =
   })
 }
 
+/** A plan with every effort the machine does not report left to the agent's default. A stage starts with nobody
+ *  watching, so a level the agent would refuse is never sent. */
+export function withReportedEfforts<T extends { tool: string; effort?: string }>(plan: T[], efforts: (tool: string) => string[]): T[] {
+  return plan.map(stage => {
+    if (!stage.effort || efforts(stage.tool).includes(stage.effort)) return stage
+    const copy = { ...stage }
+    delete copy.effort
+    return copy
+  })
+}
+
 /** How many separate agent sessions a pipeline will use: a new one each time the agent, model, effort or source changes. */
 export function sessionCount(plan: { tool: string; model: string; effort?: string; provider?: string }[]): number {
   return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') || (stage.provider ?? '') !== (plan[index - 1].provider ?? '') ? 1 : 0), 0)

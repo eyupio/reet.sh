@@ -6,7 +6,7 @@
   import { chatToolName, machineModels, structuredAgent, terminalMachines, type TerminalMachine } from '../terminal/api'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
   import GafferModelSelect from '../GafferModelSelect.svelte'
-  import { CREW_ROLES, DEFAULT_STAGES, STAGES, sessionCount, stagePlan, type Crew } from '../gafferOutcome'
+  import { CREW_ROLES, DEFAULT_STAGES, STAGES, sessionCount, stagePlan, withReportedEfforts, type Crew } from '../gafferOutcome'
   import type { MachineModels, ModelFavourite } from '../models'
   import { reportedEfforts } from '../terminal/launchOptions'
 
@@ -72,7 +72,7 @@
   })
   function approve() {
     onconfirm(proposals.map(item => {
-      const plan = stagePlan(kinds(item), crewOf(item.title))
+      const plan = withReportedEfforts(stagePlan(kinds(item), crewOf(item.title)), efforts)
       // Left as the outcome's own agent and model, the stages name no one and the controller fills them in.
       const untouched = plan.every(stage => stage.tool === record.tool && stage.model === (record.model ?? '') && !stage.effort)
       // A Cline stage keeps the outcome's billing source: a stage that names its agent is otherwise started on Cline's own.

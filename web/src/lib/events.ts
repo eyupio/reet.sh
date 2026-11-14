@@ -139,7 +139,7 @@ export function eventLabel(e: Event): string {
       if (d.name && d.cloned === true) return `Removed project ${d.name}; reet did not delete the clone on ${d.host || 'its machine'}`
       return d.name ? `Removed project ${d.name}; its folder on ${d.host || 'its machine'} is untouched` : 'Removed a project'
     case 'project-clone-delete':
-      if (d.unconfirmed === true) return `Asked ${d.host || 'its machine'} to delete the clone at ${d.clonePath || 'the folder reet made'}; reet got no answer`
+      if (d.unconfirmed === true) return `Asked ${d.host || 'its machine'} to delete the clone at ${d.clonePath || 'the folder reet made'}; reet could not confirm it was deleted`
       return `Deleted the clone of project ${d.name || 'a project'}, ${d.clonePath || 'the folder reet made'} on ${d.host || 'its machine'}`
     case 'folder-browse': return d.path ? `Browsed folders from ${d.path}${typeof d.pages === 'number' ? ` (${d.pages} ${d.pages === 1 ? 'page' : 'pages'})` : ''}` : 'Browsed folders on a machine'
     case 'worktree-remove': return `Removed a worktree on ${d.host || 'a machine'}${d.branch ? `; the branch ${d.branch} is kept` : ''}`

@@ -255,9 +255,9 @@ with an error of its own, reet does not guess: "reet couldn't confirm whether th
 clone on studio was removed. Check again." The project stays and the dialog looks again. If the
 folder did go, it then says reet finds no clone it can delete there, and **Remove from reet** without
 the tick removes the project. Activity records the delete reet could not confirm ("Asked studio to
-delete the clone at …; reet got no answer"), and a project reet cloned that is removed without the
-tick reads "Removed project site; reet did not delete the clone on studio", which says nothing about
-whether the folder is still there.
+delete the clone at …; reet could not confirm it was deleted"), and a project reet cloned that is
+removed without the tick reads "Removed project site; reet did not delete the clone on studio",
+which says nothing about whether the folder is still there.
 
 reet never deletes a folder it did not clone. A project added by path, and a project from GitHub
 whose folder was already there without reet's marker, get the ordinary confirmation: no tick, and no

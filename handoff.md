@@ -60,6 +60,124 @@ no new switch on the machine.** Full contract: [agent sign-ins and plan limits](
 - **Not done:** GitHub Copilot, Google Antigravity, OpenCode and Cline; the macOS keychain and system keyrings;
   several accounts per agent; signing in from the browser; limits beside a session or in the sessions list; an MCP
   tool for the figures.
+## COPILOT-CLI-1: GitHub Copilot in a terminal session (14 November 2026)
+
+Branch `claude/copilot-agent`, four local commits, not pushed and no pull request when this was written.
+
+- **Added.** Tool id `copilot`, display name **GitHub Copilot**: a launch preset in `internal/terminalhost/catalogue.go`
+  (binary `copilot`), its row in the controller's option table (`terminalproto/agents.go`), its display name and greeting
+  word for automatic titles, and its row in the browser catalogue (`web/src/lib/catalogue.ts`). It is a terminal session
+  only. No ACP descriptor, chat adapter, model listing, sign-in or plan display, install or update was added, and the
+  Gaffer and MCP agent lists were left alone because they name chat agents.
+- **What the help proved** (GitHub Copilot CLI 1.0.112, npm package `@github/copilot`, bin `copilot`; captured in
+  `internal/terminalhost/testdata/help/copilot.txt`, sources and integrity in `sources.json`). Only `--version`, `--help`,
+  `help sessions` and `help permissions` ran, from a scratch directory with an empty home, a cleared environment and no
+  credentials.
+  - Opening prompt: `-i, --interactive <prompt>`, "Start interactive mode and automatically execute this prompt". The
+    preset passes `--interactive <prompt>`. `-p, --prompt <text>` is "non-interactive mode (exits after completion)" and
+    is never used; a test refuses it.
+  - Model: `--model <model>`.
+  - Effort: `--reasoning-effort <level>`, possible values none, minimal, low, medium, high, xhigh, max; the three a
+    launch carries are mapped. The help adds "supported levels depend on the model".
+  - YOLO: `--allow-all`, "Enable all permissions (equivalent to --allow-all-tools --allow-all-paths --allow-all-urls)".
+    `--yolo` has the same description; `--allow-all` is the one sent.
+  - Continue: **not mapped.** `--continue` is "Resume the most recent session", which `help sessions` qualifies as
+    "preferring one from the current branch, repository or directory", so it can open another folder's conversation; and
+    "A resumed session keeps its conversation, model, agent mode and allow-all state", so it could bring back approvals a
+    machine with YOLO switched off refuses. The browser row has no `resume`, so **Continue session…** is not offered.
+  - Session id: **not mapped.** `-r, --resume [<value>]` takes one, but the help's examples write only
+    `--resume=<session-id>`, and the only path that supplies a session id is a Gaffer chat, which Copilot does not have.
+- **Compatibility.** New token `copilot-cli-v1` keeps the id from a controller or connector that predates it, whose
+  strict decoder would refuse it: the controller advertises it (`internal/api/private_control.go`); the connector
+  claims it only with `agents-v2`, lists the tool only when it was negotiated and tells the dispatcher
+  (`internal/agenthealth/agent.go`); a create for the id is refused as `launch_option_unsupported` on a connection
+  without it (`internal/terminalagent/agent.go`); `Capabilities.ValidateFor` refuses the id without it; and a create is
+  sent only to a machine that lists the tool, as for every agent. A model-list request also names a tool and is sent to
+  any machine with `models-v1`, so `terminalbroker.models` answers `not_installed` itself for `copilot` unless the
+  machine lists the tool: a connector that predates the id fails to decode such a request and ends its connection
+  (`agenthealth` read loop). **The same request for `antigravity` is still sent unchecked**; that was read in the code,
+  not reproduced, and is not changed here.
+- **Tests seen failing with the piece removed** (each piece taken out in turn, the named test run, the piece put back):
+  the capability check, the connector's tool filter and its `agents-v2` condition, the dispatcher's create refusal, the
+  advertised token, the model-list gate, the prompt flag, the YOLO argument, the effort flag, resume arguments added, a
+  flag the help lacks, the option-table row, the display name and the greeting word; in the browser, the catalogue row,
+  the greeting word and a `resume` flag added.
+- **Checks run and their results:** in `web/`, `npm ci --no-audit --no-fund && npm run check && npm run build` passed
+  (unit tests, svelte-check 458 files with 0 errors and 0 warnings, build), before any Go build. `go vet ./...` clean.
+  `go test -race -count=1 -timeout=60m` on `internal/terminalproto`, `terminalhost`, `agenthealth`, `terminalagent` and
+  `terminalbroker`: all ok. `go test -count=1 -timeout=30m ./internal/api` without the race detector: ok in 147 s, on
+  the second run; the first failed on one new assertion that expected the wrong refusal for a Copilot chat request (it is
+  400, an invalid request), which was corrected. `go test -count=1 ./internal/scan`: only
+  `TestLibraryManagedRemovalExecutor/journal_refused` fails, as it does whenever the suite runs as root. In Chromium
+  against the dev server with mocked APIs: `start-agent.e2e.mjs` (changed here) and `launch.e2e.mjs` and
+  `account.e2e.mjs` (unchanged; they draw the catalogue) passed. `git diff --check` clean. Not run: `go test -race ./...`
+  as a whole, the `mcp` tests (nothing there was touched) and the documentation site build (mkdocs is not installed here).
+- **Not verified.** Nothing was run signed in: no session was started, no model was reached, and the measured arguments
+  were never given to the real interactive CLI. So unverified: that `--interactive` leaves the session open in practice;
+  how the folder-trust question and an opening prompt interact; what the CLI does with an effort level the model lacks,
+  or with a model name it does not know; any Copilot CLI older or newer than 1.0.112 (the preset has no version floor);
+  macOS and Windows; an installation that is not on the connector's `PATH`. The help names an environment variable,
+  `COPILOT_ALLOW_ALL`, that turns tool approvals off; reet does not set it, and whether a launch inherits it from the
+  machine was not checked. A real older controller or connector was not connected; the compatibility rules are covered
+  by unit and API tests only.
+- **Next:** a device check of one signed-in Copilot terminal launch (plain, with a prompt, with YOLO) before calling the
+  arguments verified; then decide resume from what that shows. First files: `internal/terminalhost/catalogue.go`,
+  `internal/terminalhost/testdata/help/README.md`, `docs/terminal-launch.md`.
+## TERMINAL-ASK-2: the screen tests wait for tmux, not the clock (14 November 2026)
+
+TERMINAL-ASK-1's tests against a real tmux waited out the real gaps between two reads of a screen: about 21 s on
+Linux in a package that took about 50 s, and more on macOS, where `native services` runs the package with a 3-minute
+limit and was already close to it. The first run on `main` after the merge, and the next pull request's, both ended
+`panic: test timed out after 3m0s` on macOS, each in a different worktree test.
+
+- **What changed:** `Manager.promptEvery` and `Manager.promptAgain` replace `promptReadEvery` and `promptReadAgain`
+  when set; nothing sets them outside tests, so the machine's behaviour is the same. The tests set a millisecond,
+  draw a screen, wait until `tmux capture-pane` shows it, and reconcile once. The four tests now take about 1.5 s
+  together; the one second left is tmux's whole-second activity, which the settled rule is about.
+- **One more rule has a test:** a screen just read is not read again inside the gap, whatever is drawn meanwhile
+  (`TestAScreenIsNotReadAgainInsideTheGap`). The gaps had no test before.
+- **Checked:** the tests 15 times under `-race`; six rules each broken and a test seen to fail (recorded on every
+  read, every session read, settled screens read again, settled at once, no gap, the test's gaps ignored).
+  `go test -race ./internal/terminalhost`: 55 s here, 67 s before.
+- **Not verified:** macOS was not run here; the pull request's own `native service (macos-latest)` job is the check.
+- **Left as it is:** the package's margin on macOS is still small (the step took 2 min 38 s of its 3 minutes on
+  `main` before TERMINAL-ASK-1). The same run on `main` also failed `native service (ubuntu-latest)` once, in the
+  root recovery test, with `could not run tmux -V`: the 3-second probe in `FindTmux` ran out straight after a
+  76-second compile. Nothing in TERMINAL-ASK-1 touches that probe.
+
+## TERMINAL-ASK-1: an agent's question on its terminal screen counts as a bell (14 November 2026)
+
+A terminal session showed "needs you" only when the agent rang the bell, and Claude Code, Codex and OpenCode do not
+always ring it when they stop to ask. `running` already meant the shell, not the agent (see "Terms that must not be
+conflated"), so such a session looked like one still working.
+
+- **What changed** (`internal/terminalhost/agent_prompt.go`, hooked into `reconcileLocked` in `manager.go`): for a
+  running session that an agent with rules was started in, and that has no bell set, the host reads the visible screen
+  (`tmux capture-pane -p`, 64 KiB at most) and matches the last 16 non-empty lines against that agent's patterns. A
+  question that the look before did not find sets `BellAt`, exactly as a bell does. Nothing else changes: no protocol,
+  controller, store or browser change, so the existing attention rule, Home, the bell and the sessions panel show it,
+  and an older controller works with a new machine.
+- **Read sparingly.** Only when the window's activity differs from the last read (a screen cannot change without
+  activity), at most every 2 s while it keeps changing and never twice within 500 ms; a screen read after the second
+  of its last activity is over is settled and not read again. A plain shell and an agent without rules are never read.
+- **Privacy.** The text stays inside `askedOnScreen`: it is not stored, logged or sent. The registry and the snapshot
+  carry a time. `docs/remote-machine-operations.md` says so beside the existing statement that terminal content is not
+  recorded.
+- **The patterns are narrow on purpose.** Each needs the marks of a question the agent drew (a numbered option with
+  the selection mark on it, the keys that answer it, OpenCode's heading with its allow and reject choices), not just
+  words an answer could contain, and only in the last lines. A screen no pattern knows is "not waiting".
+- **Checked:** `agent_prompt_test.go` (each agent's question, working and idle screens, the words alone, a question
+  that scrolled up, an agent without rules, a shell) and `agent_prompt_host_test.go` against a real tmux 3.4 (a
+  question recorded once, a redrawn question read again and not recorded again, an answered one and a second one, a
+  shell and an agent without rules never read, no screen text in the snapshot or the registry, a settled screen not
+  read again). Three rules were each removed and a test seen to fail (recorded on every read, every session read,
+  settled screens read again). `go test -race ./internal/terminalhost`: pass.
+- **Not verified:** the patterns were not run against a signed-in Claude Code, Codex or OpenCode; the screens in the
+  tests were written for them. [Device check 5](docs/device-checks.md) says how to confirm each and what to record
+  when one misses. macOS was not run.
+- **Not done:** Cline, Google Antigravity and any other agent; telling "working" from "idle" (the window's activity
+  still decides that); a word for it distinct from a bell's, so opening the session clears it as it clears a bell; a
+  switch to turn the read off.
 ## CHAT-USAGE-1: a chat shows what its agent reports using (14 November 2026)
 
 The agent's tokens and context figures were already kept per session (`terminal_session_usage`, see "Agent tokens and

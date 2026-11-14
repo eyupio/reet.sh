@@ -390,6 +390,10 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)
 				}
+				if create.Tool == "copilot" && !features.Has(terminalproto.CopilotFeature) {
+					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
+					return send(callCtx, reply)
+				}
 				if create.Tool == "antigravity" && create.Structured && !features.Has(terminalproto.AntigravityACPFeature) {
 					reply.Body = terminalproto.Result{Code: terminalproto.LaunchOptionUnsupported}
 					return send(callCtx, reply)

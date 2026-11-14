@@ -24,7 +24,7 @@ func fakeLookPath(installed ...string) func(string) (string, error) {
 }
 
 func TestLaunchArgvPresets(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy")
+	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy", "copilot")
 	const model, prompt = "sonnet-4.5", "fix the failing tests"
 	// Each row: neither, model, prompt, both.
 	cases := map[string][][]string{
@@ -58,6 +58,12 @@ func TestLaunchArgvPresets(t *testing.T) {
 			{"/opt/fake/bin/agy", "--prompt-interactive", prompt},
 			{"/opt/fake/bin/agy", "--model", model, "--prompt-interactive", prompt},
 		},
+		"copilot": {
+			{"/opt/fake/bin/copilot"},
+			{"/opt/fake/bin/copilot", "--model", model},
+			{"/opt/fake/bin/copilot", "--interactive", prompt},
+			{"/opt/fake/bin/copilot", "--model", model, "--interactive", prompt},
+		},
 	}
 	if len(cases) != len(launchPresets) {
 		t.Fatal("every shipped preset needs an exact argv table", len(launchPresets))
@@ -79,7 +85,7 @@ func TestLaunchArgvPresets(t *testing.T) {
 }
 
 func TestLaunchArgvResumeOnlyForAReviewedPreset(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy")
+	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy", "copilot")
 	for _, tc := range []struct {
 		in   terminalproto.Create
 		want []string
@@ -94,12 +100,12 @@ func TestLaunchArgvResumeOnlyForAReviewedPreset(t *testing.T) {
 			t.Fatalf("resume %q: got %q, %v; want %q", tc.in.Model, got, err, tc.want)
 		}
 	}
-	for _, tool := range []string{"cline", "antigravity"} {
+	for _, tool := range []string{"cline", "antigravity", "copilot"} {
 		if _, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, Resume: true}, look); !errors.Is(err, ErrLaunchOptionUnsupported) {
 			t.Fatal(tool, "resume without a reviewed command", err)
 		}
 	}
-	if !SupportsResume("claude") || !SupportsResume("opencode") || !SupportsResume("codex") || SupportsResume("cline") {
+	if !SupportsResume("claude") || !SupportsResume("opencode") || !SupportsResume("codex") || SupportsResume("cline") || SupportsResume("copilot") {
 		t.Fatal("resume advertised for the wrong presets")
 	}
 }
@@ -108,7 +114,7 @@ func TestLaunchArgvNeverUsesBypassOrPrintFlags(t *testing.T) {
 	// The ordinary flags a preset may emit. YOLO arguments are separate and only
 	// sent after the person confirms; print and one-shot modes need a reviewed
 	// change here.
-	allowed := map[string]bool{"--model": true, "--prompt-interactive": true, "--prompt": true, "": true}
+	allowed := map[string]bool{"--model": true, "--prompt-interactive": true, "--prompt": true, "--interactive": true, "": true}
 	for tool, p := range launchPresets {
 		binary := tool
 		if tool == "antigravity" {
@@ -119,6 +125,9 @@ func TestLaunchArgvNeverUsesBypassOrPrintFlags(t *testing.T) {
 		}
 		if tool == "opencode" && p.promptFlag != "--prompt" || tool == "antigravity" && p.promptFlag != "--prompt-interactive" {
 			t.Fatal("AGY needs --prompt-interactive; only opencode's --prompt is its TUI prompt", tool, p)
+		}
+		if tool == "copilot" && p.promptFlag != "--interactive" {
+			t.Fatal("copilot's --prompt exits after one answer; its interactive prompt is --interactive", p)
 		}
 	}
 }
@@ -151,7 +160,7 @@ func TestLaunchArgvPlainShellAndRefusals(t *testing.T) {
 }
 
 func TestLaunchArgvPromptIsOneArgumentNeverAFlag(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy")
+	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy", "copilot")
 	for tool := range launchPresets {
 		// A leading '-' is refused outright, so it can never be read as a flag.
 		for _, prompt := range []string{"-rf", "--help", "--dangerously-skip-permissions now"} {
@@ -182,7 +191,7 @@ func TestLaunchArgvPromptIsOneArgumentNeverAFlag(t *testing.T) {
 }
 
 func TestLaunchArgvRefusesSubcommandShapedPositionalPrompt(t *testing.T) {
-	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy")
+	look := fakeLookPath("claude", "codex", "opencode", "cline", "agy", "copilot")
 	// claude's parser dispatches a subcommand from the first operand even after
 	// "--", so a one-word positional prompt such as "purge" or "update" would run
 	// that subcommand instead of starting the TUI.
@@ -194,7 +203,7 @@ func TestLaunchArgvRefusesSubcommandShapedPositionalPrompt(t *testing.T) {
 		}
 	}
 	// Flag-form prompts are never parsed as a subcommand.
-	for _, tool := range []string{"opencode", "antigravity"} {
+	for _, tool := range []string{"opencode", "antigravity", "copilot"} {
 		if _, err := LaunchArgv(terminalproto.Create{Title: "a", Cols: 80, Rows: 24, Tool: tool, Prompt: "hello"}, look); err != nil {
 			t.Fatal("flag-form single word prompt refused", tool, err)
 		}

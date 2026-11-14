@@ -3,6 +3,7 @@ package terminalbroker
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -56,6 +57,13 @@ func (b *Broker) models(ctx context.Context, uid int64, agentID, tool string, re
 			return terminalproto.ModelsResult{}, ErrModelsOff
 		}
 		return terminalproto.ModelsResult{}, ErrModelsUnsupported
+	}
+	// The copilot id is known only to a connector that negotiated
+	// copilot-cli-v1, and that connector lists the tool when it is installed. A
+	// machine that does not list it is answered here: an older connector's
+	// strict decoder would refuse the id and end its connection.
+	if tool == "copilot" && !slices.Contains(caps.Capabilities.Tools, tool) {
+		return terminalproto.ModelsResult{Tool: tool, Reason: terminalproto.ModelsNotInstalled}, nil
 	}
 	// An older machine's strict decoder refuses the refresh field, so only ask
 	// a machine that advertised the capability; a refresh against one that did

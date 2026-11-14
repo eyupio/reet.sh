@@ -258,6 +258,12 @@ func (c Capabilities) Validate() error {
 			break
 		}
 	}
+	for _, tool := range c.Tools {
+		if tool == "copilot" {
+			features = append(features, CopilotFeature)
+			break
+		}
+	}
 	if c.ACPAgents != nil {
 		features = append(features, ACPAgentsFeature)
 		for _, entry := range *c.ACPAgents {
@@ -330,6 +336,9 @@ func (c Capabilities) ValidateFor(features string) error {
 	validToolList := validTools(c.Tools, SupportsAgents(features))
 	for _, tool := range c.Tools {
 		if tool == "antigravity" && !SupportsAntigravity(features) {
+			validToolList = false
+		}
+		if tool == "copilot" && !SupportsCopilot(features) {
 			validToolList = false
 		}
 	}

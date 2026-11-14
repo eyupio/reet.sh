@@ -18,6 +18,34 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## TERMINAL-ASK-2: the screen tests wait for tmux, not the clock (14 November 2026)
+
+TERMINAL-ASK-1's tests against a real tmux waited out the real gaps between two reads of a screen: about 21 s on
+Linux in a package that took about 50 s, and more on macOS, where `native services` runs the package with a 3-minute
+limit and was already close to it. The first run on `main` after the merge, and the next pull request's, both ended
+`panic: test timed out after 3m0s` on macOS, each in a different worktree test.
+
+- **What changed:** `Manager.promptEvery` and `Manager.promptAgain` replace `promptReadEvery` and `promptReadAgain`
+  when set; nothing sets them outside tests, so the machine's behaviour is the same. The tests set a millisecond,
+  draw a screen, wait until `tmux capture-pane` shows it, and reconcile once. The four tests now take about 1.5 s
+  together; the one second left is tmux's whole-second activity, which the settled rule is about.
+- **One more rule has a test:** a screen just read is not read again inside the gap, whatever is drawn meanwhile
+  (`TestAScreenIsNotReadAgainInsideTheGap`). The gaps had no test before.
+- **Checked:** the tests 15 times under `-race`; six rules each broken and a test seen to fail (recorded on every
+  read, every session read, settled screens read again, settled at once, no gap, the test's gaps ignored).
+  `go test -race ./internal/terminalhost`: 55 s here, 67 s before.
+- **That was not all of it.** With the tests fast the package still took 154 s on macOS in a run that passed
+  (`ok ... internal/terminalhost 154.269s`) and reached the 180 s limit again in the next run, on a branch that had
+  this fix. The package had grown to the edge of its limit before TERMINAL-ASK-1; that change was what first pushed a
+  run over. `native-services.yml` now gives the terminal host step and the broker and PTY step 5 minutes each (the
+  second took 130 s of its 3 minutes in the same run). The job's 15 minutes still bounds a hang. Why macOS takes
+  three times as long as Linux here was not looked into; the worktree and clone tests, which run `git` many times,
+  are where both timeouts were caught.
+- **Not verified:** macOS was not run here; the pull request's own `native service (macos-latest)` job is the check.
+- **Left as it is:** the same run on `main` also failed `native service (ubuntu-latest)` once, in the root recovery
+  test, with `could not run tmux -V`: the 3-second probe in `FindTmux` ran out straight after a 76-second compile.
+  Nothing in TERMINAL-ASK-1 touches that probe, and it has passed since.
+
 ## TERMINAL-ASK-1: an agent's question on its terminal screen counts as a bell (14 November 2026)
 
 A terminal session showed "needs you" only when the agent rang the bell, and Claude Code, Codex and OpenCode do not
@@ -75,6 +103,12 @@ An ordinary chat now shows them too.
   source ([structured sessions](docs/structured-sessions.md#what-the-agent-has-used)).
 - **Not done:** the sessions list and the hover card show no usage; no price; no plan or rate-limit allowance (that is
   separate work); nothing was run against a signed-in agent, so which agents actually send the figures is still unknown.
+- **Later the same day:** `chat-usage.e2e.mjs` failed once in CI and about one run in twelve here. It measured the
+  figure in the instant after the window shrank from 1360 to 390 px, before the page had changed to its phone
+  arrangement (the status line was 58 px wide for that moment and right 300 ms later). The three measurements now
+  wait for the arrangement the page settles in. 60 runs passed, and the check was again seen failing with the
+  clearance removed. The moment itself, a wide arrangement squeezed into a narrow window until the page reacts, was
+  not looked into.
 
 ## CI-FLAKE-1: two checks that failed on unchanged code (13 November 2026)
 

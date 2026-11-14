@@ -55,8 +55,10 @@ type gm6Harness struct {
 	conn                      *websocket.Conn
 	write                     sync.Mutex
 	workerDone                chan struct{}
-	linkMu                    sync.Mutex // guards conn, workerDone, deliberate and linkErr
+	linkMu                    sync.Mutex // guards conn, generation, workerDone, deliberate, stopping and linkErr
+	generation                int64      // the open link's generation, which every worker message must carry
 	deliberate                bool       // the fixture closed the link on purpose (an "uncertain" prompt), so it stays closed
+	stopping                  bool       // the fixture is closing the link for a restart or the end of the test
 	linkErr                   error      // why the worker reader last stopped
 	finished                  chan bool
 	errors                    chan error
@@ -170,6 +172,7 @@ func (h *gm6Harness) restart() {
 func (h *gm6Harness) stopWorker() {
 	h.linkMu.Lock()
 	c, done := h.conn, h.workerDone
+	h.stopping = true
 	h.linkMu.Unlock()
 	if c != nil {
 		c.CloseNow()
@@ -212,7 +215,7 @@ func (h *gm6Harness) dialLocked() error {
 		return err
 	}
 	done := make(chan struct{})
-	h.conn, h.workerDone, h.deliberate, h.linkErr = c, done, false, nil
+	h.conn, h.generation, h.workerDone, h.deliberate, h.stopping, h.linkErr = c, ack.Generation, done, false, false, nil
 	go func() {
 		defer close(done)
 		for {
@@ -220,7 +223,13 @@ func (h *gm6Harness) dialLocked() error {
 			if err != nil {
 				h.linkMu.Lock()
 				h.linkErr = err
+				stopping := h.stopping
 				h.linkMu.Unlock()
+				// Said now, not when the worker next sends: a goal check that finds the machine gone
+				// waits a minute, and no send may follow to report it.
+				if !stopping && ctx.Err() == nil {
+					h.t.Logf("worker link ended without the fixture closing it, at %s: %v", time.Now().Format("15:04:05.000"), err)
+				}
 				return
 			}
 			m, err := terminalproto.Decode(raw)
@@ -252,14 +261,16 @@ func (h *gm6Harness) dialLocked() error {
 	return nil
 }
 
-// toController sends one worker message. If the controller ended the link (a superseded or timed-out peer
-// closes it without telling the connector), the worker dials again and resends, as a real connector does, and the
-// test log says why the link ended. A link the fixture dropped on purpose stays closed and the send fails.
+// toController sends one worker message, carrying the generation of the link it goes on. If the controller ended
+// the link (a superseded or timed-out peer closes it without telling the connector), the worker dials again and
+// resends, as a real connector does, and the test log says why the link ended. A link the fixture dropped on purpose
+// stays closed and the send fails.
 func (h *gm6Harness) toController(m terminalproto.Message) error {
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
 		h.linkMu.Lock()
 		c, done := h.conn, h.workerDone
+		m.Generation = h.generation
 		h.linkMu.Unlock()
 		if err = h.send(c, m); err == nil {
 			return nil
@@ -282,12 +293,7 @@ func (h *gm6Harness) toController(m terminalproto.Message) error {
 		if derr != nil {
 			return derr
 		}
-		// A new connection has a new generation; the controller closes a link whose messages carry a stale one.
-		caps, cerr := h.st.RemoteCapabilitiesFor(h.uid, h.agent.ID)
-		if cerr != nil {
-			return cerr
-		}
-		m.Generation = caps.Generation
+		// The resend takes the new link's generation at the top of the loop.
 	}
 	return err
 }
@@ -334,6 +340,10 @@ func (h *gm6Harness) workerReply(m terminalproto.Message) (terminalproto.Body, b
 	h.fail(fmt.Errorf("unexpected worker operation %T for %s", m.Body, m.SessionID))
 	return terminalproto.Result{Code: terminalproto.Failed}, false
 }
+
+// progress has the worker report new output and then its status, and returns once the controller has recorded
+// both. Sent is not recorded: the controller stores an event a moment after reading it, and a step that follows
+// (a resume, which treats everything recorded as already seen) must not race it.
 func (h *gm6Harness) progress(marker string, waiting bool) error {
 	h.mu.Lock()
 	w := h.workers[marker]
@@ -341,16 +351,28 @@ func (h *gm6Harness) progress(marker string, waiting bool) error {
 	w.Waiting = waiting
 	sid := w.Session.ID
 	h.mu.Unlock()
-	caps, err := h.st.RemoteCapabilitiesFor(h.uid, h.agent.ID)
+	before, err := h.st.GafferWorkerProgress(h.uid, sid)
 	if err != nil {
 		return err
 	}
-	for _, event := range []terminalproto.ACPEvent{{Kind: "agent", MessageID: terminalbroker.ID(), Text: marker + " new worker progress: simulated PR checks/conflicts need attention."}, {Kind: "status", State: map[bool]string{true: "working", false: "idle"}[waiting]}} {
-		if err := h.toController(terminalproto.Message{Version: 1, RequestID: terminalbroker.ID(), SessionID: sid, Generation: caps.Generation, Body: event}); err != nil {
+	events := []terminalproto.ACPEvent{{Kind: "agent", MessageID: terminalbroker.ID(), Text: marker + " new worker progress: simulated PR checks/conflicts need attention."}, {Kind: "status", State: map[bool]string{true: "working", false: "idle"}[waiting]}}
+	for _, event := range events {
+		if err := h.toController(terminalproto.Message{Version: 1, RequestID: terminalbroker.ID(), SessionID: sid, Body: event}); err != nil {
 			return err
 		}
 	}
-	return nil
+	// Each event takes the session's next sequence number, so both are recorded once progress has risen by two.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		seq, err := h.st.GafferWorkerProgress(h.uid, sid)
+		if err == nil && seq >= before+int64(len(events)) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the controller did not record %s's progress: it stands at %d, was %d before %d events (%v)", marker, seq, before, len(events), err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 func (h *gm6Harness) model(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/models") {

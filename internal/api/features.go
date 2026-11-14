@@ -6,9 +6,11 @@ package api
 // answers with no "features" field at all.
 //
 // A name is added in the same change that finishes the last piece of its part,
-// and never before: "fence", "copy-origin", "restore-public-url" and
-// "copy-password-request" are the names the contract reserves.
-var builtFeatures = []string{"copy-origin", "fence", "restore-public-url", "copy-password-request"}
+// and never before: "fence", "copy-origin", "restore-public-url",
+// "copy-password-request", "fence-address" (the address can be changed while
+// fenced) and "fence-machines" (the fence reports which machines have
+// followed) are the names the contract reserves.
+var builtFeatures = []string{"copy-origin", "fence", "restore-public-url", "copy-password-request", "fence-address", "fence-machines"}
 
 // featureList is what the version document reports: the built parts, or nil
 // when there are none so the field is left out rather than sent empty.

@@ -54,6 +54,11 @@ type agentConfig struct {
 	// FollowOff stops this machine following its controller to a new address
 	// on its own (reet agent follow-moves off).
 	FollowOff bool `json:"followOff,omitempty"`
+	// MovingTo is the address a fenced controller named, kept until the new
+	// controller there proves it holds this machine's record. It lets the
+	// machine finish the move after a restart, and after the old controller
+	// has been switched off. It is a hint, never trusted with a credential.
+	MovingTo string `json:"movingTo,omitempty"`
 }
 
 func agentConfigPath() string { return AgentConfigPath() }
@@ -473,7 +478,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	announcedWaiting := false
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	follower := &moveFollower{}
+	follower := &moveFollower{pending: c.MovingTo}
 	waiting := &movedEcho{}
 	for {
 		err = agentCycle(ctx, c, *config, out, version, &lastScan, !*once)
@@ -508,6 +513,7 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 			announcedWaiting = true
 		}
 		if err == nil {
+			follower.settled(*config, c, out)
 			waiting.worthSaying(nil)
 			state.lastCycle.Store(time.Now().UnixMilli())
 			state.note(&state.cycleError, "")

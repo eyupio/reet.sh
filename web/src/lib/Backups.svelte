@@ -13,7 +13,7 @@
   import CollectionPanel from './CollectionPanel.svelte'
   import MoveAway from './MoveAway.svelte'
   import {
-    addressLines, addressProblem, cleanAddress, fenceSentence, fenceWatch, isLiveSourceRefusal, moveFeatures, setServerCommand,
+    addressLines, addressProblem, cleanAddress, fenceSentence, fenceWatch, isLiveSourceRefusal, moveFeatures,
     type Fence,
   } from './controllerMove'
   import {
@@ -1059,8 +1059,7 @@
                 </dl>
               </details>
             {/if}
-            <p class="muted">Once it has restarted, tell each machine where the controller now is:</p>
-            <div class="cmdline"><code>{setServerCommand(report.publicUrl ?? '')}</code><CopyButton text={setServerCommand(report.publicUrl ?? '')} compact ariaLabel="Copy the set-server command" /></div>
+            <p class="muted">Once it has restarted, machines move to it on their own: the old controller's fence tells each one this address, and the old controller's Move page shows them arrive. Keep the old one fenced and running until they have.</p>
             <div class="formacts"><button type="button" class="btn" onclick={discardImport} disabled={busy === 'import'}>Discard the staged import</button></div>
           {:else}
             <label>

@@ -39,11 +39,17 @@ var followRestartFn = func() error {
 }
 
 // moveFollower remembers the last address tried, so a destination that is not
-// ready is asked once a minute and described once.
+// ready is asked once a minute and described once. pending is the address the
+// fence named, kept on disk as MovingTo, so the move goes on after a restart
+// and after the old controller stops answering.
 type moveFollower struct {
 	address string
 	tried   time.Time
 	said    string
+	pending string
+	// held is what the old controller was last told this machine holds back
+	// for, so it is told once, not every cycle.
+	held string
 }
 
 // say prints a line once, until it changes.
@@ -93,28 +99,38 @@ func movedTo(err error) (string, bool) {
 	return strings.TrimSpace(refusal.MovedTo), true
 }
 
-// follow acts on a cycle's error when it is a moved controller. It reports
+// follow acts on a cycle's error when it is a moved controller, or when the
+// controller this machine was told is moving has stopped answering. It reports
 // whether the enrollment now points at the new address; the caller restarts.
 func (f *moveFollower) follow(ctx context.Context, cycleErr error, c agentConfig, config string, out io.Writer, version string) bool {
 	hint, moved := movedTo(cycleErr)
-	if !moved {
+	switch {
+	case moved && hint == "":
+		f.say(out, "This machine's controller has moved and did not say where. It follows on its own once the controller's owner gives the new address on the Move page; or run: reet agent set-server URL")
 		return false
-	}
-	if hint == "" {
-		f.say(out, "This machine's controller has moved and did not say where. When you know the new address, run: reet agent set-server URL")
+	case !moved && (cycleErr == nil || f.pending == ""):
 		return false
+	case !moved:
+		// The old controller is not answering, but it said where it went
+		// before it stopped; that is still where to look.
+		hint = f.pending
 	}
 	if c.FollowOff {
+		f.tellHeld(ctx, c, "follow-off", version, moved)
 		f.say(out, fmt.Sprintf("This machine's controller says it has moved to %s. Following a move is turned off here, so nothing was changed. To follow it, run: reet agent set-server %s", hint, hint))
 		return false
 	}
 	server, err := controllerOrigin(hint)
 	if err != nil {
+		f.tellHeld(ctx, c, "address-refused", version, moved)
 		f.say(out, fmt.Sprintf("This machine's controller says it has moved to %s, which this machine will not follow on its own (%v). If the address is right, run: reet agent set-server URL", hint, err))
 		return false
 	}
 	if strings.EqualFold(server, c.Server) {
 		return false
+	}
+	if moved {
+		f.remember(config, c, server)
 	}
 	if f.address == server && time.Since(f.tried) < followRetry {
 		return false
@@ -142,12 +158,89 @@ func (f *moveFollower) follow(ctx context.Context, cycleErr error, c agentConfig
 		return false
 	}
 	saved.Server = server
+	saved.MovingTo = ""
 	if err := writePrivate(config, saved); err != nil {
 		f.say(out, fmt.Sprintf("The controller moved to %s and passed both checks, but the enrollment could not be saved: %v", server, err))
 		return false
 	}
+	f.pending = ""
+	tellLeft(ctx, c, server, version)
 	fmt.Fprintf(out, "This machine's controller moved to %s. It proved it holds this machine's record and accepted its credentials, so this machine now points at it (it was %s).\n", server, c.Server)
 	return true
+}
+
+// remember keeps the address a fence named in the enrollment, so the move
+// survives a restart of this agent and the old controller being switched off
+// before the new one answers. Only the hint is written, into the file as it is
+// now, and only while it is still this enrollment.
+func (f *moveFollower) remember(config string, c agentConfig, server string) {
+	if f.pending == server {
+		return
+	}
+	saved, err := loadAgentConfig(config)
+	if err != nil || saved.ID != c.ID || saved.Secret != c.Secret || !strings.EqualFold(saved.Server, c.Server) {
+		return
+	}
+	saved.MovingTo = server
+	if writePrivate(config, saved) == nil {
+		f.pending = server
+	}
+}
+
+// settled forgets a move that is off: the controller this machine points at
+// took a whole cycle again, so its fence was lifted.
+func (f *moveFollower) settled(config string, c agentConfig, out io.Writer) {
+	if f.pending == "" {
+		return
+	}
+	saved, err := loadAgentConfig(config)
+	if err != nil || saved.ID != c.ID || saved.Secret != c.Secret {
+		return
+	}
+	if saved.MovingTo != "" {
+		saved.MovingTo = ""
+		if writePrivate(config, saved) != nil {
+			return
+		}
+	}
+	f.pending, f.held = "", ""
+	fmt.Fprintf(out, "%s answers again, so the move it announced is off; this machine stays with it.\n", c.Server)
+}
+
+// tellHeld tells the fenced controller, once, that this machine will not
+// follow on its own, so its owner sees which machines need a hand. It is said
+// only to a controller that is answering with its fence.
+func (f *moveFollower) tellHeld(ctx context.Context, c agentConfig, reason, version string, answering bool) {
+	if !answering || f.held == reason {
+		return
+	}
+	tellCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if tellOldFn(tellCtx, c, map[string]string{"held": reason}, version) == nil {
+		f.held = reason
+	}
+}
+
+// fenceLeftPath is where a machine tells the controller it is leaving.
+const fenceLeftPath = "/api/v2/sync/moved"
+
+// tellLeft tells the controller this machine is leaving (c.Server) that it
+// now points at `to`, so the old controller's Move page can count it as moved.
+// The machine's credentials go to the controller it was already using and
+// nowhere else. It is best-effort: an old controller already switched off, or
+// one too old to know the route, changes nothing.
+func tellLeft(ctx context.Context, c agentConfig, to, version string) {
+	tellCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	_ = tellOldFn(tellCtx, c, map[string]string{"to": to}, version)
+}
+
+// tellOldFn sends what a machine says of a move to the controller it is
+// leaving; tests replace it.
+var tellOldFn = tellOld
+
+func tellOld(ctx context.Context, c agentConfig, body map[string]string, version string) error {
+	return agentRequestWith(ctx, noRedirectClient, c, fenceLeftPath, body, nil, version)
 }
 
 // runAgentFollowMoves is `reet agent follow-moves on|off|status`. Like

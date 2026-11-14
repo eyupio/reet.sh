@@ -53,13 +53,21 @@ const open = options => openWorkspace(browser, { width: 1440, routes: routes(), 
 
 // A controller that holds every part of a move, with a fence the page can raise and lift and a run that seals the
 // copy with the password it was sent. `seen` records what the page asked for, which is half of what is checked.
-const ALL = ['copy-origin', 'fence', 'restore-public-url', 'copy-password-request']
+const ALL = ['copy-origin', 'fence', 'restore-public-url', 'copy-password-request', 'fence-address', 'fence-machines']
+// What the fenced controller has heard from its machines: one gone, one being turned away now, one switched off since
+// before the fence, and one with following turned off.
+const MACHINES = [
+  { id: 'm-studio', host: 'studio', owner: 'sam@example.test', lastSeen: now - 30_000, toldAt: now - 40_000, leftAt: now - 30_000, leftTo: 'https://reet.new.example', held: '' },
+  { id: 'm-desk', host: 'desk', owner: 'sam@example.test', lastSeen: now - 5_000, toldAt: now - 5_000, leftAt: 0, leftTo: '', held: '' },
+  { id: 'm-laptop', host: 'laptop', owner: 'ada@example.test', lastSeen: now - 3 * DAY, toldAt: 0, leftAt: 0, leftTo: '', held: '' },
+  { id: 'm-lab', host: 'lab-builder-with-a-long-hostname-01', owner: 'ada@example.test', lastSeen: now - 5_000, toldAt: now - 5_000, leftAt: 0, leftTo: '', held: 'follow-off' },
+]
 const NOT_IN_COPY = [
   { names: ['REET_DATA_DIR', 'REET_ADDR', 'REET_PUBLIC_URL'], say: 'Where it keeps data, what it listens on, and its public address.' },
   { names: ['REET_BACKUP_KEY'], say: 'The backup key.' },
 ]
 function moving({ features = ALL, fenced = false, movedTo = '', final = null, stage, pending = null } = {}) {
-  const seen = { raised: [], lifted: 0, runs: [], fenceReads: 0, staged: [] }
+  const seen = { raised: [], readdressed: [], lifted: 0, runs: [], fenceReads: 0, staged: [], machineReads: 0 }
   let fence = fenced ? { fenced: true, since: now - 60_000, movedTo } : { fenced: false, since: 0, movedTo: '' }
   const items = [...backup.items.map(item => ({ ...item, fenced: false })), ...(final ? [final] : [])]
   return {
@@ -73,11 +81,19 @@ function moving({ features = ALL, fenced = false, movedTo = '', final = null, st
           const body = request.postDataJSON()
           seen.raised.push(body)
           fence = { fenced: true, since: now, movedTo: body.movedTo ?? '' }
+        } else if (request.method() === 'PATCH') {
+          const body = request.postDataJSON()
+          seen.readdressed.push(body)
+          fence = { ...fence, movedTo: body.movedTo }
         } else if (request.method() === 'DELETE') {
           seen.lifted++
           fence = { fenced: false, since: 0, movedTo: '' }
         } else seen.fenceReads++
         return fence
+      },
+      '/api/v2/admin/fence/machines': () => {
+        seen.machineReads++
+        return { fenced: fence.fenced, since: fence.since, now, machines: MACHINES }
       },
       '/api/v2/admin/backups/run': request => {
         const body = request.postDataJSON()
@@ -192,14 +208,19 @@ try {
     await expect(card.getByText('Available once the controller is fenced', { exact: false })).toBeVisible()
     await expect(card.getByRole('button', { name: 'Take the final copy' })).toHaveCount(0)
     await expect(page.getByText('This controller is fenced.')).toHaveCount(0)
-    await expect(card.getByText('reet agent set-server https://NEW-ADDRESS')).toBeVisible()
+    // Nothing is left to run on a machine: there is no command to copy.
+    await expect(card.getByText('Machines follow on their own')).toBeVisible()
+    await expect(card.getByText('reet agent set-server', { exact: false })).toHaveCount(0)
+    expect(seen.machineReads).toBe(0)
 
     // A path is refused beside the field, before the request, and nothing is sent.
     await card.getByLabel('New address (optional)').fill('https://reet.new.example/app')
     await expect(card.getByText('Use the address alone, with nothing after the host name.')).toBeVisible()
     await expect(card.getByRole('button', { name: 'Fence this controller' })).toBeDisabled()
+    // A plain http address elsewhere would be fenced but never followed, and the page says so first.
+    await card.getByLabel('New address (optional)').fill('http://reet.new.example')
+    await expect(card.getByText('Machines only follow an https:// address on their own', { exact: false })).toBeVisible()
     await card.getByLabel('New address (optional)').fill('https://reet.new.example/')
-    await expect(card.getByText('reet agent set-server https://reet.new.example', { exact: true })).toBeVisible()
 
     // The dialog says what stops and that it can be undone; cancelling changes nothing.
     await card.getByRole('button', { name: 'Fence this controller' }).click()
@@ -215,6 +236,14 @@ try {
     expect(seen.raised).toEqual([{ movedTo: 'https://reet.new.example' }])
     await expect(card.getByText('Fenced since')).toBeVisible()
     await expect(card.getByRole('link', { name: 'https://reet.new.example' })).toBeVisible()
+
+    // Each machine as the fence has heard from it, and the only one needing a hand says why.
+    await expect(card.getByText('1 of 4', { exact: false })).toBeVisible()
+    const row = host => card.getByRole('list', { name: 'Machines' }).getByRole('listitem').filter({ hasText: host })
+    await expect(row('studio')).toContainText('Moved to https://reet.new.example')
+    await expect(row('desk')).toContainText('waiting for the new controller')
+    await expect(row('laptop')).toContainText('Not heard from since the fence')
+    await expect(row('lab-builder')).toContainText('Following is turned off on this machine')
 
     // The copy password is this copy's own: twelve characters, sent with the run and with nothing else.
     const take = card.getByRole('button', { name: 'Take the final copy' })
@@ -251,6 +280,36 @@ try {
     expect(seen.lifted).toBe(1)
     await expect(moveAway(page).getByRole('link', { name: 'Download the final copy' })).toHaveCount(0)
     await expect(moveAway(page).getByText('Available once the controller is fenced', { exact: false })).toBeVisible()
+    expect(errors).toEqual([])
+    await context.close()
+  }
+
+  // A fence raised before the new address was known is given it later, without lifting the fence (which would set the
+  // controller's work going again), and changed the same way.
+  if (run('move-readdress')) {
+    const { seen, routes: moved } = moving({ fenced: true })
+    const { context, page, errors } = await open({ routes: moved })
+    await page.goto(`${base}/admin/backups`)
+    await openTab(page, /^Move/)
+    const card = moveAway(page)
+    await expect(card.getByText('so machines do not know where to go', { exact: false })).toBeVisible()
+    await expect(card.getByText('Give the new address in step 1', { exact: false })).toBeVisible()
+    const save = card.getByRole('button', { name: 'Save the address' })
+    await expect(save).toBeDisabled()
+    await card.getByLabel('New address', { exact: true }).fill('https://reet.new.example/app')
+    await expect(save).toBeDisabled()
+    await card.getByLabel('New address', { exact: true }).fill('https://reet.new.example/')
+    await save.click()
+    await expect(card.getByRole('link', { name: 'https://reet.new.example' })).toBeVisible()
+    expect(seen.readdressed).toEqual([{ movedTo: 'https://reet.new.example' }])
+    expect(seen.lifted).toBe(0)
+    await expect(card.getByText('Give the new address in step 1', { exact: false })).toHaveCount(0)
+
+    await card.getByRole('button', { name: 'Change the address' }).click()
+    await card.getByLabel('Change the new address').fill('https://reet.other.example')
+    await card.getByRole('button', { name: 'Save the address' }).click()
+    await expect(card.getByRole('link', { name: 'https://reet.other.example' })).toBeVisible()
+    expect(seen.readdressed).toEqual([{ movedTo: 'https://reet.new.example' }, { movedTo: 'https://reet.other.example' }])
     expect(errors).toEqual([])
     await context.close()
   }
@@ -399,7 +458,8 @@ try {
     await expect(card.getByText('Gaffer goal "Ship the release" is paused.')).toBeVisible()
     await card.getByText('Not in the copy: set these by hand on this machine').click()
     await expect(card.getByText('REET_DATA_DIR, REET_ADDR, REET_PUBLIC_URL')).toBeVisible()
-    await expect(card.getByText(`reet agent set-server ${base}`, { exact: true })).toBeVisible()
+    await expect(card.getByText('machines move to it on their own', { exact: false })).toBeVisible()
+    await expect(card.getByText('reet agent set-server', { exact: false })).toHaveCount(0)
     await expect(card.getByRole('alert')).toHaveCount(0)
     expect(errors).toEqual([])
     await context.close()
@@ -450,7 +510,8 @@ try {
         await expect(moveAway(page).getByRole('link', { name: 'Download the final copy' })).toBeVisible()
         await moveIn(page).getByText('Not in the copy: set these by hand on this machine').click()
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `document width at ${width}px, ${theme}`).toBe(true)
-        for (const name of ['Lift the fence', 'Take another']) {
+        await expect(moveAway(page).getByText('1 of 4', { exact: false })).toBeVisible()
+        for (const name of ['Change the address', 'Lift the fence', 'Take another']) {
           const box = await moveAway(page).getByRole('button', { name }).boundingBox()
           expect(box.height, `${name} height at ${width}px`).toBeGreaterThanOrEqual(44)
         }

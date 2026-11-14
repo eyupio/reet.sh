@@ -1,6 +1,6 @@
 import { inflight } from './inflight'
 import type { ModelFavourite } from './models'
-import type { Fence } from './controllerMove'
+import type { Fence, FenceMachine } from './controllerMove'
 
 export type Skill = {
   id: string
@@ -1058,6 +1058,13 @@ export async function raiseFence(movedTo: string): Promise<Fence> {
   return (await req('/api/v2/admin/fence', { method: 'POST', body: json(movedTo ? { movedTo } : {}) })).json()
 }
 export async function liftFence(): Promise<Fence> { return (await req('/api/v2/admin/fence', { method: 'DELETE' })).json() }
+/** Gives or changes the new address while the fence stands; machines follow the new one on their own. */
+export async function setFenceAddress(movedTo: string): Promise<Fence> {
+  return (await req('/api/v2/admin/fence', { method: 'PATCH', body: json({ movedTo }) })).json()
+}
+export async function getFenceMachines(): Promise<{ fenced: boolean; since: number; now: number; machines: FenceMachine[] }> {
+  return (await req('/api/v2/admin/fence/machines')).json()
+}
 export async function createBackupRemote(admin: boolean, input: BackupRemoteInput): Promise<BackupRemote> {
   return (await req(`${bpath(admin)}/remotes`, { method: 'POST', body: json(input) })).json()
 }

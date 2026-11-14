@@ -82,8 +82,17 @@ func TestAnAgentSendsNoCredentialToAMovedToAddressThatCannotProveTheRecord(t *te
 			t.Fatal("a controller with no record was followed")
 		}
 	}
-	if !bytes.Equal(before, fileBytes(t, config)) {
-		t.Fatal("the enrollment changed")
+	// Only the hint is kept, so the move goes on after a restart; the
+	// address the machine uses is not touched.
+	var was, now map[string]any
+	json.Unmarshal(before, &was)
+	json.Unmarshal(fileBytes(t, config), &now)
+	if now["movingTo"] != stranger.URL {
+		t.Fatalf("the hint was not kept: %v", now["movingTo"])
+	}
+	delete(now, "movingTo")
+	if !jsonEqual(was, now) {
+		t.Fatalf("the enrollment changed:\nwas %v\nnow %v", was, now)
 	}
 	noCredentialEverSent(t, stranger)
 	if n := len(stranger.requests()); n != 1 {

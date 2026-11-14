@@ -87,34 +87,39 @@ Machines with saved desired sets show **Sync saved skills (installs automaticall
 
 ## Follow a controller that has moved
 
-When a controller moves (see [backups](backups.md#moving-a-controller-the-order-of-it)), each machine keeps working against the old address until it is told the new one. On the machine, run:
+When a controller moves (see [backups](backups.md#moving-a-controller-the-order-of-it)), machines follow it on their own; nothing has to be run on them.
+
+1. The old controller is fenced and given the new address, at the fence or later (the address can be given or changed while the fence stands, without lifting it).
+2. A running agent's next request is refused by the fence, which names the address. The agent saves it in its enrollment as `movingTo`, so a restart, or the old controller being switched off, does not lose it.
+3. Once a minute the agent asks the new address to prove it holds this machine's record. When the new controller is up and passes both checks below, the agent saves the new address, clears `movingTo` and restarts itself.
+4. It tells the old controller it has gone (`POST /api/v2/sync/moved`, with its own credentials, to the controller it already uses). The old controller's Move page counts it as moved.
+
+A machine switched off during the move catches up when its agent next starts: if it already heard the address it uses the saved one; if not, it hears it from the old controller, so keep that one fenced and running until every machine shows as moved. If the fence is lifted instead, the agent forgets the saved address on its next good cycle.
+
+**The machine does not hand its credentials to just any address.** The address is a hint and nothing more. Before it trusts the new controller the machine runs two checks, in order, and changes nothing unless both pass:
+
+1. **The controller proves it holds this machine's record.** The machine sends its id and a fresh random nonce, with no credential. A controller stores only a hash of a machine's secret, so it answers with an HMAC of the nonce keyed by that hash (`POST /api/v2/sync/agent-proof`). The machine hashes its own secret and checks the answer. A controller that does not hold the record cannot make it, an answer recorded earlier cannot be replayed because the nonce is new each time, and the answer reveals neither the hash nor the secret. A redirect is not followed.
+2. **The controller accepts the credentials.** Only now are the machine's credentials sent, once, to ask who they belong to; the answer must be this machine.
+
+A place that cannot prove the record is sent no credential, and the enrollment keeps its address. That is the normal state for a while: the fence usually goes up before the new controller has the copy. While it waits, the agent's log says once that the controller has moved, not every cycle. An address that is not an HTTPS origin (one with a path, or plain HTTP anywhere but this machine itself) is not followed on its own; the machine tells the old controller so, and its Move page shows it as needing a hand.
+
+### Moving a machine by hand
+
+For a machine with following turned off, or to point a machine at a controller yourself:
 
 ```sh
 reet agent set-server https://reet.new.example
 ```
 
-The machine keeps its identity, secret and settings, and only its saved address changes. It then restarts the agent as `reet agent restart` does. The address must be an origin (no path, query or credentials) over HTTPS; plain HTTP is accepted only for this machine itself. Use `--config PATH` for a non-default enrollment file and `--service-prefix` as the other agent commands do.
+It runs the same two checks, keeps the machine's identity, secret and settings, changes only its saved address, clears any saved `movingTo`, tells the old controller it has gone, and restarts the agent as `reet agent restart` does. The address must be an origin (no path, query or credentials) over HTTPS; plain HTTP is accepted only for this machine itself. Use `--config PATH` for a non-default enrollment file and `--service-prefix` as the other agent commands do. If a check fails, the command says which one and why (for example that the controller has no record of this machine, has itself moved, or does not support the proof request yet), and the enrollment file is left exactly as it was.
 
-**The machine does not hand its credentials to just any address.** Before it trusts the new controller it runs two checks, in order, and changes nothing unless both pass:
-
-1. **The controller proves it holds this machine's record.** The machine sends its id and a fresh random nonce, with no credential. A controller stores only a hash of a machine's secret, so it answers with an HMAC of the nonce keyed by that hash (`POST /api/v2/sync/agent-proof`). The machine hashes its own secret and checks the answer. A controller that does not hold the record cannot make it, an answer recorded earlier cannot be replayed because the nonce is new each time, and the answer reveals neither the hash nor the secret. A redirect is not followed.
-2. **The controller accepts the credentials.** Only now are the machine's credentials sent, once, to ask who they belong to; the answer must be this machine.
-
-If a check fails, the command says which one and why (for example that the controller has no record of this machine, has itself moved, or does not support the proof request yet), and the enrollment file is left exactly as it was. If the address is saved but the agent cannot be restarted, it says so and tells you to run `reet agent restart`.
-
-### A running machine follows on its own
-
-When the old controller was fenced with an address (`reet backup fence --moved-to NEW`), a machine whose agent is running does not need the command. The fenced controller refuses the agent's next request and names the address; the agent then runs the same two checks against that address, in the same order, and when both pass it saves the new address and restarts itself. It says what it did in its log.
-
-The address the old controller names is treated as a hint and nothing more. A place that cannot prove it holds this machine's record is sent no credential, and the enrollment is left as it was. That is the normal state for a while: the fence goes up before the new controller has the copy, so the agent asks again once a minute until the new controller answers. While it waits its log says once that the controller has moved, not every cycle. An address that is not an HTTPS origin (one with a path, or plain HTTP anywhere but this machine itself) is not followed on its own; use `set-server` once the address is right.
-
-A machine that is switched off catches up when its agent next starts. One fenced with no address, or one that should not move by itself, is moved with `set-server`. To stop a machine following on its own:
+To stop a machine following on its own:
 
 ```sh
 reet agent follow-moves off      # on | off | status; on by default
 ```
 
-Like `allow-apply`, this can only be changed by a command on the machine. Restart a running agent for it to take effect.
+Like `allow-apply`, this can only be changed by a command on the machine. Restart a running agent for it to take effect. A machine with following off tells the fenced controller once, so the Move page shows it as needing a hand.
 
 ## Controls and recovery
 

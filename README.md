@@ -297,7 +297,7 @@ Keep the folders you work in as **projects** in the rail on Home: one folder on 
 
 Machine terminals retain the OS account’s usual sudo permissions and authentication. See [sudo setup and migration](docs/terminal-controller-commands.md#sudo-in-a-machine-terminal) for older restricted Linux service units.
 
-When a controller moves and its owner says where to, running machines follow it on their own (`reet agent follow-moves off` stops that); any machine can be pointed at the new one with `reet agent set-server URL`. Either way the machine first has the controller prove it holds the machine's record, and sends no credential until it has ([following a moved controller](docs/controller-sync.md#follow-a-controller-that-has-moved)).
+When a controller moves, machines follow it on their own: the fenced old controller tells each one the new address (which can be given after the fence goes up), the machine keeps it through restarts and after the old controller is switched off, and the old controller's Move page shows each machine as it arrives. The machine first has the new controller prove it holds the machine's record, and sends no credential until it has. `reet agent follow-moves off` stops a machine following; `reet agent set-server URL` moves one by hand ([following a moved controller](docs/controller-sync.md#follow-a-controller-that-has-moved)).
 
 Connect a machine’s terminal with `reet agent terminal setup`. Interactive install, enrollment and upgrades offer this resumable wizard; it checks tmux, asks for local shell consent and repairs native services while preserving running sessions. See [terminal connection setup](docs/terminal-controller-commands.md#first-class-machine-connection-setup).
 

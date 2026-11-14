@@ -86,6 +86,7 @@ func runAgentSetServer(args []string, out io.Writer, version string) error {
 	fmt.Fprintf(out, "Check 1 of 2 passed: %s holds this machine's record.\n", server)
 	moved := c
 	moved.Server = server
+	moved.MovingTo = ""
 	if err := confirmCredentials(ctx, moved, version); err != nil {
 		return fmt.Errorf("nothing was changed. Check 2 of 2 failed (the controller must accept this machine's credentials): %w", err)
 	}
@@ -95,6 +96,8 @@ func runAgentSetServer(args []string, out io.Writer, version string) error {
 		return fmt.Errorf("nothing was changed: could not save the enrollment: %w", err)
 	}
 	fmt.Fprintf(out, "This machine now points at %s (it was %s).\n", server, c.Server)
+	// The old controller's Move page counts this machine as moved.
+	tellLeft(ctx, c, server, version)
 	if err := controlAgentFn("restart", absolute, *servicePrefix, out); err != nil {
 		return fmt.Errorf("the address was saved, but the agent could not be restarted (%w); run reet agent restart", err)
 	}

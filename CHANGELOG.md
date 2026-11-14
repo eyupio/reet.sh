@@ -5,6 +5,19 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Machines now follow a moved controller without anyone touching them, and
+  the Move page shows them do it. The `reet agent set-server` command is gone
+  from the page. A fence raised before the new address was known can be given
+  it later, or corrected, without lifting the fence (**Change the address**,
+  or `PATCH /api/v2/admin/fence`). A machine keeps the address the fence named
+  in its enrollment (`movingTo`), so it still gets there after its agent
+  restarts or after the old controller is switched off. Once it has moved it
+  tells the old controller, and **Machines follow on their own** lists every
+  machine as moved, waiting for the new controller, not asking right now, or
+  needing a hand (following turned off, or an `http://` address it will not
+  follow). The page warns about an `http://` address before you fence. The
+  safety rule is unchanged: no credential goes to an address until it proves
+  it holds the machine's record.
 - A chat now shows what its agent reports using. The status line above the
   message box ends with how much of the agent's context window is left, or
   the chat's tokens when the agent never says how large its window is, and

@@ -313,6 +313,9 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 	if _, err = exec("settings", `DELETE FROM settings WHERE key IN(?,?)`, SettingFenceSince, SettingFenceMovedTo); err != nil {
 		return out, err
 	}
+	if _, err = exec("fence_machines", `DELETE FROM fence_machines`); err != nil {
+		return out, err
+	}
 	if opts.PublicURL != "" {
 		n, err := exec("mail_settings", `UPDATE mail_settings SET base_url=? WHERE base_url<>'' AND base_url<>?`, opts.PublicURL, opts.PublicURL)
 		if err != nil {

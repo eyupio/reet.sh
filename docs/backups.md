@@ -370,12 +370,12 @@ is the one meant to be live, so a restore clears it.
 
 ### Moving a controller, the order of it
 
-1. On the old controller, fence it (`reet backup fence --moved-to NEW`) so it stops acting.
+1. On the old controller, fence it (`reet backup fence --moved-to NEW`) so it stops acting. If the new address is not known yet, fence without it and give it later (`PATCH /api/v2/admin/fence`, or the Move page); the fence stays up.
 2. Take the final copy (`reet backup run`); it is marked fenced.
 3. On the new controller, restore or import it with `--public-url NEW`, and set what the report's checklist lists by hand.
-4. Machines whose agents are running follow on their own once the new controller answers, because the fence named its address; on any other machine run `reet agent set-server NEW` (see [following a moved controller](controller-sync.md#follow-a-controller-that-has-moved)). Either way the machine has the new controller prove it holds its record before it sends any credential.
+4. Machines follow on their own; nothing is run on them. Each is told the address on its next request to the fenced controller, keeps it, and moves once the new controller proves it holds the machine's record, before it sends any credential (see [following a moved controller](controller-sync.md#follow-a-controller-that-has-moved)). It then tells the old controller it has gone.
 5. Resume the work the restore held back.
-6. When everything is working, the old controller can stay fenced or be retired.
+6. Keep the old controller fenced and running until every machine shows as moved (`GET /api/v2/admin/fence/machines`, or the Move page); a machine that was switched off learns the address from it when it is back. Then it can be retired.
 
 ### Moving a controller from the web page
 
@@ -402,9 +402,16 @@ controller lists it in `GET /api/version` (see
    the final copy**. If the fence changed while the copy was being taken the
    page says so and asks for another, rather than handing over a copy the new
    controller would refuse.
-3. The card then lists what is left: the import on the new controller, and on
-   each machine the command `reet agent set-server <new address>`, with a button
-   to copy it.
+   If the fence went up without an address, the card asks for it, and
+   **Change the address** corrects one; neither lifts the fence.
+3. The card then lists what is left: the import on the new controller, and
+   **Machines follow on their own**, a live list of every enrolled machine:
+   **moved** (it said it now points at the new controller), **waiting** (the
+   fence is turning it away now, so it has the address and waits for the new
+   controller to answer), **not asking right now** (switched off, or told and
+   then quiet), or **needs a hand** (following is turned off on it, or the
+   address is plain `http://`, which machines do not follow on their own). The
+   step is ticked once every machine has moved.
 4. **Lift the fence** is there the whole time. It asks first, because a
    controller that is already running from the copy would then share its data
    with this one.
@@ -418,8 +425,7 @@ shown beside the form with everything you typed still there, and only then does
 the page ask for the tick **The old controller is stopped or gone**
 (`allowLiveSource`). Once the copy is staged the page shows the report: what
 came across, what was done about the address, what was held back, what is not in
-the copy and has to be set by hand, and the `set-server` command for the
-machines. Restart the controller to put the copy in place.
+the copy and has to be set by hand, and that machines move to it on their own. Restart the controller to put the copy in place.
 
 The first answer of the import, and `GET /api/v2/admin/backups/import` while a
 copy is staged, carry `notInCopy`: the same checklist the command line prints,

@@ -15,6 +15,19 @@ this file existed releases were described on their GitHub release pages.
   given up now sends nothing, and a message already being written finishes
   under its own five-second limit. The controller and `reet agent` each
   protect their own end of the connection.
+- Machines now follow a moved controller without anyone touching them, and
+  the Move page shows them do it. The `reet agent set-server` command is gone
+  from the page. A fence raised before the new address was known can be given
+  it later, or corrected, without lifting the fence (**Change the address**,
+  or `PATCH /api/v2/admin/fence`). A machine keeps the address the fence named
+  in its enrollment (`movingTo`), so it still gets there after its agent
+  restarts or after the old controller is switched off. Once it has moved it
+  tells the old controller, and **Machines follow on their own** lists every
+  machine as moved, waiting for the new controller, not asking right now, or
+  needing a hand (following turned off, or an `http://` address it will not
+  follow). The page warns about an `http://` address before you fence. The
+  safety rule is unchanged: no credential goes to an address until it proves
+  it holds the machine's record.
 - The terminal's on-screen keys are rebuilt, and tablets get them. They were
   hidden on any touch screen wider than 650 px, so a tablet had no Esc, Tab,
   Ctrl or arrow keys; they now show on every touch screen. The row leads with

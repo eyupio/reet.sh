@@ -186,6 +186,40 @@ func TestRetryThenContinue(t *testing.T) {
 	}
 }
 
+func TestRetryWhileTheStopIsSettlingIsNotLost(t *testing.T) {
+	st, uid, agents := softwareRunFixture(t, "alpha", "beta")
+	batch := softwareRunBatch(t, st, uid, agents...)
+	var mu sync.Mutex
+	failedOnce := false
+	broker := &fakeBroker{apply: func(agentID string, in terminalproto.SoftwareApply) (terminalproto.SoftwareApplyResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if agentID == agents[0].ID && !failedOnce {
+			failedOnce = true
+			return failed(in, terminalproto.SoftwareApplyDownload), nil
+		}
+		return applied(in), nil
+	}}
+	// The person retries the stopped batch in the same instant the driver is
+	// settling it. That Start must not be swallowed by the pass that is ending.
+	var retried atomic.Bool
+	var o *Orchestrator
+	o = New(Config{Store: st, Broker: broker, Logf: t.Logf, Settled: func(uid int64, b store.SoftwareBatch) {
+		if b.ID != batch.ID || b.State != store.SoftwareBatchStopped || !retried.CompareAndSwap(false, true) {
+			return
+		}
+		if _, err := o.Retry(uid, b.ID, 0); err != nil {
+			t.Errorf("retry: %v", err)
+		}
+	}})
+	defer o.Close()
+	o.Start(uid, batch.ID)
+	done := waitBatch(t, st, uid, batch.ID, store.SoftwareBatchDone)
+	if done.Members[0].State != store.SoftwareMemberApplied || done.Members[1].State != store.SoftwareMemberApplied {
+		t.Fatalf("done: %+v", done)
+	}
+}
+
 func TestSkipContinuesAndFinishes(t *testing.T) {
 	st, uid, agents := softwareRunFixture(t, "alpha", "beta")
 	batch := softwareRunBatch(t, st, uid, agents...)

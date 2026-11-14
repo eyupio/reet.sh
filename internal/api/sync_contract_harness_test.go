@@ -354,11 +354,20 @@ func (m *syncContractMachine) connectorCommand(ctx context.Context, args ...stri
 			"OPENCODE_CONFIG_DIR", "PI_CODING_AGENT_DIR":
 			continue
 		}
+		if key == "GORACE" {
+			continue
+		}
 		if !strings.HasPrefix(key, "REET_") {
 			cmd.Env = append(cmd.Env, entry)
 		}
 	}
-	cmd.Env = append(cmd.Env, "HOME="+m.home,
+	// The connector is this test binary, so under -race it is built with the
+	// race detector, which by default sleeps a full second inside every exit
+	// (atexit_sleep_ms=1000). That second came out of stop's two-second
+	// budget, and a busy CI runner spent the other one: "did not stop after
+	// its input closed". The connector's own shutdown takes milliseconds.
+	gorace := strings.TrimSpace(os.Getenv("GORACE") + " atexit_sleep_ms=0")
+	cmd.Env = append(cmd.Env, "GORACE="+gorace, "HOME="+m.home,
 		"XDG_CONFIG_HOME="+filepath.Join(m.home, ".config"),
 		"XDG_DATA_HOME="+filepath.Join(m.home, ".local", "share"),
 		"XDG_STATE_HOME="+filepath.Join(m.home, ".local", "state"),

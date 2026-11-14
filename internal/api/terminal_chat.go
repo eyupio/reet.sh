@@ -18,6 +18,7 @@ func (s *server) registerTerminalChatRoutes(mux *http.ServeMux) {
 	for _, method := range []string{"GET", "POST", "PATCH"} {
 		mux.HandleFunc(method+" /api/v2/terminal/sessions/{id}/chat/queue", s.terminal(s.terminalChatQueue))
 	}
+	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat/usage", s.terminal(s.terminalChatUsage))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat/controls", s.terminal(s.terminalChatControls))
 	mux.HandleFunc("POST /api/v2/terminal/sessions/{id}/chat/controls", s.terminal(s.terminalChatControls))
 	mux.HandleFunc("GET /api/v2/terminal/sessions/{id}/chat", s.terminal(s.terminalChat))

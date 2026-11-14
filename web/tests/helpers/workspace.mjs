@@ -48,6 +48,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/terminal/status')return json(terminalStatus)
   if(path==='/api/v2/terminal/machines')return json({machines:terminalMachines})
   if(path==='/api/v2/terminal/sessions')return json({sessions:[]})
+  // A chat whose agent has reported no usage: the status line then shows nothing. A test that wants figures answers the route itself.
+  if(/^\/api\/v2\/terminal\/sessions\/[^/]+\/chat\/usage$/.test(path))return json({reported:false,inputTokens:0,outputTokens:0,cachedTokens:0,contextUsed:0,contextSize:0,updatedAt:0})
   if(path==='/api/v2/session-backlog')return json({drafts:[]})
   if(path==='/api/v2/gaffer/goals'&&route.request().method()==='GET')return json({goals:[],readAt:Date.now()})
   if(path==='/api/v2/gaffer/outcomes'&&route.request().method()==='GET')return json({outcomes:[]})

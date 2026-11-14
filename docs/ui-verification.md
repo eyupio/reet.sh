@@ -1,5 +1,25 @@
 # UI verification — 4 November 2026
 
+## A chat's usage line (14 November 2026)
+
+The status line above a chat's message box now ends with what the agent reports using: **Context 55% left** with a
+meter, or the chat's tokens when the agent never said how large its window is.
+
+Commands run in this container:
+
+- `cd web && npm ci --no-audit --no-fund`, `npm run check`, `npm run build`.
+- `npm run dev -- --host 127.0.0.1 --port 4173` and, with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` pointing at the
+  installed Chromium, `node tests/chat-usage.e2e.mjs`: passes. Against fixtures it checks that a quiet agent shows no
+  figure, that the figure appears when a turn ends without a reload, that a failed read keeps the last figures, the low
+  mark at 10%, tokens with no window and no meter, and at 1360, 390 and 320 px in both themes that the page does not
+  scroll sideways, the figure stays inside the status line and nothing floats over it. The last check failed with the
+  clearance for the floating Ask Gaffer circle removed.
+- The existing suites `chat`, `chat-controls`, `chat-codex`, `chat-claude`, `chat-cline`, `chat-cline-source`,
+  `chat-antigravity`, `chat-recovery`, `chat-previews`, `calm-session`, `gaffer-layout` and `session-workspace`: pass.
+- Screenshots at 1360 px (light and dark) and 390 px (dark) were looked at.
+
+Not checked: a real controller with a real agent reporting usage, Firefox, Safari, a physical phone.
+
 ## Moving a controller from the Backups page (13 November 2026)
 
 **Admin → Backups** gained **Move this controller away** (fence, final copy

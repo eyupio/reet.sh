@@ -95,11 +95,6 @@ func outputLimit(args []string) int {
 
 var errGitMissing = errors.New("git is not installed")
 
-// readOnlyGitArgs keep a git call that only looks at a repository from
-// running anything the repository's or the person's configuration names,
-// and from trusting what such a program cached: no file-system monitor
-// hook (which could also hide an edit from status), no untracked cache, no
-// hooks, no external diff, no attributes file from outside the repository.
 // filterKeysArgs lists, NUL-separated, the name of every setting of every
 // configured content filter; filterOffArgs turns the listing into the -c
 // arguments that switch them all off.
@@ -129,6 +124,11 @@ func filterOffArgs(keys []byte) (args []string, ok bool) {
 	return args, true
 }
 
+// readOnlyGitArgs keep a git call that only looks at a repository from
+// running anything the repository's or the person's configuration names,
+// and from trusting what such a program cached: no file-system monitor
+// hook (which could also hide an edit from status), no untracked cache, no
+// hooks, no external diff, no attributes file from outside the repository.
 var readOnlyGitArgs = []string{"-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "core.attributesFile=/dev/null"}
 
 // ExecGit runs git found by exec.LookPath as an argument vector, never through

@@ -2616,7 +2616,7 @@ func TestRemoveCloneRefusesAFolderSwappedInAfterTheCheck(t *testing.T) {
 	swapping := func(ctx context.Context, d string, args ...string) ([]byte, error) {
 		out, err := f.git(ctx, d, args...)
 		// The last thing git is asked: every check after it reads the disk.
-		if gitSub(args) == "ls-files" && slices.Contains(args, "--stage") {
+		if gitSub(args) == "ls-files" && slices.Contains(args, "-v") {
 			swaps++
 			if err := os.Rename(dir, moved); err != nil {
 				t.Error(err)
@@ -2862,6 +2862,53 @@ func TestCloneStatusRefusesRemoteBranchesThatAreNotGitHubs(t *testing.T) {
 		{"another remote in the person's config fetching into origin's branches", func(t *testing.T, f *cloneFixture, dir string) {
 			writeFile(t, filepath.Join(f.home, ".gitconfig"), "[remote \"fork\"]\n\turl = "+f.remote+"\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n")
 		}, terminalproto.RepoCloneExists},
+		{"another remote using git's short form of origin's branch", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "fork", f.remote)
+			testGit(t, dir, "config", "remote.fork.fetch", "refs/heads/main:remotes/origin/main")
+		}, terminalproto.RepoCloneExists},
+		{"another remote using the short form with a wildcard", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "fork", f.remote)
+			testGit(t, dir, "config", "remote.fork.fetch", "+refs/heads/*:remotes/*")
+		}, terminalproto.RepoCloneExists},
+		{"a remote named Origin, which shares origin's folder where case is ignored", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "Origin", f.remote)
+		}, terminalproto.RepoCloneExists},
+		{"another remote writing REFS/REMOTES/ORIGIN in capitals", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "fork", f.remote)
+			testGit(t, dir, "config", "remote.fork.fetch", "+refs/heads/*:refs/remotes/ORIGIN/*")
+		}, terminalproto.RepoCloneExists},
+		{"a remote helper named for origin", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "remote.origin.vcs", "hg")
+		}, terminalproto.RepoCloneExists},
+		{"a remote helper named for another remote", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "remote.other.vcs", "hg")
+		}, terminalproto.RepoCloneExists},
+		{"an empty remote helper", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "remote.origin.vcs", "")
+		}, terminalproto.RepoCloneExists},
+		{"a legacy remote file", func(t *testing.T, f *cloneFixture, dir string) {
+			if err := os.MkdirAll(filepath.Join(dir, ".git", "remotes"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(dir, ".git", "remotes", "origin"), "URL: "+f.remote+"\nPull: refs/heads/main:refs/remotes/origin/main\n")
+		}, terminalproto.RepoCloneExists},
+		{"a legacy branches file", func(t *testing.T, f *cloneFixture, dir string) {
+			if err := os.MkdirAll(filepath.Join(dir, ".git", "branches"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(dir, ".git", "branches", "origin"), f.remote+"\n")
+		}, terminalproto.RepoCloneExists},
+		{"legacy remote folders that are not folders", func(t *testing.T, f *cloneFixture, dir string) {
+			if err := os.RemoveAll(filepath.Join(dir, ".git", "branches")); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(dir, ".git", "branches"), "x")
+		}, terminalproto.RepoCloneFailed},
+		{"another remote that stores a branch of its own in short form", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "remote", "add", "fork", f.remote)
+			testGit(t, dir, "config", "--add", "remote.fork.fetch", "refs/heads/main:remotes/fork/main")
+			testGit(t, dir, "config", "--add", "remote.fork.fetch", "refs/heads/main:")
+		}, ""},
 		{"origin fetching one branch only", func(t *testing.T, f *cloneFixture, dir string) {
 			testGit(t, dir, "config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
 		}, terminalproto.RepoCloneExists},
@@ -2903,7 +2950,7 @@ func TestCloneStatusRefusesRemoteBranchesThatAreNotGitHubs(t *testing.T) {
 		out   string
 		want  terminalproto.RepoCloneReason
 	}{
-		{"the refspecs", func(args []string) bool { return slices.Contains(args, `^remote\..*\.fetch$`) }, "fatal: bad config\n", terminalproto.RepoCloneFailed},
+		{"the refspecs", func(args []string) bool { return slices.Contains(args, `^remote\..*\.(fetch|vcs)$`) }, "fatal: bad config\n", terminalproto.RepoCloneFailed},
 		{"the fetch address", func(args []string) bool {
 			return gitSub(args) == "remote" && !slices.Contains(args, "--push")
 		}, "", terminalproto.RepoCloneExists},
@@ -2924,5 +2971,118 @@ func TestCloneStatusRefusesRemoteBranchesThatAreNotGitHubs(t *testing.T) {
 			}
 			wantKept(t, f.removeWith(t, dir, "o/r", shown.Fingerprint, failing), tc.want, f.home, before)
 		})
+	}
+}
+
+func TestOriginRefsAreOrigins(t *testing.T) {
+	const origin = "remote.origin.fetch\n+refs/heads/*:refs/remotes/origin/*\x00"
+	for _, tc := range []struct {
+		out            string
+		only, readable bool
+	}{
+		{origin, true, true},
+		{origin + "remote.fork.fetch\n+refs/heads/*:refs/remotes/fork/*\x00", true, true},
+		{origin + "remote.fork.fetch\nrefs/heads/x:originx\x00", true, true},
+		{origin + "remote.fork.fetch\nrefs/heads/x\x00", true, true},
+		{origin + "remote.fork.fetch\nrefs/heads/x:remotes/origin/x\x00", false, true},
+		{origin + "remote.fork.fetch\nrefs/heads/x:remotes/origin\x00", false, true},
+		{origin + "remote.fork.fetch\n+refs/heads/*:remotes/*\x00", false, true},
+		{origin + "remote.fork.fetch\n+refs/heads/*:refs/remotes/ORIGIN/*\x00", false, true},
+		// git reads this one as a branch named Refs/Remotes/Origin/...
+		{origin + "remote.fork.fetch\n+refs/heads/*:Refs/Remotes/Origin/*\x00", true, true},
+		{origin + "remote.fork.fetch\n^refs/heads/x:refs/remotes/origin/x\x00", false, true},
+		{origin + "remote.fork.vcs\nhg\x00", false, true},
+		{origin + origin, false, true},
+		{"remote.fork.fetch\n+refs/heads/*:refs/remotes/fork/*\x00", false, true},
+		{"", false, true},
+		{"warning: odd\n" + origin, false, false},
+		{origin + "remote.fork.fetch\x00", false, false},
+		{origin + "core.editor\nvi\x00", false, false},
+	} {
+		only, readable := originRefsAreOrigins([]byte(tc.out))
+		if only != tc.only || readable != tc.readable {
+			t.Errorf("originRefsAreOrigins(%q) = %v, %v, want %v, %v", tc.out, only, readable, tc.only, tc.readable)
+		}
+	}
+}
+
+// A folder of the clone that is on another filesystem is a mount: deleting
+// the clone would empty it. The walk that looks for nested repositories
+// compares every folder's device with the clone's.
+func TestCloneStatusRefusesAnotherFilesystemInside(t *testing.T) {
+	for _, tc := range []struct {
+		test string
+		// where is the folder given another device, relative to the clone.
+		where string
+		known bool
+		want  terminalproto.RepoCloneReason
+	}{
+		{"an ignored folder", "data", true, terminalproto.RepoCloneNotRemovable},
+		{"a folder deep in an ignored one", "data/deep/er", true, terminalproto.RepoCloneNotRemovable},
+		{"a folder inside .git", ".git/objects", true, terminalproto.RepoCloneNotRemovable},
+		{"a device that cannot be read", "data", false, terminalproto.RepoCloneFailed},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), "data/\n")
+			if err := os.MkdirAll(filepath.Join(dir, "data", "deep", "er"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(dir, "data", "deep", "er", "precious"), "on the mount\n")
+			shown := f.status(t, dir, "o/r")
+			wantCounts(t, shown, 0, 0, 0, 0)
+			mount, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(tc.where)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := cloneDevice
+			cloneDevice = func(info os.FileInfo) (uint64, bool) {
+				if os.SameFile(info, mount) {
+					return 99, tc.known
+				}
+				return 1, true
+			}
+			t.Cleanup(func() { cloneDevice = original })
+			before := snapshot(t, f.home)
+			if s := f.status(t, dir, "o/r"); s != (terminalproto.RepoCloneState{Reason: tc.want}) {
+				t.Fatalf("state = %+v, want %s", s, tc.want)
+			}
+			wantKept(t, f.remove(t, dir, "o/r", shown.Fingerprint), tc.want, f.home, before)
+		})
+	}
+}
+
+// git looks inside a populated submodule with that repository's own
+// config. The gitlink is found first, so no git ever runs in there.
+func TestCloneStatusRunsNothingInsideASubmodule(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	sub := filepath.Join(dir, "sub")
+	nestedRepo(t, sub)
+	testGit(t, dir, "-c", "advice.addEmbeddedRepo=false", "add", "sub")
+	testGit(t, dir, "-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "sub")
+	f.push(t, dir, "main")
+	marker := filepath.Join(f.home, "ran-in-submodule")
+	hook := filepath.Join(f.home, "sub-hook")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho ran >> '"+marker+"'\nprintf 'token\\0'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, sub, "config", "core.fsmonitor", hook)
+	testGit(t, sub, "config", "core.fsmonitorHookVersion", "2")
+	testGit(t, sub, "config", "filter.x.clean", "sh -c 'echo ran >> "+marker+"; cat'")
+	writeFile(t, filepath.Join(sub, ".git", "info", "attributes"), "* filter=x\n")
+	agePath(t, filepath.Join(sub, "only-here"), time.Hour)
+	before := snapshot(t, f.home)
+	f.calls = nil
+	if s := f.status(t, dir, "o/r"); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneNotRemovable}) {
+		t.Fatalf("state = %+v, want not_removable", s)
+	}
+	wantKept(t, f.remove(t, dir, "o/r", anyFingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+	wantMissing(t, marker)
+	for _, args := range f.calls {
+		if gitSub(args) == "status" {
+			t.Fatalf("git status ran in a clone with a gitlink: %q", args)
+		}
 	}
 }

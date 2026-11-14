@@ -69,14 +69,23 @@ type cloneAt struct {
 // 0 with exactly one origin that names <owner>/<repo> on github.com. Anything
 // else answers exists: something else is there. So does a clone whose
 // pushes do not go to that repository: a remote.origin.pushurl of its own,
-// or an address `git remote get-url --all --push origin` gives (the person's
-// insteadOf and pushInsteadOf rewrites applied) that is not exactly one
-// naming <owner>/<repo> on github.com. github.com over ssh is still GitHub.
-// The same holds for fetches: `git remote get-url --all origin` must be
-// exactly one such address, remote.origin.fetch exactly the one default
-// refspec "+refs/heads/*:refs/remotes/origin/*", and no other remote's
-// refspec, in any config git reads, may write under refs/remotes/origin/
-// (originRefsAreOrigins). A refspec listing git could not give is failed.
+// or an address `git remote get-url --all --push origin` gives, with the
+// insteadOf and pushInsteadOf rewrites of the config git reads applied, that
+// is not exactly one naming <owner>/<repo> on github.com. github.com over
+// ssh is still GitHub. The same holds for fetches: `git remote get-url --all
+// origin` must be exactly one such address, remote.origin.fetch exactly the
+// one default refspec "+refs/heads/*:refs/remotes/origin/*", no other
+// remote's refspec may write under refs/remotes/origin/, and no remote may
+// name a helper (remote.<name>.vcs) (originRefsAreOrigins). A refspec
+// listing git could not give is failed. A clone with an entry in
+// .git/remotes or .git/branches, the old files git still reads a remote
+// from, answers exists too (legacyRemotes).
+//
+// The config git reads here is what the connector's environment gives it,
+// HOME, PATH and LANG only: the system config, the config of this user's
+// HOME (~/.gitconfig and ~/.config/git/config) and the clone's own. Config
+// named by GIT_CONFIG_* or XDG_CONFIG_HOME in a person's shell is not
+// read, so a rewrite that exists only there is not seen.
 //
 // Marked is true only when the marker CloneRepo writes is there and names
 // the repository. Without it the folder is a person's own: nothing is
@@ -110,9 +119,14 @@ type cloneAt struct {
 //   - a file marked assume-unchanged or skip-worktree (status does not look
 //     at it);
 //   - a gitlink (mode 160000) in the index, whether or not its folder is
-//     there, and any entry named .git below the clone's own, found by a walk
-//     that follows no symlink (nestedGit): another repository, in an ignored
-//     folder too, may hold history that is nowhere else;
+//     there (looked for before status, so git never runs inside a
+//     submodule), and any entry named .git below the clone's own, found by
+//     a walk that follows no symlink (foreignInside): another repository,
+//     in an ignored folder too, may hold history that is nowhere else;
+//   - a folder anywhere under the clone, its .git included, that is on
+//     another filesystem (the same walk): a mount, which a delete would
+//     empty. On a system where a folder's filesystem cannot be told the
+//     answer is failed;
 //   - a submodule's repository under .git/modules, or a rebase, a patch
 //     series or a merge in progress that may have set changes aside
 //     (.git/rebase-merge, .git/rebase-apply, .git/MERGE_AUTOSTASH);
@@ -261,7 +275,8 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 	// Pushes must go to the same repository, or origin's remote-tracking
 	// branches say nothing about GitHub. A push address of the clone's own
 	// is refused whatever it names. Then the address git would really push
-	// to, with the person's own insteadOf and pushInsteadOf rewrites applied,
+	// to, with the insteadOf and pushInsteadOf rewrites of the config git
+	// reads (see CloneStatus) applied,
 	// must be exactly one and name the repository on github.com (over https
 	// or ssh). git's exit 1 for "no pushurl" is not relied on: the second
 	// call must succeed and prove the address.
@@ -279,8 +294,8 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 	case err != nil || !originNames(out, req):
 		return refuse(terminalproto.RepoCloneExists)
 	}
-	// Fetches must come from the same repository too, with the person's
-	// insteadOf rewrites applied: a mirror's branches are not GitHub's.
+	// Fetches must come from the same repository too, with the same
+	// rewrites applied: a mirror's branches are not GitHub's.
 	out, err = git(pinGitDir(ctx, at.dest), at.dest, "remote", "get-url", "--all", "origin")
 	switch {
 	case err != nil && (ctx.Err() != nil || errors.Is(err, errGitMissing)):
@@ -289,7 +304,7 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 		return refuse(terminalproto.RepoCloneExists)
 	}
 	// And only origin's own default refspec may write refs/remotes/origin/*.
-	out, err = git(pinGitDir(ctx, at.dest), at.dest, "config", "-z", "--get-regexp", `^remote\..*\.fetch$`)
+	out, err = git(pinGitDir(ctx, at.dest), at.dest, "config", "-z", "--get-regexp", `^remote\..*\.(fetch|vcs)$`)
 	switch {
 	case err != nil && (ctx.Err() != nil || errors.Is(err, errGitMissing) || len(out) > 0):
 		return refuse(failed(err))
@@ -304,6 +319,12 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 	case !readable:
 		return refuse(terminalproto.RepoCloneFailed)
 	case !only:
+		return refuse(terminalproto.RepoCloneExists)
+	}
+	switch legacy, err := legacyRemotes(filepath.Join(at.dest, ".git")); {
+	case err != nil:
+		return refuse(terminalproto.RepoCloneFailed)
+	case legacy:
 		return refuse(terminalproto.RepoCloneExists)
 	}
 	if marker, marked := cloneMarked(at.dest); !marked || !sameRepo(marker, req) {
@@ -371,6 +392,23 @@ func cloneCounts(ctx context.Context, dest string, git GitRunner) (terminalproto
 	linked, ok := linkedWorktrees(worktrees, dest)
 	if !ok {
 		return none, unreadable
+	}
+
+	// A gitlink is another repository's commit: the repository it came from
+	// may live only inside this folder. It is looked for before status, which
+	// would otherwise run git inside a populated submodule under that
+	// repository's own config.
+	staged, err := run("ls-files", "--stage", "-z")
+	if err != nil {
+		return none, err
+	}
+	if len(staged) >= gitListLimit {
+		return none, unreadable
+	}
+	for _, entry := range strings.Split(string(staged), "\x00") {
+		if strings.HasPrefix(entry, "160000 ") {
+			return none, errCloneNotRemovable
+		}
 	}
 
 	status, err := run("status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
@@ -456,29 +494,14 @@ func cloneCounts(ctx context.Context, dest string, git GitRunner) (terminalproto
 	if hiddenEntries(hidden, dest) > 0 {
 		return none, errCloneNotRemovable
 	}
-	// A gitlink is another repository's commit: the repository it came from
-	// may live only inside this folder. This is the last git call; what
-	// follows reads the disk.
-	staged, err := run("ls-files", "--stage", "-z")
-	if err != nil {
-		return none, err
-	}
-	if len(staged) >= gitListLimit {
-		return none, unreadable
-	}
-	for _, entry := range strings.Split(string(staged), "\x00") {
-		if strings.HasPrefix(entry, "160000 ") {
-			return none, errCloneNotRemovable
-		}
-	}
 	if writing, err := gitWriting(filepath.Join(dest, ".git")); err != nil {
 		return none, err
 	} else if writing {
 		return none, errCloneNotRemovable
 	}
-	if nested, err := nestedGit(ctx, dest); err != nil {
+	if foreign, err := foreignInside(ctx, dest); err != nil {
 		return none, err
-	} else if nested {
+	} else if foreign {
 		return none, errCloneNotRemovable
 	}
 	// A submodule's repository, and what a rebase, a patch series or a merge
@@ -571,14 +594,22 @@ func unpushedTips(ctx context.Context, dest string, git GitRunner, tips []string
 	return count, nil
 }
 
-// originRefsAreOrigins reads `git config -z --get-regexp ^remote\..*\.fetch$`
-// (every scope, "key\nvalue" entries NUL-separated) and reports whether
-// refs/remotes/origin/* is written by origin's default refspec and nothing
-// else: remote.origin.fetch must be exactly the one value
-// "+refs/heads/*:refs/remotes/origin/*", and no other remote's refspec may
-// have a destination that is, or with its wildcard could be, under
-// refs/remotes/origin/. readable is false for output that is not such a
-// listing.
+// originRefsAreOrigins reads `git config -z --get-regexp
+// ^remote\..*\.(fetch|vcs)$` (every scope git reads, "key\nvalue" entries
+// NUL-separated) and reports whether refs/remotes/origin/* is written by
+// origin's default refspec and nothing else:
+//
+//   - remote.origin.fetch must be exactly the one value
+//     "+refs/heads/*:refs/remotes/origin/*";
+//   - no other remote's refspec may have a destination that is, or with its
+//     wildcard could be, under refs/remotes/origin/. The destination is
+//     first spelled out as git does (remoteRefDestination) and compared
+//     without regard to case: on a file system that ignores case a remote
+//     named Origin shares origin's folder;
+//   - no remote may name a helper (remote.<name>.vcs), which fetches by its
+//     own rules.
+//
+// readable is false for output that is not such a listing.
 func originRefsAreOrigins(out []byte) (only, readable bool) {
 	const namespace = "refs/remotes/origin/"
 	origins := 0
@@ -588,8 +619,13 @@ func originRefsAreOrigins(out []byte) (only, readable bool) {
 			continue
 		}
 		key, value, ok := strings.Cut(entry, "\n")
-		if !ok || !strings.HasPrefix(key, "remote.") || !strings.HasSuffix(key, ".fetch") {
+		isFetch, isVCS := strings.HasSuffix(key, ".fetch"), strings.HasSuffix(key, ".vcs")
+		if !ok || !strings.HasPrefix(key, "remote.") || !(isFetch || isVCS) {
 			return false, false
+		}
+		if isVCS {
+			only = false
+			continue
 		}
 		if key == "remote.origin.fetch" {
 			origins++
@@ -599,15 +635,45 @@ func originRefsAreOrigins(out []byte) (only, readable bool) {
 			continue
 		}
 		_, dst, ok := strings.Cut(strings.TrimLeft(value, "+^"), ":")
-		if !ok {
+		if !ok || dst == "" {
 			continue // nothing is stored locally
 		}
-		fixed, _, wild := strings.Cut(dst, "*")
+		fixed, _, wild := strings.Cut(strings.ToLower(remoteRefDestination(dst)), "*")
 		if strings.HasPrefix(fixed+"/", namespace) || (wild && strings.HasPrefix(namespace, fixed)) {
 			only = false
 		}
 	}
 	return only && origins == 1, true
+}
+
+// remoteRefDestination spells out a refspec's destination as git does: one
+// that starts with refs/ is kept; remotes/, heads/ and tags/ get refs/ in
+// front; anything else is a branch name under refs/heads/.
+func remoteRefDestination(dst string) string {
+	switch {
+	case strings.HasPrefix(dst, "refs/"):
+		return dst
+	case strings.HasPrefix(dst, "remotes/"), strings.HasPrefix(dst, "heads/"), strings.HasPrefix(dst, "tags/"):
+		return "refs/" + dst
+	}
+	return "refs/heads/" + dst
+}
+
+// legacyRemotes reports an entry in .git/remotes or .git/branches, the old
+// files git still reads a remote from. A folder that cannot be read is an
+// error; one that is not there holds nothing.
+func legacyRemotes(gitDir string) (bool, error) {
+	for _, name := range []string{"remotes", "branches"} {
+		list, err := os.ReadDir(filepath.Join(gitDir, name))
+		switch {
+		case os.IsNotExist(err):
+		case err != nil:
+			return false, err
+		case len(list) > 0:
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // walkCloneDir walks a clone without following symlinks; tests replace it.
@@ -640,27 +706,66 @@ func gitWriting(gitDir string) (bool, error) {
 	return writing, err
 }
 
-// nestedGit reports an entry named .git (in any letter case; a folder, a
-// file or a symlink) anywhere under dest other than dest's own .git folder:
-// another repository or worktree, ignored or not, whose history may be
-// nowhere else. Symlinks are not followed. A folder that cannot be read, or
-// the end of ctx, is an error.
-func nestedGit(ctx context.Context, dest string) (bool, error) {
+// cloneDevice is deviceOf; tests replace it to stand for a mount.
+var cloneDevice = deviceOf
+
+// errOtherFilesystem and errNestedGit end the walk in foreignInside.
+var (
+	errOtherFilesystem = errors.New("a folder of the clone is on another filesystem")
+	errNestedGit       = errors.New("another repository is inside the clone")
+)
+
+// foreignInside walks everything under dest, the clone's own .git included,
+// following no symlink, and reports what deleting the clone would take with
+// it that is not the clone's:
+//
+//   - a folder on another filesystem than dest (a mount, which a delete
+//     would empty): every folder's device is compared with dest's;
+//   - outside the clone's own .git, an entry named .git (in any letter
+//     case; a folder, a file or a symlink): another repository or worktree,
+//     ignored or not, whose history may be nowhere else.
+//
+// Because it visits every folder, a clean walk is the proof that nothing
+// under the clone is another filesystem. A folder that cannot be read, a
+// device that cannot be told (always, on a system other than Linux and
+// macOS) or the end of ctx is an error.
+func foreignInside(ctx context.Context, dest string) (bool, error) {
+	root, err := os.Lstat(dest)
+	if err != nil {
+		return false, err
+	}
+	device, ok := cloneDevice(root)
+	if !ok {
+		return false, errors.New("the clone's filesystem cannot be told")
+	}
 	own := filepath.Join(dest, ".git")
-	nested := false
-	err := walkCloneDir(dest, func(path string, d fs.DirEntry, err error) error {
+	err = walkCloneDir(dest, func(path string, d fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
 			return err
 		case ctx.Err() != nil:
 			return ctx.Err()
-		case path == own:
-			return fs.SkipDir
-		case strings.EqualFold(d.Name(), ".git") && path != dest:
-			nested = true
-			return fs.SkipAll
+		}
+		if d.IsDir() {
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			switch on, ok := cloneDevice(info); {
+			case !ok:
+				return errors.New("a folder's filesystem cannot be told")
+			case on != device:
+				return errOtherFilesystem
+			}
+		}
+		inOwn := path == own || strings.HasPrefix(path, own+string(filepath.Separator))
+		if !inOwn && path != dest && strings.EqualFold(d.Name(), ".git") {
+			return errNestedGit
 		}
 		return nil
 	})
-	return nested, err
+	if errors.Is(err, errOtherFilesystem) || errors.Is(err, errNestedGit) {
+		return true, nil
+	}
+	return false, err
 }

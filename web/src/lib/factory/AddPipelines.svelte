@@ -8,7 +8,7 @@
   import GafferModelSelect from '../GafferModelSelect.svelte'
   import { CREW_ROLES, DEFAULT_STAGES, STAGES, sessionCount, stagePlan, type Crew } from '../gafferOutcome'
   import type { MachineModels, ModelFavourite } from '../models'
-  import { launchEfforts } from '../terminal/launchOptions'
+  import { reportedEfforts } from '../terminal/launchOptions'
 
   type Proposal = { title: string; prompt: string; why?: string; stages?: string[] }
   export type AddedPipeline = { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string }[] }
@@ -17,7 +17,7 @@
   } = $props()
   const CHAT_TOOLS = ['claude', 'codex', 'opencode', 'cline', 'antigravity']
   const life = new AbortController()
-  let machine = $state<TerminalMachine | null>(null), favourites = $state<ModelFavourite[]>([]), offered = $state<Record<string, MachineModels | null>>({})
+  let machine = $state<TerminalMachine | null>(null), favourites = $state<ModelFavourite[]>([]), offered = $state<Record<string, MachineModels | null>>({}), capabilitiesRead = $state(false)
   // What each added pipeline runs on: one agent for every stage (`main`), or a crew with its own agent, model and
   // effort for the thinking, building and shipping stages. It starts as the outcome's own agent and model.
   type Who = { tool: string; model: string; effort: string }
@@ -34,7 +34,7 @@
   const choice = (title: string) => main[title] ?? own()
   const crewOf = (title: string): Crew => crews[title] ?? { think: choice(title), build: choice(title), ship: choice(title) }
   const usedTools = (title: string) => CREW_ROLES.map(item => crewOf(title)[item.role].tool)
-  const efforts = (id: string) => launchEfforts(id, machine?.capabilities, true)
+  const efforts = (id: string) => reportedEfforts(id, machine?.capabilities)
   const effortLabel = (id: string, level: string) => level ? `${level[0].toUpperCase()}${level.slice(1)}` : efforts(id).length < 2 ? 'No effort setting' : 'Default effort'
   const needsTrust = $derived(!record.trust && proposals.some(item => usedTools(item.title).some(id => id === 'opencode')))
   // Antigravity never starts in a folder that was not trusted, and trust is given when an outcome is approved.
@@ -45,6 +45,19 @@
   const split = (title: string) => CREW_ROLES.some(item => { const who = crewOf(title)[item.role], top = choice(title); return who.tool !== top.tool || who.model.trim() !== top.model.trim() || (who.effort ?? '') !== top.effort })
 
   $effect(() => { for (const item of proposals) if (!main[item.title]) setMain(item.title, own()) })
+  // Once this machine's agents are known, a level one of them does not report goes back to the agent's default, so what
+  // is shown is what will be sent. An unattended stage the agent refuses fails the whole launch.
+  $effect(() => {
+    if (!capabilitiesRead) return
+    for (const item of proposals) {
+      const top = main[item.title]
+      if (top?.effort && !efforts(top.tool).includes(top.effort)) main[item.title] = { ...top, effort: '' }
+      for (const part of CREW_ROLES) {
+        const role = crews[item.title]?.[part.role]
+        if (role?.effort && !efforts(role.tool).includes(role.effort)) setRole(item.title, part.role, { effort: '' })
+      }
+    }
+  })
   $effect(() => {
     for (const id of new Set(proposals.flatMap(item => usedTools(item.title)))) {
       if (!id || id in offered) continue
@@ -53,7 +66,7 @@
     }
   })
   onMount(() => {
-    void terminalMachines(life.signal).then(found => { machine = found.find(item => item.agentId === record.agentId) ?? null }).catch(() => { /* the outcome's own agent is still offered */ })
+    void terminalMachines(life.signal).then(found => { machine = found.find(item => item.agentId === record.agentId) ?? null }).catch(() => { /* the outcome's own agent is still offered */ }).finally(() => { capabilitiesRead = true })
     void listModelFavourites(life.signal).then(found => { favourites = found.favourites }).catch(() => { /* a helper only */ })
     return () => life.abort()
   })

@@ -90,9 +90,10 @@ func ExecCloneGit(ctx context.Context, dir string, args ...string) ([]byte, erro
 // made in a temporary folder next to it, the marker written into it, and the
 // folder renamed into place without replacing anything. A clone that fails
 // removes its temporary folder, and the owner folder when this call made it
-// and it is empty. Before cloning, the temporary folders earlier clones of
-// the same repository left behind when cut off are removed, under the exact
-// conditions removeLeftovers states; nothing else is ever removed.
+// and it is empty. Before cloning or adopting, and before refusing a
+// destination that is something else, the temporary folders earlier clones
+// of the same repository left behind when cut off are removed, under the
+// exact conditions removeLeftovers states; nothing else is ever removed.
 //
 // The clone is a full, normal one: its remote is named origin whatever the
 // person's clone.defaultRemoteName says, and tags are fetched as in any
@@ -148,13 +149,14 @@ func CloneRepo(ctx context.Context, home string, req terminalproto.RepoClone, gi
 		return refuse(terminalproto.RepoCloneFailed)
 	}
 	dest := filepath.Join(ownerDir, req.Repo)
+	// Leftovers go whether the destination is there or not: a folder that is
+	// adopted or refused would otherwise keep them for good.
+	removeLeftovers(ctx, ownerDir, req)
 	if _, err := os.Lstat(dest); err == nil {
 		return adoptClone(ctx, dest, req, git)
 	} else if !os.IsNotExist(err) {
 		return refuse(terminalproto.RepoCloneFailed)
 	}
-
-	removeLeftovers(ctx, ownerDir, req)
 
 	// The temporary folder is made here, exclusively, so it is this call's
 	// and nobody else's; git clones into an empty folder that exists.

@@ -200,3 +200,203 @@ func TestRepoCloneCapability(t *testing.T) {
 		t.Fatal("repoClone accepted without worktree")
 	}
 }
+
+const testFingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func TestRepoCloneRemoveFeatureToken(t *testing.T) {
+	for _, value := range []string{"", "repo-clone-v1", "repo-clone-remove-v10", "prefix-repo-clone-remove-v1"} {
+		if SupportsRepoCloneRemove(value) {
+			t.Fatal("unadvertised extension enabled", value)
+		}
+	}
+	if !SupportsRepoCloneRemove("repo-clone-v1, repo-clone-remove-v1") || RepoCloneRemoveFeature != "repo-clone-remove-v1" {
+		t.Fatal("feature not recognized")
+	}
+	if SupportsRepoClone(RepoCloneRemoveFeature) {
+		t.Fatal("the remove token turned cloning on")
+	}
+}
+
+func TestRepoCloneStatusAndRemoveValid(t *testing.T) {
+	for name, c := range map[string]struct {
+		dir, origin string
+		want        bool
+	}{
+		"ok":               {"/home/u/reet/repos/eyupio/reet.sh", "eyupio/reet.sh", true},
+		"relative dir":     {"reet/repos/a/b", "a/b", false},
+		"empty dir":        {"", "a/b", false},
+		"control in dir":   {"/home/u/a\n", "a/b", false},
+		"empty origin":     {"/home/u/a", "", false},
+		"no slash":         {"/home/u/a", "ab", false},
+		"bad owner":        {"/home/u/a", "-a/b", false},
+		"bad repo":         {"/home/u/a", "a/..", false},
+		"git suffix":       {"/home/u/a", "a/b.git", false},
+		"url as an origin": {"/home/u/a", "https://github.com/a/b", false},
+		"three segments":   {"/home/u/a", "a/b/c", false},
+	} {
+		if got := (RepoCloneStatus{Dir: c.dir, Origin: c.origin}).valid(); got != c.want {
+			t.Errorf("status %s: valid() = %v, want %v", name, got, c.want)
+		}
+		if got := (RepoCloneRemove{Dir: c.dir, Origin: c.origin, Fingerprint: testFingerprint}).valid(); got != c.want {
+			t.Errorf("remove %s: valid() = %v, want %v", name, got, c.want)
+		}
+	}
+	for _, fingerprint := range []string{"", "abc", testFingerprint[:63], testFingerprint + "0", strings.ToUpper(testFingerprint), testFingerprint[:63] + "g"} {
+		if (RepoCloneRemove{Dir: "/home/u/a", Origin: "a/b", Fingerprint: fingerprint}).valid() {
+			t.Errorf("remove accepted the fingerprint %q", fingerprint)
+		}
+	}
+}
+
+func TestRepoCloneStateValidAndRemovable(t *testing.T) {
+	clean := RepoCloneState{Marked: true, Fingerprint: testFingerprint}
+	cases := map[string]struct {
+		s               RepoCloneState
+		valid, removeOK bool
+	}{
+		"clean":                     {clean, true, true},
+		"not marked":                {RepoCloneState{}, true, false},
+		"worktree":                  {RepoCloneState{Marked: true, Worktrees: 1, Fingerprint: testFingerprint}, true, false},
+		"changed":                   {RepoCloneState{Marked: true, Changed: 2, Fingerprint: testFingerprint}, true, false},
+		"stash":                     {RepoCloneState{Marked: true, Stashes: 1, Fingerprint: testFingerprint}, true, false},
+		"unpushed":                  {RepoCloneState{Marked: true, Unpushed: 3, Fingerprint: testFingerprint}, true, false},
+		"marked, no fingerprint":    {RepoCloneState{Marked: true}, false, true},
+		"bad fingerprint":           {RepoCloneState{Marked: true, Fingerprint: "xyz"}, false, true},
+		"negative count":            {RepoCloneState{Marked: true, Changed: -1, Fingerprint: testFingerprint}, false, false},
+		"huge count":                {RepoCloneState{Marked: true, Unpushed: maxRepoCloneCount + 1, Fingerprint: testFingerprint}, false, false},
+		"unmarked with a count":     {RepoCloneState{Changed: 1}, false, false},
+		"unmarked, fingerprint":     {RepoCloneState{Fingerprint: testFingerprint}, false, false},
+		"reason with marked":        {RepoCloneState{Reason: RepoCloneFailed, Marked: true}, false, false},
+		"reason with a count":       {RepoCloneState{Reason: RepoCloneFailed, Stashes: 1}, false, false},
+		"reason with a fingerprint": {RepoCloneState{Reason: RepoCloneFailed, Fingerprint: testFingerprint}, false, false},
+		"unknown reason":            {RepoCloneState{Reason: "boom"}, false, false},
+		"changed is not a state":    {RepoCloneState{Reason: RepoCloneChanged}, false, false},
+	}
+	for _, reason := range []RepoCloneReason{RepoCloneDenied, RepoCloneBusy, RepoCloneTimedOut, RepoCloneFailed, RepoCloneExists, RepoCloneNotRemovable} {
+		cases["reason "+string(reason)] = struct {
+			s               RepoCloneState
+			valid, removeOK bool
+		}{RepoCloneState{Reason: reason}, true, false}
+	}
+	for name, c := range cases {
+		if got := c.s.valid(); got != c.valid {
+			t.Errorf("%s: valid() = %v, want %v", name, got, c.valid)
+		}
+		if got := c.s.Removable(); got != c.removeOK {
+			t.Errorf("%s: Removable() = %v, want %v", name, got, c.removeOK)
+		}
+	}
+}
+
+func TestRepoCloneRemovedValid(t *testing.T) {
+	cases := map[string]struct {
+		r    RepoCloneRemoved
+		want bool
+	}{
+		"removed":        {RepoCloneRemoved{Dir: "/home/u/reet/repos/a/b"}, true},
+		"empty":          {RepoCloneRemoved{}, false},
+		"relative dir":   {RepoCloneRemoved{Dir: "a/b"}, false},
+		"dir and reason": {RepoCloneRemoved{Dir: "/home/u/a", Reason: RepoCloneChanged}, false},
+		"unknown reason": {RepoCloneRemoved{Reason: "boom"}, false},
+	}
+	for _, reason := range []RepoCloneReason{RepoCloneChanged, RepoCloneNotRemovable, RepoCloneDenied, RepoCloneBusy, RepoCloneTimedOut, RepoCloneFailed, RepoCloneExists} {
+		cases["reason "+string(reason)] = struct {
+			r    RepoCloneRemoved
+			want bool
+		}{RepoCloneRemoved{Reason: reason}, true}
+	}
+	for name, c := range cases {
+		if got := c.r.valid(); got != c.want {
+			t.Errorf("%s: valid() = %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+// The two reasons a remove adds are never an answer to a clone.
+func TestRepoCloneResultRefusesTheRemoveReasons(t *testing.T) {
+	for _, reason := range []RepoCloneReason{RepoCloneChanged, RepoCloneNotRemovable} {
+		if !reason.valid() {
+			t.Errorf("%s is not a reason", reason)
+		}
+		if (RepoCloneResult{Reason: reason}).valid() {
+			t.Errorf("a clone result carried %s", reason)
+		}
+	}
+	if RepoCloneChanged != "changed" || RepoCloneNotRemovable != "not_removable" {
+		t.Fatal(RepoCloneChanged, RepoCloneNotRemovable)
+	}
+}
+
+func TestRepoCloneRemoveRoundTripAndLimits(t *testing.T) {
+	dir := "/home/u/reet/repos/eyupio/reet.sh"
+	for _, body := range []Body{
+		RepoCloneStatus{Dir: dir, Origin: "eyupio/reet.sh"},
+		RepoCloneState{Marked: true, Worktrees: 1, Changed: 2, Stashes: 3, Unpushed: 4, Fingerprint: testFingerprint},
+		RepoCloneState{},
+		RepoCloneState{Reason: RepoCloneNotRemovable},
+		RepoCloneRemove{Dir: dir, Origin: "eyupio/reet.sh", Fingerprint: testFingerprint},
+		RepoCloneRemoved{Dir: dir},
+		RepoCloneRemoved{Reason: RepoCloneChanged},
+		RepoCloneRemoved{Reason: RepoCloneNotRemovable},
+	} {
+		encoded, err := Encode(testMessage(body))
+		if err != nil {
+			t.Fatal(body.kind(), err)
+		}
+		decoded, err := Decode(encoded)
+		if err != nil {
+			t.Fatal(body.kind(), err)
+		}
+		if decoded.Body.kind() != body.kind() {
+			t.Fatalf("%s decoded as %s", body.kind(), decoded.Body.kind())
+		}
+		again, err := Encode(decoded)
+		if err != nil || !bytes.Equal(again, encoded) {
+			t.Fatalf("%s did not round-trip: %s / %s (%v)", body.kind(), encoded, again, err)
+		}
+	}
+	for kind, body := range map[string]Body{
+		"repo_clone_status":  RepoCloneStatus{Dir: dir, Origin: "a/b"},
+		"repo_clone_state":   RepoCloneState{Reason: RepoCloneFailed},
+		"repo_clone_remove":  RepoCloneRemove{Dir: dir, Origin: "a/b", Fingerprint: testFingerprint},
+		"repo_clone_removed": RepoCloneRemoved{Reason: RepoCloneFailed},
+	} {
+		if body.kind() != kind {
+			t.Fatalf("kind %s, want %s", body.kind(), kind)
+		}
+		encoded, err := Encode(testMessage(body))
+		if err != nil {
+			t.Fatal(kind, err)
+		}
+		if _, err := Decode(bytes.Replace(encoded, []byte(`"body":{`), []byte(`"body":{"force":true,`), 1)); err == nil {
+			t.Fatalf("%s: unknown field accepted", kind)
+		}
+	}
+	for _, body := range []Body{
+		RepoCloneStatus{Dir: dir, Origin: "a"},
+		RepoCloneState{Marked: true},
+		RepoCloneRemove{Dir: dir, Origin: "a/b"},
+		RepoCloneRemoved{},
+	} {
+		if _, err := Encode(testMessage(body)); err == nil {
+			t.Fatalf("invalid %s encoded", body.kind())
+		}
+	}
+}
+
+func TestRepoCloneRemoveCapability(t *testing.T) {
+	feats := WorktreeFeature + "," + RepoCloneRemoveFeature
+	ok := Capabilities{ProtocolVersion: Version, OS: "linux", OSUser: "u", TerminalEnabled: true, Readiness: Ready, TerminalControl: true, Launch: true, Worktree: true, RepoCloneRemove: true}
+	if err := ok.ValidateFor(feats); err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.ValidateFor(WorktreeFeature + "," + RepoCloneFeature); err == nil {
+		t.Fatal("repoCloneRemove accepted without the negotiated feature")
+	}
+	if err := (Capabilities{ProtocolVersion: Version, OS: "linux", OSUser: "u", TerminalEnabled: true, Readiness: Ready, TerminalControl: true, Launch: true, RepoCloneRemove: true}).ValidateFor(feats); err == nil {
+		t.Fatal("repoCloneRemove accepted without worktree")
+	}
+}

@@ -1503,3 +1503,799 @@ func TestCloneRepoKeepsALeftoverWithAnUnreadableConfig(t *testing.T) {
 		t.Fatalf("%s changed:\n%q\n%q", path, before, after)
 	}
 }
+
+// madeClone is a clone of o/r that CloneRepo made, at its folder.
+func (f *cloneFixture) madeClone(t *testing.T) string {
+	t.Helper()
+	r := f.clone(t, "o", "r")
+	if r.Reason != "" || !r.Marked || r.Adopted {
+		t.Fatalf("clone = %+v", r)
+	}
+	return r.Dir
+}
+
+func (f *cloneFixture) status(t *testing.T, dir, origin string) terminalproto.RepoCloneState {
+	t.Helper()
+	return f.statusWith(t, dir, origin, f.git)
+}
+
+func (f *cloneFixture) statusWith(t *testing.T, dir, origin string, git GitRunner) terminalproto.RepoCloneState {
+	t.Helper()
+	s := CloneStatus(t.Context(), f.home, terminalproto.RepoCloneStatus{Dir: dir, Origin: origin}, git)
+	if _, err := terminalproto.Encode(terminalproto.Message{Version: terminalproto.Version, RequestID: testRequestID(1), Generation: 1, Body: s}); err != nil {
+		t.Fatalf("state is not a valid message: %+v", s)
+	}
+	return s
+}
+
+func (f *cloneFixture) remove(t *testing.T, dir, origin, fingerprint string) terminalproto.RepoCloneRemoved {
+	t.Helper()
+	return f.removeWith(t, dir, origin, fingerprint, f.git)
+}
+
+func (f *cloneFixture) removeWith(t *testing.T, dir, origin, fingerprint string, git GitRunner) terminalproto.RepoCloneRemoved {
+	t.Helper()
+	r := RemoveClone(t.Context(), f.home, terminalproto.RepoCloneRemove{Dir: dir, Origin: origin, Fingerprint: fingerprint}, git)
+	if _, err := terminalproto.Encode(terminalproto.Message{Version: terminalproto.Version, RequestID: testRequestID(1), Generation: 1, Body: r}); err != nil {
+		t.Fatalf("answer is not a valid message: %+v", r)
+	}
+	return r
+}
+
+// push pushes a branch of the clone at dir to the stand-in for github.com.
+func (f *cloneFixture) push(t *testing.T, dir, branch string) {
+	t.Helper()
+	testGit(t, dir, "-c", "url."+f.remote+".insteadOf=https://github.com/o/"+f.name+".git", "push", "-q", "origin", branch)
+}
+
+// anyFingerprint stands for a fingerprint a person was never shown.
+const anyFingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// wantCounts checks a marked state's four counts and that it is not
+// removable unless all are zero.
+func wantCounts(t *testing.T, s terminalproto.RepoCloneState, worktrees, changed, stashes, unpushed int) {
+	t.Helper()
+	if s.Reason != "" || !s.Marked || len(s.Fingerprint) != 64 ||
+		s.Worktrees != worktrees || s.Changed != changed || s.Stashes != stashes || s.Unpushed != unpushed {
+		t.Fatalf("state = %+v, want worktrees %d changed %d stashes %d unpushed %d", s, worktrees, changed, stashes, unpushed)
+	}
+	if s.Removable() != (worktrees+changed+stashes+unpushed == 0) {
+		t.Fatalf("Removable() = %v for %+v", s.Removable(), s)
+	}
+}
+
+// wantKept checks that a remove was refused with reason and that nothing
+// under root changed since before was taken.
+func wantKept(t *testing.T, r terminalproto.RepoCloneRemoved, reason terminalproto.RepoCloneReason, root string, before []string) {
+	t.Helper()
+	if r != (terminalproto.RepoCloneRemoved{Reason: reason}) {
+		t.Fatalf("remove = %+v, want reason %s", r, reason)
+	}
+	if after := snapshot(t, root); !slices.Equal(after, before) {
+		t.Fatalf("a refused remove changed the folder:\nbefore %q\nafter  %q", before, after)
+	}
+}
+
+func TestCloneStatusOfAFreshCloneIsRemovable(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	// A file whose time changed tempts git to rewrite its index.
+	agePath(t, filepath.Join(dir, "README"), time.Hour)
+	before := snapshot(t, f.home)
+	s := f.status(t, dir, "o/r")
+	wantCounts(t, s, 0, 0, 0, 0)
+	if again := f.status(t, dir, "o/r"); again != s {
+		t.Fatalf("a second look differs: %+v, %+v", s, again)
+	}
+	if after := snapshot(t, f.home); !slices.Equal(after, before) {
+		t.Fatalf("status changed the clone:\nbefore %q\nafter  %q", before, after)
+	}
+}
+
+// A clone of a repository with no commits holds nothing either.
+func TestCloneStatusOfAnEmptyRepositoryIsRemovable(t *testing.T) {
+	f := newCloneFixture(t)
+	if err := os.RemoveAll(f.remote); err != nil {
+		t.Fatal(err)
+	}
+	testGit(t, f.home, "init", "-q", "--bare", "-b", "main", f.remote)
+	dir := f.madeClone(t)
+	wantCounts(t, f.status(t, dir, "o/r"), 0, 0, 0, 0)
+	writeFile(t, filepath.Join(dir, "new"), "x")
+	if s := f.status(t, dir, "o/r"); s.Removable() {
+		t.Fatalf("an untracked file in an empty clone is removable: %+v", s)
+	}
+}
+
+func TestCloneStatusCountsALinkedWorktree(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	// The worktree's branch sits on a pushed commit: only the worktree counts.
+	testGit(t, dir, "worktree", "add", "-q", "-b", "task", filepath.Join(f.home, "wt"), "origin/main")
+	s := f.status(t, dir, "o/r")
+	wantCounts(t, s, 1, 0, 0, 0)
+	before := snapshot(t, f.home)
+	wantKept(t, f.remove(t, dir, "o/r", s.Fingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+}
+
+func TestCloneStatusCountsAnUntrackedFile(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	// An ignored file is not counted.
+	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), "ignored\n")
+	writeFile(t, filepath.Join(dir, "ignored"), "x")
+	clean := f.status(t, dir, "o/r")
+	wantCounts(t, clean, 0, 0, 0, 0)
+	writeFile(t, filepath.Join(dir, "new"), "x")
+	s := f.status(t, dir, "o/r")
+	wantCounts(t, s, 0, 1, 0, 0)
+	writeFile(t, filepath.Join(dir, "README"), "edited\n")
+	edited := f.status(t, dir, "o/r")
+	wantCounts(t, edited, 0, 2, 0, 0)
+	if s.Fingerprint == clean.Fingerprint || edited.Fingerprint == s.Fingerprint {
+		t.Fatal("the fingerprint did not follow the changes")
+	}
+	before := snapshot(t, f.home)
+	wantKept(t, f.remove(t, dir, "o/r", edited.Fingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+}
+
+func TestCloneStatusCountsAStash(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	stash := func(text string) {
+		writeFile(t, filepath.Join(dir, "README"), text)
+		testGit(t, dir, "-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "stash", "-q")
+	}
+	stash("one\n")
+	s := f.status(t, dir, "o/r")
+	wantCounts(t, s, 0, 0, 1, 0)
+	stash("two\n")
+	wantCounts(t, f.status(t, dir, "o/r"), 0, 0, 2, 0)
+	before := snapshot(t, f.home)
+	wantKept(t, f.remove(t, dir, "o/r", s.Fingerprint), terminalproto.RepoCloneChanged, f.home, before)
+}
+
+func TestCloneStatusCountsAnUnpushedBranch(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	testGit(t, dir, "checkout", "-q", "-b", "task")
+	commitIn(t, dir, "a")
+	s := f.status(t, dir, "o/r")
+	wantCounts(t, s, 0, 0, 0, 1)
+	// A second branch on the same commit is a second branch that would go.
+	testGit(t, dir, "branch", "twin")
+	wantCounts(t, f.status(t, dir, "o/r"), 0, 0, 0, 2)
+	// main ahead of origin/main counts as well.
+	testGit(t, dir, "checkout", "-q", "main")
+	commitIn(t, dir, "b")
+	s = f.status(t, dir, "o/r")
+	wantCounts(t, s, 0, 0, 0, 3)
+	before := snapshot(t, f.home)
+	wantKept(t, f.remove(t, dir, "o/r", s.Fingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+}
+
+// A branch reet made for a run and pushed (its pull request may be open or
+// merged) holds nothing that is not on GitHub.
+func TestCloneStatusCountsAPushedReetBranchAsSafe(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	testGit(t, dir, "checkout", "-q", "-b", "reet/run-1")
+	commitIn(t, dir, "a")
+	wantCounts(t, f.status(t, dir, "o/r"), 0, 0, 0, 1)
+	f.push(t, dir, "reet/run-1")
+	wantCounts(t, f.status(t, dir, "o/r"), 0, 0, 0, 0)
+	// A branch behind what was pushed is safe too.
+	testGit(t, dir, "branch", "behind", "origin/main")
+	wantCounts(t, f.status(t, dir, "o/r"), 0, 0, 0, 0)
+	// Another remote does not count: only origin is known to be GitHub.
+	testGit(t, dir, "checkout", "-q", "-b", "elsewhere")
+	commitIn(t, dir, "b")
+	testGit(t, dir, "remote", "add", "backup", f.remote)
+	testGit(t, dir, "update-ref", "refs/remotes/backup/elsewhere", "HEAD")
+	wantCounts(t, f.status(t, dir, "o/r"), 0, 0, 0, 1)
+}
+
+func TestCloneStatusCountsADetachedUnpushedHead(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	testGit(t, dir, "checkout", "-q", "--detach")
+	detached := f.status(t, dir, "o/r")
+	wantCounts(t, detached, 0, 0, 0, 0)
+	commitIn(t, dir, "a")
+	s := f.status(t, dir, "o/r")
+	wantCounts(t, s, 0, 0, 0, 1)
+	if s.Fingerprint == detached.Fingerprint {
+		t.Fatal("the fingerprint did not follow HEAD")
+	}
+	before := snapshot(t, f.home)
+	wantKept(t, f.remove(t, dir, "o/r", s.Fingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+}
+
+func TestCloneStatusFingerprintFollowsWhatChanges(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	seen := map[string]string{}
+	look := func(what string) {
+		t.Helper()
+		s := f.status(t, dir, "o/r")
+		if s.Reason != "" || len(s.Fingerprint) != 64 {
+			t.Fatalf("%s: %+v", what, s)
+		}
+		if earlier, ok := seen[s.Fingerprint]; ok {
+			t.Fatalf("%s has the fingerprint of %s", what, earlier)
+		}
+		seen[s.Fingerprint] = what
+	}
+	look("the fresh clone")
+	testGit(t, dir, "branch", "task")
+	look("a new branch")
+	testGit(t, dir, "checkout", "-q", "task")
+	look("HEAD on another branch")
+	commitIn(t, dir, "a")
+	look("a branch that moved")
+	testGit(t, dir, "tag", "v1")
+	look("a new tag")
+	writeFile(t, filepath.Join(dir, "README"), "one\n")
+	look("an edited file")
+	writeFile(t, filepath.Join(dir, "README"), "two\n")
+	look("the same file edited again")
+	testGit(t, dir, "-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "stash", "-q")
+	look("a stash")
+	writeFile(t, filepath.Join(dir, "README"), "three\n")
+	testGit(t, dir, "-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "stash", "-q")
+	look("a second stash")
+	testGit(t, dir, "stash", "drop", "-q", "stash@{1}")
+	look("an older stash dropped")
+	testGit(t, dir, "worktree", "add", "-q", "--detach", filepath.Join(f.home, "wt"))
+	look("a linked worktree")
+}
+
+// notAPlainClone are folders at the clone's path that are not provably a
+// plain clone of o/r: each starts from a clone reet made.
+var notAPlainClone = []struct {
+	test string
+	make func(t *testing.T, f *cloneFixture, dir string)
+}{
+	{".git is a file", func(t *testing.T, f *cloneFixture, dir string) {
+		moved := filepath.Join(f.home, "moved.git")
+		if err := os.Rename(filepath.Join(dir, ".git"), moved); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(dir, ".git"), "gitdir: "+moved+"\n")
+	}},
+	{".git is a symlink", func(t *testing.T, f *cloneFixture, dir string) {
+		moved := filepath.Join(f.home, "moved.git")
+		if err := os.Rename(filepath.Join(dir, ".git"), moved); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(moved, filepath.Join(dir, ".git")); err != nil {
+			t.Fatal(err)
+		}
+	}},
+	{"no .git", func(t *testing.T, f *cloneFixture, dir string) {
+		if err := os.Rename(filepath.Join(dir, ".git"), filepath.Join(f.home, "moved.git")); err != nil {
+			t.Fatal(err)
+		}
+	}},
+	{"commondir", func(t *testing.T, f *cloneFixture, dir string) {
+		f.handClone(t, filepath.Join(f.home, "elsewhere"), "https://github.com/o/r.git")
+		writeFile(t, filepath.Join(dir, ".git", "commondir"), filepath.Join(f.home, "elsewhere", ".git")+"\n")
+	}},
+	{"config.worktree", func(t *testing.T, f *cloneFixture, dir string) {
+		writeFile(t, filepath.Join(dir, ".git", "config.worktree"), "")
+	}},
+	{"config is a symlink", func(t *testing.T, f *cloneFixture, dir string) {
+		config := filepath.Join(dir, ".git", "config")
+		if err := os.Rename(config, filepath.Join(f.home, "config")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(f.home, "config"), config); err != nil {
+			t.Fatal(err)
+		}
+	}},
+	{"two origins", func(t *testing.T, f *cloneFixture, dir string) {
+		testGit(t, dir, "config", "--add", "remote.origin.url", "https://github.com/o/r.git")
+	}},
+	{"two origins, the first another repository", func(t *testing.T, f *cloneFixture, dir string) {
+		testGit(t, dir, "remote", "set-url", "origin", "https://github.com/o/other.git")
+		testGit(t, dir, "config", "--add", "remote.origin.url", "https://github.com/o/r.git")
+	}},
+	{"another origin", func(t *testing.T, f *cloneFixture, dir string) {
+		testGit(t, dir, "remote", "set-url", "origin", "https://github.com/o/other.git")
+	}},
+	{"an origin on another host", func(t *testing.T, f *cloneFixture, dir string) {
+		testGit(t, dir, "remote", "set-url", "origin", "https://gitlab.com/o/r.git")
+	}},
+	{"no origin", func(t *testing.T, f *cloneFixture, dir string) {
+		testGit(t, dir, "remote", "remove", "origin")
+	}},
+}
+
+// Anything at the clone's path that is not provably a plain clone of the
+// repository is reported as something else, and never removed.
+func TestRemoveCloneRefusesAnotherOrigin(t *testing.T) {
+	for _, tc := range notAPlainClone {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			tc.make(t, f, dir)
+			before := snapshot(t, f.home)
+			s := f.status(t, dir, "o/r")
+			if s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneExists}) || s.Removable() {
+				t.Fatalf("state = %+v", s)
+			}
+			wantKept(t, f.remove(t, dir, "o/r", anyFingerprint), terminalproto.RepoCloneExists, f.home, before)
+		})
+	}
+}
+
+// A folder without the marker reet writes, or with one that names another
+// repository, is a person's own: nothing is counted and it is never removed.
+func TestRemoveCloneRefusesAnUnmarkedFolder(t *testing.T) {
+	for _, tc := range []struct {
+		test string
+		make func(t *testing.T, f *cloneFixture, dir string)
+	}{
+		{"a clone a person made", func(t *testing.T, f *cloneFixture, dir string) {
+			f.handClone(t, dir, "https://github.com/o/r.git")
+		}},
+		{"a marker naming another repository", func(t *testing.T, f *cloneFixture, dir string) {
+			f.handClone(t, dir, "https://github.com/o/r.git")
+			writeFile(t, filepath.Join(dir, ".git", cloneMarker), "o/other\n")
+		}},
+		{"a marker that is a symlink", func(t *testing.T, f *cloneFixture, dir string) {
+			f.handClone(t, dir, "https://github.com/o/r.git")
+			writeFile(t, filepath.Join(f.home, "marker"), "o/r\n")
+			if err := os.Symlink(filepath.Join(f.home, "marker"), filepath.Join(dir, ".git", cloneMarker)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a marker that is not one line", func(t *testing.T, f *cloneFixture, dir string) {
+			f.handClone(t, dir, "https://github.com/o/r.git")
+			writeFile(t, filepath.Join(dir, ".git", cloneMarker), "o/r")
+		}},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := filepath.Join(f.repos(), "o", "r")
+			tc.make(t, f, dir)
+			before := snapshot(t, f.home)
+			s := f.status(t, dir, "o/r")
+			if s != (terminalproto.RepoCloneState{}) || s.Removable() {
+				t.Fatalf("state = %+v, want an unmarked one", s)
+			}
+			wantKept(t, f.remove(t, dir, "o/r", anyFingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+		})
+	}
+}
+
+// Only <home>/reet/repos/<owner>/<repo> for the origin asked about is ever
+// looked at, and only when every folder down to it is a real one.
+func TestRemoveCloneRefusesAPathOutsideReetRepos(t *testing.T) {
+	for _, tc := range []struct {
+		test string
+		// make returns the Dir and Origin to ask about.
+		make func(t *testing.T, f *cloneFixture, dir string) (string, string)
+	}{
+		{"a clone elsewhere under home", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			work := filepath.Join(f.home, "work", "r")
+			f.handClone(t, work, "https://github.com/o/r.git")
+			writeFile(t, filepath.Join(work, ".git", cloneMarker), "o/r\n")
+			return work, "o/r"
+		}},
+		{"a symlink into reet/repos", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			link := filepath.Join(f.home, "link")
+			if err := os.Symlink(dir, link); err != nil {
+				t.Fatal(err)
+			}
+			return link, "o/r"
+		}},
+		{"another origin's folder", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			return dir, "o/other"
+		}},
+		{"another owner", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			return dir, "p/r"
+		}},
+		{"another spelling of the origin", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			return dir, "O/R"
+		}},
+		{"a trailing slash", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			return dir + "/", "o/r"
+		}},
+		{"a path that climbs back", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			return filepath.Join(f.repos(), "o") + "/x/../r", "o/r"
+		}},
+		{"the owner folder", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			return filepath.Dir(dir), "o/r"
+		}},
+		{"an origin that is not one", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			return dir, "o/r/x"
+		}},
+		{"nothing there", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			return filepath.Join(f.repos(), "o", "gone"), "o/gone"
+		}},
+		{"the clone's folder is a symlink", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			moved := filepath.Join(f.home, "moved")
+			if err := os.Rename(dir, moved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(moved, dir); err != nil {
+				t.Fatal(err)
+			}
+			return dir, "o/r"
+		}},
+		{"the owner folder is a symlink", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			owner, moved := filepath.Dir(dir), filepath.Join(f.home, "moved")
+			if err := os.Rename(owner, moved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(moved, owner); err != nil {
+				t.Fatal(err)
+			}
+			return dir, "o/r"
+		}},
+		{"reet/repos is a symlink", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			moved := filepath.Join(f.home, "moved")
+			if err := os.Rename(f.repos(), moved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(moved, f.repos()); err != nil {
+				t.Fatal(err)
+			}
+			return dir, "o/r"
+		}},
+		{"the owner folder is open to others", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			if err := os.Chmod(filepath.Dir(dir), 0o777); err != nil {
+				t.Fatal(err)
+			}
+			return dir, "o/r"
+		}},
+		{"the clone's folder is a file", func(t *testing.T, f *cloneFixture, dir string) (string, string) {
+			if err := os.Rename(dir, filepath.Join(f.home, "moved")); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, dir, "x")
+			return dir, "o/r"
+		}},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			made := f.madeClone(t)
+			dir, origin := tc.make(t, f, made)
+			before := snapshot(t, f.home)
+			f.calls = nil
+			s := CloneStatus(t.Context(), f.home, terminalproto.RepoCloneStatus{Dir: dir, Origin: origin}, f.git)
+			if s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneDenied}) {
+				t.Fatalf("state = %+v, want denied", s)
+			}
+			r := RemoveClone(t.Context(), f.home, terminalproto.RepoCloneRemove{Dir: dir, Origin: origin, Fingerprint: anyFingerprint}, f.git)
+			wantKept(t, r, terminalproto.RepoCloneDenied, f.home, before)
+			if len(f.calls) != 0 {
+				t.Fatalf("git ran for a path that is not a clone's: %q", f.calls)
+			}
+		})
+	}
+}
+
+// A count git could not give is never read as zero: the state says failed
+// and a remove is refused, whatever the person was shown before.
+func TestCloneStatusFailsWhenGitFailsForACount(t *testing.T) {
+	for _, tc := range []struct {
+		test string
+		// fails reports the git call to fail.
+		fails func(args []string) bool
+		// make prepares the clone so that the call is made.
+		make func(t *testing.T, dir string)
+	}{
+		{"the working tree's top", func(args []string) bool { return slices.Contains(args, "--show-toplevel") }, nil},
+		{"the worktree list", func(args []string) bool { return args[0] == "worktree" }, nil},
+		{"status", func(args []string) bool { return args[0] == "status" }, nil},
+		{"the refs", func(args []string) bool { return args[0] == "for-each-ref" }, nil},
+		{"the unpushed count", func(args []string) bool { return args[0] == "rev-list" && !slices.Contains(args, "--walk-reflogs") }, nil},
+		{"the hidden entries", func(args []string) bool { return args[0] == "ls-files" }, nil},
+		{"the stash count", func(args []string) bool { return slices.Contains(args, "--walk-reflogs") }, func(t *testing.T, dir string) {
+			writeFile(t, filepath.Join(dir, "README"), "stashed\n")
+			testGit(t, dir, "-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "stash", "-q")
+		}},
+		{"a detached HEAD", func(args []string) bool { return slices.Contains(args, "HEAD^{commit}") }, func(t *testing.T, dir string) {
+			testGit(t, dir, "checkout", "-q", "--detach")
+		}},
+		{"what is staged", func(args []string) bool { return args[0] == "diff-index" }, func(t *testing.T, dir string) {
+			writeFile(t, filepath.Join(dir, "new"), "x")
+		}},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			if tc.make != nil {
+				tc.make(t, dir)
+			}
+			shown := f.status(t, dir, "o/r")
+			if shown.Reason != "" {
+				t.Fatalf("state before the failure = %+v", shown)
+			}
+			failed := 0
+			failing := func(ctx context.Context, d string, args ...string) ([]byte, error) {
+				if tc.fails(args) {
+					failed++
+					return nil, errors.New("exit status 1")
+				}
+				return f.git(ctx, d, args...)
+			}
+			before := snapshot(t, f.home)
+			s := f.statusWith(t, dir, "o/r", failing)
+			if s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneFailed}) || failed == 0 {
+				t.Fatalf("state = %+v after %d failed calls, want failed", s, failed)
+			}
+			wantKept(t, f.removeWith(t, dir, "o/r", shown.Fingerprint, failing), terminalproto.RepoCloneFailed, f.home, before)
+		})
+	}
+}
+
+// Output git gave that is not what was asked for is a failure too.
+func TestCloneStatusFailsOnUnreadableGitOutput(t *testing.T) {
+	for _, tc := range []struct {
+		test, sub, out string
+	}{
+		{"a count that is not a number", "rev-list", "many\n"},
+		{"refs that are not refs", "for-each-ref", "nonsense\n"},
+		{"a worktree list without the clone", "worktree", "worktree /somewhere/else\nHEAD 0123456789abcdef0123456789abcdef01234567\n\n"},
+		{"an empty worktree list", "worktree", ""},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			odd := func(ctx context.Context, d string, args ...string) ([]byte, error) {
+				if args[0] == tc.sub {
+					return []byte(tc.out), nil
+				}
+				return f.git(ctx, d, args...)
+			}
+			if s := f.statusWith(t, dir, "o/r", odd); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneFailed}) {
+				t.Fatalf("state = %+v, want failed", s)
+			}
+		})
+	}
+}
+
+// What status cannot see, or what git keeps outside the checked refs, makes
+// the clone not removable rather than clean.
+func TestCloneStatusRefusesWhatItCannotVouchFor(t *testing.T) {
+	for _, tc := range []struct {
+		test   string
+		reason terminalproto.RepoCloneReason
+		make   func(t *testing.T, f *cloneFixture, dir string)
+	}{
+		{"a file git was told to assume unchanged", terminalproto.RepoCloneNotRemovable, func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "update-index", "--assume-unchanged", "README")
+			writeFile(t, filepath.Join(dir, "README"), "edited where status does not look\n")
+		}},
+		{"a file git was told to skip", terminalproto.RepoCloneNotRemovable, func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "update-index", "--skip-worktree", "README")
+			writeFile(t, filepath.Join(dir, "README"), "edited where status does not look\n")
+		}},
+		{"a submodule's repository", terminalproto.RepoCloneNotRemovable, func(t *testing.T, f *cloneFixture, dir string) {
+			if err := os.MkdirAll(filepath.Join(dir, ".git", "modules", "lib"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a rebase in progress", terminalproto.RepoCloneNotRemovable, func(t *testing.T, f *cloneFixture, dir string) {
+			// A rebase keeps what it set aside (its autostash) in this folder,
+			// where neither status nor the refs show it.
+			if err := os.Mkdir(filepath.Join(dir, ".git", "rebase-merge"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(dir, ".git", "rebase-merge", "autostash"), "0123456789abcdef0123456789abcdef01234567\n")
+		}},
+		{"a patch series in progress", terminalproto.RepoCloneNotRemovable, func(t *testing.T, f *cloneFixture, dir string) {
+			if err := os.Mkdir(filepath.Join(dir, ".git", "rebase-apply"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a merge that set changes aside", terminalproto.RepoCloneNotRemovable, func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(dir, ".git", "MERGE_AUTOSTASH"), "0123456789abcdef0123456789abcdef01234567\n")
+		}},
+		{"a working tree set elsewhere", terminalproto.RepoCloneFailed, func(t *testing.T, f *cloneFixture, dir string) {
+			elsewhere := filepath.Join(f.home, "elsewhere")
+			if err := os.Mkdir(elsewhere, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			testGit(t, dir, "config", "core.worktree", elsewhere)
+		}},
+		{"a bare repository", terminalproto.RepoCloneFailed, func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "config", "core.bare", "true")
+		}},
+		{"a bisect in progress on unpushed commits", "", func(t *testing.T, f *cloneFixture, dir string) {
+			commitIn(t, dir, "a")
+			testGit(t, dir, "update-ref", "refs/bisect/bad", "HEAD")
+			testGit(t, dir, "reset", "-q", "--hard", "origin/main")
+		}},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			tc.make(t, f, dir)
+			before := snapshot(t, f.home)
+			s := f.status(t, dir, "o/r")
+			if tc.reason == "" {
+				wantCounts(t, s, 0, 0, 0, 1)
+				wantKept(t, f.remove(t, dir, "o/r", s.Fingerprint), terminalproto.RepoCloneNotRemovable, f.home, before)
+				return
+			}
+			if s != (terminalproto.RepoCloneState{Reason: tc.reason}) {
+				t.Fatalf("state = %+v, want %s", s, tc.reason)
+			}
+			wantKept(t, f.remove(t, dir, "o/r", anyFingerprint), tc.reason, f.home, before)
+		})
+	}
+}
+
+// Review Focus 5: work that arrived after the person was shown the clone is
+// never deleted.
+func TestRemoveCloneRefusesWhenChangedSinceShown(t *testing.T) {
+	for _, tc := range []struct {
+		test   string
+		change func(t *testing.T, f *cloneFixture, dir string)
+	}{
+		{"a file added", func(t *testing.T, f *cloneFixture, dir string) {
+			writeFile(t, filepath.Join(dir, "new"), "work\n")
+		}},
+		{"a commit made", func(t *testing.T, f *cloneFixture, dir string) { commitIn(t, dir, "a") }},
+		{"a branch made", func(t *testing.T, f *cloneFixture, dir string) { testGit(t, dir, "branch", "task") }},
+		{"a worktree added", func(t *testing.T, f *cloneFixture, dir string) {
+			testGit(t, dir, "worktree", "add", "-q", "--detach", filepath.Join(f.home, "wt"))
+		}},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			dir := f.madeClone(t)
+			shown := f.status(t, dir, "o/r")
+			if !shown.Removable() {
+				t.Fatalf("shown = %+v", shown)
+			}
+			tc.change(t, f, dir)
+			before := snapshot(t, f.home)
+			wantKept(t, f.remove(t, dir, "o/r", shown.Fingerprint), terminalproto.RepoCloneChanged, f.home, before)
+		})
+	}
+	// A fingerprint that was never shown removes nothing either.
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	before := snapshot(t, f.home)
+	for _, fingerprint := range []string{anyFingerprint, "", "short"} {
+		r := RemoveClone(t.Context(), f.home, terminalproto.RepoCloneRemove{Dir: dir, Origin: "o/r", Fingerprint: fingerprint}, f.git)
+		wantKept(t, r, terminalproto.RepoCloneChanged, f.home, before)
+	}
+}
+
+func TestRemoveCloneDeletesTheFolderAndAnEmptyOwner(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	// Ignored files are not counted and go with the clone.
+	writeFile(t, filepath.Join(dir, ".git", "info", "exclude"), "ignored\n")
+	writeFile(t, filepath.Join(dir, "ignored"), "x")
+	shown := f.status(t, dir, "o/r")
+	wantCounts(t, shown, 0, 0, 0, 0)
+	outside := snapshot(t, f.remote)
+	r := f.remove(t, dir, "o/r", shown.Fingerprint)
+	if r != (terminalproto.RepoCloneRemoved{Dir: dir}) {
+		t.Fatalf("remove = %+v", r)
+	}
+	wantMissing(t, dir)
+	wantMissing(t, filepath.Dir(dir))
+	if names := entries(t, f.repos()); len(names) != 0 {
+		t.Fatalf("reet/repos holds %q", names)
+	}
+	if !slices.Equal(snapshot(t, f.remote), outside) {
+		t.Fatal("the remove touched something outside the clone")
+	}
+	// A second remove finds nothing to remove.
+	if again := f.remove(t, dir, "o/r", shown.Fingerprint); again != (terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneDenied}) {
+		t.Fatalf("second remove = %+v", again)
+	}
+	if !realDir(f.repos()) {
+		t.Fatal("reet/repos is gone")
+	}
+}
+
+func TestRemoveCloneKeepsAnOwnerWithAnotherRepo(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	owner := filepath.Dir(dir)
+	other := filepath.Join(owner, "other")
+	f.handClone(t, other, "https://github.com/o/other.git")
+	writeFile(t, filepath.Join(owner, "note"), "kept\n")
+	kept := snapshot(t, other)
+	shown := f.status(t, dir, "o/r")
+	if r := f.remove(t, dir, "o/r", shown.Fingerprint); r != (terminalproto.RepoCloneRemoved{Dir: dir}) {
+		t.Fatalf("remove = %+v", r)
+	}
+	if names := entries(t, owner); !slices.Equal(names, []string{"note", "other"}) {
+		t.Fatalf("owner folder holds %q", names)
+	}
+	if !slices.Equal(snapshot(t, other), kept) {
+		t.Fatal("the other repository changed")
+	}
+}
+
+// A request whose time is already up looks at nothing and removes nothing.
+func TestRemoveCloneRefusesWhenOutOfTime(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	shown := f.status(t, dir, "o/r")
+	before := snapshot(t, f.home)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if s := CloneStatus(ctx, f.home, terminalproto.RepoCloneStatus{Dir: dir, Origin: "o/r"}, f.git); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneTimedOut}) {
+		t.Fatalf("state = %+v, want timed_out", s)
+	}
+	r := RemoveClone(ctx, f.home, terminalproto.RepoCloneRemove{Dir: dir, Origin: "o/r", Fingerprint: shown.Fingerprint}, f.git)
+	wantKept(t, r, terminalproto.RepoCloneTimedOut, f.home, before)
+	// And without git nothing is said or removed.
+	if s := CloneStatus(t.Context(), f.home, terminalproto.RepoCloneStatus{Dir: dir, Origin: "o/r"}, nil); s != (terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneFailed}) {
+		t.Fatalf("state without git = %+v", s)
+	}
+	r = RemoveClone(t.Context(), f.home, terminalproto.RepoCloneRemove{Dir: dir, Origin: "o/r", Fingerprint: shown.Fingerprint}, nil)
+	wantKept(t, r, terminalproto.RepoCloneFailed, f.home, before)
+}
+
+// A delete that fails is reported, and the owner folder is left alone.
+func TestRemoveCloneReportsADeleteThatFails(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	shown := f.status(t, dir, "o/r")
+	original := removeCloneDir
+	var asked []string
+	removeCloneDir = func(path string) error { asked = append(asked, path); return errors.New("read-only file system") }
+	t.Cleanup(func() { removeCloneDir = original })
+	before := snapshot(t, f.home)
+	wantKept(t, f.remove(t, dir, "o/r", shown.Fingerprint), terminalproto.RepoCloneFailed, f.home, before)
+	if !slices.Equal(asked, []string{dir}) {
+		t.Fatalf("asked to delete %q, want only the clone", asked)
+	}
+}
+
+// A clone that finds the folder already there still clears what earlier
+// clones of the repository left behind.
+func TestCloneRepoRemovesAStaleLeftoverWhenTheFolderIsThere(t *testing.T) {
+	for _, tc := range []struct {
+		test string
+		make func(t *testing.T, f *cloneFixture, dest string)
+		want terminalproto.RepoCloneResult
+	}{
+		{"adopted", func(t *testing.T, f *cloneFixture, dest string) {
+			f.handClone(t, dest, "https://github.com/o/r.git")
+		}, terminalproto.RepoCloneResult{DefaultBranch: "main", Adopted: true}},
+		{"refused", func(t *testing.T, f *cloneFixture, dest string) {
+			f.handClone(t, dest, "https://github.com/o/other.git")
+		}, terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneExists}},
+	} {
+		t.Run(tc.test, func(t *testing.T) {
+			f := newCloneFixture(t)
+			owner := filepath.Join(f.repos(), "o")
+			dest := filepath.Join(owner, "r")
+			tc.make(t, f, dest)
+			makeLeftover(t, filepath.Join(owner, leftoverName("r")), 20*time.Minute)
+			// One too young to be a leftover, and another repository's, stay.
+			makeLeftover(t, filepath.Join(owner, ".r.cloning-fedcba9876543210"), time.Minute)
+			makeLeftoverOf(t, filepath.Join(owner, leftoverName("other")), "https://github.com/o/other.git", time.Hour)
+			kept := snapshot(t, dest)
+			want := tc.want
+			if want.Reason == "" {
+				want.Dir = dest
+			}
+			if r := f.clone(t, "o", "r"); r != want {
+				t.Fatalf("result = %+v, want %+v", r, want)
+			}
+			if names := entries(t, owner); !slices.Equal(names, []string{leftoverName("other"), ".r.cloning-fedcba9876543210", "r"}) {
+				t.Fatalf("owner folder holds %q", names)
+			}
+			if !slices.Equal(snapshot(t, dest), kept) {
+				t.Fatal("the folder that was there changed")
+			}
+			if calls := f.cloneCalls(); len(calls) != 0 {
+				t.Fatalf("cloned: %q", calls)
+			}
+		})
+	}
+}

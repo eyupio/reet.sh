@@ -153,13 +153,17 @@ type Capabilities struct {
 	BaseFresh bool `json:"baseFresh,omitempty"`
 	// RepoClone is sent only on a connection that negotiated repo-clone-v1:
 	// the machine can clone a GitHub repository into its projects folder.
-	RepoClone  bool `json:"repoClone,omitempty"`
-	BrowseOff  bool `json:"browseOff,omitempty"`
-	Clipboard  bool `json:"clipboard,omitempty"`
-	Uploads    bool `json:"uploads,omitempty"`
-	UploadsOff bool `json:"uploadsOff,omitempty"`
-	Models     bool `json:"models,omitempty"`
-	ModelsOff  bool `json:"modelsOff,omitempty"`
+	RepoClone bool `json:"repoClone,omitempty"`
+	// RepoCloneRemove is sent only on a connection that negotiated
+	// repo-clone-remove-v1: the machine can report what a clone reet made
+	// holds, and delete it.
+	RepoCloneRemove bool `json:"repoCloneRemove,omitempty"`
+	BrowseOff       bool `json:"browseOff,omitempty"`
+	Clipboard       bool `json:"clipboard,omitempty"`
+	Uploads         bool `json:"uploads,omitempty"`
+	UploadsOff      bool `json:"uploadsOff,omitempty"`
+	Models          bool `json:"models,omitempty"`
+	ModelsOff       bool `json:"modelsOff,omitempty"`
 	// ModelsRefresh is sent only on a connection that negotiated
 	// models-refresh-v1: a refresh may then ask for a listing that ignores the
 	// connector's short cache.
@@ -275,6 +279,9 @@ func (c Capabilities) Validate() error {
 	if c.RepoClone {
 		features = append(features, RepoCloneFeature)
 	}
+	if c.RepoCloneRemove {
+		features = append(features, RepoCloneRemoveFeature)
+	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
 
@@ -354,6 +361,9 @@ func (c Capabilities) ValidateFor(features string) error {
 		return ErrInvalid
 	}
 	if c.RepoClone && !(c.Worktree && SupportsRepoClone(features)) {
+		return ErrInvalid
+	}
+	if c.RepoCloneRemove && !(c.Worktree && SupportsRepoCloneRemove(features)) {
 		return ErrInvalid
 	}
 	uploadRule := c.Uploads && !c.TerminalControl
@@ -897,6 +907,14 @@ func Decode(data []byte) (Message, error) {
 		b = &RepoClone{}
 	case "repo_clone_result":
 		b = &RepoCloneResult{}
+	case "repo_clone_status":
+		b = &RepoCloneStatus{}
+	case "repo_clone_state":
+		b = &RepoCloneState{}
+	case "repo_clone_remove":
+		b = &RepoCloneRemove{}
+	case "repo_clone_removed":
+		b = &RepoCloneRemoved{}
 	case "upload":
 		b = &Upload{}
 	case "models":

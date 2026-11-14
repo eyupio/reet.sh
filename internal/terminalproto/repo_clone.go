@@ -22,6 +22,23 @@ func SupportsRepoClone(features string) bool {
 	return false
 }
 
+// RepoCloneRemoveFeature lets the controller ask a machine what a clone reet
+// made holds, and to delete it. It is its own token because a machine that
+// has repo-clone-v1 alone decodes strictly and would refuse these kinds.
+const RepoCloneRemoveFeature = "repo-clone-remove-v1"
+
+// SupportsRepoCloneRemove reports whether the peer advertised
+// repo-clone-remove-v1 in X-Reet-Terminal-Features. A RepoCloneStatus or a
+// RepoCloneRemove is never sent without it.
+func SupportsRepoCloneRemove(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == RepoCloneRemoveFeature {
+			return true
+		}
+	}
+	return false
+}
+
 // ghOwner matches a GitHub owner (user or organization) segment: letters,
 // digits and hyphens, at most 39 characters, never starting or ending with a
 // hyphen.
@@ -106,14 +123,26 @@ const (
 	// RepoCloneSSHRewrite: the machine's git settings send github.com over
 	// ssh, which the clone refuses.
 	RepoCloneSSHRewrite RepoCloneReason = "ssh_rewrite"
+	// RepoCloneChanged: a remove was refused because the clone is no longer
+	// what the person was shown. Only a RepoCloneRemoved carries it.
+	RepoCloneChanged RepoCloneReason = "changed"
+	// RepoCloneNotRemovable: the clone holds something that deleting it
+	// would lose, or reet did not make it. Never an answer to a RepoClone.
+	RepoCloneNotRemovable RepoCloneReason = "not_removable"
 )
 
 func (r RepoCloneReason) valid() bool {
 	switch r {
-	case RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied, RepoCloneBusy, RepoCloneSSHRewrite:
+	case RepoCloneNotSignedIn, RepoCloneNoAccess, RepoCloneExists, RepoCloneTimedOut, RepoCloneFailed, RepoCloneDenied, RepoCloneBusy, RepoCloneSSHRewrite,
+		RepoCloneChanged, RepoCloneNotRemovable:
 		return true
 	}
 	return false
+}
+
+// removeOnly reports the reasons only the status and remove answers carry.
+func (r RepoCloneReason) removeOnly() bool {
+	return r == RepoCloneChanged || r == RepoCloneNotRemovable
 }
 
 // RepoCloneResult answers a RepoClone. With Reason set nothing was cloned and
@@ -131,7 +160,116 @@ type RepoCloneResult struct {
 func (RepoCloneResult) kind() string { return "repo_clone_result" }
 func (r RepoCloneResult) valid() bool {
 	if r.Reason != "" {
-		return r.Reason.valid() && r.Dir == "" && r.DefaultBranch == "" && !r.Adopted && !r.Marked
+		return r.Reason.valid() && !r.Reason.removeOnly() && r.Dir == "" && r.DefaultBranch == "" && !r.Adopted && !r.Marked
 	}
 	return validDir(r.Dir) && (r.DefaultBranch == "" || validRefName(r.DefaultBranch))
+}
+
+// maxRepoCloneCount bounds each count of a RepoCloneState.
+const maxRepoCloneCount = 1 << 30
+
+// validRepoOrigin reports whether s is "owner/repo", both GitHub names.
+func validRepoOrigin(s string) bool {
+	owner, repo, ok := strings.Cut(s, "/")
+	return ok && ValidGitHubOwner(owner) && ValidGitHubRepo(repo)
+}
+
+// validCloneFingerprint reports whether s is a SHA-256 in lower-case hex.
+func validCloneFingerprint(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := range len(s) {
+		if (s[i] < '0' || s[i] > '9') && (s[i] < 'a' || s[i] > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// RepoCloneStatus asks what the clone at Dir holds that deleting it would
+// lose. Origin is the "owner/repo" the clone was made from; Dir must be the
+// folder the machine clones that repository into. It is sent only to a
+// connection that negotiated repo-clone-remove-v1.
+type RepoCloneStatus struct {
+	Dir    string `json:"dir"`
+	Origin string `json:"origin"`
+}
+
+func (RepoCloneStatus) kind() string  { return "repo_clone_status" }
+func (s RepoCloneStatus) valid() bool { return validDir(s.Dir) && validRepoOrigin(s.Origin) }
+
+// RepoCloneState answers a RepoCloneStatus. With Reason set nothing could be
+// said about the folder and every other field is empty. Marked says the
+// folder is a clone reet made of the repository asked about; without it
+// nothing was counted and the folder is never removed. Otherwise the four
+// counts are what deleting the clone would lose, and Fingerprint names
+// exactly what was looked at: a RepoCloneRemove must repeat it.
+type RepoCloneState struct {
+	Reason RepoCloneReason `json:"reason,omitempty"`
+	Marked bool            `json:"marked,omitempty"`
+	// Worktrees is the linked worktrees, not counting the clone itself.
+	Worktrees int `json:"worktrees,omitempty"`
+	// Changed is the uncommitted and untracked entries. Ignored files are
+	// not counted; they are deleted with the clone.
+	Changed int `json:"changed,omitempty"`
+	Stashes int `json:"stashes,omitempty"`
+	// Unpushed is the local branches (and a detached HEAD) with commits on
+	// no remote-tracking branch of origin.
+	Unpushed    int    `json:"unpushed,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+func (RepoCloneState) kind() string { return "repo_clone_state" }
+func (s RepoCloneState) valid() bool {
+	counted := s.Worktrees != 0 || s.Changed != 0 || s.Stashes != 0 || s.Unpushed != 0 || s.Fingerprint != ""
+	if s.Reason != "" {
+		return s.Reason.valid() && s.Reason != RepoCloneChanged && !s.Marked && !counted
+	}
+	if !s.Marked {
+		return !counted
+	}
+	for _, n := range []int{s.Worktrees, s.Changed, s.Stashes, s.Unpushed} {
+		if n < 0 || n > maxRepoCloneCount {
+			return false
+		}
+	}
+	return validCloneFingerprint(s.Fingerprint)
+}
+
+// Removable reports whether the clone may be deleted: reet made it and
+// nothing in it would be lost.
+func (s RepoCloneState) Removable() bool {
+	return s.Reason == "" && s.Marked && s.Worktrees == 0 && s.Changed == 0 && s.Stashes == 0 && s.Unpushed == 0
+}
+
+// RepoCloneRemove asks the machine to delete the clone at Dir. Fingerprint
+// is the one the RepoCloneState shown to the person carried; the machine
+// looks again and refuses when it differs. It is sent only to a connection
+// that negotiated repo-clone-remove-v1.
+type RepoCloneRemove struct {
+	Dir         string `json:"dir"`
+	Origin      string `json:"origin"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+func (RepoCloneRemove) kind() string { return "repo_clone_remove" }
+func (r RepoCloneRemove) valid() bool {
+	return validDir(r.Dir) && validRepoOrigin(r.Origin) && validCloneFingerprint(r.Fingerprint)
+}
+
+// RepoCloneRemoved answers a RepoCloneRemove. With Reason set the folder was
+// kept (failed alone may mean a delete that started and stopped part way);
+// otherwise Dir is the folder that was deleted.
+type RepoCloneRemoved struct {
+	Reason RepoCloneReason `json:"reason,omitempty"`
+	Dir    string          `json:"dir,omitempty"`
+}
+
+func (RepoCloneRemoved) kind() string { return "repo_clone_removed" }
+func (r RepoCloneRemoved) valid() bool {
+	if r.Reason != "" {
+		return r.Reason.valid() && r.Dir == ""
+	}
+	return validDir(r.Dir)
 }

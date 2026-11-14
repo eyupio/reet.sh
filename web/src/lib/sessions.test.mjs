@@ -8,7 +8,9 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
 }).outputText
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
 const catalogue = asURL(compile('./catalogue.ts'))
-const agentLaunch = asURL(compile('./agentLaunch.ts').replace("from './catalogue'", `from '${catalogue}'`))
+const agentLaunch = asURL(compile('./agentLaunch.ts')
+  .replace("from './catalogue'", `from '${catalogue}'`)
+  .replace("from './clineSource'", `from '${asURL(compile('./clineSource.ts'))}'`))
 const attention = asURL(compile('./attention.ts'))
 const home = asURL(compile('./home.ts').replace("from './attention'", `from '${attention}'`))
 const colour = asURL(compile('./projectColour.ts'))

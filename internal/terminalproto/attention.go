@@ -34,7 +34,8 @@ func (s SessionSnapshot) ForFeatures(features string) SessionSnapshot {
 	return s
 }
 
-// ForFeatures strips attention fields when attention-v1 was not negotiated.
+// ForFeatures strips attention fields when attention-v1 was not negotiated,
+// and the worktree's base when base-fresh-v1 was not.
 func (s SessionChanged) ForFeatures(features string) SessionChanged {
 	if !SupportsAttention(features) {
 		s.ActivityAt = 0
@@ -43,6 +44,9 @@ func (s SessionChanged) ForFeatures(features string) SessionChanged {
 	}
 	if !SupportsACPHistory(features) {
 		s.ACPSessionID = ""
+	}
+	if !SupportsBaseFresh(features) {
+		s.Base = nil
 	}
 	return s
 }

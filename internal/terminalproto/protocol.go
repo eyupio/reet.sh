@@ -14,14 +14,12 @@ import (
 )
 
 const (
-	Version               = 1
-	MaxControlBytes       = 64 << 10
-	MaxBinaryBytes        = 32 << 10
-	MaxQueuedOutputBytes  = 256 << 10
-	MaxTitleRunes         = 80
-	MaxSessionsPerAgent   = 8
-	MaxSessionsPerAccount = 32
-	MaxHistoryLines       = 2000
+	Version              = 1
+	MaxControlBytes      = 64 << 10
+	MaxBinaryBytes       = 32 << 10
+	MaxQueuedOutputBytes = 256 << 10
+	MaxTitleRunes        = 80
+	MaxHistoryLines      = 2000
 	// Counters also cross JSON/JavaScript boundaries without loss of precision.
 	MaxCounter int64 = 1<<53 - 1
 )
@@ -149,6 +147,10 @@ type Capabilities struct {
 	// BranchSync is sent only on a connection that negotiated
 	// branch-sync-v1: the machine can fast-forward a repository's base branch.
 	BranchSync bool `json:"branchSync,omitempty"`
+	// BaseFresh is sent only on a connection that negotiated base-fresh-v1:
+	// the machine fetches a worktree's base from github.com as it makes it,
+	// and reports what the worktree started from.
+	BaseFresh  bool `json:"baseFresh,omitempty"`
 	BrowseOff  bool `json:"browseOff,omitempty"`
 	Clipboard  bool `json:"clipboard,omitempty"`
 	Uploads    bool `json:"uploads,omitempty"`
@@ -264,6 +266,9 @@ func (c Capabilities) Validate() error {
 	if c.ACPWorktree {
 		features = append(features, ACPWorktreeFeature)
 	}
+	if c.BaseFresh {
+		features = append(features, BaseFreshFeature)
+	}
 	return c.ValidateFor(strings.Join(features, ","))
 }
 
@@ -337,6 +342,9 @@ func (c Capabilities) ValidateFor(features string) error {
 	branchWorktreeRule := c.Branches && !c.Worktree
 	browseValid := !browseTerminalRule && !branchWorktreeRule && !browseConflict
 	if !browseValid {
+		return ErrInvalid
+	}
+	if c.BaseFresh && !(c.Worktree && SupportsBaseFresh(features)) {
 		return ErrInvalid
 	}
 	uploadRule := c.Uploads && !c.TerminalControl
@@ -724,6 +732,13 @@ type SessionChanged struct {
 	// change encodes exactly as before.
 	WorktreePath string `json:"worktreePath,omitempty"`
 	WorktreeRepo string `json:"worktreeRepo,omitempty"`
+	// Base says which commit the worktree this call made started from, and how
+	// the repository's base stood against GitHub's. It is set only in answer to
+	// a worktree create that made the worktree (an adopted retry has no fresh
+	// base), and only on a connection that negotiated base-fresh-v1, which
+	// ForFeatures enforces: an older controller's strict decoder would refuse
+	// the field.
+	Base *BaseState `json:"base,omitempty"`
 	// ACPSessionID is set only for a structured chat.
 	ACPSessionID string `json:"acpSessionId,omitempty"`
 }
@@ -733,6 +748,9 @@ func (s SessionChanged) valid() bool {
 	paired := (s.WorktreePath == "") == (s.WorktreeRepo == "")
 	validPair := s.WorktreePath == "" || (validDir(s.WorktreePath) && validRepoName(s.WorktreeRepo))
 	if !paired || !validPair {
+		return false
+	}
+	if s.Base != nil && !(s.WorktreePath != "" && s.Base.Valid()) {
 		return false
 	}
 	validTimes := validAttentionTime(s.ActivityAt) && validAttentionTime(s.BellAt)
@@ -862,6 +880,10 @@ func Decode(data []byte) (Message, error) {
 		b = &BranchSync{}
 	case "branch_sync_result":
 		b = &BranchSyncResult{}
+	case "base_check":
+		b = &BaseCheck{}
+	case "base_check_result":
+		b = &BaseCheckResult{}
 	case "upload":
 		b = &Upload{}
 	case "models":

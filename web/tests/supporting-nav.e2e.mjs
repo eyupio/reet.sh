@@ -331,12 +331,15 @@ try {
     expect(deepLink.errors).toEqual([])
     await deepLink.context.close()
 
-    // With the support desk off Support is gone, so Help & community is Community alone: the label shows and no row does.
+    // With the support desk off Support is gone; Community and Documentation still share Help & community, so the row stays.
     const noDesk = await open({ status: { supportDesk: false }, routes: { '/api/community': { lists: [], skills: [] } } })
     await noDesk.page.goto(`${base}/community`)
     await expect(noDesk.page.getByRole('heading', { level: 1, name: 'Community', exact: true })).toBeVisible()
     await expect(noDesk.page.locator('.page-heading').getByText('Help & community', { exact: true })).toBeVisible()
-    await expect(noDesk.page.locator('.page-head').getByRole('navigation')).toHaveCount(0)
+    const noDeskRow = noDesk.page.getByRole('navigation', { name: 'Help & community' })
+    await expect(noDeskRow.getByRole('link', { name: 'Community' })).toHaveAttribute('aria-current', 'page')
+    await expect(noDeskRow.getByRole('link', { name: 'Documentation' })).toHaveAttribute('href', 'https://reet.sh/documentation/')
+    await expect(noDeskRow.getByRole('link', { name: 'Support' })).toHaveCount(0)
     expect(noDesk.errors).toEqual([])
     await noDesk.context.close()
 

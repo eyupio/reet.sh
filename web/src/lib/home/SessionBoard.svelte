@@ -5,6 +5,8 @@
   import { getYoloSetting, type YoloSetting } from '../api'
   import { yoloGates } from '../launchBar'
   import YoloDialog from '../launch/YoloDialog.svelte'
+  import BaseConfirm from './BaseConfirm.svelte'
+  import { baseQuestion, repoProjectAt } from '../baseGate'
   import { startProblem, type StartPlace, type StartTarget } from '../draftOptions'
   import { shortAge, stateWord } from '../home'
   import { sessionStatus } from '../sessionStatus'
@@ -53,6 +55,10 @@
   let dragDraft = $state(''), dragOpener: HTMLElement | undefined, dropActive = $state(false)
   // YOLO is confirmed here, at Start, never when the item is saved or remembered by the browser.
   let yoloAsk = $state<SessionDraft | null>(null), yoloSetting = $state<YoloSetting | null>(null)
+  // Where a plan in a saved repository would start, asked of the machine at Start as the two start dialogs ask it. The
+  // opener is kept so Cancel gives the card's Start the keyboard back.
+  let baseAsk = $state<{ draft: SessionDraft; say: string; host: string; confirmed: number } | null>(null)
+  let baseOpener: HTMLElement | undefined
   let actions = $state<SessionActions>(), filterButton = $state<HTMLButtonElement>(), filterPanel = $state<HTMLDivElement>(), deleteDialog = $state<HTMLDialogElement>()
   let generation = 0
   let activeRequests = new Set<string>()
@@ -206,6 +212,7 @@
     const intent = dropIntent(draft, startReason(draft))
     if (intent.kind === 'blocked') { notice = intent.reason; return }
     if (intent.kind === 'refine') { void edit(draft, dragOpener ?? document.body, true); return }
+    baseOpener = dragOpener
     void activate(draft)
   }
   function closeComposer() { const opener = composer?.opener; composer = null; void tick().then(() => opener?.focus()) }
@@ -240,7 +247,13 @@
   function cancelYolo() { yoloAsk = null; notice = 'Not started. The item is still in your backlog.' }
   // The confirmation is for the version the dialog showed; a draft edited since is confirmed again.
   function confirmYolo() { const item = yoloAsk; yoloAsk = null; if (item) void activate(item, item.version) }
-  async function activate(item: SessionDraft, confirmedVersion = 0) {
+  function cancelBase() {
+    baseAsk = null; notice = 'Not started. The item is still in your backlog.'
+    void tick().then(() => { if (baseOpener?.isConnected) baseOpener.focus() })
+  }
+  // The yes is for the version that was shown; a plan edited since is asked about again.
+  function confirmBase() { const ask = baseAsk; baseAsk = null; if (ask) void activate(ask.draft, ask.confirmed, ask.draft.version) }
+  async function activate(item: SessionDraft, confirmedVersion = 0, basedVersion = 0) {
     if (activeRequests.has(item.id)) return
     const why = startReason(item); if (why) { notice = why; return }
     activeRequests.add(item.id); working = item.id; notice = ''; phase = 'Preparing…'
@@ -249,6 +262,16 @@
       // Decide on the draft as the server has it now, not the board's last refresh. A frozen retry carries the request
       // already made, so it is not asked again.
       if (draft.yolo && !draft.preparedPrompt && draft.version !== confirmedVersion) { void askYolo(draft); return }
+      if (!draft.preparedPrompt && draft.version !== basedVersion) {
+        // Where it will start, before the images and before the controller is asked to start anything. With no name
+        // for the machine the sentence says "that machine": an enrolment id would mean nothing to anyone.
+        const host = machineNames.get(draft.agentId) || ''
+        phase = 'Checking where this starts…'
+        const say = await baseQuestion(draft.agentId, host, { tool: draft.tool, dir: draft.dir, base: draft.base },
+          repoProjectAt(projects, draft.agentId, draft.dir), signal())
+        if (life.signal.aborted) return
+        if (say) { baseAsk = { draft, say, host, confirmed: confirmedVersion }; return }
+      }
       let prompt = draft.preparedPrompt || draft.prompt
       if (!draft.preparedPrompt) {
         const refs: string[] = []
@@ -366,7 +389,7 @@
               {@const detailOpen = expanded.includes(item.key)}
               {@const detailId = `${id}-${stage.id}-${index}-details`}
               <article class="session-card" class:expanded={detailOpen} class:retrying={draft?.starting} class:attention={session?.attention === 'waiting'} class:starting={working === draft?.id} class:dragging={!!draft && dragDraft === draft.id} data-status={session ? sessionStatus(session) : undefined} draggable={draft ? !draft.starting && !working && !loadingId : undefined} ondragstart={draft ? event => dragStart(event, draft) : undefined} ondragend={draft ? dragEnd : undefined}>
-                <div class="card-top"><span class="project-label" title={project?.name ?? item.dir}><BoardIcon name="folder" size={13}/>{project?.name || (item.projectId ? 'Removed project' : item.dir.split('/').filter(Boolean).at(-1) || 'Home folder')}</span>{#if draft?.idea}<span class="idea-badge">Idea</span>{/if}{#if session && factory.get(session.id)}{@const member = factory.get(session.id)!}<a class="factory-badge" href="/factory" title={`Part of a Factory pipeline: ${member.pipeline}. Outcome: ${member.objective}`}>{factoryBadge(member)}</a>{/if}{#if draft?.imageCount}<button type="button" class="image-count" aria-label={`Preview ${draft.imageCount} reference ${draft.imageCount === 1 ? 'image' : 'images'}`} aria-haspopup="dialog" onpointerenter={event => showImagePreview(draft, event.currentTarget)} onpointerleave={() => hideImagePreview(160)} onfocus={event => showImagePreview(draft, event.currentTarget, false)} onblur={() => hideImagePreview()} onclick={() => void openImageLightbox(draft)}><BoardIcon name="image" size={13}/>{draft.imageCount}</button>{/if}</div><div class="card-tools">{#if hasDetails}<button type="button" class="disclosure" aria-expanded={detailOpen} aria-controls={detailId} aria-label={`${detailOpen ? 'Hide' : 'Show'} details for ${item.title}`} title={detailOpen ? 'Hide details' : 'Show details'} onclick={() => toggleDetails(item.key)}><span class="disclosure-text" aria-hidden="true">{detailOpen ? 'Hide' : 'Details'}</span><BoardIcon name="chevron" size={13}/></button>{/if}{#if session}<button class="more" aria-label={`Actions for ${item.title}`} onclick={e => void actions?.openMenu(e, session)}><BoardIcon name="more"/></button>{/if}</div>
+                <div class="card-top"><span class="project-label" title={project?.name ?? item.dir}><BoardIcon name="folder" size={13}/>{project?.name || (item.projectId ? 'Removed project' : item.dir.split('/').filter(Boolean).at(-1) || 'Home folder')}</span>{#if draft?.idea}<span class="idea-badge">Idea</span>{/if}{#if session && factory.get(session.id)}{@const member = factory.get(session.id)!}<a class="factory-badge" href={member.key ? `/factory#pipeline-${member.outcomeId}-${member.key}` : '/factory'} title={`Part of a Factory pipeline: ${member.pipeline}. Outcome: ${member.objective}`}>{factoryBadge(member)}</a>{/if}{#if draft?.imageCount}<button type="button" class="image-count" aria-label={`Preview ${draft.imageCount} reference ${draft.imageCount === 1 ? 'image' : 'images'}`} aria-haspopup="dialog" onpointerenter={event => showImagePreview(draft, event.currentTarget)} onpointerleave={() => hideImagePreview(160)} onfocus={event => showImagePreview(draft, event.currentTarget, false)} onblur={() => hideImagePreview()} onclick={() => void openImageLightbox(draft)}><BoardIcon name="image" size={13}/>{draft.imageCount}</button>{/if}</div><div class="card-tools">{#if hasDetails}<button type="button" class="disclosure" aria-expanded={detailOpen} aria-controls={detailId} aria-label={`${detailOpen ? 'Hide' : 'Show'} details for ${item.title}`} title={detailOpen ? 'Hide details' : 'Show details'} onclick={() => toggleDetails(item.key)}><span class="disclosure-text" aria-hidden="true">{detailOpen ? 'Hide' : 'Details'}</span><BoardIcon name="chevron" size={13}/></button>{/if}{#if session}<button class="more" aria-label={`Actions for ${item.title}`} onclick={e => void actions?.openMenu(e, session)}><BoardIcon name="more"/></button>{/if}</div>
                 <h4>{#if session}<a href={sessionHref(session)}>{item.title}</a>{:else}<button onclick={e => draft && void edit(draft, e.currentTarget)} disabled={!!loadingId || !!draft?.starting}>{item.title}</button>{/if}</h4>
                 {#if hasDetails}<div class="details" class:open={detailOpen} id={detailId} inert={!detailOpen}><div class="details-inner">{#if draft}<p class="prompt-preview">{detailText}</p>{:else}<p class="prompt-preview">{detailText}{session?.promptMore ? '…' : ''}</p>{#if session?.worktreeBranch}<p class="branch" title={session.worktreeBranch}>↳ {session.worktreeBranch}</p>{/if}{/if}</div></div>{/if}
                 <div class="item-metadata" inert={compact && !detailOpen}><div class="agent-meta"><span class="agent-icon">{item.tool ? toolName(item.tool).slice(0, 1) : '›'}</span><strong>{item.tool ? toolName(item.tool) : 'Shell'}</strong><span class="model" title={item.model || 'Agent default'}>{item.model || 'Agent default'}</span>{#if item.effort}<span class="effort">{item.effort}</span>{/if}</div>
@@ -375,7 +398,7 @@
                 <footer class="card-foot">
                   {#if draft}
                     <span class="age" title={new Date(item.createdAt).toLocaleString()}>Saved {shortAge(Math.max(0, now - item.createdAt))} ago</span>
-                    <div class="card-actions">{#if !draft.starting}<button class="edit" disabled={!!working || !!loadingId} onclick={e => void edit(draft, e.currentTarget)} aria-label={`Edit ${draft.title}`}>Edit</button><button class="delete" disabled={!!working || !!loadingId} aria-label={`Delete ${draft.title}`} onclick={() => void askDelete(draft)}>Delete</button>{/if}<button class="start" disabled={!!reason || !!working} title={reason ?? (draft.idea ? 'Refine this idea, then start it' : 'Start this session on its machine')} onclick={e => draft.idea ? void edit(draft, e.currentTarget, true) : void activate(draft)}>{working === draft.id ? phase : draft.starting ? 'Retry start' : 'Start'}<BoardIcon name="arrow" size={13}/></button></div>
+                    <div class="card-actions">{#if !draft.starting}<button class="edit" disabled={!!working || !!loadingId} onclick={e => void edit(draft, e.currentTarget)} aria-label={`Edit ${draft.title}`}>Edit</button><button class="delete" disabled={!!working || !!loadingId} aria-label={`Delete ${draft.title}`} onclick={() => void askDelete(draft)}>Delete</button>{/if}<button class="start" disabled={!!reason || !!working} title={reason ?? (draft.idea ? 'Refine this idea, then start it' : 'Start this session on its machine')} onclick={e => { baseOpener = e.currentTarget; if (draft.idea) void edit(draft, e.currentTarget, true); else void activate(draft) }}>{working === draft.id ? phase : draft.starting ? 'Retry start' : 'Start'}<BoardIcon name="arrow" size={13}/></button></div>
                   {:else if session && word}
                     <span class="status" title={word.source}>{#if sessionStatus(session) === 'finished'}<span class="status-tick" aria-hidden="true"></span>{:else}<i></i>{/if}{word.word}{offline.has(item.agentId) ? ' · last known' : ''}</span><span class="age session-age" title={new Date(item.updatedAt).toLocaleString()}>{shortAge(Math.max(0, now - item.updatedAt))} ago</span><a class="open-session" href={sessionHref(session)}>{stage.id === 'finished' ? 'Review' : 'Open'}<BoardIcon name="arrow" size={13}/></a>
                   {/if}
@@ -395,6 +418,7 @@
   </div>
   <div class="board-foot"><span><BoardIcon name="finished" size={13}/>Saved to your account. Ready across your machines.</span><a href="/sessions">All session history<BoardIcon name="arrow" size={13}/></a></div>
 </section>
+{#if baseAsk}<BaseConfirm sentence={baseAsk.say} host={baseAsk.host} oncancel={cancelBase} onstart={confirmBase} />{/if}
 {#if yoloAsk}<YoloDialog gates={yoloGateList} tool={yoloAsk.tool} structured={yoloAsk.chat === true} machine={machineNames.get(yoloAsk.agentId) || 'the machine'} oncancel={cancelYolo} onstart={confirmYolo} />{/if}
 {#if composer}<SessionComposer draft={composer.draft} startNow={composer.start === true} {startCheck} {projects} {machines} {profile} {initialProject} onsaved={saved} onclose={closeComposer} onerror={error}/>{/if}
 {#if removing}<dialog class="delete-dialog" bind:this={deleteDialog} aria-labelledby={`${id}-delete`} oncancel={e => { if (deleteBusy) e.preventDefault(); else removing = null }}><h2 id={`${id}-delete`}>Delete this backlog item?</h2><p>“{removing.title}” and its saved images will be removed.</p><div><button class="btn" disabled={deleteBusy} onclick={() => removing = null}>Keep session</button><button class="btn primary" disabled={deleteBusy} aria-busy={deleteBusy} onclick={() => void remove()}>{deleteBusy ? 'Deleting…' : 'Delete item'}</button></div></dialog>{/if}
@@ -477,7 +501,7 @@
   .card-actions button { font: 500 14px var(--sans); padding: 4px 0; background: none; border: 0; color: var(--muted); cursor: pointer; }.card-actions .delete { font-size: 14px; }.card-actions .delete:hover { color: var(--bad); }.card-actions .start { display: flex; align-items: center; gap: 6px; background: var(--accent-wash); color: var(--accent-text); border-radius: 6px; padding: 4px 8px; }.card-actions .start:disabled { color: var(--muted); background: var(--bg-sunk); cursor: default; }.card-actions .start:not(:disabled):hover { background: var(--tint); }
   .status { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--status); border: 1px solid var(--status-edge); background: var(--status-wash); border-radius: 6px; padding: 2px 8px; }.status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
   .open-session { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; text-decoration: none; color: var(--muted); }.open-session:hover { color: var(--accent-text); }
-  .factory-badge { font-size: 13px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 8px; text-decoration: none; white-space: nowrap; }
+  .factory-badge { font-size: 14px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 8px; text-decoration: none; white-space: nowrap; }
   .factory-badge:hover { background: var(--tint); }
   .factory-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .idea-badge { font-size: 14px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--line-strong); border-radius: 6px; padding: 1px 8px; }
@@ -499,7 +523,7 @@
   .compact .session-card.expanded { border: 1px solid var(--line); border-radius: 6px; margin-block: 4px; }
   .compact .session-card:not(.expanded):has(.card-actions) .card-top { padding-right: 0; }
   .session-age { white-space: nowrap; }
-  .list-window { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 4px 0; font-size: 13px; color: var(--muted); }
+  .list-window { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 4px 0; font-size: 14px; color: var(--muted); }
   .list-window button { min-height: 44px; padding: 4px 0; border: 0; background: transparent; color: var(--ink); text-decoration: underline; cursor: pointer; font: inherit; }
   .list-window button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .compact .card-actions button { min-height: 44px; }
@@ -510,8 +534,8 @@
   .compact .session-card:not(.expanded) .more { display: none; }
   .compact .session-card.expanded .card-top { padding-right: 88px; }
   .compact .session-card.expanded .card-tools { top: 4px; right: 4px; }
-  .compact .session-card:not(.expanded) .status { font-size: 12px; }
-  .compact .session-card:not(.expanded) .session-age { font-size: 12px; }
+  .compact .session-card:not(.expanded) .status { font-size: 14px; }
+  .compact .session-card:not(.expanded) .session-age { font-size: 14px; }
   .empty { text-align: center; padding: 36px 12px; color: var(--muted); grid-column: 1/-1; }.empty-icon { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin: 0 auto 16px; }.empty strong { font-size: 14px; color: var(--ink-soft); font-weight: 550; display: block; }.empty p { font-size: 14px; margin: 8px auto 16px; max-width: 240px; }.empty button { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-text); font-size: 14px; border: 0; background: transparent; cursor: pointer; }
   .board-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 16px; font-size: 14px; color: var(--muted); }.board-foot span, .board-foot a { display: flex; gap: 6px; align-items: center; }.board-foot a { text-decoration: none; color: var(--muted); }.board-foot a:hover { color: var(--accent-text); }
   .live:empty { display: none; }.notice, .problem { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); margin: 0 0 16px; font-size: 14px; }.problem { border-color: var(--warn); }.problem button { border: 0; background: none; color: var(--accent-text); cursor: pointer; text-decoration: underline; }.no-options { font-size: 14px; color: var(--muted); }

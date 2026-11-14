@@ -13,6 +13,12 @@ bench_work="$(mktemp -d "${TMPDIR:-/tmp}/reet-bench.XXXXXXXX")"
 trap 'rm -rf "$bench_work"' EXIT
 bench_regex="${BENCH_REGEX:-^Benchmark(Community|ListFor|ListForCompact|ListSkillsAPI(/.*)?|TerminalSessionsFor|AppendTerminalChatEventFor|AppendTerminalChatEventsFor32|PublishChatEvent)$}"
 bench_packages=(api store terminalbroker)
+bench_rounds="${BENCH_ROUNDS:-8}"
+# The processor count is part of a benchmark's name (ListFor-2, ListFor-3), and a
+# shared runner's count can change between samples. benchstat then reads one
+# benchmark as two and compares fewer samples than were taken, so the count is
+# fixed here and every sample carries the same name.
+bench_cpu="${BENCH_CPU:-2}"
 
 # Finish all compilation before measuring either revision. Each binary runs in
 # its package directory, matching go test's working-directory contract.
@@ -25,7 +31,7 @@ for bench_side in base pr; do
 done
 : > "$bench_out/base.txt"
 : > "$bench_out/new.txt"
-for bench_round in {1..8}; do
+for bench_round in $(seq 1 "$bench_rounds"); do
   bench_order=(base pr)
   if (( bench_round % 2 == 0 )); then bench_order=(pr base); fi
   for bench_package in "${bench_packages[@]}"; do
@@ -33,9 +39,9 @@ for bench_round in {1..8}; do
       bench_tree="$bench_base"
       bench_file="$bench_out/base.txt"
       if test "$bench_side" = pr; then bench_tree="$bench_pr"; bench_file="$bench_out/new.txt"; fi
-      printf '%s: %s, sample %s/8\n' "$bench_side" "$bench_package" "$bench_round"
+      printf '%s: %s, sample %s/%s\n' "$bench_side" "$bench_package" "$bench_round" "$bench_rounds"
       (cd "$bench_tree/internal/$bench_package" && "$bench_work/$bench_side-$bench_package.test" \
-        -test.run '^$' -test.bench "$bench_regex" -test.benchmem -test.count=1 -test.benchtime=1s) \
+        -test.run '^$' -test.bench "$bench_regex" -test.benchmem -test.count=1 -test.benchtime=1s -test.cpu "$bench_cpu") \
         | tee -a "$bench_file"
     done
   done

@@ -50,20 +50,44 @@ func ProbeVersion(ctx context.Context, binary string, spec Spec, dir, home strin
 
 const probeFailed = "the version probe failed"
 
+// busyStartTries and busyStartPause bound the wait for a binary that is busy
+// being written: six tries, a little over a second in all.
+const (
+	busyStartTries = 5
+	busyStartPause = 80 * time.Millisecond
+)
+
 func probeOnce(ctx context.Context, binary string, spec Spec, dir, home string, base []string, min semver) (string, error) {
 	runCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	cmd := exec.Command(binary, "--version")
-	cmd.Dir = dir
-	cmd.Env = minimalEnvironment(spec, home, base)
-	cmd.Stdin = nil
-	cmd.SysProcAttr = procAttr()
-	stdout := &cappedBuffer{limit: 256}
-	stderr := &cappedBuffer{limit: 256}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		return "", &VersionError{Agent: spec.displayName(), Required: spec.MinVersion, Reason: "the binary could not be started"}
+	var cmd *exec.Cmd
+	var stdout, stderr *cappedBuffer
+	// A binary that something still holds open for writing cannot be run: the
+	// kernel answers "text file busy". That is true for an instant after an
+	// install or an update writes the file, and for as long as another process
+	// forked while it was open takes to exec. It passes by itself, so the start
+	// is tried again briefly; a command cannot be started twice, so each try
+	// builds its own.
+	for attempt := 0; ; attempt++ {
+		cmd = exec.Command(binary, "--version")
+		cmd.Dir = dir
+		cmd.Env = minimalEnvironment(spec, home, base)
+		cmd.Stdin = nil
+		cmd.SysProcAttr = procAttr()
+		stdout, stderr = &cappedBuffer{limit: 256}, &cappedBuffer{limit: 256}
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+		err := cmd.Start()
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.ETXTBSY) || attempt >= busyStartTries || runCtx.Err() != nil {
+			return "", &VersionError{Agent: spec.displayName(), Required: spec.MinVersion, Reason: "the binary could not be started"}
+		}
+		select {
+		case <-runCtx.Done():
+		case <-time.After(time.Duration(attempt+1) * busyStartPause):
+		}
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()

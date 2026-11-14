@@ -1,5 +1,6 @@
 import type { Event } from './api'
 import { launchActivity, toolName } from './agentLaunch'
+import { baseSentence } from './baseNotice'
 
 type Detail = {
   host?: string
@@ -60,6 +61,9 @@ type Detail = {
   defaultTool?: string
   defaultModel?: string
   defaultEffort?: string
+  base?: string
+  relation?: string
+  start?: string
 }
 
 function detail(e: Event): Detail {
@@ -101,6 +105,7 @@ export function eventLabel(e: Event): string {
     case 'gaffer-stage-started': return d.stage ? `A pipeline's ${d.stage} stage started` : 'An outcome session started and Gaffer is following it'
     case 'gaffer-pipeline-waiting-merge': return 'A pipeline is ready and waits for your merge decision'
     case 'gaffer-pipeline-done': return 'A pipeline finished every stage'
+    case 'gaffer-session-ended': return 'The controller ended a session its pipeline had finished with'
     case 'gaffer-pipeline-stopped': return `A pipeline stopped${d.stage ? ` at its ${d.stage} stage` : ''}${d.reason ? `: ${d.reason}` : ''}`
     case 'gaffer-pipeline-moved-on': return 'Moved a pipeline to its next stage'
     case 'gaffer-goal-needs-you': return `A goal needs you${d.stage ? ` (${d.stage} stage)` : ''}${d.reason ? `: ${d.reason}` : ''}`
@@ -124,6 +129,10 @@ export function eventLabel(e: Event): string {
     case 'folder-browse': return d.path ? `Browsed folders from ${d.path}${typeof d.pages === 'number' ? ` (${d.pages} ${d.pages === 1 ? 'page' : 'pages'})` : ''}` : 'Browsed folders on a machine'
     case 'worktree-remove': return `Removed a worktree on ${d.host || 'a machine'}${d.branch ? `; the branch ${d.branch} is kept` : ''}`
     case 'worktree-kept': return `Kept a session's worktree on ${d.host || 'a machine'}; it has work that needs your decision`
+    // The same sentence the browser asks the question with, so what was said
+    // before a session started and what is recorded after it read alike. A
+    // relation this build does not know is not put into words.
+    case 'worktree-base': return baseSentence({ base: d.base, relation: d.relation, start: d.start }, d.host || '') ?? 'Noted where a session started'
     case 'session-remove': return `Removed a finished session from history on ${d.host || 'a machine'}`
     case 'software-apply':
       if (d.state !== 'applied') return `Tried to ${d.action || 'change'} OpenCode on ${d.host || 'a machine'}${d.reason ? ` (${String(d.reason).replaceAll('_', ' ')})` : ''}`
@@ -245,6 +254,10 @@ export function eventLabel(e: Event): string {
       return `Revoked ${d.name || 'an MCP connection'}`
     case 'mcp-revoke-all':
       return 'Revoked all MCP connections'
+    case 'mcp-factory-control': {
+      const did: Record<string, string> = { reet_start_outcome: 'started an outcome', reet_add_pipelines: 'added pipelines', reet_move_pipeline_on: 'moved a pipeline on', reet_send_pipeline_back: 'sent a pipeline back', reet_retry_pipeline: 'tried a pipeline again', reet_approve_pipeline_merge: 'approved a pipeline’s merge', reet_set_pipeline_merge: 'made a pipeline wait for merge approval', reet_stop_outcome: 'stopped an outcome', reet_report_outcome: 'asked Gaffer for a report', reet_tell_pipeline_agent: 'told a pipeline’s agent what to do next' }
+      return `${d.connection || 'An MCP client'} ${did[d.tool ?? ''] ?? 'changed the Factory'}`
+    }
     case 'mcp-call':
       return `Made a change through ${d.connection || 'an MCP client'}`
     case 'user-role':
@@ -360,6 +373,7 @@ const CATEGORY_ACTIONS: Record<string, EventCategory> = {
   'model-favourite-default': 'agents',
   'worktree-remove': 'agents',
   'worktree-kept': 'agents',
+  'worktree-base': 'agents',
   'session-remove': 'agents',
   'software-apply': 'agents',
   'merge-machines': 'agents',

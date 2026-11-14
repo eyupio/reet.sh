@@ -98,6 +98,7 @@ func TestSlowConsumerClosesBoundedBridge(t *testing.T) {
 	}
 }
 func TestRevokedLoginStopsLeaseRenewal(t *testing.T) {
+	t.Parallel()
 	_, _, c, done, authorized := bridgeFixture(t, false)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	_, _, err := c.Read(ctx)

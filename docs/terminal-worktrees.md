@@ -4,8 +4,9 @@ A worktree request asks a machine to give an agent its own git worktree and bran
 before it starts the agent, so that agents started together never share a
 checkout. It is an optional pair of fields on the launch request described in
 [Launch requests](terminal-launch.md), plus two further requests: one that reports
-what is in a run's worktree and one that removes it. reet never removes a worktree
-by itself, and a remove never deletes the branch. Afterwards the controller, unless an admin turned it off, fast-forwards the source repository to main and prunes its merged local branches ([branch pruning](branch-pruning.md#automation)).
+what is in a run's worktree and one that removes it. reet removes a worktree only when a person asks, when its session is
+removed from history, or in the scheduled clean-up of finished sessions' clean
+worktrees ([machine maintenance](machine-maintenance.md)); a remove never deletes the branch. Afterwards the controller, unless an admin turned it off, fast-forwards the source repository to main and prunes its merged local branches ([branch pruning](branch-pruning.md#automation)).
 
 This document describes what the code does after the commits "Offer worktrees
 through the broker and API" and "Refuse removal for nested bare repositories and
@@ -106,10 +107,53 @@ folder rules: absolute, inside home, symlinks resolved):
 3. `git rev-parse --verify --quiet HEAD^{commit}`, which must name a commit.
 4. `git for-each-ref --format=%(refname) refs/heads/reet/<project>-<run>`.
 5. `git worktree list --porcelain`.
-6. `git -c core.hooksPath=/dev/null worktree add -b <branch> <destination> HEAD`,
-   the only command that changes anything when all goes well. With a named
-   `base` (`agents-v2`, [Launch requests](terminal-launch.md#catalogue-and-named-bases-agents-v2))
-   the worktree starts from that branch's commit instead of HEAD.
+6. `git -c core.hooksPath=/dev/null worktree add -b <branch> <destination> <commit>`,
+   the only command that changes anything when all goes well. The commit is
+   HEAD unless a base was resolved (see below), in which case it is the commit
+   that base resolved to.
+
+Before step 6, a machine that negotiated `base-fresh-v1` resolves the base:
+
+- With a `github.com` origin it fetches that branch from GitHub first and starts
+  from **GitHub's commit**, unless the repository's own branch has commits
+  GitHub does not have, in which case it starts from the local branch. A fetch
+  that fails starts from the last known commit, and nothing is written to the
+  source checkout: the fetch only updates the remote-tracking branch. The fetch
+  happens before the connector takes any lock of its own, so a repository that
+  cannot be reached never holds up listing or reconciling sessions; the start is
+  then worked out from what the fetch found, with no second network call.
+- The fetch uses the machine's own git credential helpers (whatever its
+  `~/.gitconfig` names) and its `gh` sign-in, for `github.com` only. A private
+  repository needs one of them to work on that machine: either a helper that
+  already serves github.com, or `gh auth login` done there. Nothing about a
+  credential ever reaches the controller.
+- An origin spelled as an ssh URL (`git@github.com:owner/repo.git`,
+  `ssh://git@github.com/owner/repo`) is fetched from
+  `https://github.com/owner/repo.git` with the `gh` sign-in. With no `gh` on
+  that machine it is not fetched at all: the base is the local branch and
+  nothing is said about GitHub. ssh is never run, because the hardened
+  environment has no ssh agent to ask and no terminal to answer a passphrase or
+  host-key prompt. The fetch refuses the ssh transport outright
+  (`protocol.ssh.allow=never`), so a git configuration that rewrites
+  github.com's https URLs to ssh (a `url.<ssh>.insteadOf` for
+  `https://github.com/`) makes the fetch fail at once, and the session starts
+  from the last known base as it does for any GitHub that could not be reached.
+- Fetches for one repository are taken one at a time inside the connector, so
+  two starts at once never report each other's "Couldn't reach GitHub".
+- With no `github.com` origin it resolves the local branch first, then the
+  remote-tracking branch, as it always has.
+- With no base named at all it takes the repository's default branch
+  (`origin/HEAD`, then a local `main` or `master`), so a run starts from
+  GitHub's default branch; only a repository with no `github.com` origin, or
+  none with a default branch, starts at HEAD.
+- It reports what it did with the worktree: the branch it resolved, how that
+  branch stood against GitHub's (`same`, `behind`, `no_local`, `ahead`,
+  `diverged`, `fetch_failed`, `no_remote`) and the commit it started from. The
+  controller keeps those on the session as `baseName`, `baseRelation` and
+  `baseStart`.
+
+A machine that did not negotiate `base-fresh-v1` is unchanged: it is never named
+a base it did not ask for, it fetches nothing, and it reports no base.
 
 If the add fails, the connector removes only what this same call created:
 `git worktree unlock <destination>`, then `git worktree remove --force
@@ -324,9 +368,25 @@ not a viewer, the canonical `Origin`, the remote-terminals switch on, strict JSO
   confirmedBy: "status"}` (the folder is not known then); otherwise it answers
   503 as a reconnect, and the person checks again.
 
+- `GET /api/v2/machines/{agentId}/base-check?dir=&base=` answers where a session
+  in that folder would start, without making anything: `{base, relation, local,
+  remote, start}`, each left out when empty. An empty `base` asks about the
+  saved project's own, and about nothing when the project saved none — exactly
+  the branch an isolated launch in that folder would name, so the question and
+  the start that follows it are about one branch. The account's default base
+  branch is never filled in here; a browser that sends it with the create names
+  it in this request too. It fetches on
+  the machine, so it shares the rate limit
+  the other whole-repository reads take. A machine from before `base-fresh-v1`
+  answers 409 `base_check_unsupported`, a machine already busy with branches
+  409 `branches_busy`, a missing branch 422 `base_missing`, a failed git 422
+  `git_failed`, too many reads 429, and a viewer 403. Nothing is started, so
+  every one of those refusals is safe to ignore.
+
 The session JSON returned by create (and listed by `GET /api/v2/terminal/sessions`)
 carries `worktreePath`, `worktreeRepo` and `worktreeBranch` for a session started
-in its own worktree. `repo` in status and remove must be that `worktreeRepo`, the
+in its own worktree, and `baseName`, `baseRelation` and `baseStart` when the
+machine reported where it started from (each left out when empty). `repo` in status and remove must be that `worktreeRepo`, the
 name the machine used, not a name recomputed from the saved folder: when the
 member folder is itself a symlink inside home, its own name differs and status
 answers `not_found`. A refused create's reason and detail are stored with the
@@ -366,8 +426,10 @@ a worktree whenever its sentence says **in a fresh worktree** (the project's wor
 account's). The base:
 
 - **One project.** `base` is sent only when it was chosen: by the person in the Branch slot, by the
-  project's base branch or by the account's default base branch. Otherwise nothing is sent and the
-  worktree starts from the checkout's HEAD; the sentence names that branch as the machine reported it.
+  project's base branch or by the account's default base branch. Otherwise nothing is sent: the
+  controller names the project's own saved base when it has one, and with none the machine starts
+  from the branch its remote calls default (an older machine from the checkout's HEAD). The
+  sentence names the branch the machine reported.
 - **Branch listing.** The Branch slot's names come from the machine
   (`GET /api/v2/machines/{agentId}/branches`, [Folder browse and branch listing](folder-browse.md)),
   at most 200, filtered by the machine. A name only suggested from that list is never sent unless the
@@ -375,6 +437,17 @@ account's). The base:
 - **Several projects** (Select, 2 to 12). Each member's create carries its own project's base branch,
   else the account's default, else none; the one-project choice is never applied to all of them.
   The run is a selection run (`origin: selection`) and its members follow the orchestration below.
+- **Where it starts.** For a start in one saved repository, the bar reads the base check above before
+  it sends anything, and when the local base and GitHub's differ it says so and asks. Every browser
+  start path takes the same step (`web/src/lib/baseGate.ts`, the words in
+  `web/src/lib/baseNotice.ts`, the dialog in `web/src/lib/home/BaseConfirm.svelte`): Home's launch bar,
+  the **Start an agent** dialog, which the project rail's **+**, the machine cards, Machines, the
+  session screen's **New session** and the **+** beside its tabs all open, and **Start** on a saved
+  backlog plan. A yes is tied to the machine, folder, base and agent it was given for (`baseKey`), so a
+  start with any of those different — or one pressed after the confirmed start was refused — asks
+  again. A start in several projects is not
+  checked (each member has its own base and the controller starts them), and nor are the starts nobody
+  is choosing in a browser: Factory and outcome launches made by the controller.
 
 ## The run orchestration
 

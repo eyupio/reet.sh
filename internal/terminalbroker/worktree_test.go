@@ -2,6 +2,7 @@ package terminalbroker
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -407,6 +408,66 @@ func TestWorktreeCreateRecordsWhereTheMachineMadeIt(t *testing.T) {
 	t.Fatal("a late create reply did not record the worktree", got)
 }
 
+// Where a worktree started from is told to the server wherever it is first
+// stored, a create whose reply arrived after its call gave up included, so
+// every start path can record the same notice exactly once.
+func TestWorktreeBaseIsReportedOnceIncludingALateReply(t *testing.T) {
+	f := launchFixture(t, worktreeCapabilities("claude"))
+	start := strings.Repeat("ab", 20)
+	base := terminalproto.BaseState{Base: "main", Relation: terminalproto.BaseBehind, Local: start, Remote: start, Start: start}
+	f.reply = func(in terminalproto.Create) terminalproto.Body {
+		return terminalproto.SessionChanged{State: terminalproto.Running, Base: &base,
+			WorktreePath: "/home/test/.reet/worktrees/" + testProject + "/site/" + in.Worktree, WorktreeRepo: "site"}
+	}
+	var mu sync.Mutex
+	var told []string
+	f.b.OnSessionBase(func(uid int64, agent, session string, got terminalproto.BaseState) {
+		mu.Lock()
+		defer mu.Unlock()
+		if uid != f.uid || agent != f.agent || got != base {
+			t.Errorf("base reported as %d %s %+v", uid, agent, got)
+		}
+		told = append(told, session)
+	})
+	request := ID()
+	s, _, err := f.b.CreateSession(t.Context(), f.uid, f.agent, request, worktreeCreate())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	if len(told) != 1 || told[0] != s.ID {
+		t.Fatal("base of a create", told)
+	}
+	mu.Unlock()
+
+	// A reply that came after its call gave up tells the server too.
+	ordinary := WorktreeCallTimeout
+	WorktreeCallTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { WorktreeCallTimeout = ordinary })
+	f.mu.Lock()
+	f.delay = 400 * time.Millisecond
+	f.mu.Unlock()
+	in := worktreeCreate()
+	in.Worktree = "fedcba9876543210fedc"
+	late, _, err := f.b.CreateSession(t.Context(), f.uid, f.agent, ID(), in)
+	if !errors.Is(err, ErrOffline) {
+		t.Fatal("expected the call to give up", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		done := len(told) == 2 && told[1] == late.ID
+		mu.Unlock()
+		if done {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	t.Fatal("a late create reply did not report its base", told)
+}
+
 // A remove whose reply never comes after it was sent is reported as a lost
 // reply (still a reconnect to callers that do not check), never as a refusal.
 func TestWorktreeRemoveReplyLostIsDistinguished(t *testing.T) {
@@ -436,6 +497,7 @@ func TestWorktreeCallTimeoutCoversACreateThenARemove(t *testing.T) {
 // A remove's ok answer that arrives after the call gave up is still
 // reported, so the removal can be audited; nothing else is.
 func TestLateRemoveAnswerIsReported(t *testing.T) {
+	t.Parallel()
 	ordinary := WorktreeCallTimeout
 	WorktreeCallTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { WorktreeCallTimeout = ordinary })

@@ -174,6 +174,8 @@ type Service struct {
 	auditor         atomic.Pointer[AuditFunc]
 	toolHost        atomic.Pointer[ToolHost]
 	outcomeWake     chan struct{}
+	// outcomeRuns holds the outcomes being carried on right now, by ID.
+	outcomeRuns     sync.Map
 	workerEnabled   func() bool
 	workerLimiter   *auth.Limiter
 	store           *store.Store
@@ -405,7 +407,10 @@ func (s *Service) SetEnabled(p Principal, id string, revision int64, on bool) er
 	return err
 }
 
-func (s *Service) open(p Principal, in Input, old store.GafferProvider) (elicore.Provider, *http.Client, error) {
+// open builds the provider adapter for one request. cacheKey, when given, is
+// the stable conversation key a provider that routes cached prompts by key
+// uses; it is sent only to the OpenAI API, whose preset accepts the field.
+func (s *Service) open(p Principal, in Input, old store.GafferProvider, cacheKey string) (elicore.Provider, *http.Client, error) {
 	key := ""
 	if in.APIKey != nil {
 		key = *in.APIKey
@@ -421,6 +426,9 @@ func (s *Service) open(p Principal, in Input, old store.GafferProvider) (elicore
 	}
 	client := newProviderClient(in.LocalOnly)
 	config := provider.Config{BaseURL: in.BaseURL, APIKey: key, Model: in.Model, ReasoningEffort: in.ReasoningEffort, Client: client}
+	if in.Kind == "openai" {
+		config.PromptCacheKey = cacheKey
+	}
 	if in.Kind == "anthropic" {
 		return provider.NewAnthropic(config), client, nil
 	}
@@ -458,7 +466,7 @@ func (s *Service) Models(parent context.Context, p Principal, in Input) ([]strin
 	if err = s.current(p, old); err != nil {
 		return nil, err
 	}
-	backend, client, err := s.open(p, in, old)
+	backend, client, err := s.open(p, in, old, "")
 	if err != nil {
 		return nil, err
 	}
@@ -491,7 +499,7 @@ func (s *Service) Test(parent context.Context, p Principal, id string, revision 
 	if err = s.current(p, old); err != nil {
 		return check, err
 	}
-	backend, client, err := s.open(p, in, old)
+	backend, client, err := s.open(p, in, old, "")
 	if err != nil {
 		return check, err
 	}

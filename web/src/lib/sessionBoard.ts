@@ -22,10 +22,14 @@ export const STAGES: { id: Stage; label: string; hint: string }[] = [
   { id: 'finished', label: 'Finished', hint: 'Wrapped up and ready to review.' },
 ]
 
-// A quiet terminal is still active. A completed chat turn does not end its
-// persistent session. Only the lifecycle state places a session in Finished.
-export function sessionStage(session: Pick<TerminalSession, 'state'>): Stage {
-  return ['creating', 'running', 'end_requested'].includes(session.state) ? 'active' : 'finished'
+// The board follows the status every other surface shows. A live session stays
+// Active unless its status reads Finished, so a completed chat turn — a finished
+// turn in a session kept open for the next instruction — lands in Finished. A
+// quiet terminal is still active. Every other lifecycle state is Finished.
+export function sessionStage(session: Pick<TerminalSession, 'state' | 'exitCode' | 'attention' | 'attentionSource'>): Stage {
+  if (!['creating', 'running', 'end_requested'].includes(session.state)) return 'finished'
+  const statusFinished = session.attention === 'finished' || (session.attention === 'quiet' && session.attentionSource === 'chat')
+  return statusFinished ? 'finished' : 'active'
 }
 
 export type DropIntent = { kind: 'start' } | { kind: 'refine' } | { kind: 'blocked'; reason: string }

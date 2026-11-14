@@ -253,16 +253,18 @@ from bounded conversation history, whose existing retention limits remain in pla
 
 Both **Start an agent** dialogs and the backlog composer include **Model** and **Effort**. Models use the machine catalogue,
 your favourites or a configured model ID. In Gaffer, effort suggestions come from the selected agent's advertised
-thought-level options on a connector that negotiated `acp-start-options-v1` (`acpStartOptions`). Older live-controls
-connectors must be upgraded before they can accept effort in a new chat. When no options are advertised, **Agent default** is
-shown with an explanation. A chosen effort is confirmed against the actual selected model before the chat becomes ready
-or receives the opening prompt; an unsupported choice refuses startup rather than silently falling back. The terminal
+thought-level options on a connector that negotiated `acp-start-options-v1` (`acpStartOptions`). When the descriptor
+names no thought levels but the connector did negotiate start options, the dialog offers low, medium and high, because
+the live session may still report them. Older live-controls connectors that did not negotiate start options must be
+upgraded before they can accept effort in a new chat, and their selector shows **Agent default** with an explanation. A
+chosen effort is confirmed against the actual selected model before the chat becomes ready or receives the opening
+prompt; an unsupported choice refuses startup rather than silently falling back. The terminal
 interface keeps its existing effort mappings. Backlog save, edit, reload and Start retain both selected values.
 
 
 In **Start an agent**, choose OpenCode on a machine that advertises `acp`. The **Session** choice is **Gaffer** by
 default; choose **OpenCode TUI** for the terminal UI. The **Model** control chooses the model for the chat; leave it at
-**Agent default** to use the model configured in OpenCode. Effort stays at Agent default unless this connector advertises a choice and you select one. The opening prompt becomes the
+**Agent default** to use the model configured in OpenCode. Effort stays at Agent default unless this connector advertises a choice and you select one. A chosen model also turns on OpenCode's prompt cache key for its provider, so the repeated part of a chat is billed at the cached rate; the other agents cache by their own default, and reet removes no environment variable that would disable theirs. The opening prompt becomes the
 first message. The dialog states that the folder's `.opencode` plugins run when it starts, and that a chat can be
 restored after reet restarts on the machine.
 

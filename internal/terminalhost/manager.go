@@ -142,6 +142,15 @@ func (m *Manager) allowed() error {
 	return nil
 }
 
+// consented reads the local terminal switch on its own, so work a create can
+// do before it takes the lock (fetching the base) is skipped when the machine
+// is going to refuse it. The decision is made again under the lock.
+func (m *Manager) consented() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.allowed() == nil
+}
+
 func updatedAt(s ManagedSession) int64 {
 	now := time.Now().UnixMilli()
 	if now < s.UpdatedAt {
@@ -162,6 +171,19 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		in.Validate() == nil
 	if !valid {
 		return ManagedSession{}, terminalproto.ErrInvalid
+	}
+	// The base a worktree create starts from is fetched here, before the lock:
+	// no call that reaches github.com may run while m.mu or the registry lock
+	// is held, or one machine with hanging DNS would freeze every listing for
+	// the whole fetch budget. PrepareWorktreeFrom resolves the start from what
+	// this found, reaching nothing. A retry whose worktree is already there
+	// fetches nothing (PlanBase).
+	// Nothing is fetched for a create this machine will refuse anyway; the
+	// answer is settled again under the lock below, which is the one that
+	// decides.
+	var plan BasePlan
+	if in.Worktree != "" && m.consented() {
+		plan = PlanBase(ctx, m.home, in.Dir, in.Project, in.Worktree, in.Base, baseFresh(ctx), m.git)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -228,15 +250,6 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	if !responsive(ctx, m.tmux, m.layout) {
 		return ManagedSession{}, ErrNotRunning
 	}
-	live := 0
-	for _, s := range r.Sessions {
-		if s.State.ReservesQuota() {
-			live++
-		}
-	}
-	if live >= terminalproto.MaxSessionsPerAgent {
-		return ManagedSession{}, ErrSessionCapacity
-	}
 	// A server object without our durable intent must never be adopted.
 	names, err := m.sessionNames(ctx)
 	if err != nil {
@@ -261,7 +274,7 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	started := false
 	if in.Worktree != "" {
 		reportStage(ctx, terminalproto.StageWorktree)
-		if worktree, err = PrepareWorktree(ctx, m.home, dir, in.Project, in.Worktree, in.Base, m.git); err != nil {
+		if worktree, err = PrepareWorktreeFrom(ctx, m.home, dir, in.Project, in.Worktree, in.Base, plan, m.git); err != nil {
 			return ManagedSession{}, err
 		}
 		dir = worktree.Path
@@ -277,6 +290,13 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 	s := ManagedSession{ID: sessionID, Title: in.Title, Tool: in.Tool, State: terminalproto.Creating, CreatedAt: at, UpdatedAt: at, CreateRequestID: requestID}
 	if in.Worktree != "" {
 		s.WorktreePath, s.WorktreeRepo = worktree.Path, filepath.Base(filepath.Dir(worktree.Path))
+		if worktree.Created && worktree.Base.Valid() {
+			// Only this call's own worktree has a base it resolved; an adopted
+			// one was started from a base another call chose, and a create
+			// without base-fresh-v1 resolved none at all.
+			base := worktree.Base
+			s.Base = &base
+		}
 	}
 	r.Sessions[sessionID] = s
 	r.Operations[key] = operationReceipt{RequestID: requestID, SessionID: sessionID, Kind: "create", Create: &in}

@@ -22,6 +22,7 @@ const (
 	MaxOutcomeSessions       = 5
 	MaxOutcomeObjectiveBytes = 4000
 	MaxOutcomePromptBytes    = 8000
+	MaxOutcomeReplyBytes     = 2000
 	maxOutcomeSummaryBytes   = 2000
 )
 
@@ -30,6 +31,23 @@ type OutcomePlanInput struct {
 	Objective string `json:"objective"`
 	Project   string `json:"project"`
 	Sessions  int    `json:"sessions"`
+	// Reply is the person's answer to the previous proposal. It is sent only
+	// with Previous, and never saved or run.
+	Reply    string               `json:"reply,omitempty"`
+	Previous *OutcomePlanPrevious `json:"previous,omitempty"`
+}
+
+// OutcomePlanPrevious is a compact copy of the proposal a reply answers: the
+// summary and session titles are enough for Gaffer to know what it proposed,
+// without replaying every prompt through the provider again.
+type OutcomePlanPrevious struct {
+	Summary  string                       `json:"summary"`
+	Sessions []OutcomePlanPreviousSession `json:"sessions"`
+}
+
+type OutcomePlanPreviousSession struct {
+	Title  string   `json:"title"`
+	Stages []string `json:"stages,omitempty"`
 }
 
 type OutcomeSession struct {
@@ -55,13 +73,45 @@ var planSessionsTool = elicore.Tool{Name: "propose_sessions", Description: "Prop
 func outcomeSystem(max int) string {
 	return "You are Gaffer, the user's warm, practical critical buddy in reet.sh, with occasional dry Yorkshire humour. The user has given you an objective to own. Plan the coding-agent sessions that would meet it, then call propose_sessions exactly once. You start nothing: the user reviews, edits and approves the plan before any session exists.\n" +
 		"Each session is a separate coding agent working in its own isolated copy of the same project. Sessions cannot see or message each other, so every prompt must stand alone: say what to build or change, what is out of scope, how to check it, and that it should raise a pull request describing the work. Split only where the work is genuinely independent, so two sessions never edit the same code. Prefer one session for a small objective. Propose at most " + itoa(max) + " sessions.\n" +
-		"Stay inside the objective: add no scope the user did not ask for, and when something is ambiguous say so in the summary instead of guessing. Each session is a pipeline that runs through stages in this order: plan, design, code, review, test, pr, babysit, merge. For each session list in \"stages\" the ones it needs: leave out plan and design for small, obvious work, and include review and test for anything that changes behaviour. The user decides which agent and model does each stage and whether merge happens without them; you do not. Every prompt must end with the sentence \"Do not merge.\" Titles are short plain names of at most 80 characters. The summary says in two or three sentences how the sessions divide the work and what the user should check."
+		"Stay inside the objective: add no scope the user did not ask for, and when something is ambiguous say so in the summary instead of guessing. Each session is a pipeline that runs through stages in this order: plan, design, code, review, test, pr, babysit, merge. For each session list in \"stages\" the ones it needs: leave out plan and design for small, obvious work, and include review and test for anything that changes behaviour. The user decides which agent and model does each stage and whether merge happens without them; you do not. Every prompt must end with the sentence \"Do not merge.\" Titles are short plain names of at most 80 characters. The summary says in two or three sentences how the sessions divide the work and what the user should check.\n" +
+		"When the person replies to a previous proposal, their reply is the instruction to act on. Keep what is still right, change what they asked, and address their reply directly in the summary rather than repeating a proposal they turned down."
 }
 
 func itoa(n int) string { return string(rune('0' + n)) }
 
+// validPlanPrevious accepts the compact proposal a reply answers. It is
+// model text the browser kept, so it is checked again before it is sent back
+// to a provider: only the summary, titles and stage kinds are carried.
+func validPlanPrevious(in *OutcomePlanPrevious) (*OutcomePlanPrevious, error) {
+	if in == nil {
+		return nil, nil
+	}
+	summary := strings.TrimSpace(in.Summary)
+	if len(summary) > maxOutcomeSummaryBytes || (summary != "" && !store.ValidWorkerText(summary)) {
+		return nil, invalid("previous", "The previous proposal could not be read. Ask Gaffer for a fresh plan.")
+	}
+	if len(in.Sessions) > MaxOutcomeSessions {
+		return nil, invalid("previous", "The previous proposal could not be read. Ask Gaffer for a fresh plan.")
+	}
+	out := &OutcomePlanPrevious{Summary: summary, Sessions: make([]OutcomePlanPreviousSession, 0, len(in.Sessions))}
+	for _, session := range in.Sessions {
+		title := strings.TrimSpace(session.Title)
+		if !terminalproto.ValidTitle(title) || len(session.Stages) > len(StageKinds) {
+			return nil, invalid("previous", "The previous proposal could not be read. Ask Gaffer for a fresh plan.")
+		}
+		for _, kind := range session.Stages {
+			if stageIndex(kind) < 0 {
+				return nil, invalid("previous", "The previous proposal could not be read. Ask Gaffer for a fresh plan.")
+			}
+		}
+		out.Sessions = append(out.Sessions, OutcomePlanPreviousSession{Title: title, Stages: append([]string(nil), session.Stages...)})
+	}
+	return out, nil
+}
+
 // PlanOutcome asks the chosen provider for a session plan. The provider
-// receives the typed objective and project name only.
+// receives the typed objective and project name; a reply to an earlier
+// proposal also carries that reply and a compact copy of what it answered.
 func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in OutcomePlanInput) (OutcomePlan, error) {
 	var plan OutcomePlan
 	objective, project := strings.TrimSpace(in.Objective), strings.TrimSpace(in.Project)
@@ -73,6 +123,18 @@ func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in
 	}
 	if in.Sessions < 1 || in.Sessions > MaxOutcomeSessions {
 		return plan, invalid("sessions", "Choose between 1 and 5 sessions.")
+	}
+	reply := strings.TrimSpace(in.Reply)
+	if reply != "" && (len(reply) > MaxOutcomeReplyBytes || !store.ValidWorkerText(reply)) {
+		return plan, invalid("reply", "Write the reply in up to 2,000 UTF-8 bytes of plain text.")
+	}
+	var previous *OutcomePlanPrevious
+	if reply != "" {
+		var err error
+		previous, err = validPlanPrevious(in.Previous)
+		if err != nil {
+			return plan, err
+		}
 	}
 	old, err := s.owned(p, Input{ID: id, Revision: in.Revision})
 	if err != nil {
@@ -96,7 +158,7 @@ func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in
 	if err = s.current(p, old); err != nil {
 		return plan, err
 	}
-	backend, client, err := s.open(p, cfg, old)
+	backend, client, err := s.open(p, cfg, old, "")
 	if err != nil {
 		return plan, err
 	}
@@ -104,6 +166,23 @@ func (s *Service) PlanOutcome(parent context.Context, p Principal, id string, in
 	ask := "Objective:\n" + objective
 	if project != "" {
 		ask += "\n\nProject: " + project
+	}
+	if reply != "" {
+		ask += "\n\nYour previous proposal:"
+		if previous != nil && (previous.Summary != "" || len(previous.Sessions) > 0) {
+			if previous.Summary != "" {
+				ask += "\nSummary: " + previous.Summary
+			}
+			for i, session := range previous.Sessions {
+				ask += "\nSession " + itoa(i+1) + ": " + session.Title
+				if len(session.Stages) > 0 {
+					ask += " (stages: " + strings.Join(session.Stages, ", ") + ")"
+				}
+			}
+		} else {
+			ask += "\n(The previous proposal's text was not sent.)"
+		}
+		ask += "\n\nThe person replied:\n" + reply + "\n\nRevise the proposal as a direct response to that reply. Keep what is still right, change what the person asked, and address their reply in the summary. Call propose_sessions exactly once."
 	}
 	stream, err := backend.Chat(ctx, elicore.Request{Model: cfg.Model, System: outcomeSystem(in.Sessions), Messages: []elicore.Message{{Role: elicore.RoleUser, Content: ask}}, Tools: []elicore.Tool{planSessionsTool}, MaxTokens: 4096})
 	if err != nil {

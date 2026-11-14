@@ -1,5 +1,6 @@
 <script lang="ts">
   import Skeleton from './Skeleton.svelte'
+ import Icon from './Icon.svelte'
  import { onMount, untrack } from 'svelte'
  import { shell } from './dialogShell'
  import { getImports, getImport, requestImport, approveImport, cancelImport, stopImport, getPrivateBundles, getPrivateRevisions, type ImportRequest, type ImportState, type PrivateBundle, type PrivateRevision, type SyncState } from './api'
@@ -87,7 +88,7 @@
 </script>
 
 <dialog bind:this={dialog} use:shell oncancel={(event) => { event.preventDefault(); onclose() }} aria-labelledby="machine-import-title">
- <header data-shell-head><div><p class="eyebrow" data-shell-aside>Save a copy to your library</p><h2 id="machine-import-title">Bring a machine skill into reet</h2></div><button type="button" onclick={onclose} aria-label="Close skill imports" data-shell-close>Close ×</button></header>
+ <header data-shell-head><div><p class="eyebrow" data-shell-aside>Save a copy to your library</p><h2 id="machine-import-title">Bring a machine skill into reet</h2></div><button type="button" onclick={onclose} aria-label="Close skill imports" data-shell-close>Close <Icon name="x" size={14} /></button></header>
  <div class="body" data-shell-body>
   <p class="intro">{#if source?.direct && !error && (!selected || selected.state !== 'reviewing' || (selected.preview?.skillValid && !blocked))}Saving a private copy of {name} straight into your library. Your machine files, library choices and published skills stay separate.{:else}Review a skill’s files, choose what to keep, then save a private copy. Your machine files, library choices and published skills stay separate.{/if}</p>
   {#if error}<p role="alert" class="error">{error}</p>{/if}

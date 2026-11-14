@@ -29,12 +29,14 @@ try {
     const bootLogo = await page.locator('#boot .boot-brand').boundingBox()
     expect(header.x).toBe(0)
     expect(header.width).toBe(width)
-    // On Home the project list is inside the workspace panel, so it is 300 px wide with no second rail column.
-    const workspaceRail = width >= 1100 && !path.includes('view=terminal') && (path === '/' || path === '/machines' || path === '/sessions?view=list') ? (path === '/' ? 300 : 228) : 0
-    const rail = 0
+    // Home's project rail is the page's left column: 301 px (or 56 folded), and the 56 px strip from 1100 to 1239.
+    const homeRail = path !== '/' || width < 1100 ? 0 : width < 1240 || collapsed === true ? 56 : 301
     if (path === '/') {
-      expect(staticBox.x).toBe(workspaceRail + rail)
-      expect(staticBox.width).toBe(width - workspaceRail - rail)
+      expect(staticBox.x).toBe(homeRail)
+      expect(staticBox.width).toBe(width - homeRail)
+    } else {
+      expect(staticBox.x).toBe(0)
+      expect(staticBox.width).toBe(width)
     }
     bundleReady()
     await expect(page.locator('#main-content')).toBeAttached()

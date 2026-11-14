@@ -23,7 +23,7 @@ func openRecoveryChat(t *testing.T) (*chatHost, *fakeChat) {
 	t.Cleanup(h.sup.Close)
 	if _, err := h.open("request-recovery0123456789", recoverySessionID, terminalproto.Create{
 		Title: "Chat", Cols: 100, Rows: 30, Tool: "opencode", Structured: true, Trust: true, Dir: h.sup.opts.Home,
-	}); err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	return h, proc

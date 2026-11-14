@@ -44,6 +44,9 @@ try {
     await page.goto(`${base}/machines`)
     await expect(page.getByText('7 machines', { exact: true })).toBeVisible()
     expect(await order(page)).toEqual(['work-1', 'att-1', 'att-2', 'setup-1', 'sync-1', 'sync-2', 'sync-3'])
+    // Open terminal asks the workspace for a new shell on this machine, never an existing agent session.
+    await expect(page.getByRole('article', { name: 'work-1' }).getByRole('link', { name: 'Open terminal' }))
+      .toHaveAttribute('href', `/machines?view=terminal&agent=${encodeURIComponent('work-1-agent')}&new=shell`)
 
     await status(page).selectOption('attention')
     await expect(page.locator('.fleet-count')).toHaveText('3 of 7 machines')

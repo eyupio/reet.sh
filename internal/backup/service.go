@@ -56,6 +56,14 @@ type Item struct {
 	Version string   `json:"version,omitempty"`
 	Local   bool     `json:"local"`
 	Remotes []string `json:"remotes"`
+	// Protection is what opens the copy: the controller's key or a password.
+	// Empty for a copy listed from a destination, whose header is not read.
+	Protection string `json:"protection,omitempty"`
+	// Fenced is what the copy's header says about its source: true when the
+	// controller was fenced throughout, false when it was not, and absent when
+	// the copy does not say. A page reads it to tell a final copy, which a
+	// restore accepts as it is, from one taken while the controller was live.
+	Fenced *bool `json:"fenced,omitempty"`
 }
 
 // RemoteView is one destination as a page draws it. A secret never leaves the
@@ -502,7 +510,8 @@ func (s *Service) localItems(ownerID int64) ([]Item, error) {
 			continue
 		}
 		out = append(out, Item{ID: m.ID, Kind: m.Kind, OwnerID: m.OwnerID, Target: m.Target,
-			TakenAt: m.TakenAt, Bytes: m.Size, Version: m.Version, Local: true, Remotes: []string{}})
+			TakenAt: m.TakenAt, Bytes: m.Size, Version: m.Version, Local: true, Remotes: []string{},
+			Protection: m.Protection, Fenced: m.Fenced})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].TakenAt > out[j].TakenAt })
 	return out, nil
@@ -736,7 +745,8 @@ func (s *Service) runLocked(ctx context.Context, ownerID int64, trigger string, 
 	}
 	finished := time.Now().UnixMilli()
 	item := Item{ID: id, Kind: scope, OwnerID: ownerID, Target: m.Target, TakenAt: started,
-		Bytes: int64(len(sealed)), Version: s.cfg.Version, Local: true, Remotes: []string{}}
+		Bytes: int64(len(sealed)), Version: s.cfg.Version, Local: true, Remotes: []string{},
+		Protection: written.Protection, Fenced: written.Fenced}
 	var shipped map[string]string
 	if json.Unmarshal([]byte(offsite), &shipped) == nil {
 		for name, why := range shipped {
@@ -1102,6 +1112,9 @@ func (s *Service) PruneNow(ctx context.Context, ownerID int64) (PruneResult, err
 	if err != nil {
 		return PruneResult{}, err
 	}
+	if removed == nil {
+		removed = []string{}
+	}
 	out := PruneResult{Removed: removed, Remotes: []RemotePrune{}}
 	remotes, err := s.loadRemotes(ownerID)
 	if err != nil {
@@ -1109,6 +1122,9 @@ func (s *Service) PruneNow(ctx context.Context, ownerID int64) (PruneResult, err
 	}
 	for _, r := range remotes {
 		gone, err := s.pruneOneRemote(ctx, ownerID, r)
+		if gone == nil {
+			gone = []string{}
+		}
 		rp := RemotePrune{Name: r.Name, Removed: gone, Error: ""}
 		if err != nil {
 			rp.Error = err.Error()

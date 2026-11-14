@@ -131,6 +131,78 @@ try {
  expect(configuredCreates).toHaveLength(2)
  await page.unroute('**/api/v2/terminal/sessions',configuredRoute)
 
+ // The Machine page's Open terminal always creates a new shell on that machine and selects it, even while an agent
+ // session is running there. Repeated use adds another shell, and a machine with no sessions creates its first shell.
+ const agentATickets=tickets.filter(ticket=>ticket===sessionA).length
+ const agentSessionBefore={...sessions.find(item=>item.id===sessionA)}
+ const machineCreates=[]
+ const machineRoute=async route=>{
+  if(route.request().method()==='GET')return route.fallback()
+  const body=route.request().postDataJSON();machineCreates.push(body)
+  const created={id:`machine-shell-${machineCreates.length}0000001`,agentId:body.agentId,title:body.title,state:'running',createdAt:now,updatedAt:now,exitCode:null}
+  sessions.push(created)
+  return route.fulfill({json:created})
+ }
+ await page.route('**/api/v2/terminal/sessions',machineRoute)
+ const openTerminalFromMachine=async agent=>{
+  await page.goto(`${base}/machines?view=terminal&agent=${agent}&new=shell`)
+  await live()
+  await expect.poll(()=>page.evaluate(()=>!!document.activeElement?.closest('.xterm'))).toBe(true)
+ }
+ await openTerminalFromMachine(agentA)
+ expect(machineCreates).toHaveLength(1)
+ expect(machineCreates[0]).toMatchObject({agentId:agentA,title:'Terminal'})
+ expect(machineCreates[0].tool).toBeUndefined()
+ expect(machineCreates[0].structured).toBeUndefined()
+ expect(new URL(page.url()).searchParams.get('session')).toBe('machine-shell-10000001')
+ expect(new URL(page.url()).searchParams.get('new')).toBeNull()
+ expect(tickets.at(-1)).toBe('machine-shell-10000001')
+ await expect(page.getByRole('navigation',{name:'Terminal sessions'}).getByText('Build workspace',{exact:true})).toBeVisible()
+ expect(sessions.find(item=>item.id===sessionA)).toMatchObject({state:'running',title:'Build workspace'})
+
+ await openTerminalFromMachine(agentA)
+ expect(machineCreates).toHaveLength(2)
+ expect(new URL(page.url()).searchParams.get('session')).toBe('machine-shell-20000001')
+ expect(tickets.at(-1)).toBe('machine-shell-20000001')
+
+ const agentC='connector-fresh000000001'
+ machines.push({agentId:agentC,host:'fresh-server',ready:true,serverEnabled:true,capabilities:{osUser:'fresh',terminalEnabled:true,terminalControl:true,readiness:'ready'}})
+ await openTerminalFromMachine(agentC)
+ expect(machineCreates).toHaveLength(3)
+ expect(machineCreates[2]).toMatchObject({agentId:agentC,title:'Terminal'})
+ expect(new URL(page.url()).searchParams.get('session')).toBe('machine-shell-30000001')
+ expect(tickets.at(-1)).toBe('machine-shell-30000001')
+ expect(tickets.filter(ticket=>ticket===sessionA)).toHaveLength(agentATickets)
+ expect(sessions.find(item=>item.id===sessionA)).toEqual(agentSessionBefore)
+ await page.unroute('**/api/v2/terminal/sessions',machineRoute)
+
+ // A failed Open terminal says so and keeps the intent in the address: reloading retries a shell, never the running agent session.
+ const failedCreates=[]
+ await page.route('**/api/v2/terminal/sessions',async route=>{
+  if(route.request().method()==='GET')return route.fallback()
+  failedCreates.push(route.request().postDataJSON())
+  return route.fulfill({status:503,json:{error:'The machine did not answer.'}})
+ })
+ const failedTickets=tickets.length
+ await page.goto(`${base}/machines?view=terminal&agent=${agentA}&new=shell`)
+ await expect(page.getByText(/The machine did not answer\./)).toBeVisible()
+ expect(failedCreates).toHaveLength(1)
+ expect(failedCreates[0]).toMatchObject({agentId:agentA,title:'Terminal'})
+ expect(failedCreates[0].tool).toBeUndefined()
+ expect(failedCreates[0].structured).toBeUndefined()
+ expect(new URL(page.url()).searchParams.get('session')).toBeNull()
+ expect(new URL(page.url()).searchParams.get('new')).toBe('shell')
+ expect(tickets).toHaveLength(failedTickets)
+ expect(page.locator('.pane')).toHaveCount(0)
+ expect(sessions.find(item=>item.id===sessionA)).toEqual(agentSessionBefore)
+ await page.reload()
+ await expect.poll(()=>failedCreates.length).toBe(2)
+ await expect(page.getByText(/The machine did not answer\./)).toBeVisible()
+ expect(new URL(page.url()).searchParams.get('session')).toBeNull()
+ expect(new URL(page.url()).searchParams.get('new')).toBe('shell')
+ expect(tickets).toHaveLength(failedTickets)
+ await page.unroute('**/api/v2/terminal/sessions')
+
  // An unavailable machine is visible but cannot start a terminal; another machine remains selectable.
  machines[0].ready=false
  await page.goto(`${base}/sessions?view=terminal&agent=${agentA}&session=removed-session`)

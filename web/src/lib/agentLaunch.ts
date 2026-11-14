@@ -1,5 +1,6 @@
 import type { Machine } from './api'
 import { CATALOGUE, agentChoices, agentDisplayName } from './catalogue'
+import { sourceLabel } from './clineSource'
 import type { TerminalMachine } from './terminal/api'
 
 // What the "Start an agent" dialog checks before it asks a machine to start an agent CLI, and the exact sentences it
@@ -103,14 +104,16 @@ export function folderChoices(machine: { host: string } | undefined, snapshot: M
   return out
 }
 
-/** One text for the dialog: what will start, that nothing runs until Start, and (with a prompt) where the prompt can be seen. */
-export function launchSentence(tool: string, dir: string, machine: string, hasPrompt: boolean, structured = false): string {
+/** One text for the dialog: what will start, on which billing source when one is chosen, that nothing runs until
+ *  Start, and (with a prompt) where the prompt can be seen. */
+export function launchSentence(tool: string, dir: string, machine: string, hasPrompt: boolean, structured = false, source = ''): string {
+  const onSource = source ? ` using ${sourceLabel(source)}` : ''
   if (structured) {
     const permissions = tool === 'antigravity' ? 'AGY’s configured permission rules apply and approval requests appear here.' : `${nameOf(tool)} asks before it edits a file or runs a command.`
-    const start = `Starts ${nameOf(tool)} in Gaffer in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start; ${permissions}`
+    const start = `Starts ${nameOf(tool)} in Gaffer${onSource} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start; ${permissions}`
     return hasPrompt ? `${start} The opening prompt is the first message. Its transcript is kept with the session.` : start
   }
-  const start = `Starts ${nameOf(tool)} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start.`
+  const start = `Starts ${nameOf(tool)}${onSource} in ${dir ? dir : 'the home folder'} on ${machine}. Nothing runs until you press Start.`
   return hasPrompt ? `${start} The prompt is kept with the session record and is visible to other users of that machine in its process list.` : start
 }
 
@@ -334,6 +337,18 @@ export type LaunchChoices = { key: string; model: string; folder: string; effort
  *  key keeps every choice exactly. */
 export function rekey(prev: LaunchChoices, key: string, defaults: { model?: string; folder?: string; effort?: string } = {}): LaunchChoices {
   return prev.key === key ? prev : { key, model: defaults.model ?? '', folder: defaults.folder ?? '', effort: defaults.effort ?? '' }
+}
+
+/**
+ * Whether this launch will be isolated into a worktree of its own, which is when where it starts from is worth checking
+ * first (`checkBase`). The controller's rule (internal/api/session_isolation.go): an agent start, in a folder, that is
+ * not a continuation, in a saved git repository or already naming its own worktree, and not already inside one reet
+ * made. A plain shell, a folder that is not a repository and the home folder are never isolated.
+ */
+export function isolatedLaunch(launch: { tool?: string; dir?: string; resume?: boolean; resumeAcp?: string; worktree?: string }, project: { isRepo?: boolean } | null | undefined): boolean {
+  if (!launch.tool || !launch.dir || launch.resume || launch.resumeAcp) return false
+  if (launch.dir.includes('/.reet/worktrees/')) return false
+  return !!launch.worktree || project?.isRepo === true
 }
 
 /** Which field a definite refusal is about, so focus can go there. */

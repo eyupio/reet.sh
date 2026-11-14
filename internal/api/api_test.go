@@ -582,6 +582,7 @@ func TestFilteredMarkdownAndCSV(t *testing.T) {
 }
 
 func TestAccountsSetupSignInAndSessions(t *testing.T) {
+	t.Parallel()
 	srv := newAccountsSrv(t, "bootstrap")
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar}
@@ -669,6 +670,7 @@ func TestBootstrapTokenOnlyImports(t *testing.T) {
 }
 
 func TestPerUserIsolationAndRoles(t *testing.T) {
+	t.Parallel()
 	srv, st := newAccountsSrvStore(t, "bootstrap")
 	ownerClient := &http.Client{Jar: mustJar(t)}
 	if code, _ := doClient(t, ownerClient, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
@@ -762,6 +764,7 @@ func TestPersonalTokenAndBootstrapDisable(t *testing.T) {
 }
 
 func TestInviteJoinRoleChangesAndTransfer(t *testing.T) {
+	t.Parallel()
 	srv, _ := newAccountsSrvStore(t, "bootstrap")
 	owner := &http.Client{Jar: mustJar(t)}
 	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
@@ -842,6 +845,7 @@ func TestInviteJoinRoleChangesAndTransfer(t *testing.T) {
 }
 
 func TestSharedListsRolesAndPublicLink(t *testing.T) {
+	t.Parallel()
 	srv, st := newAccountsSrvStore(t, "bootstrap")
 	owner := &http.Client{Jar: mustJar(t)}
 	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
@@ -970,6 +974,7 @@ func TestSharedListsRolesAndPublicLink(t *testing.T) {
 }
 
 func TestSharedListCardsAndMembersVisibility(t *testing.T) {
+	t.Parallel()
 	srv, st := newAccountsSrvStore(t, "bootstrap")
 	owner := &http.Client{Jar: mustJar(t)}
 	if code, _ := doClient(t, owner, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
@@ -1002,6 +1007,7 @@ func TestSharedListCardsAndMembersVisibility(t *testing.T) {
 }
 
 func TestAdminRollupAndPrivacy(t *testing.T) {
+	t.Parallel()
 	srv, st := newAccountsSrvStore(t, "bootstrap")
 	ownerClient := &http.Client{Jar: mustJar(t)}
 	if code, _ := doClient(t, ownerClient, srv, "POST", "/api/v2/auth/setup", `{"name":"Owner","email":"owner@example.com","password":"long-enough-password"}`, "X-Reet-Token", "bootstrap"); code != 200 {
@@ -1106,6 +1112,7 @@ func TestAdminRollupAndPrivacy(t *testing.T) {
 }
 
 func TestSignupOptInContactAndMemberRole(t *testing.T) {
+	t.Parallel()
 	st, err := storetest.Open(t)
 	if err != nil {
 		t.Fatal(err)
@@ -1152,5 +1159,31 @@ func TestSignupOptInContactAndMemberRole(t *testing.T) {
 	}
 	if code, _ := doClient(t, &http.Client{Jar: mustJar(t)}, open, "POST", "/api/v2/auth/signup", `{"name":"Bad","email":"bad","password":"long-enough"}`); code != http.StatusBadRequest {
 		t.Fatalf("invalid signup email: %d", code)
+	}
+}
+
+func TestCanonicalShelfListingOnlyForTheUnfilteredShelf(t *testing.T) {
+	cases := []struct {
+		name string
+		in   store.Filter
+		want bool
+	}{
+		{"default", store.Filter{}, true},
+		{"all tab", store.Filter{Tab: "all"}, true},
+		{"liked tab", store.Filter{Tab: "liked"}, false},
+		{"machine", store.Filter{Machine: "laptop"}, false},
+		{"environment", store.Filter{Env: "e1"}, false},
+		{"stage", store.Filter{Stage: "use"}, false},
+		{"query", store.Filter{Query: "demo"}, false},
+		{"tag", store.Filter{Tags: []int64{1}}, false},
+		{"source type", store.Filter{SourceType: "github"}, false},
+		{"untagged", store.Filter{Untagged: true}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := canonicalShelfListing(c.in); got != c.want {
+				t.Fatalf("canonicalShelfListing(%+v) = %v, want %v", c.in, got, c.want)
+			}
+		})
 	}
 }

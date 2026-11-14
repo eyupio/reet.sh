@@ -81,6 +81,39 @@ func TestPlanOutcomeReturnsAnEditablePlanFromTheTypedObjectiveOnly(t *testing.T)
 	}
 }
 
+func TestPlanOutcomeSendsThePersonsReplyAndPreviousProposal(t *testing.T) {
+	s, _, p := settingsFixture(t)
+	args := `{"summary":"One session, end to end.","sessions":[{"title":"Export, end to end","prompt":"Build the CSV export with tests. Raise a pull request. Do not merge."}]}`
+	server, sent := planServer(t, func() string { return planCall("propose_sessions", args) })
+	row := planProvider(t, s, p, server.URL, true)
+	previous := &OutcomePlanPrevious{
+		Summary:  "  Two independent halves.  ",
+		Sessions: []OutcomePlanPreviousSession{{Title: "  Export API  ", Stages: []string{"code", "pr"}}, {Title: "Export button"}},
+	}
+	plan, err := s.PlanOutcome(context.Background(), p, row.ID, OutcomePlanInput{
+		Revision: row.Revision, Objective: "Ship CSV export for billing.", Project: "billing", Sessions: 2,
+		Reply: "  Not that: keep the export in one session and put its tests with it.  ", Previous: previous,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary != "One session, end to end." || len(plan.Sessions) != 1 {
+		t.Fatalf("plan: %+v", plan)
+	}
+	bodies := sent()
+	if len(bodies) != 1 {
+		t.Fatalf("provider requests: %d", len(bodies))
+	}
+	for _, want := range []string{
+		"Your previous proposal:", "Summary: Two independent halves.", "Session 1: Export API (stages: code, pr)", "Session 2: Export button",
+		"The person replied:", "Not that: keep the export in one session and put its tests with it.", "Revise the proposal as a direct response",
+	} {
+		if !strings.Contains(bodies[0], want) {
+			t.Fatalf("provider request lacks %q: %s", want, bodies[0])
+		}
+	}
+}
+
 func TestPlanOutcomeRefusesBadInputBeforeAnyProviderRequest(t *testing.T) {
 	s, _, p := settingsFixture(t)
 	server, sent := planServer(t, func() string {
@@ -99,6 +132,10 @@ func TestPlanOutcomeRefusesBadInputBeforeAnyProviderRequest(t *testing.T) {
 		"too many":          {row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship it.", Sessions: MaxOutcomeSessions + 1}},
 		"multiline project": {row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship it.", Project: "a\nb", Sessions: 1}},
 		"paused provider":   {paused.ID, OutcomePlanInput{Revision: paused.Revision, Objective: "Ship it.", Sessions: 1}},
+		"huge reply":        {row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship it.", Sessions: 2, Reply: strings.Repeat("r", MaxOutcomeReplyBytes+1)}},
+		"control reply":     {row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship it.", Sessions: 2, Reply: "Do it\x00now"}},
+		"bad previous":      {row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship it.", Sessions: 2, Reply: "Try again.", Previous: &OutcomePlanPrevious{Sessions: []OutcomePlanPreviousSession{{Title: "a\nb"}}}}},
+		"unknown stage":     {row.ID, OutcomePlanInput{Revision: row.Revision, Objective: "Ship it.", Sessions: 2, Reply: "Try again.", Previous: &OutcomePlanPrevious{Sessions: []OutcomePlanPreviousSession{{Title: "Export", Stages: []string{"deploy"}}}}}},
 	}
 	for name, c := range cases {
 		var bad *Invalid
@@ -130,6 +167,7 @@ func planProvider2(t *testing.T, s *Service, p Principal, url string) store.Gaff
 }
 
 func TestPlanOutcomeRejectsAnythingThatIsNotOneCompletePlan(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("p", MaxOutcomePromptBytes+1)
 	replies := map[string]string{
 		"prose only":       "data: {\"choices\":[{\"delta\":{\"content\":\"I would split it in two.\"}}]}\n\ndata: [DONE]\n\n",

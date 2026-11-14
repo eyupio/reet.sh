@@ -56,24 +56,23 @@ starter prompt as at least two words.").
 
 ## The rail
 
-On a desktop the project list is part of the left workspace panel, under Home, Sessions, Machines, Skills and
-More; Home itself is one column, so the board gets the rest of the width. The panel starts at 300 px and its
-own separator can widen it to 460 px; that width is remembered for Home separately from the navigation-only
-panel. The **Projects** heading carries its own fold: folded, it keeps the heading, **Add** and the fold
-control and hides the cards. **Add** opens the folder browser. Folding the whole navigation leaves the list in
-Home's own column, where from 1100 to 1239 px it is a 56 px strip with **Add**,
-**Open the project rail** (marked with a dot, and named, when a migration note or folders are waiting), then one
-button per project showing its initial, its base branch in mono (cut short), the repository diamond, a running
-dot and the worktrees in use as a small count, each named in full. Open the project rail shows the full rail over
-the page as a 301 px panel starting where the strip is on screen, with every card menu, note and prompt and a
-Close button; while it is open the toggle is named "Close the project rail", Tab stays inside the panel, and
-Escape, Close, the toggle or a press outside closes it and gives focus back to the toggle. On a tablet or phone
-it is on the Sessions screen, under the session groups (PR H). A card's menu (its button, or a right-click on
+On a desktop the project list is Home's own left column. The primary tabs (Home, Factory, Sessions, Machines,
+Skills and More) live in the top bar on every signed-in page, as they do on the session screen; they are not
+part of this panel. The rail starts at 301 px and its separator can widen it to 460 px (240 px minimum), and
+that width is remembered in this browser (`reet.rail.width`). The **Projects** heading carries the fold:
+folded, the rail becomes a 56 px strip with **Add**, **Open the project rail** (marked with a dot, and named,
+when a migration note or folders are waiting), then one button per project showing its initial, its base branch
+in mono (cut short), the repository diamond, a running dot and the worktrees in use as a small count, each named
+in full. Open the project rail shows the full rail over the page as a 301 px panel starting where the strip is
+on screen, with every card menu, note and prompt and a Close button; while it is open the toggle is named
+"Close the project rail", Tab stays inside the panel, and Escape, Close, the toggle or a press outside closes it
+and gives focus back to the toggle. From 1100 to 1239 px the rail is always the strip. On a tablet or phone it
+is on the Sessions screen, under the session groups (PR H). A card's menu (its button, or a right-click on
 the card) sets the project's colour; the colour is saved on the project and follows the person to every
 browser.
 
-Each card shows, in words: a repository diamond (or a folder icon for a plain folder), the name, the
-machine, the base branch (mono) when one is set, the state and the worktrees in use. The state is
+Each compact card shows two lines, in words: a repository diamond (or a folder icon for a plain folder) and the
+name, then the machine, the base branch (mono) when one is set, the state and the worktrees in use. The state is
 "N running" (its own running and starting sessions, by each session's project id), "machine offline"
 when its machine is known not to be reporting, else "idle". Worktrees in use are the distinct
 worktrees its live sessions are working in; the session listing has no record of removed worktrees,
@@ -147,11 +146,40 @@ not enrolled"). A terminal create may carry `projectId`; the controller checks i
 account and to that machine (404 `project_not_found`, 422 `project_machine_mismatch`) and never
 sends it to the machine.
 
+## Where a session in a repository starts
+
+A session started in a saved repository always works in a worktree of its own, cut from the project's
+base branch. The account's default base branch applies where the browser sends it (a start that asks
+for a worktree names it in the create, as it always has); the controller never fills it in, because
+one branch name does not fit every repository. With no base named at all, the machine starts from the
+branch the repository's remote calls its default.
+A machine that is up to date fetches that branch from GitHub first and starts from **GitHub's
+commit**, unless the branch on the machine has commits GitHub doesn't have, in which case it starts
+from the local branch; when GitHub can't be reached it starts from the last known commit and nothing
+in the checkout is changed ([Worktrees](terminal-worktrees.md#creating)). A machine running an older
+reet is unchanged: it fetches nothing and starts where it always did.
+
+The fetch uses that machine's own git credential helpers and its `gh` sign-in, for github.com only.
+A private repository needs one of them to work there: a helper that already serves github.com, or
+`gh auth login` done on that machine. A repository whose origin is an ssh URL is fetched over https
+with `gh`, and not fetched at all when the machine has no `gh` — it then starts from its own branch,
+with nothing said about GitHub. No credential ever reaches reet's controller.
+
+When the two sides differ, every start you make in the browser — Home's launch bar, the **Start an
+agent** dialog the rail's **+**, the machine cards, Machines and the Sessions screen open, and **Start**
+on a backlog plan — says so and asks before it starts anything ("main on studio has commits GitHub doesn't have. This session starts
+from the local main (abc1234)."), and the same sentence is kept with the session and shown on its
+Overview under **Where it's working**. A check that can't be answered never holds a start up. Starts
+nobody is choosing in a browser (a Factory outcome's launches) do not ask. See
+[Start an agent session](start-agent-session.md#on-home-the-launch-bar).
+
 ## Session and profile fields
 
 The session listing (`GET /api/v2/terminal/sessions`) carries, for every session, `tool`, `model`,
 `effort` (the chosen thinking level, or `""`) and `projectId` (the folder project it was started in,
-`null` otherwise), and never the prompt. The profile (`GET`/`PATCH /api/v2/profile`) carries
+`null` otherwise), and never the prompt. A session that worked in a worktree also carries
+`baseName`, `baseRelation` and `baseStart`: the branch it was cut from, how that branch stood against
+GitHub's and the commit it started at, each left out when the machine reported none. The profile (`GET`/`PATCH /api/v2/profile`) carries
 `defaultBaseBranch` (blank, the repository's own default, or a valid branch name),
 `worktreesByDefault` (true unless changed): the account default a project's `inherit` means, and
 `defaultTool`, `defaultModel`, `defaultEffort` for a session started outside a project. Model
@@ -391,7 +419,7 @@ can be kept unchanged in an edit; moving it to a new folder on that machine is r
 
 ### Check and remove a run's worktree
 
-reet never removes a worktree by itself, apart from undoing its own failed create: when a create
+reet removes a clean worktree when its session is removed from history and in the scheduled clean-up ([machine maintenance](machine-maintenance.md)). It also undoes its own failed create: when a create
 fails part-way, the machine removes the worktree and deletes the branch that same call had just made,
 and nothing else (see [Worktrees](terminal-worktrees.md)). *Remove worktree* is offered only for a member that started
 with a worktree and whose session the page has read as ended:

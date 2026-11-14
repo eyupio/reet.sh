@@ -1,8 +1,8 @@
 <script lang="ts">
   import WorkspaceDialog from './WorkspaceDialog.svelte'
 
-  // What to start: an agent session, a plain terminal, or an outcome for Gaffer's Factory. The Sessions workspace asks
-  // with this dialog. It starts nothing itself: the page does what the choice says.
+  // What to start: an agent session, a plain terminal, or an outcome for Gaffer's Factory. Home's project rail and the
+  // Sessions workspace both ask with this dialog. It starts nothing itself: the page does what the choice says.
   export type NewSessionKind = 'agent' | 'terminal' | 'factory'
   let { project = '', machine = '', factory = false, onchoose, onclose }: {
     /** The project the session starts in; without one the choice is for the machine. */

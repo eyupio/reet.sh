@@ -374,6 +374,7 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
 	s.terminals.OnSessionClosed(s.onSessionClosed)
 	s.terminals.OnPeerReady(s.onPeerReady)
+	s.terminals.OnSessionBase(s.recordSessionBase)
 	s.runs = s.newProjectRuns()
 	s.softwareRuns = s.newSoftwareRuns()
 	if dir := st.Dir(); dir != "" {
@@ -1160,11 +1161,22 @@ func filterFromRequest(r *http.Request) store.Filter {
 	return f
 }
 
+// canonicalShelfListing folds an unlinked machine copy under a linked skill of
+// the same name only for the unfiltered shelf. A narrowed view can be the only
+// one that holds the machine copy, so folding there could hide the skill
+// entirely; the person asked for that machine or stage and still gets its card.
+func canonicalShelfListing(f store.Filter) bool {
+	return f.Machine == "" && f.Env == "" && f.Stage == "" && f.Only == "" &&
+		len(f.Tags) == 0 && f.Query == "" && f.SourceType == "" && !f.Untagged &&
+		(f.Tab == "" || f.Tab == "all")
+}
+
 func (s *server) list(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	compact := q.Get("compact") == "1" || q.Get("compact") == "true" || q.Get("fields") != ""
 	filter := filterFromRequest(r)
 	filter.Compact = compact
+	filter.Canonical = canonicalShelfListing(filter)
 	skills, counts, err := s.st.ListFor(s.uid(r), filter)
 	if err != nil {
 		writeErr(w, 500, err.Error())

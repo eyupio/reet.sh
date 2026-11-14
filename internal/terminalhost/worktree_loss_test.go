@@ -311,7 +311,7 @@ func TestTruncatedListingsAreNotTrusted(t *testing.T) {
 	}
 	_, err := WorktreeStatus(context.Background(), home, "p", "site", testRun, padded("worktree"))
 	refusedWith(t, err, terminalproto.WorktreeNotRegistered)
-	if _, err := prepareWorktree(context.Background(), home, repo, "p", testRun, "", padded("worktree"), gitTimeout, cleanupTimeout); !errors.Is(err, ErrWorktreeRefused) {
+	if _, err := prepareWorktree(context.Background(), home, repo, "p", testRun, "", BasePlan{fresh: true}, padded("worktree"), gitTimeout, cleanupTimeout); !errors.Is(err, ErrWorktreeRefused) {
 		t.Fatal("a truncated listing must not adopt", err)
 	}
 	s, err := WorktreeStatus(context.Background(), home, "p", "site", testRun, padded("ls-files"))

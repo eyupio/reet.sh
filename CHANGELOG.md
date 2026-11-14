@@ -5,6 +5,180 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- An agent whose binary has only just been written, by an install or an
+  update, is no longer refused as having "no version". Starting it could fail
+  for an instant with "text file busy"; the version check now waits that out.
+- A machine no longer loses its connection part-way through starting an agent
+  session. The controller ended a machine's connection whenever the machine
+  sent a kind of message missing from its list of accepted answers, and the
+  stage notes of a starting session, the answer to a base check, and the
+  answers to a branch sync, a branch prune and a software update were all
+  missing. An answer that arrives after its request gave up is now dropped
+  instead of ending the connection too.
+- A machine waiting for its controller to finish moving keeps a readable log.
+  The agent says once that the controller has moved, and again only if the
+  address changes, where it printed four lines every five seconds; it also
+  asks the old controller once per cycle, not four times.
+- A starting session now reports its stages to the controller as it goes.
+  The machine sent each stage note with the session's id attached, which the
+  private protocol refuses, so every note was dropped before it left the
+  machine and the stages a start had reached were never recorded.
+- A session started in a saved repository now begins from the base branch as
+  GitHub has it. The machine fetches that branch before it makes the session's
+  worktree and starts from GitHub's commit, unless the branch on the machine has
+  commits GitHub doesn't have, in which case it starts from the local branch;
+  when GitHub can't be reached it starts from the last known commit and nothing
+  in your checkout is touched. Agents no longer start work on a branch that was
+  days behind. The fetch uses that machine's own git credential helpers and its
+  `gh` sign-in, for github.com only: a private repository needs one of them to
+  work there (for gh, `gh auth login` on that machine), and no credential ever
+  reaches the controller. A repository whose origin is an ssh URL
+  (`git@github.com:owner/repo.git`) is fetched over https with gh, and is not
+  fetched at all on a machine with no gh — it then starts from its own branch,
+  with nothing said about GitHub. A machine running an older reet is unchanged:
+  it fetches nothing and starts its worktrees exactly where it always did.
+- The branch is the project's own base branch. Your account's default base
+  branch still applies where the browser sends it, as it always has; the
+  controller does not fill it in, so a repository that calls its branch
+  something else is never refused for a default meant for another one. With no
+  base named at all, the machine starts from the branch that repository's remote
+  calls its default. The browser asks its question about exactly the branch the
+  session will start from.
+- The sync that follows removing a session's worktree keeps working on a machine
+  whose `gh` is signed out, or signed in as an account without access: the
+  credential helpers your own git configuration names are asked as they always
+  were, with gh offered alongside for github.com.
+- Where a session started from is recorded in Activity for every start, not only
+  the ones made in a browser: a Project run, a start in several projects and a
+  session whose machine answered late all get the same line, worded like the
+  question the browser asks.
+- When the two sides differ, every start you make in the browser says so and
+  asks before anything starts: "main on studio has commits GitHub doesn't have.
+  This session starts from the local main (abc1234)." That is Home's launch bar,
+  the Start an agent dialog (the project rail's +, the machine cards, Machines
+  and the Sessions screen) and Start on a backlog plan. Cancel starts nothing. A
+  base that matches GitHub, or that the machine has no branch of its own for, is
+  not worth a question, so nothing is shown, and a
+  machine that can't answer the question — an older reet, a busy one, or no
+  answer within ten seconds — never holds the start up. The sentence is kept with
+  the session and shown on its Overview, under Where it's working.
+- A restore can give the copy an owner you can sign in as. `reet backup
+  restore --make-owner ADDR --owner-password-file F` makes an account already
+  in the copy its owner with the password in the file, for a copy from a
+  controller whose sign-in the new machine does not have or whose owner
+  belonged to whoever operated it before. The owners the copy had become
+  admins, and an address the copy lacks or holds disabled is refused before
+  anything changes.
+- Machines follow a controller that has moved. When the old controller is
+  fenced with the new address (`reet backup fence --moved-to NEW`), each
+  running agent learns the address from the refusal, has the new controller
+  prove it holds the machine's record, checks its credentials are accepted
+  there, and only then saves the address and restarts. A place that cannot
+  prove the record is sent no credential. `reet agent follow-moves off` keeps
+  a machine where it is until `reet agent set-server` is run on it.
+- **A controller can be moved from the Backups page.** In the **Move** section of
+  **Admin → Backups** the owner now has **Move this controller away**: fence the controller (with an
+  optional new address, and a dialog that says what stops and that it can be
+  undone), take the final copy sealed with a password typed for that one copy,
+  download it, copy the `reet agent set-server` command for the machines, and
+  lift the fence at any time. The final copy is only offered once the fence is
+  up, and the page says whether the copy was really taken fenced. **Import a copy
+  from another controller** is now **Move a controller in**: it takes the address
+  the controller answers at (filled in from the page's own address), asks for
+  **The old controller is stopped or gone** only after the controller has refused
+  a copy for that reason, shows a refusal beside the form with what was typed
+  kept, and its report now says what was done about the address, what was held
+  back and what is not in the copy. A fenced controller says so in a banner on
+  Backups and in one line under the header on every other page. Each piece is
+  offered only when `GET /api/version` lists its feature.
+- For the page above: an admin may now read `GET /api/v2/admin/fence` (raising
+  and lifting stay the owner's); a copy in the backup list and the answer of a
+  run carry `fenced` and `protection` from the copy's header; an import's answer
+  and the pending import carry `notInCopy`; and an import refused because its
+  source was live, or because the controller already holds data, carries a
+  `code` (`copy_source_live`, `controller_not_empty`).
+- The **+** beside the session tabs now asks what to start, the same choice as
+  **New session** (an agent session, a terminal, or a Factory outcome), instead
+  of assuming an agent session and sending you to the launch bar.
+- **Ending a session that a Factory pipeline is working in now says so first.**
+  The End and Remove from history dialogs name the pipeline and stage and what
+  ending it costs. Afterwards the pipeline's card says its session was ended
+  and offers what actually works: run the stage again in a new session in the
+  same folder and branch, move to the next stage, or stop following. It no
+  longer offers to tell an agent that is not there.
+- **Try again now recovers a pipeline whose session is gone.** It used to try
+  to follow the dead session again and fail, or refuse because the closed goal
+  was still there. It starts the stage in a new session, or follows the session
+  again if it is still running.
+- **The controller ends sessions a pipeline has finished with**, keeping their
+  history: the session a stage leaves when the next stage gets one of its own,
+  and the last session when every stage is done. Worktrees are not touched.
+- **A stopped outcome restarts only what you ask for.** A pipeline shown as not
+  started could not be tried again, and trying another one again, adding a
+  pipeline or approving a merge started every pipeline that had been waiting.
+- Moving a pipeline on is refused if it has already left the stage you were
+  looking at. A Cline stage that is sent back keeps its billing source. An
+  outcome that names Google Antigravity without folder trust is refused when it
+  is approved, instead of failing at that stage.
+- An outcome whose pipelines are still running is no longer dropped when the
+  account passes thirty outcomes.
+- **MCP and Gaffer's own tools:** Factory changes are refused on a fenced
+  controller, as they are in the browser. `reet_tell_pipeline_agent` needs
+  `confirm: true`. Telling an agent, adding pipelines and sending work back are
+  refused for an outcome that runs on YOLO and stay Factory-page actions.
+  `reet_stop_outcome` now stops following the outcome instead of reporting
+  success when nothing was being started; `reet_move_pipeline_on` takes the
+  `stage` it is moving on from. Update the stdio MCP package with the
+  controller.
+- Factory page: what an action did, or why it was refused, stays in view and
+  is announced as a problem when it is one; a refusal of Tell the agent, Send
+  back or Add pipelines shows inside its dialog; a failed first read is no
+  longer shown as an empty factory; proposals in a report start ticked; a long
+  pipeline on a phone names the stage in hand instead of overlapping eight
+  names; a session's Factory badge opens its pipeline.
+- **An approval nobody answers no longer leaves a goal looping.** A request
+  expires after five minutes and stops the agent's turn; the goal now says so
+  instead of "You answered", and resuming it has Gaffer review where the agent
+  stopped and set it going again.
+- Outcomes are carried on side by side: one slow launch no longer holds up
+  every other outcome on the controller.
+- A session whose worktree a Factory pipeline still works in is kept in
+  history, with the reason, until the pipeline finishes or its outcome is
+  stopped and archived.
+- A call Gaffer asked your approval for is not run if it has waited more than
+  a day. Gaffer's own Factory read returns handover notes and reports only to
+  a provider allowed session text. An outcome's History includes what was done
+  to it over MCP. `reet_start_outcome` takes a `model` and refuses an agent
+  the project's machine cannot run.
+- Factory card: **Who did each stage** lists each stage's agent, model, who
+  closed it and its handover. The outcome dialog says Pipeline, not Session.
+- The Factory page has the project list down its left side, as Home does.
+  Choosing a project (or a group) shows only its outcomes, and **Give Gaffer an
+  outcome** then opens on that project; a project's **+** does both in one
+  press. **Other sessions** follows the chosen project too. On a tablet or
+  phone the page is unchanged.
+- **New session** on Home, a machine card's **New session…** and a project's
+  **+** now ask what to start, as the Sessions page does: an agent session, a
+  terminal session (in the project's folder when one is named), or a **Factory
+  outcome**. The Sessions page's chooser offers the Factory outcome too.
+- The scheduled worktree clean-up is now on unless an admin turns it off, so
+  the clean worktrees of finished sessions are no longer left behind. It still
+  removes only worktrees with nothing unsaved, and its default wait after a
+  session finishes is now 1 day, down from 7. A controller where it was
+  switched off stays off, and a saved wait is kept; one that never saved these
+  settings starts sweeping, with the 1-day wait, after this update.
+- **Apply retention now** on Admin, Backups no longer fails with "Cannot read
+  properties of null (reading 'length')" when there is nothing to remove. The
+  controller now always answers with empty lists, and the page copes with the
+  old answer too. The page is also split into Overview, Copies, Destinations,
+  Schedule, Runs and Import sections, so it no longer runs to several screens.
+- A Factory outcome can no longer get stuck on a session that is gone. When a
+  followed session is removed (for example ended with its history removed), the
+  controller now notices within seconds, stops following that pipeline and
+  closes its goal, so the outcome can be archived or deleted and the pipeline
+  retried. An outcome that is still moving also has **Stop following**, which
+  ends every unfinished pipeline without touching sessions that still exist,
+  so any stuck outcome can be put away.
 - The Factory can now put finished work away. A finished outcome (nothing
   moving) has **Archive**, which hides it from the page and the headline
   numbers but keeps the record, its report and its history, and **Delete**,
@@ -15,6 +189,11 @@ this file existed releases were described on their GitHub release pages.
 - A finished outcome is one line on the Factory until opened, and its long
   report is clamped with **Read all of it**, so old work no longer fills the
   screen. Outcomes still moving, or with a pipeline to try again, stay open.
+- Every outcome on the Factory can now be folded and reopened with **Hide
+  details** / **Show details**, including one still moving, and the folded line
+  says how many pipelines it has and whether they are in progress, finished or
+  all done. **Expand all** and **Collapse all** now cover outcomes as well as
+  their pipelines.
 - **Open session** on a Factory pipeline, and in the outcome dialog, now opens
   the session itself rather than opening Gaffer's panel beside it.
 - A person-pressed model refresh asks an up-to-date machine for a fresh
@@ -50,7 +229,7 @@ this file existed releases were described on their GitHub release pages.
   are folded away under the card.
 - Factory: each pipeline is now one line (title, stage, status and why) that
   opens to its full card; pipelines that need you, are ready to merge or have
-  stopped start open, and **Expand all pipelines** opens the rest. Stage and
+  stopped start open, and **Expand all** opens the rest. Stage and
   status colours say more: a green tick is done, a pulsing green ring is
   running now, amber with "!" is waiting for you, red has stopped. The motion
   is switched off for anyone who asks their system to reduce it.

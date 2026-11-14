@@ -38,11 +38,14 @@ const (
 	// BranchesDenied: the machine refuses the listing locally (terminal
 	// access is off there, or it does not offer branches now).
 	BranchesDenied BranchesReason = "denied"
+	// BranchesBaseMissing: the branch asked about is on neither side, so a
+	// base check has nothing to report (BaseCheckResult.Reason).
+	BranchesBaseMissing BranchesReason = "base_missing"
 )
 
 func (r BranchesReason) valid() bool {
 	switch r {
-	case BranchesNotRepoRoot, BranchesOutsideHome, BranchesGitFailed, BranchesConflict, BranchesDenied:
+	case BranchesNotRepoRoot, BranchesOutsideHome, BranchesGitFailed, BranchesConflict, BranchesDenied, BranchesBaseMissing:
 		return true
 	}
 	return false

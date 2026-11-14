@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +22,7 @@ import (
 
 const testRun = "0123456789abcdef0123456789abcdef"
 const otherRun = "fedcba9876543210fedcba9876543210"
+const thirdRun = "0f1e2d3c4b5a69780f1e2d3c4b5a6978"
 
 func requireGit(t *testing.T) {
 	t.Helper()
@@ -773,12 +776,21 @@ func recordingGit(next GitRunner) (func() []gitCall, GitRunner) {
 		}
 }
 
-// readOnly lists the git reads PrepareWorktree may make.
+// readOnly lists the git reads PrepareWorktree may make: the calls that leave
+// the repository exactly as it was. A fetch is not one of them, since it moves
+// refs/remotes/origin/<base>.
 func readOnly(args []string) bool {
+	// gitCommit resolves one ref; syncDefaultBase looks for a default branch.
+	commit := len(args) == 5 && reflect.DeepEqual(args[:4], []string{"rev-parse", "--verify", "--quiet", "--end-of-options"})
+	defaultBase := len(args) == 4 && reflect.DeepEqual(args[:3], []string{"rev-parse", "--verify", "--quiet"}) &&
+		strings.HasPrefix(args[3], "refs/heads/")
 	switch {
-	case reflect.DeepEqual(args, []string{"rev-parse", "--show-toplevel"}),
-		reflect.DeepEqual(args, []string{"rev-parse", "--verify", "--quiet", "HEAD^{commit}"}),
+	case commit, defaultBase,
+		reflect.DeepEqual(args, []string{"rev-parse", "--show-toplevel"}),
+		reflect.DeepEqual(args, []string{"config", "--get", "remote.origin.url"}),
+		reflect.DeepEqual(args, []string{"symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"}),
 		reflect.DeepEqual(args, []string{"worktree", "list", "--porcelain"}),
+		len(args) == 4 && args[0] == "merge-base" && args[1] == "--is-ancestor",
 		len(args) == 3 && args[0] == "for-each-ref" && args[1] == "--format=%(refname)" && strings.HasPrefix(args[2], "refs/heads/reet/"):
 		return true
 	}
@@ -1164,7 +1176,8 @@ func TestWorktreeBaseArgvExact(t *testing.T) {
 	var resolutions [][]string
 	var add []string
 	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
-		if len(args) > 2 && args[0] == "rev-parse" && args[1] == "--verify" && args[2] == "--end-of-options" {
+		baseLookup := len(args) == 5 && args[0] == "rev-parse" && args[3] == "--end-of-options" && args[4] != "HEAD^{commit}"
+		if baseLookup {
 			resolutions = append(resolutions, append([]string(nil), args...))
 		}
 		if len(args) > 3 && args[0] == "-c" && args[2] == "worktree" && args[3] == "add" {
@@ -1176,7 +1189,10 @@ func TestWorktreeBaseArgvExact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := [][]string{{"rev-parse", "--verify", "--end-of-options", "refs/heads/origin/chosen^{commit}"}, {"rev-parse", "--verify", "--end-of-options", "refs/remotes/origin/chosen^{commit}"}}
+	want := [][]string{
+		{"rev-parse", "--verify", "--quiet", "--end-of-options", "refs/heads/origin/chosen^{commit}"},
+		{"rev-parse", "--verify", "--quiet", "--end-of-options", "refs/remotes/origin/chosen^{commit}"},
+	}
 	if !reflect.DeepEqual(resolutions, want) {
 		t.Fatalf("resolutions: %q, want %q", resolutions, want)
 	}
@@ -1205,5 +1221,383 @@ func TestWorktreeBaseRemovedRetryAdoptsExisting(t *testing.T) {
 	again, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "chosen", ExecGit)
 	if err != nil || again.Created || again.Path != first.Path {
 		t.Fatalf("retry must adopt existing worktree after source branch disappears: %+v, %v", again, err)
+	}
+}
+
+// A base that GitHub has moved on is started from GitHub's commit, so a run
+// works on what its pull request will be merged into.
+func TestPrepareWorktreeStartsFromGitHubWhenLocalIsBehind(t *testing.T) {
+	f := newBaseFixture(t)
+	ahead := commitIn(t, f.remote, "on-github")
+	w, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "main", f.git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != ahead {
+		t.Fatalf("worktree starts at %s, want GitHub's %s", got, ahead)
+	}
+	if w.Base.Relation != terminalproto.BaseBehind || w.Base.Start != ahead {
+		t.Fatalf("base = %+v, want behind starting from %s", w.Base, ahead)
+	}
+}
+
+// Commits the person has not pushed are never left out: a local base ahead of
+// GitHub's is the start, and the state says so.
+func TestPrepareWorktreeKeepsUnpushedLocalWork(t *testing.T) {
+	f := newBaseFixture(t)
+	local := commitIn(t, f.repo, "not-pushed")
+	w, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "main", f.git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != local {
+		t.Fatalf("worktree starts at %s, want the unpushed %s", got, local)
+	}
+	if w.Base.Relation != terminalproto.BaseAhead || w.Base.Start != local {
+		t.Fatalf("base = %+v, want ahead starting from %s", w.Base, local)
+	}
+}
+
+// A machine whose `gh` is signed out fails every fetch at once: the worktree
+// is still made, from the local base, and the create does not wait.
+func TestPrepareWorktreeStartsWhenGhIsSignedOut(t *testing.T) {
+	f := newBaseFixture(t)
+	local := commitOf(t, f.repo, "refs/heads/main")
+	signedOut := exitStatus(t, 128)
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if slices.Contains(args, "fetch") || slices.Contains(args, "ls-remote") {
+			return []byte("fatal: could not read Username for 'https://github.com'\n"), signedOut
+		}
+		return f.git(ctx, dir, args...)
+	}
+	started := time.Now()
+	w, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "main", git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(started); took > 5*time.Second {
+		t.Fatalf("a signed-out gh held the create up for %v", took)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != local {
+		t.Fatalf("worktree starts at %s, want the local %s", got, local)
+	}
+	if w.Base.Relation != terminalproto.BaseFetchFailed || w.Base.Start != local {
+		t.Fatalf("base = %+v, want fetch_failed starting from %s", w.Base, local)
+	}
+}
+
+// A retry adopts the worktree the first call made and reaches no network: it
+// is the same worktree, so there is no fresh base to report either.
+func TestPrepareWorktreeAdoptedRetryDoesNotFetch(t *testing.T) {
+	f := newBaseFixture(t)
+	first, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "main", f.git)
+	if err != nil || !first.Created {
+		t.Fatalf("first create: %+v, %v", first, err)
+	}
+	f.forget()
+	again, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "main", f.git)
+	if err != nil || again.Created || again.Path != first.Path {
+		t.Fatalf("retry must adopt the worktree: %+v, %v", again, err)
+	}
+	if f.fetched() {
+		t.Fatalf("an adopted retry reached github.com: %q", f.calls)
+	}
+	if again.Base.Start != "" {
+		t.Fatalf("an adopted retry reported a base it did not resolve: %+v", again.Base)
+	}
+}
+
+// exitStatus is a real *exec.ExitError with the given status, as a git that
+// failed gives.
+func exitStatus(t *testing.T, code int) error {
+	t.Helper()
+	err := exec.Command("/bin/sh", "-c", "exit "+strconv.Itoa(code)).Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != code {
+		t.Fatalf("want exit status %d, got %v", code, err)
+	}
+	return err
+}
+
+// With no base named and a github.com origin GitHub did not answer for, the
+// run starts from the last known default branch, not from wherever the folder
+// happens to be checked out.
+func TestPrepareWorktreeEmptyBaseFetchFailedStartsFromTheLastKnownDefault(t *testing.T) {
+	f := newBaseFixture(t)
+	lastKnown := commitOf(t, f.repo, "refs/heads/main")
+	testGit(t, f.repo, "checkout", "-q", "-b", "feature")
+	elsewhere := commitIn(t, f.repo, "on-feature")
+	signedOut := exitStatus(t, 128)
+	git := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if slices.Contains(args, "fetch") || slices.Contains(args, "ls-remote") {
+			return []byte("fatal: could not read Username for 'https://github.com'\n"), signedOut
+		}
+		return f.git(ctx, dir, args...)
+	}
+	w, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "", git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := testGit(t, w.Path, "rev-parse", "HEAD")
+	if head == elsewhere {
+		t.Fatalf("the worktree started from the checked-out branch %s", elsewhere)
+	}
+	if head != lastKnown {
+		t.Fatalf("worktree starts at %s, want the last known default %s", head, lastKnown)
+	}
+	if w.Base.Relation != terminalproto.BaseFetchFailed || w.Base.Start != head {
+		t.Fatalf("base = %+v, want fetch_failed starting from %s", w.Base, head)
+	}
+}
+
+// With no base named and no github.com origin, the run still starts where the
+// folder stands, whatever branch that is.
+func TestPrepareWorktreeEmptyBaseWithoutAGitHubOriginStartsFromHead(t *testing.T) {
+	home := worktreeHome(t)
+	repo := newRepo(t, home, "no-origin")
+	testGit(t, repo, "checkout", "-q", "-b", "feature")
+	head := commitIn(t, repo, "on-feature")
+	w, err := PrepareWorktree(context.Background(), home, repo, "p", testRun, "", ExecGit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("worktree starts at %s, want the folder's HEAD %s", got, head)
+	}
+	if w.Base.Relation != terminalproto.BaseNoRemote || w.Base.Start != head {
+		t.Fatalf("base = %+v, want no_remote starting from %s", w.Base, head)
+	}
+}
+
+// No call that reaches github.com runs while the manager's lock is held: a
+// create whose fetch hangs must not hold up a session listing, or one machine
+// with slow DNS would freeze every list for the whole fetch budget.
+func TestCreateFetchesTheBaseWithoutHoldingTheManagerLock(t *testing.T) {
+	m, _, _, _, repo, _ := worktreeManager(t)
+	testGit(t, repo, "remote", "add", "origin", "https://github.com/o/r")
+	fetching, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unreachable := exitStatus(t, 128)
+	m.git = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		if slices.Contains(args, "fetch") {
+			once.Do(func() { close(fetching) })
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		if slices.Contains(args, "fetch") || slices.Contains(args, "ls-remote") {
+			return []byte("fatal: could not reach github.com\n"), unreachable
+		}
+		return ExecGit(ctx, dir, args...)
+	}
+	created := make(chan error, 1)
+	go func() {
+		_, err := m.Create(WithBaseFresh(context.Background()), testRequestID(1), testSessionID(1), worktreeCreate(repo, testRun))
+		created <- err
+	}()
+	<-fetching
+	listed := make(chan error, 1)
+	go func() {
+		_, err := m.List(context.Background())
+		listed <- err
+	}()
+	select {
+	case err := <-listed:
+		if err != nil {
+			t.Fatalf("list while a create fetched: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		close(release)
+		<-created
+		t.Fatal("a session listing waited for the create's fetch")
+	}
+	close(release)
+	if err := <-created; err != nil {
+		t.Fatalf("create: %v", err)
+	}
+}
+
+// A machine whose terminal switch is off refuses the create, so nothing is
+// fetched for it: the base is planned before the lock, and that switch is
+// read before the plan as well as under it.
+func TestCreateWithTerminalsOffFetchesNothing(t *testing.T) {
+	m, _, _, _, repo, _ := worktreeManager(t)
+	testGit(t, repo, "remote", "add", "origin", "https://github.com/o/r")
+	var mu sync.Mutex
+	var calls [][]string
+	m.git = func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		mu.Lock()
+		calls = append(calls, slices.Clone(args))
+		mu.Unlock()
+		return ExecGit(ctx, dir, args...)
+	}
+	m.consent = func() error { return errors.New("terminals are off here") }
+	_, err := m.Create(WithBaseFresh(context.Background()), testRequestID(1), testSessionID(1), worktreeCreate(repo, testRun))
+	if !errors.Is(err, ErrTerminalDisabled) {
+		t.Fatalf("create = %v, want the terminal switch's refusal", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, args := range calls {
+		if slices.Contains(args, "fetch") {
+			t.Fatalf("a refused create reached github.com: %q", calls)
+		}
+	}
+}
+
+// A connection that negotiated base-fresh-v1 fetches the base before the
+// worktree is made, and makes it with no network call of its own.
+func TestPrepareWorktreeFromAPlanFetchesOnceBeforehand(t *testing.T) {
+	f := newBaseFixture(t)
+	ahead := commitIn(t, f.remote, "on-github")
+	plan := PlanBase(context.Background(), f.home, f.repo, "p", testRun, "main", true, f.git)
+	if n := f.count("fetch"); n != 1 {
+		t.Fatalf("planning the base fetched %d times, want once", n)
+	}
+	f.forget()
+	w, err := PrepareWorktreeFrom(context.Background(), f.home, f.repo, "p", testRun, "main", plan, f.git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.fetched() {
+		t.Fatalf("making the worktree reached github.com: %q", f.calls)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != ahead {
+		t.Fatalf("worktree starts at %s, want GitHub's %s", got, ahead)
+	}
+	if w.Base.Relation != terminalproto.BaseBehind || w.Base.Start != ahead {
+		t.Fatalf("base = %+v, want behind starting from %s", w.Base, ahead)
+	}
+}
+
+// A folder a create will refuse is never fetched for, and git is never left
+// to discover the repository above it: a plain folder inside a home that is
+// itself a repository must leave that repository's refs alone.
+func TestPlanBaseDoesNotFetchForAFolderThatIsNotARepository(t *testing.T) {
+	f := newBaseFixture(t)
+	// The home itself is a github.com repository, as a person's home can be.
+	testGit(t, f.home, "init", "-q", "-b", "main")
+	testGit(t, f.home, "config", "user.name", "Reet Test")
+	testGit(t, f.home, "config", "user.email", "test@example.invalid")
+	testGit(t, f.home, "config", "commit.gpgsign", "false")
+	writeFile(t, filepath.Join(f.home, "NOTES"), "home\n")
+	testGit(t, f.home, "add", "NOTES")
+	testGit(t, f.home, "commit", "-q", "-m", "home")
+	testGit(t, f.home, "remote", "add", "origin", "https://github.com/o/r")
+	plain := filepath.Join(f.home, "plain")
+	if err := os.MkdirAll(plain, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	before := testGit(t, f.home, "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes")
+	commitIn(t, f.remote, "on-github")
+
+	plan := PlanBase(context.Background(), f.home, plain, "p", testRun, "", true, f.git)
+	if f.fetched() {
+		t.Fatalf("a folder that is no repository was fetched for: %q", f.calls)
+	}
+	if after := testGit(t, f.home, "for-each-ref", "--format=%(refname) %(objectname)", "refs/remotes"); after != before {
+		t.Fatalf("the repository above the folder was fetched into:\nbefore %q\nafter  %q", before, after)
+	}
+	// And the create itself is still refused, in its own words.
+	_, err := PrepareWorktreeFrom(context.Background(), f.home, plain, "p", testRun, "", plan, f.git)
+	refusedWith(t, err, terminalproto.WorktreeNotRepoRoot)
+}
+
+// A plan a retry makes for a worktree that is already there fetches nothing:
+// the retry adopts it and resolves no base.
+func TestPlanBaseDoesNotFetchForAnAdoptedRetry(t *testing.T) {
+	f := newBaseFixture(t)
+	first, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "main", f.git)
+	if err != nil || !first.Created {
+		t.Fatalf("first create: %+v, %v", first, err)
+	}
+	f.forget()
+	plan := PlanBase(context.Background(), f.home, f.repo, "p", testRun, "main", true, f.git)
+	if f.fetched() {
+		t.Fatalf("planning a retry's base reached github.com: %q", f.calls)
+	}
+	again, err := PrepareWorktreeFrom(context.Background(), f.home, f.repo, "p", testRun, "main", plan, f.git)
+	if err != nil || again.Created {
+		t.Fatalf("retry must adopt the worktree: %+v, %v", again, err)
+	}
+	if f.fetched() {
+		t.Fatalf("an adopted retry reached github.com: %q", f.calls)
+	}
+}
+
+// Without base-fresh-v1 a create behaves exactly as it did before the base
+// was ever fetched: nothing reaches github.com, the base is the repository's
+// own branch, and there is no base to report.
+func TestPrepareWorktreeWithoutBaseFreshFetchesNothing(t *testing.T) {
+	f := newBaseFixture(t)
+	commitIn(t, f.remote, "on-github")
+	local := commitOf(t, f.repo, "refs/heads/main")
+	plan := PlanBase(context.Background(), f.home, f.repo, "p", testRun, "main", false, f.git)
+	w, err := PrepareWorktreeFrom(context.Background(), f.home, f.repo, "p", testRun, "main", plan, f.git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.fetched() {
+		t.Fatalf("a create without base-fresh-v1 reached github.com: %q", f.calls)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != local {
+		t.Fatalf("worktree starts at %s, want the local %s", got, local)
+	}
+	if w.Base != (terminalproto.BaseState{}) {
+		t.Fatalf("base = %+v, want none reported", w.Base)
+	}
+}
+
+// Without base-fresh-v1 a base is looked up in refs/heads and then
+// refs/remotes, and no base named is the folder's HEAD — the lookup a create
+// has always made, whatever the repository's default branch is.
+func TestPrepareWorktreeWithoutBaseFreshKeepsTheOldLookup(t *testing.T) {
+	f := newBaseFixture(t)
+	testGit(t, f.repo, "checkout", "-q", "-b", "feature")
+	head := commitIn(t, f.repo, "on-feature")
+	plan := PlanBase(context.Background(), f.home, f.repo, "p", testRun, "", false, f.git)
+	w, err := PrepareWorktreeFrom(context.Background(), f.home, f.repo, "p", testRun, "", plan, f.git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("worktree starts at %s, want the folder's HEAD %s", got, head)
+	}
+	if f.fetched() {
+		t.Fatalf("a create without base-fresh-v1 reached github.com: %q", f.calls)
+	}
+	// A base only a remote-tracking ref has is still found, as it always was.
+	tracking := commitOf(t, f.repo, "refs/remotes/origin/main")
+	testGit(t, f.repo, "update-ref", "refs/remotes/other/x", tracking)
+	plan = PlanBase(context.Background(), f.home, f.repo, "p", otherRun, "other/x", false, f.git)
+	w, err = PrepareWorktreeFrom(context.Background(), f.home, f.repo, "p", otherRun, "other/x", plan, f.git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testGit(t, w.Path, "rev-parse", "HEAD"); got != tracking {
+		t.Fatalf("worktree starts at %s, want the remote-tracking %s", got, tracking)
+	}
+	// A branch neither place has is still base_missing.
+	_, err = PrepareWorktreeFrom(context.Background(), f.home, f.repo, "p", thirdRun, "absent", BasePlan{}, f.git)
+	refusedWith(t, err, terminalproto.WorktreeBaseMissing)
+}
+
+// A base naming GitHub's own branch starts the worktree from GitHub's commit,
+// even where the repository's own branch has gone its own way.
+func TestPrepareWorktreeOriginPrefixedBaseOnAGitHubRepository(t *testing.T) {
+	f := newBaseFixture(t)
+	onGitHub := commitIn(t, f.remote, "on-github")
+	diverged := commitIn(t, f.repo, "local-only")
+	w, err := PrepareWorktree(context.Background(), f.home, f.repo, "p", testRun, "origin/main", f.git)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := testGit(t, w.Path, "rev-parse", "HEAD")
+	if got == diverged {
+		t.Fatalf("the worktree started from the local branch %s", diverged)
+	}
+	if got != onGitHub || w.Base.Relation != terminalproto.BaseSame || w.Base.Start != onGitHub {
+		t.Fatalf("worktree at %s, base %+v, want GitHub's %s", got, w.Base, onGitHub)
 	}
 }

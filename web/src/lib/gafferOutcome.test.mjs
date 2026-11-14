@@ -189,6 +189,18 @@ test('a crew role\'s effort is sent with its stages and starts a new session whe
   assert.equal(o.sessionCount(o.stagePlan(['plan', 'design', 'review'], crew)), 1)
 })
 
+test('a Cline crew role carries its billing source and a source change starts a new session', () => {
+  const crew = { think: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, build: { tool: 'cline', model: '' }, ship: { tool: 'codex', model: '' } }
+  assert.deepEqual(o.stagePlan(['review', 'code', 'pr'], crew), [
+    { kind: 'code', tool: 'cline', model: '' }, { kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4', provider: 'cline-pass' }, { kind: 'pr', tool: 'codex', model: '' },
+  ])
+  assert.equal(o.sessionCount(o.stagePlan(['plan', 'review'], crew)), 1)
+  // A machine that did not negotiate a Cline source setting never has one sent for it.
+  assert.deepEqual(o.stagePlan(['review'], crew, false), [{ kind: 'review', tool: 'cline', model: 'cline-pass/deepseek-v4' }])
+  const switched = { think: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline-pass' }, build: { tool: 'cline', model: 'cline-pass/deepseek-v4', source: 'cline' }, ship: { tool: 'codex', model: '' } }
+  assert.equal(o.sessionCount(o.stagePlan(['review', 'test'], switched)), 2)
+})
+
 test('agent usage is what agents reported, split by agent, and never a made-up zero', () => {
   const pieces = [
     { stages: [{ tool: 'claude', state: 'done', agentInputTokens: 1000, agentOutputTokens: 200, agentCachedTokens: 5000, agentUsageReported: true }, { tool: 'codex', state: 'running', agentInputTokens: 300, agentOutputTokens: 50, agentUsageReported: true, contextUsed: 170000, contextSize: 200000 }] },
@@ -252,4 +264,60 @@ test('a pipeline that needs the person says why and offers what they can do, the
   assert.deepEqual(ids(idle), ['again', 'tell', 'move', 'open']); assert.equal(idle.choices[2].label, 'Finish this stage'); assert.match(idle.why, /chose no next step/)
   const asked = o.needsYou({ state: 'needs_user', note: 'Gaffer needs your decision. Read its latest review.' }, 'Gaffer brought a question back to you.', false)
   assert.equal(asked.why, 'Gaffer brought a question back to you.'); assert.equal(asked.choices[0].primary, true); assert.equal(asked.choices[2].label, 'Move to next stage')
+})
+test('a reply to Gaffer is plain text within the byte limit', () => {
+  assert.match(o.replyBlocker(''), /Write a reply/)
+  assert.match(o.replyBlocker('   '), /Write a reply/)
+  assert.equal(o.replyBlocker('Keep the export in one session.'), '')
+  assert.equal(o.replyBlocker('Line one\n\tLine two'), '')
+  assert.match(o.replyBlocker('é'.repeat(1001)), /within 2,000 bytes/)
+  assert.match(o.replyBlocker('Do it\u0000now'), /cannot be sent/)
+})
+
+test('a reply carries only the summary, titles and stages of the proposal it answers', () => {
+  const previous = o.previousPlan('  Two independent halves.  ', [
+    { key: 'a', title: ' Export API ', prompt: 'Build it.', stages: ['code', 'pr'] },
+    { key: 'b', title: ' ', prompt: 'Build the button.', stages: [] },
+    { key: 'c', title: 'x'.repeat(81), prompt: 'Too long.', stages: ['test'] },
+  ])
+  assert.equal(previous.summary, 'Two independent halves.')
+  assert.deepEqual(previous.sessions, [
+    { title: 'Export API', stages: ['code', 'pr'] },
+    { title: 'Session 2', stages: [] },
+    { title: 'Session 3', stages: ['test'] },
+  ])
+})
+
+test('a pipeline whose session was ended needs the person, with choices that do not need a live agent', () => {
+  const ended = { key: 'a', title: 'Export API', state: 'following', sessionState: 'ended', sessionId: 's1', conversationId: 'c1', stage: 1, stages: [{ kind: 'plan', sessionId: 's0' }, { kind: 'code', sessionId: 's1' }] }
+  assert.equal(o.sessionLost(ended), true)
+  assert.equal(o.sessionLost({ ...ended, sessionState: 'running' }), false)
+  assert.equal(o.sessionLost({ ...ended, sessionState: undefined }), false, 'a controller that does not say is not read as ended')
+  assert.equal(o.sessionLost({ ...ended, state: 'done' }), false)
+  assert.deepEqual(o.pipelineStatus(ended, false), { label: 'Needs you', tone: 'you' })
+  assert.deepEqual(o.factoryTally([{ sessions: [ended] }], new Set()), { running: 0, needYou: 1, ready: 0, done: 0 })
+  const rows = o.factoryRows([{ id: 'o1', objective: 'Ship it.', sessions: [ended] }], new Map())
+  assert.equal(rows[0].label, 'Needs you'); assert.match(rows[0].why, /session was ended/)
+  const choices = o.sessionEndedChoices(false, false)
+  assert.deepEqual(choices.choices.map(item => item.id), ['restart', 'move', 'stop', 'open']); assert.equal(choices.choices[0].primary, true)
+  assert.deepEqual(o.sessionEndedChoices(true, true).choices.map(item => item.id), ['restart', 'move', 'stop'], 'a removed session cannot be read')
+  assert.equal(o.sessionEndedChoices(true, true).choices[1].label, 'Finish this stage')
+})
+test('ending a session warns only while its pipeline still works in it, and its badge leads to that pipeline', () => {
+  const record = { id: 'o1', objective: 'Ship it.', sessions: [
+    { key: 'a', title: 'Export API', state: 'following', sessionId: 's1', stage: 1, stages: [{ kind: 'plan', sessionId: 's0' }, { kind: 'code', sessionId: 's1' }] },
+    { key: 'b', title: 'Docs', state: 'done', sessionId: 's2', stage: 0, stages: [{ kind: 'code', sessionId: 's2' }] },
+  ] }
+  const members = o.factoryMembers([record])
+  assert.equal(members.get('s1').working, true); assert.equal(members.get('s1').key, 'a')
+  assert.equal(members.get('s0').working, false, 'an earlier stage’s own session is finished with')
+  assert.equal(members.get('s2').working, false, 'a finished pipeline loses nothing')
+  assert.match(o.factoryEndWarning(members.get('s1')), /doing the code stage of the Factory pipeline “Export API”\. Ending it stops that pipeline/)
+  assert.match(o.factoryEndWarning(members.get('s1')), /worktree/)
+  assert.match(o.factoryEndWarning(members.get('s1'), true), /^This session.*Removing it stops/)
+  assert.equal(o.factoryEndWarning(members.get('s0')), ''); assert.equal(o.factoryEndWarning(members.get('s2')), ''); assert.equal(o.factoryEndWarning(undefined), '')
+})
+test('token counts round up into millions instead of reading 1000k', () => {
+  assert.equal(o.agentTokensText({ tokens: 999_700, cached: 0, reported: true }), '1.0M')
+  assert.equal(o.agentTokensText({ tokens: 998_000, cached: 0, reported: true }), '998k')
 })

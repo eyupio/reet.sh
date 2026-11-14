@@ -2,6 +2,7 @@
   import type { FleetCard } from '../home'
   import type { TerminalSession } from '../terminal/api'
   import { safeInsightURL } from '../sessionInsights'
+  import { baseSentence } from '../baseNotice'
   import CopyButton from '../CopyButton.svelte'
   import { runLine, startLabel } from './runClock'
   import { middleEllipsis } from './middleEllipsis'
@@ -18,6 +19,9 @@
   const line = $derived(runLine(session, now))
   // "Started 14:02 · running 1h 12m" drops its label here; a finished session's "Ran 1h 12m" gains the start it lacks.
   const started = $derived(line.startsWith('Started ') ? line.slice(8) : `${startLabel(session.createdAt, now)} · ${line.charAt(0).toLowerCase()}${line.slice(1)}`)
+  // What this session's worktree was cut from, as the machine reported it at the start. Only a base that differs from
+  // GitHub's, or one GitHub was never reached for, says anything (baseNotice.ts).
+  const startedFrom = $derived(baseSentence({ base: session.baseName, relation: session.baseRelation, start: session.baseStart }, host))
 </script>
 
 <dl class="where">
@@ -28,6 +32,7 @@
   <div class="wrap"><dt>Worktree</dt><dd>{session.worktreePath ? 'Own worktree' : 'Shared checkout'}</dd>{#if path}<dd class="full"><span class="mono path" title={path}>{middleEllipsis(path)}</span><CopyButton compact text={path} ariaLabel="Copy worktree path" /></dd>{/if}</div>
   <div><dt>Agent</dt><dd title={agent}>{agent || 'Not recorded'}</dd></div>
   <div><dt>Started</dt><dd>{started}</dd></div>
+  {#if startedFrom}<div class="wrap from"><dt>Started from</dt><dd class="full">{startedFrom}</dd></div>{/if}
 </dl>
 
 <style>
@@ -47,6 +52,8 @@
   /* The path is the worktree's second line, so the two read as one fact. */
   .wrap{flex-wrap:wrap}
   .full{flex:1 0 100%;justify-content:space-between}
+  /* The notice is a sentence, so it wraps and reads left to right under its own label. */
+  .from>.full{justify-content:flex-start;white-space:normal;text-align:left;line-height:1.5;color:var(--ink-soft);overflow:visible}
   a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
   @media(pointer:coarse){.where>div,.where>.copyable{min-height:44px}a{display:inline-flex;align-items:center;min-height:44px}}
 </style>

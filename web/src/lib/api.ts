@@ -1,5 +1,6 @@
 import { inflight } from './inflight'
 import type { ModelFavourite } from './models'
+import type { Fence } from './controllerMove'
 
 export type Skill = {
   id: string
@@ -150,11 +151,23 @@ export class UnauthorizedError extends Error {
  */
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  /** The refusal's stable name, when the server gave it one; a caller branches on this, never on the sentence. */
+  code: string
+  constructor(message: string, status: number, code = '') {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
   }
+}
+
+let refusalListener: ((status: number, body: unknown) => void) | null = null
+/**
+ * Lets the shell hear every refusal with its body, whichever page made the request. A write refused because the
+ * controller has moved is how anyone but an admin learns of the fence, and no page should have to pass that on.
+ */
+export function onRefusal(fn: ((status: number, body: unknown) => void) | null) {
+  refusalListener = fn
 }
 
 export function getToken(): string {
@@ -208,12 +221,16 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
   }
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`
+    let code = ''
     try {
-      msg = (await res.json()).error ?? msg
+      const body = await res.json()
+      msg = body.error ?? msg
+      if (typeof body.code === 'string') code = body.code
+      refusalListener?.(res.status, body)
     } catch {
       /* keep status text */
     }
-    throw new ApiError(msg, res.status)
+    throw new ApiError(msg, res.status, code)
   }
   return res
 }
@@ -249,21 +266,28 @@ export async function actOnGafferProvider(p: GafferProvider, action: 'test' | 'd
 }
 
 export type GafferOutcomePlan = { summary: string; sessions: { title: string; prompt: string; stages?: { kind: string }[] }[]; model: string; usageReported: boolean; inputTokens: number; outputTokens: number }
+export type GafferOutcomePlanInput = {
+  objective: string; project: string; sessions: number
+  /** The person's answer to the proposal in `previous`; omitted for the first plan. */
+  reply?: string
+  /** What the reply answers: the summary and titles are enough to identify it without replaying every prompt. */
+  previous?: { summary: string; sessions: { title: string; stages?: string[] }[] }
+}
 /** Asks the provider to propose the sessions for an objective. It reads no reet data and starts nothing. */
-export async function planGafferOutcome(p: GafferProvider, input: { objective: string; project: string; sessions: number }, signal?: AbortSignal): Promise<GafferOutcomePlan> {
+export async function planGafferOutcome(p: GafferProvider, input: GafferOutcomePlanInput, signal?: AbortSignal): Promise<GafferOutcomePlan> {
   return (await req(`/api/v2/gaffer/providers/${encodeURIComponent(p.id)}/plan`, { method: 'POST', body: json({ revision: p.revision, ...input }), signal })).json()
 }
-export type GafferOutcomeStage = { kind: string; tool: string; model?: string; effort?: string; agentInputTokens?: number; agentOutputTokens?: number; agentCachedTokens?: number; agentUsageReported?: boolean; contextUsed?: number; contextSize?: number; state: 'pending' | 'running' | 'done'; sessionId?: string; conversationId?: string; summary?: string; closedBy?: 'gaffer' | 'person' | 'chat'; agentState?: string; agentActiveAt?: number; startedAt?: number; endedAt?: number; reviews?: number; inputTokens?: number; outputTokens?: number; usageReported?: boolean }
+export type GafferOutcomeStage = { kind: string; tool: string; model?: string; effort?: string; provider?: string; agentInputTokens?: number; agentOutputTokens?: number; agentCachedTokens?: number; agentUsageReported?: boolean; contextUsed?: number; contextSize?: number; state: 'pending' | 'running' | 'done'; sessionId?: string; conversationId?: string; summary?: string; closedBy?: 'gaffer' | 'person' | 'chat'; agentState?: string; agentActiveAt?: number; startedAt?: number; endedAt?: number; reviews?: number; inputTokens?: number; outputTokens?: number; usageReported?: boolean }
 /** Gaffer's account of a whole outcome, with pipelines it suggests adding. A proposal is nothing until the person approves it. */
 export type GafferOutcomeReport = { text: string; at: number; model: string; inputTokens: number; outputTokens: number; usageReported: boolean; auto?: boolean; proposals?: { title: string; prompt: string; stages?: string[]; why?: string }[] }
-export type GafferOutcomeSession = { key: string; title: string; prompt: string; state: 'waiting' | 'starting' | 'following' | 'advancing' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'; note: string; sessionId?: string; conversationId?: string; updatedAt: number; stages?: GafferOutcomeStage[]; stage?: number; workDir?: string; autoMerge?: boolean; yoloMergeOk?: boolean; mergeApproved?: boolean }
+export type GafferOutcomeSession = { key: string; title: string; prompt: string; state: 'waiting' | 'starting' | 'following' | 'advancing' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'; note: string; sessionId?: string; conversationId?: string; updatedAt: number; stages?: GafferOutcomeStage[]; stage?: number; workDir?: string; autoMerge?: boolean; yoloMergeOk?: boolean; mergeApproved?: boolean; /** Whether the session in hand is still there. Absent from a controller that does not say. */ sessionState?: 'running' | 'ended' | 'gone'; /** Gaffer conversations of sessions this pipeline has left behind. */ retired?: string[] }
 /** An approved plan the controller starts and follows. `state` is "starting" while it still has sessions to start. */
-export type GafferOutcome = { id: string; revision: number; objective: string; state: 'starting' | 'settled' | 'stopped'; note: string; agentId: string; projectId: string; projectName: string; dir: string; tool: string; model?: string; trust?: boolean; yolo?: boolean; autoReport?: boolean; providerId: string; maxReviews: number; hours: number; sessions: GafferOutcomeSession[]; report?: GafferOutcomeReport; archivedAt?: number; createdAt: number; updatedAt: number }
-export type GafferOutcomeInput = { objective: string; projectId: string; tool: string; model: string; trust: boolean; yolo?: boolean; autoReport?: boolean; autoMerge: boolean; sessions: { title: string; prompt: string; stages?: { kind: string; tool: string; model: string; effort?: string }[] }[]; maxReviews: number; hours: number; confirmed: true }
+export type GafferOutcome = { id: string; revision: number; objective: string; state: 'starting' | 'settled' | 'stopped'; note: string; agentId: string; projectId: string; projectName: string; dir: string; tool: string; model?: string; provider?: string; trust?: boolean; yolo?: boolean; autoReport?: boolean; providerId: string; maxReviews: number; hours: number; sessions: GafferOutcomeSession[]; report?: GafferOutcomeReport; archivedAt?: number; createdAt: number; updatedAt: number }
+export type GafferOutcomeInput = { objective: string; projectId: string; tool: string; model: string; provider?: string; trust: boolean; yolo?: boolean; autoReport?: boolean; autoMerge: boolean; sessions: { title: string; prompt: string; stages?: { kind: string; tool: string; model: string; effort?: string; provider?: string }[] }[]; maxReviews: number; hours: number; confirmed: true }
 const outcomePath = (id: string) => `/api/v2/gaffer/outcomes/${encodeURIComponent(id)}`
 /** Tries a stopped pipeline again. A step that never started is asked for afresh; a session that did start is kept. */
 /** The person moving a pipeline on from the stage in hand. Their decision: it does not wait for Gaffer's review. */
-export async function moveGafferPipelineOn(o: Pick<GafferOutcome, 'id'>, key: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/advance`, { method: 'POST', body: json({ confirmed: true }), signal })).json() }
+export async function moveGafferPipelineOn(o: Pick<GafferOutcome, 'id'>, key: string, stage = '', signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/advance`, { method: 'POST', body: json(stage ? { confirmed: true, stage } : { confirmed: true }), signal })).json() }
 /** The person sending a pipeline back to the stage in hand or an earlier one, with their reason. That stage and the later ones are done again. */
 export async function sendGafferPipelineBack(o: Pick<GafferOutcome, 'id'>, key: string, stage: string, reason: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/back`, { method: 'POST', body: json({ stage, reason, confirmed: true }), signal })).json() }
 /** The person's own instruction for the working agent of a pipeline's stage in hand. Accepted is not completed. */
@@ -272,7 +296,7 @@ export async function tellGafferPipelineAgent(o: Pick<GafferOutcome, 'id'>, key:
 export async function setGafferPipelineAutoMerge(o: Pick<GafferOutcome, 'id'>, key: string, on: boolean, yoloConfirmed = false, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/automerge`, { method: 'POST', body: json(on && yoloConfirmed ? { on, yoloConfirmed } : { on }), signal })).json() }
 export async function retryGafferPipeline(o: Pick<GafferOutcome, 'id' | 'revision'>, key: string, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions/${encodeURIComponent(key)}/retry`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 /** Adds pipelines the person approved to an outcome. A stage with no agent takes the outcome's own. */
-export async function addGafferPipelines(o: Pick<GafferOutcome, 'id' | 'revision'>, sessions: { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string }[] }[], signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions`, { method: 'POST', body: json({ revision: o.revision, confirmed: true, sessions }), signal })).json() }
+export async function addGafferPipelines(o: Pick<GafferOutcome, 'id' | 'revision'>, sessions: { title: string; prompt: string; stages: { kind: string; tool?: string; model?: string; effort?: string; provider?: string }[] }[], signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/sessions`, { method: 'POST', body: json({ revision: o.revision, confirmed: true, sessions }), signal })).json() }
 /** Asks Gaffer's provider for one report across the outcome's pipelines. One model request; it starts nothing. */
 export async function reviewGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`${outcomePath(o.id)}/review`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 /** The person approving the merge of a pipeline that is ready. Nothing merges without this or the pipeline's own auto-merge. */
@@ -284,6 +308,7 @@ export async function getGafferOutcome(id: string, signal?: AbortSignal): Promis
 /** Saves the approved plan; the controller then starts and follows each session, with or without this browser. */
 export async function createGafferOutcome(input: GafferOutcomeInput, signal?: AbortSignal): Promise<GafferOutcome> { return (await req('/api/v2/gaffer/outcomes', { method: 'POST', body: json(input), signal })).json() }
 export async function stopGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/stop`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
+export async function stopFollowingGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/stop-following`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 /** Puts a finished outcome away. Its record and report are kept, and it can be restored. */
 export async function archiveGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/archive`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
 export async function restoreGafferOutcome(o: Pick<GafferOutcome, 'id' | 'revision'>, signal?: AbortSignal): Promise<GafferOutcome> { return (await req(`/api/v2/gaffer/outcomes/${encodeURIComponent(o.id)}/restore`, { method: 'POST', body: json({ revision: o.revision }), signal })).json() }
@@ -611,7 +636,7 @@ export async function listIgnored(): Promise<{ ignored: Ignored[] }> {
 export async function unignore(id: string): Promise<void> {
   await req(`/api/skill/ignore?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
-export async function getBuildInfo(): Promise<{ version: string; commit: string }> {
+export async function getBuildInfo(): Promise<{ version: string; commit: string; features?: string[] }> {
   return (await req('/api/version')).json()
 }
 export async function listLists(): Promise<{ lists: SharedList[]; linkEnabled: boolean; userId?: number }> {
@@ -754,6 +779,10 @@ export type BackupItem = {
   version?: string
   local: boolean
   remotes: string[]
+  /** What opens the copy: 'key' or 'password'. Absent for a copy listed from a destination. */
+  protection?: string
+  /** Whether the controller was fenced as the copy was taken; absent when the copy does not say. */
+  fenced?: boolean
 }
 export type BackupRun = {
   id: number
@@ -1020,9 +1049,15 @@ export async function saveBackupSettings(
   if (password !== undefined) body.password = password
   await req(bpath(admin), { method: 'PATCH', body: json(body) })
 }
-export async function runBackupNow(admin = false): Promise<BackupItem> {
-  return (await req(`${bpath(admin)}/run`, { method: 'POST', body: json({}) })).json()
+/** Takes a copy now. A password seals this one copy with it and is not kept; only the instance route accepts one. */
+export async function runBackupNow(admin = false, password?: string): Promise<BackupItem> {
+  return (await req(`${bpath(admin)}/run`, { method: 'POST', body: json(admin && password !== undefined ? { password } : {}) })).json()
 }
+export async function getFence(): Promise<Fence> { return (await req('/api/v2/admin/fence')).json() }
+export async function raiseFence(movedTo: string): Promise<Fence> {
+  return (await req('/api/v2/admin/fence', { method: 'POST', body: json(movedTo ? { movedTo } : {}) })).json()
+}
+export async function liftFence(): Promise<Fence> { return (await req('/api/v2/admin/fence', { method: 'DELETE' })).json() }
 export async function createBackupRemote(admin: boolean, input: BackupRemoteInput): Promise<BackupRemote> {
   return (await req(`${bpath(admin)}/remotes`, { method: 'POST', body: json(input) })).json()
 }
@@ -1071,24 +1106,36 @@ export type RestoreReport = {
   sessionsKept: number; sessionsEnded: number; tokensRevoked: number; mcpConnectionsRevoked: number; tokensKept: boolean; identityDropped: boolean
   safetyCopy?: string
   unreadable: string[]
+  publicUrl?: string; mailBaseRewritten?: boolean; syncOriginsRewritten?: number; mcpGrantsStale?: number
+  /** Work held back so the controller the copy lands on does not repeat it by itself. */
+  paused?: string[]
 }
-export async function getPendingImport(): Promise<RestoreReport | null> {
-  return ((await (await req('/api/v2/admin/backups/import')).json()) as { pending: RestoreReport | null }).pending
+/** Something a controller depends on that a copy cannot carry, to set by hand on the new machine. */
+export type NotInCopy = { names: string[]; say: string }
+export type StagedImport = { report: RestoreReport; notInCopy: NotInCopy[] }
+export async function getPendingImport(): Promise<StagedImport | null> {
+  const out = (await (await req('/api/v2/admin/backups/import')).json()) as { pending: RestoreReport | null; notInCopy?: NotInCopy[] }
+  return out.pending ? { report: out.pending, notInCopy: out.notInCopy ?? [] } : null
 }
 /**
  * Stages a sealed instance copy; it replaces the database at the controller's next start, not now.
  * The password and the options travel in the form body, before the file, never in the address or a header.
  */
-export async function stageImport(file: File, opts: { password?: string; dropSessions?: boolean; dropTokens?: boolean; ownerEmail?: string; replace?: boolean }): Promise<RestoreReport> {
+export async function stageImport(file: File, opts: { password?: string; dropSessions?: boolean; dropTokens?: boolean; ownerEmail?: string; replace?: boolean; publicUrl?: string; allowLiveSource?: boolean }): Promise<StagedImport> {
   const form = new FormData()
   if (opts.password) form.append('password', opts.password)
   if (opts.ownerEmail?.trim()) form.append('ownerEmail', opts.ownerEmail.trim())
   form.append('dropSessions', opts.dropSessions ? '1' : '0')
   form.append('dropTokens', opts.dropTokens ? '1' : '0')
   form.append('replace', opts.replace ? '1' : '0')
+  // Sent only when chosen: a controller that does not know a field would ignore it, and the page must not look as if
+  // it had acted on one.
+  if (opts.publicUrl) form.append('publicUrl', opts.publicUrl)
+  if (opts.allowLiveSource) form.append('allowLiveSource', '1')
   form.append('file', file)
   const res = await req('/api/v2/admin/backups/import', { method: 'POST', headers: { 'X-Reet-Import': '1' }, body: form })
-  return ((await res.json()) as { report: RestoreReport }).report
+  const out = (await res.json()) as { report: RestoreReport; notInCopy?: NotInCopy[] }
+  return { report: out.report, notInCopy: out.notInCopy ?? [] }
 }
 export async function cancelPendingImport(): Promise<void> {
   await req('/api/v2/admin/backups/import', { method: 'DELETE' })

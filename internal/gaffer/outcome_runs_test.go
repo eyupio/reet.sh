@@ -28,8 +28,10 @@ type outcomeStarterFake struct {
 	gen      int64
 	mu       sync.Mutex
 	launches []OutcomeLaunch
+	ended    []string
 	refuse   map[string]string
 	hold     chan struct{}
+	holdOnly string
 	entered  chan struct{}
 	once     sync.Once
 }
@@ -42,7 +44,7 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 	if f.entered != nil {
 		f.once.Do(func() { close(f.entered) })
 	}
-	if hold != nil {
+	if hold != nil && (f.holdOnly == "" || f.holdOnly == in.Title) {
 		select {
 		case <-hold:
 		case <-ctx.Done():
@@ -67,6 +69,26 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 		work = in.Dir + "/.reet/worktrees/" + in.RequestID[:8]
 	}
 	return row.ID, work, nil
+}
+
+// EndOutcomeSession ends a session as the person's own End does, history kept.
+func (f *outcomeStarterFake) EndOutcomeSession(_ context.Context, uid int64, session string) error {
+	if _, err := f.st.RequestTerminalEndFor(uid, f.agent, session, session[:32]); err != nil {
+		return err
+	}
+	if err := f.st.ObserveTerminalStateFor(uid, f.agent, session, 1, terminalproto.Ended, nil); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	f.ended = append(f.ended, session)
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *outcomeStarterFake) closed() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.ended...)
 }
 
 func (f *outcomeStarterFake) asked() []OutcomeLaunch {
@@ -197,6 +219,50 @@ func TestOutcomeStartsAndFollowsItsApprovedSessionsWithoutABrowser(t *testing.T)
 	if _, err := r.s.Outcome(other.ID, created.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("other account's read: %v", err)
 	}
+}
+
+// A Cline stage carries the billing source the person chose all the way to the launch, and the record keeps it.
+func TestOutcomeCarriesAClineBillingSourceToItsLaunch(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	r.in.Tool, r.in.Model, r.in.Provider = "cline", "", "cline-pass"
+	r.in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint with tests. Do not merge.", Stages: []OutcomeStageInput{
+		{Kind: "code", Tool: "cline", Model: "cline-pass/deepseek-v4", Provider: "cline-pass"},
+	}}}
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Sessions[0].Stages[0].Provider != "cline-pass" || created.Provider != "cline-pass" {
+		t.Fatalf("stored source: %+v", created)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for len(r.starter.asked()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	asked := r.starter.asked()
+	if len(asked) != 1 || asked[0].Tool != "cline" || asked[0].Provider != "cline-pass" || asked[0].Model != "cline-pass/deepseek-v4" {
+		t.Fatalf("launch carried no source: %+v", asked)
+	}
+}
+
+func TestOutcomeRefusesABillingSourceAnotherAgentCannotTake(t *testing.T) {
+	r := outcomeFixture(t)
+	r.s.StartGoalSupervisor()
+	refused := func(label string) {
+		t.Helper()
+		var ref *Invalid
+		if _, err := r.s.CreateOutcome(r.p.UserID, r.in); !errors.As(err, &ref) || ref.Field != "provider" {
+			t.Fatalf("%s: %v", label, err)
+		}
+	}
+	r.in.Provider = "cline-pass"
+	refused("a source on OpenCode")
+	r.in.Tool, r.in.Provider = "cline", "bad value"
+	refused("an invalid source")
+	r.in.Provider = ""
+	r.in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add it. Do not merge.", Stages: []OutcomeStageInput{{Kind: "code", Tool: "opencode", Provider: "cline-pass"}}}}
+	refused("a stage source on OpenCode")
 }
 
 func TestOutcomeReportsEachSessionAndCarriesOnPastARefusal(t *testing.T) {
@@ -1025,10 +1091,10 @@ func TestThePersonMovesAPipelineOnWhateverTheStageGoalSays(t *testing.T) {
 	if err = r.st.ObserveGafferGoal(g, "needs_user", "Gaffer brought a question back to you.", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, "zz"); err == nil {
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, "zz", ""); err == nil {
 		t.Fatal("an unknown pipeline was moved on")
 	}
-	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, code.Key); err != nil {
+	if _, err = r.s.MovePipelineOn(r.p.UserID, created.ID, code.Key, ""); err != nil {
 		t.Fatal(err)
 	}
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
@@ -1107,7 +1173,7 @@ func TestGafferChatMovesThePipelineOnWhenThePersonSaysContinue(t *testing.T) {
 		t.Fatalf("stage after the chat: %+v", review.Stages[0])
 	}
 	// A move made from the chat is in the activity log, and says it was the person's word.
-	log.wait(t, "gaffer-stage-started code", "gaffer-stage-handed-over code chat", "gaffer-stage-started review")
+	log.wait(t, "gaffer-stage-started code", "gaffer-stage-handed-over code chat", "gaffer-stage-started review", "gaffer-session-ended")
 	mu.Lock()
 	defer mu.Unlock()
 	// The person's chat in a pipeline session is given both ways to act; the reporting round has none.

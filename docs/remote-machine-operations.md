@@ -46,6 +46,31 @@ backup/recovery. Do not restore a stale control socket or delete the setting to
 stop access: use `reet terminal stop`, so a legacy environment default cannot
 silently re-enable access on the next restart.
 
+## Connection liveness and reconnect
+
+The agent treats a control connection as dead when it delivers nothing for 90
+seconds, rather than waiting for the next request to fail, so a half-open
+socket is replaced promptly. Any control write that cannot complete in five
+seconds, or a handshake that is not acknowledged within 15 seconds, also ends
+the connection; the underlying cause is recorded in the agent log, which is
+what makes a drop diagnosable.
+
+Reconnects back off exponentially from one second to 15 seconds. The delay
+resets only after a connection has stayed up for 30 seconds: a link that
+accepts the handshake and then drops at once keeps backing off, because each
+reconnect fences the previous generation and detaches that machine's live
+terminals and chats. Unstable retries use full jitter so a fleet that lost the
+controller does not redial in lockstep. Each generation's workers are joined
+before the next begins, so a reconnect never leaves two readers or duplicate
+timers behind. Both the 90-second liveness window and the 30-second stability
+period are configurable on `AgentConfig`; the defaults are the ones above.
+
+A revoked or expired enrollment (the bootstrap answering 401 or 403) is a
+permanent condition, so the agent retries it at the 15-second ceiling rather
+than climbing there, and reports that re-enrolling is the fix rather than a bare
+HTTP status. It keeps retrying so a machine re-enrolled while the service runs
+recovers without a restart.
+
 HTTP is accepted only for localhost/loopback development. Health and sync
 work independently of this flag. Configure and retain the existing private-
 connection sealing key (`REET_BACKUP_KEY`, or the instance's protected

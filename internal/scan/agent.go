@@ -51,6 +51,9 @@ type agentConfig struct {
 	ModelsOff bool `json:"modelsOff,omitempty"`
 	// YoloOff refuses YOLO sessions locally (reet terminal yolo off).
 	YoloOff bool `json:"yoloOff,omitempty"`
+	// FollowOff stops this machine following its controller to a new address
+	// on its own (reet agent follow-moves off).
+	FollowOff bool `json:"followOff,omitempty"`
 }
 
 func agentConfigPath() string { return AgentConfigPath() }
@@ -161,9 +164,9 @@ func agentRequestWith(ctx context.Context, client *http.Client, c agentConfig, p
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		var e struct{ Error string }
+		var e struct{ Error, Code, MovedTo string }
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&e)
-		return controllerError{Status: resp.StatusCode, Message: e.Error}
+		return controllerError{Status: resp.StatusCode, Message: e.Error, Code: e.Code, MovedTo: e.MovedTo}
 	}
 	if result == nil {
 		return nil
@@ -183,7 +186,7 @@ func RunAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 }
 func runAgentInput(args []string, in io.Reader, out io.Writer, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: reet agent enroll|set-server|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill|library-import [--config PATH]; run backgrounds by default; --foreground for debugging")
+		return errors.New("usage: reet agent enroll|set-server|follow-moves|start|stop|restart|status|run|restore|allow-apply|terminal|service|skill|library-import [--config PATH]; run backgrounds by default; --foreground for debugging")
 	}
 	action := args[0]
 	if action == "library-import" {
@@ -208,6 +211,9 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	}
 	if action == "set-server" {
 		return runAgentSetServer(args[1:], out, version)
+	}
+	if action == "follow-moves" {
+		return runAgentFollowMoves(args[1:], out)
 	}
 	if action == "service" {
 		return runAgentService(args[1:], out)
@@ -466,18 +472,42 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 	announcedWaiting := false
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+	follower := &moveFollower{}
+	waiting := &movedEcho{}
 	for {
-		if err = agentCycle(ctx, c, *config, out, version, &lastScan, !*once); err != nil {
+		err = agentCycle(ctx, c, *config, out, version, &lastScan, !*once)
+		if err != nil && follower.follow(ctx, err, c, *config, out, version) {
+			if *once {
+				// A single run has nothing else holding the old address, so
+				// it carries on against the new one.
+				if c, err = loadAgentConfig(*config); err != nil {
+					return err
+				}
+				return agentCycle(ctx, c, *config, out, version, &lastScan, false)
+			}
+			// The monitoring connection and every setting read at start hold
+			// the old address, so the process starts again from the file.
+			if err := followRestartFn(); err != nil {
+				fmt.Fprintf(out, "The new address was saved, but the agent could not restart itself (%v); run reet agent restart\n", err)
+				state.note(&state.cycleError, "the controller moved and the new address is saved; run reet agent restart")
+				return fmt.Errorf("the controller moved and the new address is saved, but the agent could not restart itself: %w", err)
+			}
+			return nil
+		}
+		if err != nil {
 			if *once {
 				return err
 			}
-			fmt.Fprintf(out, "Agent: %v\n", err)
+			if waiting.worthSaying(err) {
+				fmt.Fprintf(out, "Agent: %v\n", err)
+			}
 			state.note(&state.cycleError, err.Error())
 		} else if !*once && !announcedWaiting {
 			fmt.Fprintln(out, "Agent cycle complete. Still running: waiting for updates and the next inventory scan.")
 			announcedWaiting = true
 		}
 		if err == nil {
+			waiting.worthSaying(nil)
 			state.lastCycle.Store(time.Now().UnixMilli())
 			state.note(&state.cycleError, "")
 		}
@@ -497,6 +527,10 @@ func runAgentInput(args []string, in io.Reader, out io.Writer, version string) e
 type controllerError struct {
 	Status  int
 	Message string
+	// Code and MovedTo are set by a fenced controller: the code names the
+	// refusal and the address is where its owner said it went.
+	Code    string
+	MovedTo string
 }
 
 func (e controllerError) Error() string {
@@ -531,6 +565,11 @@ type agentResult struct {
 
 func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer, version string, lastScan *time.Time, allowRestart bool) error {
 	if err := syncLibraryEdits(ctx, c, config, version, out); err != nil {
+		// A controller that has moved refuses every request that follows too,
+		// so the cycle ends here with the one reason, not four lines of it.
+		if _, moved := movedTo(err); moved {
+			return err
+		}
 		fmt.Fprintln(out, "Library edits remain local; continuing other connector work:", err)
 	}
 	// A completed result is durable before acknowledgment. Reconnect resends the
@@ -676,7 +715,16 @@ func agentCycle(ctx context.Context, c agentConfig, config string, out io.Writer
 				}, version, opts)
 				cancel()
 				if operationErr == nil && (j.Kind == "apply" || len(result.Plan.Actions) == 0) {
-					operationErr = reportContentObservations(ctx, c, version)
+					if j.Kind == "apply" {
+						// Applying files changes what this machine reports. Scan before the result
+						// leaves, so the inventory every page reads is the one the apply left behind.
+						*lastScan = time.Now()
+						if scanErr := scanAll(); scanErr != nil {
+							result.Message = "Applied, but the machine's inventory will refresh on its next scan."
+						}
+					} else {
+						operationErr = reportContentObservations(ctx, c, version)
+					}
 				}
 				kindOK := j.Kind == "preview" || j.Kind == "auto"
 				if operationErr == nil && kindOK {

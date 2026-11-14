@@ -487,19 +487,28 @@ func (s *Store) GafferWorkerProgress(uid int64, session string) (int64, error) {
 }
 
 func (s *Store) GafferWorkerHalted(uid int64, session string) (bool, error) {
+	halted, _, err := s.GafferWorkerHaltedAt(uid, session)
+	return halted, err
+}
+
+// GafferWorkerHaltedAt reports whether the working model's last status is a
+// stop or a failure, and when that was. A goal the person resumed after that
+// moment is theirs to carry on: the halt is what they resumed from.
+func (s *Store) GafferWorkerHaltedAt(uid int64, session string) (bool, int64, error) {
 	var state string
-	err := s.db.QueryRow(`SELECT COALESCE(json_extract(event,'$.state'),'') FROM terminal_chat_events WHERE user_id=? AND session_id=? AND json_extract(event,'$.kind')='status' ORDER BY seq DESC LIMIT 1`, uid, session).Scan(&state)
+	var at int64
+	err := s.db.QueryRow(`SELECT COALESCE(json_extract(event,'$.state'),''),at FROM terminal_chat_events WHERE user_id=? AND session_id=? AND json_extract(event,'$.kind')='status' ORDER BY seq DESC LIMIT 1`, uid, session).Scan(&state, &at)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+		return false, 0, nil
 	}
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	switch state {
 	case "cancelled", "stopped", "error", "failed", "ended":
-		return true, nil
+		return true, at, nil
 	}
-	return false, nil
+	return false, at, nil
 }
 
 func (s *Store) RecoverGafferGoals() error {

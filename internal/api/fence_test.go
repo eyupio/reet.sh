@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/reet.sh/internal/auth"
 	"github.com/eyupio/reet.sh/internal/meta"
 	"github.com/eyupio/reet.sh/internal/store"
 )
@@ -42,6 +43,7 @@ func wantFence(t *testing.T, r reply, fenced bool, movedTo string) {
 }
 
 func TestTheFenceRoutesRaiseReadAndLiftTheState(t *testing.T) {
+	t.Parallel()
 	tg := newTarget(t, false)
 	wantFence(t, tg.fenceCall(t, "GET", fencePath, "owner-token", ""), false, "")
 	raised := tg.fenceCall(t, "POST", fencePath, "owner-token", `{"movedTo":"https://new.example.com"}`)
@@ -74,6 +76,7 @@ func TestTheAddressIsOptionalAndMustBeHTTPOrHTTPS(t *testing.T) {
 }
 
 func TestTheFenceRoutesRefuseANonOwner(t *testing.T) {
+	t.Parallel()
 	tg := newTarget(t, true)
 	for _, m := range []string{"GET", "POST", "DELETE"} {
 		if r := tg.fenceCall(t, m, fencePath, "member-token", ""); r.code != 403 {
@@ -87,6 +90,29 @@ func TestTheFenceRoutesRefuseANonOwner(t *testing.T) {
 	}
 	if !tg.st.Fenced() {
 		t.Fatal("the fence was lifted by a member")
+	}
+}
+
+// An admin works in pages that would otherwise fail one write at a time with no
+// warning. They may read the state; raising and lifting it stay the owner's.
+func TestAnAdminMayReadTheFenceButNotRaiseOrLiftIt(t *testing.T) {
+	t.Parallel()
+	tg := newTarget(t, true)
+	admin, err := tg.st.CreateUser("admin@example.com", "Admin", "admin", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tg.st.CreateAPIToken(admin.ID, "admin", auth.HashToken("admin-token")); err != nil {
+		t.Fatal(err)
+	}
+	wantFence(t, tg.fenceCall(t, "GET", fencePath, "admin-token", ""), false, "")
+	if r := tg.fenceCall(t, "POST", fencePath, "admin-token", ""); r.code != 403 {
+		t.Fatalf("an admin raised the fence: %d %s", r.code, r.text)
+	}
+	tg.fenceCall(t, "POST", fencePath, "owner-token", `{"movedTo":"https://new.example.com"}`)
+	wantFence(t, tg.fenceCall(t, "GET", fencePath, "admin-token", ""), true, "https://new.example.com")
+	if r := tg.fenceCall(t, "DELETE", fencePath, "admin-token", ""); r.code != 403 || !tg.st.Fenced() {
+		t.Fatalf("an admin lifted the fence: %d %s", r.code, r.text)
 	}
 }
 
@@ -122,6 +148,7 @@ func TestAFencedControllerRefusesWritesWith423AndKeepsReading(t *testing.T) {
 }
 
 func TestTheOwnersBackupRoutesAndTheLiftStillWorkWhileFenced(t *testing.T) {
+	t.Parallel()
 	tg := newTarget(t, false)
 	tg.fenceCall(t, "POST", fencePath, "owner-token", "")
 	for _, c := range [][3]string{

@@ -156,6 +156,9 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   chosen; `/?project=<id>` opens the launch modal on it once. **Select projects** in the heading's
   menu turns the cards into checkboxes; **Start in these projects** opens the launch bar's modal on
   two or more of them.
+- **From the session screen.** The **+** beside the session tabs, and **New session** in that header,
+  ask what to start (agent or terminal) and the agent choice opens this same dialog, so a start made
+  there asks where it starts in the same way.
 - **Machines on Home.** Each machine card's **+** and its menu's **New session…** ask what to start
   there: one of that machine's folder projects, which opens Start an agent with it chosen, or
   **Terminal session**, a plain shell in the machine's home folder. Its menu also offers **New
@@ -163,10 +166,41 @@ machine that isn't ready is listed, disabled, with that machine's readiness sent
   scan says is installed: agents, skills and MCP (which no agent reports yet, so it reads "MCP —").
 - **Base branch.** The Branch slot is the base of the fresh worktree. `base` is sent only when it is
   chosen: by the person, by the project's base branch or by the account's default base branch.
-  Otherwise nothing is sent, the worktree starts from the checkout's current commit, and the sentence
-  names the checkout's current branch as the machine reported it. A branch only suggested from the
+  Otherwise nothing is sent: the controller names the project's own saved base when it has one, and
+  with none the machine starts from the branch its remote calls default (an older machine from the
+  checkout's current commit). The sentence names the branch the machine reported. A branch only suggested from the
   machine's list is shown, never sent unless picked. In the checkout there is no Branch slot; a line
   under the sentence says "Works in the checkout on main."
+- **Where it starts.** A session in a saved repository works in a worktree of its own, cut from the
+  base branch after the machine has fetched that branch from GitHub. It starts from GitHub's commit
+  unless the branch on the machine has commits GitHub doesn't have, and from the last known commit
+  when GitHub couldn't be reached ([Worktrees](terminal-worktrees.md#creating)). The fetch uses that
+  machine's own git credential helpers and its `gh` sign-in: a private repository needs one of them
+  there (`gh auth login` on that machine), and a repository whose origin is an ssh URL is fetched over
+  https with `gh`, or not fetched at all when the machine has no `gh`. Before it sends
+  anything, Start reads where it would start (`GET /api/v2/machines/{agentId}/base-check`); so do the
+  **Start an agent** dialog and **Start** on a backlog plan, through the same step
+  (`web/src/lib/baseGate.ts`). The question is about exactly the branch the start will use: the base
+  the create carries (the Branch slot, the project's base, or the account's default, whichever the bar
+  resolved), else the project's saved base, which the controller fills in, else no base at all — the
+  machine then answers for the branch its remote calls default, which is where it will start. The
+  account's default base is never put in that last place: the controller does not fill it in either,
+  and a repository that calls its own branch something else would be refused.
+  When the two sides differ it asks first, in one sentence naming the
+  branch, the machine and the commit:
+
+  > main on studio has commits GitHub doesn't have. This session starts from the local main (abc1234).
+
+  **Cancel** starts nothing; **Start session** starts it from that commit. A base that matches GitHub
+  is not worth a question, so nothing is shown. The check never holds a start up: a machine too old to
+  answer it, a busy or rate-limited one, or no answer within ten seconds starts the session with no
+  dialog and nothing said. The same sentence is kept with the session and shown on its Overview, under
+  **Where it's working**, as *Started from*. A start in several projects is not checked (each member
+  has its own base and the controller starts them, like a Project run), a Factory outcome's launches
+  are not (nobody is choosing them in a browser), and a plain terminal, a folder that is not a
+  repository and a continuation never are. Every one of those still records the notice in Activity —
+  wherever a session's base is stored, the line is written — so a start nobody was asked about can
+  still be read afterwards.
 - **Branch listing.** The Branch list comes from the machine (`GET /api/v2/machines/{agentId}/branches`,
   see [Folder browse and branch listing](folder-browse.md)): read once per folder, at most 200 names,
   with a filter that asks the machine again. A machine that can't list branches says "Update reet on
@@ -261,6 +295,19 @@ process list."
 
 The new session is titled \<Agent\> · \<folder name\>, for example "Claude Code · site". With the
 home folder it is just the agent's name. You can rename it afterwards.
+
+A start in a saved repository works in a worktree cut from the base branch as GitHub has it, and this
+dialog asks the same question Home's launch bar asks before it sends anything: when the branch on the
+machine and GitHub's differ, **Check where this starts** names the branch, the machine and the commit,
+**Cancel** starts nothing and gives Start the keyboard back, and **Start session** starts it. The
+project the folder belongs to is what decides, whether it was chosen in the Project list or the folder
+was typed: the controller isolates any agent start whose folder is a saved repository. A machine that
+cannot answer the question never holds the start up. The session also says where it started from on
+its Overview, under **Where it's working**.
+
+The yes belongs to the start it was given for: the machine, folder, base and agent it named. A start
+whose own are different, or one pressed after the first was refused (the machine stopped taking
+sessions while the question was on screen, say), asks again. The same holds in Home's launch bar.
 
 ## What each state says
 

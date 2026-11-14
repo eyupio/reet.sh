@@ -13,6 +13,8 @@
   const options = $derived(tool ? modelOptions({ tool, current: '', machine, favourites, recent: [], suggestions: modelSuggestions(tool), selectedModel: other ? '' : value, host }) : [])
   const groups = $derived([...new Set(options.filter(option => option.value).map(option => option.group))])
   const listed = $derived(options.some(option => option.value === value))
+  // A name the machine did not list cannot be checked here: the agent confirms it at launch and refuses one it does not offer.
+  const unchecked = $derived(!!value.trim() && !(machine?.models ?? []).some(entry => entry.id === value.trim()))
   const set = (next: string) => { value = next; onchange?.(next) }
   function pick(event: Event) {
     const chosen = (event.currentTarget as HTMLSelectElement).value
@@ -31,11 +33,12 @@
     </optgroup>{/each}
     <option value={OTHER}>Other…</option>
   </select>
+  {#if unchecked}<span class="unchecked">Not checked against this machine. If the agent does not offer this model, the stage stops when it starts.</span>{/if}
   {#if other}<input aria-label={`${label} name`} {value} maxlength="200" placeholder="Model name" {disabled} oninput={event => set((event.currentTarget as HTMLInputElement).value)}/>{/if}
 </span>
 
 <style>
-  .model{display:grid;gap:6px;min-width:0}
+  .model{display:grid;gap:6px;min-width:0}.unchecked{font-size:.875rem;font-weight:400;color:var(--muted)}
   select,input{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;max-width:100%;min-height:44px;box-sizing:border-box}
   select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>

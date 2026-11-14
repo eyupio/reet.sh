@@ -44,11 +44,14 @@ func (s *Store) migrateTerminal() error {
 		return err
 	}
 	// Columns added for worktrees: where a worktree create made its worktree,
-	// and why a refused create was refused.
+	// what that worktree started from, and why a refused create was refused.
 	for _, c := range []struct{ table, ddl string }{
 		{"terminal_sessions", "worktree_path TEXT NOT NULL DEFAULT ''"},
 		{"terminal_sessions", "worktree_repo TEXT NOT NULL DEFAULT ''"},
 		{"terminal_sessions", "worktree_branch TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "base_relation TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "base_start TEXT NOT NULL DEFAULT ''"},
+		{"terminal_sessions", "base_name TEXT NOT NULL DEFAULT ''"},
 		{"terminal_operations", "reason TEXT NOT NULL DEFAULT ''"},
 		{"terminal_operations", "detail TEXT NOT NULL DEFAULT ''"},
 		{"terminal_sessions", "tool TEXT NOT NULL DEFAULT ''"},
@@ -356,6 +359,19 @@ type TerminalSession struct {
 	WorktreePath   string `json:"worktreePath,omitempty"`
 	WorktreeRepo   string `json:"worktreeRepo,omitempty"`
 	WorktreeBranch string `json:"worktreeBranch,omitempty"`
+	// BaseRelation and BaseStart are what that worktree started from, as the
+	// machine reported it: how the repository's own base stood against the
+	// same branch on GitHub (terminalproto.BaseRelation) and the commit the
+	// worktree was made at. Both are absent from the JSON for a session whose
+	// machine reported none.
+	BaseRelation string `json:"baseRelation,omitempty"`
+	BaseStart    string `json:"baseStart,omitempty"`
+	// BaseName is the branch the machine resolved that base to, which can
+	// differ from the one the create named (a create that named none starts
+	// from the remote's default). It is what the session's own notice names,
+	// so it goes out with the other two; the session view still shows the
+	// worktree's branch as the branch the agent works on.
+	BaseName string `json:"baseName,omitempty"`
 	// Launch metadata for the listing. Effort is the requested launch level;
 	// Yolo records the person's confirmation for this session. ProjectID is null
 	// for a session started outside a folder project.
@@ -425,14 +441,14 @@ type PendingPermission struct {
 	Queued       int    `json:"queued,omitempty"`
 }
 
-const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status,agent_mode,substr(prompt,1,300),length(prompt)>300`
+const terminalSessionCols = `id,agent_id,title,state,created_at,updated_at,exit_code,worktree_path,worktree_repo,worktree_branch,base_relation,base_start,base_name,CASE WHEN worktree_path<>'' THEN worktree_path ELSE dir END,tool,model,effort,yolo,project_id,structured,acp_session_id,activity_at,bell_at,attention_observed,EXISTS(SELECT 1 FROM terminal_operations o WHERE o.session_id=terminal_sessions.id AND o.user_id=terminal_sessions.user_id AND o.agent_id=terminal_sessions.agent_id AND o.kind='end' AND o.parameters='{"removeHistory":true}'),completed_at,chat_status,agent_mode,substr(prompt,1,300),length(prompt)>300`
 
 func readTerminal(row interface{ Scan(...any) error }) (TerminalSession, error) {
 	var t TerminalSession
 	var exit sql.NullInt64
 	var project sql.NullString
 	var attentionObserved int
-	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus, &t.AgentMode, &t.PromptExcerpt, &t.PromptMore)
+	err := row.Scan(&t.ID, &t.AgentID, &t.Title, &t.State, &t.CreatedAt, &t.UpdatedAt, &exit, &t.WorktreePath, &t.WorktreeRepo, &t.WorktreeBranch, &t.BaseRelation, &t.BaseStart, &t.BaseName, &t.Dir, &t.Tool, &t.Model, &t.Effort, &t.Yolo, &project, &t.Structured, &t.ACPSessionID, &t.ActivityAt, &t.BellAt, &attentionObserved, &t.RemoveHistory, &t.CompletedAt, &t.ChatStatus, &t.AgentMode, &t.PromptExcerpt, &t.PromptMore)
 	t.AttentionObserved = attentionObserved != 0
 	if exit.Valid {
 		n := int(exit.Int64)
@@ -597,6 +613,11 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 		if err != nil {
 			return err
 		}
+		// What its agent reported using goes with the session. A finished
+		// pipeline stage has already kept its own figures.
+		if _, err = tx.Exec(`DELETE FROM terminal_session_usage WHERE user_id=? AND session_id=?`, uid, session.ID); err != nil {
+			return err
+		}
 		if err = clearArchivedPrompt(tx, uid, session.ID); err != nil {
 			return err
 		}
@@ -674,13 +695,6 @@ func (s *Store) ReserveTerminalCreateFor(uid int64, agentID, requestID string, g
 		}
 		if !c.Capabilities.TerminalEnabled || c.Capabilities.Readiness != terminalproto.Ready {
 			return ErrTerminalNotReady
-		}
-		var accountCount, agentCount int
-		if err := tx.QueryRow(`SELECT COUNT(*),COALESCE(SUM(agent_id=?),0) FROM terminal_sessions WHERE user_id=? AND state IN ('creating','running','end_requested')`, agentID, uid).Scan(&accountCount, &agentCount); err != nil {
-			return err
-		}
-		if accountCount >= terminalproto.MaxSessionsPerAccount || agentCount >= terminalproto.MaxSessionsPerAgent {
-			return ErrTerminalCapacity
 		}
 		t = TerminalSession{ID: syncID(), AgentID: agentID, Title: in.Title, State: terminalproto.Creating, CreatedAt: now(), UpdatedAt: now(), Tool: in.Tool, Model: in.Model, Effort: in.Effort, Yolo: in.Yolo, Dir: in.Dir, Structured: in.Structured, ACPSessionID: in.ResumeACP}
 		if project.Valid {
@@ -1206,6 +1220,43 @@ func (s *Store) RecordTerminalWorktreeFor(uid int64, agentID, sessionID, path, r
 			return ErrTerminalConflict
 		}
 		_, err = tx.Exec(`UPDATE terminal_sessions SET worktree_path=?,worktree_repo=?,worktree_branch=? WHERE id=? AND user_id=? AND agent_id=?`, path, repo, "reet/"+in.Project+"-"+in.Worktree, sessionID, uid, agentID)
+		return err
+	})
+}
+
+// RecordTerminalBaseFor stores what a session's worktree started from, as its
+// create reply reported it: the branch the machine resolved, how the
+// repository's own base stood against the same branch on GitHub, and the
+// commit the worktree was made at. Only a
+// session whose worktree has been recorded can have one. The first report is
+// what the session started from: the same report again is accepted, a
+// different one is a conflict and nothing changes.
+func (s *Store) RecordTerminalBaseFor(uid int64, agentID, sessionID string, base terminalproto.BaseState) error {
+	if !base.Valid() {
+		return terminalproto.ErrInvalid
+	}
+	return s.withTx(func(tx *sql.Tx) error {
+		if err := lockRemoteAgent(tx, uid, agentID, false); err != nil {
+			return err
+		}
+		var worktree, relation, start, name string
+		err := tx.QueryRow(`SELECT worktree_path,base_relation,base_start,base_name FROM terminal_sessions WHERE id=? AND user_id=? AND agent_id=?`, sessionID, uid, agentID).Scan(&worktree, &relation, &start, &name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrRemoteNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if worktree == "" {
+			return ErrTerminalConflict
+		}
+		if relation != "" {
+			if relation == string(base.Relation) && start == base.Start && name == base.Base {
+				return nil
+			}
+			return ErrTerminalConflict
+		}
+		_, err = tx.Exec(`UPDATE terminal_sessions SET base_relation=?,base_start=?,base_name=? WHERE id=? AND user_id=? AND agent_id=?`, string(base.Relation), base.Start, base.Base, sessionID, uid, agentID)
 		return err
 	})
 }

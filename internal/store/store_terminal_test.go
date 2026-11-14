@@ -153,7 +153,8 @@ func TestTerminalConcurrentReservationAcrossDatabaseHandles(t *testing.T) {
 		}
 		id = got
 	}
-	// Distinct requests race for the seven remaining installation slots.
+	// Distinct requests race through independent handles: each creates its own
+	// session, with no cap on how many one machine or account may hold.
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -167,26 +168,17 @@ func TestTerminalConcurrentReservationAcrossDatabaseHandles(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	accepted, rejected := 0, 0
 	for i := 0; i < 20; i++ {
-		err := <-results
-		if err == nil {
-			accepted++
-		} else if errors.Is(err, ErrTerminalCapacity) {
-			rejected++
-		} else {
+		if err := <-results; err != nil {
 			t.Fatal(err)
 		}
 	}
-	if accepted != 7 || rejected != 13 {
-		t.Fatalf("quota race: accepted=%d rejected=%d", accepted, rejected)
-	}
-	// Pending offline ends continue to consume quota, final observations release it.
+	// A pending offline end does not block a new session either.
 	if _, err := s.RequestTerminalEndFor(uid, a.ID, id, syncID()); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); !errors.Is(err, ErrTerminalCapacity) {
-		t.Fatal("pending end released quota", err)
+	if _, _, err := s.ReserveTerminalCreateFor(uid, a.ID, syncID(), c.Generation, in); err != nil {
+		t.Fatal("pending end blocked a new session", err)
 	}
 	if err := s.ObserveTerminalStateFor(uid, a.ID, id, c.Generation, terminalproto.Lost, nil); err != nil {
 		t.Fatal(err)
@@ -194,7 +186,7 @@ func TestTerminalConcurrentReservationAcrossDatabaseHandles(t *testing.T) {
 	createTerminal(t, s, uid, a, c)
 	var count int
 	s.db.QueryRow(`SELECT COUNT(*) FROM terminal_sessions WHERE state IN ('creating','running','end_requested')`).Scan(&count)
-	if count != 8 {
+	if count != 22 {
 		t.Fatal(count)
 	}
 }
@@ -229,7 +221,7 @@ func TestEndDuringCreationSuppressesCreateDispatch(t *testing.T) {
 		t.Fatal("conflicting exit result accepted", err)
 	}
 }
-func TestTerminalAccountQuotaAndRequestScope(t *testing.T) {
+func TestTerminalAccountHasNoSessionCapAndRequestScope(t *testing.T) {
 	s, uid, a, c := terminalFixture(t)
 	request := syncID()
 	in := terminalproto.Create{Title: "Shell", Cols: 80, Rows: 24}
@@ -249,8 +241,8 @@ func TestTerminalAccountQuotaAndRequestScope(t *testing.T) {
 		}
 	}
 	last, lastCaps := terminalAgent(t, s, uid, "last")
-	if _, _, err := s.ReserveTerminalCreateFor(uid, last.ID, request, lastCaps.Generation, in); !errors.Is(err, ErrTerminalCapacity) {
-		t.Fatal("account quota exceeded", err)
+	if _, created, err := s.ReserveTerminalCreateFor(uid, last.ID, request, lastCaps.Generation, in); err != nil || !created {
+		t.Fatalf("a live session cap still applies: %v", err)
 	}
 	member, err := s.CreateUser("separate@example.com", "Separate", "member", "hash")
 	if err != nil {
@@ -258,7 +250,7 @@ func TestTerminalAccountQuotaAndRequestScope(t *testing.T) {
 	}
 	ma, mc := terminalAgent(t, s, member.ID, "last")
 	if _, created, err := s.ReserveTerminalCreateFor(member.ID, ma.ID, request, mc.Generation, in); err != nil || !created {
-		t.Fatal("another account shared quota/key", err)
+		t.Fatal("another account shared request scope", err)
 	}
 }
 

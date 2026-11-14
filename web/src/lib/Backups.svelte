@@ -3,14 +3,19 @@
   import { onMount } from 'svelte'
   import {
     backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, deleteBackupRemoteCopy, getBackupStatus,
-    listBackupRemoteCopies, pruneBackupCopies, getPendingImport, stageImport, cancelPendingImport, type RestoreReport, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
-    testBackupRemote, testBackupRemoteDraft, updateBackupRemote, verifyBackup,
+    listBackupRemoteCopies, pruneBackupCopies, getPendingImport, stageImport, cancelPendingImport, type RestoreReport, type StagedImport, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
+    testBackupRemote, testBackupRemoteDraft, updateBackupRemote, verifyBackup, getBuildInfo, getFence,
     type BackupCheck, type BackupCompression, type BackupDestination, type BackupItem, type BackupRemote,
     type BackupRemoteInput, type BackupStatus,
   } from './api'
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CollectionPanel from './CollectionPanel.svelte'
+  import MoveAway from './MoveAway.svelte'
+  import {
+    addressLines, addressProblem, cleanAddress, fenceSentence, fenceWatch, isLiveSourceRefusal, moveFeatures, setServerCommand,
+    type Fence,
+  } from './controllerMove'
   import {
     BACKUP_COPY_SCOPES, BACKUP_RUN_SCOPES, backupCopyCountLabel, backupCopyMatchesSearch, backupCopyScopeCounts,
     backupRunCountLabel, backupRunMatchesSearch, backupRunScopeCounts, filterBackupCopies, filterBackupRuns,
@@ -43,18 +48,59 @@
   let deleteFor = $state<BackupItem | null>(null)
   let deleteRemoteFor = $state<BackupRemote | null>(null)
   let restoreFor = $state<BackupItem | null>(null)
-  let pendingImport = $state<RestoreReport | null>(null)
+  let pendingImport = $state<StagedImport | null>(null)
   let importFile = $state<File | null>(null)
   let importPassword = $state('')
+  let importError = $state('')
+  // Prefilled with where this page was opened: the address the controller demonstrably answers at.
+  let importPublicUrl = $state(typeof window === 'undefined' ? '' : window.location.origin)
+  let importAllowLive = $state(false)
+  // Set only by the controller's own refusal, so the tick is asked for when it is needed and never offered as a
+  // way round a check nobody has run yet.
+  let importLiveRefused = $state(false)
+  // What this controller can do in a move. Nothing is offered until it has said so itself.
+  let features = $state(moveFeatures(undefined))
+  let fence = $state<Fence>(fenceWatch.get())
+  const isOwner = $derived(admin && role === 'owner')
+  const importAddressBad = $derived(addressProblem(importPublicUrl))
   let importDropSessions = $state(false)
   let importDropTokens = $state(false)
   let importOwnerEmail = $state('')
   let importReplace = $state(false)
-  let importAskPassword = $state(false)
   let copySearch = $state('')
   let copyScope = $state<BackupCopyScope>('all')
   let runSearch = $state('')
   let runScope = $state<BackupRunScope>('all')
+
+  type Section = 'overview' | 'copies' | 'destinations' | 'schedule' | 'runs' | 'import'
+  let section = $state<Section>('overview')
+  const sections = $derived.by(() => {
+    const list: { key: Section; label: string; count?: number }[] = [
+      { key: 'overview', label: 'Overview', count: status?.findings.length },
+      { key: 'copies', label: 'Copies', count: status?.items.length },
+      { key: 'destinations', label: 'Destinations', count: status?.remotes.length },
+      { key: 'schedule', label: 'Schedule' },
+      { key: 'runs', label: 'Runs', count: status?.runs.length },
+    ]
+    // Both sides of moving a controller live here: away from this one, and into it.
+    if (admin && canEdit) list.push({ key: 'import', label: 'Move' })
+    return list
+  })
+  const current = $derived<Section>(sections.some((s) => s.key === section) ? section : 'overview')
+
+  function tabKeys(e: KeyboardEvent) {
+    const keys = sections.map((s) => s.key)
+    const i = keys.indexOf(current)
+    let n = i
+    if (e.key === 'ArrowRight') n = (i + 1) % keys.length
+    else if (e.key === 'ArrowLeft') n = (i - 1 + keys.length) % keys.length
+    else if (e.key === 'Home') n = 0
+    else if (e.key === 'End') n = keys.length - 1
+    else return
+    e.preventDefault()
+    section = keys[n]
+    document.getElementById(`backups-tab-${keys[n]}`)?.focus()
+  }
 
   function reportLines(r: RestoreReport): string[] {
     const roles = Object.entries(r.usersByRole ?? {}).map(([role, n]) => `${n} ${role}`).join(', ')
@@ -69,22 +115,34 @@
     return l
   }
 
+  function chooseImport(file: File | null) {
+    importFile = file
+    // The refusal was about the copy that was chosen; another copy is asked afresh.
+    importLiveRefused = false
+    importAllowLive = false
+    importError = ''
+  }
+
   async function stage() {
-    if (!importFile) return
+    if (!importFile || importAddressBad) return
     busy = 'import'
-    error = ''
+    importError = ''
     saved = ''
     try {
-      pendingImport = await stageImport(importFile, { password: importPassword, dropSessions: importDropSessions, dropTokens: importDropTokens, ownerEmail: importOwnerEmail, replace: importReplace })
+      pendingImport = await stageImport(importFile, {
+        password: importPassword, dropSessions: importDropSessions, dropTokens: importDropTokens, ownerEmail: importOwnerEmail, replace: importReplace,
+        publicUrl: features.publicUrl ? cleanAddress(importPublicUrl) : '', allowLiveSource: importLiveRefused && importAllowLive,
+      })
       importFile = null
       importPassword = ''
-      importAskPassword = false
+      importLiveRefused = false
+      importAllowLive = false
       saved = 'Staged. Restart reet to put it in place.'
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      if (message.toLowerCase().includes('password')) importAskPassword = true
-      error = message
-      onerror?.(e)
+      // Said beside the form, with everything typed left as it was: the refusal is usually answered by changing one
+      // field and trying again.
+      importError = e instanceof Error ? e.message : String(e)
+      if (isLiveSourceRefusal(e)) importLiveRefused = true
     } finally {
       busy = ''
     }
@@ -97,8 +155,7 @@
       pendingImport = null
       saved = 'The staged import was discarded.'
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
-      onerror?.(e)
+      importError = e instanceof Error ? e.message : String(e)
     } finally {
       busy = ''
     }
@@ -114,13 +171,22 @@
 
   onMount(() => {
     void load()
+    // A write refused elsewhere on the page, or the fence raised below, reaches the banner by the same road.
+    return fenceWatch.subscribe((next) => (fence = next))
   })
 
-  async function load() {
-    loading = true
+  // `quiet` reads again without the skeleton, which would otherwise take the move card off the page, and what it had
+  // just said with it, the moment a copy was taken.
+  async function load(quiet = false) {
+    if (!quiet) loading = true
     try {
       status = await getBackupStatus(admin)
       if (admin && role === 'owner') pendingImport = await getPendingImport().catch(() => null)
+      if (admin) {
+        features = moveFeatures((await getBuildInfo().catch(() => null))?.features)
+        // An admin may read the fence; anyone else is refused, which says nothing either way and changes nothing.
+        if (features.fence) await getFence().then((f) => fenceWatch.set(f)).catch(() => {})
+      }
       const every = status.settings.everySeconds
       form = {
         every: everyText(every), keep: String(status.settings.keep), destination: status.settings.destination || 'both',
@@ -385,9 +451,11 @@
     saved = ''
     try {
       const out = await pruneBackupCopies(admin)
-      const remote = out.remotes.reduce((n, r) => n + r.removed.length, 0)
-      const failed = out.remotes.filter((r) => r.error)
-      saved = `Removed ${out.removed.length + remote} ${out.removed.length + remote === 1 ? 'copy' : 'copies'}.${failed.length ? ` ${failed.map((r) => `${r.name}: ${r.error}`).join('; ')}` : ''}`
+      const remotes = out.remotes ?? []
+      const remote = remotes.reduce((n, r) => n + (r.removed?.length ?? 0), 0)
+      const total = (out.removed?.length ?? 0) + remote
+      const failed = remotes.filter((r) => r.error)
+      saved = `Removed ${total} ${total === 1 ? 'copy' : 'copies'}.${failed.length ? ` ${failed.map((r) => `${r.name}: ${r.error}`).join('; ')}` : ''}`
       await load()
       if (openCopies) copies = (await listBackupRemoteCopies(admin, openCopies)).items
     } catch (e) {
@@ -506,6 +574,15 @@
     {#if error}<p class="notice bad" role="alert">{error}</p>{/if}
     {#if saved}<p class="notice good" role="status">{saved}</p>{/if}
 
+    {#if admin && fence.fenced}
+      <div class="banner fenced" role="status">
+        <strong>This controller is fenced.</strong>
+        {fenceSentence(fence, when)}
+        Signing in, reading, and taking, checking and downloading copies still work.
+        {isOwner ? 'Lift the fence under Move this controller away to undo it.' : 'Only the owner can lift the fence.'}
+      </div>
+    {/if}
+
     {#if !status.enabled}
       <div class="banner" role="alert">
         <strong>Nothing is being backed up.</strong> The backup key is missing or unusable. Set
@@ -514,6 +591,17 @@
       </div>
     {/if}
 
+    <div class="subtabs" role="tablist" aria-label="Backup sections" tabindex="-1" onkeydown={tabKeys}>
+      {#each sections as s (s.key)}
+        <button type="button" role="tab" class="subtab" id={`backups-tab-${s.key}`} aria-selected={current === s.key}
+          aria-controls="backups-panel" tabindex={current === s.key ? 0 : -1} onclick={() => (section = s.key)}>
+          {s.label}{#if s.count}<small>{s.count}</small>{/if}
+        </button>
+      {/each}
+    </div>
+
+    <div role="tabpanel" id="backups-panel" aria-labelledby={`backups-tab-${current}`}>
+    {#if current === 'overview'}
     <div class="cards">
       {#if admin}
         <article>
@@ -579,74 +667,111 @@
         </ul>
       </section>
     {/if}
+    {:else if current === 'copies'}
+      {#if restoreFor}
+        <div class="banner" role="note">
+          {#if admin}
+            <strong>Restore {restoreFor.id}?</strong> Stop reet, then on its machine run:
+            <div class="cmdline"><code>reet backup restore --yes {restoreFor.id}</code><CopyButton text={`reet backup restore --yes ${restoreFor.id}`} compact /></div>
+            The database in place is moved aside, not deleted.
+          {:else}
+            <strong>Restore {restoreFor.id}?</strong> Matching skills have their saved flags, notes and tags replaced. Skills added since this copy remain in your library. Lists, teams and account settings are not restored.
+            Copies taken since then are not deleted.
+            <div class="formacts">
+              <button type="button" class="btn" onclick={() => (restoreFor = null)}>Cancel</button>
+              <button type="button" class="btn primary" onclick={async () => {
+                if (!restoreFor) return
+                busy = 'restore'
+                try {
+                  let r
+                  try {
+                    r = await restoreUserBackup(restoreFor!.id)
+                  } catch (e) {
+                    const message = e instanceof Error ? e.message : String(e)
+                    if (!message.toLowerCase().includes('password')) throw e
+                    const password = prompt('This copy is protected with a password. Enter it to restore your library:')
+                    if (!password) throw e
+                    r = await restoreUserBackup(restoreFor!.id, password)
+                  }
+                  saved = `Restored ${r.restored} skills from ${restoreFor!.id}.`
+                  restoreFor = null
+                  await load()
+                } catch (e) {
+                  error = e instanceof Error ? e.message : String(e)
+                  onerror?.(e)
+                } finally {
+                  busy = ''
+                }
+              }} disabled={busy === 'restore'}>{busy === 'restore' ? 'Restoring…' : 'Restore my library'}</button>
+            </div>
+          {/if}
+          {#if admin}<div class="formacts"><button type="button" class="btn" onclick={() => (restoreFor = null)}>Close</button></div>{/if}
+        </div>
+      {/if}
 
-    <section class="block" aria-labelledby="schedule-title">
-      <h3 id="schedule-title">Schedule and retention</h3>
-      <p class="muted">How often a copy is taken and how many this machine keeps. 0 turns the schedule off; 0 copies kept means every one.</p>
-      <form class="settings" onsubmit={saveSettings}>
-        <label>
-          <span>Every</span>
-          <input bind:value={form.every} placeholder="24h" disabled={!canEdit} aria-invalid={everyBad || undefined} />
-          <small class:bad={everyBad}>{everyBad ? 'Use 30m, 1h, 24h or 7d; 0 is off.' : 'The shortest schedule is a minute.'}</small>
-        </label>
-        <label>
-          <span>Keep</span>
-          <input bind:value={form.keep} inputmode="numeric" disabled={!canEdit} aria-invalid={keepBad || undefined} />
-          <small class:bad={keepBad}>{keepBad ? 'A whole number, 0 or more.' : '0 keeps every copy on this machine.'}</small>
-        </label>
-        <label>
-          <span>Where copies go</span>
-          <select bind:value={form.destination} disabled={!canEdit}>
-            <option value="both">This machine and off-site</option>
-            <option value="local">This machine only</option>
-            <option value="remote">Off-site only</option>
-          </select>
-          <small class:bad={form.destination === 'remote' && !status.remotes.some((r) => !r.disabled && !r.problem)}>
-            {form.destination === 'local'
-              ? 'Lost with this machine. Not recommended.'
-              : form.destination === 'remote'
-                ? (status.remotes.some((r) => !r.disabled && !r.problem)
-                  ? 'A copy stays here only if no destination took it.'
-                  : 'Add and test an enabled destination below, or every copy will fail.')
-                : 'Every copy is on this machine and at each enabled destination.'}
-          </small>
-        </label>
-        <label>
-          <span>Compression</span>
-          <select bind:value={form.compression} disabled={!canEdit}>
-            <option value="gzip">gzip</option>
-            <option value="none">No compression</option>
-          </select>
-          <small>Compressed before the copy is sealed.</small>
-        </label>
-        <label>
-          <span>Copy password</span>
-          <input type="password" bind:value={form.password} autocomplete="new-password" disabled={!canEdit}
-            placeholder={status.settings.hasPassword ? 'stored; leave blank to keep' : 'optional, at least 12 characters'} />
-          <small class:bad={form.password !== '' && form.password.trim().length < 12}>
-            {form.password !== '' && form.password.trim().length < 12
-              ? 'At least 12 characters, or leave it empty.'
-              : status.settings.hasPassword
-                ? 'A password is stored. With one, a copy opens with that password instead of the instance key.'
-                : 'Optional. With one, a copy opens with that password alone.'}
-          </small>
-        </label>
-        {#if status.settings.hasPassword && canEdit}
-          <label class="check">
-            <input type="checkbox" bind:checked={form.removePassword} />
-            Remove the stored password
+    <CollectionPanel label="Backup copies" count={copyCountLabel}>
+      {#snippet toolbar()}
+        <div class="copy-toolbar">
+          <label class="search">Search copies
+            <input type="search" bind:value={copySearch} placeholder="Copy, destination or problem" />
           </label>
-        {/if}
-        {#if canEdit}
-          <button type="submit" class="btn primary" disabled={busy === 'settings' || everyBad || keepBad}>
-            {busy === 'settings' ? 'Saving…' : 'Save'}
-          </button>
-        {:else}
-          <p class="muted">{admin ? 'Only the instance owner can change the schedule.' : 'Read-only accounts can see backups but not change them.'}</p>
-        {/if}
-      </form>
-    </section>
+          <div class="scopes" role="group" aria-label="Show copies">
+            {#each BACKUP_COPY_SCOPES as item}
+              <button type="button" class="scope" aria-pressed={copyScope === item.key} onclick={() => (copyScope = item.key)}>{item.label}<small>{copyCounts[item.key]}</small></button>
+            {/each}
+          </div>
+        </div>
+      {/snippet}
 
+      {#if copyItems.length === 0}
+        <div class="state-block">
+          <h3>No copy has been taken yet.</h3>
+          <p>Take one now, or wait for the schedule.</p>
+        </div>
+      {:else if shownCopies.length === 0}
+        <div class="state-block">
+          <h3>No copy matches that search or filter.</h3>
+          <p>Try another search, or show every copy.</p>
+          <button type="button" class="btn" onclick={clearCopyFilters}>Clear filters</button>
+        </div>
+      {:else}
+        <ul class="copy-list">
+          {#each shownCopies as item (item.id)}
+            <li>
+              <div class="copy-main">
+                <span class="copy-id"><code>{item.id}</code>{#if admin && item.fenced}<span class="tag">taken fenced</span>{/if}{#if verified[item.id]}<span class="tag" class:bad={!verified[item.id].ok}>{verified[item.id].ok ? 'verified' : 'damaged'}</span>{/if}</span>
+                <small>{when(item.takenAt)} · {bytes(item.bytes)}{item.version ? ` · ${item.version}` : ''}</small>
+                {#if verified[item.id] && !verified[item.id].ok}<small class="bad">{verified[item.id].problems.join(' ')}</small>{/if}
+              </div>
+              <div class="copy-where">
+                {#if item.local}<span class="tag">this machine</span>{/if}
+                {#each item.remotes as remote (remote)}<span class="tag">{remote}</span>{/each}
+              </div>
+              <div class="copy-actions">
+                <button type="button" class="btn quiet" onclick={() => verify(item)} disabled={busy === `verify:${item.id}`}>
+                  {busy === `verify:${item.id}` ? 'Verifying…' : 'Verify'}
+                </button>
+                <a class="btn quiet" href={backupDownloadUrl(admin, item.id)} download>Download</a>
+                {#if !admin && canEdit}
+                  <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore</button>
+                {/if}
+                {#if admin && item.local && canEdit}
+                  <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore…</button>
+                {/if}
+                {#if item.local && canEdit}
+                  <button type="button" class="btn quiet danger" onclick={() => (deleteFor = item)} disabled={busy === `delete:${item.id}`}>Delete</button>
+                {/if}
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </CollectionPanel>
+
+      {#if admin}
+        <p class="muted">An instance restore replaces the live database, so it runs with the server stopped: <code>reet backup restore --yes &lt;id&gt;</code>.</p>
+      {/if}
+    {:else if current === 'destinations'}
     <section class="block" aria-labelledby="destinations-title">
       <div class="blockhead">
         <div>
@@ -786,157 +911,74 @@
         </form>
       {/if}
     </section>
-
-    <CollectionPanel label="Backup copies" count={copyCountLabel}>
-      {#snippet toolbar()}
-        <div class="copy-toolbar">
-          <label class="search">Search copies
-            <input type="search" bind:value={copySearch} placeholder="Copy, destination or problem" />
+    {:else if current === 'schedule'}
+    <section class="block" aria-labelledby="schedule-title">
+      <h3 id="schedule-title">Schedule and retention</h3>
+      <p class="muted">How often a copy is taken and how many this machine keeps. 0 turns the schedule off; 0 copies kept means every one.</p>
+      <form class="settings" onsubmit={saveSettings}>
+        <label>
+          <span>Every</span>
+          <input bind:value={form.every} placeholder="24h" disabled={!canEdit} aria-invalid={everyBad || undefined} />
+          <small class:bad={everyBad}>{everyBad ? 'Use 30m, 1h, 24h or 7d; 0 is off.' : 'The shortest schedule is a minute.'}</small>
+        </label>
+        <label>
+          <span>Keep</span>
+          <input bind:value={form.keep} inputmode="numeric" disabled={!canEdit} aria-invalid={keepBad || undefined} />
+          <small class:bad={keepBad}>{keepBad ? 'A whole number, 0 or more.' : '0 keeps every copy on this machine.'}</small>
+        </label>
+        <label>
+          <span>Where copies go</span>
+          <select bind:value={form.destination} disabled={!canEdit}>
+            <option value="both">This machine and off-site</option>
+            <option value="local">This machine only</option>
+            <option value="remote">Off-site only</option>
+          </select>
+          <small class:bad={form.destination === 'remote' && !status.remotes.some((r) => !r.disabled && !r.problem)}>
+            {form.destination === 'local'
+              ? 'Lost with this machine. Not recommended.'
+              : form.destination === 'remote'
+                ? (status.remotes.some((r) => !r.disabled && !r.problem)
+                  ? 'A copy stays here only if no destination took it.'
+                  : 'Add and test an enabled destination below, or every copy will fail.')
+                : 'Every copy is on this machine and at each enabled destination.'}
+          </small>
+        </label>
+        <label>
+          <span>Compression</span>
+          <select bind:value={form.compression} disabled={!canEdit}>
+            <option value="gzip">gzip</option>
+            <option value="none">No compression</option>
+          </select>
+          <small>Compressed before the copy is sealed.</small>
+        </label>
+        <label>
+          <span>Copy password</span>
+          <input type="password" bind:value={form.password} autocomplete="new-password" disabled={!canEdit}
+            placeholder={status.settings.hasPassword ? 'stored; leave blank to keep' : 'optional, at least 12 characters'} />
+          <small class:bad={form.password !== '' && form.password.trim().length < 12}>
+            {form.password !== '' && form.password.trim().length < 12
+              ? 'At least 12 characters, or leave it empty.'
+              : status.settings.hasPassword
+                ? 'A password is stored. With one, a copy opens with that password instead of the instance key.'
+                : 'Optional. With one, a copy opens with that password alone.'}
+          </small>
+        </label>
+        {#if status.settings.hasPassword && canEdit}
+          <label class="check">
+            <input type="checkbox" bind:checked={form.removePassword} />
+            Remove the stored password
           </label>
-          <div class="scopes" role="group" aria-label="Show copies">
-            {#each BACKUP_COPY_SCOPES as item}
-              <button type="button" class="scope" aria-pressed={copyScope === item.key} onclick={() => (copyScope = item.key)}>{item.label}<small>{copyCounts[item.key]}</small></button>
-            {/each}
-          </div>
-        </div>
-      {/snippet}
-
-      {#if copyItems.length === 0}
-        <div class="state-block">
-          <h3>No copy has been taken yet.</h3>
-          <p>Take one now, or wait for the schedule.</p>
-        </div>
-      {:else if shownCopies.length === 0}
-        <div class="state-block">
-          <h3>No copy matches that search or filter.</h3>
-          <p>Try another search, or show every copy.</p>
-          <button type="button" class="btn" onclick={clearCopyFilters}>Clear filters</button>
-        </div>
-      {:else}
-        <ul class="copy-list">
-          {#each shownCopies as item (item.id)}
-            <li>
-              <div class="copy-main">
-                <span class="copy-id"><code>{item.id}</code>{#if verified[item.id]}<span class="tag" class:bad={!verified[item.id].ok}>{verified[item.id].ok ? 'verified' : 'damaged'}</span>{/if}</span>
-                <small>{when(item.takenAt)} · {bytes(item.bytes)}{item.version ? ` · ${item.version}` : ''}</small>
-                {#if verified[item.id] && !verified[item.id].ok}<small class="bad">{verified[item.id].problems.join(' ')}</small>{/if}
-              </div>
-              <div class="copy-where">
-                {#if item.local}<span class="tag">this machine</span>{/if}
-                {#each item.remotes as remote (remote)}<span class="tag">{remote}</span>{/each}
-              </div>
-              <div class="copy-actions">
-                <button type="button" class="btn quiet" onclick={() => verify(item)} disabled={busy === `verify:${item.id}`}>
-                  {busy === `verify:${item.id}` ? 'Verifying…' : 'Verify'}
-                </button>
-                <a class="btn quiet" href={backupDownloadUrl(admin, item.id)} download>Download</a>
-                {#if !admin && canEdit}
-                  <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore</button>
-                {/if}
-                {#if admin && item.local && canEdit}
-                  <button type="button" class="btn quiet" onclick={() => (restoreFor = item)}>Restore…</button>
-                {/if}
-                {#if item.local && canEdit}
-                  <button type="button" class="btn quiet danger" onclick={() => (deleteFor = item)} disabled={busy === `delete:${item.id}`}>Delete</button>
-                {/if}
-              </div>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </CollectionPanel>
-
-      {#if admin}
-        <p class="muted">An instance restore replaces the live database, so it runs with the server stopped: <code>reet backup restore --yes &lt;id&gt;</code>.</p>
-      {/if}
-      {#if admin && canEdit}
-        <div class="banner import" role="group" aria-labelledby="import-title">
-          <strong id="import-title">Import a copy from another controller</strong>
-          <p class="muted">Choose a sealed copy (<code>.reetbackup</code> or the downloaded <code>.zip</code>). It is opened and checked now; it replaces this controller's database only when reet next starts, and the current one is kept beside it.</p>
-          {#if pendingImport}
-            <p><strong>{pendingImport.id}</strong> is staged. Restart reet to put it in place.</p>
-            <ul>
-              {#each reportLines(pendingImport) as line}<li>{line}</li>{/each}
-            </ul>
-            {#if pendingImport.unreadable.length}
-              <p>Sealed under a different backup key, so they cannot be opened here. They were cleared:</p>
-              <ul>{#each pendingImport.unreadable as u}<li>{u}</li>{/each}</ul>
-            {/if}
-            <div class="formacts"><button type="button" class="btn" onclick={discardImport} disabled={busy === 'import'}>Discard the staged import</button></div>
-          {:else}
-            <label>
-              <span>Copy</span>
-              <input type="file" accept=".reetbackup,.sealed,.zip" onchange={(e) => (importFile = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
-            </label>
-            {#if importAskPassword}
-              <label>
-                <span>Copy password</span>
-                <input type="password" autocomplete="off" bind:value={importPassword} />
-              </label>
-            {/if}
-            <label class="keep">
-              <input type="checkbox" bind:checked={importDropSessions} />
-              End every browser sign-in in the copy
-            </label>
-            <label class="keep">
-              <input type="checkbox" bind:checked={importDropTokens} />
-              Revoke every personal API token and MCP connection in the copy
-            </label>
-            <label class="keep">
-              <input type="checkbox" bind:checked={importReplace} />
-              Replace what this controller already holds (a copy of the current database is kept first)
-            </label>
-            <label>
-              <span>Make sure this owner can sign in (optional)</span>
-              <input type="email" autocomplete="off" bind:value={importOwnerEmail} />
-            </label>
-            <div class="formacts">
-              <button type="button" class="btn primary" onclick={stage} disabled={!importFile || busy === 'import'}>{busy === 'import' ? 'Checking…' : 'Check and stage'}</button>
-            </div>
-          {/if}
-        </div>
-      {/if}
-      {#if restoreFor}
-        <div class="banner" role="note">
-          {#if admin}
-            <strong>Restore {restoreFor.id}?</strong> Stop reet, then on its machine run:
-            <div class="cmdline"><code>reet backup restore --yes {restoreFor.id}</code><CopyButton text={`reet backup restore --yes ${restoreFor.id}`} compact /></div>
-            The database in place is moved aside, not deleted.
-          {:else}
-            <strong>Restore {restoreFor.id}?</strong> Matching skills have their saved flags, notes and tags replaced. Skills added since this copy remain in your library. Lists, teams and account settings are not restored.
-            Copies taken since then are not deleted.
-            <div class="formacts">
-              <button type="button" class="btn" onclick={() => (restoreFor = null)}>Cancel</button>
-              <button type="button" class="btn primary" onclick={async () => {
-                if (!restoreFor) return
-                busy = 'restore'
-                try {
-                  let r
-                  try {
-                    r = await restoreUserBackup(restoreFor!.id)
-                  } catch (e) {
-                    const message = e instanceof Error ? e.message : String(e)
-                    if (!message.toLowerCase().includes('password')) throw e
-                    const password = prompt('This copy is protected with a password. Enter it to restore your library:')
-                    if (!password) throw e
-                    r = await restoreUserBackup(restoreFor!.id, password)
-                  }
-                  saved = `Restored ${r.restored} skills from ${restoreFor!.id}.`
-                  restoreFor = null
-                  await load()
-                } catch (e) {
-                  error = e instanceof Error ? e.message : String(e)
-                  onerror?.(e)
-                } finally {
-                  busy = ''
-                }
-              }} disabled={busy === 'restore'}>{busy === 'restore' ? 'Restoring…' : 'Restore my library'}</button>
-            </div>
-          {/if}
-          {#if admin}<div class="formacts"><button type="button" class="btn" onclick={() => (restoreFor = null)}>Close</button></div>{/if}
-        </div>
-      {/if}
-
+        {/if}
+        {#if canEdit}
+          <button type="submit" class="btn primary" disabled={busy === 'settings' || everyBad || keepBad}>
+            {busy === 'settings' ? 'Saving…' : 'Save'}
+          </button>
+        {:else}
+          <p class="muted">{admin ? 'Only the instance owner can change the schedule.' : 'Read-only accounts can see backups but not change them.'}</p>
+        {/if}
+      </form>
+    </section>
+    {:else if current === 'runs'}
     <CollectionPanel label="Recent runs" count={runCountLabel}>
       {#snippet toolbar()}
         <div class="run-toolbar">
@@ -981,6 +1023,94 @@
         </ul>
       {/if}
     </CollectionPanel>
+    {:else if current === 'import'}
+      {#if isOwner && features.fence}
+        <MoveAway {fence} {features} items={copyItems} enabled={status.enabled} {when} size={bytes}
+          onfence={(next) => fenceWatch.set(next)} ontaken={() => void load(true)} />
+      {/if}
+      {#if admin && canEdit}
+        <div class="banner import" role="group" aria-labelledby="import-title">
+          <strong id="import-title">Move a controller in</strong>
+          <p class="muted">Import a sealed copy from another controller (<code>.reetbackup</code> or the downloaded <code>.zip</code>). It is opened and checked now; it replaces this controller's database only when reet next starts, and the current one is kept beside it.</p>
+          {#if importError}<p class="notice bad" role="alert">{importError}</p>{/if}
+          {#if pendingImport}
+            {@const report = pendingImport.report}
+            <p><strong>{report.id}</strong> is staged. Restart reet to put it in place.</p>
+            <ul>
+              {#each reportLines(report) as line}<li>{line}</li>{/each}
+              {#if features.publicUrl}{#each addressLines(report) as line}<li>{line}</li>{/each}{/if}
+            </ul>
+            {#if report.unreadable.length}
+              <p>Sealed under a different backup key, so they cannot be opened here. They were cleared:</p>
+              <ul>{#each report.unreadable as u}<li>{u}</li>{/each}</ul>
+            {/if}
+            {#if report.paused?.length}
+              <p>Held back, so this controller does not repeat it by itself. Resume each when you are ready:</p>
+              <ul>{#each report.paused as p}<li>{p}</li>{/each}</ul>
+            {/if}
+            {#if pendingImport.notInCopy.length}
+              <details class="not-in-copy">
+                <summary>Not in the copy: set these by hand on this machine</summary>
+                <dl>
+                  {#each pendingImport.notInCopy as item}
+                    <dt>{item.names.join(', ')}</dt>
+                    <dd>{item.say}</dd>
+                  {/each}
+                </dl>
+              </details>
+            {/if}
+            <p class="muted">Once it has restarted, tell each machine where the controller now is:</p>
+            <div class="cmdline"><code>{setServerCommand(report.publicUrl ?? '')}</code><CopyButton text={setServerCommand(report.publicUrl ?? '')} compact ariaLabel="Copy the set-server command" /></div>
+            <div class="formacts"><button type="button" class="btn" onclick={discardImport} disabled={busy === 'import'}>Discard the staged import</button></div>
+          {:else}
+            <label>
+              <span>Copy</span>
+              <input type="file" accept=".reetbackup,.sealed,.zip" onchange={(e) => chooseImport((e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
+            </label>
+            <label>
+              <span>Copy password (if it has one)</span>
+              <input type="password" autocomplete="off" bind:value={importPassword} />
+            </label>
+            {#if features.publicUrl}
+              <label>
+                <span>This controller's address (optional)</span>
+                <input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://reet.example.com" bind:value={importPublicUrl}
+                  aria-invalid={importAddressBad ? 'true' : undefined} aria-describedby="import-address-hint" />
+              </label>
+              <small id="import-address-hint" class:bad={!!importAddressBad}>
+                {importAddressBad || 'The addresses saved in the copy (links in mail, the sync library origin) are changed to this one, and MCP clients authorise again here. Clear it to leave them as they are.'}
+              </small>
+            {/if}
+            <label class="keep">
+              <input type="checkbox" bind:checked={importDropSessions} />
+              End every browser sign-in in the copy
+            </label>
+            <label class="keep">
+              <input type="checkbox" bind:checked={importDropTokens} />
+              Revoke every personal API token and MCP connection in the copy
+            </label>
+            <label class="keep">
+              <input type="checkbox" bind:checked={importReplace} />
+              Replace what this controller already holds (a copy of the current database is kept first)
+            </label>
+            {#if importLiveRefused}
+              <label class="keep needed">
+                <input type="checkbox" bind:checked={importAllowLive} required />
+                <span><strong>The old controller is stopped or gone</strong> (needed for this copy). It was not taken from a fenced controller. If the old one is still running, two controllers would work from one set of data; fence it and take a final copy instead.</span>
+              </label>
+            {/if}
+            <label>
+              <span>Make sure this owner can sign in (optional)</span>
+              <input type="email" autocomplete="off" bind:value={importOwnerEmail} />
+            </label>
+            <div class="formacts">
+              <button type="button" class="btn primary" onclick={stage} disabled={!importFile || busy === 'import' || !!importAddressBad || (importLiveRefused && !importAllowLive)} aria-busy={busy === 'import'}>{busy === 'import' ? 'Checking…' : 'Check and stage'}</button>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    {/if}
+    </div>
   {/if}
 </section>
 
@@ -1006,6 +1136,12 @@
   .block h3 { font-size: 1rem; letter-spacing: -0.01em; color: var(--ink); font-family: var(--serif); font-weight: 500; }
   .cards p { margin: 6px 0 0; font: 500 1.35rem/1.2 var(--serif); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .cards small { display: block; margin-top: 4px; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .subtabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 24px; border-bottom: 1px solid var(--line); }
+  .subtab { min-height: 40px; padding: 8px 14px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 0.95rem; cursor: pointer; }
+  .subtab:hover { color: var(--ink); }
+  .subtab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .subtab small { margin-left: 6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+  .cards { margin-top: 24px; }
   .block { margin-top: 24px; padding: clamp(16px, 3vw, 24px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .blockhead { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .muted { margin: 6px 0 0; color: var(--muted); font-size: 0.88rem; }
@@ -1072,6 +1208,19 @@
   .state-block h3 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
   .banner.import { border-color: var(--line); }
+  .banner.fenced { border-color: color-mix(in srgb, var(--warn) 60%, var(--line)); }
+  .banner.import > label:not(.keep) { display: grid; gap: 4px; margin-top: 12px; }
+  .banner.import > label:not(.keep) > span { color: var(--muted); font-size: 0.875rem; }
+  .banner.import input[type='url'], .banner.import input[type='password'], .banner.import input[type='email'] { width: 100%; max-width: 28rem; min-width: 0; }
+  .banner.import small { display: block; max-width: 34rem; margin-top: 4px; color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
+  .banner.import .notice { margin: 12px 0; overflow-wrap: anywhere; }
+  .banner.import ul { overflow-wrap: anywhere; }
+  .keep.needed { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 60%, var(--line)); border-radius: 8px; }
+  .not-in-copy { margin: 12px 0; }
+  .not-in-copy summary { cursor: pointer; font-weight: 600; }
+  .not-in-copy dl { margin: 8px 0 0; display: grid; gap: 4px; }
+  .not-in-copy dt { font: 0.875rem/1.45 var(--mono); overflow-wrap: anywhere; }
+  .not-in-copy dd { margin: 0 0 8px; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
   .banner.import input[type='file'] { width: 100%; min-width: 0; max-width: 100%; }
   .keep { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
   .keep input { width: 18px; height: 18px; min-height: 0; flex: none; }
@@ -1091,6 +1240,6 @@
     .copy-actions { justify-content: flex-start; }
     .run-meta { justify-items: start; text-align: left; }
   }
-  @media (pointer: coarse) { .scope, .search input, .copy-actions .btn { min-height: 44px; } }
+  @media (pointer: coarse) { .scope, .subtab, .search input, .copy-actions .btn { min-height: 44px; } }
   @media (prefers-reduced-motion: no-preference) { .scope { transition: background-color 0.15s, border-color 0.15s, color 0.15s; } }
 </style>

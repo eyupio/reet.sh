@@ -63,6 +63,10 @@ type Broker struct {
 	// peerReady hears that a connection finished synchronizing, so the server
 	// can resume cleanups that were waiting for the machine, restart included.
 	peerReady func(uid int64, agent string)
+	// sessionBase hears where a session's worktree started from, as its base
+	// is stored. It is the one place every start path passes through, so the
+	// server can record the notice once, whatever started the session.
+	sessionBase func(uid int64, agent, session string, base terminalproto.BaseState)
 	// lateReplies counts browse and branches answers that came after their
 	// request gave up; they are dropped, never treated as protocol errors.
 	lateReplies atomic.Int64
@@ -541,6 +545,18 @@ func (p *Peer) Receive(m terminalproto.Message) error {
 		// list by its own deadline, which can be after the request gave up.
 		// Such an answer is read-only and has no request left to answer: it is
 		// counted and dropped.
+		p.b.lateReplies.Add(1)
+		return nil
+	case *terminalproto.BaseCheckResult, *terminalproto.BranchSyncResult, *terminalproto.BranchPrunePlanResult, *terminalproto.BranchPruneResult,
+		*terminalproto.SoftwareApplyResult, *terminalproto.NativeViewResult:
+		// An answer whose call already gave up. Refusing it here would end the
+		// machine's connection over an answer that merely came late, so it is
+		// counted and dropped. For a check, a plan, a sync or a view nothing is
+		// lost: asking again reads it again. A late branch prune or software
+		// apply answer is different: the machine did the work, and the audit
+		// row and the stored software entry are written only by the call that
+		// was waiting, so that record is lost with it. It was lost before too,
+		// when a late answer ended the connection; recording it is still owed.
 		p.b.lateReplies.Add(1)
 		return nil
 	}
@@ -1092,6 +1108,19 @@ func (b *Broker) OnPeerReady(fn func(uid int64, agent string)) {
 	b.mu.Unlock()
 }
 
+// OnSessionBase sets fn to hear what a session's worktree started from, as
+// that is stored: once for the create that made it, and once for a reply that
+// came after its call gave up (the same report again, which the store
+// accepts). It runs on the caller's or the peer's observer goroutine and must
+// not block it; the server uses it to record the notice, which it does once
+// per session however often it is told. The store cannot write that notice
+// itself: only the server knows the machine's name.
+func (b *Broker) OnSessionBase(fn func(uid int64, agent, session string, base terminalproto.BaseState)) {
+	b.mu.Lock()
+	b.sessionBase = fn
+	b.mu.Unlock()
+}
+
 // observe applies one authenticated state observation. Only a ready peer can
 // reach the machine to release a worktree, so a close seen while a connection
 // is still synchronizing is left to the peer-ready sweep.
@@ -1318,6 +1347,9 @@ func (b *Broker) Bind(ctx context.Context, uid int64, agent string, h terminalpr
 // worktree create's reply. It answers ErrInvalid when the report does not
 // match the session's own run (the folder must be that run's folder under
 // ~/.reet/worktrees); a second, different report is a conflict and dropped.
+// What the worktree started from is stored with it, best effort: the agent is
+// already running, so an unusable or late base report is dropped rather than
+// failing a launch that happened.
 func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalproto.SessionChanged) error {
 	if s.WorktreePath == "" {
 		return nil
@@ -1325,6 +1357,18 @@ func (b *Broker) recordWorktree(uid int64, agent, session string, s *terminalpro
 	err := b.st.RecordTerminalWorktreeFor(uid, agent, session, s.WorktreePath, s.WorktreeRepo)
 	if errors.Is(err, terminalproto.ErrInvalid) {
 		return err
+	}
+	if err == nil && s.Base != nil {
+		if b.st.RecordTerminalBaseFor(uid, agent, session, *s.Base) == nil {
+			// Stored (or the same report again): the one place every start
+			// path reaches, so the notice is recorded from here alone.
+			b.mu.Lock()
+			fn := b.sessionBase
+			b.mu.Unlock()
+			if fn != nil {
+				fn(uid, agent, session, *s.Base)
+			}
+		}
 	}
 	return nil
 }

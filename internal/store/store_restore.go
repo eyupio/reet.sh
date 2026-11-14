@@ -83,6 +83,10 @@ type Adaptation struct {
 	// batches, queued mail. The operator resumes each with the retry the
 	// product already has for it.
 	Paused []string
+	// OwnerMade is the address of the account made owner, as the copy spells
+	// it, and OwnersDemoted the owners it replaced, who are now admins.
+	OwnerMade     string
+	OwnersDemoted []string
 	// Cleared names each stored secret that could not be opened on the
 	// controller the copy lands on, and what to do about it. The value is
 	// removed rather than kept as something nothing can read.
@@ -102,6 +106,12 @@ type AdaptOptions struct {
 	// issued for the old address are removed. It must already be a plain
 	// http(s) origin (see ValidatePublicURL). Empty leaves every address alone.
 	PublicURL string
+	// MakeOwner, when set, is the address of an account already in the copy
+	// that becomes its owner, signing in with OwnerPasswordHash. It is for a
+	// copy whose owner nobody on the new machine can sign in as. An address
+	// the copy does not hold, or holds disabled, is refused.
+	MakeOwner         string
+	OwnerPasswordHash string
 	// Unreadable says whether a sealed secret cannot be opened by the
 	// controller the copy lands on. Nil leaves every secret alone.
 	Unreadable func(sealed string) bool
@@ -293,6 +303,11 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 			}
 		}
 	}
+	if opts.MakeOwner != "" {
+		if out.OwnerMade, out.OwnersDemoted, err = makeOwner(ctx, tx, opts.MakeOwner, opts.OwnerPasswordHash); err != nil {
+			return out, err
+		}
+	}
 	// What a copy says about a fence is about the controller it was taken
 	// from. The controller it lands on is the one meant to be live.
 	if _, err = exec("settings", `DELETE FROM settings WHERE key IN(?,?)`, SettingFenceSince, SettingFenceMovedTo); err != nil {
@@ -340,6 +355,10 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 		detail["secretsCleared"] = len(out.Cleared)
 		detail["gafferGoalsPaused"] = out.GafferGoalsPaused
 		detail["workPaused"] = len(out.Paused)
+		if out.OwnerMade != "" {
+			detail["ownerMade"] = out.OwnerMade
+			detail["ownersDemoted"] = len(out.OwnersDemoted)
+		}
 		if opts.PublicURL != "" {
 			detail["publicUrl"] = opts.PublicURL
 		}
@@ -355,6 +374,65 @@ func AdaptDatabaseFile(ctx context.Context, path string, opts AdaptOptions) (Ada
 	// Fold the write-ahead log in so the single file is the whole copy.
 	_, _ = db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 	return out, nil
+}
+
+// ErrNoSuchAccount is returned when the account to make owner is not one the
+// copy holds and could sign in with.
+var ErrNoSuchAccount = errors.New("the copy has no such account")
+
+// makeOwner gives the copy an owner somebody on the new machine can sign in
+// as. There is one owner, so those the copy had become admins and lose
+// nothing else. The account keeps its two-step sign-in; only its password,
+// its browser sign-ins and any reset link are replaced, because whoever held
+// the old ones is not necessarily who runs the new machine.
+func makeOwner(ctx context.Context, tx *sql.Tx, email, hash string) (string, []string, error) {
+	if hash == "" {
+		return "", nil, errors.New("a new owner needs a password")
+	}
+	var id, disabled int64
+	var spelled string
+	err := tx.QueryRowContext(ctx, `SELECT id,email,disabled_at FROM users WHERE email=?`, strings.TrimSpace(email)).Scan(&id, &spelled, &disabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, fmt.Errorf("%w for %s", ErrNoSuchAccount, email)
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	if disabled != 0 {
+		return "", nil, fmt.Errorf("%w that can sign in: %s is disabled", ErrNoSuchAccount, spelled)
+	}
+	var demoted []string
+	rows, err := tx.QueryContext(ctx, `SELECT email FROM users WHERE role='owner' AND id<>? ORDER BY id`, id)
+	if err != nil {
+		return "", nil, err
+	}
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err != nil {
+			rows.Close()
+			return "", nil, err
+		}
+		demoted = append(demoted, e)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return "", nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET role='admin' WHERE role='owner' AND id<>?`, id); err != nil {
+		return "", nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET role='owner',password_hash=? WHERE id=?`, hash, id); err != nil {
+		return "", nil, err
+	}
+	for _, t := range []string{"sessions", "password_resets"} {
+		if !tableExists(ctx, tx, t) {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+t+` WHERE user_id=?`, id); err != nil {
+			return "", nil, err
+		}
+	}
+	return spelled, demoted, nil
 }
 
 // clearUnreadable removes each sealed secret the caller says cannot be opened

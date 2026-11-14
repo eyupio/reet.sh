@@ -6,6 +6,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // The Factory over MCP. Two tools read the outcomes and their pipelines; the
@@ -142,11 +143,34 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 	return out
 }
 
+var errFactoryForbidden = errors.New("The Factory needs a writer account, and changing it needs a connection with management access.")
+
 func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name string, args map[string]any) (map[string]any, error) {
 	if access.User.Role == "viewer" || mcpFactoryWrites[name] && !access.canWrite() {
-		return nil, gaffer.ErrContextForbidden
+		return nil, errFactoryForbidden
 	}
-	uid, full := access.User.ID, access.canWrite()
+	// The browser's routes are stopped by the fence before they run; these
+	// tools arrive as a POST to /mcp, which the fence lets through to be
+	// checked per tool, so the check is made here.
+	if mcpFactoryWrites[name] {
+		if f, err := s.st.Fence(); err != nil || f.Fenced {
+			if err != nil {
+				return nil, errors.New("this controller cannot tell whether it has moved, so it is not accepting changes")
+			}
+			return nil, errors.New(fenceMessage(f))
+		}
+	}
+	out, err := s.runMCPFactory(ctx, access, name, args)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, errors.New("That outcome is not available to this account. List the Factory to see the outcomes there are.")
+	}
+	return out, err
+}
+
+func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name string, args map[string]any) (map[string]any, error) {
+	// Handover notes and reports are session text. Gaffer's own call returns
+	// them only when the provider that will read the result is allowed it.
+	uid, full := access.User.ID, access.canWrite() && (access.Connection.Kind != "gaffer" || gaffer.SessionTextAllowed(ctx))
 	str := func(key string) string { v, _ := args[key].(string); return v }
 	if name == "reet_list_factory" {
 		rows, err := s.gafferProviders.Outcomes(uid)
@@ -187,9 +211,20 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 		return map[string]any{"outcome": s.mcpOutcome(uid, o, full)}, nil
 	}
 	confirmed := args["confirm"] == true
-	needsConfirm := name == "reet_start_outcome" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" || name == "reet_move_pipeline_on" || name == "reet_approve_pipeline_merge" || name == "reet_stop_outcome"
+	needsConfirm := name == "reet_tell_pipeline_agent" || name == "reet_start_outcome" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" || name == "reet_move_pipeline_on" || name == "reet_approve_pipeline_merge" || name == "reet_stop_outcome"
 	if needsConfirm && !confirmed {
 		return nil, errors.New("Pass confirm=true only when the user has asked for exactly this. Nothing was changed.")
+	}
+	// An outcome on YOLO has agents that act without approvals. What they are
+	// told, and what joins them, is decided on the Factory page by the person.
+	if name == "reet_tell_pipeline_agent" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" {
+		cur, err := s.gafferProviders.Outcome(uid, id)
+		if err != nil {
+			return nil, err
+		}
+		if cur.Yolo {
+			return nil, errors.New("This outcome runs on YOLO, so its agents act without approvals. Telling them, adding pipelines and sending work back are done on the Factory page. Nothing was changed.")
+		}
 	}
 	if !s.terminalEnabled() && name != "reet_stop_outcome" && name != "reet_set_pipeline_merge" {
 		return nil, errors.New("Remote sessions are disabled on this controller, so the Factory cannot start or steer any.")
@@ -226,8 +261,18 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 		if perr != nil {
 			return nil, perr
 		}
+		// The browser offers only the agents the project's machine can run as a
+		// chat. A client names one blind, so it is checked here: an outcome whose
+		// every pipeline would fail at launch is refused before it is saved.
+		if project, perr := s.st.FolderProjectFor(uid, str("project_id")); perr == nil {
+			if caps, cerr := s.st.RemoteCapabilitiesFor(uid, project.Host); cerr == nil && caps.Capabilities.ACP {
+				if _, ok := caps.Capabilities.ChatAgent(str("agent")); !ok && terminalproto.ReviewedChatTool(str("agent")) {
+					return nil, errors.New("That agent cannot run a Gaffer chat on this project's machine right now: it is not installed there, is out of date, or its chat is switched off for this account. Nothing was started.")
+				}
+			}
+		}
 		// The person's usual limits; no YOLO, no folder trust and no merge by itself can be asked for here.
-		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Sessions: pipelines, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true})
+		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Model: str("model"), Sessions: pipelines, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true})
 		id = o.ID
 	case "reet_add_pipelines":
 		pipelines, perr := mcpPipelines(args["pipelines"])
@@ -238,7 +283,7 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 	case "reet_send_pipeline_back":
 		o, err = s.gafferProviders.SendPipelineBack(uid, id, key, str("stage"), str("reason"))
 	case "reet_move_pipeline_on":
-		o, err = s.gafferProviders.MovePipelineOn(uid, id, key)
+		o, err = s.gafferProviders.MovePipelineOn(uid, id, key, str("stage"))
 	case "reet_retry_pipeline":
 		o, err = latest(func(revision int64) (store.GafferOutcome, error) {
 			return s.gafferProviders.RetryPipeline(uid, id, key, revision)
@@ -255,8 +300,10 @@ func (s *server) executeMCPFactory(ctx context.Context, access mcpAccess, name s
 			return s.gafferProviders.ApproveMerge(uid, id, key, revision)
 		})
 	case "reet_stop_outcome":
+		// Stopping is everything the person means by it: nothing more starts,
+		// and nothing still moving is looked after.
 		o, err = latest(func(revision int64) (store.GafferOutcome, error) {
-			return s.gafferProviders.StopOutcome(uid, id, revision)
+			return s.gafferProviders.StopFollowingOutcome(uid, id, revision)
 		})
 	case "reet_report_outcome":
 		o, err = s.gafferProviders.ReviewOutcome(ctx, gaffer.Principal{UserID: uid, CanUseLocal: access.User.Role == "owner" || access.User.Role == "admin"}, id, 0)

@@ -403,6 +403,42 @@ func (s *Store) attachHiddenTagsFor(userID int64, skills []Skill) error {
 	return rows.Err()
 }
 
+// InstalledSkillsFor returns every skill the account's environments report on
+// host, whatever the library shows. It is the machine inventory read through
+// skill_envs, the same rows the installer uses to decide a skill is already
+// there, so the session catalogue and the installer cannot disagree. A private
+// draft installed on a machine is hidden from the library (skills.hidden) but
+// is still installed, so hidden rows are included here; ListFor keeps hiding
+// them.
+func (s *Store) InstalledSkillsFor(userID int64, host string) ([]Skill, error) {
+	rows, err := s.readStmts.query(`SELECT `+shelfCols+` FROM skills s JOIN shelf sh ON sh.skill_id=s.id AND sh.user_id=?
+		WHERE s.id IN (SELECT se.skill_id FROM skill_envs se JOIN environments e ON e.id=se.env_id
+			WHERE e.user_id=? AND e.host=? COLLATE NOCASE)
+		ORDER BY lower(s.name),s.id`, userID, userID, host)
+	if err != nil {
+		return nil, err
+	}
+	out := []Skill{}
+	reader := newSkillRowScanner(false)
+	for rows.Next() {
+		skill, err := reader.scan(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, skill)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if err := s.attachMetaForMode(userID, out, attachMode{}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *Store) GetFor(userID int64, id string) (Skill, bool, error) {
 	k, err := scan(s.db.QueryRow(`SELECT `+shelfCols+canonicalShelfColumn+` FROM skills s JOIN shelf sh ON sh.skill_id=s.id`+canonicalShelfJoin+` WHERE sh.user_id=? AND s.id=?`, userID, id), true)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -426,9 +462,13 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 		}
 		f.Machine = host
 	}
+	canonical := ""
+	if f.Canonical {
+		canonical = ` AND NOT ((s.source='' OR s.source_type='local') AND EXISTS (SELECT 1 FROM skills linked JOIN shelf ls ON ls.skill_id=linked.id AND ls.user_id=sh.user_id WHERE linked.slug=s.slug AND linked.source<>'' AND linked.source_type<>'local' AND linked.hidden=0))`
+	}
 	var c Counts
 	if err := s.readStmts.queryRow(`SELECT COUNT(*),COALESCE(SUM(sh.liked),0),COALESCE(SUM(sh.bookmarked),0),COALESCE(SUM(sh.used),0)
-		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
+		FROM shelf sh JOIN skills s ON s.id=sh.skill_id WHERE sh.user_id=? AND s.hidden=0`+canonical, userID).Scan(&c.All, &c.Liked, &c.Bookmarked, &c.Used); err != nil {
 		return nil, c, err
 	}
 	// An unpaged list attaches the canonical item and status after its rows are
@@ -436,7 +476,7 @@ func (s *Store) ListFor(userID int64, f Filter) ([]Skill, Counts, error) {
 	// a join is evaluated for every matching row and costs more than one range
 	// read. A page selects its rows first and joins the metadata for those only.
 	paged := f.Limit > 0 || f.Offset > 0
-	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=? AND s.hidden=0`
+	q := `SELECT ` + shelfCols + ` FROM skills s JOIN shelf sh ON sh.skill_id=s.id WHERE sh.user_id=? AND s.hidden=0` + canonical
 	args := []any{userID}
 	tabWhere := map[string]string{
 		"liked":      ` AND sh.liked=1`,
@@ -1514,13 +1554,17 @@ func (s *Store) DeleteUser(id int64) error {
 // OutcomeEventsFor returns the activity recorded for one Factory outcome,
 // newest first: every event of the account whose action starts "gaffer-" and
 // whose detail names that outcome.
-func (s *Store) OutcomeEventsFor(userID int64, outcome string, limit int) ([]Event, error) {
+//
+// since is when the outcome was approved: nothing about it is older, so the
+// read looks no further back. What was done to it over MCP, or by Gaffer's
+// own tools, is part of its history too.
+func (s *Store) OutcomeEventsFor(userID int64, outcome string, since int64, limit int) ([]Event, error) {
 	if limit < 1 || limit > 200 {
 		limit = 200
 	}
 	rows, err := s.db.Query(`SELECT id,at,source,action,detail FROM events
- WHERE user_id=? AND action LIKE 'gaffer-%' AND json_valid(detail) AND json_extract(detail,'$.outcome')=?
- ORDER BY id DESC LIMIT ?`, userID, outcome, limit)
+ WHERE user_id=? AND at>=? AND (action LIKE 'gaffer-%' OR action='mcp-factory-control') AND json_valid(detail) AND json_extract(detail,'$.outcome')=?
+ ORDER BY id DESC LIMIT ?`, userID, since, outcome, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -175,27 +175,101 @@ try{
  await toolbar.evaluate(e=>e.scrollTo({left:e.scrollWidth}))
  await expect(toolbar).toHaveClass(/more-start/);await expect(toolbar).not.toHaveClass(/more-end/)
  await toolbar.evaluate(e=>e.scrollTo({left:0}))
- // The expanded key pad sends the exact bytes a shell expects, takes no row from the screen,
- // and lets a selected modifier join the next key (Ctrl with Up is xterm's CSI 1;5A).
- await settle(page,frames)
- const framesBeforePad=frames.length
- await page.getByRole('button',{name:'More terminal keys',exact:true}).click()
- const pad=page.getByRole('group',{name:'More terminal keys',exact:true})
- await expect(pad).toBeVisible()
+ // The arrows and the second row's button do not scroll with the row: on a phone they are in view from the start.
+ for(const name of ['Send Left arrow','Send Up arrow','Send Down arrow','Send Right arrow','More terminal keys']){
+  const b=await page.getByRole('button',{name,exact:true}).boundingBox()
+  expect(b.x,name).toBeGreaterThanOrEqual(0);expect(b.x+b.width,name).toBeLessThanOrEqual(390)
+  expect(await page.getByRole('button',{name,exact:true}).evaluate(e=>!!e.closest('.key-fixed')),name).toBe(true)
+ }
+ // The row leads with Esc, Tab and the modifiers.
+ expect(await keys.locator('button').evaluateAll(els=>els.slice(0,5).map(e=>e.textContent.trim()))).toEqual(['Esc','Tab','Ctrl','Alt','Shift'])
  const lastInput=()=>phone.inputs.at(-1)
- await pad.getByRole('button',{name:'Send Ctrl+L',exact:true}).click()
- await expect.poll(lastInput).toBe('\x0c')
- await pad.getByRole('button',{name:'Send Page Down',exact:true}).click()
- await expect.poll(lastInput).toBe('\x1b[6~')
- await pad.getByRole('button',{name:'Send F5',exact:true}).click()
- await expect.poll(lastInput).toBe('\x1b[15~')
+ const mod=name=>page.locator(`.key-modifier:text-is("${name}")`)
+ const arrow=name=>page.getByRole('button',{name:`Send ${name} arrow`,exact:true})
+ // One tap puts a modifier on for the next key only, which it joins as xterm sends it (Ctrl with Up is CSI 1;5A).
  await page.getByRole('button',{name:'Ctrl for the next key',exact:true}).click()
- await page.getByRole('button',{name:'Send Up arrow',exact:true}).click()
- await expect.poll(lastInput).toBe('\x1b[1;5A')
- await page.getByRole('button',{name:'Close extra keys',exact:true}).click()
- await expect(pad).toHaveCount(0)
+ await expect(mod('Ctrl')).toHaveAttribute('data-modifier','next');await expect(mod('Ctrl')).toHaveAttribute('aria-pressed','true')
+ await arrow('Up').click();await expect.poll(lastInput).toBe('\x1b[1;5A')
+ await expect(mod('Ctrl')).toHaveAttribute('data-modifier','off');await expect(mod('Ctrl')).toHaveAttribute('aria-pressed','false')
+ await arrow('Up').click();await expect.poll(lastInput).toBe('\x1b[A')
+ // A second tap locks it: every key carries it until a third tap lets go.
+ await page.getByRole('button',{name:'Ctrl for the next key',exact:true}).click()
+ await page.getByRole('button',{name:'Ctrl on for the next key',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Ctrl locked',exact:true})).toHaveAttribute('data-modifier','locked')
+ await arrow('Right').click();await expect.poll(lastInput).toBe('\x1b[1;5C')
+ await arrow('Left').click();await expect.poll(lastInput).toBe('\x1b[1;5D')
+ // Two modifiers join one key: one, plus Shift's 1 and Ctrl's 4, is 6. Shift was on for that key only.
+ await keys.evaluate(e=>e.scrollTo({left:e.scrollWidth}))
+ await page.getByRole('button',{name:'Shift for the next key',exact:true}).click()
+ await arrow('Right').click();await expect.poll(lastInput).toBe('\x1b[1;6C')
+ await arrow('Right').click();await expect.poll(lastInput).toBe('\x1b[1;5C')
+ // A locked modifier joins what the phone's own keyboard types as well.
+ await page.locator('.xterm-helper-textarea').focus();await page.keyboard.type('l')
+ await expect.poll(lastInput).toBe('\x0c')
+ await expect(mod('Ctrl')).toHaveAttribute('data-modifier','locked')
+ // A modifier that is on can be read, under the pointer or not: its label is not the colour of its fill.
+ await page.mouse.move(5,5)
+ const paint=await mod('Ctrl').evaluate(e=>{const c=getComputedStyle(e);return {ink:c.color,fill:c.backgroundColor}})
+ expect(paint.ink).not.toBe(paint.fill)
+ await keys.evaluate(e=>e.scrollTo({left:0}))
+ await page.getByRole('button',{name:'Ctrl locked',exact:true}).click()
+ await expect(mod('Ctrl')).toHaveAttribute('data-modifier','off')
+ await arrow('Right').click();await expect.poll(lastInput).toBe('\x1b[C')
+ // A held arrow repeats after a pause, as a keyboard's does, and stops when it is let go.
+ const holdKey=async(locator,ms)=>{const b=await locator.boundingBox();await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.waitForTimeout(ms);await page.mouse.up()}
+ let sentBefore=phone.inputs.length
+ await holdKey(arrow('Down'),800)
+ let sent=phone.inputs.slice(sentBefore)
+ expect(sent.length).toBeGreaterThanOrEqual(3);expect(new Set(sent)).toEqual(new Set(['\x1b[B']))
+ sentBefore=phone.inputs.length;await page.waitForTimeout(300)
+ expect(phone.inputs.length).toBe(sentBefore)
+ // A tap is one key, and a quick press that is let go before the pause is one key too.
+ await arrow('Down').click();await expect.poll(()=>phone.inputs.length).toBe(sentBefore+1)
+ await holdKey(arrow('Down'),120);await page.waitForTimeout(500)
+ expect(phone.inputs.length).toBe(sentBefore+2)
+ // A key that acts once never repeats, however long it is held.
+ sentBefore=phone.inputs.length
+ await holdKey(page.getByRole('button',{name:'Send Esc',exact:true}),800)
+ expect(phone.inputs.slice(sentBefore)).toEqual(['\x1b'])
+ // The second row holds every other key, one group at a time, and sends the exact bytes a shell expects. It is a row
+ // of its own above the first: the first row does not move, and the screen gives the new row its height.
  await settle(page,frames)
- expect(frames.length).toBe(framesBeforePad)
+ const firstRowTop=(await keys.boundingBox()).y,screenBottom=async()=>{const b=await page.locator('.screen-frame').boundingBox();return b.y+b.height}
+ const bottomBefore=await screenBottom()
+ await page.getByRole('button',{name:'More terminal keys',exact:true}).click()
+ const more=page.getByRole('group',{name:'More terminal keys',exact:true})
+ await expect(more).toBeVisible()
+ const moreBox=await more.boundingBox()
+ expect(moreBox.height).toBeLessThanOrEqual(42)
+ expect((await keys.boundingBox()).y).toBe(firstRowTop)
+ expect(moreBox.y+moreBox.height).toBeLessThanOrEqual(firstRowTop+1)
+ // The screen gives up the row's height and the line between the two rows, and no more.
+ const given=Math.round(bottomBefore-await screenBottom())
+ expect(given).toBeGreaterThanOrEqual(Math.round(moreBox.height));expect(given).toBeLessThanOrEqual(Math.round(moreBox.height)+1)
+ const group=name=>more.getByRole('group',{name:'Key groups',exact:true}).getByRole('button',{name,exact:true})
+ await expect(group('Editing and navigation')).toHaveAttribute('aria-pressed','true')
+ await more.getByRole('button',{name:'Send Page Down',exact:true}).click();await expect.poll(lastInput).toBe('\x1b[6~')
+ await more.getByRole('button',{name:'Send Enter',exact:true}).click();await expect.poll(lastInput).toBe('\r')
+ await group('Ctrl combinations').click()
+ await more.getByRole('button',{name:'Send Ctrl+L',exact:true}).click();await expect.poll(lastInput).toBe('\x0c')
+ await group('Function keys').click()
+ await more.getByRole('button',{name:'Send F5',exact:true}).click();await expect.poll(lastInput).toBe('\x1b[15~')
+ await group('Symbols').click()
+ await more.getByRole('button',{name:'Send {',exact:true}).click();await expect.poll(lastInput).toBe('{')
+ // The groups stay beside the keys as the keys scroll, and a long group says there is more with the same fade.
+ const groupKeys=more.getByRole('group',{name:'Symbols keys',exact:true})
+ await expect(groupKeys).toHaveClass(/more-end/)
+ await groupKeys.evaluate(e=>e.scrollTo({left:e.scrollWidth}))
+ await expect(group('Symbols')).toBeInViewport()
+ // No cap is clipped, in either row, and every key is at least 40 × 40 px.
+ expect(await page.locator('.key-tray button').evaluateAll(els=>els.filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>e.textContent.trim()))).toEqual([])
+ for(const control of await page.locator('.key-tray button').all()){const size=await control.boundingBox();expect(size.height).toBeGreaterThanOrEqual(40);expect(size.width).toBeGreaterThanOrEqual(40)}
+ // The row and its group are remembered in this browser.
+ expect(await page.evaluate(()=>[localStorage.getItem('reet-terminal-keys-open'),localStorage.getItem('reet-terminal-keys-group')])).toEqual(['1','symbols'])
+ await page.getByRole('button',{name:'Hide extra keys',exact:true}).click()
+ await expect(more).toHaveCount(0)
+ expect(await page.evaluate(()=>localStorage.getItem('reet-terminal-keys-open'))).toBe('0')
+ expect(Math.round(await screenBottom())).toBe(Math.round(bottomBefore))
  // The Alt+Shift+M advice is for hardware keyboards; it is not shown on touch screens.
  await page.getByRole('button',{name:'Maximise',exact:true}).click()
  await expect(pane).toHaveClass(/maximised/)
@@ -409,6 +483,58 @@ try{
   await expect(p.getByRole('separator',{name:'Resize session navigation'})).toBeVisible()
   const a=await panel.boundingBox(),t=await tab.pane.boundingBox()
   expect(a.x+a.width).toBeLessThanOrEqual(t.x+.5);expect(t.x+t.width).toBeLessThanOrEqual(834.5)
+  expect(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  expect(tab.errors).toEqual([])
+  await tab.context.close()
+ }
+
+ // ── A held key, to the millisecond: with the page's clock held still, a held arrow sends nothing for 400 ms, then
+ // once and again every 70 ms, and letting go sends nothing more ──
+ {
+  const held=await open({width:390,height:844,touch:true})
+  const p=held.page,down=p.getByRole('button',{name:'Send Down arrow',exact:true})
+  // Fake timers, stopped: time moves only when runFor moves it.
+  await p.clock.install();await p.clock.pauseAt(Date.now()+60_000)
+  const box=await down.boundingBox()
+  const count=()=>held.inputs.filter(text=>text==='\x1b[B').length
+  await p.mouse.move(box.x+box.width/2,box.y+box.height/2);await p.mouse.down()
+  await p.clock.runFor(399);expect(count()).toBe(0)
+  await p.clock.runFor(1);await expect.poll(count).toBe(1)
+  await p.clock.runFor(210);await expect.poll(count).toBe(4)
+  await p.mouse.up()
+  await p.clock.runFor(1000)
+  await p.waitForTimeout(150)
+  expect(count()).toBe(4)
+  // Sliding off a held key stops it too, and the key it was is not sent when the finger lifts elsewhere.
+  await p.mouse.move(box.x+box.width/2,box.y+box.height/2);await p.mouse.down()
+  await p.clock.runFor(470);await expect.poll(count).toBe(6)
+  await p.mouse.move(box.x+box.width/2,box.y-120);await p.clock.runFor(500);await p.mouse.up()
+  await p.waitForTimeout(150)
+  expect(count()).toBe(6)
+  expect(held.errors).toEqual([])
+  await held.context.close()
+ }
+
+ // ── A touch tablet, upright or sideways, has no Esc, Tab, Ctrl or arrow keys either: the key row shows at any
+ // width on a touch screen, with 44 px keys, and works as it does on a phone ──
+ for(const [width,height] of [[820,1180],[1180,820]]){
+  const tab=await open({width,height,touch:true})
+  const p=tab.page,row=p.locator('.mobile-keys')
+  await expect(row).toBeVisible()
+  await expect(p.locator('.tool-rows')).toHaveCount(0)
+  for(const name of ['Send Esc','Send Tab','Ctrl for the next key','Send Left arrow','Send Right arrow','More terminal keys']){
+   const b=await p.getByRole('button',{name,exact:true}).boundingBox()
+   expect(b.width,name).toBeGreaterThanOrEqual(44);expect(b.height,name).toBeGreaterThanOrEqual(44)
+   expect(b.x+b.width,name).toBeLessThanOrEqual(width)
+  }
+  await p.getByRole('button',{name:'Ctrl for the next key',exact:true}).click()
+  await p.getByRole('button',{name:'Send Up arrow',exact:true}).click()
+  await expect.poll(()=>tab.inputs.at(-1)).toBe('\x1b[1;5A')
+  await p.getByRole('button',{name:'More terminal keys',exact:true}).click()
+  const more=p.getByRole('group',{name:'More terminal keys',exact:true})
+  await more.getByRole('button',{name:'Send Home',exact:true}).click()
+  await expect.poll(()=>tab.inputs.at(-1)).toBe('\x1b[H')
+  expect(await p.locator('.key-tray button').evaluateAll(els=>els.filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>e.textContent.trim()))).toEqual([])
   expect(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   expect(tab.errors).toEqual([])
   await tab.context.close()

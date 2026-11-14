@@ -5,6 +5,20 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- The terminal's on-screen keys are rebuilt, and tablets get them. They were
+  hidden on any touch screen wider than 650 px, so a tablet had no Esc, Tab,
+  Ctrl or arrow keys; they now show on every touch screen. The row leads with
+  Esc, Tab, Ctrl, Alt and Shift in plain key names, and the four arrows stay
+  in view at its end instead of scrolling away. Tap a modifier for the next
+  key, tap it again to lock it, and a third time to let go; several can be on
+  at once, and they join what the device's own keyboard types as well. Hold an
+  arrow, Backspace, Delete, Page Up or Page Down and it repeats. The other
+  keys (Enter, Home, End, symbols, Ctrl combinations, F1–F12) are a second row
+  that opens above the first, in place of the panel that floated over the
+  screen and cut its key names short ("Ho…", "Pg…"). On a touch screen a key
+  no longer opens the device's keyboard, so the arrows work with it down. A
+  modifier that was on also drew its name in the colour of its fill until the
+  pointer was over it; it can now be read.
 - A machine now says which of its agents are signed in. Its Settings →
   **Agents** shows, for Claude Code and Codex, whether an account is signed in
   there, whose it is and which plan it is on, read from the agents' own files

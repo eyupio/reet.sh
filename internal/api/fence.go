@@ -26,6 +26,103 @@ func (s *server) registerFenceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+fencePath, s.requireAdmin(s.fenceGet))
 	mux.HandleFunc("POST "+fencePath, s.requireOwner(s.fenceRaise))
 	mux.HandleFunc("DELETE "+fencePath, s.requireOwner(s.fenceLift))
+	// The address can be given or corrected while the fence stands, so a
+	// move whose new address was not known at the start still carries every
+	// machine with it.
+	mux.HandleFunc("PATCH "+fencePath, s.requireOwner(s.fenceAddress))
+	mux.HandleFunc("GET "+fenceMachinesPath, s.requireAdmin(s.fenceMachines))
+	// A machine says here that it has gone, or that it will not go on its
+	// own. It names itself with its own credentials and nothing else.
+	mux.HandleFunc("POST "+fenceLeftPath, s.fenceLeft)
+}
+
+const (
+	fenceMachinesPath = fencePath + "/machines"
+	fenceLeftPath     = "/api/v2/sync/moved"
+)
+
+func (s *server) fenceAddress(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		MovedTo string `json:"movedTo"`
+	}
+	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, `the body is {"movedTo": "https://..."}`)
+		return
+	}
+	to, err := store.ValidMovedTo(in.MovedTo)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	before, err := s.st.Fence()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	f, err := s.st.SetFenceAddress(to)
+	if errors.Is(err, store.ErrNotFenced) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "this controller is not fenced; give the address when you fence it", "code": "not_fenced"})
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if before.MovedTo != f.MovedTo {
+		s.event(s.uid(r), "backup", "fence-address", "", map[string]any{"movedTo": f.MovedTo, "was": before.MovedTo})
+	}
+	writeJSON(w, http.StatusOK, viewOfFence(f))
+}
+
+func (s *server) fenceMachines(w http.ResponseWriter, r *http.Request) {
+	f, err := s.st.Fence()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	machines, err := s.st.FenceMachines()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"fenced": f.Fenced, "since": f.Since, "now": time.Now().UnixMilli(), "machines": machines})
+}
+
+// fenceHeld is what a machine may say about why it will not follow on its own.
+var fenceHeld = map[string]bool{"follow-off": true, "address-refused": true}
+
+func (s *server) fenceLeft(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		To   string `json:"to"`
+		Held string `json:"held"`
+	}
+	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, `the body is {"to": "https://..."} or {"held": "follow-off"}`)
+		return
+	}
+	to, err := store.ValidMovedTo(in.To)
+	if err != nil || (in.Held == "" && to == "") || (in.Held != "" && !fenceHeld[in.Held]) {
+		writeErr(w, http.StatusBadRequest, `the body is {"to": "https://..."} or {"held": "follow-off"}`)
+		return
+	}
+	if !s.st.Fenced() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "this controller is not fenced", "code": "not_fenced"})
+		return
+	}
+	err = s.st.NoteFenceLeft(r.Header.Get("X-Reet-Agent"), r.Header.Get("X-Reet-Agent-Key"), to, in.Held)
+	if errors.Is(err, store.ErrUnknownMachine) {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type fenceView struct {
@@ -142,14 +239,16 @@ func fenceWrite(r *http.Request) bool {
 	return true
 }
 
-// fenceExempt names the writes a fenced controller still takes: raising and
-// lifting the fence, the owner's backup settings, run and verify (so a final
+// fenceExempt names the writes a fenced controller still takes: raising,
+// readdressing and lifting the fence, a machine saying it has followed, the owner's backup settings, run and verify (so a final
 // copy can be taken and checked), and signing in or out, without which an owner
 // whose session had lapsed could not reach the rest.
 func fenceExempt(r *http.Request) bool {
 	p := r.URL.Path
 	switch {
 	case p == fencePath:
+		return true
+	case r.Method == http.MethodPost && p == fenceLeftPath:
 		return true
 	case p == ssoLogoutPath:
 		return true
@@ -179,6 +278,11 @@ func (s *server) fenceGate(next http.Handler) http.Handler {
 		if !f.Fenced {
 			next.ServeHTTP(w, r)
 			return
+		}
+		// A machine turned away has been told where to go; the Move page
+		// counts it as on its way.
+		if id := r.Header.Get("X-Reet-Agent"); id != "" {
+			_ = s.st.NoteFenceTold(id, r.Header.Get("X-Reet-Agent-Key"))
 		}
 		writeJSON(w, http.StatusLocked, map[string]any{
 			"error": fenceMessage(f), "code": "controller_moved",

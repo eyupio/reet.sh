@@ -19,6 +19,10 @@ export type MoveFeatures = {
   publicUrl: boolean
   /** A copy can be sealed with a password sent for that copy alone. */
   copyPassword: boolean
+  /** The new address can be given or changed while the fence stands. */
+  fenceAddress: boolean
+  /** The fence reports which machines have followed it. */
+  fenceMachines: boolean
 }
 
 /**
@@ -27,7 +31,10 @@ export type MoveFeatures = {
  */
 export function moveFeatures(features: unknown): MoveFeatures {
   const has = (name: string) => Array.isArray(features) && features.includes(name)
-  return { fence: has('fence'), copyOrigin: has('copy-origin'), publicUrl: has('restore-public-url'), copyPassword: has('copy-password-request') }
+  return {
+    fence: has('fence'), copyOrigin: has('copy-origin'), publicUrl: has('restore-public-url'), copyPassword: has('copy-password-request'),
+    fenceAddress: has('fence-address'), fenceMachines: has('fence-machines'),
+  }
 }
 
 export type FenceWatch = {
@@ -105,12 +112,71 @@ export function copyPasswordProblem(password: string): string {
   return ''
 }
 
-/** What to put where the new address goes in a command while nobody has said what it is. */
-export const NEW_ADDRESS_PLACEHOLDER = 'https://NEW-ADDRESS'
+/**
+ * Why machines will not follow this address on their own, or '' when they will. A machine sends its credentials over
+ * HTTPS only, except to a controller on the machine itself, so a plain http address elsewhere is fenced but not
+ * followed.
+ */
+export function followProblem(text: string): string {
+  const value = cleanAddress(text)
+  if (!value || addressProblem(value)) return ''
+  const url = new URL(value)
+  if (url.protocol === 'https:') return ''
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
+  return local ? '' : 'Machines only follow an https:// address on their own, so with this one each would need moving by hand.'
+}
 
-/** The command a machine runs to follow the controller to its new address. */
-export function setServerCommand(address: string): string {
-  return `reet agent set-server ${cleanAddress(address) || NEW_ADDRESS_PLACEHOLDER}`
+/** One enrolled machine as the fenced controller has heard from it. */
+export type FenceMachine = {
+  id: string; host: string; owner: string; lastSeen: number; toldAt: number; leftAt: number; leftTo: string; held: string
+}
+
+/** How long a machine turned away by the fence counts as still asking: the agent asks every five seconds. */
+export const ASKING_WINDOW_MS = 2 * 60 * 1000
+
+/**
+ * Where one machine is in the move. moved: it said it now points at the new controller. held: it said it will not
+ * follow on its own. waiting: the fence is turning it away now, so it knows the address and is waiting for the new
+ * controller to answer. quiet: it was told, then stopped asking without saying it moved (switched off, or a build too
+ * old to say). unseen: it has not asked since the fence went up, so it has not been told.
+ */
+export type MoveState = 'moved' | 'held' | 'waiting' | 'quiet' | 'unseen'
+
+export function machineMoveState(m: FenceMachine, now: number): MoveState {
+  if (m.leftAt > 0) return 'moved'
+  if (m.held) return 'held'
+  if (m.toldAt > 0) return now - m.toldAt <= ASKING_WINDOW_MS ? 'waiting' : 'quiet'
+  return 'unseen'
+}
+
+/**
+ * What a state means for the owner, in a few words. `hasAddress` is whether the fence names where to go: a machine the
+ * fence is turning away has no address to follow until it does.
+ */
+export function moveStateLine(m: FenceMachine, now: number, hasAddress = true): string {
+  const state = machineMoveState(m, now)
+  if (!hasAddress && (state === 'waiting' || state === 'quiet')) {
+    return state === 'waiting' ? 'Asking here; waiting for you to give the new address' : 'Asked here, then went quiet; it picks up the address when it is back'
+  }
+  switch (state) {
+    case 'moved': return m.leftTo ? `Moved to ${m.leftTo}` : 'Moved'
+    case 'held': return m.held === 'follow-off'
+      ? 'Following is turned off on this machine; run reet agent set-server there'
+      : 'Will not follow this address on its own; give an https:// address'
+    case 'waiting': return 'Has the new address; waiting for the new controller to answer'
+    case 'quiet': return 'Was given the new address, then went quiet; it carries on when it is back'
+    case 'unseen': return 'Not heard from since the fence; it picks up the address when its agent next runs'
+  }
+}
+
+export type MoveProgress = Record<MoveState, number> & { total: number; done: boolean }
+
+/** How far the move has got across every machine. Done once every machine says it has moved. */
+export function moveProgress(machines: FenceMachine[], now: number): MoveProgress {
+  const out: MoveProgress = { moved: 0, held: 0, waiting: 0, quiet: 0, unseen: 0, total: machines.length, done: false }
+  for (const m of machines) out[machineMoveState(m, now)]++
+  out.done = out.total > 0 && out.moved === out.total
+  return out
 }
 
 /**

@@ -1,17 +1,17 @@
 <script lang="ts">
   // The old controller's side of a move: fence it, take the final copy, and say what happens next on the new
-  // controller and on each machine. The owner only, and only on a controller that holds the fence.
+  // controller. Machines follow on their own; the page shows each one as it goes. The owner only, and only on a
+  // controller that holds the fence.
   //
   // The order is the point. A copy taken before the fence can already be out of date, and a second live controller
   // working from it would split one set of data, so the copy step stays shut until the fence is up, and the page says
   // whether the copy it took really was taken fenced rather than assuming so.
-  import { backupDownloadUrl, liftFence, raiseFence, runBackupNow, type BackupItem } from './api'
+  import { backupDownloadUrl, getFenceMachines, liftFence, raiseFence, runBackupNow, setFenceAddress, type BackupItem } from './api'
   import ConfirmDialog from './ConfirmDialog.svelte'
-  import CopyButton from './CopyButton.svelte'
   import PasswordInput from './PasswordInput.svelte'
   import {
-    COPY_PASSWORD_MIN, addressProblem, cleanAddress, copyPasswordProblem, copySource, finalCopy, setServerCommand,
-    type Fence, type MoveFeatures,
+    COPY_PASSWORD_MIN, addressProblem, cleanAddress, copyPasswordProblem, copySource, finalCopy, followProblem, machineMoveState,
+    moveProgress, moveStateLine, type Fence, type FenceMachine, type MoveFeatures,
   } from './controllerMove'
 
   let { fence, features, items, enabled = true, when, size, onfence, ontaken }: {
@@ -34,7 +34,15 @@
   let taken = $state<BackupItem | null>(null)
   let again = $state(false)
 
+  let editing = $state(false)
+  let machines = $state<FenceMachine[] | null>(null)
+  let machinesError = $state('')
+  // The controller's clock, so "still asking" is judged against the times it recorded.
+  let skew = $state(0)
+  let tick = $state(Date.now())
+
   const addressBad = $derived(addressProblem(address))
+  const addressNote = $derived(addressBad ? '' : followProblem(address))
   const passwordBad = $derived(password !== '' ? copyPasswordProblem(password) : '')
   // What was just taken is shown even when it turned out not to be fenced, so the page can say so; a reload falls back
   // to the list, which only ever offers a copy that says it was.
@@ -42,8 +50,35 @@
   const copy = $derived(fence.fenced ? ((taken && (items.find(item => item.id === taken?.id) ?? taken)) ?? finalCopy(items, fence)) : null)
   const copyState = $derived(copy ? copySource(copy) : 'unknown')
   const copyGood = $derived(!!copy && (copyState === 'fenced' || !features.copyOrigin))
-  const target = $derived(fence.fenced ? fence.movedTo : cleanAddress(addressBad ? '' : address))
-  const command = $derived(setServerCommand(target))
+  const now = $derived(tick + skew)
+  const progress = $derived(machines ? moveProgress(machines, now) : null)
+
+  // While the fence stands the machines are asked after every ten seconds, so the list moves as they do.
+  $effect(() => {
+    if (!fence.fenced || !features.fenceMachines) {
+      machines = null
+      return
+    }
+    let stopped = false
+    const load = async () => {
+      try {
+        const got = await getFenceMachines()
+        if (stopped) return
+        skew = got.now - Date.now()
+        tick = Date.now()
+        machines = got.machines
+        machinesError = ''
+      } catch (e) {
+        if (!stopped) machinesError = e instanceof Error ? e.message : String(e)
+      }
+    }
+    void load()
+    const timer = setInterval(load, 10_000)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  })
 
   function say(e: unknown) {
     error = e instanceof Error ? e.message : String(e)
@@ -56,6 +91,22 @@
     try {
       onfence(await raiseFence(cleanAddress(address)))
       address = ''
+    } catch (e) {
+      say(e)
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function readdress(e: SubmitEvent) {
+    e.preventDefault()
+    if (addressBad) return
+    busy = 'address'
+    error = ''
+    try {
+      onfence(await setFenceAddress(cleanAddress(address)))
+      address = ''
+      editing = false
     } catch (e) {
       say(e)
     } finally {
@@ -119,10 +170,31 @@
       {#if fence.fenced}
         <p>
           Fenced since {when(fence.since)}.
-          {#if fence.movedTo}Moved to <a href={fence.movedTo} rel="noopener noreferrer">{fence.movedTo}</a>.{:else}No new address was given.{/if}
+          {#if fence.movedTo}Moved to <a href={fence.movedTo} rel="noopener noreferrer">{fence.movedTo}</a>.{:else}No new address was given yet, so machines do not know where to go.{/if}
         </p>
+        {#if features.fenceAddress && (editing || !fence.movedTo)}
+          <form class="readdress" onsubmit={readdress}>
+            <label class="field">
+              <span>{fence.movedTo ? 'Change the new address' : 'New address'}</span>
+              <input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://reet.new.example" bind:value={address}
+                aria-invalid={addressBad ? 'true' : undefined} aria-describedby="move-readdress-hint" />
+            </label>
+            <small id="move-readdress-hint" class:bad={!!addressBad || !!addressNote}>
+              {addressBad || addressNote || 'Machines are told it on their next request and follow on their own. The fence stays up.'}
+            </small>
+            <div class="acts">
+              <button type="submit" class="btn primary" disabled={busy !== '' || !cleanAddress(address) || !!addressBad} aria-busy={busy === 'address'}>
+                {busy === 'address' ? 'Saving…' : 'Save the address'}
+              </button>
+              {#if editing}<button type="button" class="btn" onclick={() => { editing = false; address = '' }}>Cancel</button>{/if}
+            </div>
+          </form>
+        {/if}
         <p class="muted">Every change is refused and background work stands still. Signing in, reading, and taking, checking and downloading copies still work.</p>
         <div class="acts">
+          {#if features.fenceAddress && fence.movedTo && !editing}
+            <button type="button" class="btn" onclick={() => (editing = true)} disabled={busy !== ''}>Change the address</button>
+          {/if}
           <button type="button" class="btn" onclick={() => (asking = 'lift')} disabled={busy !== ''} aria-busy={busy === 'lift'}>
             {busy === 'lift' ? 'Lifting…' : 'Lift the fence'}
           </button>
@@ -134,8 +206,8 @@
           <input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://reet.new.example" bind:value={address}
             aria-invalid={addressBad ? 'true' : undefined} aria-describedby="move-address-hint" />
         </label>
-        <small id="move-address-hint" class:bad={!!addressBad}>
-          {addressBad || 'Where the controller will answer after the move. Anyone who tries a change here is told to use it.'}
+        <small id="move-address-hint" class:bad={!!addressBad || !!addressNote}>
+          {addressBad || addressNote || 'Where the controller will answer after the move. Every machine is told it and follows on its own; you can also give it once fenced.'}
         </small>
         <div class="acts">
           <button type="button" class="btn primary" onclick={() => (asking = 'raise')} disabled={busy !== '' || !!addressBad} aria-busy={busy === 'fence'}>
@@ -204,20 +276,47 @@
       </ul>
     </li>
 
-    <li>
-      <h4><span class="marker" aria-hidden="true">4</span>On each machine</h4>
-      {#if fence.fenced && fence.movedTo}
-        <p class="muted">Machines whose agents are running follow to the new address on their own once the new controller answers. On a machine that does not, run this. Either way a machine checks that the new controller holds its record before it sends any credential.</p>
-      {:else}
-        <p class="muted">A machine keeps talking to this address until it is told the new one; give the fence the new address and running machines follow on their own. It checks that the new controller holds its record before it sends any credential.</p>
+    <li class:done={!!progress?.done} class:later={!fence.fenced}>
+      <h4><span class="marker" aria-hidden="true">{progress?.done ? '✓' : '4'}</span>Machines follow on their own</h4>
+      <p class="muted">
+        Nothing to run on them. Each machine is told the new address on its next request here, keeps it, and moves once
+        the new controller proves it holds the machine's record; only then does it send a credential. It then tells this
+        controller it has gone.
+      </p>
+      {#if fence.fenced && features.fenceMachines}
+        {#if machinesError}<p class="bad" role="alert">{machinesError}</p>{/if}
+        {#if progress && machines}
+          {#if progress.total === 0}
+            <p class="muted">No machines are enrolled here, so there is nothing to move.</p>
+          {:else}
+            <p class="tally" role="status">
+              <strong>{progress.moved} of {progress.total}</strong> moved{#if progress.waiting}, {progress.waiting} {fence.movedTo ? 'waiting for the new controller' : 'waiting for the new address'}{/if}{#if progress.quiet + progress.unseen}, {progress.quiet + progress.unseen} not asking right now{/if}{#if progress.held}, {progress.held} need a hand{/if}.
+            </p>
+            <ul class="machines" aria-label="Machines">
+              {#each machines as m (m.id)}
+                {@const state = machineMoveState(m, now)}
+                <li class="machine {state}">
+                  <span class="dot" aria-hidden="true"></span>
+                  <span class="host">{m.host}</span>
+                  <span class="what">{moveStateLine(m, now, !!fence.movedTo)}</span>
+                </li>
+              {/each}
+            </ul>
+            {#if !fence.movedTo}<p class="bad">Give the new address in step 1; until then no machine knows where to go.</p>{/if}
+          {/if}
+        {:else if !machinesError}
+          <p class="muted">Reading the machines…</p>
+        {/if}
       {/if}
-      <div class="cmdline"><code>{command}</code><CopyButton text={command} compact ariaLabel="Copy the set-server command" /></div>
-      {#if !target}<p class="muted">Replace <code>https://NEW-ADDRESS</code> with the new controller's address.</p>{/if}
     </li>
 
-    <li>
+    <li class:done={!!progress?.done}>
       <h4><span class="marker" aria-hidden="true">5</span>When everything works</h4>
-      <p class="muted">Resume what the new controller held back; its report lists it. This controller can stay fenced, or be retired.</p>
+      <p class="muted">
+        Resume what the new controller held back; its report lists it. Keep this controller fenced and running until
+        every machine shows moved: a machine switched off now learns the address from it when it is back. After that it
+        can be retired.
+      </p>
     </li>
   </ol>
 </section>
@@ -261,8 +360,19 @@
   .tag.good { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); color: var(--good); }
   .tag.bad { border-color: var(--bad); color: var(--bad); }
   .bad { color: var(--bad); overflow-wrap: anywhere; }
-  .cmdline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; }
-  .cmdline code { min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow-wrap: anywhere; }
+  .readdress { max-width: 28rem; }
+  .tally { font-size: 0.88rem; }
+  .steps .machines { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 0; color: inherit; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .steps .machines li { display: grid; grid-template-columns: auto minmax(0, 10rem) minmax(0, 1fr); align-items: baseline; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--line-soft); font-size: 0.875rem; }
+  .steps .machines li:first-child { border-top: 0; }
+  .machines .host { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+  .machines .what { color: var(--muted); overflow-wrap: anywhere; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); align-self: center; }
+  .machine.moved .dot { background: var(--good); }
+  .machine.waiting .dot { background: var(--accent, var(--muted)); }
+  .machine.held .dot { background: var(--bad); }
+  .machine.held .what { color: var(--bad); }
+  @media (max-width: 560px) { .steps .machines li { grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; } .machines .what { grid-column: 2; } }
   @media (max-width: 560px) { .acts .btn { width: 100%; } }
   @media (pointer: coarse) { .acts .btn, .field input { min-height: 44px; } }
 </style>

@@ -587,7 +587,7 @@ func guardedPath(path string) bool {
 
 func openAuthPath(path string) bool {
 	switch path {
-	case "/api/version", syncproof.Path, "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join", "/api/v2/auth/forgot", "/api/v2/auth/reset",
+	case "/api/version", syncproof.Path, fenceLeftPath, "/api/v2/auth/status", "/api/v2/auth/setup", "/api/v2/auth/signup", "/api/v2/auth/sign-in", "/api/v2/auth/sign-out", "/api/v2/auth/invite", "/api/v2/auth/join", "/api/v2/auth/forgot", "/api/v2/auth/reset",
 		"/api/v2/auth/oidc/start", "/api/v2/auth/oidc/callback", ssoLogoutPath:
 		return true
 	}

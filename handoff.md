@@ -18,6 +18,27 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## CI-FLAKE-1: two checks that failed on unchanged code (13 November 2026)
+
+Both failed once on a pull request that touched neither, and passed on a re-run. Each had a cause.
+
+- **`TestForceStopIsBoundToTheCancelledTurn`, "OpenCode reported no version".** The test failed in 0.00s, so the
+  version probe had not run at all: `cmd.Start` returned "text file busy". A binary still open for writing cannot be
+  run, and the fake agent is a script each test writes while other parallel tests fork, each fork holding the open
+  file for an instant. `VersionError` words every refusal with a required version the same way, which hid the reason.
+  `probeOnce` (`internal/acpagent/config.go`) now tries the start again while the kernel says busy, six tries over a
+  little more than a second; the same moment exists for real after an install or update writes the agent.
+  `probe_busy_test.go` holds the binary open and reproduces the exact CI message with the retry removed. Not changed:
+  the session's own start (`session.go`, after the probe), and the error's wording.
+- **The benchmark gate, `ListForCompact` +19.63% (p=0.035, n=6+7).** The code measured was identical on both sides
+  (`internal/store` was untouched; allocations were equal to the byte). Two things made a false alarm likely. The
+  runner's processor count changed mid-run (samples named `-2` and `-3`), so benchstat compared six against seven of
+  eight; `bench-compare.sh` now fixes it with `-test.cpu` (`BENCH_CPU`, 2). And nine benchmarks at p < 0.05 on a
+  shared runner will cross the gate by chance now and then; the job now measures again only what the first
+  comparison named (`bench-gate.py --failed-to`) and fails on the second comparison. The threshold and significance
+  are unchanged. Tests in `scripts/bench_gate_test.go`; the gate was also run against real benchstat with a
+  synthetic 29% regression (caught, named) and the measure-again step was run by hand.
+
 ## MOVE-FOLLOW-1 and MOVE-OWNER-1: machines follow a move, and a restore can make an owner (13 November 2026)
 
 - **Machines follow.** `internal/scan/agent_follow.go`: a running agent that is refused with 423 `controller_moved`

@@ -52,7 +52,12 @@ run the same comparison locally, use `bash scripts/bench-compare.sh BASE_DIR
 PR_DIR OUTPUT_DIR`, with `benchstat` on PATH for
 `python3 scripts/bench-gate.py OUTPUT_DIR/base.txt OUTPUT_DIR/new.txt 15`.
 `BENCH_REGEX` can select a smaller benchmark set; CI retains its existing set
-and statistically significant 15% regression gate.
+and statistically significant 15% regression gate. Every sample runs with two
+processors (`BENCH_CPU`), because a processor count that changes between
+samples gives one benchmark two names and benchstat then compares fewer samples
+than were taken. A regression has to be seen twice: CI measures again only what
+the first comparison put over the gate (`--failed-to FILE` names it), and fails
+on that second comparison.
 
 ## Gaffer offline acceptance
 

@@ -5,6 +5,12 @@ Reads two `go test -bench` outputs, asks benchstat for the A/B comparison, and
 exits non-zero when a sec/op change is both larger than the threshold and
 statistically significant (p < 0.05). Missing benchmarks on either side are a
 skip, not a failure: a new benchmark has no base to compare with.
+
+With --failed-to FILE the top-level names of the benchmarks that failed are
+written to FILE, one a line, so the caller can measure those again before it
+believes them. Nine benchmarks at p < 0.05 on a shared runner give a false
+alarm on unchanged code often enough to matter; a real regression is still
+there the second time.
 """
 
 import csv
@@ -53,12 +59,31 @@ def comparison(base, new):
     return out
 
 
+def top_level(name):
+    """ListSkillsAPI/compact-2 is measured again as ListSkillsAPI."""
+    name = re.sub(r"-[0-9]+$", "", name)
+    name = name.split("/", 1)[0]
+    return name[len("Benchmark"):] if name.startswith("Benchmark") else name
+
+
 def main():
-    if len(sys.argv) != 4:
-        print("usage: bench-gate.py BASE.txt NEW.txt THRESHOLD_PERCENT", file=sys.stderr)
+    args = sys.argv[1:]
+    failed_to = None
+    if "--failed-to" in args:
+        at = args.index("--failed-to")
+        if at + 1 >= len(args):
+            print("bench-gate: --failed-to needs a file", file=sys.stderr)
+            return 2
+        failed_to = args[at + 1]
+        del args[at:at + 2]
+    if len(args) != 3:
+        print("usage: bench-gate.py BASE.txt NEW.txt THRESHOLD_PERCENT [--failed-to FILE]", file=sys.stderr)
         return 2
-    base, new = sys.argv[1], sys.argv[2]
-    threshold = float(sys.argv[3])
+    base, new = args[0], args[1]
+    threshold = float(args[2])
+    if failed_to:
+        # Empty unless something fails, so a stale file never names a benchmark.
+        open(failed_to, "w", encoding="utf-8").close()
 
     base_names = read_benchmarks(base)
     new_names = read_benchmarks(new)
@@ -68,6 +93,7 @@ def main():
         return 0
 
     failures = []
+    failed_names = []
     checked = 0
     for name, change, p in comparison(base, new):
         if name == "geomean" or change in ("", "~"):
@@ -85,7 +111,12 @@ def main():
         print(f"{name}: {change} ({p})")
         if percent > threshold and float(p_match.group(1)) < 0.05:
             failures.append(f"{name}: {change} ({p})")
+            failed_names.append(top_level(name))
 
+    if failures and failed_to:
+        with open(failed_to, "w", encoding="utf-8") as handle:
+            for name in sorted(set(failed_names)):
+                handle.write(name + "\n")
     if failures:
         print("\nbench-gate: regressions over %.1f%%:" % threshold, file=sys.stderr)
         for failure in failures:

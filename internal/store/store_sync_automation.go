@@ -195,8 +195,11 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 		// copy now instead of waiting for a person to press Auto fix. The saved
 		// plan changes; no file on the machine is touched. An ambiguous conflict
 		// stays reported with the reason it was left alone.
+		// A preview waiting for approval does not block the repair: the saved
+		// source is changing, so that approval is stale. Queued or running work
+		// is left alone until it settles.
 		var repairPending int
-		if err := s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND target_id=? AND status IN ('queued','running','awaiting-approval')`, uid, agent.ID, target.Target.ID).Scan(&repairPending); err != nil {
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM sync_jobs WHERE user_id=? AND agent_id=? AND target_id=? AND status IN ('queued','running')`, uid, agent.ID, target.Target.ID).Scan(&repairPending); err != nil {
 			return err
 		}
 		if repairPending == 0 && !target.Canonical && s.targetReportsSourceConflict(uid, target.Target.ID) {
@@ -210,6 +213,9 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 				continue
 			} else if len(fixes) > 0 {
 				err = s.withTx(func(tx *sql.Tx) error {
+					if e := endSyncJobsTx(tx, "cancelled", "Source changed; planning again automatically.", `j.user_id=? AND j.target_id=? AND j.status='awaiting-approval'`, uid, target.Target.ID); e != nil {
+						return e
+					}
 					job, e := insertSyncJobTx(tx, uid, agent.ID, target.Target.ID, "auto")
 					if e != nil {
 						return e

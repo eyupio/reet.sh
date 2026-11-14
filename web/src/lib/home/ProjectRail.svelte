@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { projectSource } from '../githubRepo'
   import { onMount, tick, type Snippet } from 'svelte'
   import type { FolderProject, ProjectGroup } from '../terminal/api'
   import { railState, worktreesInUse } from '../home'
@@ -101,7 +102,7 @@
   function label(p: FolderProject): string {
     const wt = worktrees.get(p.id) ?? 0
     const colour = PROJECT_COLOURS.find(c => c.id === projectColour(p.colour))?.name
-    return [p.name, colour && colour !== 'No colour' ? colour : '', machineTag(p), p.baseBranch, stateOf(p)?.text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
+    return [p.name, colour && colour !== 'No colour' ? colour : '', machineTag(p), projectSource(p), p.baseBranch, stateOf(p)?.text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
   }
   const initial = (name: string) => Array.from(name.trim())[0]?.toUpperCase() ?? '?'
   /** The most projects one start takes (the controller's limit). */
@@ -422,6 +423,7 @@
         {#if state}<span class="state {state.tone}">{state.text}</span>{/if}
         {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
       </span>
+      {#if p.origin}<span class="origin" title={`Cloned from github.com/${p.origin}`}>{p.origin}</span>{/if}
     </button>
     {#if !selecting}
       {#if onnew}<button type="button" class="start" aria-label={`${startWord} in ${p.name}`} title={startWord === 'New session' ? 'Start a session in this project' : `${startWord} in this project`} onclick={(e) => startCard(p, e.currentTarget)}>
@@ -708,6 +710,8 @@
   .tag { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); }
   .meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 14px; color: var(--muted); }
   .branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+  /* Where a project from GitHub came from, on a line of its own so the machine and branch keep their room. */
+  .origin { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 14px; color: var(--muted); }
   .state { flex: none; }
   .state.good { color: var(--good); }
   .state.warn { color: var(--warn); }

@@ -74,7 +74,10 @@ the card) sets the project's colour; the colour is saved on the project and foll
 browser.
 
 Each compact card shows two lines, in words: a repository diamond (or a folder icon for a plain folder) and the
-name, then the machine, the base branch (mono) when one is set, the state and the worktrees in use. The state is
+name, then the machine, the base branch (mono) when one is set, the state and the worktrees in use. A project added From GitHub
+adds a third line, where it came from (`owner/name`, mono, "Cloned from github.com/owner/name" on hover), and its
+spoken name says "from GitHub owner/name"; the Sessions screen's desktop list and Manage projects show it beside the
+machine. Everything is still a project: a folder on one of your machines, whether reet cloned it or not. The state is
 "N running" (its own running and starting sessions, by each session's project id), "machine offline"
 when its machine is known not to be reporting, else "idle". Worktrees in use are the distinct
 worktrees its live sessions are working in; the session listing has no record of removed worktrees,

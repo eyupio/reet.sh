@@ -12,6 +12,10 @@ this file existed releases were described on their GitHub release pages.
   github.com link still works. The machine asks GitHub with its own `gh`, so
   the list is what that machine can clone. Both the controller and `reet agent`
   need this release; a machine on an older reet keeps the plain field.
+- A project added from GitHub now shows where it came from (`owner/name`) on
+  its card in the project rail, in the Sessions screen's project list and in
+  Manage projects. It is still called a project, like any other folder on a
+  machine; a session's **Where it's working** already named its repository.
 - **Add a project** on the Sessions screen now offers **From GitHub** at every
   width. Its desktop project list opened a copy of the dialog without it.
 

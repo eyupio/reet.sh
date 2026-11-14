@@ -250,9 +250,12 @@ try {
   await expect(opener).toBeFocused()
   await expect(page.getByText('Sorted. reet.sh added.',{exact:true})).toBeVisible()
   if (!screen.touch) {
-   const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, main/})
+   const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/})
    await expect(card).toBeVisible()
    await expect(card.locator('svg.icon.repo')).toHaveCount(1)
+   // Where it came from is on the card, not only in its label.
+   await expect(card.locator('.origin')).toHaveText('eyupio/reet.sh')
+   await expect(card.locator('.origin')).toHaveAttribute('title', 'Cloned from github.com/eyupio/reet.sh')
    await expect(card).toHaveAttribute('aria-current', 'true')
   } else await expect(page.locator('.scope')).toContainText('reet.sh')
   // Nothing more is read once it has ended.
@@ -290,7 +293,7 @@ try {
   await expect(dialog(page)).toBeHidden()
   expect(box.starts).toHaveLength(1)
   box.finish = true
-  const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, main/})
+  const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/})
   await expect(card).toBeVisible({timeout:10000})
   await expect(card).toHaveAttribute('aria-current', 'true')
   await expect(page.getByText('Sorted. reet.sh added.',{exact:true})).toBeVisible()
@@ -313,7 +316,7 @@ try {
   box.projects = [notes(), cloned()]
   const reads = box.reads.length
   await page.goto(base)
-  const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, main/})
+  const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/})
   await expect(card).toBeVisible()
   await expect(card.locator('svg.icon.repo')).toHaveCount(1)
   // The new page load has no clone to read.
@@ -861,7 +864,7 @@ try {
   await expect(dialog(page).getByText(CLONING,{exact:true})).toBeVisible()
   if (!open) { await footClose(page).click(); await expect(dialog(page)).toBeHidden() }
   box.finish = true
-  await expect(rail(page).getByRole('button',{name:/^reet\.sh, studio, main/})).toBeVisible({timeout:10000})
+  await expect(rail(page).getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/})).toBeVisible({timeout:10000})
   await expect(dialog(page)).toBeHidden()
   await page.waitForTimeout(500)
   await expect(page.locator('.notice.bad')).toHaveCount(0)

@@ -56,6 +56,9 @@ export function clonedProject<P extends { host: string; origin?: string }>(list:
 }
 
 /** Where the machine puts the clone, as the person reads it. */
+/** Where a project came from, in words, for a label: "from GitHub owner/name" for one reet cloned, else "". Only the
+ *  projects added From GitHub record it; a folder added by path is a project like any other. */
+export const projectSource = (p: { origin?: string }): string => (p.origin ? `from GitHub ${p.origin}` : '')
 export const cloneFolder = (r: { owner: string; repo: string }): string => `~/reet/repos/${r.owner}/${r.repo}`
 
 /** A clone this page started: the controller's job id, the machine (enrollment id and name) and the repository. */

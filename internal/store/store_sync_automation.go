@@ -205,6 +205,9 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 				if e := problem("Auto fix could not settle this one: " + fixErr.Error()); e != nil {
 					return e
 				}
+				// A conflict with no single safe source is reported, not retried:
+				// queueing the same plan again would only repeat the same failure.
+				continue
 			} else if len(fixes) > 0 {
 				err = s.withTx(func(tx *sql.Tx) error {
 					job, e := insertSyncJobTx(tx, uid, agent.ID, target.Target.ID, "auto")

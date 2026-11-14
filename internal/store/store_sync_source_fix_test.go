@@ -149,6 +149,10 @@ func TestMaintainSyncFollowsUnambiguousInstalledSourceAndReportsIt(t *testing.T)
 	if err != nil || next == nil || next.Kind != "auto" || !strings.Contains(next.Message, "Auto-fixed") {
 		t.Fatalf("repair job: %+v %v", next, err)
 	}
+	again, err := s.AutoResolveSyncSourceConflictsFor(uid, target)
+	if err != nil || len(again) != 0 {
+		t.Fatalf("the repair was not idempotent: %+v %v", again, err)
+	}
 }
 
 func TestMaintainSyncLeavesAmbiguousSourceConflictReported(t *testing.T) {
@@ -201,5 +205,16 @@ func TestMaintainSyncLeavesAmbiguousSourceConflictReported(t *testing.T) {
 	}
 	if !strings.Contains(after[0].Problem, "more than one source") || !strings.Contains(after[0].Problem, "Auto fix could not settle") {
 		t.Fatalf("ambiguous conflict was not reported: %+v", after[0])
+	}
+	jobs, _ := s.SyncJobsFor(uid)
+	if len(jobs) != 1 {
+		t.Fatalf("an ambiguous conflict queued another job: %+v", jobs)
+	}
+	if err = s.MaintainSync(uid, "owner", agent); err != nil {
+		t.Fatal(err)
+	}
+	jobs, _ = s.SyncJobsFor(uid)
+	if len(jobs) != 1 {
+		t.Fatalf("an ambiguous conflict queued repeated jobs: %+v", jobs)
 	}
 }

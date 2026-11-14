@@ -136,7 +136,7 @@ export function eventLabel(e: Event): string {
       if (d.name && d.cloneDeleted === true) return `Removed project ${d.name} and deleted its clone, ${d.clonePath || 'the folder reet made'} on ${d.host || 'its machine'}`
       // A clone reet made, removed without the tick: this removal left it alone, but an earlier delete that reet could
       // not confirm may have taken it, so nothing is said about the folder's state.
-      if (d.name && d.cloned === true) return `Removed project ${d.name}; reet did not delete the clone on ${d.host || 'its machine'}`
+      if (d.name && d.cloned === true) return `Removed project ${d.name}; this removal did not delete its clone on ${d.host || 'its machine'}`
       return d.name ? `Removed project ${d.name}; its folder on ${d.host || 'its machine'} is untouched` : 'Removed a project'
     case 'project-clone-delete':
       if (d.unconfirmed === true) return `Asked ${d.host || 'its machine'} to delete the clone at ${d.clonePath || 'the folder reet made'}; reet could not confirm it was deleted`

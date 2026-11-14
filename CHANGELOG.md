@@ -23,13 +23,14 @@ this file existed releases were described on their GitHub release pages.
   dialog, nothing is removed and the project stays. If the machine's answer is
   lost, or a proxy in front of reet gives up waiting, reet says it couldn't
   confirm, keeps the project, and records in Activity that the machine was
-  asked and did not answer. reet then says only what it knows: "reet finds no
-  clone it can delete at ~/reet/repos/owner/name on studio." Removing without
-  the tick works as before and never touches the folder, and reet never
-  deletes a folder it did not clone. Activity records the deletion with the
-  folder, and for a project reet cloned that is removed without the tick it
-  says reet did not delete the clone, not that the folder is untouched. The machine needs a current reet for this; an older one keeps the
-  clone.
+  asked and the delete could not be confirmed. reet then says only what it
+  knows: "reet finds no clone it can delete at ~/reet/repos/owner/name on
+  studio." Removing without the tick works as before and never touches the
+  folder, and reet never deletes a folder it did not clone. Activity records
+  the deletion with the folder, and for a project reet cloned that is removed
+  without the tick it says that removal did not delete the clone, not that
+  the folder is untouched. The machine needs a current reet for this; an
+  older one keeps the clone.
 - Adding from GitHub: if starting the clone gets no answer in 15 seconds the
   dialog now says "reet didn't hear back about starting the clone. Check the
   project list in a minute." instead of saying the request never arrived;

@@ -369,6 +369,28 @@ The review fixture at `web/tests/fixtures/gaffer-progress.html` uses the real ch
 controls for work, approval, question, reconnect, failure, finished and ended states and both themes. It never contacts a
 provider or changes a project. Run it with `node tests/serve-fixture.mjs gaffer-progress` from `web/`.
 
+## What the agent has used
+
+The status line above the message box ends with what the chat's agent reports using. When the agent says how large its
+context window is, the line reads **Context 55% left** with a small meter, and turns to the warning colour at 15% or
+less. When it reports tokens but never its window, the line shows the chat's tokens instead (**85k tokens**). Hover, or
+read it with a screen reader, for the detail: how many tokens of the window are free, and the input and output tokens
+of the chat's finished turns added up, with cached tokens counted apart.
+
+- The figures are the agent's own, passed on as numbers. reet attaches no price, and they are not a plan or
+  rate-limit allowance.
+- An agent that has reported nothing shows nothing: never a zero.
+- The line is read when the chat opens, whenever its status settles (an agent reports a turn's tokens as the turn
+  finishes) and every half minute while it works. A read that fails keeps the last figures.
+- It is the controller's own record (`GET /api/v2/terminal/sessions/{id}/chat/usage`), so an ended chat, or one whose
+  machine is away, still shows its last figures. No machine is asked.
+- The machine and the controller both need `acp-usage-v1`; an older machine reports nothing and the line stays empty.
+
+The field names reet reads (`used` and `size` on a `usage_update`; `inputTokens`, `outputTokens`, `cachedReadTokens`
+and `cachedWriteTokens` on a finished turn) were checked against the published Agent Client Protocol schema
+(`@agentclientprotocol/sdk` 2.6.0) and against the Claude adapter's published source (`claude-agent-acp` 0.107.0),
+which uses the same names. Which other agents send them has not been observed on a signed-in run.
+
 ## The seven conditions
 
 The controller never runs OpenCode. The connector starts `opencode acp` as its own process, one per reet session, in the session's

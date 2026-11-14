@@ -5,6 +5,7 @@ import type { Project, ProjectRun, WorktreeStatus, WorktreeTarget } from '../pro
 import type { MachineModels } from '../models'
 import type { SessionSkills } from './skills'
 import type { MachineAccounts } from '../agentAccounts'
+import type { ChatUsage } from '../chatUsage'
 
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'
 export type AttentionState = 'starting' | 'working' | 'quiet' | 'waiting' | 'finished' | 'failed'
@@ -592,6 +593,10 @@ export type ChatControls = { configuring: boolean; working: boolean; waiting: bo
 export type ChatControlAnswer = { controls: ChatControls; error?: string }
 export async function chatControls(id: string, signal?: AbortSignal): Promise<ChatControlAnswer> {
  return (await terminalRequest(`${chatURL(id)}/controls`, { signal })).json()
+}
+/** What this chat's agent has reported using, from the controller's own record: no machine is asked. */
+export async function chatUsage(id: string, signal?: AbortSignal): Promise<ChatUsage> {
+ return (await terminalRequest(`${chatURL(id)}/usage`, { signal })).json()
 }
 export async function chatSetting(id: string, configId: string, value: string): Promise<ChatControlAnswer> {
  return (await terminalRequest(`${chatURL(id)}/controls`, { method: 'POST', body: JSON.stringify({ action: 'set', configId, value }) })).json()

@@ -242,9 +242,9 @@ jobs:
           # fixture with Vite and needs no preview server. Its From GitHub choice (about 90 s) runs on Home, so it is one of the scripts.
           - job: phone-dialogs
             scripts: phone-dialogs launch launch-base add-project-github agent-accounts sessions-phone terminal-clipboard terminal-upload
-          # Chat sessions for each agent: controls, previews, recovery, launch options and the question card.
+          # Chat sessions for each agent: controls, the usage line, previews, recovery, launch options and the question card.
           - job: phone-chat
-            scripts: chat chat-controls chat-previews launch-options chat-recovery chat-claude chat-codex chat-cline chat-cline-source chat-antigravity question-card
+            scripts: chat chat-controls chat-usage chat-previews launch-options chat-recovery chat-claude chat-codex chat-cline chat-cline-source chat-antigravity question-card
           # Gaffer's artwork, theme, variety, return, interaction, progress and layout, and the Account page.
           - job: phone-gaffer
             scripts: gaffer-artwork gaffer-theme gaffer-variety gaffer-return gaffer-interaction gaffer-progress gaffer-layout account

@@ -646,7 +646,8 @@
     .session-screen.focus :global(.bubble.agent) { font-size: 15px; line-height: 1.68; }
     .session-screen.focus :global(.row.user) { margin-top: 14px; }
     .session-screen.focus :global(.row.user .bubble) { max-width: 90%; }
-    .session-screen.focus :global(.composer) { margin: 0 8px max(8px, env(safe-area-inset-bottom, 0px)); padding: 8px; }
+    /* The workspace already stops above the home indicator (TerminalWorkspace's measure). */
+    .session-screen.focus :global(.composer) { margin: 0 8px 8px; padding: 8px; }
     .session-screen.focus :global(.hint) { display: none; }
     .session-screen.focus :global(.tool-head) { min-height: 44px; }
   }

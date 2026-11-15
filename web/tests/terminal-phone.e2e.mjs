@@ -160,7 +160,7 @@ try{
  for(const control of await page.locator('.terminal-toolbar button,.mobile-keys button').all()){const size=await control.boundingBox();expect(size.height).toBeGreaterThanOrEqual(40);expect(size.width).toBeGreaterThanOrEqual(40)}
  for(const control of await page.locator('.pane>header .controls>button,.session-menu>summary').all())expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(40)
  // Only the terminal workspace asks the browser to resize the page for the keyboard.
- expect(await viewportMeta(page)).toBe('width=device-width, initial-scale=1.0, interactive-widget=resizes-content')
+ expect(await viewportMeta(page)).toBe('width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content')
  await expect(page.locator('.pane>header')).toContainText('developer@dev-laptop')
  // Clipped rows say so with a fade, and scroll by touch or keyboard.
  const toolbar=page.locator('.terminal-toolbar'),keys=page.locator('.mobile-keys')
@@ -392,7 +392,7 @@ try{
  await expect(page.locator('.xterm-rows')).toHaveCSS('font-size','16px')
  expect(phone.errors).toEqual([])
  // Other pages keep the default viewport meta, so their fixed bars and dialogs are unaffected.
- for(const path of ['/','/hosting','/machines']){await page.goto(`${base}${path}`);expect(await viewportMeta(page)).toBe('width=device-width, initial-scale=1.0')}
+ for(const path of ['/','/hosting','/machines']){await page.goto(`${base}${path}`);expect(await viewportMeta(page)).toBe('width=device-width, initial-scale=1.0, viewport-fit=cover')}
  await phone.context.close()
 
  // ── The opt-in viewport readout for checking a real phone ───────────────

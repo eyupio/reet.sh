@@ -54,6 +54,11 @@
 /* No product copy or chrome is smaller than 14px (0.875rem); labels may be quiet in colour and weight, never in size.
    The terminal draws its own type from --terminal-font-size, which a person chooses in Terminal appearance. */
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); min-width: 320px; }
+/* The page runs edge to edge on a phone (viewport-fit=cover in index.html), so its background fills the screen beside a
+   notch and under the home indicator. The content keeps clear of both: the sides here, the top bar below, the bottom
+   in each thing that sits at the foot (the tab bar, the session workspace, a dialog's sheet). Elsewhere these are 0. */
+body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.site-header { padding-top: env(safe-area-inset-top, 0px); }
 /* Scrollbars follow the palette in every panel. A component with its own colours (the terminal scrollback) keeps them. */
 * { scrollbar-color: var(--line-strong) transparent; scrollbar-width: thin; }
 *::-webkit-scrollbar { width: 12px; height: 12px; }

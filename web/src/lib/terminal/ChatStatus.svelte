@@ -56,9 +56,12 @@
   @container chat-status (max-width: 620px) { .detail { display: none; } }
   @container chat-status (max-width: 420px) { .usage-meter { display: none; } }
   /* On a desktop the floating Ask Gaffer circle sits over this line's right-hand end, above the composer. Keep the
-     figures out from under it; the circle is not shown beside a docked details panel or on a phone. */
-  @media (min-width: 768px) {
+     figures out from under it; the circle is not shown beside a docked details panel, on a phone or on a touch tablet. */
+  @media (min-width: 768px) and (not (pointer: coarse)) {
     :global(html:has(.gaffer-launcher:not([data-side=left])):not(:has(.context-docked)):not(:has(.context-sheet))) .conversation-status { padding-right: 68px; }
   }
+  /* On a phone, an approval or a question is already said twice above this line: by the pane's status line and by the
+     card that asks. A third time costs a row of the conversation, so this line waits until the answer is given. */
+  @media (max-width: 650px) { .conversation-status.attention { display: none; } }
   @media (prefers-reduced-motion: reduce) { .spinning svg { animation: none; } }
 </style>

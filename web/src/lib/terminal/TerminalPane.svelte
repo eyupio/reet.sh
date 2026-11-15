@@ -657,7 +657,7 @@
   .end {color:var(--bad)}
   .clipboard-menu {position:fixed;z-index:110;min-width:180px;max-height:calc(100dvh - 16px);overflow:auto;padding:6px;display:grid;gap:4px;border:1px solid var(--line);border-radius:8px;background:var(--card);box-shadow:0 8px 30px rgb(0 0 0 / .2)}
   .clipboard-menu button {text-align:left}
-  .pane.maximised {position:fixed;inset:12px;bottom:auto;height:calc(var(--terminal-viewport,100dvh) - 24px);z-index:90}
+  .pane.maximised {position:fixed;inset:12px calc(12px + env(safe-area-inset-right,0px)) auto calc(12px + env(safe-area-inset-left,0px));bottom:auto;height:calc(var(--terminal-viewport,100dvh) - 24px);z-index:90}
   /* Phones (narrow, or a touch screen held sideways; see PHONE_SCREEN in sizing.ts): every row of chrome is one line, so the screen keeps the height. */
   @media(max-width:650px),(max-height:500px) and (pointer:coarse) and (orientation:landscape) {
     header {padding:2px 4px 2px 8px}

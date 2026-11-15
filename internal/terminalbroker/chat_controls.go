@@ -34,6 +34,9 @@ func (b *Broker) ChatControl(ctx context.Context, uid int64, session string, in 
 	if len(in.Images) > 0 && !caps.Capabilities.ACPImages {
 		return terminalproto.ACPControlResult{}, ErrACPImagesUnsupported
 	}
+	if len(in.Text) > terminalproto.MaxChatPromptBytes && !caps.Capabilities.ACPLongPrompt {
+		return terminalproto.ACPControlResult{}, ErrACPLongPromptUnsupported
+	}
 	reply, err := p.callWithin(ctx, terminalproto.Message{RequestID: ID(), SessionID: session, Body: &in}, chatCallTimeout)
 	if err != nil {
 		if in.Action == "set" {

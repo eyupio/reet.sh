@@ -1,5 +1,34 @@
 # UI verification — 4 November 2026
 
+## Overlays within the safe area, and dictation in a chat (15 November 2026)
+
+What changed is in [handoff.md](../handoff.md) (MOBILE-3) and the [changelog](../CHANGELOG.md).
+
+Commands run in this container:
+
+- `cd web && npm run check`: 0 errors, 0 warnings.
+- `npm run build`, `npx vite preview --port 4173 --strictPort`, then:
+  - **New sections** in `terminal-focus.e2e.mjs`, passing, and each seen failing against a build of `main`:
+    - `overlays and insets`: Start an agent, the sessions drawer, Compose, the Appearance drawer, Session actions and
+      the Gaffer panel, each held inside the safe area at 390 × 844 (47 px top, 34 px bottom) and 844 × 390 (47 px
+      sides, 21 px bottom). On `main` Start an agent's foot is at 389 px of 390, under the 21 px inset.
+    - `chat dictation`: the 44 px Dictate button in a chat's composer, a phrase joining the draft, where the audio
+      goes said while it listens, sending stopping it, a refusal, and no button without speech recognition.
+  - **Existing suites**, all passing on the final build: `phone-dialogs` (26 dialogs at six phone sizes, with the
+    shared shell's styles changed), `terminal-compose` (with Dictate now its own component), `chat`, `chat-controls`,
+    `gaffer-chat`, `gaffer-widget-ux`, `gaffer-layout`, `home`, `sessions`, `sessions-phone`, `terminal-phone`,
+    `terminal-workspace`, `phone-zoom`, `phone-layout`, `inbox`, `navigation`, `projects`, `add-project`,
+    `start-agent`, `session-workspace`, `lists`, `loading`, `question-card`, `terminal-lifecycle`,
+    `terminal-clipboard`, `add-machine` and `machines-fleet`.
+- The real browser, broker and tmux shell (`TestTerminalPrivateLifecyclePreservesActualShell`) and `go test ./web`:
+  pass.
+- A separate audit opened the bell's panel as well, upright and sideways with the insets on: inside the safe area.
+
+Not checked: a real phone, notch or microphone; Safari and Firefox; the save dock, the sync dock, the project rail's
+drawer and a maximised pane with the insets on (changed by the same one-line rule as the others, not opened); popover
+menus placed at the pointer; the light theme; the rest of the browser suites and the full `go test -race ./...`
+(left to CI).
+
 ## Compose, attention grouping, chat-turn notifications, safe areas (15 November 2026)
 
 What changed is in [handoff.md](../handoff.md) (MOBILE-2) and the [changelog](../CHANGELOG.md).

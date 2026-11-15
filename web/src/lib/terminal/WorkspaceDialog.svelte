@@ -12,6 +12,6 @@
   <div class="content" data-shell-body>{@render children()}</div>
 </dialog>
 <style>
-  .drawer{position:fixed;inset:76px 16px 16px auto;margin:0;width:min(390px,calc(100vw - 24px));max-height:calc(100dvh - 92px)}@media(max-width:650px){.drawer{inset:64px 8px 8px;width:calc(100vw - 16px);max-height:calc(100dvh - 72px)}}
+  .drawer{position:fixed;inset:76px calc(16px + env(safe-area-inset-right,0px)) 16px auto;margin:0;width:min(390px,calc(100vw - 24px));max-height:calc(100dvh - 92px)}@media(max-width:650px){.drawer{inset:64px 8px 8px;width:calc(100vw - 16px);max-height:calc(100dvh - 72px)}}
   dialog{padding:0;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);width:min(580px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto}dialog.wide{width:min(820px,calc(100vw - 24px))}dialog::backdrop{background:rgb(20 18 15 / .4)}header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}h2{font:500 1.35rem var(--serif);margin:0}.content{padding:18px 20px;display:grid;gap:16px}
 </style>

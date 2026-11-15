@@ -97,6 +97,7 @@ type AgentConfig struct {
 	acpAgentMode       bool
 	acpAgentOptions    bool
 	acpImages          bool
+	acpLongPrompt      bool
 	acpApproval        bool
 	sessionMode        bool
 	nativeView         bool
@@ -1021,6 +1022,7 @@ func negotiateFeatures(cfg *AgentConfig, advertised string) {
 	cfg.acpAgentReattach = terminalproto.SupportsACPAgentReattach(advertised)
 	cfg.chatGate = terminalproto.SupportsChatGate(advertised)
 	cfg.acpImages = terminalproto.SupportsACPImages(advertised)
+	cfg.acpLongPrompt = terminalproto.SupportsACPLongPrompt(advertised)
 	cfg.acpApproval = terminalproto.SupportsACPApproval(advertised)
 	// session-mode-v1 stands on chats, their history and launches; it is
 	// never claimed without all three.
@@ -1152,6 +1154,9 @@ func terminalFeatures(cfg AgentConfig) string {
 	}
 	if cfg.acpImages {
 		features = append(features, terminalproto.ACPImageFeature)
+	}
+	if cfg.acpLongPrompt {
+		features = append(features, terminalproto.ACPLongPromptFeature)
 	}
 	if cfg.acpApproval {
 		features = append(features, terminalproto.ACPApprovalFeature)
@@ -1385,6 +1390,7 @@ func capabilitiesFor(cfg AgentConfig, enabled bool, readiness terminalproto.Read
 		// Only when a descriptor claims it, so the flag never appears without one.
 		ACPAgentReattach: acp && cfg.acpAgentReattach && anyReattach(chatAgents),
 		ACPImages:        acp && cfg.acpImages,
+		ACPLongPrompt:    acp && cfg.acpLongPrompt,
 		ACPApproval:      acp && cfg.acpApproval,
 		// Only on a connection that negotiated session-mode-v1, with chats and
 		// their history, and only when OpenCode can be launched in a

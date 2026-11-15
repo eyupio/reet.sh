@@ -122,7 +122,11 @@ beside it). Its parts:
 - **Edge to edge** (`viewport-fit=cover`): beside a notch held sideways and above a home indicator the page's
   background fills the screen, and nothing to read or press sits under them. The sides are the body's padding, the
   top is the site header's, the bottom is the tab bar's and the session workspace's own (it stops above the home
-  indicator while the keyboard is down), and the floating Ask Gaffer keeps clear of a side notch. On a 390 × 844 phone
+  indicator while the keyboard is down), and the floating Ask Gaffer keeps clear of a side notch. Overlays keep
+  clear too: an upright phone's sheets through the shared dialog shell; on a sideways phone a dialog's width leaves
+  the side insets free and it stops above the home indicator; the terminal's drawers, the Gaffer panel, the bell's
+  panel, the project rail's drawer, a maximised pane, and the save and sync docks each allow for the inset on the
+  edge they sit against. On a 390 × 844 phone
   with a 34 px home indicator a focused terminal has 46 rows instead of 49.
 - **Ask Gaffer on a touch screen**: on a phone or a touch tablet a session has no free corner (the floating circle sat
   on the agent's prompt line, over an empty strip held back for it), so the circle is hidden there and nothing is
@@ -699,6 +703,11 @@ message field where they all work.
   the draft and sends nothing by itself. The browser sends the audio to its own speech service, not to reet, and the
   sheet says so while it listens. The phone keyboard's own microphone works in the field without it.
 - Sending does not focus the terminal on a touch screen, so the keyboard is not raised over the output.
+
+A Gaffer chat's composer is already an ordinary message field, so it needs no compose box. It has the same
+**Dictate** button, beside Attach, where the browser has speech recognition: each finished phrase joins the message,
+the line under it says where the audio goes while it listens, nothing is sent by speaking, and sending the message
+stops the listening.
 
 ### On-screen keys
 

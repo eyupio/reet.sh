@@ -1,6 +1,6 @@
 <script lang="ts">
   import { githubRepos, refusalSentence, TerminalError, type GitHubRepo, type TerminalMachine } from '../terminal/api'
-  import { timedOut } from '../githubRepo'
+  import { filterRepositories, timedOut } from '../githubRepo'
   import { elapsed } from '../time'
 
   // The Repository field wherever a GitHub repository is named (Add a project, Start an agent, a Factory outcome): owner/name
@@ -32,8 +32,7 @@
 
   const canList = $derived(!!machine?.capabilities?.repoList)
   const listing = $derived(canList && machine ? listings[machine.agentId] : undefined)
-  const query = $derived(value.trim().toLowerCase())
-  const matches = $derived(listing?.state === 'ready' ? listing.repos.filter(r => r.name.toLowerCase().includes(query)) : [])
+  const matches = $derived(listing?.state === 'ready' ? filterRepositories(listing.repos, value) : [])
   const showList = $derived(open && !disabled && listing?.state === 'ready' && matches.length > 0)
   const optionId = (i: number) => `${id}-option-${i}`
 
@@ -110,7 +109,7 @@
     </ul>
   {/if}
 </div>
-<p class="hint" id={`${id}-hint`}>{#if listing?.state === 'loading'}Reading {machine?.host}'s repositories from GitHub…{:else if listing?.state === 'failed'}{listing.sentence}{:else if listing?.state === 'ready' && listing.repos.length}Choose from {machine?.host}'s {listing.more ? `${listing.repos.length} most recently pushed ` : ''}GitHub repositories, or type owner/name or a github.com link{:else if listing?.state === 'ready'}{machine?.host}'s GitHub sign-in reaches no repositories. Type owner/name or a github.com link{:else}owner/name, or a github.com link{/if}</p>
+<p class="hint" id={`${id}-hint`}>{#if listing?.state === 'loading'}Reading {machine?.host}'s repositories from GitHub…{:else if listing?.state === 'failed'}{listing.sentence}{:else if listing?.state === 'ready' && listing.repos.length && matches.length === 0 && value.trim() !== ''}No repository in {machine?.host}'s list matches “{value.trim()}”. Type its owner/name or a github.com link{:else if listing?.state === 'ready' && listing.repos.length}Choose from {machine?.host}'s {listing.more ? `${listing.repos.length} most recently pushed ` : ''}GitHub repositories, or type owner/name or a github.com link{:else if listing?.state === 'ready'}{machine?.host}'s GitHub sign-in reaches no repositories. Type owner/name or a github.com link{:else}owner/name, or a github.com link{/if}</p>
 {#if problem}<p class="note" id={`${id}-note`}>{problem}</p>{/if}
 
 <style>

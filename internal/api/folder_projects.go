@@ -647,7 +647,12 @@ func (s *server) folderProjectUpdate(w http.ResponseWriter, r *http.Request) {
 		refusal.write(w)
 		return
 	}
-	saved, err := s.st.UpdateFolderProjectFor(uid, p, expect)
+	var saved store.FolderProject
+	// Not while reet removes it as a temporary project: see temporaryGate.
+	if !unlessRemoving(uid, current.ID, func() { saved, err = s.st.UpdateFolderProjectFor(uid, p, expect) }) {
+		writeErrCode(w, http.StatusConflict, "project_removing", "", sentenceTemporaryRemoving, "")
+		return
+	}
 	if err != nil {
 		folderRefusal(err, machineLabel(names, p.Host)).write(w)
 		return

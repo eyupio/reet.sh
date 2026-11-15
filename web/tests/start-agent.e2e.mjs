@@ -62,7 +62,8 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/folder-projects/github-repos')data={repos:[{name:'acme/site',private:true,pushedAt:Math.floor(Date.now()/1000)-3600},{name:'acme/docs',private:false,pushedAt:0}],more:false}
  else if(path==='/api/v2/folder-projects/from-github'&&method==='POST'){ghStarts.push(req.postDataJSON());return route.fulfill({status:202,json:{cloneId:'c1'.repeat(16),dir:'~/reet/repos/acme/site'}})}
  else if(path==='/api/v2/folder-projects/clones/'+'c1'.repeat(16)){ghReads++;data=ghReads<2?{state:'cloning'}:{state:'done',project:GH_PROJECT}}
- else if(path==='/api/v2/folder-projects/'+GH_PROJECT.id)data=GH_PROJECT
+ // The project's own read arrives late, so a start that did not wait for it would miss the project's defaults.
+ else if(path==='/api/v2/folder-projects/'+GH_PROJECT.id){await new Promise(r=>setTimeout(r,600));data=GH_PROJECT}
  else if(path==='/api/v2/folder-projects')data={projects:folderProjects,savedWaiting:0}
  else if(path==='/api/v2/folder-projects/'+PROJECT_ID&&folderProjects.length)data=folderProjects.find(p=>p.id===PROJECT_ID)
  else if(/^\/api\/v2\/machines\/[^/]+\/models$/.test(path)){const tool=new URL(req.url()).searchParams.get('tool')??'';if(modelsFail)return route.fulfill({status:500,json:{error:'models are unavailable'}});data=modelList({tool})}
@@ -1299,12 +1300,21 @@ try{
  expect((ghBody.launch??ghBody).worktree).toMatch(/^[0-9a-f]{32}$/)
  await expect(d).toHaveCount(0)
  // Picked again, the project is used as it is: nothing is cloned a second time.
+ // Its own default agent applies, as when it is chosen by hand: the start waits for the project's read.
+ GH_PROJECT.defaultTool='codex'
  folderProjects=[...folderProjects,GH_PROJECT]
  d=await openAt(A);p=parts(d)
  await p.project.selectOption({label:'A repository from GitHub…'})
  await d.getByRole('combobox',{name:'Repository',exact:true}).fill('acme/site')
  await expect(d.getByText('Starts in your project site, /home/dev/reet/repos/acme/site.',{exact:true})).toBeVisible()
- await page.keyboard.press('Escape')
+ await p.prompt.fill('tidy the readme again')
+ const reusePosts=posts.length
+ await p.start.click()
+ await expect.poll(()=>posts.length,{timeout:15000}).toBe(reusePosts+1)
+ const reuseBody=JSON.parse(posts.at(-1))
+ expect(reuseBody.launch??reuseBody).toMatchObject({tool:'codex',projectId:'fp-gh',prompt:'tidy the readme again'})
+ await expect(d).toHaveCount(0)
+ GH_PROJECT.defaultTool=''
  folderProjects=folderProjects.filter(item=>item.id!=='fp-gh')
  delete tmachines[0].capabilities.repoClone;delete tmachines[0].capabilities.repoList
  expect(ghStarts.length).toBe(1)

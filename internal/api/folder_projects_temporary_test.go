@@ -181,3 +181,71 @@ func TestFromGitHubSavesATemporaryProjectWhenAsked(t *testing.T) {
 		t.Fatalf("clone %v", done)
 	}
 }
+
+// Keep pressed while the clean-up is removing the project is refused, so it
+// cannot be undone by the removal that follows; the project and its clone go
+// together, as the clean-up decided before Keep was pressed.
+func TestKeepWhileTheCleanUpRemovesIsRefused(t *testing.T) {
+	f := browseAPIFixture(t, cloneRemoveCaps())
+	p := f.temporaryProject(t)
+	var keepCode int
+	var keepAnswer map[string]any
+	f.answering(func(body terminalproto.Body) terminalproto.Body {
+		if _, ok := body.(terminalproto.RepoCloneRemove); ok {
+			// The person presses Keep while the machine deletes the clone.
+			keepCode, keepAnswer = f.post(t, f.cookie, "/api/v2/folder-projects/"+p.ID+"/keep", `{}`)
+			return terminalproto.RepoCloneRemoved{Dir: siteCloneDir}
+		}
+		return cleanClone()
+	})
+	f.srv.s.sweepTemporaryProjects(later())
+	if keepCode != 409 || keepAnswer["code"] != "project_removing" || keepAnswer["error"] != sentenceTemporaryRemoving {
+		t.Fatalf("keep during the removal = %d %v", keepCode, keepAnswer)
+	}
+	if _, err := f.st.FolderProjectFor(f.uid, p.ID); err == nil {
+		t.Fatal("the clone went but the project stayed")
+	}
+	// Once the removal is over the gate is open again.
+	if !claimTemporary(f.uid, p.ID) {
+		t.Fatal("the mark was not released")
+	}
+	releaseTemporary(f.uid, p.ID)
+}
+
+// A Keep (or a move) that lands after the sweep listed the project but before
+// it is read again under the mark stops the removal: nothing is deleted.
+func TestCleanUpReadsTheProjectAgainBeforeRemoving(t *testing.T) {
+	for name, change := range map[string]func(t *testing.T, f *browseAPI, p store.FolderProject){
+		"kept": func(t *testing.T, f *browseAPI, p store.FolderProject) {
+			if _, err := f.st.KeepFolderProjectFor(f.uid, p.ID); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"renamed": func(t *testing.T, f *browseAPI, p store.FolderProject) {
+			edit := p
+			edit.Name = "Renamed"
+			if _, err := f.st.UpdateFolderProjectFor(f.uid, edit, p.Version); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"removed": func(t *testing.T, f *browseAPI, p store.FolderProject) {
+			if err := f.st.DeleteFolderProjectFor(f.uid, p.ID, 0); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := browseAPIFixture(t, cloneRemoveCaps())
+			listed := f.temporaryProject(t)
+			f.machineClone(cleanClone(), terminalproto.RepoCloneRemoved{Dir: siteCloneDir})
+			change(t, f, listed)
+			f.srv.s.sweepTemporaryProject(f.uid, listed, later())
+			if sent := f.removesSent(); len(sent) != 0 {
+				t.Fatalf("a clone was deleted on a stale reading: %+v", sent)
+			}
+			if rows := projectEvents(t, f.st, f.uid, "project-remove"); len(rows) != 0 {
+				t.Fatalf("audited %v", rows)
+			}
+		})
+	}
+}

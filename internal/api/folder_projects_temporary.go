@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,53 @@ var (
 )
 
 var temporaryMu sync.Mutex
+
+// temporaryGate keeps the clean-up and the person's own changes to a project
+// apart. While the clean-up removes a temporary project it holds the
+// project's mark; Keep and Edit write only under the gate and are refused
+// while the mark is held. So a Keep either lands before the clean-up reads
+// the project again (which then finds it no longer temporary and stops) or
+// is refused while the removal runs: a kept project is never removed.
+var temporaryGate struct {
+	sync.Mutex
+	removing map[string]bool
+}
+
+const sentenceTemporaryRemoving = "reet is removing this project and its clone right now. Try again in a moment."
+
+func temporaryKey(uid int64, id string) string { return strconv.FormatInt(uid, 10) + "/" + id }
+
+// claimTemporary marks the project as being removed; false when it already is.
+func claimTemporary(uid int64, id string) bool {
+	temporaryGate.Lock()
+	defer temporaryGate.Unlock()
+	if temporaryGate.removing[temporaryKey(uid, id)] {
+		return false
+	}
+	if temporaryGate.removing == nil {
+		temporaryGate.removing = map[string]bool{}
+	}
+	temporaryGate.removing[temporaryKey(uid, id)] = true
+	return true
+}
+
+func releaseTemporary(uid int64, id string) {
+	temporaryGate.Lock()
+	defer temporaryGate.Unlock()
+	delete(temporaryGate.removing, temporaryKey(uid, id))
+}
+
+// unlessRemoving runs change under the gate, unless the clean-up is removing
+// the project: then nothing is changed and false is returned.
+func unlessRemoving(uid int64, id string, change func()) bool {
+	temporaryGate.Lock()
+	defer temporaryGate.Unlock()
+	if temporaryGate.removing[temporaryKey(uid, id)] {
+		return false
+	}
+	change()
+	return true
+}
 
 func (s *server) temporaryProjectWorker() {
 	ticker := time.NewTicker(temporaryCheckEvery)
@@ -127,6 +175,17 @@ func (s *server) sweepTemporaryProject(uid int64, p store.FolderProject, now tim
 	if !s.cloneReachable(uid, p.Host) || s.cloneHeldBack(uid, p, machine) != "" {
 		return
 	}
+	// From here the project is marked: Keep and Edit wait their turn. It is
+	// read again under the mark, and the removal goes on only if it is still
+	// this temporary project, unchanged since the sweep listed it.
+	if !claimTemporary(uid, p.ID) {
+		return
+	}
+	defer releaseTemporary(uid, p.ID)
+	current, err := s.st.FolderProjectFor(uid, p.ID)
+	if err != nil || !current.Temporary || current.Version != p.Version || current.Host != p.Host || current.Dir != p.Dir {
+		return
+	}
 	ctx, cancel := context.WithTimeout(s.baseContext(), terminalbroker.RepoCloneStatusCallTimeout)
 	state, err := s.terminals.CloneStatus(ctx, uid, p.Host, terminalproto.RepoCloneStatus{Dir: dir, Origin: origin})
 	cancel()
@@ -151,7 +210,7 @@ func (s *server) sweepTemporaryProject(uid int64, p store.FolderProject, now tim
 		return
 	}
 	detail["cloneDeleted"], detail["clonePath"] = true, removed
-	if err := s.st.DeleteFolderProjectFor(uid, p.ID, 0); err != nil && err != store.ErrFolderProjectNotFound {
+	if err := s.st.DeleteFolderProjectFor(uid, p.ID, p.Version); err != nil && err != store.ErrFolderProjectNotFound {
 		// The clone is gone but the project could not be removed: the next
 		// sweep finds no clone and says so on the project.
 		s.event(uid, "system", "project-clone-delete", "", detail)
@@ -167,7 +226,12 @@ func (s *server) folderProjectKeep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := s.uid(r)
-	kept, err := s.st.KeepFolderProjectFor(uid, r.PathValue("id"))
+	var kept store.FolderProject
+	var err error
+	if !unlessRemoving(uid, r.PathValue("id"), func() { kept, err = s.st.KeepFolderProjectFor(uid, r.PathValue("id")) }) {
+		writeErrCode(w, http.StatusConflict, "project_removing", "", sentenceTemporaryRemoving, "")
+		return
+	}
 	if err != nil {
 		folderRefusal(err, "").write(w)
 		return

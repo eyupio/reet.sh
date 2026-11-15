@@ -665,7 +665,12 @@
    added = [...added, ready.project]
    projectSel = ready.project.id
    agentId = ready.project.host
-   void loadProject(ready.project.id)
+   // The project's own agent, model and thinking apply, as when it is chosen by hand: wait for them before starting.
+   message = `Reading ${ready.project.name}…`
+   cloning = true
+   await loadProject(ready.project.id)
+   cloning = false
+   if (life.signal.aborted) return
    message = ''
    await tick()
    return start()

@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Home's launch bar offers **A repository from GitHub…** in its Project
+  list, as Start an agent does: pick a machine and a repository, and the bar
+  names it (cloned as a temporary project, or the project that already is
+  it). Press Start when the prompt is written.
+
 - A repository added as a folder now shows the GitHub repository it pushes
   to on its card, as one added From GitHub does. reet asks the machine for
   the folder's origin when the project is added or moved, and once a day.

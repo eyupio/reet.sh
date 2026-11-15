@@ -510,6 +510,7 @@
         <LaunchDialog {projects} {projectsFailed} machines={terminals} {sessions} {profile} initialProject={chosen} selection={selecting ? selected : []}
           ready={projects !== undefined && (sessions !== undefined || sessionsFailed) && profileRead}
           onproject={(id) => (launchProject = id)} onstarted={started} onrun={() => void load(true)} onrundone={() => { if (selecting) setSelecting(false) }} onleavefailed={leaveFailed} onaddproject={openAdd}
+          onprojectadded={(p) => { if (projects && !projects.some(x => x.id === p.id)) settle([...projects, p]) }}
           onsignedout={() => { life.abort(); onsignedout(new UnauthorizedError()) }} onclose={() => (launchOpen = false)} />
       {/if}
     {:else}

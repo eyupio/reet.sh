@@ -5,6 +5,21 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Compose** in a terminal: write or dictate a message in an ordinary field,
+  where a phone's autocorrect and dictation work, then **Send** it as one
+  paste with Enter, or **Insert** it without. It is in the terminal toolbar.
+  **Dictate** uses the browser's speech recognition where it has one; the
+  browser sends that audio to its own speech service, not to reet.
+- Home's Continue working and the Sessions list can be grouped by
+  **Attention**: Needs you first, then what stopped with a problem, what
+  finished, and what is still going.
+- A device with notifications on now hears when a chat finishes its turn and
+  waits for your next message, not only when a session ends. The choice is
+  now called **A session has finished**.
+- On a phone, an open approval or question is no longer said three times in
+  a chat; the strip above the composer waits until it is answered.
+- reet runs edge to edge on phones with a notch or a home indicator
+  (`viewport-fit=cover`), keeping everything you read or press clear of both.
 - **Notifications on a device.** A phone, tablet or computer can be told when a
   session needs you or has ended, while reet is closed: **Notifications → On
   this device → Turn on notifications**, then choose what that device hears

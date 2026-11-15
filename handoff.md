@@ -18,6 +18,44 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## MOBILE-2: what MOBILE-1 left undone (15 November 2026)
+
+The owner asked for MOBILE-1's "Not done" list. Five things, each run at phone and tablet sizes before and after.
+
+- **Compose** (`terminal/TerminalCompose.svelte`, rules in `terminal/compose.ts`): a message field for the terminal,
+  sent as one paste with Enter (Send) or without (Insert). It sits in the terminal toolbar after Earlier output. It
+  was first the key row's leading key; that pushed Ctrl half out of view at 390 px, so it moved. The text skips paste
+  review: the person wrote it there to send it. Several lines in a terminal without bracketed paste are warned about
+  in the sheet, since each line would run as it arrives.
+- **Dictate**, inside Compose, uses the browser's `SpeechRecognition` where there is one. The browser sends the audio
+  to its own vendor's speech service, so the sheet says so on the button and while it listens. Nothing is sent by
+  speaking. There is no server-side transcription and no key to configure.
+- **Attention grouping** (`attentionGroup` in `home.ts`, `GROUP_CHOICES`): a fourth Group by on Home's Continue
+  working and the Sessions list. Home already had Needs you with inline answers, and the Sessions tab's running list
+  from MOBILE-1 puts what needs you first, so this is the triage order for the full list, not a new screen.
+- **A chat's finished turn** is now a moment a device is told about (`pushMoment` in `internal/api/push.go`): a
+  structured session still running whose `chat_status` is finished or failed and whose `completed_at` is after the
+  person last looked. It shares the device's second choice, now worded **A session has finished**.
+- **The third "Waiting for your approval"** on a phone is gone: `ChatStatus`'s strip hides while it would say
+  approval or question (`.conversation-status.attention`, 650 px and under). The pane's status line keeps the live
+  region, so it is announced once.
+- **Edge to edge**: `viewport-fit=cover` in `index.html`; side insets on `body`, top on `.site-header`, bottom
+  subtracted from the workspace height through a probe element (`.safe-probe` in `TerminalWorkspace.svelte`) while
+  the keyboard is down; the floating Gaffer launcher keeps clear of a side notch. Checked with Chromium's
+  `Emulation.setSafeAreaInsetsOverride`, which makes `env(safe-area-inset-*)` real in tests.
+
+Also: `ChatStatus` no longer pads its right end for a floating launcher on touch screens, where MOBILE-1 hid it.
+
+**Checked:** see [docs/ui-verification.md](docs/ui-verification.md).
+
+**Not verified:** a real phone, as before. Safe areas were emulated; a real notch, Dynamic Island or Android
+gesture bar was not seen. Dictation was driven by a stand-in recogniser; no real microphone or speech service was
+used. Safari and Firefox were not run.
+
+**Not done:** dialogs and sheets other than the session workspace were not audited one by one against the insets
+(the shared dialog shell already pads for them); server-side transcription for browsers without speech recognition
+(Firefox); a compose box for the chat pane, which already is one.
+
 ## MOBILE-1: sessions on phones and tablets, and notifications on a device (15 November 2026)
 
 The owner asked for a usability assessment on phones and tablets, with most attention on terminal and agent sessions,
@@ -84,7 +122,7 @@ the safe-area insets the styles use are probably always zero).
 **Not done:** a compose box that sends dictated or autocorrected text to a terminal as one paste; voice input; an
 inbox that sorts every session by what needs you; a chat's "Waiting for your approval" still shows in two places
 when the keyboard is down; a notification when a chat's turn completes while the session keeps running (only waiting
-and ended sessions are told).
+and ended sessions are told). All five were done in MOBILE-2, above.
 
 ## LINK-WRITE-1: a request that gives up no longer drops a machine's connection (14 November 2026)
 

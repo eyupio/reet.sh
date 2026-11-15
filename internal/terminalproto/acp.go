@@ -61,6 +61,21 @@ func SupportsACPAgentOptions(features string) bool {
 // agent sees the image itself rather than a file path.
 const ACPImageFeature = "acp-image-v1"
 
+// ACPLongPromptFeature lets a controller send a chat message longer than
+// MaxChatPromptBytes, up to MaxLongChatPromptBytes. A machine without it
+// refuses the longer frame, so the controller never sends one there.
+const ACPLongPromptFeature = "acp-long-prompt-v1"
+
+// SupportsACPLongPrompt reports whether the peer negotiated acp-long-prompt-v1.
+func SupportsACPLongPrompt(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == ACPLongPromptFeature {
+			return true
+		}
+	}
+	return false
+}
+
 // ACPToolDetailsFeature lets a new controller accept the extra fields a tool row shows (command, path, diff and its
 // counts, and the duration). A connector on an older controller keeps sending the plain tool event.
 const ACPToolDetailsFeature = "acp-tool-details-v1"
@@ -103,6 +118,10 @@ const (
 	// whose JSON encoding stays well inside the control frame, even when every
 	// byte is a character encoding/json escapes to six bytes.
 	MaxChatPromptBytes = 2000
+	// MaxLongChatPromptBytes bounds a message to a machine that negotiated
+	// acp-long-prompt-v1. It is the size of a stage instruction or a worker
+	// message; escaped six-fold it is 48 KiB, inside MaxControlBytes.
+	MaxLongChatPromptBytes = 8000
 	// MaxACPEventBytes keeps one structured event inside MaxControlBytes after
 	// its envelope; a larger tool output is cut and marked truncated.
 	MaxACPEventBytes = 10 << 10
@@ -325,7 +344,7 @@ type ACPPrompt struct {
 
 func (ACPPrompt) kind() string { return "acp_prompt" }
 func (p ACPPrompt) valid() bool {
-	if !validChatText(p.Text, MaxChatPromptBytes) || !validACPImagePaths(p.Images) {
+	if !validChatText(p.Text, MaxLongChatPromptBytes) || !validACPImagePaths(p.Images) {
 		return false
 	}
 	return strings.TrimSpace(p.Text) != "" || len(p.Images) > 0

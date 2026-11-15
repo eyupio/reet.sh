@@ -261,6 +261,10 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 	if steer {
 		answer, err := b.ChatControl(ctx, uid, session, terminalproto.ACPControl{Action: "steer", Text: q.Text, Images: q.Images})
 		if err != nil {
+			if note, ok := neverSent(err); ok {
+				finish("failed", note)
+				return
+			}
 			finish("uncertain", "Delivery was not confirmed. Check the conversation before retrying.")
 			return
 		}
@@ -293,7 +297,26 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		finish("failed", err.Error())
 		return
 	}
+	if note, ok := neverSent(err); ok {
+		finish("failed", note)
+		return
+	}
 	finish("uncertain", "Delivery was not confirmed. Check the conversation before retrying.")
+}
+
+// neverSent reports a delivery error that is known to have stopped on the
+// controller. Such a message failed; "uncertain" is kept for a message the
+// machine may have taken, which is the only case a person has to check.
+func neverSent(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ErrACPLongPromptUnsupported), errors.Is(err, ErrChatOff):
+		return err.Error(), true
+	case errors.Is(err, terminalproto.ErrInvalid):
+		return "This message is not one the agent can be sent. Nothing was sent; edit it, then retry.", true
+	case errors.Is(err, ErrNotSent):
+		return "The machine was not connected, so nothing was sent. Retry once it is back.", true
+	}
+	return "", false
 }
 
 func queueEcho(q store.TerminalQueuedMessage) string {

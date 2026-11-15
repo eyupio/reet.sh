@@ -239,6 +239,8 @@ func (s *server) terminalChatError(w http.ResponseWriter, err error) {
 		writeErr(w, 404, "that reet session is not available")
 	case errors.Is(err, terminalbroker.ErrACPUnsupported), errors.Is(err, terminalbroker.ErrACPClosed):
 		writeErr(w, 409, "that reet session is not running")
+	case errors.Is(err, terminalbroker.ErrACPLongPromptUnsupported):
+		writeErr(w, 409, terminalbroker.ErrACPLongPromptUnsupported.Error())
 	case errors.Is(err, terminalbroker.ErrACPImagesUnsupported):
 		writeErr(w, 409, "update reet on that machine to send images with a chat message")
 	case errors.Is(err, terminalbroker.ErrACPImageUnavailable):

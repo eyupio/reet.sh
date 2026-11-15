@@ -38,6 +38,9 @@ var (
 	// ErrACPImagesUnsupported means the machine's connector predates
 	// acp-image-v1, so it cannot pass an image to the agent with a prompt.
 	ErrACPImagesUnsupported = errors.New("that machine cannot send images with a chat message")
+	// ErrACPLongPromptUnsupported means the message is longer than this machine's
+	// build accepts. Nothing was sent.
+	ErrACPLongPromptUnsupported = errors.New("This message is longer than 2,000 bytes, which this machine's reet cannot take yet. Update reet on the machine, or send a shorter message. Nothing was sent.")
 	// ErrACPImageUnavailable means an uploaded image could not be read, for
 	// example because the 24-hour sweep removed it before the prompt arrived.
 	ErrACPImageUnavailable = errors.New("that image is no longer available on the machine")
@@ -968,6 +971,15 @@ func (b *Broker) PromptChat(ctx context.Context, uid int64, session, text string
 	p, err := b.peer(uid, s.AgentID, true)
 	if err != nil {
 		return err
+	}
+	if len(text) > terminalproto.MaxChatPromptBytes {
+		caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)
+		if err != nil || caps.Generation != p.Generation {
+			return ErrNotSent
+		}
+		if !caps.Capabilities.ACPLongPrompt {
+			return ErrACPLongPromptUnsupported
+		}
 	}
 	if len(images) > 0 {
 		caps, err := b.st.RemoteCapabilitiesFor(uid, s.AgentID)

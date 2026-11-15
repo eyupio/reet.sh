@@ -336,6 +336,9 @@ export type FolderProject = {
   temporary?: boolean
   /** Why reet last left a temporary project and its clone in place, as a sentence; absent when it has not had to. */
   keptBecause?: string
+  /** The GitHub repository (`owner/name`) a folder added by path pushes to, as its machine reported its origin; absent
+   *  when it has none on github.com or has not been asked yet. A project added From GitHub has `origin` instead. */
+  remote?: string
   /** The rail colour's id from projectColour.ts, "" when none. */
   colour: string
   /** The group that holds the project; absent or "" when ungrouped. */

@@ -1054,7 +1054,23 @@ try {
   await context.close()
  }
 
- console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; a temporary project marked with why it stays, and Keep this project; the repository list (filter, arrows, Enter, Escape, tap, anything typed, a refusal, an older machine); 1280 and 390 px, light and dark.')
+ // A repository added as a folder shows the GitHub repository its machine said it pushes to, as one from GitHub does.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`folder repository on GitHub (${screen.width} px)`)) continue
+  const site = fproject('fp3','site','/home/dev/code/site',{baseBranch:'main', remote:'acme/site'})
+  const {context,page,errors} = await scene({...screen, sessionsPage:true, projects:[site, notes()]})
+  await page.goto(railPage(screen))
+  const card = page.getByRole('button',{name:/^site, studio, on GitHub acme\/site, main/}).first()
+  await expect(card).toBeVisible()
+  await expect(card.locator('.origin')).toHaveText('acme/site')
+  await expect(card.locator('.origin')).toHaveAttribute('title', 'Pushes to github.com/acme/site')
+  await expect(card).not.toContainText('temporary')
+  expect(await noSideways(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; a temporary project marked with why it stays, and Keep this project; the GitHub repository of a folder added by path, on its card; the repository list (filter, arrows, Enter, Escape, tap, anything typed, a refusal, an older machine); 1280 and 390 px, light and dark.')
 } finally {
  await browser.close()
 }

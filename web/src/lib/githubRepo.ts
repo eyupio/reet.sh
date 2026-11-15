@@ -54,11 +54,20 @@ export function clonedProject<P extends { host: string; origin?: string }>(list:
   const repo = clone.repo.toLowerCase()
   return list.find(p => p.host === clone.host && !!p.origin && p.origin.toLowerCase() === repo)
 }
+/** The project in `list` that already is this repository on this machine, to start in rather than clone it again: one
+ *  reet cloned from it, else a folder added by path whose origin it is. */
+export function repoProject<P extends { host: string; origin?: string; remote?: string }>(list: readonly P[], want: Pick<OutstandingClone, 'host' | 'repo'>): P | undefined {
+  const repo = want.repo.toLowerCase()
+  return clonedProject(list, want) ?? list.find(p => p.host === want.host && !p.origin && !!p.remote && p.remote.toLowerCase() === repo)
+}
 
+/** Where a project's repository is, in words, for a label: "from GitHub owner/name" for one reet cloned, "on GitHub
+ *  owner/name" for a folder added by path whose origin is on GitHub, else "". */
+export const projectSource = (p: { origin?: string; remote?: string }): string => (p.origin ? `from GitHub ${p.origin}` : p.remote ? `on GitHub ${p.remote}` : '')
+/** The GitHub repository a project is (owner/name): where it was cloned from, else where its folder pushes to; "" when
+ *  neither is known. */
+export const projectRepo = (p: { origin?: string; remote?: string }): string => p.origin || p.remote || ''
 /** Where the machine puts the clone, as the person reads it. */
-/** Where a project came from, in words, for a label: "from GitHub owner/name" for one reet cloned, else "". Only the
- *  projects added From GitHub record it; a folder added by path is a project like any other. */
-export const projectSource = (p: { origin?: string }): string => (p.origin ? `from GitHub ${p.origin}` : '')
 export const cloneFolder = (r: { owner: string; repo: string }): string => `~/reet/repos/${r.owner}/${r.repo}`
 
 /** A clone this page started: the controller's job id, the machine (enrollment id and name) and the repository. */

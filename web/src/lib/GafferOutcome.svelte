@@ -25,7 +25,7 @@
   import { gafferAutoMerge } from './gafferMotion'
   import RepoField from './home/RepoField.svelte'
   import { cloneForStart } from './cloneForStart'
-  import { cloneFolder, clonedProject, parseGitHubRepo } from './githubRepo'
+  import { cloneFolder, repoProject, parseGitHubRepo } from './githubRepo'
 
   let { room, userId = 0, projectId: wantedProject = '', onclose, onstarted }: { room: number; userId?: number;
     /** The project the page had chosen when the dialog opened; it starts selected and can be changed. */
@@ -87,7 +87,7 @@
   $effect(() => { if (github && !cloners.some(item => item.agentId === ghHost)) ghHost = cloners.length === 1 ? cloners[0].agentId : '' })
   const project = $derived(projects.find(item => item.id === projectId) ?? null)
   const machine = $derived(project ? machines.find(item => item.agentId === project.host) ?? null : github ? cloners.find(item => item.agentId === ghHost) ?? null : null)
-  const ghKnown = $derived(github && machine && ghParsed ? clonedProject(projects, { host: machine.agentId, repo: `${ghParsed.owner}/${ghParsed.repo}` }) : undefined)
+  const ghKnown = $derived(github && machine && ghParsed ? repoProject(projects, { host: machine.agentId, repo: `${ghParsed.owner}/${ghParsed.repo}` }) : undefined)
   const tools = $derived(machine ? CHAT_TOOLS.filter(id => structuredAgent(machine.capabilities, id)) : [])
   const cap = $derived(Math.max(1, Math.min(MAX_OUTCOME_SESSIONS, room)))
   const githubBlocker = $derived(!github ? '' : !cloners.length ? 'No machine here can clone from GitHub yet. It needs a current reet, git and the GitHub CLI.' : !machine ? 'Choose the machine to clone it on.' : !ghParsed ? 'Choose a repository, or type owner/name.' : '')

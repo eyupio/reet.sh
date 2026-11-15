@@ -563,7 +563,7 @@
       {:else}
         <strong>{p.name}</strong>
       {/if}
-      <span class="repo-meta">{p.machine || 'Machine not enrolled'}{#if p.origin} · from GitHub <code>{p.origin}</code>{/if}{#if p.baseBranch} · <code>{p.baseBranch}</code>{/if}<span class="dir">{p.dir}</span></span>
+      <span class="repo-meta">{p.machine || 'Machine not enrolled'}{#if p.origin} · from GitHub <code>{p.origin}</code>{:else if p.remote} · on GitHub <code>{p.remote}</code>{/if}{#if p.baseBranch} · <code>{p.baseBranch}</code>{/if}<span class="dir">{p.dir}</span></span>
     </div>
     <label class="group-pick">
       <span class="vh">Group for {p.name}</span>

@@ -31,16 +31,30 @@ const hooks = () => {
   // A chat stream that says what a test tells it to.
   window.EventSource = class { constructor() { this.listeners = {}; window.__chatStream = this; setTimeout(() => this.onopen?.({}), 0) } addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) } close() {} emit(type, data) { for (const fn of this.listeners[type] ?? []) fn({ data: JSON.stringify(data) }) } }
 }
-async function open({ width, height, touch = true, path = '/sessions?agent=a1&session=t1', sessionFocus } = {}) {
+// A speech recognition that hears what the test tells it to.
+const speechStandIn = () => {
+  window.SpeechRecognition = class {
+    constructor() { window.__speech = this }
+    start() { window.__listening = true }
+    stop() { window.__listening = false; this.onend?.() }
+    abort() { window.__listening = false; this.onend?.() }
+    hear(text, final = true) { this.onresult?.({ resultIndex: 0, results: [Object.assign([{ transcript: text }], { isFinal: final })] }) }
+    fail(error) { this.onerror?.({ error }); this.stop() }
+  }
+}
+async function open({ width, height, touch = true, path = '/sessions?agent=a1&session=t1', sessionFocus, speech } = {}) {
   const sizes = []
   const opened = await openWorkspace(browser, { width, height, touch, theme: 'dark', sessionFocus, terminalStatus: active, terminalMachines: machines, routes: {
     '/api/v2/machines/health': () => ({ serverNow: Date.now(), machines: machines.map(m => ({ ...m, state: 'connected', connection: { connected: true, reportFresh: true, missedProbes: 0, reconnects: 0, path: 'direct' } })) }),
     '/api/v2/terminal/sessions': { sessions }, '/api/v2/folder-projects': { projects, savedWaiting: 0 }, '/api/v2/terminal/commands': { commands: [] },
     '/api/v2/terminal/worktrees/status': { path: '', branch: '', changed: 0, unpushed: 0, paths: [], unreferenced: 0, hidden: 0, nested: false, incomplete: false },
     '/api/v2/settings/yolo': { allowed: false },
+    '/api/v2/terminal/sessions/c1/chat/prompt': (request, state) => { state.prompt = request.postDataJSON(); return { sent: true } },
   } })
   const { page } = opened
   await page.addInitScript(hooks)
+  if (speech === true) await page.addInitScript(speechStandIn)
+  if (speech === false) await page.addInitScript(() => { delete window.SpeechRecognition; delete window.webkitSpeechRecognition })
   await page.route('**/attachments', async route => { const body = route.request().postDataJSON(); sizes.push({ cols: body.cols, rows: body.rows }); await route.fulfill({ json: { ticket: 'fixture-ticket00000000000' } }) })
   await page.route('**/history', route => route.fulfill({ body: 'saved output\n' }))
   await page.routeWebSocket('**/api/v2/terminal/socket', socket => socket.onMessage(message => {
@@ -313,7 +327,94 @@ try {
     expect(errors).toEqual([])
     await context.close()
   }
-  console.log('Session screen on phones and tablets: terminal focus mode and the rows it gives back, Ask Gaffer in the header on touch screens, the tablet keyboard layout, the docked panel and the drawer, the Sessions tab, the composer while typing, Start an agent guidance, an approval said twice and not three times, safe areas beside a notch and above a home indicator, and grouping by attention.')
+  if (run('overlays and insets')) {
+    // Every overlay a session screen opens keeps what it shows clear of a notch and the home indicator, upright and
+    // sideways: its inner edge (inside any border that takes the inset) is within the safe area.
+    for (const [width, height, insets] of [[390, 844, { top: 47, left: 0, bottom: 34, right: 0 }], [844, 390, { top: 0, left: 47, bottom: 21, right: 47 }]]) {
+      const { page, context } = await open({ width, height, path: '/sessions' })
+      const cdp = await context.newCDPSession(page)
+      await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets })
+      const inside = async (selector, name) => {
+        const edge = await page.evaluate(selector => {
+          const element = [...document.querySelectorAll(selector)].filter(e => e.getClientRects().length).at(-1)
+          if (!element) return null
+          const r = element.getBoundingClientRect(), c = getComputedStyle(element)
+          return { left: r.left + parseFloat(c.borderLeftWidth), right: r.right - parseFloat(c.borderRightWidth), top: r.top + parseFloat(c.borderTopWidth), bottom: r.bottom - parseFloat(c.borderBottomWidth) }
+        }, selector)
+        const label = `${width}x${height} ${name}`
+        expect(edge, `${label} is open`).not.toBeNull()
+        expect(edge.left, `${label} left`).toBeGreaterThanOrEqual(insets.left - 0.5)
+        expect(edge.right, `${label} right`).toBeLessThanOrEqual(width - insets.right + 0.5)
+        expect(edge.top, `${label} top`).toBeGreaterThanOrEqual(insets.top - 0.5)
+        expect(edge.bottom, `${label} bottom`).toBeLessThanOrEqual(height - insets.bottom + 0.5)
+      }
+      const session = async () => { await page.goto(base + '/sessions?agent=a1&session=t1'); await live(page) }
+      await page.goto(base + '/sessions')
+      await page.getByRole('button', { name: '✦ Start a new agent session' }).click()
+      await expect(page.getByRole('dialog', { name: 'Start an agent' })).toBeVisible()
+      await inside('dialog[open]', 'Start an agent')
+      await page.goto(base + '/sessions')
+      await page.getByRole('button', { name: 'Sessions panel' }).click()
+      await expect(page.locator('#terminal-sessions')).toBeVisible()
+      // The drawer slides in over 160 ms: measure it once it has stopped.
+      await expect.poll(() => page.locator('#terminal-sessions').evaluate(e => getComputedStyle(e).transform === 'none' || getComputedStyle(e).transform === 'matrix(1, 0, 0, 1, 0, 0)')).toBe(true)
+      await inside('#terminal-sessions', 'the sessions drawer')
+      await session()
+      await page.locator('.terminal-toolbar').getByRole('button', { name: 'Compose', exact: true }).click()
+      await expect(page.getByRole('dialog', { name: 'Compose' })).toBeVisible()
+      await inside('dialog[open]', 'Compose')
+      await session()
+      await page.locator('.terminal-toolbar').getByRole('button', { name: 'Appearance' }).evaluate(button => button.click())
+      await expect(page.locator('dialog[open]')).toBeVisible()
+      await inside('dialog[open]', 'the Appearance drawer')
+      await session()
+      await screen(page).getByRole('button', { name: 'Session actions', exact: true }).click()
+      await expect(page.getByRole('dialog', { name: 'Session actions' })).toBeVisible()
+      await inside('dialog[open]', 'Session actions')
+      await session()
+      await screen(page).locator('.head .gaffer-entry').click()
+      await expect(page.locator('.gaffer-chat')).toBeVisible()
+      await inside('.gaffer-chat', 'the Gaffer panel')
+      await context.close()
+    }
+  }
+
+  if (run('chat dictation')) {
+    // The chat composer has Dictate where the browser has speech recognition: a finished phrase joins the draft, the
+    // line under it says where the audio goes, and nothing is sent by speaking.
+    const { page, context, state } = await open({ width: 390, height: 844, path: '/sessions?agent=a1&session=c1', speech: true })
+    const input = page.locator('textarea.composer-input')
+    await expect(input).toBeVisible()
+    const dictate = page.locator('.composer').getByRole('button', { name: 'Dictate', exact: true })
+    await expect(dictate).toBeVisible()
+    const size = await dictate.boundingBox()
+    expect(Math.round(size.width)).toBeGreaterThanOrEqual(44); expect(Math.round(size.height)).toBeGreaterThanOrEqual(44)
+    await input.fill('Fix the build')
+    await dictate.click()
+    await expect(page.locator('.composer').getByRole('button', { name: 'Stop dictating' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.composer').getByText('Listening. Your browser sends the audio to its own speech service, not to reet.')).toBeVisible()
+    await page.evaluate(() => window.__speech.hear('and then', false))
+    await expect(page.locator('.composer').getByText('and then… Your browser sends the audio')).toBeVisible()
+    await page.evaluate(() => window.__speech.hear(' and then run the checkout tests.'))
+    await expect(input).toHaveValue('Fix the build and then run the checkout tests.')
+    expect(state.prompt).toBeUndefined()
+    // Sending stops the listening.
+    await page.getByRole('button', { name: /^Send/ }).click()
+    await expect.poll(() => state.prompt?.text).toBe('Fix the build and then run the checkout tests.')
+    await expect(dictate).toHaveAttribute('aria-pressed', 'false')
+    expect(await page.evaluate(() => window.__listening)).toBe(false)
+    // A refusal says what to do.
+    await dictate.click()
+    await page.evaluate(() => window.__speech.fail('not-allowed'))
+    await expect(page.locator('.composer').getByText('The browser did not allow the microphone. Allow it for this site, then try again.')).toBeVisible()
+    await context.close()
+    // No speech recognition, no button.
+    const plain = await open({ width: 390, height: 844, path: '/sessions?agent=a1&session=c1', speech: false })
+    await expect(plain.page.locator('textarea.composer-input')).toBeVisible()
+    await expect(plain.page.locator('.composer').getByRole('button', { name: 'Dictate' })).toHaveCount(0)
+    await plain.context.close()
+  }
+  console.log('Session screen on phones and tablets: terminal focus mode and the rows it gives back, Ask Gaffer in the header on touch screens, the tablet keyboard layout, the docked panel and the drawer, the Sessions tab, the composer while typing, Start an agent guidance, an approval said twice and not three times, safe areas beside a notch and above a home indicator, grouping by attention, every overlay inside the safe area, and dictation in the chat composer.')
 } finally {
   await browser.close()
 }

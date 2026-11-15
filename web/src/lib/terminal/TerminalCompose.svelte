@@ -1,10 +1,10 @@
 <script lang="ts">
   // The compose box: write (or dictate) a message in an ordinary field, where the phone's autocorrect, suggestions and
   // dictation all work, then send it to the terminal as one paste. Nothing is sent until Send or Insert is pressed.
-  import { onDestroy, onMount, tick } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import WorkspaceDialog from './WorkspaceDialog.svelte'
-  import TerminalIcon from './TerminalIcon.svelte'
-  import { COMPOSE_MAX, appendDictation, composeText, dictationProblem, speechRecognition } from './compose'
+  import Dictate from './Dictate.svelte'
+  import { COMPOSE_MAX, appendDictation, composeText } from './compose'
 
   let { draft = $bindable(''), live, bracketed = false, target, onsend, onclose }: {
     draft?: string
@@ -25,43 +25,14 @@
   const lines = $derived(text ? text.split('\n').length : 0)
   onMount(() => { void tick().then(() => field?.focus()) })
 
-  // Dictation through the browser's own speech recognition, where it has one. The phone keyboard's microphone works in
-  // this field without it; this button is for browsers on a computer and for keyboards with none.
-  type Recognition = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; abort(): void
-    onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null
-    onerror: ((event: { error: string }) => void) | null; onend: (() => void) | null }
-  const Speech = typeof window === 'undefined' ? undefined : speechRecognition<new () => Recognition>(window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition })
-  let recognition: Recognition | undefined
+  // Dictation (Dictate.svelte) adds each finished phrase to the draft. The phone keyboard's own microphone works in
+  // this field without it; the button is for browsers on a computer and for keyboards with none.
+  let dictate = $state<{ stop(): void }>()
   let listening = $state(false), interim = $state(''), said = $state('')
-
-  function stopListening() { recognition?.stop() }
-  function dictate() {
-    if (listening) { stopListening(); return }
-    if (!Speech) return
-    said = ''
-    const next = new Speech()
-    next.lang = navigator.language || 'en-GB'
-    next.continuous = true
-    next.interimResults = true
-    next.onresult = event => {
-      let heard = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i]
-        if (result.isFinal) draft = appendDictation(draft, result[0].transcript)
-        else heard += result[0].transcript
-      }
-      interim = heard.trim()
-    }
-    next.onerror = event => { said = dictationProblem(event.error) }
-    next.onend = () => { listening = false; interim = ''; if (recognition === next) recognition = undefined }
-    recognition = next
-    try { next.start(); listening = true } catch { said = dictationProblem('unknown'); recognition = undefined }
-  }
-  onDestroy(() => recognition?.abort())
 
   function send(enter: boolean) {
     if (!text || !live) return
-    recognition?.abort()
+    dictate?.stop()
     onsend(text, enter)
   }
   // Enter is a new line, as in any message field on a phone; Ctrl or Cmd with Enter sends.
@@ -84,12 +55,7 @@
       {:else}<strong>Send</strong> pastes this and presses Enter. <strong>Insert</strong> leaves it on the prompt for you to finish.{/if}
     </p>
     <div class="actions">
-      {#if Speech}
-        <button type="button" class="btn dictate" aria-pressed={listening} onclick={dictate}
-          title="Dictate with your browser’s speech recognition. Your browser sends the audio to its own speech service, not to reet.">
-          <TerminalIcon name="mic" />{listening ? 'Stop dictating' : 'Dictate'}
-        </button>
-      {/if}
+      <Dictate bind:this={dictate} bind:listening bind:interim bind:problem={said} onphrase={phrase => (draft = appendDictation(draft, phrase))} />
       <span class="spacer"></span>
       <button type="button" class="btn" disabled={!text || !live} onclick={() => send(false)}>Insert</button>
       <button type="submit" class="btn primary" disabled={!text || !live}>Send</button>
@@ -110,8 +76,6 @@
   .said:empty { display: none; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .spacer { flex: 1; }
-  .actions .btn { min-height: 44px; }
-  .dictate { display: inline-flex; align-items: center; gap: 6px; }
-  .dictate[aria-pressed='true'] { border-color: var(--bad); color: var(--bad); }
-  @media (max-width: 420px) { .spacer { flex-basis: 100%; height: 0; } .actions .btn:not(.dictate) { flex: 1; } .dictate { width: 100%; justify-content: center; } }
+  .actions :global(.btn) { min-height: 44px; }
+  @media (max-width: 420px) { .spacer { flex-basis: 100%; height: 0; } .actions > .btn { flex: 1; } .actions :global(.dictate) { width: 100%; } }
 </style>

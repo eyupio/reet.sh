@@ -20,6 +20,8 @@ import ImageLightbox from './ImageLightbox.svelte'
  import ChatStatus from './ChatStatus.svelte'
  import type { ChatProgressState } from '../gafferProgress'
 import { gafferChatEntry } from '../gafferContext'
+import Dictate from './Dictate.svelte'
+import { appendDictation } from './compose'
 import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
 import SkillPicker from './SkillPicker.svelte'
 import AgentModeControl from './AgentModeControl.svelte'
@@ -217,6 +219,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
  type Picture = { id: number; file: File; preview: string }
  let images = $state<{ id: number; file: File; preview: string }[]>([]), imageSeq = 0, attachNote = $state('')
+ // Dictation adds each finished phrase to the draft and sends nothing; it stops when the message is sent.
+ let dictate = $state<{ stop(): void }>(), dictating = $state(false), dictationInterim = $state(''), dictationProblemText = $state('')
  let fileInput: HTMLInputElement | undefined = $state()
  // A fix request from the session overview. It joins what is typed (never replaces or cuts it), is refused rather than truncated, and is never sent: the person reads it and presses Send.
  let prefillSeen = 0
@@ -509,6 +513,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  }
  /** Send a message and its pictures now, or queue it while the agent is busy. */
  async function send() {
+  dictate?.stop()
   const text = draft.trim()
   if ((!text && !images.length) || sending || uploading || changingModel || modeUnknown || ended || chat.connection === 'reconnecting') return
   const problem = messageProblem(text)
@@ -1088,6 +1093,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
      {/each}
     </ul>
    {/if}
+   {#if dictating || dictationProblemText}<p class="notice" class:bad={!dictating} role="status">{#if dictating}{dictationInterim ? `${dictationInterim}…` : 'Listening.'} Your browser sends the audio to its own speech service, not to reet.{:else}{dictationProblemText}{/if}</p>{/if}
    {#if attachNote}<p class="notice" class:bad={/off|does not|at most|more than|Use PNG|Each image|empty/.test(attachNote)}>{attachNote}</p>{/if}
    <label class="vh" for={`${session.id}-chat-prompt`}>Message {toolName}</label>
    <div class="field" class:busy={working}>
@@ -1103,6 +1109,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
      <button type="button" class="skills-btn" bind:this={promptButton} aria-label="Prompts" aria-haspopup="dialog" title="Insert one of your saved prompts · or type \ in the message" disabled={promptBlocked} onclick={() => (promptPickerOpen = true)}>Prompts</button>
      <button type="button" class="skills-btn" aria-label="Skills" aria-haspopup="dialog" title={skillsOff || 'Insert a skill into your message'} disabled={!!skillsOff} onclick={() => openSkills()}>+ Skills</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
+     <Dictate icon bind:this={dictate} bind:listening={dictating} bind:interim={dictationInterim} bind:problem={dictationProblemText} disabled={reattaching || chat.connection === 'reconnecting'} onphrase={phrase => { draft = appendDictation(draft, phrase).slice(0, 2000) }} />
      {#if liveEffort}<div class="effort-controls" data-keeps-focus>
       <label for={`${session.id}-effort`}>Effort</label>
       <select id={`${session.id}-effort`} value={liveEffort.current} disabled={changingModel || runtime?.configuring || chat.connection !== 'open'} onchange={event => void changeSetting(liveEffort!.id, event.currentTarget.value)}>

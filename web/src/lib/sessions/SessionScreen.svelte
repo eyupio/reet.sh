@@ -402,7 +402,7 @@
 
 <!-- One grid: the header and status line, then the context panel, then the terminal, so the tab order is header → panel →
      terminal while the panel shows beside the terminal (right column) or over its edge (as a sheet below the header). -->
-<div class="session-screen" class:theatre class:keyboard class:focus={focusOn} class:resizing={contextResizing}
+<div class="session-screen" class:theatre class:keyboard class:focus={focusOn} class:terminal-view={terminalShowing} class:resizing={contextResizing}
   bind:this={screen} style={`--context-width:${shownContextWidth}px`}>
   <div class="body" class:context-docked={docked && effectiveOpen && !hasSide} class:context-sheet={!theatre && !docked && effectiveOpen && !hasSide} bind:clientWidth={bodyWidth}>
     <header class="head">
@@ -629,7 +629,9 @@
     .session-screen.focus .title { font: 600 16px/1.25 var(--sans); }
     .session-screen.focus .sub, .session-screen.focus .where-phone { display: none; }
     .session-screen.focus .identity-row > .pill { display: inline-flex; }
-    .session-screen.focus .actions-button { display: none; }
+    /* A chat's session actions wait behind Exit focus. A terminal keeps them: its pane header, where End and Rename
+       also live, has stepped aside. */
+    .session-screen.focus:not(.terminal-view) .actions-button { display: none; }
     .session-screen.focus .header-actions { gap: 0; }
     .session-screen.focus .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; }
     .session-screen.focus .live p { margin: 0 8px 6px; }

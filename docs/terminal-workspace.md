@@ -107,7 +107,8 @@ beside it). Its parts:
 - **Super focus on a phone**: a session opens with the site chrome, workspace toolbar and secondary session controls
   out of the way. A Gaffer chat's conversation and composer take the whole screen; a terminal's screen and on-screen
   keys do, and its pane header and status footer step aside too while it is connected (they come back for Retry,
-  Reconnect and the reason when it is not). The slim header keeps Back, the title, the state and **Exit focus**; a
+  Reconnect and the reason when it is not). A terminal's header keeps **Session actions** (Rename, End session and the
+  rest), since the pane header that also held them is aside; a chat's wait behind **Exit focus**. The slim header keeps Back, the title, the state and **Exit focus**; a
   chat's status and compact progress strip stay visible, and its composer keeps its message field,
   **Stop**/**Queue**, **Skills** and attach while effort and model wait behind **Exit focus**. The terminal toolbar
   keeps **Show sessions**, so another session is one tap away. With the keyboard up, the header's second row (the view

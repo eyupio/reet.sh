@@ -10,6 +10,8 @@ await context.addInitScript(()=>{if(localStorage.getItem('reet.rail.collapsed')=
 const page=await context.newPage()
 const errors=[],posts=[],unmocked=[],urls=[],uploads=[]
 page.on('pageerror',e=>errors.push(e.message))
+// This file's phone-width steps use the workspace toolbar, so focus mode starts off, as Exit focus leaves it.
+await page.addInitScript(()=>{if(localStorage.getItem('reet-terminal-layout:1:context:focus')===null)localStorage.setItem('reet-terminal-layout:1:context:focus','0')})
 page.on('framenavigated',f=>{if(f===page.mainFrame())urls.push(f.url())})
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{promise,resolve}}
 

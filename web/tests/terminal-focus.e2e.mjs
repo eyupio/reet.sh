@@ -80,6 +80,8 @@ try {
     const entryBox = await entry.boundingBox()
     expect(Math.round(entryBox.width)).toBe(44); expect(Math.round(entryBox.height)).toBe(44)
     await expect(page.locator('.gaffer-launcher')).toBeHidden()
+    // Session actions stay: the pane header, where End and Rename also live, has stepped aside.
+    await expect(screen(page).getByRole('button', { name: 'Session actions', exact: true })).toBeVisible()
     // The session's name gets the first row to itself.
     await expect(screen(page).locator('.title')).toHaveText(sessions[0].title)
     expect(await noSidewaysScroll(page)).toBe(true)
@@ -204,6 +206,8 @@ try {
     await expect(input).toBeVisible()
     await expect(page.locator('.gaffer-launcher')).toBeHidden()
     await expect(page.locator('.chat-status')).toBeVisible()
+    // A chat's session actions wait behind Exit focus, as before.
+    await expect(screen(page).getByRole('button', { name: 'Session actions', exact: true })).toBeHidden()
     await input.focus()
     await page.evaluate(() => window.__keyboard(490))
     await expect(screen(page)).toHaveClass(/keyboard/)

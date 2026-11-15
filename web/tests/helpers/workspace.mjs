@@ -58,6 +58,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/folder-projects')return json({projects:[],savedWaiting:0})
   if(path==='/api/v2/project-groups')return json({groups:[]})
   if(path==='/api/v2/notifications/count')return json({unread})
+  // Notifications on a device: off unless a test answers the route itself (device-push.e2e.mjs), so the Notifications page has no device card.
+  if(path==='/api/v2/push')return json({available:false,devices:[]})
   state.unexpected.push(path)
   return route.fulfill({status:404,json:{error:`Unmocked ${path}`}})
  })

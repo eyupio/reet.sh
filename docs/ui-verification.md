@@ -1,5 +1,69 @@
 # UI verification — 4 November 2026
 
+## Sessions on phones and tablets, and notifications on a device (15 November 2026)
+
+What changed is in [handoff.md](../handoff.md) (MOBILE-1), the [changelog](../CHANGELOG.md),
+[Terminal workspace](terminal-workspace.md) and [Notifications on a device](push-notifications.md).
+
+Sizes used throughout, touch emulated in Chromium: 390 × 844, 360 × 640 and 320 × 568 (phones), 844 × 390
+(sideways), 820 × 1180 and 1180 × 820 (tablets).
+
+Rows the terminal is given, before and after, from a fixture socket that repaints for its size:
+
+| Screen | Before | After |
+| --- | --- | --- |
+| 390 × 844 | 28 | 49 |
+| 390 × 844, keyboard up | 21 | 26 |
+| 360 × 640 | 13 | 33 |
+| 320 × 568 | not measured | 28 |
+| 844 × 390 | 9 | 21 |
+| 820 × 1180, keyboard up | 13 | 30 |
+
+Commands run in this container:
+
+- `cd web && npm run check`: 0 errors, 0 warnings. New: `pushSupport.test.mjs` (6 cases).
+- `npm run build`, `npx vite preview --port 4173 --strictPort`, then:
+  - **New**, passing: `terminal-focus.e2e.mjs` and `device-push.e2e.mjs`. Each section of both was run against a
+    build of `main` and seen to fail there.
+  - **Changed and passing**: `terminal-phone`, `sessions-phone`, `sessions`, `terminal-workspace`, `terminal-start`,
+    `terminal-lifecycle`, `terminal-organisation`, `start-agent`, `gaffer-widget-ux`, `gaffer-layout`, and
+    `phone-zoom` (now with the device card and a long device name at 320 to 412 px). `loading-workspace` changed
+    too; see below.
+  - **Every other suite** in `web/tests` was run once on this branch while it was being finished, and 21 that a
+    later change could touch were run again on the final build. All pass except the four below.
+- `go vet ./...`; `go test` for `internal/webpush`, `internal/store`, `web`, and `internal/api` with
+  `-run 'Push|Notification|Attention|Yolo'`: pass.
+- Screenshots were looked at in the dark theme at every size above, before and after, and in the light theme for
+  the focused terminal, the Sessions tab, the drawer and the Notifications page at 390 and 820 px.
+
+What the existing suites caught, each fixed:
+
+- `terminal-workspace` at 390 × 420: the 8-row floor's last row was 1/16 px past its host's foot once the Gaffer
+  strip was gone. `clientHeight` had rounded the host's height.
+- `loading-workspace`: the skeleton and the focused screen differed by the 8 px inset and the toolbar. The skeleton
+  and the static boot shell now draw a phone session as focus mode does.
+- `gaffer-chat` at 800 px: closing Gaffer left focus on nothing, because it went to the hidden floating launcher.
+  The circle also appeared for about 150 ms while a session loaded (traced frame by frame), and no longer does.
+- `phone-dialogs`: Session actions were out of reach in a focused terminal. They stay in its header; all five
+  header controls fit at 320 px with no sideways scroll.
+
+Suites whose phone-width steps are about the full session chrome (the workspace toolbar, the pane header) now start
+with focus off, as Exit focus leaves it: `terminal-phone`, `sessions-phone`, `sessions`, `terminal-workspace`,
+`terminal-lifecycle`, `terminal-organisation` and `start-agent`. Without that, `start-agent` waited for ever on a
+toolbar button that focus mode hides.
+
+Not passing, and why:
+
+- `loading-workspace.e2e.mjs` fails on `main` too: at 390 px the skeleton's toolbar sits 1 px from the real one. On
+  this branch the session case passes (a focused phone session has no toolbar in either) and the bare `/sessions`
+  case still shows that 1 px.
+- `terminal.e2e.mjs` and `stage5-acceptance.e2e.mjs` only run through their Go fixtures, and `session-board.e2e.mjs`
+  needs the dev server on port 5173. None was run.
+
+Not checked: a real phone or tablet; Safari and Firefox; a real push through a push service; the full
+`go test -race ./...` (left to CI); momentum scrolling, pinch zoom and text selection in the terminal; a notch held
+sideways.
+
 ## Start in a GitHub repository without adding a project (14 November 2026)
 
 Four changes to the From GitHub path:

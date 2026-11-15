@@ -68,6 +68,19 @@ dialog[data-shell][data-shell-short] [data-shell-foot] > :is(button, .btn) { fle
   dialog[data-shell][data-shell-kb][open] { border-bottom-width: 0; }
 }
 
+/* Edge to edge (viewport-fit=cover): a dialog that is not an upright phone's sheet keeps clear of a notch and the
+   home indicator too. Its width leaves the side insets free, so a wide dialog on a sideways phone is not under the
+   notch; on a short screen it stops above the home indicator while the keyboard is down; a bottom sheet tall enough
+   to reach the top stops below the top inset. The insets are 0 on any screen without them. */
+dialog[data-shell][open] { max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)); }
+dialog[data-shell][data-shell-short][open]:not([data-shell-kb]) {
+  max-height: calc(var(--shell-height, 100dvh) - env(safe-area-inset-bottom, 0px));
+  inset-block: var(--shell-top, 0px) env(safe-area-inset-bottom, 0px);
+}
+@media (max-width: 559.98px) {
+  dialog[data-shell='bottom'][data-shell][open] { max-height: calc(var(--shell-height, 100dvh) - env(safe-area-inset-top, 0px)); }
+}
+
 /* A close control is at least 44 x 44 px under a finger; with a mouse it keeps its own size. */
 @media (pointer: coarse) {
   dialog[data-shell] [data-shell-close] { min-width: 44px; min-height: 44px; }

@@ -124,7 +124,7 @@
   }
   /* A phone: the panel spans the screen under the slim bar instead of hanging off the bell (it ran off the left edge). */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
-    .panel { position: fixed; top: 64px; left: 16px; right: 16px; width: auto; }
+    .panel { position: fixed; top: calc(64px + env(safe-area-inset-top, 0px)); left: calc(16px + env(safe-area-inset-left, 0px)); right: calc(16px + env(safe-area-inset-right, 0px)); width: auto; }
     .bell-button { border: 0; }
     .bell-button svg { width: 22px; height: 22px; }
     .badge { top: 4px; right: 4px; }

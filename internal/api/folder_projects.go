@@ -50,6 +50,10 @@ func (s *server) registerFolderProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/folder-projects/import-saved", s.folderAccess(s.folderProjectWrite(s.folderProjectImportSaved)))
 	mux.HandleFunc("POST /api/v2/folder-projects/from-github", s.folderAccess(s.folderProjectWrite(s.folderProjectFromGitHub)))
 	mux.HandleFunc("GET /api/v2/folder-projects/clones/{id}", s.folderAccess(s.folderProjectClone))
+	// The repositories a machine's GitHub sign-in reaches, to choose one to
+	// clone. It makes the machine run gh, so it refuses another site and
+	// counts as a write, as a clone's state does.
+	mux.HandleFunc("GET /api/v2/folder-projects/github-repos", s.folderAccess(s.sameOriginRead(s.folderProjectWrite(s.folderProjectGitHubRepos))))
 	mux.HandleFunc("GET /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectGet))
 	// {part} is "clone" only. It makes a machine run git and counts as a
 	// write, so unlike the other reads it refuses a request from another site.
@@ -57,6 +61,9 @@ func (s *server) registerFolderProjectRoutes(mux *http.ServeMux) {
 	// ".../{id}/clone" and ".../clones/{id}" would both match ".../clones/clone".
 	mux.HandleFunc("GET /api/v2/folder-projects/{id}/{part}", s.folderAccess(s.sameOriginRead(s.folderProjectWrite(s.folderProjectCloneState))))
 	mux.HandleFunc("PATCH /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectUpdate)))
+	// Keep a temporary project (one reet cloned for a start): it becomes an
+	// ordinary project and is never removed by reet.
+	mux.HandleFunc("POST /api/v2/folder-projects/{id}/keep", s.folderAccess(s.folderProjectWrite(s.folderProjectKeep)))
 	mux.HandleFunc("DELETE /api/v2/folder-projects/{id}", s.folderAccess(s.folderProjectWrite(s.folderProjectDelete)))
 	s.registerProjectGroupRoutes(mux)
 }
@@ -365,8 +372,13 @@ type folderProjectView struct {
 	// Origin is the GitHub repository (owner/name) the project was added
 	// from; Cloned says reet made that clone. Both are left out for a folder
 	// added by path.
-	Origin           string  `json:"origin,omitempty"`
-	Cloned           bool    `json:"cloned,omitempty"`
+	Origin string `json:"origin,omitempty"`
+	Cloned bool   `json:"cloned,omitempty"`
+	// Temporary marks a project reet made for one start, which it removes
+	// with its clone once nothing uses it and nothing would be lost;
+	// KeptBecause is why it last stayed. Both are left out otherwise.
+	Temporary        bool    `json:"temporary,omitempty"`
+	KeptBecause      string  `json:"keptBecause,omitempty"`
 	WorktreeDefault  string  `json:"worktreeDefault"`
 	DefaultTool      string  `json:"defaultTool"`
 	DefaultModel     string  `json:"defaultModel"`
@@ -387,7 +399,7 @@ type folderProjectView struct {
 
 func viewFolderProject(p store.FolderProject, names map[string]string) folderProjectView {
 	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
-		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, DefaultYolo: p.DefaultYolo, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Origin: p.Origin, Cloned: p.Cloned, Note: p.Note, Position: p.Position,
+		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, DefaultYolo: p.DefaultYolo, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Origin: p.Origin, Cloned: p.Cloned, Temporary: p.Temporary, KeptBecause: p.KeptBecause, Note: p.Note, Position: p.Position,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 
@@ -635,7 +647,12 @@ func (s *server) folderProjectUpdate(w http.ResponseWriter, r *http.Request) {
 		refusal.write(w)
 		return
 	}
-	saved, err := s.st.UpdateFolderProjectFor(uid, p, expect)
+	var saved store.FolderProject
+	// Not while reet removes it as a temporary project: see temporaryGate.
+	if !unlessRemoving(uid, current.ID, func() { saved, err = s.st.UpdateFolderProjectFor(uid, p, expect) }) {
+		writeErrCode(w, http.StatusConflict, "project_removing", "", sentenceTemporaryRemoving, "")
+		return
+	}
 	if err != nil {
 		folderRefusal(err, machineLabel(names, p.Host)).write(w)
 		return

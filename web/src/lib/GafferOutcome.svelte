@@ -23,6 +23,9 @@
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
   import { CREW_ROLES, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, sessionCount, stagePlan, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn } from './gafferOutcome'
   import { gafferAutoMerge } from './gafferMotion'
+  import RepoField from './home/RepoField.svelte'
+  import { cloneForStart } from './cloneForStart'
+  import { cloneFolder, clonedProject, parseGitHubRepo } from './githubRepo'
 
   let { room, userId = 0, projectId: wantedProject = '', onclose, onstarted }: { room: number; userId?: number;
     /** The project the page had chosen when the dialog opened; it starts selected and can be changed. */
@@ -73,11 +76,37 @@
     imageError = ''
   }
 
+  // A repository From GitHub instead of a saved project: the person names it and a machine that can clone it, and it
+  // becomes a project (cloned there, or the one already there) before Gaffer plans, so the rest is an ordinary outcome.
+  const GITHUB = '\u0000github'
+  const github = $derived(projectId === GITHUB)
+  let ghHost = $state(''), ghRepo = $state(''), ghLeft = $state(false), cloning = $state(false), cloneLine = $state('')
+  const cloners = $derived(machines.filter(item => item.ready && item.capabilities?.repoClone))
+  const ghParsed = $derived(parseGitHubRepo(ghRepo))
+  const ghProblem = $derived(github && ghLeft && ghRepo.trim() !== '' && !ghParsed ? 'Write the repository as owner/name, or paste its github.com link.' : '')
+  $effect(() => { if (github && !cloners.some(item => item.agentId === ghHost)) ghHost = cloners.length === 1 ? cloners[0].agentId : '' })
   const project = $derived(projects.find(item => item.id === projectId) ?? null)
-  const machine = $derived(project ? machines.find(item => item.agentId === project.host) ?? null : null)
+  const machine = $derived(project ? machines.find(item => item.agentId === project.host) ?? null : github ? cloners.find(item => item.agentId === ghHost) ?? null : null)
+  const ghKnown = $derived(github && machine && ghParsed ? clonedProject(projects, { host: machine.agentId, repo: `${ghParsed.owner}/${ghParsed.repo}` }) : undefined)
   const tools = $derived(machine ? CHAT_TOOLS.filter(id => structuredAgent(machine.capabilities, id)) : [])
   const cap = $derived(Math.max(1, Math.min(MAX_OUTCOME_SESSIONS, room)))
-  const blocker = $derived(loading ? '' : !provider ? 'Choose a default Gaffer provider in Gaffer settings first.' : objectiveBlocker({ objective, project: !!project, machineReady: !!machine?.ready, agent: !!tool && tools.includes(tool), room }))
+  const githubBlocker = $derived(!github ? '' : !cloners.length ? 'No machine here can clone from GitHub yet. It needs a current reet, git and the GitHub CLI.' : !machine ? 'Choose the machine to clone it on.' : !ghParsed ? 'Choose a repository, or type owner/name.' : '')
+  const blocker = $derived(loading ? '' : !provider ? 'Choose a default Gaffer provider in Gaffer settings first.' : (objective.trim() && githubBlocker) || objectiveBlocker({ objective, project: !!project || github, machineReady: !!machine?.ready, agent: !!tool && tools.includes(tool), room }))
+  /** The project the outcome works in: the one chosen, or the repository From GitHub made into one. False when it could not be. */
+  async function ensureProject(): Promise<boolean> {
+    if (!github) return !!project
+    if (!machine || !ghParsed) return false
+    cloning = true; planError = ''
+    cloneLine = `Getting ${ghParsed.owner}/${ghParsed.repo} ready on ${machine.host}…`
+    const ready = await cloneForStart(machine.agentId, machine.host, ghRepo, projects, life.signal, { onwaiting: line => { if (!life.signal.aborted) cloneLine = line.replace('the agent starts', 'Gaffer plans') } })
+    cloning = false; cloneLine = ''
+    if (life.signal.aborted) return false
+    if ('signedout' in ready) { planError = 'You were signed out. Sign in again, then try again.'; return false }
+    if ('sentence' in ready) { planError = ready.sentence; return false }
+    if (!projects.some(item => item.id === ready.project.id)) projects = [...projects, ready.project]
+    projectId = ready.project.id
+    return true
+  }
   const crewTools = $derived(CREW_ROLES.map(item => crew[item.role].tool))
   // Google Antigravity never starts in a folder that was not trusted, so approving a crew with it and no trust would only fail later.
   const approveBlocker = $derived(planBlocker(sessions, room) || (crewTools.includes('antigravity') && !trust ? 'Google Antigravity starts only in a folder you trust. Tick the folder trust box below, or choose another agent.' : ''))
@@ -189,7 +218,8 @@
   }
 
   async function ask() {
-    if (planning || blocker || !provider || !project) return
+    if (planning || cloning || blocker || !provider) return
+    if (!(await ensureProject()) || !project) return
     planning = true; planError = ''; reply = ''; planThread = []; declined = false
     try {
       const plan = await planGafferOutcome(provider, { objective: objective.trim(), project: project.name, sessions: wanted }, life.signal)
@@ -200,8 +230,9 @@
     finally { planning = false }
   }
   // Without a tool-capable model, or by choice, the person writes the plan; the rest of the flow is the same.
-  function writeOwn() {
-    if (blocker) return
+  async function writeOwn() {
+    if (cloning || blocker) return
+    if (!(await ensureProject())) return
     summary = ''; sessions = [{ key: key(), title: '', prompt: '', stages: [...DEFAULT_STAGES] }]; planError = ''; reply = ''; planThread = []; declined = false; step = 'plan'
   }
   // A reply is sent back to Gaffer with the proposal it answers, and the revised plan replaces the rows. The person's
@@ -290,10 +321,15 @@
           <textarea id={`${formId}-objective`} bind:value={objective} rows="4" maxlength="4000" placeholder="Ship CSV export for billing: an API endpoint, a button on the billing page, and tests." disabled={planning} onpaste={pasted}></textarea>
           <ImageAttachment bind:file={image} label="Attach an image to the outcome" disabled={planning} busy={imageUploading} error={imageError} />
           <div class="pair">
-            <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning}>
+            <label>Project<select aria-label="Project" bind:value={projectId} disabled={planning || cloning}>
               <option value="">Choose a project…</option>
               {#each projects as item (item.id)}<option value={item.id}>{item.name}{item.machine ? ` · ${item.machine}` : ''}</option>{/each}
+              <option value={GITHUB}>A repository from GitHub…</option>
             </select></label>
+            {#if github}<label>Machine<select aria-label="Machine" bind:value={ghHost} disabled={planning || cloning || !cloners.length}>
+              {#if !ghHost}<option value="" disabled>{cloners.length ? 'Choose a machine…' : 'None can clone'}</option>{/if}
+              {#each cloners as item (item.agentId)}<option value={item.agentId}>{item.host}</option>{/each}
+            </select></label>{/if}
             <label>Agent<select aria-label="Agent" bind:value={tool} disabled={planning || !tools.length} onchange={() => { model = ''; effort = ''; source = ''; explicitSource = false; crewSourceExplicit = { think: false, build: false, ship: false }; for (const item of CREW_ROLES) crew[item.role] = { tool, model: '', effort: '', source: '' } }}>
               {#if !tools.length}<option value="">{project ? 'None available' : 'Choose a project first'}</option>{/if}
               {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
@@ -319,12 +355,21 @@
               </div>{/each}
             </div>
           </details>
-          {#if !projects.length}<p class="hint">No projects yet. <a href="/">Add a project on Home</a> so sessions have a folder to work in.</p>{/if}
+          {#if github}
+            <div class="repo-field">
+              <label for={`${formId}-gh-repo`}>Repository</label>
+              <RepoField id={`${formId}-gh-repo`} machine={machine ?? undefined} bind:value={ghRepo} problem={ghProblem} disabled={planning || cloning} onleave={() => (ghLeft = true)} onsignedout={() => (planError = 'You were signed out. Sign in again, then try again.')} />
+              {#if ghKnown}<p class="hint">Works in your project {ghKnown.name}, {ghKnown.dir}.</p>
+              {:else if ghParsed && machine}<p class="hint">reet clones it to {cloneFolder(ghParsed)} on {machine.host} before Gaffer plans. Once the outcome is done reet removes the clone, unless that would lose work.</p>{/if}
+            </div>
+          {/if}
+          {#if cloneLine}<p class="hint" role="status">{cloneLine}</p>{/if}
+          {#if !projects.length && !github}<p class="hint">No projects yet. Choose <strong>A repository from GitHub…</strong> above, or <a href="/">add a project on Home</a>, so sessions have a folder to work in.</p>{/if}
           {#if project && !project.isRepo}<p class="hint">This folder is not a git repository, so several sessions would share the same files. One session is safest.</p>{/if}
           {#if provider}<p class="hint">Gaffer plans with {provider.name} · {provider.model || 'model not chosen'}. It is sent only what you type here and the project’s name, and may use provider credits.</p>{/if}
           {#if blocker}<p class={provider&&!objective.trim()?'hint':'warning'} role="status">{blocker}{#if !provider}{' '}<a href="/account/gaffer">Open Gaffer settings</a>{/if}</p>{/if}
           {#if planError}<p class="warning" role="alert">{planError}</p>{/if}
-          <div class="actions"><button class="btn primary" type="submit" disabled={planning || !!blocker}>{planning ? 'Gaffer is planning…' : 'Ask Gaffer for a plan'}</button><button class="btn quiet" type="button" disabled={planning || !!blocker} onclick={writeOwn}>Write the plan myself</button></div>
+          <div class="actions"><button class="btn primary" type="submit" disabled={planning || cloning || !!blocker}>{cloning ? 'Cloning…' : planning ? 'Gaffer is planning…' : 'Ask Gaffer for a plan'}</button><button class="btn quiet" type="button" disabled={planning || cloning || !!blocker} onclick={() => void writeOwn()}>Write the plan myself</button></div>
         </form>
       {/if}
     {:else if step === 'plan'}
@@ -407,6 +452,7 @@
   .outcome{display:grid;gap:14px;min-width:0;font-size:14px;line-height:1.5}p{margin:0;overflow-wrap:anywhere}.hint{color:var(--muted)}.warning{color:var(--bad)}
   form{display:grid;gap:12px;min-width:0}label{font-weight:600;display:grid;gap:6px;min-width:0}
   textarea,input,select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;max-width:100%;min-height:44px;box-sizing:border-box}textarea{resize:vertical}
+  .repo-field{display:grid;gap:6px;min-width:0}
   .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pair.two{grid-template-columns:1fr 1fr;padding-top:8px}.source-field{min-width:0}.crew-source{grid-column:1/-1;min-width:0}
   .eyebrow{display:block;font-size:0.875rem;color:var(--muted);margin-bottom:2px}.objective{white-space:pre-wrap}
   .summary,.access{border-left:2px solid var(--line-strong);padding-left:12px}

@@ -74,7 +74,10 @@ the card) sets the project's colour; the colour is saved on the project and foll
 browser.
 
 Each compact card shows two lines, in words: a repository diamond (or a folder icon for a plain folder) and the
-name, then the machine, the base branch (mono) when one is set, the state and the worktrees in use. The state is
+name, then the machine, the base branch (mono) when one is set, the state and the worktrees in use. A project added From GitHub
+adds a third line, where it came from (`owner/name`, mono, "Cloned from github.com/owner/name" on hover), and its
+spoken name says "from GitHub owner/name"; the Sessions screen's desktop list and Manage projects show it beside the
+machine. Everything is still a project: a folder on one of your machines, whether reet cloned it or not. The state is
 "N running" (its own running and starting sessions, by each session's project id), "machine offline"
 when its machine is known not to be reporting, else "idle". Worktrees in use are the distinct
 worktrees its live sessions are working in; the session listing has no record of removed worktrees,
@@ -196,6 +199,51 @@ What the clone does, and what it leaves:
   git data yet or its own git settings name that repository. Anything else, including a folder git had
   started but not yet given an origin, is left for you to remove; nothing else there is removed.
 
+### Choosing from the machine's repositories
+
+Once a machine is chosen, the Repository field lists the repositories that machine's GitHub sign-in reaches:
+its own, its organizations' and those shared with it, the 200 most recently pushed, newest first ("Reading
+studio's repositories from GitHub…" while the machine asks). Typing filters the list; the arrow keys and Enter, a
+click or a tap choose one; Escape closes the list and leaves the dialog open. Each repository shows whether it is
+private and when it was last pushed to. The list is only a shortcut: anything typed as `owner/name` or a github.com
+link is taken the same way, including a repository older than the 200 or a public one of someone else's.
+
+The machine asks GitHub itself, with its own `gh` (`gh api user/repos`), so the list is exactly what that machine
+could clone; only the names, the private mark and the push time reach the controller, and nothing is kept. The list is
+read once each time the dialog shows a machine. When it can't be read the field says why, under it, and still takes a
+typed repository: "studio isn't signed in to GitHub. Run gh auth login there, then try again.", "studio refused to list
+repositories: terminal access is off there, or the GitHub CLI is missing.", "GitHub didn't answer studio in time. Try
+again, or type one." A machine running an older reet keeps the plain field ("Update reet on studio to list its GitHub
+repositories. You can still type one." from the API) and is never asked.
+
+## Temporary projects
+
+A repository picked with **A repository from GitHub…** in **Start an agent** or Factory's **Give Gaffer an outcome**
+([Start an agent session](start-agent-session.md), [Gaffer](gaffer-ai.md#give-gaffer-an-outcome)) is cloned for that
+start and saved as a **temporary** project: clone it, work in it, remove it. Its card says so ("acme/site · temporary")
+and its spoken name ends in "temporary". A repository that is already a project on that machine is used as it is and
+stays whatever it was.
+
+The controller looks at temporary projects every five minutes and leaves one alone for its first 30 minutes, while the
+start it was made for begins. After that it removes the project and deletes its clone once all of these hold:
+
+- No session that has not stopped was started on it or runs in its folder, and no Factory outcome on it is unfinished.
+  While something uses it nothing is asked and nothing is said.
+- Its machine can be asked: connected, terminal access on, and a reet that can report on and delete a clone. Otherwise
+  it is tried again later.
+- The machine finds nothing in the clone that would be lost, the same check **Remove from reet** makes ([Removing a
+  project from GitHub](#removing-a-project-from-github)): no worktree from it (remove the session that made it), no
+  uncommitted or untracked files, no stash, no commit that is not on GitHub, nothing reet cannot check.
+
+When the machine says something would be lost, the project stays and its card says why under its name, in the same
+sentence the Remove dialog gives ("The clone on studio is kept: it holds work that isn't on GitHub."). Push the work, or
+remove the session, and the next look removes it. Activity records each removal as `project-remove` with `temporary`,
+`cloneDeleted` and `clonePath`, from the source `system`.
+
+**Keep this project** in the card's menu makes a temporary project an ordinary one, which reet never removes; Activity
+records `project-keep`. Moving a temporary project to another folder or machine (Edit) makes it ordinary too, as it
+forgets where it came from. **Remove from reet** works on a temporary project as on any other.
+
 ## Removing a project from GitHub
 
 **Remove from reet** on a project reet cloned asks the same question as for any project, and looks at
@@ -309,13 +357,24 @@ plain sentence, and a field refusal names the field so the dialog can move focus
   github.com link; `name` `""` for the repository's) → 202 `{cloneId, dir}`, or at once 422
   `invalid_repo`, 409 `repo_clone_unsupported`, 409 `machine_offline`, 429 `clone_limit` (five running
   per account), or the create's own refusals (`project_limit`, `name_taken`, `unknown_machine`).
+- `GET /folder-projects/github-repos?host={agentId}` → `{repos: [{name, private, pushedAt}], more}`: what that
+  machine's gh sign-in reaches, most recently pushed first, at most 200 (`pushedAt` in Unix seconds, 0 when GitHub
+  gave none; `more` when GitHub had more). 422 `unknown_machine` for a missing, malformed or other account's machine;
+  409 `repo_list_unsupported` (an older reet, gh missing or terminal access off), `not_signed_in`, `denied`, `busy` or
+  `machine_offline`; 504 `timed_out` or `machine_timeout`; 502 `failed` or `machine_error`, each with a sentence. It
+  makes a machine run gh, so it counts towards the write limit and refuses a request a browser marks as coming from
+  another site (403 `origin_refused`).
+- `POST /folder-projects/{id}/keep` with `{}` → the project, no longer temporary ([Temporary projects](#temporary-projects));
+  404 `project_not_found` for none of the account's. It counts towards the write limit.
 - `GET /folder-projects/clones/{id}` → `{state: "cloning"}`, `{state: "done", project}` or `{state:
   "failed", code, sentence}`; an unknown id, another account's, or one that ended more than 10 minutes
   ago is 404 `clone_not_found`.
 
 A FolderProject is `{id, host, machine, dir, name, isRepo, baseBranch, worktreeDefault, defaultTool,
 defaultModel, defaultEffort, hasStarterPrompt, starterPrompt?, note, position, createdAt, updatedAt, version,
-origin?, cloned?}`; `origin` (`owner/name`) and `cloned` are there only for a project added from GitHub.
+origin?, cloned?, temporary?, keptBecause?}`; `origin` (`owner/name`) and `cloned` are there only for a project added
+from GitHub, `temporary` only for a temporary project, and `keptBecause` only once reet has left one in place. A
+`from-github` body may carry `temporary: true` (Start an agent and Factory send it).
 `machine` is the machine's current name, `""` once it is no longer enrolled (the card says "machine
 not enrolled"). A terminal create may carry `projectId`; the controller checks it belongs to the
 account and to that machine (404 `project_not_found`, 422 `project_machine_mismatch`) and never

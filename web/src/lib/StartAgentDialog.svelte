@@ -29,6 +29,9 @@
  import YoloDialog from './launch/YoloDialog.svelte'
  import BaseConfirm from './home/BaseConfirm.svelte'
  import { baseKey, baseQuestion, repoProjectAt } from './baseGate'
+ import RepoField from './home/RepoField.svelte'
+ import { cloneForStart } from './cloneForStart'
+ import { cloneFolder, parseGitHubRepo, clonedProject } from './githubRepo'
  import { yoloCanStart, type YoloGate } from './launchBar'
 
  // Start an agent CLI in a new terminal session on one machine. One screen, one press. The page names a tool id, a model, a
@@ -64,7 +67,7 @@
  } = $props()
 
  const id = $props.id()
- const OTHER = '\u0000other', TYPED = '\u0000typed', NO_PROJECT = '\u0000folder'
+ const OTHER = '\u0000other', TYPED = '\u0000typed', NO_PROJECT = '\u0000folder', GITHUB = '\u0000github'
  let dialog = $state<HTMLDialogElement>(), projectSelect = $state<HTMLSelectElement>(), machineSelect = $state<HTMLSelectElement>(), modelButton = $state<HTMLButtonElement>(), effortSelect = $state<HTMLSelectElement>()
  let startButton = $state<HTMLButtonElement>()
  // The project is a required choice. An action that starts from a project opens with it already chosen; every other
@@ -73,12 +76,20 @@
  const openingProject = projectId ? projects.find(p => p.id === projectId) : undefined
  // svelte-ignore state_referenced_locally
  let projectSel = $state(projectId)
- const pickedProject = $derived(projects.find(p => p.id === projectSel))
+ // A repository picked From GitHub becomes a project as the agent starts (the machine clones it, or the project is
+ // there already); the dialog keeps it here so the start that follows is an ordinary start on a project.
+ let added = $state<FolderProject[]>([])
+ const allProjects = $derived([...projects, ...added.filter(a => !projects.some(p => p.id === a.id))])
+ const pickedProject = $derived(allProjects.find(p => p.id === projectSel))
  // svelte-ignore state_referenced_locally
  const opening = preselect(machines, openingProject?.host || initialAgent || '')
  let agentId = $state(opening.agentId)
  const usingProject = $derived(!!pickedProject)
  const folderVisible = $derived(projectSel === NO_PROJECT)
+ const githubVisible = $derived(projectSel === GITHUB)
+ let ghRepo = $state(''), ghLeft = $state(false), cloning = $state(false)
+ const ghParsed = $derived(parseGitHubRepo(ghRepo))
+ const ghProblem = $derived(githubVisible && ghLeft && ghRepo.trim() !== '' && !ghParsed ? 'Write the repository as owner/name, or paste its github.com link.' : '')
  let tool = $state(''), modelChoice = $state(''), modelOther = $state(''), effort = $state(''), folderChoice = $state(''), typedDir = $state(''), prompt = $state(''), structured = $state(false), sessionTouched = $state(false)
  // Images pasted or picked before a start live only in this dialog; each is uploaded to the machine as the
  // session starts and its path joins the opening prompt.
@@ -245,19 +256,20 @@
  const dir = $derived(usingProject ? pickedProject!.dir : folderVisible ? adHocDir : '')
  const promptBytes = $derived(new TextEncoder().encode(prompt).length)
  // Why nothing can start, in the order the choices are made: the project first, then the machine it runs on.
- const projectBlocked = $derived(!projectSel ? 'Choose a project, or choose No project to start in a folder.' : projectSel !== NO_PROJECT && !pickedProject ? 'Choose a project.' : '')
+ const projectBlocked = $derived(!projectSel ? 'Choose a project, or choose No project to start in a folder.' : projectSel !== NO_PROJECT && projectSel !== GITHUB && !pickedProject ? 'Choose a project.' : '')
  const blocked = $derived.by(() => {
   if (!machine) return machines.some(m => m.ready) ? 'Choose a machine.' : 'No machine is ready for terminals right now.'
   const why = readiness(machine)
   if (why) return why
   if (!machine.capabilities?.launch) return 'Update reet on this machine to start agents.'
+  if (githubVisible && !machine.capabilities?.repoClone) return `${machine.host} can't clone from GitHub. It needs a current reet, git and the GitHub CLI.`
   if (!chosenTool) return 'None of the agents reet can start is installed on this machine.'
   return ''
  })
  const modelError = $derived(modelChoice === OTHER ? (cleanModel(modelOther) === '' ? (attempted ? 'Type a model name, or choose Agent default.' : '') : validateModel(modelOther) ?? '') : '')
  const dirError = $derived(folderVisible && folderChoice === TYPED && (attempted || typedDir !== '') ? validateDir(typedDir) ?? '' : '')
  const promptError = $derived(chosenTool ? validatePrompt(chosenTool, prompt) ?? '' : '')
- const locked = $derived(busy || operation !== null)
+ const locked = $derived(busy || cloning || operation !== null)
  // Why attached images cannot be sent: the machine has to accept uploads. A machine with none listed is an older reet.
  const imageReason = $derived.by(() => {
   if (!attachments.length) return ''
@@ -458,8 +470,8 @@
   if (locked) return
   projectSel = next
   folderChoice = ''; typedDir = ''
-  if (next === NO_PROJECT) { void loadProject(''); edited(); return }
-  const item = projects.find(p => p.id === next)
+  if (next === NO_PROJECT || next === GITHUB) { void loadProject(''); edited(); return }
+  const item = allProjects.find(p => p.id === next)
   void loadProject(next)
   if (!item) { edited(); return }
   if (!projectReady(item)) { projectSel = ''; void loadProject(''); edited(); return }
@@ -634,9 +646,35 @@
   accountDefaults = { ...(accountDefaults ?? {}), defaultClineSource: saved }
  }
  async function start() {
-  if (busy || checking || life.signal.aborted) return
+  if (busy || cloning || checking || life.signal.aborted) return
   pickerOpen = false
   attempted = true
+  if (!operation && githubVisible) {
+   // A repository From GitHub: make it a project first (its clone, or the project already there), then start on it as
+   // on any project, worktree and base branch included. The dialog can be closed while it clones; the clone carries on.
+   if (projectBlocked || blocked || !machine) return
+   if (!ghParsed) { ghLeft = true; failed = true; invalidMessage = true; message = ghRepo.trim() ? 'Write the repository as owner/name, or paste its github.com link.' : 'Choose a repository, or type owner/name.'; field('gh-repo')?.focus(); return }
+   const host = machine.agentId, name = machine.host
+   cloning = true; failed = false; invalidMessage = false
+   message = `Getting ${ghParsed.owner}/${ghParsed.repo} ready on ${name}…`
+   const ready = await cloneForStart(host, name, ghRepo, allProjects, life.signal, { onwaiting: line => { if (!life.signal.aborted) message = line } })
+   cloning = false
+   if (life.signal.aborted) return
+   if ('signedout' in ready) { if (onsignedout) onsignedout(ready.signedout); else { failed = true; message = 'You were signed out. Sign in again, then start.' } return }
+   if ('sentence' in ready) { failed = true; message = ready.sentence; void focusAfter(() => ready.field === 'repo' ? field('gh-repo') : ready.field === 'host' ? field('machine') : startButton); return }
+   added = [...added, ready.project]
+   projectSel = ready.project.id
+   agentId = ready.project.host
+   // The project's own agent, model and thinking apply, as when it is chosen by hand: wait for them before starting.
+   message = `Reading ${ready.project.name}…`
+   cloning = true
+   await loadProject(ready.project.id)
+   cloning = false
+   if (life.signal.aborted) return
+   message = ''
+   await tick()
+   return start()
+  }
   if (!operation) {
    // The yes belongs to this press: it is taken and let go here, before anything can bail, so nothing that happens next
    // (a machine that stopped taking sessions, a project list that reloaded) can spend it on another start.
@@ -675,7 +713,7 @@
     message = `Checking where this starts on ${host}…`
     // The saved repository this folder is, as the controller finds it; the chosen project is the fallback when the
     // page was handed no list to look in.
-    const repo = repoProjectAt(projects, agent, dir) ?? (onProject && chosenProject?.isRepo ? chosenProject : null)
+    const repo = repoProjectAt(allProjects, agent, dir) ?? (onProject && chosenProject?.isRepo ? chosenProject : null)
     const say = await baseQuestion(agent, host, launch, repo, life.signal)
     checking = false; message = ''
     if (life.signal.aborted) return
@@ -817,7 +855,8 @@
     <label for={`${id}-project`}>Project</label>
     <select id={`${id}-project`} bind:this={projectSelect} value={projectSel} aria-required="true" aria-describedby={[projectBlocked ? `${id}-project-error` : '', usingProject ? `${id}-project-dir` : ''].filter(Boolean).join(' ') || undefined} onchange={(event) => pickProject((event.currentTarget as HTMLSelectElement).value)}>
      <option value="" disabled>Choose a project</option>
-     {#each projects as item (item.id)}<option value={item.id} disabled={item.id !== projectSel && !projectReady(item)}>{item.name}{item.machine ? ` · ${item.machine}` : ''}{projectReady(item) ? '' : ' · machine not ready'}</option>{/each}
+     {#each allProjects as item (item.id)}<option value={item.id} disabled={item.id !== projectSel && !projectReady(item)}>{item.name}{item.machine ? ` · ${item.machine}` : ''}{projectReady(item) ? '' : ' · machine not ready'}</option>{/each}
+     <option value={GITHUB}>A repository from GitHub…</option>
      <option value={NO_PROJECT}>No project — start in a folder</option>
     </select>
     {#if projectBlocked}
@@ -836,6 +875,16 @@
     {#if blocked}<p class="reason" id={`${id}-blocked`}>{blocked}</p>{/if}
     {#if onaddmachine}<button type="button" class="linklike" onclick={addMachine}>Not listed? Add a machine</button>{/if}
    </div>
+
+   {#if githubVisible}
+    {@const known = machine && ghParsed ? clonedProject(allProjects, { host: machine.agentId, repo: `${ghParsed.owner}/${ghParsed.repo}` }) : undefined}
+    <div class="field">
+     <label for={`${id}-gh-repo`}>Repository</label>
+     <RepoField id={`${id}-gh-repo`} {machine} bind:value={ghRepo} problem={ghProblem} disabled={locked} onleave={() => (ghLeft = true)} onsignedout={(e) => onsignedout?.(e)} />
+     {#if known}<p class="hint">Starts in your project {known.name}, {known.dir}.</p>
+     {:else if ghParsed && machine}<p class="hint">reet clones it to {cloneFolder(ghParsed)} on {machine.host} and starts the agent there. Once its sessions are done reet removes the clone, unless that would lose work.</p>{/if}
+    </div>
+   {/if}
 
    {#if folderVisible}
     <div class="field">
@@ -971,7 +1020,7 @@
   <footer data-shell-foot>
    <p class="status" class:bad={failed} role="status" aria-live="polite" aria-atomic="true">{message}</p>
    <small data-shell-aside>reet.sh never sends a command line. The machine starts the agent itself.</small>
-   <button class="btn primary" type="submit" disabled={busy || (!operation && (!!projectBlocked || !!blocked || !!imageReason))} aria-busy={busy} bind:this={startButton}>{busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
+   <button class="btn primary" type="submit" disabled={busy || cloning || (!operation && (!!projectBlocked || !!blocked || !!imageReason))} aria-busy={busy || cloning} bind:this={startButton}>{cloning ? 'Cloning…' : busy ? 'Starting…' : operation ? 'Try the same request again' : 'Start'}</button>
   </footer>
  </form>
  {#if baseOpen}

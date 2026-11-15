@@ -24,6 +24,7 @@ func TestPrivateControlKeepsTheLinkForEveryMachineAnswer(t *testing.T) {
 		"repo_clone_result":        terminalproto.RepoCloneResult{Reason: terminalproto.RepoCloneFailed},
 		"repo_clone_state":         terminalproto.RepoCloneState{Reason: terminalproto.RepoCloneFailed},
 		"repo_clone_removed":       terminalproto.RepoCloneRemoved{Reason: terminalproto.RepoCloneChanged},
+		"repo_list_result":         terminalproto.RepoListResult{Reason: terminalproto.RepoListFailed},
 		"accounts_result":          terminalproto.AccountsResult{Reason: terminalproto.AccountsTimedOut},
 	} {
 		t.Run(name, func(t *testing.T) {

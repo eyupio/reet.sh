@@ -250,9 +250,12 @@ try {
   await expect(opener).toBeFocused()
   await expect(page.getByText('Sorted. reet.sh added.',{exact:true})).toBeVisible()
   if (!screen.touch) {
-   const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, main/})
+   const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/})
    await expect(card).toBeVisible()
    await expect(card.locator('svg.icon.repo')).toHaveCount(1)
+   // Where it came from is on the card, not only in its label.
+   await expect(card.locator('.origin')).toHaveText('eyupio/reet.sh')
+   await expect(card.locator('.origin')).toHaveAttribute('title', 'Cloned from github.com/eyupio/reet.sh')
    await expect(card).toHaveAttribute('aria-current', 'true')
   } else await expect(page.locator('.scope')).toContainText('reet.sh')
   // Nothing more is read once it has ended.
@@ -290,7 +293,7 @@ try {
   await expect(dialog(page)).toBeHidden()
   expect(box.starts).toHaveLength(1)
   box.finish = true
-  const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, main/})
+  const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/})
   await expect(card).toBeVisible({timeout:10000})
   await expect(card).toHaveAttribute('aria-current', 'true')
   await expect(page.getByText('Sorted. reet.sh added.',{exact:true})).toBeVisible()
@@ -313,7 +316,7 @@ try {
   box.projects = [notes(), cloned()]
   const reads = box.reads.length
   await page.goto(base)
-  const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, main/})
+  const card = rail(page).getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/})
   await expect(card).toBeVisible()
   await expect(card.locator('svg.icon.repo')).toHaveCount(1)
   // The new page load has no clone to read.
@@ -861,7 +864,7 @@ try {
   await expect(dialog(page).getByText(CLONING,{exact:true})).toBeVisible()
   if (!open) { await footClose(page).click(); await expect(dialog(page)).toBeHidden() }
   box.finish = true
-  await expect(rail(page).getByRole('button',{name:/^reet\.sh, studio, main/})).toBeVisible({timeout:10000})
+  await expect(rail(page).getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/})).toBeVisible({timeout:10000})
   await expect(dialog(page)).toBeHidden()
   await page.waitForTimeout(500)
   await expect(page.locator('.notice.bad')).toHaveCount(0)
@@ -893,7 +896,165 @@ try {
   await context.close().catch(() => {})
  }
 
- console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; 1280 and 390 px, light and dark.')
+ // The Sessions screen's own Add a project, at both widths: on a desktop its project list's button, on a phone the rail's
+ // heading. Both open the dialog with From GitHub, and a clone started there is followed to its end. Before, the desktop
+ // list opened a dialog of its own with only Folder on a machine.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`from GitHub on the Sessions screen (${screen.width} px)`)) continue
+  const {context,page,errors,box} = await scene({...screen, sessionsPage:true})
+  await page.goto(base + '/sessions?view=list')
+  const add = page.getByRole('button',{name:'Add a project',exact:true})
+  await add.scrollIntoViewIfNeeded()
+  await add.click()
+  await expect(dialog(page)).toBeVisible()
+  await expect(tab(page, 'Folder on a machine')).toHaveAttribute('aria-selected', 'true')
+  await toGitHub(page)
+  await repoField(page).fill('eyupio/reet.sh')
+  await expect(machineField(page)).toHaveValue('a1')
+  await cloneButton(page).click()
+  await expect(dialog(page).getByText(CLONING,{exact:true})).toBeVisible()
+  expect(box.starts).toEqual([SENT])
+  box.finish = true
+  await expect(dialog(page)).toBeHidden({timeout:10000})
+  await expect(page.getByText('Sorted. reet.sh added.',{exact:true})).toBeVisible()
+  expect(await noSideways(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // The repository field lists what studio's GitHub sign-in reaches: typing filters it, the arrows and Enter (or a tap) choose
+ // one, Escape closes only the list, and anything can still be typed. A refusal is said under the field and typing still
+ // works; a machine that cannot list keeps the plain field and is never asked.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`repository list (${screen.width} px)`)) continue
+  const asked = []
+  let listAnswer = () => ({repos:[
+   {name:'eyupio/reet.sh', private:true, pushedAt:Math.floor(Date.now()/1000) - 7200},
+   {name:'eyupio/reet-docs', private:false, pushedAt:Math.floor(Date.now()/1000) - 3*86400},
+   {name:'someone/shared-tool', private:false, pushedAt:0},
+  ], more:false})
+  const listing = {...caps({repoClone:true, repoList:true})}
+  const routes = {
+   '/api/v2/terminal/machines': () => ({machines:[
+    {agentId:'a1',host:'studio',ready:true,serverEnabled:true,capabilities:listing},
+    {agentId:'a2',host:'desk',ready:true,serverEnabled:true,capabilities:caps({repoClone:true})},
+   ]}),
+   '/api/v2/folder-projects/github-repos': request => { asked.push(new URL(request.url()).searchParams.get('host')); return listAnswer() },
+  }
+  const {context,page,errors,box} = await scene({...screen, routes})
+  await page.goto(base)
+  await openAdd(page, screen.touch)
+  await toGitHub(page)
+  const d = dialog(page)
+  await machineField(page).selectOption('a1')
+  const field = d.getByRole('combobox',{name:'Repository',exact:true})
+  const list = d.getByRole('listbox',{name:"studio's repositories"})
+  await expect(d.getByText("Choose from studio's GitHub repositories, or type owner/name or a github.com link",{exact:true})).toBeVisible()
+  expect(asked).toEqual(['a1'])
+  // Typing filters the list; the arrows and Enter choose without submitting.
+  await field.click()
+  await field.pressSequentially('reet')
+  await expect(list.getByRole('option')).toHaveCount(2)
+  await expect(list.getByRole('option').first()).toContainText('eyupio/reet.sh')
+  await expect(list.getByRole('option').first()).toContainText('private')
+  await expect(list.getByRole('option').first()).toContainText('pushed 2 hours ago')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(field).toHaveAttribute('aria-activedescendant', /option-1$/)
+  await page.keyboard.press('Enter')
+  await expect(field).toHaveValue('eyupio/reet-docs')
+  await expect(list).toBeHidden()
+  await expect(d.getByText('reet will clone it to ~/reet/repos/eyupio/reet-docs on studio.',{exact:true})).toBeVisible()
+  expect(box.starts).toEqual([])
+  // Escape closes the list and leaves the dialog open.
+  await field.fill('')
+  await field.pressSequentially('shared')
+  await expect(list.getByRole('option')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(list).toBeHidden()
+  await expect(d).toBeVisible()
+  // A tap or click chooses too.
+  await field.fill('')
+  await field.click()
+  await expect(list.getByRole('option')).toHaveCount(3)
+  await list.getByRole('option',{name:/someone\/shared-tool/}).click()
+  await expect(field).toHaveValue('someone/shared-tool')
+  await expect(field).toBeFocused()
+  // Something not listed is still taken.
+  await field.fill('torvalds/linux')
+  await expect(list).toBeHidden()
+  await expect(cloneButton(page)).toBeEnabled()
+  await cloneButton(page).click()
+  await expect.poll(() => box.starts).toEqual([{host:'a1', repo:'torvalds/linux', name:''}])
+  if (screen.touch) {
+   const small = await d.locator('[role=option]:visible').evaluateAll(els => els.map(el => el.offsetHeight).filter(h => h < 44))
+   expect(small, 'touch targets under 44 px').toEqual([])
+  }
+  expect(await noSideways(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+
+  // Refused (studio not signed in): the sentence under the field, and typing still works.
+  {
+   listAnswer = () => ({status:409, json:{code:'not_signed_in', error:"studio isn't signed in to GitHub. Run gh auth login there, then try again."}})
+   const {context,page,errors} = await scene({...screen, routes})
+   await page.goto(base)
+   await openAdd(page, screen.touch)
+   await toGitHub(page)
+   await machineField(page).selectOption('a1')
+   const d = dialog(page)
+   await expect(d.getByText("studio isn't signed in to GitHub. Run gh auth login there, then try again.",{exact:true})).toBeVisible()
+   await d.getByRole('combobox',{name:'Repository',exact:true}).fill('eyupio/reet.sh')
+   await expect(cloneButton(page)).toBeEnabled()
+   expect(errors.filter(e => !/409/.test(e))).toEqual([])
+   await context.close()
+  }
+  // desk runs an older reet: the plain field, never asked.
+  {
+   asked.length = 0
+   const {context,page} = await scene({...screen, routes})
+   await page.goto(base)
+   await openAdd(page, screen.touch)
+   await toGitHub(page)
+   await machineField(page).selectOption('a2')
+   await expect(repoField(page)).toBeVisible()
+   await expect(dialog(page).getByText('owner/name, or a github.com link',{exact:true})).toBeVisible()
+   await page.waitForTimeout(300)
+   expect(asked.filter(h => h === 'a2')).toEqual([])
+   await context.close()
+  }
+ }
+
+ // A temporary project (a repository cloned for one start) says so on its card, and why reet has left it in place; Keep
+ // this project makes it an ordinary project. Home's rail on a desktop, the Sessions screen's on a phone.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`temporary project (${screen.width} px)`)) continue
+  const KEPT = "The clone on studio is kept: it holds work that isn't on GitHub."
+  const keeps = []
+  const routes = {'/api/v2/folder-projects/fp9/keep': request => { keeps.push(request.method()); return cloned({position:0, version:2}) }}
+  const {context,page,errors,box} = await scene({...screen, sessionsPage:true, routes, projects:[cloned({position:0, temporary:true, keptBecause:KEPT}), notes()]})
+  await page.goto(railPage(screen))
+  const card = page.getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, temporary/}).first()
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('eyupio/reet.sh · temporary')
+  await expect(card).toContainText(KEPT)
+  const more = page.getByRole('button',{name:'More for reet.sh',exact:true}).first()
+  await more.scrollIntoViewIfNeeded()
+  await more.click()
+  await page.getByRole('menu',{name:'reet.sh'}).getByRole('menuitem',{name:'Keep this project',exact:true}).click()
+  await expect(page.getByText("Kept reet.sh. reet won't remove it or its clone.",{exact:true})).toBeVisible()
+  expect(keeps).toEqual(['POST'])
+  await expect(page.getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/}).first()).not.toContainText('temporary')
+  // An ordinary project offers no Keep.
+  await page.getByRole('button',{name:'More for reet.sh',exact:true}).first().click()
+  await expect(page.getByRole('menu',{name:'reet.sh'}).getByRole('menuitem',{name:'Keep this project',exact:true})).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  expect(await noSideways(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; a temporary project marked with why it stays, and Keep this project; the repository list (filter, arrows, Enter, Escape, tap, anything typed, a refusal, an older machine); 1280 and 390 px, light and dark.')
 } finally {
  await browser.close()
 }

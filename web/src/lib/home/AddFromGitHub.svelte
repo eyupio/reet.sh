@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { cloneFolder, parseGitHubRepo, startUnheardLine, timedOut, type CloneEnd, type OutstandingClone } from '../githubRepo'
   import { addFromGitHub, refusalSentence, TerminalError, type TerminalMachine } from '../terminal/api'
+  import RepoField from './RepoField.svelte'
 
   // Add a project From GitHub, the Add project dialog's second choice: a repository, a machine that can clone it and an
   // optional name. Clone and add asks the controller to start the clone; while it runs the form gives way to one line and
@@ -28,7 +29,7 @@
   // The repository field says it cannot read what was typed only once it is left, or on Enter.
   let left = $state(false)
   let starting = $state(false), message = $state(''), failed = $state(false)
-  let repoInput = $state<HTMLInputElement>(), submitButton = $state<HTMLButtonElement>(), closeButton = $state<HTMLButtonElement>()
+  let repoField = $state<RepoField>(), submitButton = $state<HTMLButtonElement>(), closeButton = $state<HTMLButtonElement>()
   const life = new AbortController()
 
   const parsed = $derived(parseGitHubRepo(repo))
@@ -68,7 +69,7 @@
       // follow it with, so it says that and not that the request never arrived.
       message = timedOut(e) ? startUnheardLine : refusalSentence(e)
       const field = e instanceof TerminalError ? e.field : undefined
-      void tick().then(() => (field === 'repo' ? repoInput : field === 'host' ? document.getElementById(`${id}-gh-machine`) : field === 'name' ? document.getElementById(`${id}-gh-name`) : submitButton)?.focus())
+      void tick().then(() => (field === 'repo' ? { focus: () => repoField?.focus() } : field === 'host' ? document.getElementById(`${id}-gh-machine`) : field === 'name' ? document.getElementById(`${id}-gh-name`) : submitButton)?.focus())
     } finally {
       if (!life.signal.aborted) starting = false
     }
@@ -88,12 +89,8 @@
       <fieldset disabled={starting}>
         <div class="field">
           <label class="label" for={`${id}-gh-repo`}>Repository</label>
-          <input id={`${id}-gh-repo`} class="mono" bind:this={repoInput} bind:value={repo} onchange={() => (left = true)}
-            onkeydown={(event) => { if (event.key === 'Enter' && !ready) left = true }}
-            autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="300"
-            aria-invalid={repoProblem ? 'true' : undefined} aria-describedby={`${id}-gh-repo-hint${repoProblem ? ` ${id}-gh-repo-note` : ''}`} />
-          <p class="hint" id={`${id}-gh-repo-hint`}>owner/name, or a github.com link</p>
-          {#if repoProblem}<p class="field-note bad" id={`${id}-gh-repo-note`}>{repoProblem}</p>{/if}
+          <RepoField bind:this={repoField} id={`${id}-gh-repo`} {machine} bind:value={repo} problem={repoProblem} hidden={hidden || !!clone}
+            onleave={() => (left = true)} {onsignedout} />
         </div>
         <div class="pair">
           <div class="field">
@@ -142,13 +139,11 @@
   .label { color: var(--muted); font-size: 14px; }
   .optional { color: var(--faint); }
   input, select { width: 100%; min-width: 0; height: 42px; min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: 14px var(--sans); }
-  .mono { font-family: var(--mono); }
   input::placeholder { color: var(--faint); }
   .select-wrap { position: relative; }
   .select-wrap select { appearance: none; padding-right: 34px; cursor: pointer; }
   .chev { position: absolute; right: 12px; top: 14px; width: 14px; height: 14px; color: var(--muted); pointer-events: none; }
-  .hint, .field-note, .where, .lead { margin: 0; font-size: 14px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
-  .field-note.bad { color: var(--bad); }
+  .where, .lead { margin: 0; font-size: 14px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
   .where { color: var(--ink); }
   .path { font-family: var(--mono); }
   .lead { color: var(--ink); }
@@ -177,7 +172,6 @@
     .body { padding: 14px 16px 16px; font-size: 15px; }
     fieldset { gap: 12px; }
     input, select { height: 48px; min-height: 48px; border-radius: 10px; background: var(--card); font-size: 16px; }
-    .mono { font-size: 16px; }
     .chev { top: 17px; }
     .pair { flex-direction: column; }
     footer { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px 16px 16px; background: var(--bg-sunk); }

@@ -26,7 +26,7 @@ export type TerminalSession = { id: string; agentId: string; title: string; stat
   /** What the session's worktree started from, when the machine reported it: the branch (`baseName`), how it stood
    *  against GitHub (`baseRelation`, one of baseNotice's relations) and the commit it was cut at (`baseStart`). */
   baseName?: string; baseRelation?: string; baseStart?: string; structured?: boolean; agentMode?: string; acpSessionId?: string; activityAt?: number; bellAt?: number; attention?: AttentionState; attentionSource?: AttentionSource; changedSinceSeen?: boolean; pendingPermission?: PendingPermission; pendingQuestion?: PendingQuestion; promptExcerpt?: string; promptMore?: boolean; completedAt?: number }
-export type Capabilities = { /** The machine can say which agents are signed in (agent-accounts-v1, with terminal access on). */ agentAccounts?: boolean; nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
+export type Capabilities = { /** The machine can say which agents are signed in (agent-accounts-v1, with terminal access on). */ agentAccounts?: boolean; nativeView?: boolean; acpPreviews?: boolean; acpStartOptions?: boolean; acpProvider?: boolean; acpLiveControls?: boolean; chatReattach?: boolean; agentsV2?: boolean; osVersion?: string; yolo?: boolean; commandHistory?:boolean; launch?: boolean; resume?: boolean; worktree?: boolean; tools?: string[]; browse?: boolean; browseOff?: boolean; branches?: boolean; uploads?: boolean; uploadsOff?: boolean; models?: boolean; modelsOff?: boolean; acp?: boolean; acpAgents?: StructuredAgent[]; acpModel?: boolean; acpAgentMode?: boolean; acpAgentOptions?: boolean; acpHistory?: boolean; acpImages?: boolean; acpApproval?: boolean; shellDir?: boolean; attention?: boolean; sessionMode?: boolean; inspect?: boolean; software?: SoftwareEntry[]; softwareApply?: boolean; repoClone?: boolean; /** The machine can list the GitHub repositories its gh sign-in reaches (repo-list-v1). */ repoList?: boolean; protocolVersion: number; os: string; osUser: string; terminalEnabled: boolean; terminalControl?: boolean; healthEnabled: boolean; readiness: string }
 export type TerminalMachine = { agentId: string; host: string; ready: boolean; serverEnabled?:boolean; capabilities?: Capabilities }
 export type Reading = { value: number | null; reason?: string }
 export type Capacity = { totalBytes: Reading; availableBytes: Reading }
@@ -331,6 +331,11 @@ export type FolderProject = {
   cloned?: boolean
   /** The GitHub repository the project was added from, as `owner/name`; absent for a folder added from a machine. */
   origin?: string
+  /** reet cloned it for one start (A repository from GitHub… in Start an agent or a Factory outcome) and removes it, with
+   *  its clone, once nothing uses it and nothing in the clone would be lost. Absent when false. */
+  temporary?: boolean
+  /** Why reet last left a temporary project and its clone in place, as a sentence; absent when it has not had to. */
+  keptBecause?: string
   /** The rail colour's id from projectColour.ts, "" when none. */
   colour: string
   /** The group that holds the project; absent or "" when ungrouped. */
@@ -441,8 +446,22 @@ export const CLONE_REMOVE_CODES = ['clone_changed', 'clone_kept', 'clone_unconfi
 /** Starts cloning a GitHub repository (`owner/name` or its github.com link) on a machine that reports `repoClone`, to be
  *  saved as a project when it is done (202). Read the clone with `cloneStatus`; asking again while it runs answers the
  *  same id. `name` "" names the project after the repository. */
-export async function addFromGitHub(host: string, repo: string, name: string, signal?: AbortSignal): Promise<{ cloneId: string; dir: string }> {
-  return (await terminalRequest('/api/v2/folder-projects/from-github', { method: 'POST', signal: within(signal), body: JSON.stringify({ host, repo, name }) })).json()
+export async function addFromGitHub(host: string, repo: string, name: string, signal?: AbortSignal, { temporary = false }: { temporary?: boolean } = {}): Promise<{ cloneId: string; dir: string }> {
+  const body = temporary ? { host, repo, name, temporary } : { host, repo, name }
+  return (await terminalRequest('/api/v2/folder-projects/from-github', { method: 'POST', signal: within(signal), body: JSON.stringify(body) })).json()
+}
+/** Keeps a temporary project: it becomes an ordinary project, which reet never removes. */
+export async function keepFolderProject(id: string, signal?: AbortSignal): Promise<FolderProject> {
+  return withVersion(await terminalRequest(`${folderProjectPath(id)}/keep`, { method: 'POST', signal: within(signal), body: '{}' }))
+}
+/** One repository a machine's GitHub sign-in reaches: `owner/name`, and when it was last pushed to (Unix seconds, 0 when
+ *  GitHub gave none). */
+export type GitHubRepo = { name: string; private: boolean; pushedAt: number }
+/** The repositories a machine can clone with its own gh sign-in (its own, its organizations' and those shared with it),
+ *  most recently pushed first, at most 200; `more` when GitHub had more. Refused 409 `repo_list_unsupported` by an
+ *  older reet there, 409 `not_signed_in` without a sign-in, each with a sentence to show. */
+export async function githubRepos(host: string, signal?: AbortSignal): Promise<{ repos: GitHubRepo[]; more: boolean }> {
+  return (await terminalRequest(`/api/v2/folder-projects/github-repos?host=${encodeURIComponent(host)}`, { signal: within(signal, 45_000) })).json()
 }
 /** A clone's state: cloning, done with the saved project, or failed with the controller's sentence; 404 `clone_not_found`
  *  once the controller no longer knows it. */

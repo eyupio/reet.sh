@@ -5,6 +5,31 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Start an agent** and Factory's **Give Gaffer an outcome** can start in a
+  GitHub repository without adding a project first: choose **A repository
+  from GitHub…** in the Project field, then the repository (from the
+  machine's list, or typed). reet clones it on that machine and saves it as a
+  project as you start (or uses the project already cloned from it), then
+  starts there as on any project, worktree and base branch included. Such a
+  project is temporary: once its sessions or outcome are done reet removes it
+  and deletes the clone, but only when the machine finds nothing that would be
+  lost (uncommitted files, a stash, unpushed commits, a worktree still there).
+  Otherwise its card says why it stays. **Keep this project** in its menu keeps
+  it for good.
+- **From GitHub** now lists the repositories the chosen machine's GitHub
+  sign-in reaches (its own, its organizations' and those shared with it, the
+  200 most recently pushed) under the Repository field. Type to filter, then
+  choose with the arrows and Enter or a tap; anything typed as owner/name or a
+  github.com link still works. The machine asks GitHub with its own `gh`, so
+  the list is what that machine can clone. Both the controller and `reet agent`
+  need this release; a machine on an older reet keeps the plain field.
+- A project added from GitHub now shows where it came from (`owner/name`) on
+  its card in the project rail, in the Sessions screen's project list and in
+  Manage projects. It is still called a project, like any other folder on a
+  machine; a session's **Where it's working** already named its repository.
+- **Add a project** on the Sessions screen now offers **From GitHub** at every
+  width. Its desktop project list opened a copy of the dialog without it.
+
 - Leaving a chat no longer risks dropping its machine's connection. An open
   chat asks for its live controls every 1.5 seconds and abandons the request
   when you leave it; on a busy controller the request was often still waiting

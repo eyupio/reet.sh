@@ -34,6 +34,8 @@ const scopes=[scope('dev-laptop',SITE,'s1'),scope('dev-laptop',SITE+'/','s2'),sc
 const machinesOf=()=>{const by=new Map();for(const s of scopes)by.set(s.host,[...(by.get(s.host)??[]),s]);return[...by].map(([host,groups])=>({host,groups,skillCount:1}))}
 const agents=[A,B,C].map((id,i)=>({id,host:tmachines[i].host,version:'dev',paused:false,autoUpdate:false,lastSeen:Date.now()}))
 let sessions=[]
+const ghStarts=[];let ghReads=0
+const GH_PROJECT={id:'fp-gh',host:A,machine:'dev-laptop',dir:'/home/dev/reet/repos/acme/site',name:'site',isRepo:true,baseBranch:'main',worktreeDefault:'inherit',colour:'',defaultTool:'',defaultModel:'',defaultEffort:'',defaultYolo:false,hasStarterPrompt:false,note:'',position:9,createdAt:now,updatedAt:now,version:1,origin:'acme/site',cloned:true}
 // How the next create is answered: a queue of answers, each 'ok', 'drop', a held promise, or {status, json}.
 const answers=[]
 const launchEvent={id:7,at:now,source:'ui',action:'terminal-launch',detail:JSON.stringify({machine:A,host:'dev-laptop',tool:'claude',model:'opus',dir:SITE})}
@@ -56,6 +58,12 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/v2/sync')data={environments:scopes,machines:machinesOf(),agents,targets:[],jobs:[]}
  else if(path==='/api/v2/machines/health')data={serverNow:Date.now(),machines:[]}
  else if(path==='/api/v2/setup/profiles')data={profiles:[]}
+ // A repository From GitHub: the machine's list, the clone start and its state (cloning once, then done as a project).
+ else if(path==='/api/v2/folder-projects/github-repos')data={repos:[{name:'acme/site',private:true,pushedAt:Math.floor(Date.now()/1000)-3600},{name:'acme/docs',private:false,pushedAt:0}],more:false}
+ else if(path==='/api/v2/folder-projects/from-github'&&method==='POST'){ghStarts.push(req.postDataJSON());return route.fulfill({status:202,json:{cloneId:'c1'.repeat(16),dir:'~/reet/repos/acme/site'}})}
+ else if(path==='/api/v2/folder-projects/clones/'+'c1'.repeat(16)){ghReads++;data=ghReads<2?{state:'cloning'}:{state:'done',project:GH_PROJECT}}
+ // The project's own read arrives late, so a start that did not wait for it would miss the project's defaults.
+ else if(path==='/api/v2/folder-projects/'+GH_PROJECT.id){await new Promise(r=>setTimeout(r,600));data=GH_PROJECT}
  else if(path==='/api/v2/folder-projects')data={projects:folderProjects,savedWaiting:0}
  else if(path==='/api/v2/folder-projects/'+PROJECT_ID&&folderProjects.length)data=folderProjects.find(p=>p.id===PROJECT_ID)
  else if(/^\/api\/v2\/machines\/[^/]+\/models$/.test(path)){const tool=new URL(req.url()).searchParams.get('tool')??'';if(modelsFail)return route.fulfill({status:500,json:{error:'models are unavailable'}});data=modelList({tool})}
@@ -1266,6 +1274,50 @@ try{
  await page.keyboard.press('Escape')
  delete tmachines[0].capabilities.acpStartOptions;delete tmachines[0].capabilities.acp;delete tmachines[0].capabilities.acpAgents
  tmachines[0].capabilities.tools=tmachines[0].capabilities.tools.filter(id=>id!=='opencode')
+
+ // A repository From GitHub, with no project made first: chosen from the machine's list, cloned and saved as a project
+ // as Start is pressed, then started on that project like any other, in its own worktree from its default branch.
+ Object.assign(tmachines[0].capabilities,{repoClone:true,repoList:true,worktree:true})
+ d=await openAt(A);p=parts(d)
+ await p.project.selectOption({label:'A repository from GitHub…'})
+ await expect(p.folder).toHaveCount(0)
+ const ghField=d.getByRole('combobox',{name:'Repository',exact:true})
+ await ghField.click()
+ await d.getByRole('listbox',{name:"dev-laptop's repositories"}).getByRole('option',{name:/acme\/site/}).click()
+ await expect(ghField).toHaveValue('acme/site')
+ await expect(d.getByText('reet clones it to ~/reet/repos/acme/site on dev-laptop and starts the agent there. Once its sessions are done reet removes the clone, unless that would lose work.',{exact:true})).toBeVisible()
+ await p.pick('Claude Code')
+ await p.prompt.fill('tidy the readme')
+ const ghPosts=posts.length
+ await p.start.click()
+ await expect(d.getByText("Cloning acme/site on dev-laptop… This can take a few minutes; the agent starts when it's done.",{exact:true})).toBeVisible()
+ await expect(d.getByRole('button',{name:'Cloning…',exact:true})).toBeDisabled()
+ await expect.poll(()=>posts.length,{timeout:15000}).toBe(ghPosts+1)
+ expect(ghStarts).toEqual([{host:A,repo:'acme/site',name:'',temporary:true}])
+ const ghBody=JSON.parse(posts.at(-1))
+ expect(ghBody.agentId).toBe(A)
+ expect(ghBody.launch??ghBody).toMatchObject({tool:'claude',dir:'/home/dev/reet/repos/acme/site',projectId:'fp-gh',project:'site',base:'main',prompt:'tidy the readme'})
+ expect((ghBody.launch??ghBody).worktree).toMatch(/^[0-9a-f]{32}$/)
+ await expect(d).toHaveCount(0)
+ // Picked again, the project is used as it is: nothing is cloned a second time.
+ // Its own default agent applies, as when it is chosen by hand: the start waits for the project's read.
+ GH_PROJECT.defaultTool='codex'
+ folderProjects=[...folderProjects,GH_PROJECT]
+ d=await openAt(A);p=parts(d)
+ await p.project.selectOption({label:'A repository from GitHub…'})
+ await d.getByRole('combobox',{name:'Repository',exact:true}).fill('acme/site')
+ await expect(d.getByText('Starts in your project site, /home/dev/reet/repos/acme/site.',{exact:true})).toBeVisible()
+ await p.prompt.fill('tidy the readme again')
+ const reusePosts=posts.length
+ await p.start.click()
+ await expect.poll(()=>posts.length,{timeout:15000}).toBe(reusePosts+1)
+ const reuseBody=JSON.parse(posts.at(-1))
+ expect(reuseBody.launch??reuseBody).toMatchObject({tool:'codex',projectId:'fp-gh',prompt:'tidy the readme again'})
+ await expect(d).toHaveCount(0)
+ GH_PROJECT.defaultTool=''
+ folderProjects=folderProjects.filter(item=>item.id!=='fp-gh')
+ delete tmachines[0].capabilities.repoClone;delete tmachines[0].capabilities.repoList
+ expect(ghStarts.length).toBe(1)
  expect(errors).toEqual([])
  console.log(`Start an agent UI passed: the three entry points with the machine preselected and focus returned, agents offered from the shared catalogue (Cline under agents-v2, the old three otherwise, not installed and update reet reasons), the shared model picker with the agent default, the machine list by provider, suggestions, favourites with a working star, Other with cleanModel sent, a project's model and thinking re-resolved on machine and agent changes, the account's defaults without a project, a failed model read as a status line only, the phone picker as a bottom sheet, folder choices and typed paths, prompt rules and byte counter, a pasted image uploaded before the start with its path joined to the opening prompt, the sentence with and without a prompt, exact create bodies (model and effort only when set, plain shells unchanged), the session opened with its title, a lost reply and a 5xx retried with the same id and body while Close and Escape wait and a second submit sends nothing, seven definite refusals with exact sentences, focus and a new id each, a 503 kept for retry, Not listed? from both pages, a failed readiness read said and cleared, nothing in storage or addresses, the Activity line, no entry for viewers or legacy sign-in, and a matrix of 24 states at 1360, 768, 390 and 320px in light and dark with no sideways scroll, nothing past the dialog's edges and each primary action reachable and uncovered, Escape from both entry points at every size returning focus without a request, a reduced-motion run and only numeric recap markers in tab storage. Unmocked: ${[...new Set(unmocked)].join(', ')||'none'}.`)
 }finally{await browser.close()}

@@ -464,7 +464,17 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
 ### Give Gaffer an outcome
 
 1. Write the outcome and choose the project. Only agents whose chat is available on
-   that project's machine are offered, and the machine must be connected.
+   that project's machine are offered, and the machine must be connected. To work in a
+   GitHub repository without adding a project first, choose **A repository from
+   GitHub…**, then the machine to clone it on (only a connected machine that can clone
+   is offered) and the repository, from that machine's list or typed. When you ask for
+   a plan, or choose to write it, reet first makes it a project: one already cloned
+   from that repository there is used as it is, otherwise the machine clones it into
+   `~/reet/repos/owner/name` and it is saved as a temporary project ("Cloning owner/name
+   on workshop… This can take a few minutes; Gaffer plans when it's done."). From then
+   on it is an ordinary outcome in that project, and once the outcome is done reet
+   removes the project and its clone unless that would lose work
+   ([Temporary projects](projects.md#temporary-projects)).
 2. Choose the **crew** under **Choose who does what**. Thinking covers plan, design
    and review; Building covers code and test; Shipping covers the pull request,
    babysitting and merge. Give each its agent and, if you like, a model: a stronger

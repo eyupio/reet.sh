@@ -49,11 +49,14 @@ type cloneJob struct {
 	agent       string
 	owner, repo string // as the person wrote them, after parsing
 	name        string
-	state       cloneState
-	project     store.FolderProject // when done
-	code        string              // when failed
-	sentence    string              // when failed
-	ended       time.Time
+	// temporary: the clone is for one start (Start an agent or a Factory
+	// outcome), and its project is removed with it once nothing uses it.
+	temporary bool
+	state     cloneState
+	project   store.FolderProject // when done
+	code      string              // when failed
+	sentence  string              // when failed
+	ended     time.Time
 }
 
 // repoClones holds the clone jobs of every account in memory. Each job runs
@@ -200,6 +203,8 @@ func (s *server) folderProjectFromGitHub(w http.ResponseWriter, r *http.Request)
 		Host string `json:"host"`
 		Repo string `json:"repo"`
 		Name string `json:"name"`
+		// Temporary: cloned for one start, removed once it is done with.
+		Temporary bool `json:"temporary"`
 	}
 	if !folderProjectBody(w, r, &in) {
 		return
@@ -238,7 +243,7 @@ func (s *server) folderProjectFromGitHub(w http.ResponseWriter, r *http.Request)
 		writeErrCode(w, http.StatusConflict, "repo_clone_unsupported", "", sentenceRepoCloneOld(machine), "")
 		return
 	}
-	job := cloneJob{uid: uid, agent: in.Host, owner: owner, repo: repo, name: name}
+	job := cloneJob{uid: uid, agent: in.Host, owner: owner, repo: repo, name: name, temporary: in.Temporary}
 	id, dir, fresh, err := s.clones.start(job)
 	if errors.Is(err, errCloneLimit) {
 		writeErrCode(w, http.StatusTooManyRequests, "clone_limit", "", sentenceCloneLimit, "")
@@ -293,7 +298,7 @@ func (s *server) saveCloned(job cloneJob, result terminalproto.RepoCloneResult) 
 		return store.FolderProject{}, folderRefusal(err, "")
 	}
 	p := store.FolderProject{Host: job.agent, Dir: result.Dir, Name: job.name, IsRepo: true, BaseBranch: result.DefaultBranch,
-		Origin: job.owner + "/" + job.repo, Cloned: result.Marked}
+		Origin: job.owner + "/" + job.repo, Cloned: result.Marked, Temporary: job.temporary}
 	if refusal := s.checkFolderProject(names, &p, nil); refusal != nil {
 		return store.FolderProject{}, refusal
 	}
@@ -364,4 +369,72 @@ func (s *server) folderProjectClone(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, map[string]any{"state": cloneRunning})
 	}
+}
+
+// githubRepoJSON is one repository a machine's GitHub sign-in reaches.
+type githubRepoJSON struct {
+	Name     string `json:"name"`
+	Private  bool   `json:"private"`
+	PushedAt int64  `json:"pushedAt"`
+}
+
+// folderProjectGitHubRepos lists the GitHub repositories one of the account's
+// machines can clone with its own gh sign-in (its own, its organizations' and
+// those shared with it), most recently pushed first, at most 200. Nothing
+// about GitHub is stored or reaches the controller but the names.
+func (s *server) folderProjectGitHubRepos(w http.ResponseWriter, r *http.Request) {
+	q, ok := machineQuery(r, "host")
+	host := q.Get("host")
+	if !ok || !terminalproto.ValidID(host) {
+		writeErrCode(w, http.StatusUnprocessableEntity, "unknown_machine", "host", sentenceFolderMachine, "")
+		return
+	}
+	uid := s.uid(r)
+	names, err := s.machineNames(uid)
+	if err != nil {
+		folderRefusal(err, "").write(w)
+		return
+	}
+	if _, enrolled := names[host]; !enrolled {
+		writeErrCode(w, http.StatusUnprocessableEntity, "unknown_machine", "host", sentenceFolderMachine, "")
+		return
+	}
+	machine := machineLabel(names, host)
+	result, err := s.terminals.ListRepos(r.Context(), uid, host)
+	if err != nil || result.Reason != "" {
+		status, code, sentence := repoListRefusal(err, result.Reason, machine)
+		writeErrCode(w, status, code, "", sentence, "")
+		return
+	}
+	repos := make([]githubRepoJSON, 0, len(result.Repos))
+	for _, e := range result.Repos {
+		repos = append(repos, githubRepoJSON{Name: e.Name, Private: e.Private, PushedAt: e.PushedAt})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"repos": repos, "more": result.More})
+}
+
+// repoListRefusal words a listing that gave no list: the machine's reason,
+// or the broker's error. machine is the machine's current name.
+func repoListRefusal(err error, reason terminalproto.RepoListReason, machine string) (status int, code, sentence string) {
+	switch {
+	case errors.Is(err, terminalbroker.ErrRepoListUnsupported):
+		return http.StatusConflict, "repo_list_unsupported", "Update reet on " + machine + " to list its GitHub repositories. You can still type one."
+	case errors.Is(err, terminalbroker.ErrMachineTimeout):
+		return http.StatusGatewayTimeout, "machine_timeout", machine + " didn't list its repositories in time. Try again, or type one."
+	case errors.Is(err, terminalproto.ErrInvalid), errors.Is(err, terminalbroker.ErrMachineAnswer):
+		return http.StatusBadGateway, "machine_error", "Couldn't list " + machine + "'s repositories. Type one instead."
+	case err != nil:
+		return http.StatusConflict, "machine_offline", machine + " is offline. Try again when it's back."
+	}
+	switch reason {
+	case terminalproto.RepoListNotSignedIn:
+		return http.StatusConflict, string(reason), machine + " isn't signed in to GitHub. Run gh auth login there, then try again."
+	case terminalproto.RepoListDenied:
+		return http.StatusConflict, string(reason), machine + " refused to list repositories: terminal access is off there, or the GitHub CLI is missing."
+	case terminalproto.RepoListBusy:
+		return http.StatusConflict, string(reason), machine + " is already listing its repositories. Try again in a moment."
+	case terminalproto.RepoListTimedOut:
+		return http.StatusGatewayTimeout, string(reason), "GitHub didn't answer " + machine + " in time. Try again, or type one."
+	}
+	return http.StatusBadGateway, string(terminalproto.RepoListFailed), "Couldn't list " + machine + "'s repositories. Type one instead."
 }

@@ -404,5 +404,66 @@ try {
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
-  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, and replying to or declining a proposal, passed on desktop and phone.')
+  // A repository From GitHub in place of a project: the person picks one from the machine's list, and Ask Gaffer for a
+  // plan first has the machine clone it and saves it as a project, then plans in it. Nobody adds a project by hand.
+  for(const [width,theme] of [[1440,'light'],[390,'dark']]){
+    const f=fixture()
+    const cloner={...machines[0],capabilities:{...machines[0].capabilities,repoClone:true,repoList:true,worktree:true}}
+    const cloned={...folder('p-site','site','a1','workshop'),dir:'/home/dev/reet/repos/acme/site',baseBranch:'main',origin:'acme/site',cloned:true}
+    const list=[...projects],starts=[],reads=[]
+    f.routes['/api/v2/folder-projects']=()=>({projects:list,savedWaiting:0})
+    f.routes['/api/v2/folder-projects/github-repos']=()=>({repos:[{name:'acme/site',private:true,pushedAt:Math.floor(now/1000)-3600},{name:'acme/docs',private:false,pushedAt:0}],more:false})
+    f.routes['/api/v2/folder-projects/from-github']=request=>{starts.push(request.postDataJSON());return {status:202,json:{cloneId:'c1'.repeat(16),dir:'~/reet/repos/acme/site'}}}
+    f.routes[`/api/v2/folder-projects/clones/${'c1'.repeat(16)}`]=()=>{reads.push(Date.now());if(reads.length<2)return {state:'cloning'};if(!list.some(p=>p.id==='p-site'))list.push(cloned);return {state:'done',project:cloned}}
+    const w=await openWorkspace(browser,{width,height:1000,theme,touch:width<1000,terminalMachines:[cloner,machines[1]],routes:f.routes})
+    try {
+      const {outcome}=await openOutcome(w)
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption({label:'A repository from GitHub…'})
+      // Only a connected machine that can clone is offered, and with one it is chosen already.
+      await expect(outcome.getByRole('combobox',{name:'Machine',exact:true}).getByRole('option')).toHaveText(['workshop'])
+      await expect(outcome.getByText('Choose a repository, or type owner/name.',{exact:true})).toBeVisible()
+      const field=outcome.getByRole('combobox',{name:'Repository',exact:true})
+      await field.click()
+      await field.pressSequentially('site')
+      await outcome.getByRole('listbox',{name:"workshop's repositories"}).getByRole('option',{name:/acme\/site/}).click()
+      await expect(field).toHaveValue('acme/site')
+      await expect(outcome.getByText('reet clones it to ~/reet/repos/acme/site on workshop before Gaffer plans. Once the outcome is done reet removes the clone, unless that would lose work.',{exact:true})).toBeVisible()
+      // The agents are the chosen machine's.
+      await expect(outcome.getByRole('combobox',{name:'Agent',exact:true}).getByRole('option')).toHaveText(['Claude Code','OpenCode'])
+      const ask=outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true})
+      await expect(ask).toBeEnabled()
+      await ask.click()
+      await expect(outcome.getByText('Cloning acme/site on workshop… This can take a few minutes; Gaffer plans when it\'s done.',{exact:true})).toBeVisible()
+      await expect(outcome.getByRole('button',{name:'Cloning…',exact:true})).toBeDisabled()
+      // Once cloned it is a project like any other: Gaffer plans in it, and the plan names it.
+      await expect.poll(()=>f.box.plans.length,{timeout:15000}).toBe(1)
+      expect(starts).toEqual([{host:'a1',repo:'acme/site',name:'',temporary:true}])
+      expect(f.box.plans[0].project).toBe('site')
+      await expect(outcome.getByText('site. Each row below is a pipeline',{exact:false})).toBeVisible()
+      await expect(outcome.getByText('in its own worktree',{exact:false})).toBeVisible()
+    } finally { await w.context.close() }
+  }
+  // A repository already cloned there is used as it is: nothing is cloned again.
+  {
+    const f=fixture()
+    const cloner={...machines[0],capabilities:{...machines[0].capabilities,repoClone:true,worktree:true}}
+    const cloned={...folder('p-site','site','a1','workshop'),origin:'acme/site',cloned:true}
+    const starts=[]
+    f.routes['/api/v2/folder-projects']={projects:[...projects,cloned],savedWaiting:0}
+    f.routes['/api/v2/folder-projects/from-github']=request=>{starts.push(request.postDataJSON());return {status:500,json:{error:'not expected'}}}
+    const w=await openWorkspace(browser,{width:1440,height:1000,terminalMachines:[cloner,machines[1]],routes:f.routes})
+    try {
+      const {outcome}=await openOutcome(w)
+      await outcome.getByRole('textbox',{name:'Outcome',exact:true}).fill(objective)
+      await outcome.getByRole('combobox',{name:'Project',exact:true}).selectOption({label:'A repository from GitHub…'})
+      // No list on a machine that cannot list: the plain field takes what is typed.
+      await outcome.getByRole('textbox',{name:'Repository',exact:true}).fill('https://github.com/Acme/Site')
+      await expect(outcome.getByText('Works in your project site, /work/site.',{exact:true})).toBeVisible()
+      await outcome.getByRole('button',{name:'Write the plan myself',exact:true}).click()
+      await expect(outcome.getByText('site. Each row below is a pipeline',{exact:false})).toBeVisible()
+      expect(starts).toEqual([])
+    } finally { await w.context.close() }
+  }
+  console.log('Gaffer outcome on the Factory page: objective gates, the crew and stages per pipeline, auto-merge as the outcome’s own choice, plan from the typed objective only, editable plan, refused prompts and limits caught first, nothing saved before approval, one approved plan handed to the controller, progress read from its record, partial results, the record on the floor, closing while it starts, stopping unstarted sessions, a model that cannot plan and a hand-written plan, the optional image attach/remove/upload, and replying to or declining a proposal, and a repository from GitHub cloned (or reused) as the project, passed on desktop and phone.')
 } finally { await browser.close() }

@@ -73,9 +73,20 @@ func TestFolderRepoRemoteWaitsForAnAnswer(t *testing.T) {
 		f := browseAPIFixture(t, inspectCaps())
 		p := f.folderRepo(t)
 		f.answering(func(terminalproto.Body) terminalproto.Body { return terminalproto.InspectResult{Reason: "busy"} })
-		f.srv.s.learnFolderRemotes(time.Now())
+		now := time.Now()
+		f.srv.s.learnFolderRemotes(now)
 		if got, _ := f.st.FolderProjectFor(f.uid, p.ID); got.RemoteCheckedAt != 0 {
 			t.Fatalf("a busy answer was recorded: %+v", got)
+		}
+		// Not asked again on the next pass, but once the retry time has passed.
+		f.srv.s.learnFolderRemotes(now.Add(time.Minute))
+		if sent := f.inspectsSent(); len(sent) != 1 {
+			t.Fatalf("asked again at once: %d", len(sent))
+		}
+		f.answering(func(terminalproto.Body) terminalproto.Body { return terminalproto.InspectResult{Remote: "acme/site"} })
+		f.srv.s.learnFolderRemotes(now.Add(folderRemoteRetry + time.Minute))
+		if got, _ := f.st.FolderProjectFor(f.uid, p.ID); got.Remote != "acme/site" {
+			t.Fatalf("not asked again after the retry time: %+v", got)
 		}
 	})
 	t.Run("older machine", func(t *testing.T) {

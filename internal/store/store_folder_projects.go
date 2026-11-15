@@ -82,8 +82,8 @@ type FolderProject struct {
 	// from, "" for a folder added by path. Cloned says reet itself made the
 	// clone (its marker is in the folder). Both are written once, on create,
 	// and never change.
-	Origin          string
-	Cloned          bool
+	Origin string
+	Cloned bool
 	// Temporary marks a project reet made for one start: a repository picked
 	// From GitHub in Start an agent or a Factory outcome, cloned for it. reet
 	// removes it, and deletes its clone, once nothing uses it and nothing in
@@ -132,6 +132,7 @@ func (s *Store) migrateFolderProjects() error {
 				kept_because TEXT NOT NULL DEFAULT '',
 				remote TEXT NOT NULL DEFAULT '',
 				remote_checked_at INTEGER NOT NULL DEFAULT 0,
+				remote_tried_at INTEGER NOT NULL DEFAULT 0,
 				position INTEGER NOT NULL CHECK(position>=0),
 				legacy_project_id TEXT,
 				note TEXT NOT NULL DEFAULT '',
@@ -215,6 +216,7 @@ func (s *Store) migrateFolderProjects() error {
 			// origin: every project is asked again.
 			{"remote", `remote TEXT NOT NULL DEFAULT ''`},
 			{"remote_checked_at", `remote_checked_at INTEGER NOT NULL DEFAULT 0`},
+			{"remote_tried_at", `remote_tried_at INTEGER NOT NULL DEFAULT 0`},
 		} {
 			var has int
 			if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('folder_projects') WHERE name=?`, col.name).Scan(&has); err != nil {
@@ -567,8 +569,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 			t = cur.CreatedAt
 		}
 		p.ID, p.Position, p.LegacyProjectID, p.CreatedAt, p.UpdatedAt, p.Version = id, cur.Position, cur.LegacyProjectID, cur.CreatedAt, t, cur.Version+1
-		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,origin=?,cloned=?,temporary=?,kept_because=?,remote=?,remote_checked_at=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
-			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.KeptBecause, p.Remote, p.RemoteCheckedAt, p.Note, t, p.Version, id, uid, cur.Version)
+		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,origin=?,cloned=?,temporary=?,kept_because=?,remote=?,remote_checked_at=?,remote_tried_at=CASE WHEN ?=0 THEN 0 ELSE remote_tried_at END,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.KeptBecause, p.Remote, p.RemoteCheckedAt, p.RemoteCheckedAt, p.Note, t, p.Version, id, uid, cur.Version)
 		if err != nil {
 			return folderConflict(err)
 		}
@@ -806,10 +808,12 @@ type FolderRemoteTarget struct {
 }
 
 // FolderProjectsToAskRemote lists repository projects added by path whose
-// origin was never asked, or last asked before since (Unix ms), oldest first,
-// at most limit.
-func (s *Store) FolderProjectsToAskRemote(since int64, limit int) ([]FolderRemoteTarget, error) {
-	rows, err := s.db.Query(`SELECT user_id,`+folderColumns+` FROM folder_projects WHERE is_repo=1 AND origin='' AND remote_checked_at<? ORDER BY remote_checked_at,created_at,id LIMIT ?`, since, limit)
+// origin was never learned, or last learned before since (Unix ms), and that
+// were not tried at or after retrySince, least recently tried first, at most
+// limit. A project whose machine could not be asked is noted as tried
+// (NoteFolderRemoteTried), so it goes to the back and cannot hold the batch.
+func (s *Store) FolderProjectsToAskRemote(since, retrySince int64, limit int) ([]FolderRemoteTarget, error) {
+	rows, err := s.db.Query(`SELECT user_id,`+folderColumns+` FROM folder_projects WHERE is_repo=1 AND origin='' AND remote_checked_at<? AND remote_tried_at<? ORDER BY remote_tried_at,remote_checked_at,created_at,id LIMIT ?`, since, retrySince, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -829,11 +833,20 @@ func (s *Store) FolderProjectsToAskRemote(since int64, limit int) ([]FolderRemot
 
 // SetFolderProjectRemoteFor records what the project's machine said its
 // origin is ("" for none on github.com), at checkedAt, if the project is
-// still in dir. It is the controller's note, not an edit: no version moves.
-func (s *Store) SetFolderProjectRemoteFor(uid int64, id, dir, remote string, checkedAt int64) error {
+// still in dir on that machine (host). It is the controller's note, not an
+// edit: no version moves.
+func (s *Store) SetFolderProjectRemoteFor(uid int64, id, host, dir, remote string, checkedAt int64) error {
 	if remote != "" && !validFolderProjectOrigin(remote) {
 		return folderInvalid("remote must be a GitHub repository written as owner/name")
 	}
-	_, err := s.db.Exec(`UPDATE folder_projects SET remote=?,remote_checked_at=? WHERE user_id=? AND id=? AND dir=? AND origin=''`, remote, checkedAt, uid, id, dir)
+	_, err := s.db.Exec(`UPDATE folder_projects SET remote=?,remote_checked_at=?,remote_tried_at=? WHERE user_id=? AND id=? AND host=? AND dir=? AND origin=''`, remote, checkedAt, checkedAt, uid, id, host, dir)
+	return err
+}
+
+// NoteFolderRemoteTried records that the project's machine could not be
+// asked about its origin at triedAt, so it is tried again only after the
+// projects not tried since.
+func (s *Store) NoteFolderRemoteTried(uid int64, id string, triedAt int64) error {
+	_, err := s.db.Exec(`UPDATE folder_projects SET remote_tried_at=? WHERE user_id=? AND id=?`, triedAt, uid, id)
 	return err
 }

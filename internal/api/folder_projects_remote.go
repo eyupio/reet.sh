@@ -18,6 +18,9 @@ import (
 var (
 	// folderRemoteEvery is how often a project's origin is asked again.
 	folderRemoteEvery = 24 * time.Hour
+	// folderRemoteRetry is how soon a project whose machine could not be
+	// asked is tried again.
+	folderRemoteRetry = 10 * time.Minute
 	// folderRemoteBatch bounds one pass.
 	folderRemoteBatch = 20
 	// folderRemoteNudge wakes the worker for a project just added or moved.
@@ -36,7 +39,7 @@ func (s *server) learnFolderRemotes(now time.Time) {
 	if s.st.Fenced() {
 		return
 	}
-	due, err := s.st.FolderProjectsToAskRemote(now.Add(-folderRemoteEvery).UnixMilli(), folderRemoteBatch)
+	due, err := s.st.FolderProjectsToAskRemote(now.Add(-folderRemoteEvery).UnixMilli(), now.Add(-folderRemoteRetry).UnixMilli(), folderRemoteBatch)
 	if err != nil {
 		return
 	}
@@ -51,28 +54,39 @@ func (s *server) learnFolderRemotes(now time.Time) {
 }
 
 // learnFolderRemote asks the project's machine for its folder's origin and
-// records the answer. Nothing is recorded when the machine cannot be asked
-// or does not answer, so it is asked again on a later pass.
+// records the answer. When the machine cannot be asked or does not answer,
+// only the try is noted, so it is asked again on a later pass, behind the
+// projects not tried since.
 func (s *server) learnFolderRemote(uid int64, p store.FolderProject, now time.Time) {
-	if !s.terminals.Ready(uid, p.Host) {
+	if remote, ok := s.askFolderRemote(uid, p); ok {
+		_ = s.st.SetFolderProjectRemoteFor(uid, p.ID, p.Host, p.Dir, remote, now.UnixMilli())
 		return
+	}
+	_ = s.st.NoteFolderRemoteTried(uid, p.ID, now.UnixMilli())
+}
+
+// askFolderRemote is the folder's GitHub origin as its machine reports it
+// ("" for none), and whether the machine answered.
+func (s *server) askFolderRemote(uid int64, p store.FolderProject) (string, bool) {
+	if !s.terminals.Ready(uid, p.Host) {
+		return "", false
 	}
 	caps, err := s.st.RemoteCapabilitiesFor(uid, p.Host)
 	if err != nil || !caps.Capabilities.Inspect {
-		return
+		return "", false
 	}
 	ctx, cancel := context.WithTimeout(s.baseContext(), 20*time.Second)
 	defer cancel()
 	result, err := s.terminals.InspectFolder(ctx, uid, p.Host, p.Dir)
 	if err != nil {
-		return
+		return "", false
 	}
 	switch result.Reason {
 	case "", "not_repo":
 		// A folder that is no longer a repository has no origin either.
+		return result.Remote, true
 	default:
 		// busy, denied, timed out, git failed: ask again later.
-		return
+		return "", false
 	}
-	_ = s.st.SetFolderProjectRemoteFor(uid, p.ID, p.Dir, result.Remote, now.UnixMilli())
 }

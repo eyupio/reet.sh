@@ -15,6 +15,8 @@ const sessions=[{id:'organisation-session0001',agentId:a,title:'Alpha shell',sta
 const project=(id,name,dir,over={})=>({id,host:a,machine:'Laptop',dir,name,isRepo:true,baseBranch:'',worktreeDefault:'inherit',defaultTool:'',defaultModel:'',hasStarterPrompt:false,note:'',position:0,createdAt:1,updatedAt:1,version:1,...over})
 const projects=[project('organisation-project01','reet','/home/developer/reet')]
 page.on('pageerror',e=>errors.push(e.message))
+// This file's phone-width steps are about the full session chrome, so focus mode starts off, as Exit focus leaves it.
+await page.addInitScript(()=>{if(localStorage.getItem('reet-terminal-layout:7:context:focus')===null)localStorage.setItem('reet-terminal-layout:7:context:focus','0')})
 await context.route('**/api/**',async route=>{
  const r=route.request(),path=new URL(r.url()).pathname,method=r.method();let data={}
  if(path==='/api/v2/auth/status')data={mode:'accounts',user:{id:7,name:'Engineer',email:'engineer@example.test',role:'owner'}}

@@ -7,7 +7,8 @@ const browser = await chromium.launch({headless:true, executablePath:process.env
 // REET_E2E_ONLY=<section> runs one section, so each can be watched failing before its fix.
 const only = process.env.REET_E2E_ONLY
 const run = name => !only || only === name
-const open = options => openWorkspace(browser, options)
+// These sections are about the full session chrome on a phone, so each starts with focus mode off (terminal-focus.e2e.mjs covers it on).
+const open = options => openWorkspace(browser, {sessionFocus:false, ...options})
 
 // The agents fixture shaped like the mock-up: reet and site report, desk does not; a live terminal answers its socket.
 const caps = os => ({protocolVersion:1,os,osUser:'dev',terminalEnabled:true,terminalControl:true,healthEnabled:true,readiness:'ready',launch:true,tools:['claude','codex'],worktree:true,browse:true,branches:true,agentsV2:true})

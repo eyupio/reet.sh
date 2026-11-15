@@ -38,7 +38,8 @@ stay above the keyboard. The mascot follows your animation and reduced-motion
 preferences. While typing into a worker with the phone keyboard open, the
 launcher and its reserved space step aside in keyboard-sized views; closing the keyboard restores the
 same corner. Wider workspaces, including landscape phones, reserve a narrow side strip beside the terminal
-instead of consuming terminal rows.
+instead of consuming terminal rows. On a phone or a touch tablet a session screen has no floating mascot: **Ask
+Gaffer** is in the session's header (a terminal) or its status row (a chat), and no room is held back for it.
 
 Outside a session, use **General Gaffer chat**. Inside a supported structured chat,
 **This session** has its own conversation and draft. **Conversation history** in

@@ -551,5 +551,14 @@
   @media (max-width: 650px) { .disclosure-text { display: none; }.disclosure { margin-right: -2px; }.scope { flex-wrap: wrap; padding: 8px 12px; } .scope p { flex-wrap: wrap; row-gap: 2px; } .scope-reset { margin-left: 0; width: 100%; justify-content: center; min-height: 40px; } .heading { margin: 0 0 16px; gap: 12px; align-items: center; }h2 { font-size: 22px; }.new-session { font-size: 14px; }.views { gap: 1px; justify-content: space-between; width: 100%; overflow-x: auto; scrollbar-width: none; }.views::-webkit-scrollbar { display: none; }.views button { flex: 0 0 auto; padding: 8px 6px; font-size: 14px; gap: 6px; min-height: 42px; }.views button :global(svg) { width: 14px; }.divider { margin: 0 2px; }.view-count { font-size: 14px; min-width: 14px; padding: 1px 2px; }.viewbar { gap: 8px; padding-bottom: 8px; }.display { width: 100%; justify-content: space-between; }.display select { max-width: none; padding-left: 0; font-size: 16px; }.filterbar { gap: 8px; padding: 12px 0; flex-wrap: wrap; }.search { max-width: none; min-width: 0; }.search input { min-height: 42px; font-size: 16px; }.filter-button { min-height: 44px; }.result-count { display: none; }.filter-panel { position: fixed; top: 15dvh; left: 16px; right: 16px; width: auto; max-height: 70dvh; box-sizing: border-box; }.filter-groups { gap: 16px; }.filter-groups label { padding: 8px 0; }.board-foot { align-items: start; font-size: 14px; }.board-foot span { max-width: 180px; }.board-foot span :global(svg) { flex-shrink: 0; }.focused .cards, .cards { grid-template-columns: minmax(0, 1fr); }.card-foot { flex-wrap: nowrap; }.empty { padding: 24px 12px; }.prompt-preview { font-size: 14px; } }
   @media (max-width: 380px) { .views button:not(:first-child) :global(svg) { display: none; } }
   @media (pointer: coarse) { .disclosure { min-height: 40px; padding: 8px; } }
+  /* A finger needs 44 px: the stage's add button, the density toggle, the sort list and an empty stage's action. */
+  @media (pointer: coarse) {
+    .stage-head > button { min-width: 44px; min-height: 44px; display: inline-grid; place-items: center; margin: -8px -8px -8px 0; }
+    .density { width: 44px; height: 44px; align-items: center; }
+    .display select { min-height: 44px; }
+    .views button, .search input, .filter-button { min-height: 44px; }
+    .empty button { min-height: 44px; padding-inline: 12px; }
+    .session-card h4 a { display: block; padding: 6px 0; margin: -6px 0; }
+  }
   @media (prefers-reduced-motion: reduce) { .session-card, .details, .disclosure :global(svg) { transition: none; } }
 </style>

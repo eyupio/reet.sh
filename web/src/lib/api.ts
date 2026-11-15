@@ -969,6 +969,23 @@ export async function getNotificationPreferences(): Promise<{ preferences: Notif
 export async function saveNotificationPreferences(preferences: { key: string; enabled: boolean; mode: string }[]): Promise<{ preferences: NotificationPreference[]; done: string }> {
   return (await req('/api/v2/notifications/preferences', { method: 'PATCH', body: json({ preferences }) })).json()
 }
+/** One browser that is told when a session needs its person. */
+export type PushDevice = { id: number; label: string; waiting: boolean; ended: boolean; createdAt: number; lastOkAt: number }
+/** `available` is false on an instance without accounts. */
+export type PushStatus = { available: boolean; publicKey?: string; devices: PushDevice[]; current?: number }
+/** With this browser's push address, the answer says which listed device it is (`current`). */
+export async function getPush(endpoint = ''): Promise<PushStatus> {
+  return (await req('/api/v2/push', endpoint ? { headers: { 'X-Reet-Push-Endpoint': endpoint } } : {})).json()
+}
+export async function savePushDevice(input: { endpoint: string; label: string; waiting: boolean; ended: boolean }): Promise<PushDevice> {
+  return (await req('/api/v2/push/subscriptions', { method: 'POST', body: json(input) })).json()
+}
+export async function removePushDevice(input: { endpoint?: string; id?: number }): Promise<{ removed: boolean }> {
+  return (await req('/api/v2/push/subscriptions', { method: 'DELETE', body: json(input) })).json()
+}
+export async function testPush(): Promise<{ sent: number; devices: number }> {
+  return (await req('/api/v2/push/test', { method: 'POST', body: json({}) })).json()
+}
 export async function getNotificationDefaults(): Promise<{ defaults: NotificationDefault[] }> {
   return (await req('/api/v2/admin/notifications/defaults')).json()
 }

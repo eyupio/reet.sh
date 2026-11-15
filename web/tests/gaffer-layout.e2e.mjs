@@ -65,8 +65,8 @@ try {
     await expect(strip.locator('.spinning svg')).toBeVisible()
     expect(await strip.locator('.spinning svg').evaluate(el => getComputedStyle(el).animationName)).toBe('none')
     await expect(narrative.locator('.gaffer-avatar')).toHaveCount(0)
-    // On a phone the entry lives in the chat's status row instead of a floating circle over the conversation.
-    if (width <= 767) await expect(page.locator('.gaffer-launcher')).toBeHidden()
+    // On a phone or a touch tablet the entry lives in the chat's status row instead of a floating circle over the conversation.
+    if (width < 800) await expect(page.locator('.gaffer-launcher')).toBeHidden()
     else await expect(page.locator('.gaffer-launcher')).toBeVisible()
     expect(providerReads).toBe(0)
     await entry.focus(); await page.keyboard.press('Enter')

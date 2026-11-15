@@ -14,11 +14,14 @@ const app=(cols,rows)=>{let out='\x1b[?1049h\x1b[2J'
  for(let row=1;row<=rows;row++)out+=`\x1b[${row};1H`+(row===1?`agent ${cols}x${rows}`:row===rows?'> ask anything':`row ${row}`).slice(0,cols)
  return Buffer.from(out)}
 
-async function open({width,height,touch,query='',layout=null,motion='no-preference',screen=null,mouse=false}){
+// `focus` leaves the phone's focus mode as a first visit finds it (on); the sections about the full session chrome turn it off,
+// as Exit focus would.
+async function open({width,height,touch,query='',layout=null,motion='no-preference',screen=null,mouse=false,focus=false}){
  const context=await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch,reducedMotion:motion,...(screen?{screen}:{})})
  const page=await context.newPage(),errors=[],tickets=[],frames=[],inputs=[]
  // A saved sessions-panel layout, as a wider screen would have left it.
  if(layout)await page.addInitScript(value=>{if(!sessionStorage.getItem('seeded')){sessionStorage.setItem('seeded','1');localStorage.setItem('reet-terminal-layout:1',value)}},JSON.stringify(layout))
+ if(!focus)await page.addInitScript(()=>{if(localStorage.getItem('reet-terminal-layout:1:context:focus')===null)localStorage.setItem('reet-terminal-layout:1:context:focus','0')})
  let sockets=0
  page.on('pageerror',error=>errors.push(error.message))
  await page.addInitScript(()=>{

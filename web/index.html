@@ -53,6 +53,14 @@
           : ((bootPath === '/sessions' || bootPath === '/terminals') && bootQuery.get('view') !== 'list')
             || (['/machines', '/account/machines', '/account/sync'].indexOf(bootPath) !== -1 && bootQuery.get('view') === 'terminal') ? 'workspace'
           : 'content'
+        // A phone opens a session in focus mode unless Exit focus was chosen in this browser: the shell then draws no
+        // top bar or toolbar, as the session screen will not (terminal/WorkspaceSkeleton.svelte holds the same rule).
+        try {
+          if (document.documentElement.dataset.bootLayout === 'workspace' && bootQuery.has('session')
+            && matchMedia('(max-width:650px), (max-height:500px) and (pointer:coarse) and (orientation:landscape)').matches
+            && !Object.keys(localStorage).some(function (key) { return /^reet-terminal-layout:[^:]+:context:focus$/.test(key) && localStorage.getItem(key) === '0' }))
+            document.documentElement.dataset.bootFocus = ''
+        } catch (e) { /* storage is optional */ }
         // The terminal workspace keeps its saved panel and details widths in this browser. Read them before painting so
         // the boot skeleton, the app's skeletons and the real workspace all reserve the same room.
         try {
@@ -335,6 +343,8 @@
          the real workspace draws, at the widths read above. A slow workspace therefore holds still. */
       html[data-boot='app'][data-boot-layout='workspace'] #boot .boot-main[data-boot='app'] { max-width:none; margin:0; padding:8px 12px; height:calc(100dvh - 57px); display:flex; flex-direction:column; }
       html[data-boot-layout='workspace'] .boot-main .boot-page { display:none; }
+      html[data-boot-focus] #boot .boot-bar, html[data-boot-focus] #boot .boot-ws-toolbar { display:none; }
+      html[data-boot='app'][data-boot-layout='workspace'][data-boot-focus] #boot .boot-main[data-boot='app'] { padding:0; height:100dvh; }
       .boot-workspace { display:none; }
       html[data-boot-layout='workspace'] .boot-workspace { display:flex; flex-direction:column; flex:1; min-height:0; }
       @media (min-width:768px), (max-height:500px) and (pointer:coarse) and (orientation:landscape) {

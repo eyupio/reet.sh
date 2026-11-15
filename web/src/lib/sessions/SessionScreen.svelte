@@ -1,6 +1,7 @@
 <script lang="ts">
   import { factoryBadge, type FactoryMember } from '../gafferOutcome'
-  import { gafferSessionContext } from '../gafferContext'
+  import { gafferChatEntry, gafferSessionContext } from '../gafferContext'
+  import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
   import { gafferTooltip } from '../gafferTooltip'
   import { onMount, tick, type Snippet } from 'svelte'
   import { getSyncState, getYoloSetting, type SyncState, type YoloSetting } from '../api'
@@ -76,9 +77,9 @@
   const chatView = $derived(!!session.structured)
   const terminalLabel = $derived(session.tool ? `${toolName(session.tool)} TUI` : 'Terminal')
 
-  // A phone opens a Gaffer chat in focus mode: the narrative and composer take the screen, and the site chrome, workspace
-  // toolbar and secondary session controls step aside. The choice lasts for this browser; Exit focus in the header or the
-  // actions menu brings everything back.
+  // A phone opens a session in focus mode: the conversation and composer, or the terminal and its keys, take the screen,
+  // and the site chrome, workspace toolbar and secondary session controls step aside. The choice lasts for this browser;
+  // Exit focus in the header brings everything back.
   let phone = $state(typeof matchMedia === 'function' && matchMedia(PHONE_SCREEN).matches)
   // svelte-ignore state_referenced_locally (the panel key is fixed for this screen, and a browser preference needs it at once)
   const focusKey = `${contextKey}:focus`
@@ -86,7 +87,9 @@
     try { const saved = localStorage.getItem(focusKey); return saved === '1' ? true : saved === '0' ? false : null } catch { return null }
   }
   let focusWanted = $state<boolean | null>(savedFocus())
-  const focusOn = $derived(phone && chatView && (focusWanted ?? true))
+  const focusOn = $derived(phone && (focusWanted ?? true))
+  // The terminal is what the stage shows: a terminal session, or a chat session switched to its agent's own TUI.
+  const terminalShowing = $derived(view ? view === 'terminal' : !chatView)
 
   // The skills line comes from the sync state, read once when the screen opens (undefined while reading, null if it failed).
   let sync = $state<SyncState | null | undefined>(undefined)
@@ -119,7 +122,8 @@
     try { localStorage.setItem(focusKey, next ? '1' : '0') } catch { /* optional browser preference */ }
     if (next) { sheetOpen = false; saveContext() }
     await tick()
-    if (next) screen?.querySelector<HTMLTextAreaElement>('.composer-input')?.focus({ preventScroll: true })
+    // A chat's composer takes the caret; a terminal is left alone, since focusing it would raise the keyboard over it.
+    if (next && !terminalShowing) screen?.querySelector<HTMLTextAreaElement>('.composer-input')?.focus({ preventScroll: true })
     else focusButton?.focus()
   }
 
@@ -398,7 +402,7 @@
 
 <!-- One grid: the header and status line, then the context panel, then the terminal, so the tab order is header → panel →
      terminal while the panel shows beside the terminal (right column) or over its edge (as a sheet below the header). -->
-<div class="session-screen" class:theatre class:keyboard class:focus={focusOn} class:resizing={contextResizing}
+<div class="session-screen" class:theatre class:keyboard class:focus={focusOn} class:terminal-view={terminalShowing} class:resizing={contextResizing}
   bind:this={screen} style={`--context-width:${shownContextWidth}px`}>
   <div class="body" class:context-docked={docked && effectiveOpen && !hasSide} class:context-sheet={!theatre && !docked && effectiveOpen && !hasSide} bind:clientWidth={bodyWidth}>
     <header class="head">
@@ -415,10 +419,11 @@
       <div class="header-actions">
         {#if onview}<SessionViewSwitch view={view ?? (chatView ? 'chat' : 'terminal')} chat={chatView} terminal={!chatView || nativeAvailable} pending={nativePending} reason={nativeReason} {onview} onunavailable={text => notice = { text }} />{/if}
         {@render contextControls?.()}
+        {#if terminalShowing && $gafferChatEntry}<button type="button" class="gaffer-entry" aria-label="Ask Gaffer" title="Ask Gaffer about this session" onclick={event => $gafferChatEntry?.(event.currentTarget)}><GafferCompanionAvatar size={24} /></button>{/if}
         <button type="button" class="actions-button" data-keeps-focus bind:this={actionsButton} aria-label="Session actions" aria-haspopup="dialog" aria-expanded={actionsOpen}
           title="Session actions" onclick={() => actionsOpen = true}><span aria-hidden="true">···</span></button>
         <button type="button" class="focus-button" bind:this={focusButton} aria-pressed={focusOn}
-          aria-label={focusOn ? 'Exit focus mode' : 'Focus mode'} title={focusOn ? 'Show the full session screen' : 'Focus on the conversation and composer'}
+          aria-label={focusOn ? 'Exit focus mode' : 'Focus mode'} title={focusOn ? 'Show the full session screen' : terminalShowing ? 'Give the screen to the terminal' : 'Focus on the conversation and composer'}
           onclick={() => void toggleFocus()}>
           <TerminalIcon name={focusOn ? 'contract' : 'expand'} /><span class="wide-label">{focusOn ? 'Exit focus' : 'Focus'}</span><span class="compact-label">{focusOn ? 'Exit' : 'Focus'}</span>
         </button>
@@ -535,6 +540,11 @@
   .tool-action:hover:not(:disabled), .theatre-button:hover, .focus-button:hover { background: var(--tint); color: var(--ink); }
   .tool-action:disabled { opacity: .5; cursor: default; }
   .focus-button { display: none; }
+  /* A phone or tablet terminal has no corner for the floating Ask Gaffer circle (it would sit on the agent's prompt), so the header carries it. */
+  .gaffer-entry { display: none; align-items: center; justify-content: center; width: 44px; height: 44px; flex: none; padding: 0; border: 1px solid transparent; border-radius: 50%; background: none; cursor: pointer; }
+  .gaffer-entry:hover { background: var(--tint); }
+  .gaffer-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 767px), (pointer: coarse) { .gaffer-entry { display: inline-flex; } }
   .compact-label { display: none; }
   .tool-action.danger { color: var(--bad); }
   .tool-action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
@@ -575,6 +585,12 @@
     .head { padding: 0 12px 8px; }
     .heading { flex: 1 1 0; }
   }
+  /* A narrow stage that is not a phone (a tablet with the sessions panel docked): the name keeps the first row to itself
+     and its state, and the controls take the next, so a session is never called "Refacto…" beside empty room. */
+  @container session-screen (max-width: 640px) {
+    .identity-row { flex-wrap: wrap; min-height: 64px; }
+    .header-actions { width: 100%; }
+  }
   /* Phones retain every control. Layout actions use 44 px icons; the toolbar wraps instead of hiding choices. */
   @media (max-width: 650px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) {
     .sub, .location, .identity-row > .pill { display: none; }
@@ -613,11 +629,17 @@
     .session-screen.focus .title { font: 600 16px/1.25 var(--sans); }
     .session-screen.focus .sub, .session-screen.focus .where-phone { display: none; }
     .session-screen.focus .identity-row > .pill { display: inline-flex; }
-    .session-screen.focus .actions-button { display: none; }
+    /* A chat's session actions wait behind Exit focus. A terminal keeps them: its pane header, where End and Rename
+       also live, has stepped aside. */
+    .session-screen.focus:not(.terminal-view) .actions-button { display: none; }
     .session-screen.focus .header-actions { gap: 0; }
     .session-screen.focus .header-actions .focus-button { width: 44px; min-width: 44px; min-height: 44px; }
     .session-screen.focus .live p { margin: 0 8px 6px; }
     .session-screen.focus .stage { border-top: 0; }
+    /* A terminal in focus: the slim header names the session and its state, so the pane's own header and status footer give
+       their rows to the screen. Not while the connection is down: they hold Retry now, Reconnect and the reason. */
+    .session-screen.focus .stage :global(.pane:not(.maximised)[data-connection-state=live] > header),
+    .session-screen.focus .stage :global(.pane:not(.maximised)[data-connection-state=live] > footer) { display: none; }
     /* The narrative is the screen: larger prose, a tighter log, and the composer's secondary tools wait behind Exit focus. */
     /* Keep live status and the nearby Gaffer entry visible in focus mode too. */
     .session-screen.focus :global(.log) { padding: 12px 14px 16px; gap: 10px; }
@@ -649,12 +671,25 @@
   /* With the phone keyboard up the site's chrome steps aside (keyboardChrome) and the slim header stays, as the mock-up's phone
      session draws it; the status line gives its row to the terminal. */
   .keyboard .live { display: none; }
+  /* In focus on a phone the header's second row (the view switch, Details, Exit focus) waits too: one row names the
+     session, and the rest of the screen above the keyboard is the conversation or the terminal. */
+  @media (max-width: 650px) { .session-screen.focus.keyboard .header-actions { display: none; } }
   /* The slim header names the session and its state, so the pane's own header gives its row to the terminal while typing. */
   @media (max-width: 650px) {
     /* Not while the connection is down: the header holds Retry now, Reconnect and Continue here. */
     .keyboard .stage :global(.pane:not(.maximised)[data-connection-state=live] > header) { display: none; }
     /* The header keeps its 44 px targets but drops its spare 8 px while typing, so the terminal keeps its keyboard-open rows. */
     .keyboard .head { min-height: 44px; }
+  }
+  /* A touch tablet with its keyboard up: the same idea at tablet sizes. The header keeps the name, state and controls on
+     one slim row, and the pane's own header and status footer give their rows to the terminal. */
+  @media (pointer: coarse) and (min-width: 651px) and (min-height: 501px) {
+    .keyboard .stage :global(.pane:not(.maximised)[data-connection-state=live] > header),
+    .keyboard .stage :global(.pane:not(.maximised)[data-connection-state=live] > footer) { display: none; }
+    .keyboard .identity-row { min-height: 52px; flex-wrap: nowrap; }
+    .keyboard .header-actions { width: auto; }
+    .keyboard .sub, .keyboard .location { display: none; }
+    .keyboard .head { padding-bottom: 2px; }
   }
   .factory-mark { justify-self: start; align-self: start; width: fit-content; font-size: 14px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 8px; text-decoration: none; white-space: nowrap; }
   .factory-mark:hover { background: var(--tint); }

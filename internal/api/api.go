@@ -59,6 +59,7 @@ type server struct {
 	signup         bool
 	supportDesk    bool
 	contactEmail   string
+	push           pushState
 	limiter        *auth.Limiter
 	dummyHash      string
 	oauthLimiter   *auth.Limiter
@@ -382,6 +383,9 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	// clone, once nothing uses them and nothing would be lost.
 	s.workers.Add(1)
 	go func() { defer s.workers.Done(); s.temporaryProjectWorker() }()
+	// Devices that asked to hear when a session needs their person.
+	s.workers.Add(1)
+	go func() { defer s.workers.Done(); s.pushWorker() }()
 	s.terminals.OnSessionClosed(s.onSessionClosed)
 	s.terminals.OnPeerReady(s.onPeerReady)
 	s.terminals.OnSessionBase(s.recordSessionBase)
@@ -505,6 +509,7 @@ func (s *server) routes() http.Handler {
 	s.registerMailRoutes(mux)
 	s.registerTicketRoutes(mux)
 	s.registerNotificationRoutes(mux)
+	s.registerPushRoutes(mux)
 	s.registerHealthRoutes(mux)
 	s.registerTerminalRoutes(mux)
 	s.registerBrowseRoutes(mux)

@@ -5,6 +5,36 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Notifications on a device.** A phone, tablet or computer can be told when a
+  session needs you or has ended, while reet is closed: **Notifications → On
+  this device → Turn on notifications**, then choose what that device hears
+  about. A tap opens the session. Nothing about a session passes through the
+  browser's push service: the device is woken with an empty request and asks
+  your controller what to show. It needs accounts, https, and outbound https
+  from the controller to the browsers' push services; on an iPhone or iPad,
+  add reet to the Home Screen first. See
+  [Notifications on a device](docs/push-notifications.md).
+- **Sessions on a phone open full screen.** A terminal now opens in focus
+  mode, as a chat already did: the site header, the workspace toolbar and the
+  pane's own header and footer step aside, and **Exit focus** brings them
+  back. At 390 × 844 a terminal has 49 rows where it had 28, and 21 held
+  sideways where it had 9. **Focus** did nothing on a terminal before. With
+  the keyboard up the header is one row, and a chat's model and effort
+  settings wait until the keyboard goes.
+- **Ask Gaffer** no longer floats over a session on a phone or a touch tablet,
+  where it covered the agent's prompt line above an empty strip kept for it.
+  It is in the session's header (a terminal) or status row (a chat).
+- **A touch tablet with its keyboard up** gives the terminal the room a phone
+  does: 30 rows at 820 × 1180 where it had 13.
+- **The Sessions tab** with nothing open lists every machine's running
+  sessions, what needs you first, each with its machine and state. It said
+  "Nothing is open right now" while sessions were running on a phone.
+- The sessions drawer on a phone is wide enough to read a session's name and
+  closes with a tap beside it. In a docked panel a project's header is one
+  line, and beside it a session's name is no longer cut short while there is
+  room. On Home, the board's add, density, sort, search and filter controls
+  are 44 px on a touch screen. **Start an agent** no longer shows a choice not
+  made yet in red.
 - Home's launch bar offers **A repository from GitHub…** in its Project
   list, as Start an agent does: pick a machine and a repository, and the bar
   names it (cloned as a temporary project, or the project that already is

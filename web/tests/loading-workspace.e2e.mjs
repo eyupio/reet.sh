@@ -55,7 +55,9 @@ try {
       const stage = bare ? await boxOf(page.locator('.terminal-stage')) : await boxOf(page.locator('.session-screen .stage'))
       const details = await boxOf(page.locator('[aria-label="Session context"]'))
       sameBox(card, sk.card, `${path} ${width}: workspace card`)
-      sameBox(toolbar, sk.toolbar, `${path} ${width}: toolbar`)
+      // A phone's session opens in focus mode: neither the skeleton nor the screen has the workspace toolbar.
+      if (sk.toolbar) sameBox(toolbar, sk.toolbar, `${path} ${width}: toolbar`)
+      else { expect(width, `${path} ${width}: only a phone session's skeleton has no toolbar`).toBe(390); expect(bare).toBe(false); expect(toolbar, `${path} ${width}: a skeleton without a toolbar grew one`).toBeNull() }
       if (sk.panel) sameBox(panel, sk.panel, `${path} ${width}: sessions panel`)
       else expect(panel, `${path} ${width}: a skeleton without a panel grew one`).toBeNull()
       sameBox(stage, sk.stage, `${path} ${width}: session area`)

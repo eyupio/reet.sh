@@ -26,8 +26,9 @@ try{
     await w.page.addInitScript(()=>{window.EventSource=class{addEventListener(){}close(){}}})
     try{
       await w.page.goto(`${base}/sessions?agent=a1&session=${sid}`)
-      // A phone chat carries its Gaffer entry in the status row; wider screens keep the floating launcher.
-      const phoneChat=width<768||(height<=500&&width>height)
+      // A chat on a phone or any touch screen carries its Gaffer entry in the status row; a mouse screen keeps the
+      // floating launcher. Every size under 1000 px here is opened as a touch screen.
+      const phoneChat=width<1000
       const launch=phoneChat?w.page.locator('.chat-status .gaffer-entry'):w.page.getByRole('button',{name:'Ask Gaffer',exact:true}),chat=w.page.getByRole('dialog',{name:'Gaffer',exact:true})
       await expect(launch).toHaveCount(1)
       // The entry stays in view, and a floating launcher also lifts clear of the composer, queue and other opt-in

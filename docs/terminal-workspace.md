@@ -61,6 +61,11 @@ connector and session ID in the workspace below; `/terminals` redirects to `/ses
 session never creates a shell. Running means a shell lifecycle state, not AI-agent activity. Creating and
 end-requested sessions retain their actual labels.
 
+With no session open, the Sessions screen leads with what is running: **Pick up where you left off** lists up to eight
+running sessions, each with its machine and state, anything waiting for you first and then the most recently active.
+With no machine chosen (the Sessions tab on a phone) that is every machine's sessions; with one chosen, that machine's.
+The start buttons follow. With nothing running the screen is **Start a new session**, as before.
+
 The Sessions page polls every 15 seconds while visible, times out requests
 after 10 seconds, and labels observations older than 45 seconds as last known.
 Transient errors preserve the last list; 401/403 clears it. Viewers get the Machines
@@ -99,13 +104,21 @@ beside it). Its parts:
   chat reconnects in place (OpenCode, and Cline on a connection that negotiated `acp-agent-reattach-v1`); a session a person ended offers **Continue in Gaffer with history…** in its menu,
   which opens a new Gaffer and loads the agent's stored conversation. Approval requests appear here; AGY uses its configured permission rules. There is no shell in this
   session. It has no terminal or session tabs on a phone; the usual slim header and End actions stay.
-- **Super focus on a phone**: a Gaffer chat opens with the site chrome, workspace toolbar and secondary session controls
-  out of the way, so the conversation and composer take the whole screen. The slim header keeps Back, the title, the
-  state and **Exit focus**; the chat status and compact progress strip stay visible, and the composer keeps its message field,
-  **Stop**/**Queue**, **Skills** and attach while effort and model wait behind **Exit focus**. The choice is remembered for
-  this browser; **Focus** in the header or the actions menu turns it back on. The
-  floating **Ask Gaffer** corner stays clear of the composer and steps aside while
-  the worker has the phone keyboard open.
+- **Super focus on a phone**: a session opens with the site chrome, workspace toolbar and secondary session controls
+  out of the way. A Gaffer chat's conversation and composer take the whole screen; a terminal's screen and on-screen
+  keys do, and its pane header and status footer step aside too while it is connected (they come back for Retry,
+  Reconnect and the reason when it is not). A terminal's header keeps **Session actions** (Rename, End session and the
+  rest), since the pane header that also held them is aside; a chat's wait behind **Exit focus**. The slim header keeps Back, the title, the state and **Exit focus**; a
+  chat's status and compact progress strip stay visible, and its composer keeps its message field,
+  **Stop**/**Queue**, **Skills** and attach while effort and model wait behind **Exit focus**. The terminal toolbar
+  keeps **Show sessions**, so another session is one tap away. With the keyboard up, the header's second row (the view
+  switch, Details and Exit focus) waits as well, and a chat's model, effort and source settings and its own status
+  line wait until the keyboard goes. The choice is remembered for this browser, for chats and terminals alike;
+  **Focus** in the header turns it back on. At 390 × 844 a focused terminal has 49 rows where the full screen has 28;
+  held sideways (844 × 390), 21 where it had 9.
+- **Ask Gaffer on a touch screen**: on a phone or a touch tablet a session has no free corner (the floating circle sat
+  on the agent's prompt line, over an empty strip held back for it), so the circle is hidden there and nothing is
+  held back. A terminal's header carries **Ask Gaffer** at 44 px; a chat's status row does, as before.
 - **Context panel** (340 px): *Where it's working* (machine and whether it is reporting, project, branch, worktree: "own
   copy" or "the checkout"); *Changed files* for a session in its own worktree (the first 20 paths from the worktree status
   and the total, read when the panel opens on the session and again only from **Refresh**, R19); *Skills on this machine*
@@ -121,12 +134,18 @@ beside it). Its parts:
   reaches into the panel's widened padding, covers no control and reaches no further over the terminal than its 24 px
   track; beside the mini rail there is no grip, only the 24 px track, which covers no rail button) and the pane's header and footer is at least 44 px on touch; so are the on-screen keys, and only the pane's terminal
   toolbar is 40 × 40 px.
-- **Phones** keep the same session actions as desktop. Outside a Gaffer chat's super focus, the identity row shows the
+- **Phones** keep the same session actions as desktop. Outside super focus, the identity row shows the
   session and its state, with labelled **Focus**, **Theatre**, **Details** and **More** controls. Interface and approval
   choices stay visible below it, with 44 px touch targets; the toolbar wraps instead of moving them into the menu.
-  **Terminal here** opens a terminal in the same folder. A Gaffer chat opens in super focus, where Back, the title, the
+  **Terminal here** opens a terminal in the same folder. A session opens in super focus, where Back, the title, the
   state and **Exit focus** are the header and **Exit focus** restores the full controls. With the keyboard up, the site's
-  top bar steps aside and the session controls remain reachable. In landscape, identity and actions share a compact row
+  top bar steps aside and the session controls remain reachable.
+- **A touch tablet with its keyboard up** (a touch screen up to 1366 px wide that lost a quarter of its height while a
+  session is typed in): the top bar, the workspace toolbar and the pane's header and footer step aside and the session
+  header is one row, as on a phone. At 820 × 1180 with a keyboard over 42% of the screen the terminal has 30 rows
+  where it had 13. Everything returns when the keyboard goes.
+- **A narrow stage that is not a phone** (a tablet with the sessions panel docked): the session's name and state take
+  the header's first row and the controls the next, so the name is not cut while there is room on its line. In landscape, identity and actions share a compact row
   where there is room. Connection recovery buttons remain available in the pane.
 
 
@@ -160,7 +179,12 @@ live in `terminal/panelLayout.ts`, unit tested by
   on. The terminal's column is `minmax(0, 1fr)` of what
   remains, so the whole terminal stays visible with no horizontal scroll, and it
   refits to its new width. A first visit under 960 px starts the panel at 240 px
-  (280 px from 960 px), so a tablet's terminal keeps the most columns.
+  (280 px from 960 px), so a tablet's terminal keeps the most columns. At any
+  width a project's header in the panel is one line: its name shortens with an
+  ellipsis, and its count and buttons stay level with it.
+- **The drawer** (phones, and a tablet with Keep open off) is at least 360 px
+  wide where the screen allows, leaving 48 px of the page showing, over a scrim;
+  a tap on the scrim closes it.
 - **Keep open.** Between 600 and 959 px the panel header has **Keep open**. Until
   the person chooses, it is on from 768 px and off from 600 to 767 px, so a window in
   that narrower band keeps the drawer by default. Off, the panel is the drawer: it

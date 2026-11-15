@@ -4,13 +4,28 @@
   // shell, App's route skeleton, Machines' chunk wait and the workspace's own first read) uses this shape, so a slow
   // load never moves between layouts.
   import { clampContextWidth, CONTEXT_DEFAULT, readContextLayout } from '../sessions/contextLayout'
+  import { PHONE_SCREEN } from './sizing'
   import { clampPanelWidth, defaultPanelWidth, isPhone, MINI_WIDTH, panelDocks, panelMode, readLayout, screenShortSide } from './panelLayout'
 
-  let { label = 'Loading your sessions', context = true }: { label?: string; context?: boolean } = $props()
+  // `session` says a session is what is loading, so the page can treat the skeleton as it will the session screen
+  // (app.css). Left out, the address decides: the route's own skeleton shows before the workspace knows its session.
+  let { label = 'Loading your sessions', context = true, session = new URLSearchParams(location.search).has('session') }: { label?: string; context?: boolean; session?: boolean } = $props()
 
   function stored(key: string) {
     try { return localStorage.getItem(key) } catch { return null }
   }
+  // A phone opens a session in focus mode unless Exit focus was chosen in this browser (SessionScreen keeps that under
+  // the account's layout key). The skeleton draws the same: no site chrome, no toolbar, edge to edge.
+  function focusTurnedOff() {
+    try { return Object.keys(localStorage).some(key => /^reet-terminal-layout:[^:]+:context:focus$/.test(key) && localStorage.getItem(key) === '0') } catch { return false }
+  }
+  const focus = $derived(session && matchMedia(PHONE_SCREEN).matches && !focusTurnedOff())
+  $effect(() => {
+    if (!focus) return
+    const root = document.documentElement
+    root.setAttribute('data-session-focus-loading', '')
+    return () => root.removeAttribute('data-session-focus-loading')
+  })
   const width = innerWidth
   const phone = isPhone(width, screenShortSide(window.screen, width, innerHeight))
   const savedPanel = readLayout(stored('reet.workspace.panel'))
@@ -28,9 +43,9 @@
   const contextWidth = clampContextWidth(savedContext.width ?? CONTEXT_DEFAULT, Math.max(0, areaWidth - 8))
 </script>
 
-<div class="workspace-skeleton" class:mini={panel === 'mini'} class:context-off={!contextOpen}
+<div class="workspace-skeleton" class:focus class:mini={panel === 'mini'} class:context-off={!contextOpen}
   style={`--panel:${panelWidth}px;--context:${contextWidth}px`}
-  role="status" aria-busy="true" aria-label={label}>
+  data-session={session ? '' : undefined} role="status" aria-busy="true" aria-label={label}>
   <span class="vh">{label}</span>
   <div class="workspace" aria-hidden="true">
     <div class="toolbar">
@@ -86,6 +101,10 @@
   /* The workspace uses its full width; Gaffer floats over the corner, as beside the real one. */
   .workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .toolbar { display: flex; align-items: center; gap: 12px; flex-shrink: 0; height: 55px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .focus .toolbar { display: none; }
+  /* The focused workspace has no card edge (TerminalWorkspace's own rule), and fills the screen's height. */
+  .workspace-skeleton.focus { height: 100dvh; }
+  .focus .workspace { border: 0; border-radius: 0; background: var(--bg); }
   .toolbar-left, .toolbar-actions { display: flex; align-items: center; gap: 8px; }
   .toolbar-actions { margin-left: auto; }
   i { display: block; background: var(--line); border-radius: 6px; }

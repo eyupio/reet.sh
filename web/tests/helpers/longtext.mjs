@@ -115,6 +115,8 @@ export async function installApi(page, { status = null, extra = {} } = {}) {
     if (path === '/api/v2/notifications/count') return json({ unread: 3 })
     if (path === '/api/v2/notifications') return json({ notifications, unread: 3 })
     if (path === '/api/v2/notifications/preferences') return json({ preferences: prefs })
+    // The device card on the Notifications page, with another device whose name is as long as a browser's can be.
+    if (path === '/api/v2/push') return json({ available: true, publicKey: 'BAEC_-8', devices: [{ id: 3, label: 'Samsung Internet on Android, the work tablet in the kitchen drawer with the long name', waiting: true, ended: true, createdAt: Date.now() - 9 * 86_400_000, lastOkAt: 0 }] })
     if (path === '/api/v2/admin/notifications/defaults') return json({ defaults })
     if (path === '/api/events') return json({ events })
     if (path === '/api/ignored') return json({ ignored: [{ id: 'x/y/z', name: 'old-skill', reason: 'Not useful', at: now }] })

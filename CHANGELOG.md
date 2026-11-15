@@ -76,7 +76,8 @@ this file existed releases were described on their GitHub release pages.
   sign-in reaches (its own, its organizations' and those shared with it, the
   200 most recently pushed) under the Repository field. Type to filter, then
   choose with the arrows and Enter or a tap; anything typed as owner/name or a
-  github.com link still works. The machine asks GitHub with its own `gh`, so
+  github.com link still works. When nothing in the list matches what is typed,
+  the field says so and still accepts the typed name. The machine asks GitHub with its own `gh`, so
   the list is what that machine can clone. Both the controller and `reet agent`
   need this release; a machine on an older reet keeps the plain field.
 - A project added from GitHub now shows where it came from (`owner/name`) on

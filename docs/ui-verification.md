@@ -140,6 +140,24 @@ Commands run in this container:
 - Screenshots were looked at. The open list at 390 dark and 1280 light: on desktop the list first floated over the
   dialog body and was clipped, so it now sits in the form's flow. The rail at 301 px and the phone Sessions screen: the
   source first shared the details line and cut the machine and branch to "stu…" and "ma…", so it has a line of its own.
+
+## Repository picker: a filter with no matches (15 November 2026)
+
+Typing something the loaded list does not contain closed the list but left "Choose from studio's GitHub repositories…"
+under the field, as if the options were still there. The field now says `No repository in studio's list matches "…"`
+and still accepts the typed name, so a repository that is not listed (no access, fresh, or beyond the 200 most
+recently pushed) can still be used. The filter itself is one local pass over the list already read, so no request is
+made while typing.
+
+Commands run in this container:
+
+- `cd web && npm run check`: 0 errors, 0 warnings; the new `filterRepositories` cases in
+  `src/lib/githubRepo.test.mjs` pass (empty query, owner or repository alone, letter case and edge space, no match).
+- `npm run build`, `npx vite preview --port 4321 --strictPort`, then each passes in full:
+  `node tests/add-project-github.e2e.mjs`, `node tests/start-agent.e2e.mjs` and
+  `node tests/gaffer-outcome.e2e.mjs` (the last two cover the two entry points picking a repository and cloning or
+  reusing it).
+
 - `go test -race` for `terminalproto`, `terminalhost`, `terminalagent`, `agenthealth`, `terminalbroker` and `api`:
   passes.
 - Real `gh` output for the listing's `--jq` (compact JSON, RFC 3339 times) parses through `ListRepos`. Real `gh` run

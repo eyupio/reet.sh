@@ -30,7 +30,7 @@ Commands run in this container:
     `phone-zoom` (now with the device card and a long device name at 320 to 412 px). `loading-workspace` changed
     too; see below.
   - **Every other suite** in `web/tests` was run once on this branch while it was being finished, and 21 that a
-    later change could touch were run again on the final build. All pass except the four below.
+    later change could touch were run again on the final build. All pass except the three below.
 - `go vet ./...`; `go test` for `internal/webpush`, `internal/store`, `web`, and `internal/api` with
   `-run 'Push|Notification|Attention|Yolo'`: pass.
 - Screenshots were looked at in the dark theme at every size above, before and after, and in the light theme for
@@ -57,8 +57,14 @@ Not passing, and why:
 - `loading-workspace.e2e.mjs` fails on `main` too: at 390 px the skeleton's toolbar sits 1 px from the real one. On
   this branch the session case passes (a focused phone session has no toolbar in either) and the bare `/sessions`
   case still shows that 1 px.
-- `terminal.e2e.mjs` and `stage5-acceptance.e2e.mjs` only run through their Go fixtures, and `session-board.e2e.mjs`
-  needs the dev server on port 5173. None was run.
+- `stage5-acceptance.e2e.mjs` only runs through its Go fixture, and `session-board.e2e.mjs` needs the dev server on
+  port 5173. Neither was run.
+
+`terminal.e2e.mjs`, the real browser, broker and tmux shell, failed in CI (`terminal-browser`) on this branch: at
+390 px it presses the footer's **Focus terminal**, which focus mode hides. It now presses **Exit focus** first, as a
+person wanting the full chrome would. Run here afterwards through its fixture, it passes:
+`LANG=C.UTF-8 REET_BROWSER_TESTS=1 go test -count=1 ./internal/api -run '^TestTerminalPrivateLifecyclePreservesActualShell$'`
+(without a UTF-8 locale this container fails its emoji step, on any branch).
 
 Not checked: a real phone or tablet; Safari and Firefox; a real push through a push service; the full
 `go test -race ./...` (left to CI); momentum scrolling, pinch zoom and text selection in the terminal; a notch held

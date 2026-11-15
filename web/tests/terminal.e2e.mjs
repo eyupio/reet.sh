@@ -310,6 +310,8 @@ try {
   }
   await page.getByRole('button',{name:'Restore size',exact:true}).click()
   await page.setViewportSize({width:390,height:844})
+  // A phone-sized window puts the session in focus mode; these steps are about the full phone chrome (the footer's Focus terminal), so leave it as a person would.
+  await page.getByRole('button',{name:'Exit focus mode',exact:true}).click()
   await page.evaluate(()=>document.documentElement.dataset.theme='dark')
   await expect(page.getByRole('button',{name:'Send Ctrl+C'})).toBeVisible()
   // Resizes are sent once the layout settles; wait for the phone width to reach the wire.

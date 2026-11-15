@@ -10,7 +10,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
-const { parseGitHubRepo, cloneFolder, lostCloneLine, startUnheardLine, timedOut, clonedProject, watchClone, outstandingClone, rememberClone } = await import(asURL(compile('./githubRepo.ts')))
+const { parseGitHubRepo, cloneFolder, lostCloneLine, startUnheardLine, timedOut, clonedProject, repoProject, watchClone, outstandingClone, rememberClone } = await import(asURL(compile('./githubRepo.ts')))
 
 const shown = r => r ? `${r.owner}/${r.repo}` : null
 
@@ -198,4 +198,19 @@ test('a lost clone is found in the list by its machine and repository', () => {
   assert.equal(clonedProject([p({ origin: 'eyupio/other' })], lost), undefined)
   assert.equal(clonedProject([p({ origin: undefined })], lost), undefined)
   assert.equal(clonedProject([], lost), undefined)
+})
+
+test('a folder added by path that pushes to the repository is it too, after a clone of it', () => {
+  const want = { host: 'a1', repo: 'eyupio/reet.sh' }
+  const folder = { id: 'f1', host: 'a1', remote: 'eyupio/reet.sh' }
+  const clone = { id: 'c1', host: 'a1', origin: 'eyupio/reet.sh' }
+  assert.equal(repoProject([folder], want)?.id, 'f1')
+  assert.equal(repoProject([folder, clone], want)?.id, 'c1')
+  assert.equal(repoProject([{ ...folder, remote: 'EyUpIO/Reet.sh' }], want)?.id, 'f1')
+  assert.equal(repoProject([{ ...folder, host: 'a2' }], want), undefined)
+  assert.equal(repoProject([{ ...folder, remote: 'eyupio/other' }], want), undefined)
+  // A project from GitHub is matched by where it was cloned from, never by a remote; and a finished clone is only ever
+  // found among projects from GitHub.
+  assert.equal(clonedProject([folder], want), undefined)
+  assert.equal(repoProject([{ id: 'x', host: 'a1', origin: 'eyupio/other', remote: 'eyupio/reet.sh' }], want), undefined)
 })

@@ -82,8 +82,8 @@ type FolderProject struct {
 	// from, "" for a folder added by path. Cloned says reet itself made the
 	// clone (its marker is in the folder). Both are written once, on create,
 	// and never change.
-	Origin          string
-	Cloned          bool
+	Origin string
+	Cloned bool
 	// Temporary marks a project reet made for one start: a repository picked
 	// From GitHub in Start an agent or a Factory outcome, cloned for it. reet
 	// removes it, and deletes its clone, once nothing uses it and nothing in
@@ -94,6 +94,13 @@ type FolderProject struct {
 	// place, as the person reads it; "" when it has not had to. Only the
 	// clean-up writes it.
 	KeptBecause string
+	// Remote is the GitHub repository ("owner/name") a folder added by path
+	// pushes to, as its machine last reported its origin; "" when it has none
+	// on github.com or has not been asked. RemoteCheckedAt is when it was last
+	// asked (0: never). The controller learns them; an edit that moves the
+	// project forgets them. A project added From GitHub has Origin instead.
+	Remote          string
+	RemoteCheckedAt int64
 	Position        int
 	LegacyProjectID string
 	// Note is a one-time notice from the migration of saved Projects, as it
@@ -123,6 +130,9 @@ func (s *Store) migrateFolderProjects() error {
 				cloned INTEGER NOT NULL DEFAULT 0,
 				temporary INTEGER NOT NULL DEFAULT 0,
 				kept_because TEXT NOT NULL DEFAULT '',
+				remote TEXT NOT NULL DEFAULT '',
+				remote_checked_at INTEGER NOT NULL DEFAULT 0,
+				remote_tried_at INTEGER NOT NULL DEFAULT 0,
 				position INTEGER NOT NULL CHECK(position>=0),
 				legacy_project_id TEXT,
 				note TEXT NOT NULL DEFAULT '',
@@ -202,6 +212,11 @@ func (s *Store) migrateFolderProjects() error {
 			// existing project stays.
 			{"temporary", `temporary INTEGER NOT NULL DEFAULT 0`},
 			{"kept_because", `kept_because TEXT NOT NULL DEFAULT ''`},
+			// Tables made before folder repositories reported their GitHub
+			// origin: every project is asked again.
+			{"remote", `remote TEXT NOT NULL DEFAULT ''`},
+			{"remote_checked_at", `remote_checked_at INTEGER NOT NULL DEFAULT 0`},
+			{"remote_tried_at", `remote_tried_at INTEGER NOT NULL DEFAULT 0`},
 		} {
 			var has int
 			if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('folder_projects') WHERE name=?`, col.name).Scan(&has); err != nil {
@@ -407,14 +422,21 @@ func folderConflict(err error) error {
 	return ErrFolderProjectExists
 }
 
-const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,temporary,kept_because,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
+const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,temporary,kept_because,remote,remote_checked_at,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
+
+// folderDest is where a row of folderColumns is read into, in their order.
+// Every read of folder_projects goes through it, so a new column is added in
+// one place.
+func folderDest(p *FolderProject) []any {
+	return []any{&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultYolo,
+		&p.StarterPrompt, &p.Colour, &p.Origin, &p.Cloned, &p.Temporary, &p.KeptBecause, &p.Remote, &p.RemoteCheckedAt, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version}
+}
 
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanFolderProject(r rowScanner) (FolderProject, error) {
 	var p FolderProject
-	err := r.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultYolo,
-		&p.StarterPrompt, &p.Colour, &p.Origin, &p.Cloned, &p.Temporary, &p.KeptBecause, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
+	err := r.Scan(folderDest(&p)...)
 	p.Note = noteText(p.Note)
 	return p, err
 }
@@ -527,12 +549,14 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 		// edit keeps it, unless it moves the project to another machine or
 		// folder, which is not where it came from (or what reet cloned).
 		p.Origin, p.Cloned, p.Temporary, p.KeptBecause = cur.Origin, cur.Cloned, cur.Temporary, cur.KeptBecause
+		p.Remote, p.RemoteCheckedAt = cur.Remote, cur.RemoteCheckedAt
 		defaultsChanged := p.DefaultTool != cur.DefaultTool || p.DefaultModel != cur.DefaultModel || p.DefaultEffort != cur.DefaultEffort
 		if p, err = normalizeFolderWith(p, p.StarterPrompt != cur.StarterPrompt, defaultsChanged); err != nil {
 			return err
 		}
 		if p.Host != cur.Host || p.Dir != cur.Dir {
 			p.Origin, p.Cloned, p.Temporary, p.KeptBecause = "", false, false, ""
+			p.Remote, p.RemoteCheckedAt = "", 0
 		}
 		if p.Note != "" {
 			p.Note = cur.Note
@@ -545,8 +569,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 			t = cur.CreatedAt
 		}
 		p.ID, p.Position, p.LegacyProjectID, p.CreatedAt, p.UpdatedAt, p.Version = id, cur.Position, cur.LegacyProjectID, cur.CreatedAt, t, cur.Version+1
-		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,origin=?,cloned=?,temporary=?,kept_because=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
-			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.KeptBecause, p.Note, t, p.Version, id, uid, cur.Version)
+		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,origin=?,cloned=?,temporary=?,kept_because=?,remote=?,remote_checked_at=?,remote_tried_at=CASE WHEN ?=0 THEN 0 ELSE remote_tried_at END,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.KeptBecause, p.Remote, p.RemoteCheckedAt, p.RemoteCheckedAt, p.Note, t, p.Version, id, uid, cur.Version)
 		if err != nil {
 			return folderConflict(err)
 		}
@@ -737,8 +761,7 @@ func (s *Store) TemporaryFolderProjects() ([]TemporaryFolderProject, error) {
 	for rows.Next() {
 		var uid int64
 		var p FolderProject
-		err := rows.Scan(&uid, &p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultYolo,
-			&p.StarterPrompt, &p.Colour, &p.Origin, &p.Cloned, &p.Temporary, &p.KeptBecause, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
+		err := rows.Scan(append([]any{&uid}, folderDest(&p)...)...)
 		if err != nil {
 			return nil, err
 		}
@@ -775,4 +798,55 @@ func (s *Store) KeepFolderProjectFor(uid int64, id string) (FolderProject, error
 		return err
 	})
 	return saved, err
+}
+
+// FolderRemoteTarget is one account's repository project to ask about its
+// GitHub origin.
+type FolderRemoteTarget struct {
+	UserID  int64
+	Project FolderProject
+}
+
+// FolderProjectsToAskRemote lists repository projects added by path whose
+// origin was never learned, or last learned before since (Unix ms), and that
+// were not tried at or after retrySince, least recently tried first, at most
+// limit. A project whose machine could not be asked is noted as tried
+// (NoteFolderRemoteTried), so it goes to the back and cannot hold the batch.
+func (s *Store) FolderProjectsToAskRemote(since, retrySince int64, limit int) ([]FolderRemoteTarget, error) {
+	rows, err := s.db.Query(`SELECT user_id,`+folderColumns+` FROM folder_projects WHERE is_repo=1 AND origin='' AND remote_checked_at<? AND remote_tried_at<? ORDER BY remote_tried_at,remote_checked_at,created_at,id LIMIT ?`, since, retrySince, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FolderRemoteTarget
+	for rows.Next() {
+		var uid int64
+		var p FolderProject
+		if err := rows.Scan(append([]any{&uid}, folderDest(&p)...)...); err != nil {
+			return nil, err
+		}
+		p.Note = noteText(p.Note)
+		out = append(out, FolderRemoteTarget{UserID: uid, Project: p})
+	}
+	return out, rows.Err()
+}
+
+// SetFolderProjectRemoteFor records what the project's machine said its
+// origin is ("" for none on github.com), at checkedAt, if the project is
+// still in dir on that machine (host). It is the controller's note, not an
+// edit: no version moves.
+func (s *Store) SetFolderProjectRemoteFor(uid int64, id, host, dir, remote string, checkedAt int64) error {
+	if remote != "" && !validFolderProjectOrigin(remote) {
+		return folderInvalid("remote must be a GitHub repository written as owner/name")
+	}
+	_, err := s.db.Exec(`UPDATE folder_projects SET remote=?,remote_checked_at=?,remote_tried_at=? WHERE user_id=? AND id=? AND host=? AND dir=? AND origin=''`, remote, checkedAt, checkedAt, uid, id, host, dir)
+	return err
+}
+
+// NoteFolderRemoteTried records that the project's machine could not be
+// asked about its origin at triedAt, so it is tried again only after the
+// projects not tried since.
+func (s *Store) NoteFolderRemoteTried(uid int64, id string, triedAt int64) error {
+	_, err := s.db.Exec(`UPDATE folder_projects SET remote_tried_at=? WHERE user_id=? AND id=?`, triedAt, uid, id)
+	return err
 }

@@ -26,6 +26,7 @@
  import { promptTrigger, replacePromptTrigger } from '../terminal/prompts'
  import { insertSkillPrompt } from '../skillPrompt'
   import YoloDialog from './YoloDialog.svelte'
+  import LaunchRepoDialog from './LaunchRepoDialog.svelte'
   import BaseConfirm from '../home/BaseConfirm.svelte'
 
   // The launch bar docked at the foot of Home: "Describe the job" and a sentence whose bold words are the choices (spec: The
@@ -33,7 +34,7 @@
   // create through the idempotent create path and opens the new session. While the request is out the bar is locked; a reply
   // that never came keeps the same request for Retry. On a phone the sentence folds into one summary line with Change, and the
   // tab bar steps aside while the prompt has the keyboard up. The prompt lives only here.
-  let { projects, projectsFailed = false, machines, sessions, profile, ready, initialProject = '', selection = [], onproject, onstarted, onleavefailed, onsignedout, onaddproject, onrun, onrundone, onworkchange }: {
+  let { projects, projectsFailed = false, machines, sessions, profile, ready, initialProject = '', selection = [], onproject, onstarted, onleavefailed, onsignedout, onaddproject, onprojectadded, onrun, onrundone, onworkchange }: {
     projects: FolderProject[] | undefined
     /** The projects could not be read (and none were read before): the bar says so instead of waiting silently. */
     projectsFailed?: boolean
@@ -56,6 +57,9 @@
     onsignedout?: (e: unknown) => void
     /** The project slot's *Add a project…*. */
     onaddproject?: (opener: HTMLElement) => void
+    /** The project slot's *A repository from GitHub…* made or found this project: the page adds it to its list. The choice
+     *  is offered only when this is given and a machine can clone from GitHub. */
+    onprojectadded?: (project: FolderProject) => void
     /** A start in several projects moved on (a member started): the page may read its sessions again. */
     onrun?: () => void
     /** The status sheet of a start in several projects was closed: the rail leaves Select. */
@@ -65,7 +69,7 @@
   } = $props()
 
   const id = $props.id()
-  const ADD = '\u0000add', HOME = '\u0000home:'
+  const ADD = '\u0000add', HOME = '\u0000home:', GITHUB = '\u0000github'
   const LABELS: Record<string, string> = { agent: 'Agent', chat: 'TUI', model: 'Model', project: 'Project', machine: 'Machine', branch: 'Branch', worktree: 'Worktree', effort: 'Thinking' }
   const LOST_TAIL = 'Check your sessions before starting another. If you discard it and start again, a second agent may start.'
   const LOST = `We didn't hear back, so the agent may have started. ${LOST_TAIL}`
@@ -273,6 +277,18 @@
     void tick().then(() => field?.focus({ preventScroll: phone }))
   }
   export function focusPrompt() { field?.focus() }
+
+  // The project slot's *A repository from GitHub…*: the machines that can clone now, and the small dialog that names one.
+  const cloners = $derived((machines ?? []).filter(m => !readiness(m) && !!m.capabilities?.repoClone))
+  let repoOpen = $state(false)
+  let repoOpener: HTMLElement | null = null
+  function closeRepo() { repoOpen = false; repoOpener?.focus(); repoOpener = null }
+  async function repoChosen(project: FolderProject) {
+    repoOpen = false; repoOpener = null
+    onprojectadded?.(project)
+    await tick()
+    choose(project)
+  }
   /**
    * Start a session in one project at once, with that project's own defaults and the prompt as it is (often empty). A
    * rail card's + and its New session here use this instead of only moving the sentence: there is no dialog and no wait
@@ -594,6 +610,7 @@
         const why = readiness(m)
         out.push({ value: HOME + m.agentId, label: `Home folder on ${m.host}`, group: 'Home folder', disabled: !!why, reason: why || undefined })
       }
+      if (onprojectadded && cloners.length) out.push({ value: GITHUB, label: 'A repository from GitHub…', group: ' ' })
       if (onaddproject) out.push({ value: ADD, label: 'Add a project…', group: ' ' })
       return out
     }
@@ -635,6 +652,7 @@
     else if (slot === 'model') { explicitModel = true; choice = { ...choice, model: value } }
     else if (slot === 'project') {
       if (value === ADD) { const opener = open?.opener; if (opener) onaddproject?.(opener); return }
+      if (value === GITHUB) { repoOpener = open?.opener ?? null; repoOpen = true; return }
       if (value.startsWith(HOME)) { yoloConfirmed = false; choice = withHome(choice, value.slice(HOME.length), profile, { favourites, explicitModel, explicitEffort }); return }
       const p = projects?.find(x => x.id === value)
       if (p) {
@@ -1312,6 +1330,10 @@
 
 {#if baseOpen}
   <BaseConfirm sentence={baseText} host={baseHost} oncancel={cancelBase} onstart={() => void confirmBase()} />
+{/if}
+
+{#if repoOpen}
+  <LaunchRepoDialog machines={cloners} projects={projects ?? []} {onsignedout} oncancel={closeRepo} onchosen={repoChosen} />
 {/if}
 
 {#if yoloOpen && choice}

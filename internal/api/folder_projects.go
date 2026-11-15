@@ -377,8 +377,12 @@ type folderProjectView struct {
 	// Temporary marks a project reet made for one start, which it removes
 	// with its clone once nothing uses it and nothing would be lost;
 	// KeptBecause is why it last stayed. Both are left out otherwise.
-	Temporary        bool    `json:"temporary,omitempty"`
-	KeptBecause      string  `json:"keptBecause,omitempty"`
+	Temporary   bool   `json:"temporary,omitempty"`
+	KeptBecause string `json:"keptBecause,omitempty"`
+	// Remote is the GitHub repository (owner/name) a folder added by path
+	// pushes to, as its machine reported its origin; left out when it has none
+	// on github.com or has not been asked yet.
+	Remote           string  `json:"remote,omitempty"`
 	WorktreeDefault  string  `json:"worktreeDefault"`
 	DefaultTool      string  `json:"defaultTool"`
 	DefaultModel     string  `json:"defaultModel"`
@@ -399,7 +403,7 @@ type folderProjectView struct {
 
 func viewFolderProject(p store.FolderProject, names map[string]string) folderProjectView {
 	return folderProjectView{ID: p.ID, Host: p.Host, Machine: names[p.Host], Dir: p.Dir, Name: p.Name, IsRepo: p.IsRepo, BaseBranch: p.BaseBranch, WorktreeDefault: p.WorktreeDefault,
-		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, DefaultYolo: p.DefaultYolo, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Origin: p.Origin, Cloned: p.Cloned, Temporary: p.Temporary, KeptBecause: p.KeptBecause, Note: p.Note, Position: p.Position,
+		DefaultTool: p.DefaultTool, DefaultModel: p.DefaultModel, DefaultEffort: p.DefaultEffort, DefaultYolo: p.DefaultYolo, HasStarterPrompt: p.StarterPrompt != "", Colour: p.Colour, Origin: p.Origin, Cloned: p.Cloned, Temporary: p.Temporary, KeptBecause: p.KeptBecause, Remote: p.Remote, Note: p.Note, Position: p.Position,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Version: p.Version}
 }
 
@@ -605,6 +609,7 @@ func (s *server) folderProjectCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditFolderProject(uid, "project-add", saved, names)
+	s.nudgeFolderRemotes()
 	w.Header().Set("ETag", projectETag(saved.Version))
 	writeJSON(w, http.StatusCreated, viewFolderProject(saved, names))
 }
@@ -658,6 +663,9 @@ func (s *server) folderProjectUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auditFolderProject(uid, "project-update", saved, names)
+	if saved.Dir != current.Dir || saved.Host != current.Host {
+		s.nudgeFolderRemotes()
+	}
 	v := viewFolderProject(saved, names)
 	// The rail replaces its card with this answer, so keep the group the project is in.
 	if members, err := s.st.FolderProjectGroupsFor(uid); err == nil {

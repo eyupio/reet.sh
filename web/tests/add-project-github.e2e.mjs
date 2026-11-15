@@ -1054,7 +1054,97 @@ try {
   await context.close()
  }
 
- console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; a temporary project marked with why it stays, and Keep this project; the repository list (filter, arrows, Enter, Escape, tap, anything typed, a refusal, an older machine); 1280 and 390 px, light and dark.')
+ // A repository added as a folder shows the GitHub repository its machine said it pushes to, as one from GitHub does.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`folder repository on GitHub (${screen.width} px)`)) continue
+  const site = fproject('fp3','site','/home/dev/code/site',{baseBranch:'main', remote:'acme/site'})
+  const {context,page,errors} = await scene({...screen, sessionsPage:true, projects:[site, notes()]})
+  await page.goto(railPage(screen))
+  const card = page.getByRole('button',{name:/^site, studio, on GitHub acme\/site, main/}).first()
+  await expect(card).toBeVisible()
+  await expect(card.locator('.origin')).toHaveText('acme/site')
+  await expect(card.locator('.origin')).toHaveAttribute('title', 'Pushes to github.com/acme/site')
+  await expect(card).not.toContainText('temporary')
+  expect(await noSideways(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // Home's launch bar names a repository from GitHub in its project slot: a project already of it is used as it is; else
+ // the machine clones it as a temporary project, the bar names it when it is done, and Start is left to the person.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`launch bar repository from GitHub (${screen.width} px)`)) continue
+  const {context,page,errors,box} = await scene({...screen, clone:{a1:true}})
+  box.outcome = {state:'done', project:cloned({temporary:true})}
+  await page.goto(base)
+  await page.evaluate(() => { location.hash = 'launch' })
+  const bar = page.getByRole('form',{name:'Start a session'})
+  await expect.poll(() => bar.locator('.sentence').evaluate(el => el.textContent), {timeout:20000}).toContain('Notes')
+  // On a phone the sentence folds into one line: Change opens its sheet, where the project is a row.
+  const openProject = async () => {
+   if (screen.touch) {
+    await bar.getByRole('button',{name:'Change',exact:true}).click()
+    await page.getByRole('dialog',{name:'Change the launch'}).getByRole('button',{name:/^Project/}).click()
+   } else await bar.getByRole('button',{name:/^Project/}).first().click()
+   await page.getByRole('option',{name:'A repository from GitHub…'}).click()
+  }
+  await openProject()
+  const d = page.getByRole('dialog',{name:'A repository from GitHub',exact:true})
+  await expect(d).toBeVisible()
+  // One machine can clone, so it is chosen; desk cannot and is not offered.
+  await expect(d.getByRole('combobox',{name:'Machine',exact:true})).toHaveValue('a1')
+  await expect(d.getByRole('combobox',{name:'Machine',exact:true}).locator('option')).toHaveText(['studio'])
+  const use = d.getByRole('button',{name:'Use this repository',exact:true})
+  await expect(use).toBeDisabled()
+  await d.getByRole('textbox',{name:'Repository',exact:true}).fill('https://github.com/eyupio/reet.sh')
+  await expect(d).toContainText('reet clones it to ~/reet/repos/eyupio/reet.sh on studio')
+  expect(await noSideways(page)).toBe(true)
+  await use.click()
+  await expect(d.getByText("Cloning eyupio/reet.sh on studio… This can take a few minutes; the bar names it when it's done.",{exact:true})).toBeVisible()
+  expect(box.starts).toEqual([{host:'a1', repo:'eyupio/reet.sh', name:'', temporary:true}])
+  box.finish = true
+  await expect(d).toHaveCount(0, {timeout:10000})
+  await expect.poll(() => bar.locator('.sentence').evaluate(el => el.textContent)).toContain('reet.sh')
+  // The keyboard goes to the prompt; on a phone the Change sheet is still open, as after any choice in it, so the
+  // keyboard is back on its Project row, which names the repository.
+  if (screen.touch) {
+   const sheet = page.getByRole('dialog',{name:'Change the launch'})
+   await expect(sheet.getByRole('button',{name:'Project: reet.sh',exact:true})).toBeFocused()
+   await page.keyboard.press('Escape')
+   await expect(sheet).toHaveCount(0)
+  } else await expect(bar.getByRole('textbox',{name:'Describe the job'})).toBeFocused()
+  expect(box.posts).toEqual([])
+  // Asked again, the project it became is used as it is: nothing is cloned twice.
+  await openProject()
+  await d.getByRole('textbox',{name:'Repository',exact:true}).fill('eyupio/reet.sh')
+  await expect(d).toContainText('Uses the project reet.sh on studio.')
+  await d.getByRole('button',{name:'Use this repository',exact:true}).click()
+  await expect(d).toHaveCount(0)
+  expect(box.starts.length).toBe(1)
+  if (screen.touch) { await page.keyboard.press('Escape'); await expect(page.getByRole('dialog',{name:'Change the launch'})).toHaveCount(0) }
+  await bar.getByRole('textbox',{name:'Describe the job'}).fill('Fix the failing tests')
+  await bar.getByRole('button',{name:/^Start the session$/}).click()
+  await expect.poll(() => box.posts.length).toBe(1)
+  expect(box.posts[0]).toMatchObject({agentId:'a1', dir:'/home/dev/reet/repos/eyupio/reet.sh', projectId:'fp9'})
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ // No machine can clone: the slot does not offer it.
+ if (run('launch bar without a machine that can clone')) {
+  const {context,page,errors} = await scene({clone:{}})
+  await page.goto(base)
+  await page.evaluate(() => { location.hash = 'launch' })
+  const bar = page.getByRole('form',{name:'Start a session'})
+  await expect.poll(() => bar.locator('.sentence').evaluate(el => el.textContent), {timeout:20000}).toContain('Notes')
+  await bar.getByRole('button',{name:/^Project/}).first().click()
+  await expect(page.getByRole('option',{name:'Add a project…'})).toBeVisible()
+  await expect(page.getByRole('option',{name:'A repository from GitHub…'})).toHaveCount(0)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; a temporary project marked with why it stays, and Keep this project; the GitHub repository of a folder added by path, on its card; the launch bar naming a repository from GitHub, cloned once then reused, and not offered without a machine that can clone; the repository list (filter, arrows, Enter, Escape, tap, anything typed, a refusal, an older machine); 1280 and 390 px, light and dark.')
 } finally {
  await browser.close()
 }

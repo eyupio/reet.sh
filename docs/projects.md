@@ -77,7 +77,12 @@ Each compact card shows two lines, in words: a repository diamond (or a folder i
 name, then the machine, the base branch (mono) when one is set, the state and the worktrees in use. A project added From GitHub
 adds a third line, where it came from (`owner/name`, mono, "Cloned from github.com/owner/name" on hover), and its
 spoken name says "from GitHub owner/name"; the Sessions screen's desktop list and Manage projects show it beside the
-machine. Everything is still a project: a folder on one of your machines, whether reet cloned it or not. The state is
+machine. A repository added as a folder shows the GitHub repository it pushes to the same way ("Pushes to
+github.com/owner/name" on hover, "on GitHub owner/name" when read aloud): the controller asks its machine for the
+folder's `origin` when it is added or moved and again once a day (only an `origin` on github.com counts; a machine
+that cannot be asked is asked again later). Picking that repository with **A repository from GitHub…** then starts in
+your folder rather than cloning it again. Everything is still a project: a folder on one of your machines, whether reet
+cloned it or not. The state is
 "N running" (its own running and starting sessions, by each session's project id), "machine offline"
 when its machine is known not to be reporting, else "idle". Worktrees in use are the distinct
 worktrees its live sessions are working in; the session listing has no record of removed worktrees,
@@ -218,7 +223,7 @@ repositories. You can still type one." from the API) and is never asked.
 
 ## Temporary projects
 
-A repository picked with **A repository from GitHub…** in **Start an agent** or Factory's **Give Gaffer an outcome**
+A repository picked with **A repository from GitHub…** in **Start an agent**, Home's launch bar or Factory's **Give Gaffer an outcome**
 ([Start an agent session](start-agent-session.md), [Gaffer](gaffer-ai.md#give-gaffer-an-outcome)) is cloned for that
 start and saved as a **temporary** project: clone it, work in it, remove it. Its card says so ("acme/site · temporary")
 and its spoken name ends in "temporary". A repository that is already a project on that machine is used as it is and
@@ -372,8 +377,8 @@ plain sentence, and a field refusal names the field so the dialog can move focus
 
 A FolderProject is `{id, host, machine, dir, name, isRepo, baseBranch, worktreeDefault, defaultTool,
 defaultModel, defaultEffort, hasStarterPrompt, starterPrompt?, note, position, createdAt, updatedAt, version,
-origin?, cloned?, temporary?, keptBecause?}`; `origin` (`owner/name`) and `cloned` are there only for a project added
-from GitHub, `temporary` only for a temporary project, and `keptBecause` only once reet has left one in place. A
+origin?, cloned?, temporary?, keptBecause?, remote?}`; `origin` (`owner/name`) and `cloned` are there only for a project added
+from GitHub, `remote` (`owner/name`) only for a repository added by path whose machine reported an `origin` on github.com, `temporary` only for a temporary project, and `keptBecause` only once reet has left one in place. A
 `from-github` body may carry `temporary: true` (Start an agent and Factory send it).
 `machine` is the machine's current name, `""` once it is no longer enrolled (the card says "machine
 not enrolled"). A terminal create may carry `projectId`; the controller checks it belongs to the

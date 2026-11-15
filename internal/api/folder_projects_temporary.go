@@ -86,6 +86,9 @@ func (s *server) temporaryProjectWorker() {
 			return
 		case <-ticker.C:
 			s.sweepTemporaryProjects(time.Now())
+			s.learnFolderRemotes(time.Now())
+		case <-folderRemoteNudge:
+			s.learnFolderRemotes(time.Now())
 		}
 	}
 }

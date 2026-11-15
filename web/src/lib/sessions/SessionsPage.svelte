@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { projectSource } from '../githubRepo'
+  import { projectRepo, projectSource } from '../githubRepo'
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, UnauthorizedError } from '../api'
@@ -319,7 +319,7 @@
           {#each projects as p (p.id)}
             <li><a class="project-card" href={`/?project=${encodeURIComponent(p.id)}`} aria-label={projectLabel(p)} style={`--project-colour:${projectColourHex(p.colour)}`}
               oncontextmenu={event => void openProjectMenu(event, p)} onkeydown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) void openProjectMenu(event, p) }}>
-              <span class="stripe" aria-hidden="true"></span><span class="pname" title={p.name}>{p.name}</span><span class="pmachine" title={[p.machine || 'machine not enrolled', p.origin ? `github.com/${p.origin}` : ''].filter(Boolean).join(' · ')}>{p.machine || 'machine not enrolled'}{#if p.origin} · {p.origin}{/if}</span>
+              <span class="stripe" aria-hidden="true"></span><span class="pname" title={p.name}>{p.name}</span><span class="pmachine" title={[p.machine || 'machine not enrolled', projectRepo(p) ? `github.com/${projectRepo(p)}` : ''].filter(Boolean).join(' · ')}>{p.machine || 'machine not enrolled'}{#if projectRepo(p)} · {projectRepo(p)}{/if}</span>
             </a></li>
           {/each}
         </ul>

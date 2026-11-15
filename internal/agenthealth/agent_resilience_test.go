@@ -89,51 +89,61 @@ func TestFlappingConnectionBacksOffInsteadOfReconnectingEverySecond(t *testing.T
 }
 
 // A connection that stays up resets the delay; one that dies instantly must
-// not. Without the stable window both looked the same to the loop.
+// not. Without the stable window both looked the same to the loop. The link
+// flaps first, so the delay has grown to its ceiling when the stable session
+// comes: only a real reset brings the next attempt back to the base.
 func TestAStableSessionResetsTheDelayAndAFlappingOneDoesNot(t *testing.T) {
-	// Real timers: the durations leave a slow or loaded runner (a timer that
-	// wakes tens of milliseconds late) far inside every bound below. At a
-	// tenth of these, one late wake-up on a macOS runner failed the test.
+	// Real timers: every bound below leaves a timer that wakes 100 ms late on
+	// a slow or loaded runner inside it.
 	cfg := AgentConfig{BackoffMin: 50 * time.Millisecond, BackoffMax: 400 * time.Millisecond, StableSession: 300 * time.Millisecond, Logf: func(string, ...any) {}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	const stableAt = 7 // sessions 1-6 die at once, 7 stays up, then they die again
 	var count atomic.Int64
-	attempts := make(chan time.Duration, 64)
-	var previous atomic.Int64
+	// delays[i] is the wait between session i+1 ending and session i+2 starting.
+	delays := make(chan time.Duration, 64)
+	var ended atomic.Int64
 	session := func(ctx context.Context, _ *int64) (bool, error) {
-		now := time.Now().UnixNano()
-		if earlier := previous.Swap(now); earlier != 0 {
-			attempts <- time.Duration(now - earlier)
+		if earlier := ended.Load(); earlier != 0 {
+			delays <- time.Duration(time.Now().UnixNano() - earlier)
 		}
-		// A long healthy session, then a run of instantly dying ones.
-		if count.Add(1) == 1 {
+		n := count.Add(1)
+		defer func() { ended.Store(time.Now().UnixNano()) }()
+		if n == stableAt {
 			select {
 			case <-time.After(600 * time.Millisecond):
 			case <-ctx.Done():
 			}
 			return true, nil
 		}
-		if count.Load() >= 14 {
+		if n >= 13 {
 			cancel()
 		}
 		return true, errors.New("lost")
 	}
 	_ = reconnectLoop(ctx, cfg, session)
-	close(attempts)
-	var gaps []time.Duration
-	for gap := range attempts {
-		gaps = append(gaps, gap)
+	close(delays)
+	var waits []time.Duration
+	for wait := range delays {
+		waits = append(waits, wait)
 	}
-	if len(gaps) < 8 {
-		t.Fatalf("only %d attempts recorded", len(gaps))
+	if len(waits) < 11 {
+		t.Fatalf("only %d delays recorded", len(waits))
 	}
-	// The gap right after the stable session resets to the base interval.
-	if gaps[1] > 200*time.Millisecond {
-		t.Fatalf("a stable session did not reset the delay: next attempt after %v", gaps[1])
+	before, after, last := waits[stableAt-2], waits[stableAt-1], waits[len(waits)-1]
+	// Flapping grew the delay to the ceiling: full jitter on 400 ms is 200 ms
+	// or more.
+	if before < 200*time.Millisecond {
+		t.Fatalf("a flapping connection kept a short delay: %v before the stable session (all %v)", before, waits)
 	}
-	// The gaps after the flapping run must grow towards the ceiling.
-	if last := gaps[len(gaps)-1]; last < 3*gaps[1] {
-		t.Fatalf("a flapping connection kept the base delay: after stable %v, last %v", gaps[1], last)
+	// The stable session brings it back to the base (50 ms, +/-10%). Without
+	// the reset it would be about 400 ms.
+	if after > 175*time.Millisecond {
+		t.Fatalf("a stable session did not reset the delay: next attempt %v after it (all %v)", after, waits)
+	}
+	// Flapping again grows it again, towards the ceiling.
+	if last < 150*time.Millisecond {
+		t.Fatalf("a flapping connection after a stable one kept the base delay: last %v (all %v)", last, waits)
 	}
 }
 

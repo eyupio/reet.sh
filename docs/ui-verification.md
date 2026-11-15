@@ -14,7 +14,7 @@ Commands run in this container:
       sides, 21 px bottom). On `main` Start an agent's foot is at 389 px of 390, under the 21 px inset.
     - `chat dictation`: the 44 px Dictate button in a chat's composer, a phrase joining the draft, where the audio
       goes said while it listens, sending stopping it, a refusal, and no button without speech recognition.
-  - **Existing suites**, all passing on the final build: `phone-dialogs` (30 dialogs at six phone sizes, with the
+  - **Existing suites**, all passing on the final build: `phone-dialogs` (26 dialogs at six phone sizes, with the
     shared shell's styles changed), `terminal-compose` (with Dictate now its own component), `chat`, `chat-controls`,
     `gaffer-chat`, `gaffer-widget-ux`, `gaffer-layout`, `home`, `sessions`, `sessions-phone`, `terminal-phone`,
     `terminal-workspace`, `phone-zoom`, `phone-layout`, `inbox`, `navigation`, `projects`, `add-project`,

@@ -219,7 +219,8 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  let draft = $state(''), feedback = $state(''), sending = $state(false), uploading = $state(false), answering = $state('')
  type Picture = { id: number; file: File; preview: string }
  let images = $state<{ id: number; file: File; preview: string }[]>([]), imageSeq = 0, attachNote = $state('')
- // Dictation adds each finished phrase to the draft and sends nothing; it stops when the message is sent.
+ // Dictation adds each finished phrase to the draft and sends nothing; it stops when the message is sent, and is off
+ // whenever the message field is (a send in flight clears the draft when it lands, and would take new words with it).
  let dictate = $state<{ stop(): void }>(), dictating = $state(false), dictationInterim = $state(''), dictationProblemText = $state('')
  let fileInput: HTMLInputElement | undefined = $state()
  // A fix request from the session overview. It joins what is typed (never replaces or cuts it), is refused rather than truncated, and is never sent: the person reads it and presses Send.
@@ -1109,7 +1110,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
      <button type="button" class="skills-btn" bind:this={promptButton} aria-label="Prompts" aria-haspopup="dialog" title="Insert one of your saved prompts · or type \ in the message" disabled={promptBlocked} onclick={() => (promptPickerOpen = true)}>Prompts</button>
      <button type="button" class="skills-btn" aria-label="Skills" aria-haspopup="dialog" title={skillsOff || 'Insert a skill into your message'} disabled={!!skillsOff} onclick={() => openSkills()}>+ Skills</button>
      {#if canAttach}<button type="button" class="icon-btn" aria-label="Attach image" title="Attach image · or paste or drop one" disabled={sending || uploading || changingModel || working || images.length >= imageLimit} onclick={() => fileInput?.click()}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.6l-8.5 8.5a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" /></svg></button>{/if}
-     <Dictate icon bind:this={dictate} bind:listening={dictating} bind:interim={dictationInterim} bind:problem={dictationProblemText} disabled={reattaching || chat.connection === 'reconnecting'} onphrase={phrase => { draft = appendDictation(draft, phrase).slice(0, 2000) }} />
+     <Dictate icon bind:this={dictate} bind:listening={dictating} bind:interim={dictationInterim} bind:problem={dictationProblemText} disabled={reattaching || sending || uploading || changingModel || chat.connection === 'reconnecting'} onphrase={phrase => { draft = appendDictation(draft, phrase).slice(0, 2000) }} />
      {#if liveEffort}<div class="effort-controls" data-keeps-focus>
       <label for={`${session.id}-effort`}>Effort</label>
       <select id={`${session.id}-effort`} value={liveEffort.current} disabled={changingModel || runtime?.configuring || chat.connection !== 'open'} onchange={event => void changeSetting(liveEffort!.id, event.currentTarget.value)}>

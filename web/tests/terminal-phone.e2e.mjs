@@ -230,6 +230,8 @@ try{
  // A key that acts once never repeats, however long it is held.
  sentBefore=phone.inputs.length
  await holdKey(page.getByRole('button',{name:'Send Esc',exact:true}),800)
+ // The key is sent on release, and reaches the socket after the release returns: wait for it, then for any repeat.
+ await expect.poll(()=>phone.inputs.length).toBe(sentBefore+1);await page.waitForTimeout(300)
  expect(phone.inputs.slice(sentBefore)).toEqual(['\x1b'])
  // The second row holds every other key, one group at a time, and sends the exact bytes a shell expects. It is a row
  // of its own above the first: the first row does not move, and the screen gives the new row its height.

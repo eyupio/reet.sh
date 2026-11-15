@@ -37,6 +37,28 @@ Commands run in this container:
 Not checked: a real list from a signed-in account (this container's GitHub access cannot call `user/repos`), a real
 clone started from Start an agent or Factory, and a tablet-width screenshot.
 
+Then **temporary projects**. A repository picked in Start an agent or Factory is saved as a temporary project. The
+controller removes it and deletes its clone once nothing uses it and nothing would be lost. Otherwise the card says
+why it stays, and **Keep this project** keeps it for good.
+
+- `go test -race ./internal/store ./internal/api` passes. The new tests cover:
+  - removal when safe;
+  - no action while the project is new, has a session open in it, or has a Factory outcome running;
+  - staying with the Remove dialog's sentence while work would be lost, then going once nothing would be;
+  - a machine that cannot be asked;
+  - Keep;
+  - `from-github` with `temporary`.
+  The saved-Projects import test caught the migration's own scan missing the new columns, which was fixed.
+- `start-agent`, `gaffer-outcome`, `add-project-github` (new section: "· temporary", the kept sentence and Keep this
+  project, at 1280 and 390 px), `home` and `sessions-phone` e2e pass. The section first showed "eyupio/reet.sh·
+  temporary": Svelte drops a leading space inside an element, so the space is now an expression.
+- A screenshot of a temporary card at 1280 px was looked at.
+- `terminal-phone.e2e.mjs` failed once in CI and once in nine local runs. It read the inputs as soon as the held Esc
+  was released, before the key reached the test's socket. It now waits for the key and then for any repeat, and passed
+  6/6. The same file on main passed 6/6 before the change: the race was in the test, not in this branch.
+
+Not checked: a real temporary clone removed on a machine.
+
 ## Machines follow a move with nothing run on them (14 November 2026)
 
 The Move page's step 4 was a `reet agent set-server` command to copy. It is now **Machines follow on their own**: a

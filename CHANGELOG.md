@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: a stage instruction or Gaffer message longer than 2,000 bytes now
+  reaches the agent. It used to stop on the controller and show **Delivery
+  was not confirmed**, which left the goal waiting for you at every stage that
+  carried on in the same session. Longer messages need this build on the
+  machine as well; an older machine's message now fails with that reason. A
+  message that never left the controller is shown as failed, not uncertain.
 - **Compose** in a terminal: write or dictate a message in an ordinary field,
   where a phone's autocorrect and dictation work, then **Send** it as one
   paste with Enter, or **Insert** it without. It is in the terminal toolbar.

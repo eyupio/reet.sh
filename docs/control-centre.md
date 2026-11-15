@@ -20,7 +20,7 @@ to work.
 ## Sessions
 
 The Sessions tab is `/sessions` (R17). Without a session in the address it lists
-every session across machines: search, Group by Project, Machine or State (the
+every session across machines: search, Group by Attention, Project, Machine or State (the
 same choice as Home's), filters (state, agent, machine, YOLO only, worktree only)
 and each row's actions menu (right-click, Shift+F10 or the ⋮ button), with the
 folder projects and **Add a project** below. `/sessions?agent=…&session=…` opens

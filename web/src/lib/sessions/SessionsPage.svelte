@@ -6,7 +6,7 @@
   import CommandLibrary from '../terminal/CommandLibrary.svelte'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import ProjectWorktrees from '../home/ProjectWorktrees.svelte'
-  import { attentionCount, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy, type NeedCard } from '../home'
+  import { GROUP_CHOICES, attentionCount, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy, type NeedCard } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
   import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
@@ -28,7 +28,7 @@
   const POLL_MS = 15_000
   // The Machines page opens Add a machine when it arrives with this fragment.
   const machinesAt = (fragment: string) => `/machines#${fragment}`
-  const GROUPS: GroupBy[] = ['project', 'machine', 'state']
+  const GROUPS: GroupBy[] = GROUP_CHOICES.map(choice => choice.value)
   // svelte-ignore state_referenced_locally
   const groupKey = `reet.home.groupBy.${userId}`
   function storedGroup(): GroupBy {
@@ -218,8 +218,8 @@
       <input type="search" bind:value={query} placeholder="Search sessions" aria-label="Search sessions" autocomplete="off" />
     </label>
     <div class="group-by" role="radiogroup" aria-label="Group by">
-      {#each [['project', 'Project'], ['machine', 'Machine'], ['state', 'State']] as [value, label] (value)}
-        <label class:on={groupBy === value}><input type="radio" name="sessions-group" {value} checked={groupBy === value} onchange={() => chooseGroup(value as GroupBy)} />{label}</label>
+      {#each GROUP_CHOICES as { value, label } (value)}
+        <label class:on={groupBy === value}><input type="radio" name="sessions-group" {value} checked={groupBy === value} onchange={() => chooseGroup(value)} />{label}</label>
       {/each}
     </div>
     <details class="filters">

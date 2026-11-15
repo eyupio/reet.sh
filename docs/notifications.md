@@ -37,6 +37,10 @@ There is no digest in this build. A kind that is on sends immediately; the
 centre keeps it either way. Team membership and list-sharing notices keep
 their own choices under **Teams & organisations → Notifications**.
 
+Sessions are not in this catalogue. A phone or a computer can be told when a
+session needs you or has ended, while reet is closed: see
+[Notifications on a device](push-notifications.md).
+
 ## What is recorded
 
 | Kind | Who | What |

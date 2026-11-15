@@ -172,6 +172,7 @@ nav:
     - Single sign-on: single-sign-on.md
     - Email: email.md
     - Notifications: notifications.md
+    - Notifications on a device: push-notifications.md
     - Support tickets: support.md
     - Remote machines: remote-machine-operations.md
     - Device checks: device-checks.md

@@ -91,6 +91,9 @@ func (s *Store) migrateTerminal() error {
 	if err := s.migrateAttention(); err != nil {
 		return err
 	}
+	if err := s.migratePush(); err != nil {
+		return err
+	}
 	return s.migrateTitleOrigin()
 }
 

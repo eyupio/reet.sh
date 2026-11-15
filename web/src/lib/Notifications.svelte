@@ -6,6 +6,7 @@
     type Notification, type NotificationPreference,
   } from './api'
   import CollectionPanel from './CollectionPanel.svelte'
+  import DevicePush from './DevicePush.svelte'
   import PageHeader from './PageHeader.svelte'
   import { elapsed } from './time'
 
@@ -173,6 +174,8 @@
     {/if}
   </CollectionPanel>
 
+  <div class="side">
+  <DevicePush />
   <section class="card" aria-labelledby="prefs-title">
     <div class="head">
       <h2 id="prefs-title">What you hear about</h2>
@@ -213,10 +216,12 @@
       {/each}
     {/if}
   </section>
+  </div>
 </div>
 
 <style>
   .layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 20px; margin-top: 24px; align-items: start; }
+  .side { display: grid; gap: 20px; min-width: 0; align-content: start; }
   .card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 20px; min-width: 0; }
   .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
   h2 { margin: 0; font: 500 1.4rem/1.2 var(--serif); letter-spacing: -0.02em; overflow-wrap: anywhere; }

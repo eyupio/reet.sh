@@ -18,6 +18,74 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## MOBILE-1: sessions on phones and tablets, and notifications on a device (15 November 2026)
+
+The owner asked for a usability assessment on phones and tablets, with most attention on terminal and agent sessions,
+then chose the scope: every finding, plus push notifications.
+
+The assessment ran the real UI against a synthetic fleet (a terminal socket that repaints for its size, a chat stream)
+at 390 × 844, 360 × 640, 844 × 390, 820 × 1180 and 1180 × 820 with touch emulated. A real controller and machine were
+started in the container, but the machine's private link needs a relay the container cannot reach, so no real
+terminal was attached.
+
+**What was wrong**, each seen on screen:
+
+- **Focus** did nothing on a phone terminal: the button lit, but `focusOn` required a chat (`SessionScreen.svelte`).
+- A phone terminal had 364 of 844 px (28 rows): six bars above it, a status footer below. Sideways, 9 rows.
+- Ask Gaffer's circle sat on the agent's prompt line, lifted there by the footer's clearance, above a 68 px strip
+  reserved for it and left empty. On a tablet it covered the terminal's last rows and a chat's Send.
+- A tablet with its keyboard up kept every bar: 13 rows at 820 × 1180.
+- The docked panel at 240 px wrapped a project's name ("Storefron/t") and floated its count; beside it the session's
+  name was cut to "Refacto…" with room to spare.
+- The phone drawer was 240 px with no scrim; names were cut while 140 px of the page showed beside it.
+- `/sessions` with nothing chosen said "Nothing is open right now" with four sessions running: the list filtered by
+  the chosen machine, and none was chosen.
+- Typing in a chat on a phone left about 70 px of conversation.
+- Start an agent showed "Choose a project…" in red before anything was touched.
+- Home's board had 24 and 32 px controls on touch screens.
+- Nothing told a phone that a session needed its person.
+
+**What changed (browser):**
+
+- `SessionScreen.svelte`: focus mode for any session on a phone, on by default; in focus a connected terminal's pane
+  header and footer are hidden; `terminalShowing`; **Ask Gaffer** in the header; the name's own row on a narrow
+  stage that is not a phone; the tablet keyboard rules; the header's second row hidden while typing in focus.
+- `app.css`: no floating launcher and no reserve on a session screen at 767 px or less, or on any touch screen;
+  `html[data-session-typing]` hides the top bar.
+- `TerminalWorkspace.svelte`: `keyboard` also on a touch tablet (`TOUCH_TABLET` in `sizing.ts`), and
+  `data-session-typing`; `resumeSessions` and the reordered "nothing open" screen; the drawer's scrim.
+- `SessionSidebar.svelte`: one-line group headers (`.fold-title`), the drawer's width.
+- `TerminalPane.svelte`: the 8-row floor's shift reads the host's height unrounded. `clientHeight` rounded 45.94 px
+  to 46 and left the last row 1/16 px past the foot, which `terminal-workspace.e2e.mjs` caught at 390 × 420 once the
+  reserve was gone.
+- `ChatPane.svelte`, `StartAgentDialog.svelte`, `home/SessionBoard.svelte`: the typing layout, `.reason.hint`, 44 px
+  targets.
+
+**What changed (push):** `internal/webpush` (VAPID, an empty wake-up, the push service address list),
+`internal/store/store_push.go` (`push_subscriptions`, `push_told`), `internal/api/push.go` (five routes and a worker
+every five seconds), `web/public/sw.js`, `web/src/lib/push.ts`, `pushSupport.ts` and `DevicePush.svelte` on the
+Notifications page. Design and limits: [docs/push-notifications.md](docs/push-notifications.md).
+
+**Decisions made here, for the owner to overturn if wrong:**
+
+- A phone terminal opens in focus, as a chat does. Existing suites about the full chrome start with focus off
+  (`sessionFocus:false` in `helpers/workspace.mjs`, or the same storage key seeded).
+- Wake-ups carry no payload, so nothing about a session reaches a push service and no subscription keys are stored.
+  The cost is a generic line when the device is signed out or the moment has passed.
+- The panel still docks by default from 768 px (the documented rule); only its layout at 240 px changed.
+- Push is its own card, not a kind in `internal/notify`: it is per device, and that catalogue is per person.
+
+**Checked:** see [docs/ui-verification.md](docs/ui-verification.md) for the commands and results.
+
+**Not verified:** a real phone or tablet; Safari and Firefox; a real push through a push service; momentum scrolling,
+pinch zoom and text selection in the terminal; the notch held sideways (`index.html` has no `viewport-fit=cover`, so
+the safe-area insets the styles use are probably always zero).
+
+**Not done:** a compose box that sends dictated or autocorrected text to a terminal as one paste; voice input; an
+inbox that sorts every session by what needs you; a chat's "Waiting for your approval" still shows in two places
+when the keyboard is down; a notification when a chat's turn completes while the session keeps running (only waiting
+and ended sessions are told).
+
 ## LINK-WRITE-1: a request that gives up no longer drops a machine's connection (14 November 2026)
 
 The Gaffer offline acceptance test (`scripts/test-gaffer-offline.sh`, CI job `offline (native)` and once `offline

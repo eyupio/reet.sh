@@ -68,7 +68,7 @@
     <h2 id="device-push-title">On this device</h2>
     {#if device}<span class="state on"><i aria-hidden="true"></i>On</span>{:else if support === 'ok'}<span class="state">Off</span>{/if}
   </div>
-  <p class="muted">Hear when a session needs you, or has ended, while reet is closed. A tap on the notification opens that session.</p>
+  <p class="muted">Hear when a session needs you, or has finished, while reet is closed. A tap on the notification opens that session.</p>
 
   {#if support === 'insecure'}
     <p class="blocked">Notifications need reet to be opened over https. Open it at its https address, then turn this on.</p>
@@ -80,7 +80,7 @@
     <fieldset disabled={!!busy}>
       <legend>Tell this device when</legend>
       <label class="check"><input type="checkbox" checked={device.waiting} onchange={e => choose('waiting', e.currentTarget.checked)} /><span><strong>A session needs you</strong><small>An agent is waiting for an answer or an approval.</small></span></label>
-      <label class="check"><input type="checkbox" checked={device.ended} onchange={e => choose('ended', e.currentTarget.checked)} /><span><strong>A session has ended</strong><small>It finished, or stopped with a problem, and you have not looked yet.</small></span></label>
+      <label class="check"><input type="checkbox" checked={device.ended} onchange={e => choose('ended', e.currentTarget.checked)} /><span><strong>A session has finished</strong><small>It finished its turn, ended, or stopped with a problem, and you have not looked yet.</small></span></label>
     </fieldset>
     <div class="actions">
       <button type="button" class="btn" disabled={!!busy} aria-busy={busy === 'test'} onclick={sendTest}>{busy === 'test' ? 'Sending…' : 'Send a test'}</button>

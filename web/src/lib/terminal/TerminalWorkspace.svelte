@@ -167,6 +167,8 @@
   // Phone keyboard open while typing in the terminal: this toolbar steps aside, and the shell's chrome with it (keyboardChrome
   // with the 'session' focus, read by AppShell through chromeFocus).
   let keyboard=$state(false)
+  // Measures env(safe-area-inset-bottom): the height the workspace leaves free under itself on a phone with a home indicator.
+  let safeProbe=$state<HTMLElement>()
   // ?viewport-debug=1 shows the measured heights live, for checking a real phone with its keyboard open. Nothing is stored or sent.
   const viewportDebug=new URLSearchParams(location.search).get('viewport-debug')==='1'
   let debugReading=$state('')
@@ -685,7 +687,9 @@
       chromeFocus.session=typing
       keyboard=keyboardLikelyOpen(usable.shrink,{coarse:coarse.matches,narrow:narrow.matches||tablet.matches,editing:typing,scale:window.visualViewport?.scale??1})
       const reserved=document.querySelector<HTMLElement>('[data-gaffer-space]')?.getBoundingClientRect().height??0
-      workspaceHeight=Math.max(120,usable.height-Math.max(0,workspace.getBoundingClientRect().top-usable.top)-reserved-8)
+      // With the keyboard down the workspace also stops above the home indicator; a keyboard covers that strip itself.
+      const safeBottom=keyboard?0:safeProbe?.offsetHeight??0
+      workspaceHeight=Math.max(120,usable.height-Math.max(0,workspace.getBoundingClientRect().top-usable.top)-reserved-safeBottom-8)
       if(viewportDebug){const visual=window.visualViewport;debugReading=`visualViewport.height ${visual?Math.round(visual.height):'none'} · offsetTop ${visual?Math.round(visual.offsetTop):'none'}\ninnerHeight ${innerHeight} · screen.height ${screen.height}\nused height ${Math.round(usable.height)} · keyboard ${keyboard?'open':'closed'}\ninnerWidth ${innerWidth} · visualViewport.width ${visual?Math.round(visual.width):'none'} · scale ${visual?Math.round(visual.scale*100)/100:'none'} · offsetLeft ${visual?Math.round(visual.offsetLeft):'none'}\nclientWidth ${document.documentElement.clientWidth} · scrollWidth ${document.documentElement.scrollWidth} · screen.width ${screen.width} · dpr ${devicePixelRatio}\nmeta ${viewportMeta?.getAttribute('content')??'none'}`}
     })}
     const observer=new ResizeObserver(measure),header=document.querySelector('.site-header')
@@ -768,6 +772,7 @@
 {#if loading}
   <WorkspaceSkeleton label="Loading your sessions" context={!theatre && (!!selectedSession || !!selectedAgent)} session={!!selectedSession} />
 {:else}
+<i class="safe-probe" bind:this={safeProbe} aria-hidden="true"></i>
 <section class="workspace" class:theatre class:keyboard class:resizing bind:this={workspace} style={`--workspace-height:${workspaceHeight}px;--sidebar-width:${sidebarWidth}px;--panel-width:${shown==='mini'?MINI_WIDTH:panelWidth}px`} aria-label="Remote terminal workspace">
   <header class="workspace-toolbar">
     <div class="workspace-title"><a href="/sessions" aria-label="Back to sessions">←</a>{#if !session}<h1>Sessions</h1>{/if}</div>
@@ -880,6 +885,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .ended-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--status,var(--good))}.ended-copy{display:grid;gap:2px;min-width:0;padding:8px 0}.ended-copy small{color:var(--muted);font-size:0.875rem}.ended-resume button[data-status=waiting]{border-color:var(--status-waiting)}.ended-resume button[data-status=waiting] small{color:var(--status-waiting);font-weight:600}.ended-resume:has(+.ended-actions){margin:0 0 24px}.ended-more{margin:8px 0 0;color:var(--muted);font-size:0.875rem}.ended-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Behind an open drawer: the page dims, and a tap on it closes the drawer. */
   .drawer-scrim{position:absolute;inset:0;z-index:7;background:var(--scrim)}
+  .safe-probe{position:fixed;left:0;bottom:0;width:0;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none}
   .workspace.theatre>.workspace-toolbar{display:none}
   /* Keyboard focus layout (phones only, see keyboardLikelyOpen): the terminal toolbar keeps Show sessions. */
   .workspace.keyboard>.workspace-toolbar{display:none}

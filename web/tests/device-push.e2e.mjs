@@ -73,7 +73,7 @@ try {
     await expect(card.getByRole('heading', { name: 'Your other devices' })).toHaveCount(0)
 
     // A choice is saved as it is made.
-    await card.getByRole('checkbox', { name: /A session has ended/ }).uncheck()
+    await card.getByRole('checkbox', { name: /A session has finished/ }).uncheck()
     await expect.poll(() => calls.filter(call => call.method === 'POST').at(-1).body).toEqual({ endpoint: ENDPOINT, label: 'Chrome on Linux', waiting: true, ended: false })
     await expect(card.getByRole('checkbox', { name: /A session needs you/ })).toBeChecked()
 
@@ -107,7 +107,7 @@ try {
     const others = [{ id: 3, label: 'Safari on iPhone', waiting: true, ended: true, createdAt: Date.now() - 9 * 86_400_000, lastOkAt: 0 }, { id: 4, label: 'Firefox on Linux', waiting: true, ended: true, createdAt: Date.now() - 60_000 * 90, lastOkAt: 0 }]
     const { page, card, calls, context } = await open({ width: 820, height: 1180, devices: [mine, ...others], current: 7, subscribed: true })
     await expect(card.getByText('On', { exact: true })).toBeVisible()
-    await expect(card.getByRole('checkbox', { name: /A session has ended/ })).not.toBeChecked()
+    await expect(card.getByRole('checkbox', { name: /A session has finished/ })).not.toBeChecked()
     const list = card.getByRole('list')
     await expect(list.getByRole('listitem')).toHaveText([/Safari on iPhone\s*Turned on 9 days ago/, /Firefox on Linux\s*Turned on 1 hour ago/])
     await list.getByRole('button', { name: 'Remove Safari on iPhone' }).click()

@@ -2,7 +2,7 @@
   import { tick } from 'svelte'
   import { toolName } from '../agentLaunch'
   import { sessionHref, type MachineHealth, type TerminalMachine } from '../terminal/api'
-  import { shortAge, stateWord, type GroupBy, type Group, type HomeSession, type SessionOwner } from '../home'
+  import { GROUP_CHOICES, shortAge, stateWord, type GroupBy, type Group, type HomeSession, type SessionOwner } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import SessionActions from '../sessions/SessionActions.svelte'
   import { factoryBadge, type FactoryMember } from '../gafferOutcome'
@@ -58,7 +58,7 @@
     if (!opener.isConnected) panel?.querySelector('button')?.focus()
   }
   const id = $props.id()
-  const choices: { value: GroupBy; label: string }[] = [{ value: 'project', label: 'Project' }, { value: 'machine', label: 'Machine' }, { value: 'state', label: 'State' }]
+  const choices = GROUP_CHOICES
   const hostOf = (agentId: string) => machines.find(m => m.agentId === agentId)?.host || agentId
   const lastKnown = (s: HomeSession) => offline.some(m => m.agentId === s.agentId)
   // The row's card on hover or keyboard focus, with the machine's last readings and the way in. The row stays the link.

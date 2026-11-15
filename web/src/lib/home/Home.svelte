@@ -10,7 +10,7 @@
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { notStartedText, refusalText, titleFor } from '../agentLaunch'
   import { hasPending } from '../attention'
-  import { announceWaiting, attentionCount, fleetCards, foldGafferGoals, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type HomeSession, type NeedCard } from '../home'
+  import { announceWaiting, attentionCount, fleetCards, foldGafferGoals, handedProjects, reporting, needsYou, inFlight, projectRunning, projectWorktrees, sessionOwners, type FleetCard, type GroupBy, type HomeSession, type NeedCard } from '../home'
   import { floorCandidates } from '../gafferFloor'
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import type { LaunchDefaults } from '../launchBar'
@@ -212,7 +212,7 @@
   let narrow = $state(typeof matchMedia === 'function' && matchMedia(NARROW).matches)
 
   let homeView = $state<'board' | 'continue'>('board')
-  let continueGroup = $state<'project' | 'machine' | 'state'>('project')
+  let continueGroup = $state<GroupBy>('project')
   function chooseHomeView(view: 'board' | 'continue') {
     homeView = view
     try { localStorage.setItem(`reet.home.view.${userId}`, view) } catch { /* The view still works for this visit. */ }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 	"github.com/eyupio/reet.sh/internal/webpush"
 )
 
@@ -296,14 +297,18 @@ func pushBody(kind string) string {
 		return "Needs you."
 	case "failed":
 		return "Stopped with a problem."
+	case "turn-finished":
+		return "Finished its turn."
+	case "turn-failed":
+		return "Its turn stopped with a problem."
 	default:
 		return "Finished."
 	}
 }
 
 // pushMoment is what a session has to tell its person, and when it began:
-// waiting for them (a bell or a pending question they have not seen), or
-// ended unseen. Anything else is "".
+// waiting for them (a bell or a pending question they have not seen), ended
+// unseen, or a chat whose turn is over and unseen. Anything else is "".
 func pushMoment(item store.TerminalSession) (kind string, at int64) {
 	switch item.Attention {
 	case "waiting":
@@ -312,6 +317,12 @@ func pushMoment(item store.TerminalSession) (kind string, at int64) {
 		if item.ChangedSinceSeen {
 			return item.Attention, pushMillis(item.UpdatedAt)
 		}
+	}
+	// A chat that finished its turn and waits for the next message is still running, so its attention is "quiet":
+	// the turn's own end is the moment, until the person has looked.
+	turnOver := item.ChatStatus == "finished" || item.ChatStatus == "failed"
+	if done := pushMillis(item.CompletedAt); item.Structured && item.State == terminalproto.Running && turnOver && done > pushMillis(item.SeenAt) {
+		return "turn-" + item.ChatStatus, done
 	}
 	return "", 0
 }

@@ -495,3 +495,30 @@ test('folding twice leaves a single gaffer reason', () => {
   assert.deepEqual(twice.cards[0].reasons, ['approval', 'gaffer'])
   assert.equal(twice.unfolded, 0)
 })
+
+test('grouping by attention puts what needs the person first, then problems, then what is done', () => {
+  const { attentionGroup } = h
+  const machines = [machine('a1', 'studio')]
+  const sessions = [
+    session('working', 'a1', 'running', { attention: 'working' }),
+    session('quiet', 'a1', 'running', { attention: 'quiet', attentionSource: 'terminal' }),
+    session('turn-done', 'a1', 'running', { attention: 'quiet', attentionSource: 'chat' }),
+    session('asks', 'a1', 'running', { attention: 'waiting', pendingPermission: { permissionId: 'p1' }, updatedAt: NOW - HOUR }),
+    session('bell', 'a1', 'running', { attention: 'waiting', changedSinceSeen: true }),
+    session('crashed', 'a1', 'exited', { exitCode: 2 }),
+    session('lost', 'a1', 'lost'),
+    session('done', 'a1', 'exited', { exitCode: 0 }),
+    session('starting', 'a1', 'creating'),
+    session('ending', 'a1', 'end_requested'),
+    session('plain', 'a1', 'running'),
+  ]
+  assert.deepEqual(sessions.map(s => [s.id, attentionGroup(s)]), [
+    ['working', 'Working'], ['quiet', 'Quiet'], ['turn-done', 'Finished'], ['asks', 'Needs you'], ['bell', 'Needs you'], ['crashed', 'Stopped with a problem'],
+    ['lost', 'Stopped with a problem'], ['done', 'Finished'], ['starting', 'Starting'], ['ending', 'Ending'], ['plain', 'Working'],
+  ])
+  const groups = inFlight(sessions, new Map(), machines, 'attention', NOW)
+  assert.deepEqual(groups.map(g => [g.label, g.count]), [['Needs you', 2], ['Stopped with a problem', 2], ['Finished', 2], ['Working', 2], ['Starting', 1], ['Quiet', 1], ['Ending', 1]])
+  // Newest change first inside a group: the bell rang after the hour-old question.
+  assert.deepEqual(groups[0].sessions.map(s => s.id), ['bell', 'asks'])
+  assert.equal(h.GROUP_CHOICES[0].value, 'attention')
+})

@@ -1,6 +1,6 @@
 import type { FolderProject, MachineHealth, TerminalMachine, TerminalSession, SessionState } from './terminal/api'
 import type { GafferGoalOverview, SyncJob, SyncState } from './api'
-import { ATTENTION_WINDOW_MS, attentionRuleOf } from './attention'
+import { ATTENTION_WINDOW_MS, attentionRuleOf, isBlocked } from './attention'
 
 // Pure logic for Home on today's data: the fleet strip's cards, the In flight groups and the Needs you list.
 // No DOM, no fetch. Every figure is labelled with what it measures and comes from a record that exists today:
@@ -40,7 +40,9 @@ export type SessionOwner = { id: string; name: string }
 /** What the listing carries: the worktree fields only for a session started in its own worktree, and the folder project
  *  it was started in (`projectId`, null for one started outside a project). */
 export type HomeSession = TerminalSession
-export type GroupBy = 'project' | 'machine' | 'state'
+export type GroupBy = 'project' | 'machine' | 'state' | 'attention'
+/** Every grouping, in the order the choice offers them. */
+export const GROUP_CHOICES: { value: GroupBy; label: string }[] = [{ value: 'attention', label: 'Attention' }, { value: 'project', label: 'Project' }, { value: 'machine', label: 'Machine' }, { value: 'state', label: 'State' }]
 export type Group = { key: string; label: string; count: number; sessions: HomeSession[] }
 export type NeedKind = 'waiting' | 'failed' | 'review' | 'finished'
 /** Why a card needs the person: what the session holds open for them, or how it ended. */
@@ -258,10 +260,27 @@ export function stateWord(session: Pick<TerminalSession, 'state' | 'exitCode' | 
 const STATE_ORDER = ['Running', 'Starting', 'Ending', 'Connection lost', 'Exited', 'Ended']
 const stateGroup = (s: HomeSession): string => stateWord({ state: s.state, exitCode: null }).word
 
+/** The triage order: what is waiting for the person, what went wrong, what is done, then what is still going. */
+const ATTENTION_ORDER = ['Needs you', 'Stopped with a problem', 'Finished', 'Working', 'Starting', 'Quiet', 'Ending', 'Ended']
+/**
+ * Where a session sits in that order. A chat that has finished its turn and waits for the next message is Finished,
+ * as the session colours have it; a terminal that has gone quiet is Quiet, since nothing says its work is done.
+ */
+export function attentionGroup(s: HomeSession): string {
+  if (isBlocked(s)) return 'Needs you'
+  const failedExit = s.state === 'exited' && typeof s.exitCode === 'number' && s.exitCode !== 0
+  if (s.attention === 'failed' || s.state === 'lost' || failedExit) return 'Stopped with a problem'
+  if (s.attention === 'finished' || (s.attention === 'quiet' && s.attentionSource === 'chat') || (s.state === 'exited' && s.exitCode === 0)) return 'Finished'
+  if (s.state === 'creating' || s.attention === 'starting') return 'Starting'
+  if (s.state === 'end_requested') return 'Ending'
+  if (s.state !== 'running') return 'Ended'
+  return s.attention === 'quiet' ? 'Quiet' : 'Working'
+}
+
 /**
  * In flight: live sessions, and finished ones for a day after their last state change. Grouped by project (the folder
  * project each session was started in, by name, then the rest under their machine), by machine (the person's machine
- * order) or by state.
+ * order), by state, or by attention (what needs the person first).
  */
 export function inFlight(sessions: HomeSession[], owners: Map<string, SessionOwner>, machines: MachineHealth[], groupBy: GroupBy, now: number): Group[] {
   return groupSessions(sessions.filter(s => live(s) || now - s.updatedAt <= FINISHED_KEPT_MS), owners, machines, groupBy)
@@ -285,6 +304,7 @@ export function groupSessions(shown: HomeSession[], owners: Map<string, SessionO
     if (groupBy === 'project' && owner) add(`project:${owner.id}`, owner.name, s)
     else if (groupBy === 'project') add(`machine:${s.agentId}`, `No project · ${machineName(s.agentId, machines)}`, s)
     else if (groupBy === 'machine') add(`machine:${s.agentId}`, machineName(s.agentId, machines), s)
+    else if (groupBy === 'attention') { const word = attentionGroup(s); add(`attention:${word}`, word, s) }
     else { const word = stateGroup(s); add(`state:${word}`, word, s) }
   }
   const machineRank = (key: string): number => {
@@ -294,8 +314,9 @@ export function groupSessions(shown: HomeSession[], owners: Map<string, SessionO
   const rank = (g: Group): [number, number, string] => {
     if (g.key.startsWith('project:')) return [0, 0, g.label.toLowerCase()]
     if (g.key.startsWith('machine:')) return [1, machineRank(g.key), g.label.toLowerCase()]
-    const i = STATE_ORDER.indexOf(g.label)
-    return [2, i < 0 ? STATE_ORDER.length : i, g.label.toLowerCase()]
+    const order = g.key.startsWith('attention:') ? ATTENTION_ORDER : STATE_ORDER
+    const i = order.indexOf(g.label)
+    return [2, i < 0 ? order.length : i, g.label.toLowerCase()]
   }
   const out = [...groups.values()]
   for (const g of out) g.sessions.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))

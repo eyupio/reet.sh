@@ -16,7 +16,7 @@ const session = (id, title, over = {}) => ({ id, title, agentId: 'a1', projectId
 const sessions = [
   session('t1', 'Refactor the store layer so reads and writes share one interface'),
   session('c1', 'Fix the failing checkout build', { tool: 'opencode', model: 'anthropic/claude-sonnet-4-5', structured: true, projectId: 'p2', dir: '/home/sam/p2', attentionSource: 'chat' }),
-  session('t2', 'Speed up the runner pool', { agentId: 'a2', projectId: null, attention: 'waiting', updatedAt: now - 40 * minute }),
+  session('t2', 'Speed up the runner pool', { agentId: 'a2', projectId: null, attention: 'waiting', changedSinceSeen: true, updatedAt: now - 40 * minute }),
   session('t3', 'Tidy up the keyboard shortcuts', { state: 'exited', attention: 'finished', exitCode: 0 }),
 ]
 // A full-screen app that repaints every row for the size it was given, with its input on the last row.
@@ -28,7 +28,8 @@ const hooks = () => {
   const visual = { get width() { return innerWidth }, get height() { return height ?? innerHeight }, offsetTop: 0, offsetLeft: 0, pageTop: 0, pageLeft: 0, scale: 1, addEventListener: (...args) => { events.addEventListener(...args); real?.addEventListener(...args) }, removeEventListener: (...args) => { events.removeEventListener(...args); real?.removeEventListener(...args) } }
   Object.defineProperty(window, 'visualViewport', { configurable: true, get: () => visual })
   window.__keyboard = value => { height = value; events.dispatchEvent(new Event('resize')) }
-  window.EventSource = class { constructor() { setTimeout(() => this.onopen?.({}), 0) } addEventListener() {} close() {} }
+  // A chat stream that says what a test tells it to.
+  window.EventSource = class { constructor() { this.listeners = {}; window.__chatStream = this; setTimeout(() => this.onopen?.({}), 0) } addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn) } close() {} emit(type, data) { for (const fn of this.listeners[type] ?? []) fn({ data: JSON.stringify(data) }) } }
 }
 async function open({ width, height, touch = true, path = '/sessions?agent=a1&session=t1', sessionFocus } = {}) {
   const sizes = []
@@ -233,7 +234,86 @@ try {
     expect(colours.is).not.toBe(colours.bad)
     await context.close()
   }
-  console.log('Session screen on phones and tablets: terminal focus mode and the rows it gives back, Ask Gaffer in the header on touch screens, the tablet keyboard layout, the docked panel and the drawer, the Sessions tab, the composer while typing, and Start an agent guidance.')
+  if (run('approval said once fewer')) {
+    // An approval on a phone is said by the pane's status line and by the card that asks; the strip above the composer
+    // does not say it a third time. A tablet has the room, and keeps the strip.
+    const approval = page => page.evaluate(() => { const s = window.__chatStream; s.emit('reset', { truncated: false }); s.emit('chat', { seq: 1, kind: 'user', text: 'fix the build' }); s.emit('chat', { seq: 2, kind: 'permission', permissionId: 'p1', toolCallId: 'c1', title: 'Run the tests', toolKind: 'execute', command: 'npm test', text: 'The tests write outside the sandbox.' }) })
+    for (const [width, height, strip] of [[390, 844, false], [820, 1180, true]]) {
+      const { page, context } = await open({ width, height, path: '/sessions?agent=a1&session=c1' })
+      await expect(page.locator('textarea.composer-input')).toBeVisible()
+      await expect(page.locator('.conversation-status')).toBeVisible()
+      await approval(page)
+      await expect(page.getByRole('button', { name: 'Allow once' })).toBeVisible()
+      await expect(page.locator('.chat-status')).toContainText('Waiting for your approval.')
+      if (strip) await expect(page.locator('.conversation-status')).toBeVisible()
+      else await expect(page.locator('.conversation-status')).toBeHidden()
+      // Answered, the strip is back with the turn's progress.
+      await page.evaluate(() => { const s = window.__chatStream; s.emit('chat', { seq: 3, kind: 'permission_resolved', permissionId: 'p1', allow: true }); s.emit('chat', { seq: 4, kind: 'status', state: 'working' }) })
+      await expect(page.locator('.conversation-status')).toBeVisible()
+      await context.close()
+    }
+  }
+
+  if (run('notch')) {
+    // The page runs edge to edge. With a home indicator below (portrait) or a notch at either side (sideways), nothing
+    // a person reads or presses sits under them.
+    for (const [width, height, insets] of [[390, 844, { top: 0, left: 0, bottom: 34, right: 0 }], [844, 390, { top: 0, left: 47, bottom: 21, right: 47 }]]) {
+      const { page, sizes, context } = await open({ width, height })
+      const cdp = await context.newCDPSession(page)
+      await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets })
+      expect(await page.locator('meta[name="viewport"]').getAttribute('content')).toContain('viewport-fit=cover')
+      await page.reload()
+      await live(page)
+      const held = await rows(page, sizes)
+      const edges = await page.evaluate(() => { const box = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, bottom: r.bottom } }; return { keys: box('.mobile-keys'), fixed: box('.key-fixed'), head: box('.session-screen .head'), screen: box('.xterm-screen') } })
+      for (const [name, box] of Object.entries(edges)) {
+        expect(box.left, `${width}x${height} ${name} left`).toBeGreaterThanOrEqual(insets.left)
+        expect(box.right, `${width}x${height} ${name} right`).toBeLessThanOrEqual(width - insets.right)
+        expect(box.bottom, `${width}x${height} ${name} bottom`).toBeLessThanOrEqual(height - insets.bottom)
+      }
+      expect(await noSidewaysScroll(page)).toBe(true)
+      // The room given up is the inset and no more: a row or two of the terminal.
+      await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: 0, left: 0, bottom: 0, right: 0 } })
+      await page.reload(); await live(page)
+      const full = await rows(page, sizes)
+      expect(full - held).toBeGreaterThanOrEqual(1)
+      expect(full - held).toBeLessThanOrEqual(4)
+      // Home, sideways: the tab bar and the floating Ask Gaffer keep clear of the notch too.
+      if (width > height) {
+        await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets })
+        await page.goto(base + '/')
+        const launcher = page.locator('.gaffer-launcher')
+        await expect(launcher).toBeVisible()
+        const box = await launcher.boundingBox()
+        expect(box.x + box.width).toBeLessThanOrEqual(width - insets.right)
+        const heading = await page.getByRole('heading', { name: 'Home', exact: true }).boundingBox()
+        expect(heading.x).toBeGreaterThanOrEqual(insets.left)
+        expect(await noSidewaysScroll(page)).toBe(true)
+      }
+      await context.close()
+    }
+  }
+
+  if (run('attention grouping')) {
+    // Home's Continue working and the Sessions list can be grouped by attention: what needs you, then problems, then
+    // what is done, then what is still going. The four choices fit a 360 px phone.
+    const { page, context, errors } = await open({ width: 360, height: 640, path: '/' })
+    await page.getByRole('button', { name: 'Continue working' }).first().click()
+    const choice = page.getByRole('radiogroup', { name: 'Group by' })
+    await expect(choice.getByRole('radio')).toHaveCount(4)
+    await choice.getByText('Attention', { exact: true }).click()
+    await expect(choice.getByRole('radio', { name: 'Attention' })).toBeChecked()
+    const groups = page.getByRole('region', { name: 'Continue working' }).locator('.group h3, .group-head h3, h3')
+    await expect(groups.first()).toContainText('Needs you')
+    const labels = (await groups.allInnerTexts()).map(text => text.split('\n')[0].trim())
+    expect(labels).toEqual(['Needs you', 'Finished', 'Working'])
+    expect(await noSidewaysScroll(page)).toBe(true)
+    const box = await choice.boundingBox()
+    expect(box.x + box.width).toBeLessThanOrEqual(360)
+    expect(errors).toEqual([])
+    await context.close()
+  }
+  console.log('Session screen on phones and tablets: terminal focus mode and the rows it gives back, Ask Gaffer in the header on touch screens, the tablet keyboard layout, the docked panel and the drawer, the Sessions tab, the composer while typing, Start an agent guidance, an approval said twice and not three times, safe areas beside a notch and above a home indicator, and grouping by attention.')
 } finally {
   await browser.close()
 }

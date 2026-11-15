@@ -21,7 +21,7 @@ skill row carries its saved sync intent, and choosing it brings that card into v
 | Part | What it shows, and from where | Arrives with |
 | --- | --- | --- |
 | Fleet strip | One card per machine from the health report: the status in words (online, paused, reconnecting or offline) with a dot that also differs by shape, the live sessions on it of any kind ("sessions running"), CPU, memory in use and disk space free from a fresh report (or **No reading** for each, with a meter), the worktrees live sessions there are in ("3 worktrees in use"; no record says which other worktrees were removed), and the skills line from the last finished sync check for the current desired skills, or **Not checked**. A machine that is not reporting shows its last known count and says so. **Add a machine** opens the existing dialog on Machines. | OS version: PR C |
-| In flight | Live sessions, and finished ones for a day, grouped by project, Machine or State. A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from terminal activity", "from the session's state" or "from the exit code"). There is no step or progress bar. A row opens the session; a right-click (or Shift+F10 / the menu key) opens the same actions menu as the Sessions page: Rename, Open in theatre, Copy branch, End session or Remove from history (each confirmed), and Check and remove worktree. | |
+| In flight | Live sessions, and finished ones for a day, grouped by Attention, Project, Machine or State (Attention is the triage order: Needs you, Stopped with a problem, Finished, Working, Starting, Quiet, Ending, Ended). A session joins the folder project it was started in (its own project id); the subtitle is `project · machine · branch`. Each row shows the state word and where it came from ("from terminal activity", "from the session's state" or "from the exit code"). There is no step or progress bar. A row opens the session; a right-click (or Shift+F10 / the menu key) opens the same actions menu as the Sessions page: Rename, Open in theatre, Copy branch, End session or Remove from history (each confirmed), and Check and remove worktree. | |
 | Needs you | Sessions that are waiting for you (a terminal bell, a question an agent has put on its terminal screen, or a pending Gaffer permission since you last opened or marked the session seen), finished cleanly ("Ready to review", with changed-file count when the session ran in a worktree) or exited with an error, newest first, with **Open** and **Mark seen** (`POST /api/v2/terminal/sessions/{id}/seen`). Empty state: "Nothing needs you." | Inline Allow once / Deny cards on Home: a later slice |
 | Project rail | Your folder projects ([Projects](projects.md)), Home's own resizable left column on a desktop (301 px by default, 240–460 px, or a 56 px strip when folded; from 1100 to 1239 px it is always the strip). The primary tabs live in the top bar, not in this panel. Each compact card has two lines: its repository diamond or folder icon and name, then its machine, base branch, state in words and worktrees in use; choosing one sets the launch bar's project, while its **+** (and New session here in its menu) starts a session there at once; a menu, from the card's button or a right-click, with New session here, Edit, project colour, Worktrees, Move up and down, and Remove from reet. **Select projects** in the heading's menu (or a long press on touch) turns the cards into checkboxes for a start in 2 to 12 projects. **Add** opens the folder browser. On a tablet or phone it is on the **Sessions** screen instead (see [The Sessions page](#the-sessions-page)); Home there keeps the launch sentence's project slot and its Add a project. | |
 | Launch bar | Opens in a modal from Home's Select and from an address that hands over projects: **Describe the job**, **Start** and the launch sentence ("Run Claude Code with default on Store rewrite at studio from main in a fresh worktree"), whose words are the choices. OpenCode, Cline or AGY on a machine offering its Gaffer integration reads "Run \<agent\> in Gaffer…" by default; the **Gaffer** word switches it to **\<agent\> TUI**. A project's **+** opens the Start an agent dialog, as it does on Machines and the Sessions panel. Details: [Start an agent session](start-agent-session.md#on-home-the-launch-bar). | **YOLO** needs the account setting, the machine's acceptance and a per-session confirmation. A live structured chat can switch Ask me ↔ YOLO from its header under the same gates. |
@@ -41,7 +41,7 @@ the words its header pill uses. The phone's launch bar has a one-line prompt, a 
 ## The Sessions page
 
 Control is folded into Home and Machines (R4): `/control` goes to `/`. The **Sessions** tab is `/sessions` (R17): every
-session across machines, grouped by Project, Machine or State (Home's choice), with search (title, agent, model, branch,
+session across machines, grouped by Attention, Project, Machine or State (Home's choice), with search (title, agent, model, branch,
 project and machine), filters (state, agent, machine, colour, YOLO only, worktree only, and a sort that includes the sessions
 panel's custom order; each row shows its colour, the panel's choice or its project's, as an edge strip and its name), and each row's actions menu: right-click, Shift+F10 (or the menu key) or the ⋮ button. It holds
 Rename, Open in theatre, Copy branch (worktree sessions), End session or Remove from history (each confirmed), and Check
@@ -116,6 +116,14 @@ beside it). Its parts:
   line wait until the keyboard goes. The choice is remembered for this browser, for chats and terminals alike;
   **Focus** in the header turns it back on. At 390 × 844 a focused terminal has 49 rows where the full screen has 28;
   held sideways (844 × 390), 21 where it had 9.
+- **One fewer status line on a phone**: while an approval or a question is open, the pane's status line and the card
+  that asks both say so. The strip above the composer does not say it a third time on a phone; it returns with the
+  turn's progress once the answer is given. A tablet and a desktop keep it.
+- **Edge to edge** (`viewport-fit=cover`): beside a notch held sideways and above a home indicator the page's
+  background fills the screen, and nothing to read or press sits under them. The sides are the body's padding, the
+  top is the site header's, the bottom is the tab bar's and the session workspace's own (it stops above the home
+  indicator while the keyboard is down), and the floating Ask Gaffer keeps clear of a side notch. On a 390 × 844 phone
+  with a 34 px home indicator a focused terminal has 46 rows instead of 49.
 - **Ask Gaffer on a touch screen**: on a phone or a touch tablet a session has no free corner (the floating circle sat
   on the agent's prompt line, over an empty strip held back for it), so the circle is hidden there and nothing is
   held back. A terminal's header carries **Ask Gaffer** at 44 px; a chat's status row does, as before.
@@ -671,6 +679,26 @@ arrow keys scroll it; that tab stop also appears in mouse windows narrower than 
 where the keys show too. The keys themselves are described under
 [On-screen keys](#on-screen-keys). The Alt+Shift+M advice is hidden on touch screens
 (no hover, coarse pointer); Restore size stays.
+
+### Compose
+
+A terminal takes each key as it is pressed, so a phone's autocorrect, suggestions and dictation do nothing in it.
+**Compose**, in the terminal toolbar beside Earlier output (in view on a phone without scrolling), opens an ordinary
+message field where they all work.
+
+- **Send** pastes the text into the terminal as one paste and presses Enter. **Insert** pastes it and leaves it on the
+  prompt. On a keyboard, Ctrl+Enter (Cmd+Enter) sends; Enter is a new line.
+- Nothing is sent until one of them is pressed. Trailing spaces and blank last lines are dropped; a message is at most
+  8,000 characters.
+- The draft stays if the sheet is closed, and if the connection drops while it is open ("Reconnect before sending. Your
+  text is kept."). It is cleared once it has been sent.
+- An agent's own prompt takes a paste as one block (bracketed paste), so several lines arrive as one message. A plain
+  shell without it runs each line as it arrives; the sheet says so before anything is sent. The text is not held for
+  paste review, since the person wrote it there to send it.
+- **Dictate** shows where the browser has speech recognition (Chrome, Edge, Safari). It adds each finished phrase to
+  the draft and sends nothing by itself. The browser sends the audio to its own speech service, not to reet, and the
+  sheet says so while it listens. The phone keyboard's own microphone works in the field without it.
+- Sending does not focus the terminal on a touch screen, so the keyboard is not raised over the output.
 
 ### On-screen keys
 

@@ -18,6 +18,7 @@
   import TerminalIcon from './TerminalIcon.svelte'
   import SkillPicker from './SkillPicker.svelte'
   import PromptPicker from '../prompts/PromptPicker.svelte'
+  import TerminalCompose from './TerminalCompose.svelte'
   import type {SessionSkill,SessionSkills} from './skills'
   import {toolName} from '../agentLaunch'
   import TerminalSelectText from './TerminalSelectText.svelte'
@@ -84,6 +85,23 @@
     const intended=generation;scrollbackOpen=false;commandsOpen=false;await tick()
     if(!alive||intended!==generation||!live){feedback='Connection changed. Open Commands again after reconnecting; nothing was inserted.';return}
     paste(item.command,/[\t\r\n]/.test(item.command));restoreFocus()
+  }
+  // The compose box: text written in an ordinary field goes to the live shell as one paste, with Enter after it for
+  // Send. The person wrote it here to send it, so it is not held for paste review; the draft stays until it is sent.
+  let composeOpen=$state(false),composeDraft=$state(''),composeButton=$state<HTMLButtonElement>()
+  // Whether the program takes a paste as one block is read as the box opens; a plain shell without it runs each line.
+  let composeBracketed=$state(false)
+  function openCompose(){composeBracketed=terminal?.modes.bracketedPasteMode===true;composeOpen=true}
+  async function sendComposed(text:string,enter:boolean){
+    const intended=generation;scrollbackOpen=false;composeOpen=false;await tick()
+    if(!alive||intended!==generation||!live){feedback='Connection changed. Your text is kept: open Compose again after reconnecting.';return}
+    const clean=sanitizePaste(text)
+    if(!clean)return
+    if(pasteTooLarge(clean)){feedback='That is too long to send at once. Limit it to 240 KiB.';return}
+    held=afterKey(held);terminal?.paste(clean)
+    if(enter&&!connection?.text('\r')){feedback='Connection changed while sending. Check the terminal before sending again.';return}
+    composeDraft='';feedback=enter?'Sent.':'Inserted. Press Enter in the terminal to send it.'
+    if(!touch)terminal?.focus()
   }
   // A saved prompt is typed into the live shell as text, never followed by Enter. Multi-line text gets paste review.
   async function insertPrompt(text:string){
@@ -489,6 +507,7 @@
     <div class="tools terminal-toolbar" aria-label="Terminal tools" use:edges>
       {#if onsessions&&(!sessionsVisible||maximised)}<button class="show-sessions" onclick={toggleSessions} aria-label="Show sessions" title="Show session sidebar"><span aria-hidden="true">›</span><span>Show sessions</span></button>{/if}
       <button onclick={openScrollback} aria-label="Earlier output" aria-pressed={scrollbackOpen} title="Scroll earlier terminal output · Shift+PageUp"><TerminalIcon name="history"/><span>Earlier output</span></button>
+      <button bind:this={composeButton} onclick={openCompose} disabled={scrollbackOpen} aria-haspopup="dialog" aria-label="Compose" title="Write or dictate a message, then send it as one paste"><TerminalIcon name="compose"/><span class="tool-label">Compose</span></button>
       <button onclick={()=>{if(scrollbackOpen)pane?.querySelector<HTMLInputElement>('[aria-label="Find in earlier output"]')?.focus();else searching=!searching}} aria-expanded={searching} aria-label="Search" title="Search terminal output"><TerminalIcon name="search"/><span class="tool-label">Search</span></button>
       <button onclick={()=>void copy()} aria-label="Copy selection" title="Copy selected output"><TerminalIcon name="copy"/><span class="tool-label">Copy</span></button>
       <button onclick={()=>void copyBuffer('screen')} disabled={scrollbackOpen} aria-label="Copy screen" title="Copy the visible screen"><TerminalIcon name="screen"/><span class="tool-label">Screen</span></button>
@@ -557,6 +576,7 @@
 {#if commandsOpen}<CommandLibrary onclose={()=>commandsOpen=false} oninsert={item=>void insertSaved(item)} canInsert={live} context={`${user?user+'@':''}${host} · ${session.title}`}/>{/if}
 {#if skillsOpen}<SkillPicker data={skillData} loading={skillsLoading} error={skillsError} tool={toolName(session.tool)} sessionId={session.id} onrefresh={()=>void loadSkills()} onpick={skill=>void pickSkill(skill)} onclose={()=>void closeSkills()} onretry={()=>void loadSkills()}/>{/if}
 {#if historyOpen}<CommandHistory session={session.id} context={`${user?user+'@':''}${host} · ${session.title}`} supported={historySupported} canInsert={live} onclose={()=>historyOpen=false} oninsert={(text,run)=>void insertHistory(text,run)} onoutput={openScrollback}/>{/if}
+{#if composeOpen}<TerminalCompose bind:draft={composeDraft} {live} bracketed={composeBracketed} target={session.tool ? toolName(session.tool) : 'the shell'} onsend={(text,enter)=>void sendComposed(text,enter)} onclose={()=>{composeOpen=false;if(touch)composeButton?.focus({preventScroll:true});else restoreFocus()}} />{/if}
 {#if promptsOpen}<PromptPicker opener={promptButton ?? null} sheet={landscape ? false : touch} context={{ branch: session.worktreeBranch || '', folder: session.worktreePath || session.dir || '', sessionTitle: session.title }} oninsert={result=>void insertPrompt(result.text)} onclose={()=>{promptsOpen=false;restoreFocus()}} />{/if}
 {#if pendingPaste}<ConfirmDialog title={pendingPaste.execute?'Run this command in the active terminal?':'Paste into the remote shell?'} body={pendingPaste.execute?`Send this command to ${host} · ${session.title} and press Enter. Be at a shell prompt; an open program receives terminal input instead.`:'This text contains multiple lines, control characters, or a large block. It may execute commands immediately.'} details={confirmDetails(pendingPaste.text,pendingPaste.execute)} confirmLabel={pendingPaste.execute?'Run command':'Paste text'} onconfirm={confirmPaste} oncancel={()=>{const running=pendingPaste?.execute;pendingPaste=null;if(!running)terminal?.focus()}} />{/if}
 {#if selectOpen}<TerminalSelectText text={selectModel} onclose={closeSelect}/>{/if}

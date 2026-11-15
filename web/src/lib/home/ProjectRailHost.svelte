@@ -7,7 +7,7 @@
   import type { ProjectColour } from '../projectColour'
   import { clonedProject, lostCloneLine, outstandingClone, rememberClone, watchClone, type CloneEnd, type OutstandingClone } from '../githubRepo'
   import { cloneStatus, createProjectGroup, deleteFolderProject, deleteProjectGroup, folderProjectList, getFolderProject, importSavedProjects, refusalSentence, reorderFolderProjects,
-    reorderProjectGroups, setFolderProjectGroup, terminalMachines, updateFolderProject, updateProjectGroup, TerminalError,
+    reorderProjectGroups, setFolderProjectGroup, terminalMachines, updateFolderProject, updateProjectGroup, keepFolderProject, TerminalError,
     type FolderProject, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import AddProjectDialog from './AddProjectDialog.svelte'
   import ManageProjectsDialog from './ManageProjectsDialog.svelte'
@@ -250,6 +250,21 @@
   }
   // A rail colour is saved on the project, so it follows the person to every browser. The card shows it at once; a
   // refusal puts the project back and says why.
+  // Keep a temporary project: reet then never removes it or its clone.
+  async function keep(project: FolderProject) {
+    if (pending.has(project.id)) return
+    pending.add(project.id)
+    onnotice(null)
+    try {
+      const saved = await keepFolderProject(project.id, signal())
+      onsettle((projects ?? []).map(p => p.id === saved.id ? saved : p))
+      onnotice({ text: `Kept ${saved.name}. reet won't remove it or its clone.` })
+    } catch (e) {
+      if (refused(e)) { signOut(); return }
+      onnotice({ text: refusalSentence(e), bad: true })
+      onreload()
+    } finally { pending.delete(project.id) }
+  }
   async function colour(project: FolderProject, choice: ProjectColour) {
     if (pending.has(project.id) || (project.colour || '') === choice) return
     pending.add(project.id)
@@ -432,7 +447,7 @@
   {selecting} {selected} {onselecting} {ontoggle} {variant} {selectAction} {embedded} {userId} {scope} {onscope} {collapsed} {oncollapsed}
   {width} {onwidth} {onwidthcommit}
   {onnew} {startWord} onadd={(opener) => void openAdd(opener)} onmanage={(opener) => void openManage(opener)} {onchoose} onedit={openEdit} onworktrees={(project, opener) => (listing = { project, opener })}
-  onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour}
+  onremove={(project, opener) => (removing = { project, opener })} onmove={move} ondismiss={dismiss} onimport={bringIn} oncolour={colour} onkeep={keep}
   onarrange={(order) => void arrange(order)} ongroupadd={openGroupAdd} ongroupedit={openGroupEdit}
   ongroupremove={(group, opener) => (groupRemoving = { group, opener })} ongroupmove={moveGroup} ongroupcolour={colourGroup} ongroupmovebusy={groupMoving}
   onmovetogroup={(project, groupId) => void moveToGroup(project, groupId)} />{/if}

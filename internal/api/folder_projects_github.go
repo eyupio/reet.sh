@@ -49,11 +49,14 @@ type cloneJob struct {
 	agent       string
 	owner, repo string // as the person wrote them, after parsing
 	name        string
-	state       cloneState
-	project     store.FolderProject // when done
-	code        string              // when failed
-	sentence    string              // when failed
-	ended       time.Time
+	// temporary: the clone is for one start (Start an agent or a Factory
+	// outcome), and its project is removed with it once nothing uses it.
+	temporary bool
+	state     cloneState
+	project   store.FolderProject // when done
+	code      string              // when failed
+	sentence  string              // when failed
+	ended     time.Time
 }
 
 // repoClones holds the clone jobs of every account in memory. Each job runs
@@ -200,6 +203,8 @@ func (s *server) folderProjectFromGitHub(w http.ResponseWriter, r *http.Request)
 		Host string `json:"host"`
 		Repo string `json:"repo"`
 		Name string `json:"name"`
+		// Temporary: cloned for one start, removed once it is done with.
+		Temporary bool `json:"temporary"`
 	}
 	if !folderProjectBody(w, r, &in) {
 		return
@@ -238,7 +243,7 @@ func (s *server) folderProjectFromGitHub(w http.ResponseWriter, r *http.Request)
 		writeErrCode(w, http.StatusConflict, "repo_clone_unsupported", "", sentenceRepoCloneOld(machine), "")
 		return
 	}
-	job := cloneJob{uid: uid, agent: in.Host, owner: owner, repo: repo, name: name}
+	job := cloneJob{uid: uid, agent: in.Host, owner: owner, repo: repo, name: name, temporary: in.Temporary}
 	id, dir, fresh, err := s.clones.start(job)
 	if errors.Is(err, errCloneLimit) {
 		writeErrCode(w, http.StatusTooManyRequests, "clone_limit", "", sentenceCloneLimit, "")
@@ -293,7 +298,7 @@ func (s *server) saveCloned(job cloneJob, result terminalproto.RepoCloneResult) 
 		return store.FolderProject{}, folderRefusal(err, "")
 	}
 	p := store.FolderProject{Host: job.agent, Dir: result.Dir, Name: job.name, IsRepo: true, BaseBranch: result.DefaultBranch,
-		Origin: job.owner + "/" + job.repo, Cloned: result.Marked}
+		Origin: job.owner + "/" + job.repo, Cloned: result.Marked, Temporary: job.temporary}
 	if refusal := s.checkFolderProject(names, &p, nil); refusal != nil {
 		return store.FolderProject{}, refusal
 	}

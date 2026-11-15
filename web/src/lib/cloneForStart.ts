@@ -7,8 +7,9 @@ export type CloneForStart = { project: FolderProject } | { sentence: string; fie
 /**
  * Makes a GitHub repository ready to start an agent or an outcome in, without the person adding a project first. A
  * project already cloned from that repository on that machine is used as it is; otherwise the machine clones it into
- * ~/reet/repos/owner/name and the controller saves it as a project, as Add a project From GitHub does, and this waits for
- * that to finish. Aborting `signal` stops the waiting, never the clone: the project still appears when it is done.
+ * ~/reet/repos/owner/name and the controller saves it as a temporary project, as Add a project From GitHub does but
+ * removed with its clone once nothing uses it and nothing would be lost, and this waits for that to finish. Aborting
+ * `signal` stops the waiting, never the clone: the project still appears when it is done.
  */
 export async function cloneForStart(host: string, machine: string, typed: string, projects: readonly FolderProject[], signal: AbortSignal,
   { onwaiting }: { onwaiting?: (line: string) => void } = {}): Promise<CloneForStart> {
@@ -19,7 +20,8 @@ export async function cloneForStart(host: string, machine: string, typed: string
   if (known) return { project: known }
   let started: { cloneId: string }
   try {
-    started = await addFromGitHub(host, repo, '', signal)
+    // Cloned for this start: reet removes it, with its clone, once nothing uses it and nothing would be lost.
+    started = await addFromGitHub(host, repo, '', signal, { temporary: true })
   } catch (e) {
     if (e instanceof TerminalError && e.status === 401) return { signedout: e }
     const field = e instanceof TerminalError && (e.field === 'repo' || e.field === 'host') ? e.field : undefined

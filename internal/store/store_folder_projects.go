@@ -84,6 +84,16 @@ type FolderProject struct {
 	// and never change.
 	Origin          string
 	Cloned          bool
+	// Temporary marks a project reet made for one start: a repository picked
+	// From GitHub in Start an agent or a Factory outcome, cloned for it. reet
+	// removes it, and deletes its clone, once nothing uses it and nothing in
+	// the clone would be lost. Set only on create; KeepFolderProjectFor (the
+	// person keeping it) clears it, and so does moving it to another folder.
+	Temporary bool
+	// KeptBecause is why reet last left a temporary project and its clone in
+	// place, as the person reads it; "" when it has not had to. Only the
+	// clean-up writes it.
+	KeptBecause string
 	Position        int
 	LegacyProjectID string
 	// Note is a one-time notice from the migration of saved Projects, as it
@@ -111,6 +121,8 @@ func (s *Store) migrateFolderProjects() error {
 				colour TEXT NOT NULL DEFAULT '',
 				origin TEXT NOT NULL DEFAULT '',
 				cloned INTEGER NOT NULL DEFAULT 0,
+				temporary INTEGER NOT NULL DEFAULT 0,
+				kept_because TEXT NOT NULL DEFAULT '',
 				position INTEGER NOT NULL CHECK(position>=0),
 				legacy_project_id TEXT,
 				note TEXT NOT NULL DEFAULT '',
@@ -186,6 +198,10 @@ func (s *Store) migrateFolderProjects() error {
 		for _, col := range []struct{ name, def string }{
 			{"origin", `origin TEXT NOT NULL DEFAULT ''`},
 			{"cloned", `cloned INTEGER NOT NULL DEFAULT 0`},
+			// Tables made before a project could be temporary: every
+			// existing project stays.
+			{"temporary", `temporary INTEGER NOT NULL DEFAULT 0`},
+			{"kept_because", `kept_because TEXT NOT NULL DEFAULT ''`},
 		} {
 			var has int
 			if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('folder_projects') WHERE name=?`, col.name).Scan(&has); err != nil {
@@ -391,14 +407,14 @@ func folderConflict(err error) error {
 	return ErrFolderProjectExists
 }
 
-const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
+const folderColumns = `id,host,dir,name,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,temporary,kept_because,position,COALESCE(legacy_project_id,''),note,created_at,updated_at,version`
 
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanFolderProject(r rowScanner) (FolderProject, error) {
 	var p FolderProject
 	err := r.Scan(&p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultYolo,
-		&p.StarterPrompt, &p.Colour, &p.Origin, &p.Cloned, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
+		&p.StarterPrompt, &p.Colour, &p.Origin, &p.Cloned, &p.Temporary, &p.KeptBecause, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
 	p.Note = noteText(p.Note)
 	return p, err
 }
@@ -472,9 +488,11 @@ func insertFolderProject(tx *sql.Tx, uid int64, p FolderProject, note string) (F
 	if p.LegacyProjectID != "" {
 		legacy = p.LegacyProjectID
 	}
-	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,position,legacy_project_id,note,created_at,updated_at,version)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
-		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Position, legacy, note, t, t)
+	// Only a clone reet made can be temporary; why one was kept is the clean-up's to say.
+	p.Temporary, p.KeptBecause = p.Temporary && p.Cloned, ""
+	_, err = tx.Exec(`INSERT INTO folder_projects(id,user_id,host,dir,name,name_key,is_repo,base_branch,worktree_default,default_tool,default_model,default_effort,default_yolo,starter_prompt,colour,origin,cloned,temporary,position,legacy_project_id,note,created_at,updated_at,version)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+		p.ID, uid, p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.Position, legacy, note, t, t)
 	if err != nil {
 		return FolderProject{}, folderConflict(err)
 	}
@@ -508,13 +526,13 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 		// Where a project came from is a fact of its create, not an edit: an
 		// edit keeps it, unless it moves the project to another machine or
 		// folder, which is not where it came from (or what reet cloned).
-		p.Origin, p.Cloned = cur.Origin, cur.Cloned
+		p.Origin, p.Cloned, p.Temporary, p.KeptBecause = cur.Origin, cur.Cloned, cur.Temporary, cur.KeptBecause
 		defaultsChanged := p.DefaultTool != cur.DefaultTool || p.DefaultModel != cur.DefaultModel || p.DefaultEffort != cur.DefaultEffort
 		if p, err = normalizeFolderWith(p, p.StarterPrompt != cur.StarterPrompt, defaultsChanged); err != nil {
 			return err
 		}
 		if p.Host != cur.Host || p.Dir != cur.Dir {
-			p.Origin, p.Cloned = "", false
+			p.Origin, p.Cloned, p.Temporary, p.KeptBecause = "", false, false, ""
 		}
 		if p.Note != "" {
 			p.Note = cur.Note
@@ -527,8 +545,8 @@ func (s *Store) UpdateFolderProjectFor(uid int64, p FolderProject, expect int64)
 			t = cur.CreatedAt
 		}
 		p.ID, p.Position, p.LegacyProjectID, p.CreatedAt, p.UpdatedAt, p.Version = id, cur.Position, cur.LegacyProjectID, cur.CreatedAt, t, cur.Version+1
-		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,origin=?,cloned=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
-			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Note, t, p.Version, id, uid, cur.Version)
+		res, err := tx.Exec(`UPDATE folder_projects SET host=?,dir=?,name=?,name_key=?,is_repo=?,base_branch=?,worktree_default=?,default_tool=?,default_model=?,default_effort=?,default_yolo=?,starter_prompt=?,colour=?,origin=?,cloned=?,temporary=?,kept_because=?,note=CASE WHEN ?='' THEN '' ELSE note END,updated_at=?,version=? WHERE id=? AND user_id=? AND version=?`,
+			p.Host, p.Dir, p.Name, nameKey(p.Name), p.IsRepo, p.BaseBranch, p.WorktreeDefault, p.DefaultTool, p.DefaultModel, p.DefaultEffort, p.DefaultYolo, p.StarterPrompt, p.Colour, p.Origin, p.Cloned, p.Temporary, p.KeptBecause, p.Note, t, p.Version, id, uid, cur.Version)
 		if err != nil {
 			return folderConflict(err)
 		}
@@ -699,4 +717,62 @@ func (s *Store) ReorderFolderProjectsFor(uid int64, ids []string, versions []int
 		}
 		return nil
 	})
+}
+
+// TemporaryFolderProject is one account's temporary project, for the clean-up.
+type TemporaryFolderProject struct {
+	UserID  int64
+	Project FolderProject
+}
+
+// TemporaryFolderProjects lists every account's temporary projects, oldest
+// first.
+func (s *Store) TemporaryFolderProjects() ([]TemporaryFolderProject, error) {
+	rows, err := s.db.Query(`SELECT user_id,` + folderColumns + ` FROM folder_projects WHERE temporary=1 ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TemporaryFolderProject
+	for rows.Next() {
+		var uid int64
+		var p FolderProject
+		err := rows.Scan(&uid, &p.ID, &p.Host, &p.Dir, &p.Name, &p.IsRepo, &p.BaseBranch, &p.WorktreeDefault, &p.DefaultTool, &p.DefaultModel, &p.DefaultEffort, &p.DefaultYolo,
+			&p.StarterPrompt, &p.Colour, &p.Origin, &p.Cloned, &p.Temporary, &p.KeptBecause, &p.Position, &p.LegacyProjectID, &p.Note, &p.CreatedAt, &p.UpdatedAt, &p.Version)
+		if err != nil {
+			return nil, err
+		}
+		p.Note = noteText(p.Note)
+		out = append(out, TemporaryFolderProject{UserID: uid, Project: p})
+	}
+	return out, rows.Err()
+}
+
+// SetFolderProjectKeptFor records why the clean-up left a temporary project
+// in place ("" once it no longer has to say). It is the controller's note,
+// not an edit: the version is unchanged, so an edit the person has open is
+// not refused for it. A project that is not temporary is left alone.
+func (s *Store) SetFolderProjectKeptFor(uid int64, id, because string) error {
+	_, err := s.db.Exec(`UPDATE folder_projects SET kept_because=? WHERE user_id=? AND id=? AND temporary=1`, because, uid, id)
+	return err
+}
+
+// KeepFolderProjectFor makes a temporary project an ordinary one: the person
+// keeps it, so reet never removes it. It is an edit, so the version moves on.
+func (s *Store) KeepFolderProjectFor(uid int64, id string) (FolderProject, error) {
+	var saved FolderProject
+	err := s.withTx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE folder_projects SET temporary=0,kept_because='',updated_at=?,version=version+1 WHERE user_id=? AND id=?`, now(), uid, id)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n != 1 {
+			return ErrFolderProjectNotFound
+		}
+		saved, err = scanFolderProject(tx.QueryRow(`SELECT `+folderColumns+` FROM folder_projects WHERE user_id=? AND id=?`, uid, id))
+		return err
+	})
+	return saved, err
 }

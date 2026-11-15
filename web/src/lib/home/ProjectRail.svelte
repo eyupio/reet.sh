@@ -19,7 +19,7 @@
     selecting = false, selected = [], onselecting, ontoggle, variant = 'home', selectAction, embedded = false, userId = 0, scope = null, onscope, startWord = 'New session',
     collapsed = false, oncollapsed,
     width = RAIL_DEFAULT, onwidth, onwidthcommit,
-    onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour, onmanage,
+    onadd, onchoose, onnew, onedit, onworktrees, onremove, onmove, ondismiss, onimport, oncolour, onkeep, onmanage,
     onarrange, ongroupadd, ongroupedit, ongroupremove, ongroupmove, ongroupcolour, ongroupmovebusy = false, onmovetogroup }: {
     projects: FolderProject[] | undefined
     /** The account's groups, in rail order. */
@@ -69,6 +69,8 @@
     ondismiss: (project: FolderProject) => void
     onimport: () => void
     oncolour: (project: FolderProject, colour: ProjectColour) => void
+    /** Keep a temporary project: it becomes an ordinary one that reet never removes. */
+    onkeep?: (project: FolderProject) => void
     /** Opens Manage projects, where the whole registry is arranged. */
     onmanage?: (opener: HTMLElement) => void
     /** Whose rail: the folded groups are remembered per account. */
@@ -102,7 +104,7 @@
   function label(p: FolderProject): string {
     const wt = worktrees.get(p.id) ?? 0
     const colour = PROJECT_COLOURS.find(c => c.id === projectColour(p.colour))?.name
-    return [p.name, colour && colour !== 'No colour' ? colour : '', machineTag(p), projectSource(p), p.baseBranch, stateOf(p)?.text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
+    return [p.name, colour && colour !== 'No colour' ? colour : '', machineTag(p), projectSource(p), p.temporary ? 'temporary' : '', p.baseBranch, stateOf(p)?.text, wt ? worktreesInUse(wt) : ''].filter(Boolean).join(', ')
   }
   const initial = (name: string) => Array.from(name.trim())[0]?.toUpperCase() ?? '?'
   /** The most projects one start takes (the controller's limit). */
@@ -423,7 +425,8 @@
         {#if state}<span class="state {state.tone}">{state.text}</span>{/if}
         {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
       </span>
-      {#if p.origin}<span class="origin" title={`Cloned from github.com/${p.origin}`}>{p.origin}</span>{/if}
+      {#if p.origin}<span class="origin" title={`Cloned from github.com/${p.origin}`}>{p.origin}{#if p.temporary}<span class="temporary">{' · temporary'}</span>{/if}</span>{/if}
+      {#if p.temporary && p.keptBecause}<span class="kept">{p.keptBecause}</span>{/if}
     </button>
     {#if !selecting}
       {#if onnew}<button type="button" class="start" aria-label={`${startWord} in ${p.name}`} title={startWord === 'New session' ? 'Start a session in this project' : `${startWord} in this project`} onclick={(e) => startCard(p, e.currentTarget)}>
@@ -622,6 +625,7 @@
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => startCard(target, o)) }}>{startWord} here</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onedit(target, o)) }}>Edit</button>
       <button type="button" role="menuitem" onclick={() => { const target = project; pick(o => onworktrees(target, o)) }}>Worktrees</button>
+      {#if project.temporary && onkeep}<button type="button" role="menuitem" disabled={pending.has(project.id)} onclick={() => { const target = project; closeMenu(true); onkeep?.(target) }}>Keep this project</button>{/if}
       <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === 0} onclick={() => { const target = project; closeMenu(true); onmove(target, -1) }}>Move up</button>
       <button type="button" role="menuitem" disabled={moving || pending.size > 0 || index === count - 1} onclick={() => { const target = project; closeMenu(true); onmove(target, 1) }}>Move down</button>
       {#if onmovetogroup}
@@ -711,6 +715,9 @@
   .meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 14px; color: var(--muted); }
   .branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
   /* Where a project from GitHub came from, on a line of its own so the machine and branch keep their room. */
+  /* Why reet left a temporary project in place: two lines at most, the whole sentence in the card's menu label. */
+  .kept { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+  .temporary { font-family: var(--sans); }
   .origin { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 14px; color: var(--muted); }
   .state { flex: none; }
   .state.good { color: var(--good); }

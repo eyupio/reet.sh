@@ -378,6 +378,10 @@ func newServer(st *store.Store, f meta.Fetcher, token string, opts ...Option) *s
 	})
 	s.gafferProviders.StartGoalSupervisor()
 	s.terminals.OnLateWorktreeRemoval(s.auditLateWorktreeRemoval)
+	// Temporary projects (a repository cloned for one start) go, with their
+	// clone, once nothing uses them and nothing would be lost.
+	s.workers.Add(1)
+	go func() { defer s.workers.Done(); s.temporaryProjectWorker() }()
 	s.terminals.OnSessionClosed(s.onSessionClosed)
 	s.terminals.OnPeerReady(s.onPeerReady)
 	s.terminals.OnSessionBase(s.recordSessionBase)

@@ -360,7 +360,7 @@
               <label for={`${formId}-gh-repo`}>Repository</label>
               <RepoField id={`${formId}-gh-repo`} machine={machine ?? undefined} bind:value={ghRepo} problem={ghProblem} disabled={planning || cloning} onleave={() => (ghLeft = true)} onsignedout={() => (planError = 'You were signed out. Sign in again, then try again.')} />
               {#if ghKnown}<p class="hint">Works in your project {ghKnown.name}, {ghKnown.dir}.</p>
-              {:else if ghParsed && machine}<p class="hint">reet clones it to {cloneFolder(ghParsed)} on {machine.host} and adds it to your projects before Gaffer plans.</p>{/if}
+              {:else if ghParsed && machine}<p class="hint">reet clones it to {cloneFolder(ghParsed)} on {machine.host} before Gaffer plans. Once the outcome is done reet removes the clone, unless that would lose work.</p>{/if}
             </div>
           {/if}
           {#if cloneLine}<p class="hint" role="status">{cloneLine}</p>{/if}

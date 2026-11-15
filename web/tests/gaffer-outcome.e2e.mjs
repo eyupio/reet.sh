@@ -428,7 +428,7 @@ try {
       await field.pressSequentially('site')
       await outcome.getByRole('listbox',{name:"workshop's repositories"}).getByRole('option',{name:/acme\/site/}).click()
       await expect(field).toHaveValue('acme/site')
-      await expect(outcome.getByText('reet clones it to ~/reet/repos/acme/site on workshop and adds it to your projects before Gaffer plans.',{exact:true})).toBeVisible()
+      await expect(outcome.getByText('reet clones it to ~/reet/repos/acme/site on workshop before Gaffer plans. Once the outcome is done reet removes the clone, unless that would lose work.',{exact:true})).toBeVisible()
       // The agents are the chosen machine's.
       await expect(outcome.getByRole('combobox',{name:'Agent',exact:true}).getByRole('option')).toHaveText(['Claude Code','OpenCode'])
       const ask=outcome.getByRole('button',{name:'Ask Gaffer for a plan',exact:true})
@@ -438,7 +438,7 @@ try {
       await expect(outcome.getByRole('button',{name:'Cloning…',exact:true})).toBeDisabled()
       // Once cloned it is a project like any other: Gaffer plans in it, and the plan names it.
       await expect.poll(()=>f.box.plans.length,{timeout:15000}).toBe(1)
-      expect(starts).toEqual([{host:'a1',repo:'acme/site',name:''}])
+      expect(starts).toEqual([{host:'a1',repo:'acme/site',name:'',temporary:true}])
       expect(f.box.plans[0].project).toBe('site')
       await expect(outcome.getByText('site. Each row below is a pipeline',{exact:false})).toBeVisible()
       await expect(outcome.getByText('in its own worktree',{exact:false})).toBeVisible()

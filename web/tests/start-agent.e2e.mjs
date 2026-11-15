@@ -1284,7 +1284,7 @@ try{
  await ghField.click()
  await d.getByRole('listbox',{name:"dev-laptop's repositories"}).getByRole('option',{name:/acme\/site/}).click()
  await expect(ghField).toHaveValue('acme/site')
- await expect(d.getByText('reet clones it to ~/reet/repos/acme/site on dev-laptop and adds it to your projects, then starts the agent there.',{exact:true})).toBeVisible()
+ await expect(d.getByText('reet clones it to ~/reet/repos/acme/site on dev-laptop and starts the agent there. Once its sessions are done reet removes the clone, unless that would lose work.',{exact:true})).toBeVisible()
  await p.pick('Claude Code')
  await p.prompt.fill('tidy the readme')
  const ghPosts=posts.length
@@ -1292,7 +1292,7 @@ try{
  await expect(d.getByText("Cloning acme/site on dev-laptop… This can take a few minutes; the agent starts when it's done.",{exact:true})).toBeVisible()
  await expect(d.getByRole('button',{name:'Cloning…',exact:true})).toBeDisabled()
  await expect.poll(()=>posts.length,{timeout:15000}).toBe(ghPosts+1)
- expect(ghStarts).toEqual([{host:A,repo:'acme/site',name:''}])
+ expect(ghStarts).toEqual([{host:A,repo:'acme/site',name:'',temporary:true}])
  const ghBody=JSON.parse(posts.at(-1))
  expect(ghBody.agentId).toBe(A)
  expect(ghBody.launch??ghBody).toMatchObject({tool:'claude',dir:'/home/dev/reet/repos/acme/site',projectId:'fp-gh',project:'site',base:'main',prompt:'tidy the readme'})

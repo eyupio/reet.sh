@@ -331,6 +331,11 @@ export type FolderProject = {
   cloned?: boolean
   /** The GitHub repository the project was added from, as `owner/name`; absent for a folder added from a machine. */
   origin?: string
+  /** reet cloned it for one start (A repository from GitHub… in Start an agent or a Factory outcome) and removes it, with
+   *  its clone, once nothing uses it and nothing in the clone would be lost. Absent when false. */
+  temporary?: boolean
+  /** Why reet last left a temporary project and its clone in place, as a sentence; absent when it has not had to. */
+  keptBecause?: string
   /** The rail colour's id from projectColour.ts, "" when none. */
   colour: string
   /** The group that holds the project; absent or "" when ungrouped. */
@@ -441,8 +446,13 @@ export const CLONE_REMOVE_CODES = ['clone_changed', 'clone_kept', 'clone_unconfi
 /** Starts cloning a GitHub repository (`owner/name` or its github.com link) on a machine that reports `repoClone`, to be
  *  saved as a project when it is done (202). Read the clone with `cloneStatus`; asking again while it runs answers the
  *  same id. `name` "" names the project after the repository. */
-export async function addFromGitHub(host: string, repo: string, name: string, signal?: AbortSignal): Promise<{ cloneId: string; dir: string }> {
-  return (await terminalRequest('/api/v2/folder-projects/from-github', { method: 'POST', signal: within(signal), body: JSON.stringify({ host, repo, name }) })).json()
+export async function addFromGitHub(host: string, repo: string, name: string, signal?: AbortSignal, { temporary = false }: { temporary?: boolean } = {}): Promise<{ cloneId: string; dir: string }> {
+  const body = temporary ? { host, repo, name, temporary } : { host, repo, name }
+  return (await terminalRequest('/api/v2/folder-projects/from-github', { method: 'POST', signal: within(signal), body: JSON.stringify(body) })).json()
+}
+/** Keeps a temporary project: it becomes an ordinary project, which reet never removes. */
+export async function keepFolderProject(id: string, signal?: AbortSignal): Promise<FolderProject> {
+  return withVersion(await terminalRequest(`${folderProjectPath(id)}/keep`, { method: 'POST', signal: within(signal), body: '{}' }))
 }
 /** One repository a machine's GitHub sign-in reaches: `owner/name`, and when it was last pushed to (Unix seconds, 0 when
  *  GitHub gave none). */

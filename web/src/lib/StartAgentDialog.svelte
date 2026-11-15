@@ -877,7 +877,7 @@
      <label for={`${id}-gh-repo`}>Repository</label>
      <RepoField id={`${id}-gh-repo`} {machine} bind:value={ghRepo} problem={ghProblem} disabled={locked} onleave={() => (ghLeft = true)} onsignedout={(e) => onsignedout?.(e)} />
      {#if known}<p class="hint">Starts in your project {known.name}, {known.dir}.</p>
-     {:else if ghParsed && machine}<p class="hint">reet clones it to {cloneFolder(ghParsed)} on {machine.host} and adds it to your projects, then starts the agent there.</p>{/if}
+     {:else if ghParsed && machine}<p class="hint">reet clones it to {cloneFolder(ghParsed)} on {machine.host} and starts the agent there. Once its sessions are done reet removes the clone, unless that would lose work.</p>{/if}
     </div>
    {/if}
 

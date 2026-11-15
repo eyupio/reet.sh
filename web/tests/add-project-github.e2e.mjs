@@ -1025,7 +1025,36 @@ try {
   }
  }
 
- console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; the repository list (filter, arrows, Enter, Escape, tap, anything typed, a refusal, an older machine); 1280 and 390 px, light and dark.')
+ // A temporary project (a repository cloned for one start) says so on its card, and why reet has left it in place; Keep
+ // this project makes it an ordinary project. Home's rail on a desktop, the Sessions screen's on a phone.
+ for (const screen of [{width:1280, theme:'light'}, {width:390, height:780, theme:'dark', touch:true}]) {
+  if (!run(`temporary project (${screen.width} px)`)) continue
+  const KEPT = "The clone on studio is kept: it holds work that isn't on GitHub."
+  const keeps = []
+  const routes = {'/api/v2/folder-projects/fp9/keep': request => { keeps.push(request.method()); return cloned({position:0, version:2}) }}
+  const {context,page,errors,box} = await scene({...screen, sessionsPage:true, routes, projects:[cloned({position:0, temporary:true, keptBecause:KEPT}), notes()]})
+  await page.goto(railPage(screen))
+  const card = page.getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, temporary/}).first()
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('eyupio/reet.sh · temporary')
+  await expect(card).toContainText(KEPT)
+  const more = page.getByRole('button',{name:'More for reet.sh',exact:true}).first()
+  await more.scrollIntoViewIfNeeded()
+  await more.click()
+  await page.getByRole('menu',{name:'reet.sh'}).getByRole('menuitem',{name:'Keep this project',exact:true}).click()
+  await expect(page.getByText("Kept reet.sh. reet won't remove it or its clone.",{exact:true})).toBeVisible()
+  expect(keeps).toEqual(['POST'])
+  await expect(page.getByRole('button',{name:/^reet\.sh, studio, from GitHub eyupio\/reet\.sh, main/}).first()).not.toContainText('temporary')
+  // An ordinary project offers no Keep.
+  await page.getByRole('button',{name:'More for reet.sh',exact:true}).first().click()
+  await expect(page.getByRole('menu',{name:'reet.sh'}).getByRole('menuitem',{name:'Keep this project',exact:true})).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  expect(await noSideways(page)).toBe(true)
+  expect(errors).toEqual([])
+  await context.close()
+ }
+
+ console.log('Add From GitHub: the choice by keyboard, only machines that can clone, the parse and the line saying where the clone goes, the status read every two seconds with the dialog open or closed, each refusal and failure in the dialog or on Home, a clone the controller lost said there too, the dialog held while the start is on its way, no form without a machine that can clone, sign-out, viewers, and a cloned project that starts without the base question; removing a cloned project: the tick only when the clone is removable and off on every open, each sentence for a clone that stays, a refused delete that keeps the project, the dialog held while the delete is on its way, the plain remove never waiting, and other projects asked nothing; a lost clone that finished, a start with no answer, and repeated Escape; From GitHub from Add a project on the Sessions screen at both widths; a temporary project marked with why it stays, and Keep this project; the repository list (filter, arrows, Enter, Escape, tap, anything typed, a refusal, an older machine); 1280 and 390 px, light and dark.')
 } finally {
  await browser.close()
 }

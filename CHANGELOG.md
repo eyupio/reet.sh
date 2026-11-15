@@ -10,7 +10,12 @@ this file existed releases were described on their GitHub release pages.
   from GitHub…** in the Project field, then the repository (from the
   machine's list, or typed). reet clones it on that machine and saves it as a
   project as you start (or uses the project already cloned from it), then
-  starts there as on any project, worktree and base branch included.
+  starts there as on any project, worktree and base branch included. Such a
+  project is temporary: once its sessions or outcome are done reet removes it
+  and deletes the clone, but only when the machine finds nothing that would be
+  lost (uncommitted files, a stash, unpushed commits, a worktree still there).
+  Otherwise its card says why it stays. **Keep this project** in its menu keeps
+  it for good.
 - **From GitHub** now lists the repositories the chosen machine's GitHub
   sign-in reaches (its own, its organizations' and those shared with it, the
   200 most recently pushed) under the Repository field. Type to filter, then

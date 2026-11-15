@@ -31,7 +31,7 @@
  import { baseKey, baseQuestion, repoProjectAt } from './baseGate'
  import RepoField from './home/RepoField.svelte'
  import { cloneForStart } from './cloneForStart'
- import { cloneFolder, parseGitHubRepo, clonedProject } from './githubRepo'
+ import { cloneFolder, parseGitHubRepo, repoProject } from './githubRepo'
  import { yoloCanStart, type YoloGate } from './launchBar'
 
  // Start an agent CLI in a new terminal session on one machine. One screen, one press. The page names a tool id, a model, a
@@ -877,7 +877,7 @@
    </div>
 
    {#if githubVisible}
-    {@const known = machine && ghParsed ? clonedProject(allProjects, { host: machine.agentId, repo: `${ghParsed.owner}/${ghParsed.repo}` }) : undefined}
+    {@const known = machine && ghParsed ? repoProject(allProjects, { host: machine.agentId, repo: `${ghParsed.owner}/${ghParsed.repo}` }) : undefined}
     <div class="field">
      <label for={`${id}-gh-repo`}>Repository</label>
      <RepoField id={`${id}-gh-repo`} {machine} bind:value={ghRepo} problem={ghProblem} disabled={locked} onleave={() => (ghLeft = true)} onsignedout={(e) => onsignedout?.(e)} />

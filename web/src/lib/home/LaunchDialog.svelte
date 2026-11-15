@@ -9,7 +9,7 @@
   // Home's launch bar in a modal. The bar used to sit docked at the foot of the page; opening it here keeps Home's
   // other starts (the rail's Select and an address that names projects) on the same modal footing as the rest of the app.
   let { projects, projectsFailed = false, machines, sessions, profile, ready, initialProject = '', selection = [], onproject, onstarted, onleavefailed, onsignedout,
-    onaddproject, onrun, onrundone, onclose }: {
+    onaddproject, onprojectadded, onrun, onrundone, onclose }: {
     projects: FolderProject[] | undefined
     projectsFailed?: boolean
     machines: TerminalMachine[] | undefined
@@ -23,6 +23,7 @@
     onleavefailed?: (session: TerminalSession) => void
     onsignedout?: (e: unknown) => void
     onaddproject?: (opener: HTMLElement) => void
+    onprojectadded?: (project: FolderProject) => void
     onrun?: () => void
     onrundone?: () => void
     onclose: () => void
@@ -58,7 +59,7 @@
     </header>
     <div class="body" data-shell-body>
       <LaunchBar {projects} {projectsFailed} {machines} {sessions} {profile} {ready} {initialProject} {selection} {onproject} {onstarted} {onleavefailed} {onsignedout}
-        {onaddproject} {onrun} {onrundone} onworkchange={(next) => (working = next)} />
+        {onaddproject} {onprojectadded} {onrun} {onrundone} onworkchange={(next) => (working = next)} />
     </div>
   </div>
 </dialog>

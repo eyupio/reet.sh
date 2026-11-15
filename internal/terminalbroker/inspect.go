@@ -44,3 +44,27 @@ func (b *Broker) InspectSession(ctx context.Context, uid int64, session, view, p
 	}
 	return *result, nil
 }
+
+// InspectFolder reads the status of a folder on the account's machine: for a
+// saved project's folder (the controller's own record, never a browser path),
+// to learn which GitHub repository its origin is. Sent only to a connection
+// that reported the inspect capability.
+func (b *Broker) InspectFolder(ctx context.Context, uid int64, agent, dir string) (terminalproto.InspectResult, error) {
+	req := terminalproto.Inspect{Dir: dir, View: "status"}
+	p, caps, err := b.machinePeer(uid, agent, req)
+	if err != nil {
+		return terminalproto.InspectResult{}, err
+	}
+	if !caps.Inspect {
+		return terminalproto.InspectResult{}, ErrInspectUnsupported
+	}
+	body, err := p.ask(ctx, req, 16*time.Second)
+	if err != nil {
+		return terminalproto.InspectResult{}, err
+	}
+	result, ok := body.(*terminalproto.InspectResult)
+	if !ok {
+		return terminalproto.InspectResult{}, ErrMachineAnswer
+	}
+	return *result, nil
+}

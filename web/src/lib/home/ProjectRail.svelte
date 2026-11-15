@@ -425,7 +425,8 @@
         {#if state}<span class="state {state.tone}">{state.text}</span>{/if}
         {#if wt}<span class="wt">{worktreesInUse(wt)}</span>{/if}
       </span>
-      {#if p.origin}<span class="origin" title={`Cloned from github.com/${p.origin}`}>{p.origin}{#if p.temporary}<span class="temporary">{' · temporary'}</span>{/if}</span>{/if}
+      {#if p.origin}<span class="origin" title={`Cloned from github.com/${p.origin}`}>{p.origin}{#if p.temporary}<span class="temporary">{' · temporary'}</span>{/if}</span>
+      {:else if p.remote}<span class="origin" title={`Pushes to github.com/${p.remote}`}>{p.remote}</span>{/if}
       {#if p.temporary && p.keptBecause}<span class="kept">{p.keptBecause}</span>{/if}
     </button>
     {#if !selecting}

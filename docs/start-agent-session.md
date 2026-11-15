@@ -155,6 +155,14 @@ Agent, Model, Project, Branch, Worktree and, for an agent that takes it, Thinkin
 follows the project and is named, not chosen, except for **Home folder on** a machine. A project on a
 machine that isn't ready is listed, disabled, with that machine's readiness sentence.
 
+The Project list ends with **A repository from GitHub…** (when a ready machine can clone from GitHub)
+and **Add a project…**. **A repository from GitHub…** opens a small dialog
+(`web/src/lib/launch/LaunchRepoDialog.svelte`): the machine (only those that can clone) and the
+repository (typed, or from the machine's list). **Use this repository** uses the project that already
+is that repository on that machine, else clones it as a [temporary project](projects.md#temporary-projects),
+as Start an agent does, and waits; closing the dialog stops the waiting, not the clone. The bar then
+names the project and the prompt has the keyboard. Nothing starts until you press **Start**.
+
 - **What it opens on.** The last launch, read from the sessions list (never from browser storage),
   with the prompt empty and Approvals on the project's own default: **Ask me**, or **YOLO** when the
   project was saved that way. Choosing **YOLO** in the bar opens the confirmation dialog; confirming

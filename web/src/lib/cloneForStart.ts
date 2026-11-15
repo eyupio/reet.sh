@@ -1,4 +1,4 @@
-import { clonedProject, lostCloneLine, parseGitHubRepo, rememberClone, startUnheardLine, timedOut, watchClone, type CloneEnd } from './githubRepo'
+import { repoProject, lostCloneLine, parseGitHubRepo, rememberClone, startUnheardLine, timedOut, watchClone, type CloneEnd } from './githubRepo'
 import { addFromGitHub, cloneStatus, refusalSentence, TerminalError, type FolderProject } from './terminal/api'
 
 /** What making a repository ready to start in came to: its project, a sentence saying why not, or a lost sign-in. */
@@ -16,7 +16,7 @@ export async function cloneForStart(host: string, machine: string, typed: string
   const parsed = parseGitHubRepo(typed)
   if (!parsed) return { sentence: 'Write the repository as owner/name, or paste its github.com link.', field: 'repo' }
   const repo = `${parsed.owner}/${parsed.repo}`
-  const known = clonedProject(projects, { host, repo })
+  const known = repoProject(projects, { host, repo })
   if (known) return { project: known }
   let started: { cloneId: string }
   try {

@@ -246,3 +246,70 @@ func TestPushNeedsAnAccount(t *testing.T) {
 		t.Fatalf("subscribe without accounts: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestPushTellsAChatTurnThatFinishedWhileTheSessionRunsOn(t *testing.T) {
+	f := newPushFixture(t)
+	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+testEndpoint+`"}`); code != 200 {
+		t.Fatalf("subscribe: %d %s", code, body)
+	}
+	sess, _, err := f.st.ReserveTerminalCreateFor(f.uid, f.agent.ID, terminalbroker.ID(), f.gen, terminalproto.Create{Title: "Fix the checkout build", Tool: "opencode", Dir: "/tmp", Structured: true, Trust: true, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.ObserveTerminalStateFor(f.uid, f.agent.ID, sess.ID, f.gen, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Working: nothing to tell.
+	at := time.Now().Add(-time.Minute).UnixMilli()
+	if err := f.st.SetTerminalChatAttentionFor(f.uid, sess.ID, at, 0, "working", 0); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.s.pushSweep(time.Now())
+	if len(f.woken) != 0 {
+		t.Fatalf("a working chat was told: %+v", f.woken)
+	}
+	// The turn ends; the chat stays open for the next message.
+	done := time.Now().Add(-30 * time.Second).UnixMilli()
+	if err := f.st.SetTerminalChatAttentionFor(f.uid, sess.ID, done, 0, "finished", done); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.s.pushSweep(time.Now())
+	if len(f.woken) != 1 {
+		t.Fatalf("a finished turn woke %d devices, want 1", len(f.woken))
+	}
+	notes := f.pending(t)
+	if len(notes) != 1 || notes[0].Title != "Fix the checkout build" || notes[0].Body != "Finished its turn." {
+		t.Fatalf("pending %+v", notes)
+	}
+	f.srv.s.pushSweep(time.Now().Add(time.Minute))
+	if len(f.woken) != 1 {
+		t.Fatalf("the same turn was told %d times", len(f.woken))
+	}
+	// A device that does not want endings is not shown it.
+	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+testEndpoint+`","ended":false}`); code != 200 {
+		t.Fatalf("choices: %d %s", code, body)
+	}
+	if notes := f.pending(t, "X-Reet-Push-Endpoint", testEndpoint); len(notes) != 0 {
+		t.Fatalf("a device with endings off is shown %+v", notes)
+	}
+	// Looked at: no longer pending.
+	if err := f.st.MarkSessionSeenFor(f.uid, sess.ID, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if notes := f.pending(t); len(notes) != 0 {
+		t.Fatalf("a seen turn is still pending: %+v", notes)
+	}
+	if code, body := f.do(t, "POST", "/api/v2/push/subscriptions", `{"endpoint":"`+testEndpoint+`","ended":true}`); code != 200 {
+		t.Fatalf("choices: %d %s", code, body)
+	}
+	// A turn that stops with a problem says so.
+	time.Sleep(5 * time.Millisecond)
+	failed := time.Now().UnixMilli()
+	if err := f.st.SetTerminalChatAttentionFor(f.uid, sess.ID, failed, 0, "failed", failed); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.s.pushSweep(time.Now().Add(pushSettle))
+	if notes := f.pending(t); len(f.woken) != 2 || len(notes) != 1 || notes[0].Body != "Its turn stopped with a problem." {
+		t.Fatalf("a failed turn: woken %d, pending %+v", len(f.woken), notes)
+	}
+}

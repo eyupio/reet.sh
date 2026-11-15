@@ -8,7 +8,8 @@ device under **Notifications → On this device**. It needs an instance with acc
 1. Open reet on the device and go to **Notifications** (the account menu).
 2. Under **On this device**, choose **Turn on notifications**. The browser asks whether reet may show them.
 3. Choose what this device hears about: **A session needs you** (an agent is waiting for an answer or an approval)
-   and **A session has ended** (it finished, or stopped with a problem, and you have not looked yet). Both are on to
+   and **A session has finished** (it finished its turn, ended, or stopped with a problem, and you have not looked
+   yet). Both are on to
    begin with, and each device has its own choice.
 4. **Send a test** shows one on every device you have turned on.
 
@@ -28,7 +29,8 @@ The controller looks at each person's sessions every five seconds, for people wi
 
 - **Needs you**: a running session is waiting (a terminal's bell, or a chat's pending approval or question) and you
   have not seen it.
-- **Ended**: a session finished or stopped with a problem, and you have not looked since.
+- **Finished**: a session ended or stopped with a problem, or a chat finished its turn (or its turn stopped with a
+  problem) and waits for your next message, and you have not looked since.
 
 Each moment is told once: the same bell does not notify again, and a new one does. A moment is told when it is eight
 seconds old, so somebody watching the session, who marks it seen by looking, is not told what they are looking at.
@@ -85,7 +87,8 @@ All need a signed-in account; the two that change something need a writer.
   `410` meaning gone, and no request at all to an address that is not a push service.
 - `internal/store` (`store_push_test.go`) and `internal/api` (`push_test.go`): a device registered, listed, changed
   and removed; one device belonging to one person; a waiting session told once, after it settles, and again on a new
-  bell; a seen session no longer pending; a device with a choice off not woken; an hour-old wait told to nobody; a
+  bell; a chat's finished turn told once while the session runs on, and a failed turn saying so; a seen session no
+  longer pending; a device with a choice off not woken; an hour-old wait told to nobody; a
   gone subscription forgotten; no accounts, no push.
 - `web/tests/device-push.e2e.mjs`: the card (on, choices, a test, off, a refusal, other devices, an iPhone in a tab,
   no accounts) at 390 and 820 px, and the real service worker woken by a push event through the browser's debugging

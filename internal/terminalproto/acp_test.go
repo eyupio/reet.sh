@@ -46,7 +46,6 @@ func TestACPBodiesRoundTrip(t *testing.T) {
 }
 
 func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
-	tooLong := strings.Repeat("a", MaxChatPromptBytes+1)
 	tooManyImages := make([]string, MaxACPImages+1)
 	for i := range tooManyImages {
 		tooManyImages[i] = "/home/u/.reet/launch-uploads/a/shot.png"
@@ -59,7 +58,7 @@ func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
 		"empty model":           &ACPModel{},
 		"invalid model":         &ACPModel{Model: "a\x00b"},
 		"empty prompt":          &ACPPrompt{Text: " "},
-		"long prompt":           &ACPPrompt{Text: tooLong},
+		"long prompt":           &ACPPrompt{Text: strings.Repeat("a", MaxLongChatPromptBytes+1)},
 		"nul prompt":            &ACPPrompt{Text: "a\x00b"},
 		"relative image":        &ACPPrompt{Text: "look", Images: []string{"shot.png"}},
 		"nul image":             &ACPPrompt{Text: "look", Images: []string{"/tmp/a\x00.png"}},
@@ -84,6 +83,14 @@ func TestACPRejectsUnboundedOrUnknownBodies(t *testing.T) {
 		if _, err := Encode(acpMessage(body)); err == nil {
 			t.Errorf("%s accepted", name)
 		}
+	}
+	// A message past the short limit is a valid frame; whether a machine may be
+	// sent one is the acp-long-prompt-v1 negotiation, not the decoder.
+	if _, err := Encode(acpMessage(&ACPPrompt{Text: strings.Repeat("\x01", MaxLongChatPromptBytes)})); err != nil {
+		t.Error("longest prompt, fully escaped, did not fit a control frame:", err)
+	}
+	if !SupportsACPLongPrompt(ACPFeature+","+ACPLongPromptFeature) || SupportsACPLongPrompt(ACPFeature) {
+		t.Error("acp-long-prompt-v1 was not read from the feature list")
 	}
 }
 

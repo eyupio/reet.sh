@@ -1,6 +1,7 @@
 package terminalbroker
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/eyupio/reet.sh/internal/terminalproto"
@@ -302,5 +303,43 @@ func TestQueueFailsWhenSessionEnds(t *testing.T) {
 	}
 	if len(q) != 1 || q[0].State != "failed" || q[0].Note != "The session ended before this message was sent. Reconnect it, then retry." {
 		t.Fatalf("queued message outlived its session: %+v", q)
+	}
+}
+
+// A stage instruction is admitted at up to 8,000 bytes. It is delivered whole
+// to a machine that negotiated long messages, and refused as a plain failure,
+// never as an uncertain delivery, by one that did not: nothing left the
+// controller, so there is nothing for the person to check.
+func TestQueueDeliversLongInstructionOnlyToAMachineThatTakesIt(t *testing.T) {
+	long := strings.Repeat("review the change. ", 200)
+	if len(long) <= terminalproto.MaxChatPromptBytes || len(long) > terminalproto.MaxLongChatPromptBytes {
+		t.Fatal("fixture is not a long instruction", len(long))
+	}
+	for _, takesLong := range []bool{true, false} {
+		got := ""
+		b, _, uid, agent := chatFixtureScript(t, nil, func(c *terminalproto.Capabilities) { c.ACPLiveControls, c.ACPLongPrompt = true, takesLong }, nil, func(m terminalproto.Message) (terminalproto.Body, bool) {
+			switch body := m.Body.(type) {
+			case *terminalproto.ACPControl:
+				return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Options: []terminalproto.ACPSetting{}}}, true
+			case *terminalproto.ACPPrompt:
+				got = body.Text
+			}
+			return nil, true
+		})
+		s := chatSession(t, b, uid, agent)
+		if err := b.st.EnqueueTerminalFor(uid, s.ID, ID(), long, nil); err != nil {
+			t.Fatal(err)
+		}
+		b.stepChatQueue(uid, s.ID)
+		q, _ := b.st.TerminalQueueFor(uid, s.ID)
+		if takesLong {
+			if got != long || len(q) != 0 && q[0].State != "sent" {
+				t.Fatal("long instruction was not delivered", len(got), q)
+			}
+			continue
+		}
+		if got != "" || len(q) != 1 || q[0].State != "failed" || q[0].Note != ErrACPLongPromptUnsupported.Error() {
+			t.Fatal("long instruction to an older machine was not a plain failure", len(got), q)
+		}
 	}
 }

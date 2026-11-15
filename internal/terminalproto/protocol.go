@@ -202,6 +202,9 @@ type Capabilities struct {
 	ACPAgentReattach bool `json:"acpAgentReattach,omitempty"`
 	// ACPImages is sent only when acp-image-v1 was negotiated as well.
 	ACPImages bool `json:"acpImages,omitempty"`
+	// ACPLongPrompt is sent only when acp-long-prompt-v1 was negotiated; a
+	// chat message may then be up to MaxLongChatPromptBytes.
+	ACPLongPrompt bool `json:"acpLongPrompt,omitempty"`
 	// ACPApproval is sent only when acp-approval-v1 was negotiated; a live
 	// chat can then switch between asking and YOLO.
 	ACPApproval bool `json:"acpApproval,omitempty"`
@@ -405,7 +408,7 @@ func (c Capabilities) ValidateFor(features string) error {
 	if modelRule || modelOffRule || modelRefreshRule {
 		return ErrInvalid
 	}
-	acpExtras := c.ACPHistory || c.ACPImages || c.ACPApproval || c.ACPQuestions ||
+	acpExtras := c.ACPHistory || c.ACPImages || c.ACPLongPrompt || c.ACPApproval || c.ACPQuestions ||
 		c.ACPModel || c.ACPLiveControls || c.ACPAgentMode || c.ACPAgentOptions || c.ACPAgentReattach
 	needsTerminalForACP := c.ACP || c.Inspect || c.ShellDir || c.Attention
 	acpRule := acpExtras && !c.ACP

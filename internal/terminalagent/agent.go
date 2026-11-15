@@ -1284,11 +1284,17 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 		if len(b.Images) > 0 && !has(terminalproto.ACPImageFeature) {
 			return terminalproto.ErrInvalid
 		}
+		if len(b.Text) > terminalproto.MaxChatPromptBytes && !has(terminalproto.ACPLongPromptFeature) {
+			return terminalproto.ErrInvalid
+		}
 	case *terminalproto.ACPPrompt:
 		if !has(terminalproto.ACPFeature) {
 			return terminalproto.ErrInvalid
 		}
 		if len(b.Images) > 0 && !has(terminalproto.ACPImageFeature) {
+			return terminalproto.ErrInvalid
+		}
+		if len(b.Text) > terminalproto.MaxChatPromptBytes && !has(terminalproto.ACPLongPromptFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.ACPModel, *terminalproto.ACPCancel, *terminalproto.ACPPermission:

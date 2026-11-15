@@ -766,7 +766,7 @@
 
 
 {#if loading}
-  <WorkspaceSkeleton label="Loading your sessions" context={!theatre && (!!selectedSession || !!selectedAgent)} />
+  <WorkspaceSkeleton label="Loading your sessions" context={!theatre && (!!selectedSession || !!selectedAgent)} session={!!selectedSession} />
 {:else}
 <section class="workspace" class:theatre class:keyboard class:resizing bind:this={workspace} style={`--workspace-height:${workspaceHeight}px;--sidebar-width:${sidebarWidth}px;--panel-width:${shown==='mini'?MINI_WIDTH:panelWidth}px`} aria-label="Remote terminal workspace">
   <header class="workspace-toolbar">

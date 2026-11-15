@@ -137,8 +137,13 @@
     return { update, destroy() { handle?.destroy?.() } }
   }
   function dispose() { epoch++; request?.abort(); modelRequest?.abort(); modelEpoch++; stream?.close(); stream = undefined }
+  // Focus goes back to the control that opened the panel, or to an entry that can be seen: on a touch screen's session
+  // the floating launcher is hidden and the session's own Ask Gaffer may have been drawn again while the panel was open.
   function focusEntry(button?: HTMLElement) {
-    (button?.isConnected ? button : inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true})
+    const seen = (node?: HTMLElement | null): node is HTMLElement => !!node?.isConnected && node.getClientRects().length > 0
+    const entry = seen(button) ? button : seen(inlineOpener) ? inlineOpener : seen(launcher) ? launcher
+      : [...document.querySelectorAll<HTMLElement>('.gaffer-entry')].find(seen)
+    entry?.focus({preventScroll:true})
   }
   function message(e: unknown): string { if (e instanceof UnauthorizedError) onerror?.(e); return e instanceof Error ? e.message : 'Gaffer could not reach the controller just now.' }
   function remember(key: string, value: PendingGafferSend | null) {
@@ -195,7 +200,7 @@
       if (mine === epoch && stream === source && open) { stream = undefined; streamError = 'The reply connection paused. Reconnect to read Gaffer’s saved answer.' }
     }
   }
-  async function close() { wantedDraft = null; open = false;full=false; confirming = false; freshConfirm = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); (inlineOpener?.isConnected ? inlineOpener : launcher)?.focus({preventScroll:true}) }
+  async function close() { wantedDraft = null; open = false;full=false; confirming = false; freshConfirm = false; historyOpen = false; choicesOpen = false; optionsOpen = false; workerOpen = false; goalOpen = false; followedOpen = false; relay = false; dispose(); await tick(); focusEntry() }
   function chooseProvider(value: string) { providerId = value; model = ''; manualModel = false; invalidateModels() }
   function invalidateModels() { modelEpoch++; modelRequest?.abort(); fetchingModels = false; models = []; modelsError = '' }
   async function fetchModels() {

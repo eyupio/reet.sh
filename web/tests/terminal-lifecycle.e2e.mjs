@@ -5,6 +5,8 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.PL
 const context=await browser.newContext({viewport:{width:1360,height:900},permissions:['clipboard-read','clipboard-write']})
 const page=await context.newPage(),errors=[],inputs=[],tickets=[]
 page.on('pageerror',error=>errors.push(error.message))
+// This file's phone-width steps are about the full session chrome, so focus mode starts off, as Exit focus leaves it.
+await page.addInitScript(()=>{if(localStorage.getItem('reet-terminal-layout:1:context:focus')===null)localStorage.setItem('reet-terminal-layout:1:context:focus','0')})
 const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builder00000001',sessionA='session-build00000000001',sessionB='session-deploy0000000001'
 let denied=false
 // Plain terminals carry attention as the server lists it: quiet and seen needs nothing.

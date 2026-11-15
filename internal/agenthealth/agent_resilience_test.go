@@ -91,7 +91,10 @@ func TestFlappingConnectionBacksOffInsteadOfReconnectingEverySecond(t *testing.T
 // A connection that stays up resets the delay; one that dies instantly must
 // not. Without the stable window both looked the same to the loop.
 func TestAStableSessionResetsTheDelayAndAFlappingOneDoesNot(t *testing.T) {
-	cfg := AgentConfig{BackoffMin: 5 * time.Millisecond, BackoffMax: 40 * time.Millisecond, StableSession: 30 * time.Millisecond, Logf: func(string, ...any) {}}
+	// Real timers: the durations leave a slow or loaded runner (a timer that
+	// wakes tens of milliseconds late) far inside every bound below. At a
+	// tenth of these, one late wake-up on a macOS runner failed the test.
+	cfg := AgentConfig{BackoffMin: 50 * time.Millisecond, BackoffMax: 400 * time.Millisecond, StableSession: 300 * time.Millisecond, Logf: func(string, ...any) {}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var count atomic.Int64
@@ -105,7 +108,7 @@ func TestAStableSessionResetsTheDelayAndAFlappingOneDoesNot(t *testing.T) {
 		// A long healthy session, then a run of instantly dying ones.
 		if count.Add(1) == 1 {
 			select {
-			case <-time.After(60 * time.Millisecond):
+			case <-time.After(600 * time.Millisecond):
 			case <-ctx.Done():
 			}
 			return true, nil
@@ -125,7 +128,7 @@ func TestAStableSessionResetsTheDelayAndAFlappingOneDoesNot(t *testing.T) {
 		t.Fatalf("only %d attempts recorded", len(gaps))
 	}
 	// The gap right after the stable session resets to the base interval.
-	if gaps[1] > 20*time.Millisecond {
+	if gaps[1] > 200*time.Millisecond {
 		t.Fatalf("a stable session did not reset the delay: next attempt after %v", gaps[1])
 	}
 	// The gaps after the flapping run must grow towards the ceiling.

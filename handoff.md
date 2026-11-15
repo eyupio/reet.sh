@@ -18,6 +18,34 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## MOBILE-3: what MOBILE-2 left undone (15 November 2026)
+
+The owner asked for MOBILE-2's "Not done" list: three things.
+
+- **Overlays against the insets.** Audited with `Emulation.setSafeAreaInsetsOverride` at 390 × 844 (47 px top, 34 px
+  bottom) and 844 × 390 (47 px sides, 21 px bottom). An upright phone's sheets were already right: the shared shell's
+  border takes the insets. Sideways, where a dialog is not a sheet, three things were under the notch or the home
+  indicator and are fixed: a wide dialog (`max-width` now leaves the side insets), a short-screen dialog's foot
+  (`dialog-shell.css` stops it above the bottom inset while the keyboard is down), and things pinned to an edge (the
+  terminal's drawers, the Gaffer panel, the bell's panel, the project rail's drawer, a maximised pane, the save and
+  sync docks). A bottom sheet tall enough to reach the top now stops below the top inset.
+- **Server-side transcription** for browsers with no speech recognition: asked, and the owner chose to leave it out.
+  A phone keyboard's own microphone already works in Compose and in the chat composer on every browser; the gap is
+  Firefox on a computer.
+- **A compose box for the chat pane**: its composer is one already. What it lacked was dictation, so the Dictate
+  button moved out of Compose into `terminal/Dictate.svelte` and the chat composer has it too.
+
+Seen on the way and left alone: inside `phone-dialogs.e2e.mjs`'s harness (which makes the page 3,000 px taller) an
+open sheet carried `data-shell-kb`, the shell's keyboard-open mark, with no keyboard up; the cause was not traced. That
+mark drops the sheet's bottom inset, so a first audit run through that harness reported footers under the home
+indicator. The same sheet opened without the harness had its footer above the inset. The audit was redone
+without it, and is now `overlays and insets` in `terminal-focus.e2e.mjs`.
+
+**Not verified:** a real phone, notch or microphone, as before. Popover menus placed at the pointer (session,
+project, command and clipboard menus) are clamped to the window, not to the safe area, and were not audited one by
+one: their anchors sit inside the padded page, so they open inside it, but one opened at the very foot of a sideways
+phone could overlap the home-indicator strip.
+
 ## MOBILE-2: what MOBILE-1 left undone (15 November 2026)
 
 The owner asked for MOBILE-1's "Not done" list. Five things, each run at phone and tablet sizes before and after.
@@ -54,7 +82,7 @@ used. Safari and Firefox were not run.
 
 **Not done:** dialogs and sheets other than the session workspace were not audited one by one against the insets
 (the shared dialog shell already pads for them); server-side transcription for browsers without speech recognition
-(Firefox); a compose box for the chat pane, which already is one.
+(Firefox); a compose box for the chat pane, which already is one. See MOBILE-3, above.
 
 ## MOBILE-1: sessions on phones and tablets, and notifications on a device (15 November 2026)
 

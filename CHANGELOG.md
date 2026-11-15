@@ -5,6 +5,12 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- **Dictate** in a Gaffer chat's composer, beside Attach, where the browser
+  has speech recognition. As in a terminal's Compose, nothing is sent by
+  speaking, and the browser sends the audio to its own speech service.
+- On a phone with a notch held sideways, dialogs, the terminal's drawers,
+  the Gaffer panel and the save and sync docks no longer run under the
+  notch, and a dialog stops above the home indicator.
 - Factory: a stage instruction or Gaffer message longer than 2,000 bytes now
   reaches the agent. It used to stop on the controller and show **Delivery
   was not confirmed**, which left the goal waiting for you at every stage that

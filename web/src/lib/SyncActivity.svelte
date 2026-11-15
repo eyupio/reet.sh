@@ -366,7 +366,7 @@
 
 <style>
   .sync-dock {
-    position: fixed; z-index: 60; right: 20px; bottom: var(--launcher-clearance, calc(20px + var(--bottom-chrome, 0px)));
+    position: fixed; z-index: 60; right: calc(20px + env(safe-area-inset-right, 0px)); bottom: var(--launcher-clearance, calc(20px + var(--bottom-chrome, 0px)));
     width: min(420px, calc(100vw - 32px));
     overflow: hidden; border: 1px solid var(--line-strong); border-radius: 16px;
     background: color-mix(in srgb, var(--card-raised) 94%, transparent);

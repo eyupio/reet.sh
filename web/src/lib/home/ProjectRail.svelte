@@ -809,7 +809,7 @@
     .live { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
     .mini-wt { position: absolute; bottom: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--card-raised); color: var(--ink-soft); font: 500 14px/13px var(--sans); font-variant-numeric: tabular-nums; text-align: center; }
     /* The full rail, opened over the page from the strip. */
-    .rail.open .full { display: flex; position: fixed; z-index: 20; top: 0; left: 0; width: 301px; height: 100dvh; max-height: none; min-height: 0; background: var(--bg); border-right: 1px solid var(--line-soft); box-shadow: 12px 0 40px var(--scrim); }
+    .rail.open .full { display: flex; position: fixed; z-index: 20; top: 0; left: 0; box-sizing: content-box; width: 301px; padding-left: env(safe-area-inset-left, 0px); height: 100dvh; max-height: none; min-height: 0; background: var(--bg); border-right: 1px solid var(--line-soft); box-shadow: 12px 0 40px var(--scrim); }
   }
   @media (pointer: coarse) and (min-width: 1100px) and (max-width: 1239px) { .add-icon, .manage { width: 44px; min-height: 44px; } .mini { min-height: 44px; } }
   /* A wide desktop rail folded to its 56 px strip: the same strip the

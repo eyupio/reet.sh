@@ -30,6 +30,8 @@ export const terminalIconPaths = {
   pageUp:'M8 13V4M5 7l3-3 3 3M2.5 2h11',
   pageDown:'M8 3v9M5 9l3 3 3-3M2.5 14h11',
   insert:'M3 3h10v10H3zM8 5v6M5 8h6',
+  compose:'M2 14h3l8.5-8.5-3-3L2 11zM9 4l3 3M8 14h6',
+  mic:'M8 1.5a2 2 0 0 0-2 2v4a2 2 0 0 0 4 0v-4a2 2 0 0 0-2-2zM4 7.5a4 4 0 0 0 8 0M8 11.5v3M5.5 14.5h5',
   keyboard:'M2 4.5h12v7H2zM4 6.5h1M7 6.5h1M10 6.5h1M13 6.5h.01M4 9h1M7 9h1M10 9h1M13 9h.01M5.5 11.5h5',
   ctrl:'M3 11.5 8 6l5 5.5',
   alt:'M8 2v12M4 5l4-3 4 3',

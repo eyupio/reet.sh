@@ -1,5 +1,46 @@
 # UI verification — 4 November 2026
 
+## Compose, attention grouping, chat-turn notifications, safe areas (15 November 2026)
+
+What changed is in [handoff.md](../handoff.md) (MOBILE-2) and the [changelog](../CHANGELOG.md).
+
+Commands run in this container:
+
+- `cd web && npm run check`: 0 errors, 0 warnings. New: `terminal/compose.test.mjs` (4 cases) and a grouping case in
+  `home.test.mjs`.
+- `npm run build`, `npx vite preview --port 4173 --strictPort`, then:
+  - **New**, passing: `terminal-compose.e2e.mjs` (the toolbar entry in view at 390 px, the message field's
+    attributes and 16 px text, Send and Insert as one paste, the kept draft, the several-lines warning, bracketed
+    paste, dictation through a stand-in recogniser and its refusal, a browser with no speech recognition, Ctrl+Enter,
+    a dropped connection).
+  - **New sections** in `terminal-focus.e2e.mjs`, passing: an approval said twice and not three times at 390 px and
+    kept at 820 px; safe areas at 390 × 844 with a 34 px home indicator and at 844 × 390 with 47 px side notches,
+    made real with `Emulation.setSafeAreaInsetsOverride`; the four groupings at 360 px with Needs you first.
+  - Each new section, and every section of the compose test, was run against a build of `main` and seen to fail.
+  - **Existing suites**, all passing on the final build: `terminal-phone`, `sessions-phone`, `home`, `sessions`,
+    `phone-zoom`, `device-push`, `chat`, `gaffer-layout`, `gaffer-widget-ux`, `terminal-workspace`, `phone-layout`,
+    `calm-session`, `loading`, `loading-width`, `phone-dialogs`, `terminal-lifecycle`, `terminal-organisation`,
+    `start-agent`, `session-workspace`, `question-card`, `terminal-clipboard`, `terminal-upload`, `navigation`,
+    `supporting-nav`, `gaffer-chat`, `chat-controls` and `inbox`. `terminal-phone` now expects `viewport-fit=cover`
+    in the viewport tag.
+- The real browser, broker and tmux shell:
+  `LANG=C.UTF-8 REET_BROWSER_TESTS=1 go test -count=1 ./internal/api -run '^TestTerminalPrivateLifecyclePreservesActualShell$'`
+  passes.
+- `go vet ./internal/api`; `go test ./internal/api -run 'Push|Attention'` (new:
+  `TestPushTellsAChatTurnThatFinishedWhileTheSessionRunsOn`) and `go test ./web`: pass.
+- Screenshots were looked at in the dark theme: the compose sheet at 390 and 820 px, the Attention grouping at 360
+  and 390 px, and a focused terminal with the insets on, upright and sideways.
+
+Measured with the insets on: a focused terminal at 390 × 844 has 46 rows above a 34 px home indicator (49 without);
+sideways with 47 px notches it has 109 columns (124 without).
+
+Seen and changed on the way: Compose was first the key row's leading key, which left Ctrl half out of view at
+390 px. It moved to the terminal toolbar, and the key row is as it was (Esc, Tab and Ctrl in view).
+
+Not checked: a real phone, notch or home indicator; a real microphone or speech service; Safari and Firefox; the
+light theme for these screens; the rest of the browser suites and the full `go test -race ./...` (left to CI); the new
+Go test against `main`.
+
 ## Sessions on phones and tablets, and notifications on a device (15 November 2026)
 
 What changed is in [handoff.md](../handoff.md) (MOBILE-1), the [changelog](../CHANGELOG.md),

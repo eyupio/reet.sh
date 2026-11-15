@@ -146,6 +146,8 @@ export const pageViewport = new ViewportTracker()
 // Orientation keeps a portrait phone whose page shrank for the keyboard out of the landscape layout.
 export const LANDSCAPE_PHONE = '(max-height:500px) and (pointer:coarse) and (orientation:landscape)'
 export const PHONE_SCREEN = `(max-width:650px), ${LANDSCAPE_PHONE}`
+/** A touch tablet: its on-screen keyboard takes as much of the screen as a phone's, so typing in a session gets the same room back. */
+export const TOUCH_TABLET = '(pointer:coarse) and (max-width:1366px)'
 export const PHONE_TOUCH = `(max-width:650px) and (pointer:coarse), ${LANDSCAPE_PHONE}`
 
 /**

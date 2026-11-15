@@ -1432,7 +1432,15 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   .skills-btn { height: 36px; }
   .composer-bar { flex-wrap: wrap; }
  }
- @media (max-width: 767px), (max-height: 500px) and (pointer: coarse) and (orientation: landscape) { .gaffer-entry { display: inline-flex; } }
+ @media (max-width: 767px), (pointer: coarse) { .gaffer-entry { display: inline-flex; } }
+ /* Typing on a phone with the keyboard up: the conversation keeps the room. The model, effort and source settings and the
+    pane's own status line wait until the keyboard goes; Prompts, Skills and Attach stay beside the message. */
+ @media (max-width: 650px) {
+  :global(.session-screen.keyboard) .chat-status,
+  :global(.session-screen.keyboard) .model-controls,
+  :global(.session-screen.keyboard) .effort-controls,
+  :global(.session-screen.keyboard) .source-controls { display: none; }
+ }
  @media (pointer: coarse) {
   .gaffer-entry { width: 44px; height: 44px; }
   .tool-head { min-height: 44px; }

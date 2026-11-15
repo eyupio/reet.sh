@@ -73,7 +73,7 @@ async function open(options={}) {
  }
  // The wide fixture keeps room for the docked details panel and Gaffer's saved
  // corner. Explicit tablet/phone widths below still exercise the drawer layout.
- const opened = await openWorkspace(browser, {width:options.width ?? 1536, height:options.height ?? 900, touch:options.touch, theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
+ const opened = await openWorkspace(browser, {width:options.width ?? 1536, height:options.height ?? 900, touch:options.touch, sessionFocus:options.sessionFocus === 'default' ? undefined : options.sessionFocus ?? (options.touch ? false : undefined), theme:options.theme ?? 'light', routes, sync:options.sync ?? sync()})
  // These legacy context tests explicitly keep Details open; the unset default
  // and saved-preference behavior are exercised by calm-session.e2e.mjs.
  await opened.page.addInitScript(() => {
@@ -757,7 +757,7 @@ try {
 
  if (run('active session controls stay visible across devices')) {
   for (const theme of ['light','dark']) for (const [width,height,touch] of [[1360,900,false],[768,1024,true],[390,844,true],[320,740,true],[844,390,true]]) {
-   const {context,page,errors} = await open({width,height,touch,theme,sessions:[...sessions(),...opencodeSessions()],machines:switchMachines(),chat:true})
+   const {context,page,errors} = await open({width,height,touch,theme,sessions:[...sessions(),...opencodeSessions()],machines:switchMachines(),chat:true,sessionFocus:'default'})
    await page.goto(`${base}/sessions?agent=a1&session=s9`)
    // A phone opens a Gaffer chat in super focus; the ordinary session controls wait behind Exit focus.
    if (width <= 650 || (height <= 500 && touch)) {

@@ -5,6 +5,8 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.PL
 const context=await browser.newContext({viewport:{width:1360,height:900},permissions:['clipboard-read','clipboard-write']})
 const page=await context.newPage(),errors=[],inputs=[],tickets=[],ticketSizes=[],writes=[]
 page.on('pageerror',error=>errors.push(error.message))
+// This file's phone steps are about the workspace toolbar and the drawer, so focus mode starts off, as Exit focus leaves it.
+await page.addInitScript(()=>{if(localStorage.getItem('reet-terminal-layout:1:context:focus')===null)localStorage.setItem('reet-terminal-layout:1:context:focus','0')})
 const now=Date.now(),agentA='connector-laptop000000001',agentB='connector-builder00000001',sessionA='session-build00000000001',sessionB='session-deploy0000000001'
 let failHistory=false,historyReads=0,failSessions=false,denied=false,viewer=false,websockets=0
 const sessions=[{id:sessionA,agentId:agentA,title:'Build workspace',state:'running',createdAt:now,updatedAt:now,exitCode:null},{id:sessionB,agentId:agentB,title:'Deployment checks',state:'running',createdAt:now,updatedAt:now,exitCode:null}]
@@ -409,7 +411,10 @@ try{
  await dockedPanel()
  // Both empty-state actions open settings; cancelling never creates or switches sessions.
  await page.goto(`${base}/sessions?view=terminal`)
- await expect(page.getByRole('heading',{name:'Start a new session'})).toBeVisible()
+ // With sessions running and no machine chosen, the screen leads with them: every machine's, by name and state.
+ await expect(page.getByRole('heading',{name:'Pick up where you left off'})).toBeVisible()
+ await expect(page.getByLabel('Running sessions').getByRole('button')).not.toHaveCount(0)
+ await expect(page.getByLabel('Running sessions').getByRole('button').first()).toContainText(/ · (Working|Quiet|Needs you|Starting)/)
  await expect(page.locator('.ended .create-form')).toHaveCount(0)
  await page.getByRole('button',{name:'✦ Start a new agent session',exact:true}).click()
  await expect(page.getByRole('dialog')).toBeVisible()
@@ -434,7 +439,7 @@ try{
  const startAgent=page.getByRole('dialog',{name:'Start an agent'})
  await expect(startAgent).toBeVisible()
  await startAgent.getByRole('button',{name:'Close',exact:true}).click()
- await expect(page.getByRole('heading',{name:'Start a new session'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Pick up where you left off'})).toBeVisible()
  expect(writes).toHaveLength(0)
  // header badge equals the panel count with no machine selected (3 sessions on 2 machines): both count the account's live
  // sessions, not only the selected machine's. Finished sessions the panel also lists are named apart: 3 live + 1 exited +

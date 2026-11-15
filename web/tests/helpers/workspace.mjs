@@ -4,10 +4,12 @@ export const owner = {id:1,name:'Sam',email:'sam@example.test',role:'owner'}
 const now = Date.now()
 export const skill = id => ({id:`demo/toolkit/${id}`,name:id,slug:id,source:'demo/toolkit',sourceType:'github',url:`https://www.skills.sh/demo/toolkit/${id}`,description:'Example skill for UI verification.',notes:'',installs:0,installsWeek:0,trend:[],liked:false,bookmarked:false,used:false,createdAt:now,updatedAt:now})
 
-export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[], hosting={username:'',prefix:'reet-',skills:[]}, sync={environments:[],machines:[],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}, inventory={environments:[],machines:[]}, routes={}, touch=false, gates={}} = {}) {
+export async function openWorkspace(browser, {width, height=812, theme='light', status, skills=[], unread=0, terminalStatus={configured:false,available:false,reason:'disabled'}, terminalMachines=[], hosting={username:'',prefix:'reet-',skills:[]}, sync={environments:[],machines:[],agents:[],targets:[],jobs:[],runs:[],updateJobs:[]}, inventory={environments:[],machines:[]}, routes={}, touch=false, gates={}, sessionFocus} = {}) {
  // `touch` is a phone: a coarse pointer, so the touch-size rules apply.
  const context = await browser.newContext({viewport:{width,height},hasTouch:touch,isMobile:touch})
  const page = await context.newPage()
+ // A phone opens a session in focus mode. `sessionFocus:false` starts as Exit focus leaves it, for a test about the full session chrome.
+ if(sessionFocus===false)await page.addInitScript(()=>{if(localStorage.getItem('reet-terminal-layout:1:context:focus')===null)localStorage.setItem('reet-terminal-layout:1:context:focus','0')})
  const state = {patches:[],status:{mode:'accounts',setupRequired:false,bootstrapRequired:false,signupEnabled:false,supportDesk:true,user:owner,...status}, theme, unexpected:[]}
  const errors = []
  page.on('pageerror',e=>errors.push(e.message))

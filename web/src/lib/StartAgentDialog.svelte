@@ -860,7 +860,7 @@
      <option value={NO_PROJECT}>No project — start in a folder</option>
     </select>
     {#if projectBlocked}
-     <p class="reason" id={`${id}-project-error`}>{projectBlocked}</p>
+     <p class="reason" class:hint={!projectSel} id={`${id}-project-error`}>{projectBlocked}</p>
     {:else if usingProject}
      <p class="hint" id={`${id}-project-dir`}>Starts in {pickedProject!.dir}.</p>
     {/if}
@@ -872,7 +872,7 @@
      {#if !machine}<option value="" disabled>Choose a machine</option>{/if}
      {#each machines as item (item.agentId)}<option value={item.agentId} disabled={!item.ready}>{item.host}{item.ready ? '' : ' · not ready'}</option>{/each}
     </select>
-    {#if blocked}<p class="reason" id={`${id}-blocked`}>{blocked}</p>{/if}
+    {#if blocked}<p class="reason" class:hint={blocked === 'Choose a machine.'} id={`${id}-blocked`}>{blocked}</p>{/if}
     {#if onaddmachine}<button type="button" class="linklike" onclick={addMachine}>Not listed? Add a machine</button>{/if}
    </div>
 
@@ -1096,6 +1096,8 @@
  .count { font-variant-numeric: tabular-nums; }
  .count.over { color: var(--bad); }
  .reason { margin: 0; color: var(--bad); font-size: 0.875rem; line-height: 1.5; }
+ /* A choice not made yet is the next step, not a mistake: it reads as guidance until something is actually wrong. */
+ .reason.hint { color: var(--muted); }
  .chat-choice code { font-size: max(0.875rem, .9em); }
  .sentence { margin: 0; padding: 12px 16px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--bg); font-size: 0.875rem; line-height: 1.5; }
  .status { flex: 1 0 100%; margin: 0; font-size: 0.875rem; line-height: 1.5; }

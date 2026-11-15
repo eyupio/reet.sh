@@ -25,6 +25,7 @@
   import SessionTabs from '../sessions/SessionTabs.svelte'
   import WorkspaceSkeleton from './WorkspaceSkeleton.svelte'
   import PanelResizer from '../shell/PanelResizer.svelte'
+  import { sessionStatus, statusLabel } from '../sessionStatus'
   import { canContinue, canContinueChat, canReattachChat, closeTab, continueChatLaunch, continueLaunch, openTab } from '../sessions'
   import { continuationFailureInPane, offersContinueAfterReattach, quietReattachRefusal, reattachTrust, recoveryInFlight, shouldAutoReattach } from './reattachState'
   import ConfirmDialog from '../ConfirmDialog.svelte'
@@ -35,7 +36,7 @@
   import NewSessionChoice, { type NewSessionKind } from './NewSessionChoice.svelte'
   import { gafferChatEntry } from '../gafferContext'
   import TerminalCommandReference from './TerminalCommandReference.svelte'
-  import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN } from './sizing'
+  import { pageViewport, browserViewport, keyboardLikelyOpen, PHONE_SCREEN, TOUCH_TABLET } from './sizing'
   import { chromeFocus } from '../shell/chrome.svelte'
   import { ALWAYS_DOCKED, MINI_WIDTH, PANEL_MIN, SNAP_TO_MINI, keepOpen, PANEL_DEFAULT, changeMode, chevronNext, clampPanelWidth, defaultLayout, defaultPanelWidth, isPhone, layoutRecord, panelDocks, panelMode, readLayout, screenShortSide, widestPanel, type PanelMode } from './panelLayout'
   import { clearOpenTerminalRequestId, openTerminalRequestId, reusableSessionFor, wantsOpenTerminal } from './openTerminal'
@@ -170,6 +171,9 @@
   const viewportDebug=new URLSearchParams(location.search).get('viewport-debug')==='1'
   let debugReading=$state('')
   $effect(()=>()=>{chromeFocus.session=false})
+  // The page knows while a session is typed in with the keyboard up, so the top bar steps aside on a tablet as it does on a
+  // phone (app.css). A phone's shell does the same through keyboardChrome; both may be set at once.
+  $effect(()=>{const root=document.documentElement;root.toggleAttribute('data-session-typing',keyboard);return()=>root.removeAttribute('data-session-typing')})
   let detailsOpen = $state(false)
   let healthIssue=$state(''),showCreate=$state(false)
   // New session asks what to start before showing either form: an agent session, or a plain shell. A project's + opens the
@@ -187,6 +191,11 @@
   const machine = $derived(machines.find(item=>item.agentId===selectedAgent))
   const ownSessions = $derived(sessions.filter(item=>item.agentId===selectedAgent))
   const activeSessions = $derived(ownSessions.filter(item=>['creating','running','end_requested'].includes(item.state)))
+  // What the "nothing open" screen offers to jump back into: the chosen machine's running sessions, or every machine's
+  // when none is chosen (the Sessions tab on a phone), with anything waiting for the person first, then the latest.
+  const resumeSessions = $derived((selectedAgent?activeSessions:sessions.filter(item=>['creating','running','end_requested'].includes(item.state)))
+    .map(item=>({item,status:sessionStatus(item)}))
+    .sort((a,b)=>Number(b.status==='waiting')-Number(a.status==='waiting')||b.item.updatedAt-a.item.updatedAt))
   const accountActive = $derived(sessions.filter(item=>['creating','running','end_requested'].includes(item.state)).length)
   const createAtQuota=$derived(createActive>=8||accountActive>=32)
   const session = $derived(ownSessions.find(item=>item.id===selectedSession))
@@ -667,14 +676,14 @@
     const viewportMeta=document.querySelector<HTMLMetaElement>('meta[name="viewport"]'),viewportContent=viewportMeta?.getAttribute('content')??null
     if(viewportMeta&&viewportContent!==null&&!/interactive-widget/.test(viewportContent))viewportMeta.setAttribute('content',`${viewportContent}, interactive-widget=resizes-content`)
     let frame=0
-    const coarse=matchMedia('(pointer:coarse)'),narrow=matchMedia(PHONE_SCREEN)
+    const coarse=matchMedia('(pointer:coarse)'),narrow=matchMedia(PHONE_SCREEN),tablet=matchMedia(TOUCH_TABLET)
     const editing=()=>{const focus=document.activeElement;return focus instanceof HTMLElement&&!!focus.closest('.pane,.chat-pane')&&focus.matches('textarea,input,[contenteditable]:not([contenteditable="false"])')}
     const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
       if(!workspace)return
       const usable=pageViewport.read(browserViewport())
       const typing=editing()
       chromeFocus.session=typing
-      keyboard=keyboardLikelyOpen(usable.shrink,{coarse:coarse.matches,narrow:narrow.matches,editing:typing,scale:window.visualViewport?.scale??1})
+      keyboard=keyboardLikelyOpen(usable.shrink,{coarse:coarse.matches,narrow:narrow.matches||tablet.matches,editing:typing,scale:window.visualViewport?.scale??1})
       const reserved=document.querySelector<HTMLElement>('[data-gaffer-space]')?.getBoundingClientRect().height??0
       workspaceHeight=Math.max(120,usable.height-Math.max(0,workspace.getBoundingClientRect().top-usable.top)-reserved-8)
       if(viewportDebug){const visual=window.visualViewport;debugReading=`visualViewport.height ${visual?Math.round(visual.height):'none'} · offsetTop ${visual?Math.round(visual.offsetTop):'none'}\ninnerHeight ${innerHeight} · screen.height ${screen.height}\nused height ${Math.round(usable.height)} · keyboard ${keyboard?'open':'closed'}\ninnerWidth ${innerWidth} · visualViewport.width ${visual?Math.round(visual.width):'none'} · scale ${visual?Math.round(visual.scale*100)/100:'none'} · offsetLeft ${visual?Math.round(visual.offsetLeft):'none'}\nclientWidth ${document.documentElement.clientWidth} · scrollWidth ${document.documentElement.scrollWidth} · screen.width ${screen.width} · dpr ${devicePixelRatio}\nmeta ${viewportMeta?.getAttribute('content')??'none'}`}
@@ -704,19 +713,24 @@
   })
 </script>
 
-{#snippet endedView(heading:string,lede:string)}
+{#snippet resumeList(title:string)}
+          {#if resumeSessions.length}
+            <div class="ended-resume" aria-label="Running sessions">
+              <h3>{title}</h3>
+              <ul>{#each resumeSessions.slice(0,8) as {item,status} (item.id)}<li><button type="button" data-status={status} onclick={()=>chooseSession(item)}><span class="ended-dot" aria-hidden="true"></span><span class="ended-copy"><span class="ended-name">{item.title}</span><small>{machines.find(m=>m.agentId===item.agentId)?.host||'Unavailable machine'} · {status==='waiting'?'Needs you':statusLabel(status)}</small></span></button></li>{/each}</ul>
+              {#if resumeSessions.length>8}<p class="ended-more">{resumeSessions.length-8} more in the sessions panel.</p>{/if}
+            </div>
+          {/if}
+{/snippet}
+{#snippet endedView(heading:string,lede:string,resumeFirst=false)}
         <div class="empty ended" role="status">
           <div class="ended-glow" aria-hidden="true"></div>
           <span class="empty-icon ended-icon" aria-hidden="true">›_</span>
           <h2>{heading}</h2>
           <p>{lede}</p>
+          {#if resumeFirst}{@render resumeList('Running now')}{/if}
           {@render startActions()}
-          {#if activeSessions.length}
-            <div class="ended-resume" aria-label="Running sessions">
-              <h3>Or jump back into a running session</h3>
-              <ul>{#each activeSessions.slice(0,4) as item (item.id)}<li><button type="button" onclick={()=>chooseSession(item)}><span class="ended-dot" aria-hidden="true"></span><span class="ended-name">{item.title}</span></button></li>{/each}</ul>
-            </div>
-          {/if}
+          {#if !resumeFirst}{@render resumeList('Or jump back into a running session')}{/if}
         </div>
 {/snippet}
 {#snippet startActions()}
@@ -769,6 +783,7 @@
   {#if error && !showCreate}<p class="workspace-notice bad" role="alert">{error} <button onclick={() => void refresh()}>Retry status</button></p>{/if}
   <div class="workspace-body" class:docked={shown==='docked'||shown==='mini'} bind:clientWidth={bodyWidth}>
     {#if shown!=='closed'}<SessionSidebar bind:this={sessionPanel} {factory} {machines} {sessions} {reconnecting} {projects} projectRunning={runningByProject} currentProject={currentProjectId} onprojectstart={startInProject} onprojectnew={newSessionInProject} onprojectadd={openAddProject} onprojectcolour={saveProjectColour} {serverNow} {selectedAgent} {selectedSession} layout={shown} collapseLabel={phone?'Close session navigation':'Shrink sessions to a mini rail'} pinnable={!phone&&viewportWidth<ALWAYS_DOCKED} pinned={keptOpen} onpin={togglePin} onexpand={expand} onfind={findSessions} onnewsession={newSession} preferenceKey={`${preferenceKey}:sessions`} onnew={quickCreate} cancreate={canCreateFor} onselect={chooseSession} onclose={chevron} onrefresh={()=>void refresh()} onagent={openAgentStart} onaction={openAction} ondisconnect={()=>terminalPane?.disconnect()} busy={actionBusy} />{/if}
+    {#if shown==='drawer'}<div class="drawer-scrim" aria-hidden="true" onclick={()=>{closeDrawer();saveLayout()}}></div>{/if}
     {#if shown==='docked'||shown==='mini'}
       <!-- A focusable window splitter: drag (pointer capture), Left/Right 16 px, Home the mini rail, End the widest, double-click 280 px. -->
       <PanelResizer value={shown==='mini'?MINI_WIDTH:panelWidth} min={MINI_WIDTH} max={panelMax} resetValue={PANEL_DEFAULT}
@@ -827,7 +842,7 @@
       {:else if selectedSession}
         {@render endedView('This session has ended', "It's no longer running, so there's nothing to reconnect to. Nothing was started in its place. Pick up where you left off, or start fresh.")}
       {:else if !selectedAgent || machine && !setup}
-        {@render endedView('Start a new session', 'Nothing is open right now. Start a new agent session or a plain terminal, or jump back into one that is still running.')}
+        {#if resumeSessions.length}{@render endedView('Pick up where you left off', `${resumeSessions.length===1?'One session is':`${resumeSessions.length} sessions are`} running. Jump back into one, or start something new.`, true)}{:else}{@render endedView('Start a new session', 'Nothing is open right now. Start a new agent session or a plain terminal.')}{/if}
       {:else}<div class="empty"><span class="empty-icon" aria-hidden="true">›_</span><h2>{selectedSession ? 'This session is unavailable' : selectedAgent && !machine ? 'This machine is unavailable' : 'Your next shell starts here.'}</h2><p>{selectedSession ? 'Choose an existing session or create one explicitly. No replacement shell was created.' : setup || 'Create a terminal, then return to the same session whenever you need it.'}</p>{@render startActions()}{#if setup}<button class="btn" onclick={() => detailsOpen = true}>View setup &amp; connection details</button>{/if}</div>{/if}
     </div>
   </div>
@@ -860,9 +875,11 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .ended-icon{font-size:2.8rem}
   .ended h2{font-size:2rem}.ended-actions{display:flex;flex-direction:column;gap:12px;margin:0 0 16px;max-width:100%}.ended-cta{font-size:1rem;padding:12px 24px;min-height:48px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
   .ended-banner-actions{display:flex;gap:12px;flex-wrap:wrap}.ended-banner button{font-weight:600}
-  .ended-resume{margin-top:24px;max-width:520px;width:100%;text-align:left}.ended-resume h3{font-size:0.875rem;letter-spacing:0.01em;margin:0 0 8px;color:var(--muted)}
-  .ended-resume ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}.ended-resume button{width:100%;display:flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:0.875rem;text-align:left}.ended-resume button:hover{border-color:var(--accent-text)}
-  .ended-dot{width:7px;height:7px;border-radius:50%;background:var(--good)}.ended-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ended-resume{margin-top:24px;margin-bottom:0;max-width:520px;width:100%;text-align:left}.ended-resume h3{font-size:0.875rem;letter-spacing:0.01em;margin:0 0 8px;color:var(--muted)}
+  .ended-resume ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}.ended-resume button{width:100%;display:flex;align-items:center;gap:10px;min-height:48px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:0.875rem;text-align:left}.ended-resume button:hover{border-color:var(--accent-text)}
+  .ended-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--status,var(--good))}.ended-copy{display:grid;gap:2px;min-width:0;padding:8px 0}.ended-copy small{color:var(--muted);font-size:0.875rem}.ended-resume button[data-status=waiting]{border-color:var(--status-waiting)}.ended-resume button[data-status=waiting] small{color:var(--status-waiting);font-weight:600}.ended-resume:has(+.ended-actions){margin:0 0 24px}.ended-more{margin:8px 0 0;color:var(--muted);font-size:0.875rem}.ended-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Behind an open drawer: the page dims, and a tap on it closes the drawer. */
+  .drawer-scrim{position:absolute;inset:0;z-index:7;background:var(--scrim)}
   .workspace.theatre>.workspace-toolbar{display:none}
   /* Keyboard focus layout (phones only, see keyboardLikelyOpen): the terminal toolbar keeps Show sessions. */
   .workspace.keyboard>.workspace-toolbar{display:none}
@@ -872,7 +889,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
   .side-terminal-head button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: 0.875rem; }
   @media (max-width:650px){.workspace:has(:global(.session-screen)) .workspace-title>a{display:none}}
   .session-presentation{display:flex;flex:1;min-height:0;min-width:0;flex-direction:column}.session-presentation[hidden]{display:none}
-  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:0;border-radius:0;background:var(--bg);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:0.875rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:0.875rem;border-radius:6px;background:var(--tint);padding:1px 6px;font-variant-numeric:tabular-nums}.details-toggle{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:6px 10px;font-size:14px;border-color:var(--line-soft);background:none;color:var(--muted)}.workspace-actions .panel-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.workspace-actions .panel-toggle:hover{color:var(--ink)}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:0.875rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:0.875rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:0.875rem;color:var(--muted);line-height:1.5;margin:0 0 16px;font-variant-numeric:tabular-nums}.workspace-notice{margin:0;padding:8px 12px;background:var(--tint);font-size:0.875rem;flex-shrink:0;display:flex;align-items:center;gap:8px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:0.875rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:12px;border-radius:8px}.setup-notice pre{font-size:0.875rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:0.875rem;margin:0 0 8px}.shortcut-help p+p{margin-top:8px}
+  .workspace{height:var(--workspace-height);min-height:0;display:flex;flex-direction:column;border:0;border-radius:0;background:var(--bg);overflow:hidden}.workspace-toolbar{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--line);flex-shrink:0}.workspace-title{display:flex;align-items:center;gap:8px}.workspace-title>a{font-size:1.2rem;text-decoration:none;padding:4px}.workspace-title h1{font:500 1.2rem var(--serif);margin:0}.workspace-actions{display:flex;gap:6px;margin-left:auto;flex-shrink:0}.workspace-actions .btn{font-size:0.875rem;padding:6px 10px;min-height:34px}.workspace-actions .count{font-size:0.875rem;border-radius:6px;background:var(--tint);padding:1px 6px;font-variant-numeric:tabular-nums}.details-toggle{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:6px 10px;font-size:14px;border-color:var(--line-soft);background:none;color:var(--muted)}.workspace-actions .panel-toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.workspace-actions .panel-toggle:hover{color:var(--ink)}.workspace-body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;position:relative}.workspace-body.docked{grid-template-columns:var(--panel-width) 8px minmax(0,1fr)}.terminal-stage{min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden}.terminal-stage :global(.pane:not(.maximised)){flex:1;min-height:0;border:0;border-radius:0;box-shadow:none}.empty{display:flex;flex-direction:column;align-items:center;justify-content:safe center;text-align:center;padding:24px;flex:1;min-height:0;overflow:auto;color:var(--muted)}.empty-icon{font:500 2.2rem var(--mono);color:var(--accent-text)}.empty h2{font:500 1.6rem var(--serif);color:var(--ink);margin:12px 0}.empty>p{font-size:0.875rem;max-width:55ch;margin:0 0 20px}.create-form{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;max-width:480px;width:100%;text-align:left;align-items:end}.create-form label{display:grid;gap:6px;font-size:0.875rem}.create-form input,.create-form select{width:100%;min-width:0}.create-form p{grid-column:1/-1;font-size:0.875rem;color:var(--muted);line-height:1.5;margin:0 0 16px;font-variant-numeric:tabular-nums}.workspace-notice{margin:0;padding:8px 12px;background:var(--tint);font-size:0.875rem;flex-shrink:0;display:flex;align-items:center;gap:8px;justify-content:space-between}.workspace-notice button{border:0;background:none;text-decoration:underline;cursor:pointer;white-space:nowrap;color:inherit;font:inherit}.bad{color:var(--bad)}.dialog-copy,.setup-notice p,.shortcut-help p{font-size:0.875rem;color:var(--muted);line-height:1.6;margin:0}.setup-notice{border:1px solid var(--line);border-left:3px solid var(--accent);padding:12px;border-radius:8px}.setup-notice pre{font-size:0.875rem;white-space:pre-wrap;overflow-wrap:anywhere}h3{font-size:0.875rem;margin:0 0 8px}.shortcut-help p+p{margin-top:8px}
   .creation-error{color:var(--bad)!important}.find-machine{font-size:0.875rem;padding:6px 8px;min-height:34px}.machine-search{display:grid;gap:8px;font-size:0.875rem}.machine-results{display:grid;gap:8px;max-height:50dvh;overflow:auto}.machine-result{display:grid;gap:4px;text-align:left;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}.machine-result[aria-current=true]{border-color:var(--accent)}.machine-result span{font-size:0.875rem;color:var(--muted)}
 
   .end-options{display:grid;gap:12px;margin-top:16px;font-size:0.875rem}.end-options .option{display:grid;gap:4px}.end-options label{display:flex;align-items:flex-start;gap:8px;line-height:1.5;cursor:pointer}.end-options input{flex:none;width:16px;height:16px;min-height:0;margin:2px 0 0;padding:0;border:0;background:none;accent-color:var(--accent)}.end-options p,.end-options a{margin:0;font-size:0.875rem;line-height:1.6;color:var(--muted)}.end-options p{margin-left:24px}.end-options a{justify-self:start;color:var(--accent-text)}

@@ -58,7 +58,7 @@ async function live(){await expect(pane).toHaveAttribute('data-connection-state'
 try {
  // Both empty-state actions open settings; cancelling never creates or switches sessions.
  await page.goto(`${base}/sessions?view=terminal`)
- await expect(page.getByRole('heading',{name:'Start a new session'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Pick up where you left off'})).toBeVisible()
  await expect(page.locator('.ended .create-form')).toHaveCount(0)
  await page.getByRole('button',{name:'✦ Start a new agent session',exact:true}).click()
  await expect(page.getByRole('dialog')).toBeVisible()
@@ -77,7 +77,7 @@ try {
   await expect(terminalDialog.getByRole('button',{name:'New terminal',exact:true})).toBeEnabled()
   await page.getByRole('button',{name:'Close New terminal session'}).click()
  }
- await expect(page.getByRole('heading',{name:'Start a new session'})).toBeVisible()
+ await expect(page.getByRole('heading',{name:'Pick up where you left off'})).toBeVisible()
  expect(writes).toHaveLength(0)
  // A missing/ended session gets the same two actions. Machine/folder drafts stay local until confirmation.
  await page.goto(`${base}/sessions?view=terminal&agent=${agentA}&session=removed-session`)

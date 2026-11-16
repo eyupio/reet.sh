@@ -230,15 +230,20 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 	if needsConfirm && !confirmed {
 		return nil, errors.New("Pass confirm=true only when the user has asked for exactly this. Nothing was changed.")
 	}
-	// An outcome on YOLO has agents that act without approvals. What they are
-	// told, and what joins them, is decided on the Factory page by the person.
-	if name == "reet_tell_pipeline_agent" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" {
+	// An outcome on YOLO has agents that act without approvals. Whatever sets
+	// one going, moves it on or lets it merge is decided on the Factory page
+	// by the person: what its agents are told, what joins them, a stage sent
+	// back, a pipeline tried again or moved on, and a merge approved. A client
+	// can still read it, make a pipeline wait for approval, ask for a report
+	// and stop it.
+	if name == "reet_tell_pipeline_agent" || name == "reet_add_pipelines" || name == "reet_send_pipeline_back" ||
+		name == "reet_retry_pipeline" || name == "reet_move_pipeline_on" || name == "reet_approve_pipeline_merge" {
 		cur, err := s.gafferProviders.Outcome(uid, id)
 		if err != nil {
 			return nil, err
 		}
 		if cur.Yolo {
-			return nil, errors.New("This outcome runs on YOLO, so its agents act without approvals. Telling them, adding pipelines and sending work back are done on the Factory page. Nothing was changed.")
+			return nil, errors.New("This outcome runs on YOLO, so its agents act without approvals. Telling them, adding pipelines, sending work back, trying a pipeline again, moving it on and approving its merge are done on the Factory page. Nothing was changed.")
 		}
 	}
 	if !s.terminalEnabled() && name != "reet_stop_outcome" && name != "reet_set_pipeline_merge" {

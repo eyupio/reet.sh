@@ -1402,9 +1402,45 @@ The owner asked for these to go into the same PR.
 Tests: `internal/gaffer/outcome_leftovers_test.go` and
 `TestFactoryMCPStartUnderARequestAlreadyUsedStartsNothingMore`.
 
-Still open: over MCP, retry, move on and merge approval are not refused on a
-YOLO outcome (tell, add and send back are); the merge gate now covers the
-merge. Whether a real machine answers a repeated request for a launch that
+**YOLO over MCP** (asked for after): `reet_retry_pipeline`,
+`reet_move_pipeline_on` and `reet_approve_pipeline_merge` are refused on a
+YOLO outcome too, as tell, add and send back were. Reading, making a pipeline
+wait, a report and stopping remain. Gaffer's own tools go through the same
+check.
+
+### A message for the agent that goes by itself
+
+The owner reported having to press Stop and send for Gaffer's next message to
+reach an agent that had finished. The plain case was checked and holds: a
+message queued while the agent works is delivered by the queue's own worker
+within a second of the turn ending, with no browser open
+(`TestAMessageQueuedForABusyAgentGoesWhenItsTurnEndsWithNobodyActing`). Two
+ways it got stuck were found in `stepChatQueue` and fixed:
+
+- **An agent that answered "busy" made the message a failure.** The queue
+  reads the controls, sees the agent free and sends; an agent that began a
+  turn in between answers Conflict. The message was marked `failed`, to be
+  retried by hand. It was not taken, so it now goes back to `queued` and is
+  sent when the turn ends.
+- **A failed message held back everything behind it.** The queue only looked
+  at its first row, and a failed row stays until the person retries or removes
+  it. Gaffer's next instruction, and the person's next message, sat behind it
+  for good; Stop and send worked only because that intent sorts first.
+  `nextQueued` now passes over failed rows. An uncertain row is still not
+  passed (`TestQueueWillNotPassWaitingOrUncertainMessage` stands): it may
+  have been taken, and what follows could arrive out of order. A queue still
+  pauses after the agent's own turn failed, since each waiting message then
+  fails in turn.
+- A goal whose instruction failed now says why, from the queue's own note,
+  instead of the general "blocked, removed or uncertain" sentence.
+
+Not found by reading: a case where the machine keeps reporting an agent as
+working after its turn has ended. `Working` comes from the agent adapter
+(`acpagent`), and OpenCode's native terminal view counts as busy too; if a
+message still waits on a real agent that looks finished, the session's live
+controls (`working`, `waiting`) at that moment are the thing to capture.
+
+Whether a real machine answers a repeated request for a launch that
 timed out as the broker's code reads has not been seen on one.
 
 ## Not done, for the next slice

@@ -102,10 +102,27 @@ func (b *Broker) EnqueueChat(uid int64, session, id, text string, images []strin
 
 func (b *Broker) deliverQueuedNow(uid int64, session, id string) {
 	list, err := b.st.TerminalQueueFor(uid, session)
-	if err != nil || len(list) == 0 || list[0].ID != id {
+	if err != nil {
+		return
+	}
+	if next, ok := nextQueued(list); !ok || next.ID != id {
 		return
 	}
 	b.stepChatQueue(uid, session)
+}
+
+// nextQueued is the message the queue has to deal with next. A message that
+// failed is known not to have been delivered and waits for the person to
+// retry or remove it; it is passed over, so it does not hold back what was
+// queued after it. A message whose delivery is uncertain is not passed: it
+// may have been taken, and what follows it could then arrive out of order.
+func nextQueued(list []store.TerminalQueuedMessage) (store.TerminalQueuedMessage, bool) {
+	for _, item := range list {
+		if item.State != "failed" {
+			return item, true
+		}
+	}
+	return store.TerminalQueuedMessage{}, false
 }
 
 func (b *Broker) ChangeChatQueue(uid int64, session, id string, revision int64, action, text string, acknowledge bool) error {
@@ -176,10 +193,13 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		return
 	}
 	list, err := b.st.TerminalQueueFor(uid, session)
-	if err != nil || len(list) == 0 {
+	if err != nil {
 		return
 	}
-	q := list[0]
+	q, found := nextQueued(list)
+	if !found {
+		return
+	}
 	if q.Origin == "companion" && b.workerDelivery(uid, session, q.ID) != nil {
 		if q.State == "queued" {
 			_, _ = b.st.TransitionTerminalQueueFor(uid, session, q, "removed", q.Intent, "Worker messaging permission no longer allows delivery.", b.queueOwner)
@@ -290,7 +310,16 @@ func (b *Broker) stepChatQueue(uid int64, session string) {
 		finish("sent", "")
 		return
 	}
-	rejected := errors.Is(err, ErrACPBusy) || errors.Is(err, ErrACPClosed) ||
+	if errors.Is(err, ErrACPBusy) {
+		// The agent looked free and answered that it was busy: it began a turn
+		// in between. It did not take the message, which therefore still waits
+		// for the turn to end, as it would have had the agent been seen
+		// working. Making it a failure left it for the person to retry, with
+		// everything queued after it, when nothing had gone wrong.
+		finish("queued", "The agent was busy. This goes when its turn ends.")
+		return
+	}
+	rejected := errors.Is(err, ErrACPClosed) ||
 		errors.Is(err, ErrACPModeUnknown) || errors.Is(err, ErrACPImageUnavailable) ||
 		errors.Is(err, ErrACPImagesUnsupported)
 	if rejected {

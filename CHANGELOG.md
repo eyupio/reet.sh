@@ -17,6 +17,14 @@ this file existed releases were described on their GitHub release pages.
   model and effort, including one you left to the agent), Not as chosen
   (naming what differs) or Not checked. A later change made in the session's
   own chat shows too. "Who did each stage" now lists effort.
+- A message waiting for an agent to finish its turn no longer gets stuck
+  behind an earlier message that failed, and an agent that turned out to be
+  busy no longer turns the message into a failure you have to retry: it goes
+  when the turn ends. This is what made Gaffer's next instruction wait until
+  you pressed **Stop and send**.
+- MCP: on an outcome that runs on YOLO, trying a pipeline again, moving it on
+  and approving its merge are refused, as telling its agent, adding pipelines
+  and sending back already were.
 - Factory: a session that started but did not answer in time is taken up when
   you try the pipeline again, instead of a second agent being started in the
   same folder.

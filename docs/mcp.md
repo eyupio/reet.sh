@@ -184,6 +184,12 @@ Six more are the person's own controls and need management scope:
 
 `reet_list_factory_projects` (a read) lists the projects an outcome can run in.
 
+An outcome you started on the Factory page with YOLO has agents that act
+without approvals. Over MCP it can be read, made to wait for approval before
+merging, asked for a report and stopped, and nothing else: telling its agent,
+adding pipelines, sending a stage back, trying a pipeline again, moving it on
+and approving its merge are refused, and are done on the Factory page.
+
 An outcome started over MCP always runs with ordinary approvals, never YOLO,
 without folder trust, with your usual limits of 12 reviews over 24 hours, and
 every pipeline stops at Ready to merge. Those choices stay yours on the Factory

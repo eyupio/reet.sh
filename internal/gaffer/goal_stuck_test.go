@@ -241,3 +241,37 @@ func TestAnApprovalThatExpiredIsSaidToHaveExpiredAndAResumeCarriesOn(t *testing.
 	}
 	finishReview(t, s, g)
 }
+
+// Gaffer's instruction failed: the queue knows it was not delivered and why.
+// The goal says so at once, with that reason, instead of waiting half an hour
+// for progress that an agent which was never told anything will not make.
+func TestAnInstructionThatFailedBringsTheGoalBackWithTheReason(t *testing.T) {
+	s, st, p := settingsFixture(t)
+	worker := &goalWorker{fakeWorker: fakeWorker{st: st}}
+	s.SetWorker(worker)
+	var calls atomic.Int32
+	fake := advancingGoalProvider(&calls)
+	defer fake.Close()
+	_, g := goalFixture(t, s, st, p, fake.URL, 12)
+	workerProgress(t, st, g, 1)
+	s.reviewDueGoals(context.Background())
+	g = finishReview(t, s, g)
+	m, err := st.WorkerMessageFor(p.UserID, "gaffer", g.ConversationID, g.SessionID, g.PendingID)
+	if err != nil || m.State != "queued" {
+		t.Fatalf("the instruction should be queued: %+v %v", m, err)
+	}
+	queue, err := st.TerminalQueueFor(p.UserID, g.SessionID)
+	if err != nil || len(queue) != 1 {
+		t.Fatalf("queue: %+v %v", queue, err)
+	}
+	if ok, err := st.TransitionTerminalQueueFor(p.UserID, g.SessionID, queue[0], "failed", "wait", "The agent's approval mode is unknown.", "test"); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	reviews := calls.Load()
+	g = dueGoal(t, st, g)
+	s.reviewDueGoals(context.Background())
+	row, _ := st.GafferGoalFor(p.UserID, g.ConversationID)
+	if row.State != "needs_user" || !strings.Contains(row.Note, "did not reach the working model") || !strings.Contains(row.Note, "approval mode is unknown") || calls.Load() != reviews {
+		t.Fatalf("a failed instruction: %+v calls=%d", row, calls.Load())
+	}
+}

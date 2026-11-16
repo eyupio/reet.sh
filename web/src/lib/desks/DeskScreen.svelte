@@ -421,7 +421,9 @@
   function noteActions(paneId: string, a: TerminalActions | undefined) { if (actionsFor[paneId] !== a) actionsFor[paneId] = a }
 
   function setActive(paneId: string) {
-    if (activeTab && activeTab.panes[paneId] && paneId !== activePaneId) change({ kind: 'active', tab: activeTab.id, pane: paneId })
+    // Also when the pane is already its tab's focused one but the desk was last worked in another tab: working here
+    // records this tab, so a new window opens on it.
+    if (activeTab && activeTab.panes[paneId] && (paneId !== activePaneId || desk?.doc.active !== activeTab.id)) change({ kind: 'active', tab: activeTab.id, pane: paneId })
   }
   /** Focus moves to a pane: it becomes the tab's active pane and its terminal (or, with none, its menu) takes the keyboard. */
   async function focusPane(paneId: string) {

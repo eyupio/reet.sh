@@ -454,6 +454,15 @@ try {
   // The window keeps its tab across a reload; a new window opens on the tab the desk was last worked in.
   await page.reload()
   await expect(tab('logs')).toHaveAttribute('aria-selected', 'true')
+  // Working in the tab (its one pane was already its focused pane) records it as the tab the desk was last worked in.
+  await pane('pane-logs').locator('.xterm').click()
+  await expect.poll(() => desks.get('desk-prod').doc.active).toBe('tab-logs')
+  // A new window now opens on it.
+  await newWindow()
+  await page.reload()
+  await expect(tab('logs')).toHaveAttribute('aria-selected', 'true')
+  await quiet()
+  reset()
   await openDesk()
   // The tab list holds the tabs and nothing else: each tab's ⋮ button sits outside it.
   const owned = await page.getByRole('tablist', { name: 'Tabs' }).getAttribute('aria-owns')

@@ -249,3 +249,33 @@ func TestCleanUpReadsTheProjectAgainBeforeRemoving(t *testing.T) {
 		})
 	}
 }
+
+// The sweep asks a machine that can to fetch the default branch first, so a
+// pull request merged on GitHub since the clone last fetched is seen; a machine
+// that cannot is asked as before and never sent the field it would refuse.
+func TestTemporaryProjectSweepAsksToFetchOnlyWhereTheMachineCan(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		caps terminalproto.Capabilities
+		want bool
+	}{
+		{"can fetch", cloneFetchCaps(), true},
+		{"cannot fetch", cloneRemoveCaps(), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := browseAPIFixture(t, tc.caps)
+			f.temporaryProject(t)
+			f.machineClone(cleanClone(), terminalproto.RepoCloneRemoved{Dir: siteCloneDir})
+			f.srv.s.sweepTemporaryProjects(later())
+			sent := f.statusesSent()
+			if len(sent) == 0 {
+				t.Fatal("the machine was not asked")
+			}
+			for _, s := range sent {
+				if s.Fetch != tc.want {
+					t.Fatalf("status %+v, want fetch %v", s, tc.want)
+				}
+			}
+		})
+	}
+}

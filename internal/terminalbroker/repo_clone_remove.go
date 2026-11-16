@@ -13,6 +13,10 @@ var (
 	// status. The machine bounds its look at 10 seconds and its connector
 	// answers by 12.
 	RepoCloneStatusCallTimeout = 15 * time.Second
+	// RepoCloneStatusFetchCallTimeout is the same for a status that asks the
+	// machine to fetch from GitHub first: 10 seconds of looking and up to 20 of
+	// fetching, answered by 32.
+	RepoCloneStatusFetchCallTimeout = 40 * time.Second
 	// RepoCloneRemoveCallTimeout is the controller's deadline for a clone
 	// remove. The machine's connector answers by 55 seconds; a delete that
 	// takes longer goes on there and is answered timed_out.
@@ -35,7 +39,14 @@ func (b *Broker) CloneStatus(ctx context.Context, uid int64, agent string, req t
 	if !caps.RepoCloneRemove {
 		return terminalproto.RepoCloneState{}, ErrRepoCloneRemoveUnsupported
 	}
-	body, err := p.ask(ctx, req, RepoCloneStatusCallTimeout)
+	limit := RepoCloneStatusCallTimeout
+	if req.Fetch {
+		if !caps.RepoCloneFetch {
+			return terminalproto.RepoCloneState{}, ErrRepoCloneRemoveUnsupported
+		}
+		limit = RepoCloneStatusFetchCallTimeout
+	}
+	body, err := p.ask(ctx, req, limit)
 	if err != nil {
 		return terminalproto.RepoCloneState{}, err
 	}

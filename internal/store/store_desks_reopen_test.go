@@ -233,3 +233,62 @@ func TestForgetMachineDropsPaneReports(t *testing.T) {
 		t.Fatalf("another machine's report lost: %q %v", dir, ok)
 	}
 }
+
+// A new desk, or a copy of one, cannot carry a far-future dirAt either.
+func TestCreateCapsFutureDirAt(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	sess := createTerminal(t, s, uid, a, c)
+	doc := deskDoc(a.ID, sess.ID)
+	p := doc.Tabs[0].Panes["p1"]
+	p.Dir, p.DirAt = "/frozen", 1<<60
+	doc.Tabs[0].Panes["p1"] = p
+	before := now()
+	d, err := s.CreateDeskFor(uid, Desk{Name: "A", Doc: doc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := d.Doc.Tabs[0].Panes["p1"].DirAt; at > now() || at < before {
+		t.Fatalf("dirAt stored as %d", at)
+	}
+	stored, err := s.DeskFor(uid, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := stored.Doc.Tabs[0].Panes["p1"].DirAt; at > now() {
+		t.Fatalf("dirAt read back as %d", at)
+	}
+	// A copy goes through CreateDeskFor with the source's document.
+	cp := stored.Doc
+	q := cp.Tabs[0].Panes["p1"]
+	q.Session, q.DirAt = "", 1<<60
+	cp.Tabs[0].Panes["p1"] = q
+	got, err := s.CreateDeskFor(uid, Desk{Name: "B", Doc: cp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at := got.Doc.Tabs[0].Panes["p1"].DirAt; at > now() {
+		t.Fatalf("copy carried dirAt %d", at)
+	}
+}
+
+// A desk stored before start-up commands were restricted still loads and
+// lists, with the control characters removed.
+func TestDeskLoadsWithOldControlCharacters(t *testing.T) {
+	s := newStore(t)
+	uid := projectUser(t, s, "a")
+	d := mustDesk(t, s, uid, Desk{Name: "A", Doc: deskDoc("m1", "")})
+	raw := `{"tabs":[{"id":"t1","name":"main","root":{"pane":"p1"},"active":"p1","panes":{"p1":{"id":"p1","kind":"shell","host":"m1","start":"ls\n\u001b[2Jrm"}}}]}`
+	if _, err := s.db.Exec(`UPDATE desks SET doc=? WHERE id=?`, raw, d.ID); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListDesksFor(uid)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list: %v %d", err, len(list))
+	}
+	if got := list[0].Doc.Tabs[0].Panes["p1"].Start; got != "ls[2Jrm" {
+		t.Fatalf("start %q", got)
+	}
+	if _, err := s.DeskFor(uid, d.ID); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -10,6 +10,8 @@ import (
 	"io"
 	"math"
 	"sort"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -87,6 +89,36 @@ func Clamp(r float64) float64 {
 
 // Parse decodes a document strictly, clamps split ratios and validates it.
 func Parse(data []byte) (Doc, error) {
+	return parse(data, false)
+}
+
+// ParseStored is Parse for a document already in the store: names and
+// start-up commands written before control characters were refused have them
+// removed, so an old desk still loads. Every other rule still applies.
+func ParseStored(data []byte) (Doc, error) {
+	return parse(data, true)
+}
+
+// unsafeRune reports a character that can make visible text differ from what
+// is sent to a shell: control characters (C0, DEL, C1), line and paragraph
+// separators, and bidirectional overrides and isolates.
+func unsafeRune(r rune) bool {
+	return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' ||
+		(r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
+}
+
+func hasUnsafe(s string) bool { return strings.IndexFunc(s, unsafeRune) >= 0 }
+
+func stripUnsafe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unsafeRune(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+func parse(data []byte, strip bool) (Doc, error) {
 	var d Doc
 	if len(data) > MaxDocBytes {
 		return Doc{}, invalid("document over %d bytes", MaxDocBytes)
@@ -106,6 +138,13 @@ func Parse(data []byte) (Doc, error) {
 		clampTree(d.Tabs[i].Root)
 		if d.Tabs[i].Panes == nil {
 			d.Tabs[i].Panes = map[string]Pane{}
+		}
+		if strip {
+			d.Tabs[i].Name = stripUnsafe(d.Tabs[i].Name)
+			for id, p := range d.Tabs[i].Panes {
+				p.Name, p.Start = stripUnsafe(p.Name), stripUnsafe(p.Start)
+				d.Tabs[i].Panes[id] = p
+			}
 		}
 	}
 	if err := d.Validate(); err != nil {
@@ -161,6 +200,9 @@ func (t *Tab) validate(sessions, paneIDs map[string]bool) error {
 	if utf8.RuneCountInString(t.Name) > MaxName {
 		return invalid("tab name over %d characters", MaxName)
 	}
+	if hasUnsafe(t.Name) {
+		return invalid("tab name has a control character")
+	}
 	if !validColour(t.Colour) {
 		return invalid("tab colour %q", t.Colour)
 	}
@@ -190,6 +232,9 @@ func (t *Tab) validate(sessions, paneIDs map[string]bool) error {
 		if utf8.RuneCountInString(p.Name) > MaxName {
 			return invalid("pane name over %d characters", MaxName)
 		}
+		if hasUnsafe(p.Name) {
+			return invalid("pane name has a control character")
+		}
 		if !validColour(p.Colour) {
 			return invalid("pane colour %q", p.Colour)
 		}
@@ -198,6 +243,9 @@ func (t *Tab) validate(sessions, paneIDs map[string]bool) error {
 		}
 		if utf8.RuneCountInString(p.Start) > MaxStart {
 			return invalid("start-up command over %d characters", MaxStart)
+		}
+		if hasUnsafe(p.Start) {
+			return invalid("start-up command has a control or direction-changing character")
 		}
 		if p.Session != "" {
 			if sessions[p.Session] {

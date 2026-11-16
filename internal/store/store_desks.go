@@ -115,7 +115,7 @@ func scanDesk(r rowScanner) (Desk, error) {
 	if err := r.Scan(&d.ID, &d.Name, &d.Colour, &d.Template, &d.Position, &doc, &d.Schema, &d.CreatedAt, &d.UpdatedAt, &d.Version); err != nil {
 		return Desk{}, err
 	}
-	parsed, err := desk.Parse([]byte(doc))
+	parsed, err := desk.ParseStored([]byte(doc))
 	if err != nil {
 		return Desk{}, fmt.Errorf("stored desk %s: %w", d.ID, err)
 	}
@@ -180,20 +180,21 @@ func (s *Store) CreateDeskFor(uid int64, d Desk) (Desk, error) {
 		}
 		t := now()
 		d.Position, d.CreatedAt, d.UpdatedAt, d.Version = next, t, t, 1
+		capDirTimes(&d.Doc, t)
 		reports, err := adoptLiveDirsTx(tx, uid, &d.Doc)
 		if err != nil {
 			return err
 		}
-		if len(reports) > 0 {
-			b, err := json.Marshal(d.Doc)
-			if err != nil {
-				return err
-			}
-			if len(b) > desk.MaxDocBytes {
-				return deskInvalid("document over %d bytes", desk.MaxDocBytes)
-			}
-			raw = string(b)
+		// The cap and the adopted folders change the document after it was
+		// normalised, so store what is now in d.Doc.
+		b, err := json.Marshal(d.Doc)
+		if err != nil {
+			return err
 		}
+		if len(b) > desk.MaxDocBytes {
+			return deskInvalid("document over %d bytes", desk.MaxDocBytes)
+		}
+		raw = string(b)
 		if _, err := tx.Exec(`INSERT INTO desks(id,user_id,name,name_key,colour,template,position,doc,schema,created_at,updated_at,version) VALUES(?,?,?,?,?,?,?,?,?,?,?,1)`,
 			d.ID, uid, d.Name, nameKey(d.Name), d.Colour, d.Template, d.Position, raw, d.Schema, t, t); err != nil {
 			return deskConflict(err)

@@ -92,6 +92,79 @@ func TestValidate(t *testing.T) {
 			p.Start = strings.Repeat("x", 2001)
 			d.Tabs[0].Panes["p1"] = p
 		}), false},
+		{"start newline", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls\nrm -rf x"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start carriage return", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls\rrm"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start ESC", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls\x1b[2J"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start ctrl-C", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls\x03"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start DEL", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls\x7f"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start tab", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls\tx"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start C1 control", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls\u009bx"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start line separator", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls\u2028rm"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start paragraph separator", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls\u2029rm"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start bidi override", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls \u202e txt.exe"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start bidi isolate", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = "ls \u2066x"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"start ordinary", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Start = `git log --oneline | head -5 && echo "it's done" ; cd ~/café/naïve`
+			d.Tabs[0].Panes["p1"] = p
+		}), true},
+		{"tab name newline", mut(func(d *Doc) { d.Tabs[0].Name = "a\nb" }), false},
+		{"tab name ESC", mut(func(d *Doc) { d.Tabs[0].Name = "a\x1bb" }), false},
+		{"tab name bidi override", mut(func(d *Doc) { d.Tabs[0].Name = "a\u202eb" }), false},
+		{"pane name newline", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Name = "a\nb"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"pane name line separator", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Name = "a\u2028b"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
 		{"duplicate tab id", mut(func(d *Doc) { d.Tabs = append(d.Tabs, Tab{ID: "t1", Panes: map[string]Pane{}}) }), false},
 		{"pane id in two tabs", mut(func(d *Doc) {
 			d.Tabs = append(d.Tabs, Tab{ID: "t2", Root: leaf("p1"), Panes: map[string]Pane{"p1": pane("p1")}})
@@ -226,5 +299,30 @@ func TestParseNormalisesEmpties(t *testing.T) {
 	}
 	if raw, _ := json.Marshal(d); !strings.Contains(string(raw), `"panes":{}`) {
 		t.Fatal(string(raw))
+	}
+}
+
+// A stored document written before the rule keeps loading, with the
+// offending characters removed.
+func TestParseStoredStripsUnsafeText(t *testing.T) {
+	d := oneTab()
+	p := d.Tabs[0].Panes["p1"]
+	p.Start, p.Name = "ls\n\x1b[2Jrm\u202e x", "a\x03b"
+	d.Tabs[0].Panes["p1"] = p
+	d.Tabs[0].Name = "t\u2028x"
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(raw); err == nil {
+		t.Fatal("Parse accepted unsafe text")
+	}
+	got, err := ParseStored(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gp := got.Tabs[0].Panes["p1"]
+	if gp.Start != "ls[2Jrm x" || gp.Name != "ab" || got.Tabs[0].Name != "tx" {
+		t.Fatalf("not stripped: %q %q %q", gp.Start, gp.Name, got.Tabs[0].Name)
 	}
 }

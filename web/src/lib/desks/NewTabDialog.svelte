@@ -28,8 +28,10 @@
   let dialog = $state<HTMLDialogElement>()
   const titleId = $props.id(), browseId = crypto.randomUUID()
   const usable = $derived(machines.filter(m => m.capabilities?.terminalEnabled !== false))
+  // A fixed machine that cannot open a terminal is never swapped for another one: the dialog says so instead.
+  const unavailable = $derived(fixed && !usable.some(m => m.agentId === startAgent))
   // svelte-ignore state_referenced_locally
-  let agentId = $state(usable.some(m => m.agentId === startAgent) ? startAgent : (usable.find(m => m.ready)?.agentId ?? usable[0]?.agentId ?? ''))
+  let agentId = $state(usable.some(m => m.agentId === startAgent) ? startAgent : fixed ? '' : (usable.find(m => m.ready)?.agentId ?? usable[0]?.agentId ?? ''))
   // svelte-ignore state_referenced_locally
   let dir = $state(agentId === startAgent ? startDir : '')
   // svelte-ignore state_referenced_locally
@@ -44,7 +46,7 @@
   function close() { if (busy) return; dialog?.close(); onclose() }
   async function submit(event: SubmitEvent) {
     event.preventDefault()
-    if (busy || !machine) return
+    if (busy || !machine || unavailable) return
     const folder = dir.trim()
     const problem = folder ? validateFolderInput(folder) : null
     if (problem) { error = problem; return }
@@ -63,7 +65,9 @@
   <form class="box" data-shell-card onsubmit={submit}>
     <h2 id={titleId}>{title}</h2>
     <p data-shell-aside>{aside}</p>
-    {#if usable.length === 0}
+    {#if unavailable}
+      <p class="bad" role="alert">This pane’s machine can’t open a terminal just now.</p>
+    {:else if usable.length === 0}
       <p class="bad" role="alert">No machine can open a terminal yet. Add one on Machines.</p>
     {:else}
       <label class="field"><span>Machine</span>
@@ -79,7 +83,7 @@
     {#if error}<p class="bad" role="alert">{error}</p>{/if}
     <div class="actions" data-shell-foot>
       <button type="button" class="btn quiet" onclick={close}>Cancel</button>
-      <button type="submit" class="btn primary" disabled={!machine || busy} aria-busy={busy}>{busy ? busyLabel : submitLabel}</button>
+      <button type="submit" class="btn primary" disabled={!machine || unavailable || busy} aria-busy={busy}>{busy ? busyLabel : submitLabel}</button>
     </div>
   </form>
 </dialog>

@@ -22,6 +22,8 @@ export type Change =
   | { kind: 'zoom'; tab: string; pane: string }
   | { kind: 'active'; tab: string; pane?: string }
   | { kind: 'start'; tab: string; pane: string; start: string }
+  | { kind: 'setSession'; tab: string; pane: string; session: string }
+  | { kind: 'setPlace'; tab: string; pane: string; host: string; dir: string }
   | { kind: 'renameDesk'; name: string }
   | { kind: 'colourDesk'; colour: ProjectColour }
 
@@ -90,6 +92,15 @@ function applyChange(desk: Desk, c: Change): Desk | null {
       return colourOk(c.colour) ? withPane(c.tab, c.pane, (t, p) => editPane(t, p, { colour: c.colour })) : null
     case 'start':
       return typeof c.start === 'string' && [...c.start].length <= MAX_START ? withPane(c.tab, c.pane, (t, p) => editPane(t, p, { start: c.start })) : null
+    case 'setSession':
+      // A session is in one pane only: one this desk already holds elsewhere is not bound a second time.
+      if (typeof c.session !== 'string' || (c.session && doc.tabs.some(t => Object.values(t.panes).some(p => p.session === c.session && !(t.id === c.tab && p.id === c.pane))))) return null
+      return withPane(c.tab, c.pane, (t, p) => editPane(t, p, { session: c.session }))
+    case 'setPlace':
+      // The folder is stamped newer than the one it replaces, so it wins over the machine's last report.
+      return typeof c.host === 'string' && c.host && typeof c.dir === 'string'
+        ? withPane(c.tab, c.pane, (t, p) => editPane(t, p, { host: c.host, dir: c.dir, dirAt: Math.max(Date.now(), p.dirAt + 1) }))
+        : null
     case 'ratio':
       return withTab(c.tab, t => setRatio(t, c.path, c.ratio))
     case 'addTab': {

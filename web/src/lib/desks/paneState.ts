@@ -5,7 +5,7 @@
 import type { TerminalSession } from '../terminal/api'
 import type { Pane } from './tree'
 
-export type PaneState = 'live' | 'reconnecting' | 'elsewhere' | 'ended' | 'lost' | 'agentEnded' | 'folderGone' | 'folderUnavailable' | 'limit' | 'machineGone' | 'empty'
+export type PaneState = 'live' | 'reconnecting' | 'elsewhere' | 'ended' | 'lost' | 'agentEnded' | 'agentLost' | 'folderGone' | 'folderUnavailable' | 'limit' | 'machineGone' | 'empty'
 export type PaneActionKind = 'reopen' | 'reopenHome' | 'continue' | 'start' | 'again' | 'takeover' | 'retry' | 'chooseFolder' | 'chooseMachine' | 'close'
 export type PaneAction = { label: string; kind: PaneActionKind }
 /** Why the last reopen of this pane was refused, kept by the screen until the next try. `offline`: the machine did not
@@ -20,17 +20,19 @@ export const isRunning = (s: Pick<TerminalSession, 'state'> | undefined) => !!s 
  *  is live, reconnecting or open elsewhere whatever the machine's version; an older machine only gets a note (paneNote). */
 export function paneState(pane: Pane, session: TerminalSession | undefined, machine: { online: boolean; deskShell?: boolean } | undefined,
   attach: { conflict: boolean; down: boolean }, failure?: PaneFailure): PaneState {
-  if (!machine || failure === 'machineGone') return 'machineGone'
+  if (!machine) return 'machineGone'
+  // A running session wins over a failure kept from an earlier try: the pane has a shell again.
   if (pane.session && isRunning(session)) {
     if (attach.conflict) return 'elsewhere'
     if (attach.down || !machine.online) return 'reconnecting'
     return 'live'
   }
+  if (failure === 'machineGone') return 'machineGone'
   if (failure === 'offline') return 'reconnecting'
   if (failure === 'machineLimit' || failure === 'accountLimit') return 'limit'
   if (failure) return failure
   if (!pane.session) return 'empty'
-  if (pane.kind === 'agent' || session?.tool) return 'agentEnded'
+  if (pane.kind === 'agent' || session?.tool) return session?.state === 'lost' ? 'agentLost' : 'agentEnded'
   if (session?.state === 'lost') return 'lost'
   return 'ended'
 }
@@ -58,6 +60,9 @@ type CardRow = { tag: string; heading: (c: CardContext) => string; body: (c: Car
 const where = (c: CardContext) => c.host || 'That machine'
 const reopenHere = (c: CardContext): PaneAction[] => [{ label: `Reopen in ${c.dir}`, kind: 'reopen' }, { label: 'Close pane', kind: 'close' }]
 const history = (c: CardContext) => `It was in ${c.dir}. A new shell opens there with this pane's command history.`
+// An agent's pane offers the agent's own resume only where it is on offer (canContinue), and a plain shell always.
+const agentBody = (c: CardContext) => (c.canContinue ? `Continue the same conversation, or start a plain shell in ${c.dir}.` : `Start a plain shell in ${c.dir}.`)
+const agentActions = (c: CardContext): PaneAction[] => [...(c.canContinue ? [{ label: 'Continue', kind: 'continue' } as PaneAction] : []), { label: 'Start a shell here', kind: 'reopen' }]
 const elsewhereFolder = (): PaneAction[] => [{ label: 'Choose a folder', kind: 'chooseFolder' }, { label: 'Reopen in home', kind: 'reopenHome' }]
 
 /** Every card, by state: the component draws from it and the unit test reads it, so the two cannot drift apart. */
@@ -75,12 +80,8 @@ export const PANE_CARDS: Record<Exclude<PaneState, 'live'>, CardRow> = {
   machineGone: { tag: 'Machine removed', heading: () => 'This machine was removed from reet.', body: () => '', actions: () => [{ label: 'Choose a machine', kind: 'chooseMachine' }, { label: 'Close pane', kind: 'close' }] },
   reconnecting: { tag: 'Machine offline', heading: c => `${where(c)} is not reporting.`, body: () => 'The shell may still be running there. reet keeps trying; nothing you typed is resent.', actions: () => [{ label: 'Retry now', kind: 'retry' }] },
   elsewhere: { tag: 'Open elsewhere', heading: () => 'This terminal is open in another window.', body: () => 'A terminal has one keyboard at a time.', actions: () => [{ label: 'Use it here', kind: 'takeover' }] },
-  agentEnded: {
-    tag: 'Agent ended',
-    heading: c => `${c.agent} finished in this pane.`,
-    body: c => `Continue the same conversation, or start a plain shell in ${c.dir}.`,
-    actions: c => [...(c.canContinue ? [{ label: 'Continue', kind: 'continue' } as PaneAction] : []), { label: 'Start a shell here', kind: 'reopen' }],
-  },
+  agentEnded: { tag: 'Agent ended', heading: c => `${c.agent} finished in this pane.`, body: agentBody, actions: agentActions },
+  agentLost: { tag: 'Lost', heading: c => `${where(c)} restarted, so this shell was lost.`, body: agentBody, actions: agentActions },
   empty: { tag: 'Not started', heading: c => `${where(c)} · ${c.dir}`, body: () => '', actions: () => [{ label: 'Start', kind: 'start' }] },
 }
 

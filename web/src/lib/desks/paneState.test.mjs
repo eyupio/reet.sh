@@ -22,6 +22,9 @@ test('the state of each kind of pane', () => {
     ['a session no longer listed', [pane(), undefined, online, fine], 'ended'],
     ['a lost shell', [pane(), session({ state: 'lost' }), online, fine], 'lost'],
     ['an ended agent', [pane({ kind: 'agent' }), session({ state: 'exited', tool: 'claude' }), online, fine], 'agentEnded'],
+    ['a lost agent', [pane({ kind: 'agent' }), session({ state: 'lost', tool: 'claude' }), online, fine], 'agentLost'],
+    ['a running shell wins over a failure kept from before', [pane(), session(), online, fine, 'machineGone'], 'live'],
+    ['a running shell wins over a folder failure kept from before', [pane(), session(), online, fine, 'folderGone'], 'live'],
     ['an agent no longer listed', [pane({ kind: 'agent' }), undefined, online, fine], 'agentEnded'],
     ['a reopen found the folder gone', [pane(), session({ state: 'exited' }), online, fine, 'folderGone'], 'folderGone'],
     ['a reopen could not open a shell in the folder', [pane(), session({ state: 'lost' }), online, fine, 'folderUnavailable'], 'folderUnavailable'],
@@ -50,7 +53,9 @@ test('each card has its tag, heading and main action', () => {
     ['reconnecting', ctx(), 'Machine offline', 'studio is not reporting.', 'The shell may still be running there. reet keeps trying; nothing you typed is resent.', ['Retry now']],
     ['elsewhere', ctx(), 'Open elsewhere', 'This terminal is open in another window.', 'A terminal has one keyboard at a time.', ['Use it here']],
     ['agentEnded', ctx({ canContinue: true, dir: '~/app' }), 'Agent ended', 'Claude Code finished in this pane.', 'Continue the same conversation, or start a plain shell in ~/app.', ['Continue', 'Start a shell here']],
-    ['agentEnded', ctx({ dir: '~/app' }), 'Agent ended', 'Claude Code finished in this pane.', 'Continue the same conversation, or start a plain shell in ~/app.', ['Start a shell here']],
+    ['agentEnded', ctx({ dir: '~/app' }), 'Agent ended', 'Claude Code finished in this pane.', 'Start a plain shell in ~/app.', ['Start a shell here']],
+    ['agentLost', ctx({ canContinue: true, dir: '~/app' }), 'Lost', 'studio restarted, so this shell was lost.', 'Continue the same conversation, or start a plain shell in ~/app.', ['Continue', 'Start a shell here']],
+    ['agentLost', ctx({ dir: '~/app' }), 'Lost', 'studio restarted, so this shell was lost.', 'Start a plain shell in ~/app.', ['Start a shell here']],
     ['empty', ctx(), 'Not started', 'studio · ~/PROD_reet', '', ['Start']],
   ]
   for (const [state, c, tag, heading, body, actions] of rows) {

@@ -9,14 +9,16 @@
   import DeskMenu from './DeskMenu.svelte'
   import { agentName, dirLabel, isRunning, paneCard, paneNote, paneState, type PaneActionKind, type PaneFailure, type PaneState } from './paneState'
   import PaneStateCard from './PaneStateCard.svelte'
+  import StartupBar from './StartupBar.svelte'
+  import { shell } from '../dialogShell'
   import { leaves, MAX_PANES, type Pane, type Tab } from './tree'
 
   // One pane of a desk tab: a one-line header washed in the pane's colour (name, machine, folder, state and a menu) over
   // either the terminal or a card that says what happened and offers its actions (PaneStateCard). A pane never shows a
   // blank terminal. Reopening is the desk's to do (it owns the desk's version); the pane only asks.
   // The terminal draws no chrome of its own: the desk draws one toolbar for the focused pane from its `actions`.
-  let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [],
-    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab }: {
+  let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [], startup = '',
+    onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onstartcommand, onstartup }: {
     tab: Tab
     pane: Pane
     session: TerminalSession | undefined
@@ -58,6 +60,12 @@
     onzoom?: () => void
     onswap?: (other: string) => void
     onmovetab?: (tab: string) => void
+    /** The start-up command to offer above the terminal: set only after this pane was reopened or started here. */
+    startup?: string
+    /** Saves the pane's start-up command ('' removes it). */
+    onstartcommand?: (start: string) => void
+    /** The offer is done with: `ran` once Run typed it, false for Dismiss. */
+    onstartup?: (ran: boolean) => void
   } = $props()
 
   let terminal = $state<TerminalPane>()
@@ -91,9 +99,9 @@
   const card = $derived(paneCard(shown, { host, dir, agent: agentName(session?.tool), perMachine: SESSIONS_PER_MACHINE, perAccount: SESSIONS_PER_ACCOUNT, accountLimit: failure === 'accountLimit', canContinue }))
   const note = $derived(paneNote(pane, shown, machine ? { deskShell } : undefined))
   const status = $derived(session && mounted ? sessionStatus(session) : undefined)
-  const WORDS: Record<PaneState, string> = { live: 'Running', reconnecting: 'Reconnecting', elsewhere: 'Elsewhere', ended: 'Ended', lost: 'Lost', agentEnded: 'Ended', folderGone: 'Folder gone', folderUnavailable: 'Folder unavailable', limit: 'At the limit', machineGone: 'Machine removed', empty: 'Not started' }
+  const WORDS: Record<PaneState, string> = { live: 'Running', reconnecting: 'Reconnecting', elsewhere: 'Elsewhere', ended: 'Ended', lost: 'Lost', agentEnded: 'Ended', agentLost: 'Lost', folderGone: 'Folder gone', folderUnavailable: 'Folder unavailable', limit: 'At the limit', machineGone: 'Machine removed', empty: 'Not started' }
   const word = $derived(shown === 'live' && status && !(status === 'working' && !session?.tool) ? statusLabel(status) : WORDS[shown])
-  const tone = $derived(shown === 'lost' || shown === 'machineGone' ? 'bad' : shown === 'folderGone' || shown === 'folderUnavailable' || shown === 'limit' ? 'warn' : shown === 'live' ? 'good' : '')
+  const tone = $derived(shown === 'lost' || shown === 'agentLost' || shown === 'machineGone' ? 'bad' : shown === 'folderGone' || shown === 'folderUnavailable' || shown === 'limit' ? 'warn' : shown === 'live' ? 'good' : '')
 
   // Rename in place, from the menu or the terminal's own Manage menu.
   let editing = $state(false), draft = $state(''), input = $state<HTMLInputElement>()
@@ -117,6 +125,25 @@
   // A pane can move to another tab that has a pane to split and room for one more.
   const movable = $derived(tabs.filter(t => t.id !== tab.id && leaves(t.root).length > 0 && leaves(t.root).length < MAX_PANES))
   const paneName = (p: Pane) => p.name || 'Untitled'
+  // Run types the command and Enter once, through the terminal's own input, and only into a connected terminal.
+  function runStartup() { if (startup && terminal?.type(`${startup}\r`)) onstartup?.(true) }
+
+  // The start-up command dialog: one field, Save and Remove.
+  const MAX_START = 2000
+  let startOpen = $state(false), startDraft = $state(''), startError = $state(''), startDialog = $state<HTMLDialogElement>(), startInput = $state<HTMLInputElement>()
+  const startId = $props.id()
+  async function openStart() { startDraft = pane.start; startError = ''; startOpen = true; await tick(); startDialog?.showModal(); startInput?.select() }
+  function closeStart() { startDialog?.close(); startOpen = false; section?.querySelector<HTMLElement>('.more')?.focus() }
+  function saveStart(event: SubmitEvent) {
+    event.preventDefault()
+    const next = startDraft.trim()
+    if ([...next].length > MAX_START) { startError = `Keep it to ${MAX_START} characters.`; return }
+    if (/[\r\n]/.test(next)) { startError = 'Keep it to one line.'; return }
+    if (next !== pane.start) onstartcommand?.(next)
+    closeStart()
+  }
+  function removeStart() { if (pane.start) onstartcommand?.(''); closeStart() }
+
   function act(kind: PaneActionKind) {
     if (kind === 'takeover') terminal?.takeOver()
     else if (kind === 'retry' && mounted) terminal?.retryNow()
@@ -149,6 +176,7 @@
       <TerminalPane bind:this={terminal} bind:actions chrome={false} {session} {host} user={machine?.capabilities?.osUser ?? ''} {visible} holdSize={hold}
         historySupported={machine?.capabilities?.commandHistory ?? false} uploadsSupported={machine?.capabilities?.uploads ?? false} uploadsOff={machine?.capabilities?.uploadsOff ?? false}
         onconnection={next => (connection = next)} />
+      {#if startup}<StartupBar command={startup} ready={connection === 'live'} onrun={runStartup} ondismiss={() => onstartup?.(false)} />{/if}
       {#if note}<p class="note">{note}</p>{/if}
       {#if card}<PaneStateCard {card} {dir} overlay onaction={act} />{/if}
     {:else if card}
@@ -179,12 +207,41 @@
       <button type="button" role="menuitem" aria-haspopup="menu" disabled={swappable.length === 0} onclick={() => openList('swap')}>Swap with…</button>
       <button type="button" role="menuitem" aria-haspopup="menu" disabled={movable.length === 0} onclick={() => openList('move')}>Move to tab…</button>
     {/if}
+    <button type="button" role="menuitem" aria-haspopup="dialog" onclick={() => { closeMenu(false); void openStart() }}>Start-up command…</button>
     {#if session}<a role="menuitem" href={sessionHref(session)}>Open in Sessions</a>{/if}
     <button type="button" role="menuitem" class="danger" onclick={() => { closeMenu(false); onclose() }}>Close</button>
   </DeskMenu>
 {/if}
 
+{#if startOpen}
+  <dialog bind:this={startDialog} class="startup" use:shell={{ sheet: 'bottom' }} aria-labelledby={startId} oncancel={event => { event.preventDefault(); closeStart() }}>
+    <form class="box" data-shell-card onsubmit={saveStart}>
+      <h2 id={startId}>Start-up command</h2>
+      <label class="field"><span>Command to offer when this pane is reopened</span>
+        <input bind:this={startInput} bind:value={startDraft} maxlength={MAX_START} spellcheck="false" autocomplete="off" aria-invalid={startError ? 'true' : undefined} /></label>
+      <p class="hint">After a reopen it is shown above the terminal with Run. reet never runs it on its own.</p>
+      {#if startError}<p class="bad" role="alert">{startError}</p>{/if}
+      <div class="actions" data-shell-foot>
+        {#if pane.start}<button type="button" class="btn quiet" onclick={removeStart}>Remove</button>{/if}
+        <span class="gap"></span>
+        <button type="button" class="btn quiet" onclick={closeStart}>Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+{/if}
+
 <style>
+  .startup { width: min(480px, calc(100vw - 32px)); max-width: none; padding: 0; border: 0; background: transparent; color: var(--ink); }
+  .startup::backdrop { background: var(--scrim); }
+  .startup .box { display: flex; flex-direction: column; gap: 12px; padding: 24px; background: var(--card-raised); border: 1px solid var(--line-strong); border-radius: 16px; box-shadow: var(--shadow); }
+  .startup h2 { margin: 0; font: 600 1.5rem/1.15 var(--serif); letter-spacing: -0.02em; }
+  .startup .field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+  .startup input { font-family: var(--mono); }
+  .startup .hint { margin: 0; color: var(--muted); font-size: 14px; }
+  .startup .bad { margin: 0; color: var(--bad); }
+  .startup .actions { display: flex; gap: 8px; margin-top: 8px; }
+  .startup .gap { flex: 1; }
   .desk-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .desk-pane.focused { border-color: var(--accent-text); box-shadow: 0 0 0 1px var(--accent-text); }
   /* The header carries the pane's colour as a wash (the mock-up's tinted bar); with no colour it is the plain card. */

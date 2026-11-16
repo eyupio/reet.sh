@@ -87,6 +87,49 @@ test('apply keeps the tab and pane limits', () => {
   assert.deepEqual(one.doc.tabs.map(t => t.id), ['t2', 't1'])
 })
 
+test('setSession binds a session to a pane, once across the desk', () => {
+  const d = deskOf(1, [tabOf('t1', 'a', 'b'), tabOf('t2', 'c')])
+  const bound = apply(d, { kind: 'setSession', tab: 't1', pane: 'a', session: 's9' })
+  assert.equal(bound.doc.tabs[0].panes.a.session, 's9')
+  assert.equal(d.doc.tabs[0].panes.a.session, '')
+  // Binding the same session again to the same pane is fine; to another pane anywhere on the desk it is not.
+  assert.equal(apply(bound, { kind: 'setSession', tab: 't1', pane: 'a', session: 's9' }).doc.tabs[0].panes.a.session, 's9')
+  assert.equal(apply(bound, { kind: 'setSession', tab: 't1', pane: 'b', session: 's9' }), null)
+  assert.equal(apply(bound, { kind: 'setSession', tab: 't2', pane: 'c', session: 's9' }), null)
+  assert.equal(apply(bound, { kind: 'setSession', tab: 't1', pane: 'a', session: '' }).doc.tabs[0].panes.a.session, '')
+  assert.equal(apply(d, { kind: 'setSession', tab: 't1', pane: 'gone', session: 's9' }), null)
+})
+
+test('setPlace gives a pane a machine and a folder, stamped newer', () => {
+  const d = deskOf(1, [tabOf('t1', 'a')])
+  d.doc.tabs[0].panes.a.dirAt = Date.now() + 60_000
+  const moved = apply(d, { kind: 'setPlace', tab: 't1', pane: 'a', host: 'm2', dir: '/home/dev/new' })
+  assert.equal(moved.doc.tabs[0].panes.a.host, 'm2')
+  assert.equal(moved.doc.tabs[0].panes.a.dir, '/home/dev/new')
+  assert.equal(moved.doc.tabs[0].panes.a.dirAt, d.doc.tabs[0].panes.a.dirAt + 1)
+  assert.equal(d.doc.tabs[0].panes.a.host, 'm1')
+  assert.equal(apply(d, { kind: 'setPlace', tab: 't1', pane: 'a', host: '', dir: '/x' }), null)
+  assert.equal(apply(d, { kind: 'setPlace', tab: 't1', pane: 'zz', host: 'm2', dir: '/x' }), null)
+})
+
+test('setSession and setPlace are saved, and replayed onto a newer desk', async () => {
+  const h = harness(deskOf(1))
+  await h.a.ready
+  h.a.change({ kind: 'setPlace', tab: 't1', pane: 'a', host: 'm2', dir: '/srv' })
+  h.a.change({ kind: 'setSession', tab: 't1', pane: 'b', session: 's5' })
+  const newer = deskOf(2, [tabOf('t1', 'a', 'b')])
+  newer.name = 'Elsewhere'
+  h.setServer(newer)
+  await h.a.refresh()
+  await h.a.flush()
+  assert.equal(h.saves.length, 1)
+  assert.equal(h.saves[0].expect, 2)
+  assert.equal(h.saves[0].desk.name, 'Elsewhere')
+  assert.equal(h.saves[0].desk.doc.tabs[0].panes.a.host, 'm2')
+  assert.equal(h.saves[0].desk.doc.tabs[0].panes.a.dir, '/srv')
+  assert.equal(h.saves[0].desk.doc.tabs[0].panes.b.session, 's5')
+})
+
 test('debounces three changes into one save', async () => {
   const h = harness(deskOf(3))
   await h.a.ready

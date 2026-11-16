@@ -3,8 +3,9 @@
   import { projectColourHex, type ProjectColour } from '../projectColour'
   import { sessionStatus } from '../sessionStatus'
   import { createTerminal, endTerminal, renameTerminal, SESSIONS_PER_ACCOUNT, SESSIONS_PER_MACHINE, TerminalError, terminalClosed, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { canContinue, continueLaunch } from '../sessions'
   import { getDesk, patchDesk, reopenPane, StaleDesk, type Desk, type DeskSummary } from './api'
-  import { isRunning, paneState, reopenable, type PaneActionKind, type PaneFailure } from './paneState'
+  import { agentName, isRunning, paneState, reopenable, type PaneActionKind, type PaneFailure } from './paneState'
   import { createAutosave, type Autosave, type Change, type SaveState } from './autosave'
   import type { TerminalActions } from '../terminal/TerminalPane.svelte'
   import { isPhone, screenShortSide } from '../terminal/panelLayout'
@@ -184,7 +185,8 @@
     closing = null
     if (!c) return
     removeFromDoc(c.tab, c.pane)
-    const results = await Promise.allSettled(c.live.map(p => endTerminal(p.session, crypto.randomUUID(), true)))
+    // The pane is gone for good, so its machine also forgets the pane's own command history (Take off this desk does not).
+    const results = await Promise.allSettled(c.live.map(p => endTerminal(p.session, crypto.randomUUID(), true, '', true)))
     const failed = results.filter(r => r.status === 'rejected')
     if (failed.length) notice = failed.length === 1 ? 'Its shell could not be ended. It is still in Sessions.' : `${failed.length} shells could not be ended. They are still in Sessions.`
     onrefresh()
@@ -210,8 +212,9 @@
     // The tab goes to the desk the dialog was opened on, even if another desk is shown by the time the shell starts.
     const mine = auto
     const name = [...(dir.split('/').filter(Boolean).pop() || machineById.get(agentId)?.host || 'Shell')].slice(0, 80).join('')
-    const created = await createTerminal(agentId, crypto.randomUUID(), name, 100, 30, AbortSignal.timeout(15000), dir ? { dir } : undefined)
+    // The pane's id comes first, so the shell has the pane's own command history from its first command.
     const pid = newId()
+    const created = await createTerminal(agentId, crypto.randomUUID(), name, 100, 30, AbortSignal.timeout(15000), dir ? { dir, deskPane: pid } : { deskPane: pid })
     const pane: Pane = { id: pid, name, colour: '', host: agentId, session: created.id, kind: 'shell', dir: created.dir || dir, dirAt: Date.now(), start: '' }
     const tab: Tab = { id: newId(), name, colour: '', root: { pane: pid }, zoomed: '', active: pid, panes: { [pid]: pane } }
     fresh = [...fresh, created]
@@ -258,12 +261,13 @@
       const s = p.session ? sessionById.get(p.session) : undefined
       const where = s?.liveDir || p.dir
       const name = [...(where.split('/').filter(Boolean).pop() || machineById.get(p.host)?.host || 'Shell')].slice(0, 80).join('')
-      const created = await createTerminal(p.host, crypto.randomUUID(), name, 100, 30, AbortSignal.timeout(15000), where ? { dir: where } : undefined)
+      // Pane ids are unique across the whole desk; the id comes first so the shell starts with the pane's own history.
+      const pid = newId()
+      const created = await createTerminal(p.host, crypto.randomUUID(), name, 100, 30, AbortSignal.timeout(15000), where ? { dir: where, deskPane: pid } : { deskPane: pid })
       fresh = [...fresh, created]
       onrefresh()
       if (!mine || auto !== mine) { notice = `The shell “${name}” started, but its desk is no longer open. It is in Sessions.`; return }
-      // Pane ids are unique across the whole desk.
-      const pane: Pane = { id: newId(), name, colour: '', host: p.host, session: created.id, kind: 'shell', dir: created.dir || where, dirAt: Date.now(), start: '' }
+      const pane: Pane = { id: pid, name, colour: '', host: p.host, session: created.id, kind: 'shell', dir: created.dir || where, dirAt: Date.now(), start: '' }
       if (t.zoomed) change({ kind: 'zoom', tab: t.id, pane: '' })
       change({ kind: 'addPane', tab: t.id, at: p.id, dir, pane })
       // The pane it was beside may have closed, or the tab filled from another window, while the shell started.
@@ -294,40 +298,75 @@
 
   // Reopen: a fresh shell in a pane whose shell ended or was lost, through the desk's reopen route, which binds the new
   // session into the pane and answers with the desk. Pending edits are saved first so the version sent is current; the
-  // desk that comes back is adopted by autosave. The session limits are the browser's to check, before anything is sent.
+  // desk is then read again so autosave holds the newer copy. The session limits are the browser's to check, before
+  // anything is sent.
   let reopening = $state<Record<string, boolean>>({})
-  let failures = $state<Record<string, { kind?: PaneFailure; message?: string; home?: boolean }>>({})
+  /** Why a pane's last try was refused, and the session the pane had then: a pane whose session changes since (another
+   *  window reopened it, or this one did) drops it, so a stale reason never outlives the fix. */
+  type Failure = { kind?: PaneFailure; message?: string; home?: boolean; session: string }
+  let failures = $state<Record<string, Failure>>({})
   let reopenNotice = $state('')
   const paneById = (pid: string) => { for (const t of tabs) if (t.panes[pid]) return { tab: t, pane: t.panes[pid] }; return undefined }
+  // Every running session, a shell started here and not yet listed included (each counted once: `fresh` and the list
+  // are merged by id).
   const runningOn = (host?: string) => [...sessionById.values()].filter(s => isRunning(s) && (!host || s.agentId === host)).length
   const REASONS: Record<PaneFailure, string> = { folderGone: 'folder gone', folderUnavailable: 'folder unavailable', machineLimit: 'at the limit', accountLimit: 'at the limit', offline: 'machine offline', machineGone: 'machine removed' }
   const CODES: Record<string, PaneFailure> = { folder_gone: 'folderGone', folder_unavailable: 'folderUnavailable', machine_gone: 'machineGone', machine_offline: 'offline' }
-  function setFailure(pid: string, f: { kind?: PaneFailure; message?: string; home?: boolean } | undefined) {
+  function setFailure(pid: string, f: Omit<Failure, 'session'> | undefined) {
     const next = { ...failures }
-    if (f) next[pid] = f; else delete next[pid]
+    if (f) next[pid] = { ...f, session: paneById(pid)?.pane.session ?? '' }; else delete next[pid]
     failures = next
   }
-  /** Reopens one pane. `home` opens it in the machine's home folder; `stale` is how many times a desk that moved on is
-   *  read again before giving up. Answers with the reason it was not reopened, or '' once it was. `extra` counts shells
-   *  this desk is starting at the same moment (Reopen all), so the limits hold for them too. */
-  async function reopen(pid: string, opts: { home?: boolean; stale?: number; extra?: { host: Map<string, number>; all: number } } = {}): Promise<string> {
+  $effect(() => {
+    const now = untrack(() => failures)
+    const keep = Object.entries(now).filter(([pid, f]) => { const p = paneById(pid)?.pane; return !!p && p.session === f.session })
+    if (keep.length !== Object.keys(now).length) failures = Object.fromEntries(keep)
+  })
+  function setBusy(pid: string, on: boolean) {
+    const next = { ...reopening }
+    if (on) next[pid] = true; else delete next[pid]
+    reopening = next
+  }
+  /** The limits, checked before anything is sent: the reason a new shell may not start, or undefined. */
+  function limited(host: string): PaneFailure | undefined {
+    if (runningOn() >= SESSIONS_PER_ACCOUNT) return 'accountLimit'
+    if (runningOn(host) >= SESSIONS_PER_MACHINE) return 'machineLimit'
+    return undefined
+  }
+  // The start-up command is offered only in a pane this page reopened or started, for that new session: never on load.
+  let offered = $state<Record<string, string>>({})
+  function offerDone(pid: string) { const next = { ...offered }; delete next[pid]; offered = next }
+  /** Reads the desk again until it holds the session the route bound into the pane. Until then the pane stays busy, so
+   *  a second press cannot send a second reopen. It gives up after about half a minute (the 15 s poll carries on). */
+  async function adopt(mine: Autosave, pid: string, session: string) {
+    for (let wait = 500, tries = 0; tries < 7; wait = Math.min(wait * 2, 8000), tries++) {
+      if (auto !== mine) return
+      try { await mine.refresh() } catch { /* tried again below */ }
+      const p = paneById(pid)?.pane
+      if (!p || p.session === session || auto !== mine) return
+      await new Promise(resolve => setTimeout(resolve, wait))
+    }
+  }
+  /** Reopens one pane. `home` opens it in the machine's home folder. Answers '' once a shell started, 'live' when the
+   *  pane turned out to have one already (nothing started), or the reason it was not reopened. */
+  async function reopen(pid: string, opts: { home?: boolean } = {}): Promise<string> {
     const mine = auto, found = paneById(pid)
-    if (!mine || !found || reopening[pid]) return 'error'
+    if (!mine || !found || reopening[pid]) return 'busy'
     const { pane: p } = found
     const home = opts.home ?? false
-    const extraHost = opts.extra?.host.get(p.host) ?? 0, extraAll = opts.extra?.all ?? 0
-    if (runningOn() + extraAll >= SESSIONS_PER_ACCOUNT) { setFailure(pid, { kind: 'accountLimit', home }); return REASONS.accountLimit }
-    if (runningOn(p.host) + extraHost >= SESSIONS_PER_MACHINE) { setFailure(pid, { kind: 'machineLimit', home }); return REASONS.machineLimit }
-    reopening = { ...reopening, [pid]: true }
+    const limit = limited(p.host)
+    if (limit) { setFailure(pid, { kind: limit, home }); return REASONS[limit] }
+    setBusy(pid, true)
     setFailure(pid, undefined)
     try {
       await mine.flush()
-      for (let left = opts.stale ?? 1; ; left--) {
+      for (let left = 1; ; left--) {
         try {
           const done = await reopenPane(mine.desk().id, pid, { expect: mine.desk().version, ...(home ? { home: true } : {}) })
           fresh = [...fresh.filter(s => s.id !== done.session.id), done.session]
-          if (auto === mine) await mine.refresh().catch(() => { /* the next read adopts it */ })
+          offered = { ...offered, [pid]: done.session.id }
           onrefresh()
+          await adopt(mine, pid, done.session.id)
           return ''
         } catch (e) {
           if (!(e instanceof StaleDesk) || left <= 0 || auto !== mine) throw e
@@ -337,47 +376,76 @@
       }
     } catch (e) {
       if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return 'signed out' }
-      if (e instanceof TerminalError && e.code === 'pane_live') { onrefresh(); void mine.refresh().catch(() => {}); return '' }
+      // Another window reopened it first: take the desk as it is now; nothing was started here.
+      if (e instanceof TerminalError && e.code === 'pane_live') { onrefresh(); await mine.refresh().catch(() => {}); return 'live' }
       const kind = e instanceof TerminalError ? (CODES[e.code ?? ''] ?? (e.status === 409 && e.message === 'terminal session limit reached' ? 'machineLimit' : undefined)) : undefined
       if (kind) { setFailure(pid, { kind, home }); return REASONS[kind] }
       const message = e instanceof StaleDesk ? 'This desk changed in another window. Try again.' : e instanceof Error && e.message ? e.message : 'A new shell could not be started just now. Try again.'
       setFailure(pid, { message, home })
       return 'not started'
-    } finally {
-      const next = { ...reopening }
-      delete next[pid]
-      reopening = next
-    }
+    } finally { setBusy(pid, false) }
   }
+
+  // Continue: an agent pane whose agent ended, where the agent's own resume is on offer (the Sessions screen's rule and
+  // its continue launch). The new session is bound into the pane through autosave.
+  const continuable = (p: Pane) => {
+    const s = p.session ? sessionById.get(p.session) : undefined
+    return !!s && canContinue(s, machineById.get(p.host), [])
+  }
+  async function continuePane(pid: string) {
+    const mine = auto, found = paneById(pid)
+    if (!mine || !found || reopening[pid]) return
+    const s = found.pane.session ? sessionById.get(found.pane.session) : undefined
+    const launch = s && continuable(found.pane) ? continueLaunch(s, []) : null
+    if (!s || !launch) return
+    const limit = limited(found.pane.host)
+    if (limit) { setFailure(pid, { kind: limit }); return }
+    setBusy(pid, true)
+    setFailure(pid, undefined)
+    try {
+      const title = [...(s.title || found.pane.name || agentName(s.tool))].slice(0, 80).join('')
+      const created = await createTerminal(s.agentId, crypto.randomUUID(), title, 100, 30, AbortSignal.timeout(15000), launch)
+      fresh = [...fresh.filter(x => x.id !== created.id), created]
+      onrefresh()
+      const now = paneById(pid)
+      if (auto !== mine || !now) { notice = `“${title}” continued, but its pane is no longer on this desk. It is in Sessions.`; return }
+      change({ kind: 'setSession', tab: now.tab.id, pane: pid, session: created.id })
+      if (paneById(pid)?.pane.session !== created.id) { notice = `“${title}” continued, but this pane could not hold it. It is in Sessions.`; return }
+      await mine.flush()
+    } catch (e) {
+      if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return }
+      setFailure(pid, { message: e instanceof Error && e.message ? e.message : 'The session could not be continued. Try again.' })
+    } finally { setBusy(pid, false) }
+  }
+
   /** A press on a pane's card. */
   function paneAct(pid: string, kind: PaneActionKind) {
-    if (kind === 'reopen' || kind === 'start') void reopen(pid)
+    // Start for a pane that has no folder opens in the home folder.
+    if (kind === 'start') void reopen(pid, { home: !paneById(pid)?.pane.dir })
+    else if (kind === 'reopen') void reopen(pid)
     else if (kind === 'reopenHome') void reopen(pid, { home: true })
     else if (kind === 'again') void reopen(pid, { home: failures[pid]?.home })
+    else if (kind === 'continue') void continuePane(pid)
     else if (kind === 'chooseFolder' || kind === 'chooseMachine') choosing = { pane: pid, machine: kind === 'chooseMachine' }
   }
 
-  // Choose a folder (on the pane's machine) or a machine and a folder: the pane is given them, then reopened there. A
-  // folder chosen here is under the home rule, which is what the folder browser offers.
+  // Choose a folder (on the pane's machine) or a machine and a folder: the pane is given them through autosave, saved,
+  // then reopened there. A folder chosen here is under the home rule, which is what the folder browser offers.
   let choosing = $state<{ pane: string; machine: boolean } | null>(null)
   async function choose(pid: string, host: string, dir: string) {
-    const mine = auto
-    if (!mine) return
+    const mine = auto, found = paneById(pid)
+    if (!mine || !found) return
+    change({ kind: 'setPlace', tab: found.tab.id, pane: pid, host, dir })
     await mine.flush()
-    // The pane's folder and machine are written to the desk with its version, and the newer copy taken back.
-    for (let left = 1; ; left--) {
-      const d = mine.desk()
-      const tabsNext = d.doc.tabs.map(t => !t.panes[pid] ? t : { ...t, panes: { ...t.panes, [pid]: { ...t.panes[pid], host, dir, dirAt: Math.max(Date.now(), t.panes[pid].dirAt + 1) } } })
-      try { await patchDesk(d.id, { expect: d.version, doc: { ...d.doc, tabs: tabsNext } }); break }
-      catch (e) { if (!(e instanceof StaleDesk) || left <= 0) throw e; await mine.refresh() }
-    }
-    await mine.refresh()
+    // The reopen starts the shell where the saved desk says, so the new place must be saved first.
+    const saved = mine.desk().doc.tabs.find(t => t.panes[pid])?.panes[pid]
+    if (auto !== mine || saveState !== 'saved' || saved?.host !== host || saved.dir !== dir) throw new Error('That folder could not be saved just now. Try again.')
     const why = await reopen(pid)
-    if (why && failures[pid]?.message) throw new Error(failures[pid].message)
+    if (why && why !== 'live' && failures[pid]?.message) throw new Error(failures[pid].message)
   }
 
-  // Reopen all: every lost or ended shell on the desk, any tab, at most four at a time. Only on the press.
-  const REOPEN_AT_ONCE = 4
+  // Reopen all: every lost or ended shell on the desk, any tab, one at a time (each reopen moves the desk's version on,
+  // so reopens side by side would only lose to each other). Only on the press.
   const reopenList = $derived(!ready || desk?.template ? [] : tabs.flatMap(t => panesOf(t)).filter(p => {
     if (failures[p.id]?.kind || reopening[p.id]) return false
     const m = machineById.get(p.host)
@@ -387,25 +455,20 @@
   let reopeningAll = $state(false)
   async function reopenAll() {
     if (reopeningAll) return
-    const list = reopenList.map(p => ({ id: p.id, name: p.name || 'Shell', host: p.host }))
+    const list = reopenList.map(p => ({ id: p.id, name: p.name || 'Shell' }))
     if (!list.length) return
     reopeningAll = true; reopenNotice = ''
-    const extra = { host: new Map<string, number>(), all: 0 }
     const failed: string[] = []
-    let ok = 0, next = 0
-    const worker = async () => {
-      while (next < list.length) {
-        const item = list[next++]
-        const why = await reopen(item.id, { stale: REOPEN_AT_ONCE + 2, extra })
-        if (why) failed.push(`${item.name} (${why})`)
-        else { ok++; extra.all++; extra.host.set(item.host, (extra.host.get(item.host) ?? 0) + 1) }
+    let ok = 0
+    try {
+      for (const item of list) {
+        const why = await reopen(item.id)
+        if (why === '') ok++
+        else if (why !== 'live' && why !== 'busy') failed.push(`${item.name} (${why})`)
       }
-    }
-    try { await Promise.all(Array.from({ length: Math.min(REOPEN_AT_ONCE, list.length) }, worker)) }
-    finally { reopeningAll = false }
+    } finally { reopeningAll = false }
     reopenNotice = failed.length ? `Reopened ${ok}. ${failed.length} could not be reopened: ${failed.join(', ')}.` : `Reopened ${ok}.`
   }
-
   // Attaches for a tab start at most three at a time, the focused pane first; each pane's attach then keeps its own
   // backoff. A slot is given back once the attach has an answer, or after a while whatever happens.
   const ATTACHING = 3, SLOT_MS = 10_000
@@ -546,8 +609,11 @@
             {@const p = t.panes[pid]}
             {#if p}
               <DeskPane tab={t} pane={p} session={p.session ? sessionById.get(p.session) : undefined} machine={machineById.get(p.host)} {ready}
-                failure={failures[pid]?.kind} error={failures[pid]?.message ?? ''} busy={!!reopening[pid]}
+                failure={failures[pid]?.kind} error={failures[pid]?.message ?? ''} busy={!!reopening[pid]} canContinue={continuable(p)}
                 onreopen={kind => paneAct(pid, kind)}
+                startup={p.start && p.session && offered[pid] === p.session ? p.start : ''}
+                onstartup={() => offerDone(pid)}
+                onstartcommand={start => change({ kind: 'start', tab: t.id, pane: pid, start })}
                 focused={pid === activePaneId} visible={view.visible} hold={view.hold} admitted={admitted.has(pid)} layout={!phone} zoomed={zoomed === pid} {tabs}
                 onfocus={() => setActive(pid)}
                 onactions={a => noteActions(pid, a)}

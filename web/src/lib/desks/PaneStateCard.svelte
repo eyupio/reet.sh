@@ -10,7 +10,7 @@
     card: PaneCard
     /** The folder as shown in the card's words, set in code type where it appears. */
     dir?: string
-    /** The main action is in flight: it says so and waits. */
+    /** The main action is in flight: it says so, and every action on the card waits for it. */
     busy?: boolean
     /** A refusal the card has no state of its own for, in the route's words. */
     error?: string
@@ -24,7 +24,7 @@
     const at = dir ? card.body.indexOf(dir) : -1
     return at < 0 ? [card.body, '', ''] : [card.body.slice(0, at), dir, card.body.slice(at + dir.length)]
   })
-  const busyLabel = (kind: PaneActionKind) => (kind === 'start' ? 'Starting…' : 'Reopening…')
+  const busyLabel = (kind: PaneActionKind) => (kind === 'start' ? 'Starting…' : kind === 'continue' ? 'Continuing…' : 'Reopening…')
   const reopens = (kind: PaneActionKind) => kind === 'reopen' || kind === 'reopenHome' || kind === 'start' || kind === 'again' || kind === 'continue'
 
   let said = $state(''), seen = ''
@@ -46,7 +46,7 @@
     <div class="row">
       {#each card.actions as action, i (action.kind + action.label)}
         {@const main = i === 0}
-        <button type="button" class="btn" class:primary={main} disabled={busy && (main || reopens(action.kind))} aria-busy={busy && main ? 'true' : undefined}
+        <button type="button" class="btn" class:primary={main} disabled={busy} aria-busy={busy && main ? 'true' : undefined}
           onclick={() => onaction(action.kind)}>{busy && main && reopens(action.kind) ? busyLabel(action.kind) : action.label}</button>
       {/each}
     </div>

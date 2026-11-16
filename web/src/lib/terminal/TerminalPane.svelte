@@ -99,6 +99,8 @@
   export function takeOver(){void connection?.connect(true)}
   /** Retry now, while reconnecting. */
   export function retryNow(){connection?.recover()}
+  /** Types text into the live shell through the same path as the keyboard; false when it is not live (nothing sent). */
+  export function type(text:string):boolean{if(!live||scrollbackOpen)return false;held=afterKey(held);return !!connection?.text(text)}
   $effect(()=>{onconnection?.(connectionState)})
   function choosePalette(id:string){palette=id;try{localStorage.setItem('reet-terminal-palette',id)}catch{/* optional preference */}applyTheme?.()}
   function chooseCursor(shape:CursorShape){cursor=shape;if(terminal)terminal.options.cursorStyle=shape;try{localStorage.setItem('reet-terminal-cursor',shape)}catch{/* optional preference */}}

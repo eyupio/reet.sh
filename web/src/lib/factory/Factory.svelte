@@ -10,7 +10,7 @@
   import { clampRailWidth, RAIL_DEFAULT, readWidth } from '../shell/workspaceLayout'
   import ProjectRailHost from '../home/ProjectRailHost.svelte'
   import { GAFFER_GOALS_CHANGED } from '../gafferContext'
-  import { DEFAULT_STAGES, agentActivity, ago, needsYou, sessionEndedChoices, sessionLost, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track } from '../gafferOutcome'
+  import { DEFAULT_STAGES, agentActivity, ago, needsYou, sessionEndedChoices, sessionLost, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track, stageChoice } from '../gafferOutcome'
   import { eventLabel } from '../events'
   import { sourceLabel } from '../clineSource'
   import GafferProse from '../GafferProse.svelte'
@@ -485,13 +485,15 @@
             {#if goal?.goal.summary && (status.label !== 'Needs you' || lost)}{@const whole = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open={whole}><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!whole} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !whole }}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
             <dl class="facts">
               <div><dt>Doing this stage</dt><dd>{crew(piece, record)}</dd></div>
+              {#if piece.state === 'following' || piece.state === 'ready_to_merge'}{@const applied = stageChoice(piece.stages?.[piece.stage ?? 0])}
+                {#if applied}<div><dt>Applied</dt><dd class:low={applied.tone === 'bad'}><strong>{applied.label}.</strong> {applied.text}</dd></div>{/if}{/if}
               {#if piece.state === 'following'}{@const stage = piece.stages?.[piece.stage ?? 0]}{@const activity = agentActivity(stage, clock)}
                 {#if stage?.startedAt}<div><dt>In this stage</dt><dd>{ago(stage.startedAt, clock)}</dd></div>{/if}
                 {#if activity.text}<div><dt>Agent</dt><dd class:low={activity.quiet}>{activity.text}</dd></div>{/if}{/if}
               {#if nodes.some(node => node.kind === 'merge')}{@const auto = mergesByItself(record, piece)}<div><dt>Merge</dt><dd>{auto ? 'By itself when green' : piece.mergeApproved ? 'You approved it' : record.yolo && piece.autoMerge ? 'Waits for you (YOLO)' : 'Waits for you'}{#if piece.state !== 'done' && piece.state !== 'ready_to_merge' && !piece.mergeApproved}{' '}<button class="inline" type="button" disabled={busy} aria-label={`${auto ? 'Make' : 'Let'} ${piece.title} ${auto ? 'wait for you before merging' : 'merge by itself'}`} onclick={() => void mergeMode(record, piece, !auto)}>{auto ? 'Make it wait for me' : 'Let it merge by itself'}</button>{/if}</dd></div>{/if}
             </dl>
             {#if nodes.length}<details class="more-facts"><summary>Who did each stage</summary><ol class="stages" aria-label={`Who did each stage of ${piece.title}`}>
-              {#each nodes as node (node.kind)}<li><strong>{node.label}</strong><span>{chatToolName(node.tool)}{node.model ? ` · ${node.model}` : ''}{node.source ? ` · ${sourceLabel(node.source)}` : ''}</span><span class="why">{node.state === 'done' ? (node.moved ? 'Done: you moved it on' : 'Done: Gaffer handed it over') : node.state === 'running' ? 'In hand' : node.state === 'failed' ? 'Stopped' : 'To come'}</span>{#if node.summary}<p class="handover">{node.summary}</p>{/if}</li>{/each}
+              {#each nodes as node (node.kind)}<li><strong>{node.label}</strong><span>{chatToolName(node.tool)}{node.model ? ` · ${node.model}` : ''}{node.source ? ` · ${sourceLabel(node.source)}` : ''}{node.effort ? ` · ${node.effort} effort` : ''}</span><span class="why">{node.state === 'done' ? (node.moved ? 'Done: you moved it on' : 'Done: Gaffer handed it over') : node.state === 'running' ? 'In hand' : node.state === 'failed' ? 'Stopped' : 'To come'}</span>{#if node.choice}<p class="handover" class:low={node.choice.tone === 'bad'}><strong>{node.choice.label}.</strong> {node.choice.text}</p>{/if}{#if node.summary}<p class="handover">{node.summary}</p>{/if}</li>{/each}
             </ol></details>{/if}
             <details class="more-facts"><summary>Usage and budget</summary><dl class="facts">
               {#if goal && goal.goal.state === 'active'}<div><dt>Reviews left</dt><dd>{Math.max(0, goal.goal.maxReviews - goal.goal.usedReviews)} of {goal.goal.maxReviews}</dd></div>
@@ -596,7 +598,7 @@
   .pipe.arrived{outline:2px solid var(--accent);outline-offset:3px}.pipe:focus{outline:2px solid var(--accent);outline-offset:3px}
   .inline{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:24px;text-decoration:underline}.inline:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(pointer:coarse){.inline{min-height:44px}}
   .stages{list-style:none;margin:0;padding:0;display:grid;gap:8px}.stages li{display:grid;grid-template-columns:minmax(0,7rem) minmax(0,1fr) auto;gap:2px 12px;align-items:baseline}.stages .handover{grid-column:2 / -1;color:var(--muted);font-size:.875rem}@media(max-width:560px){.stages li{grid-template-columns:minmax(0,1fr)}.stages .handover{grid-column:1}}
-  .facts dd.low{color:var(--warn);font-weight:600}.split{color:var(--muted)}
+  .facts dd.low,.stages .handover.low{color:var(--warn);font-weight:600}.split{color:var(--muted)}
   .facts dd.yolo{color:var(--warn);font-weight:600}
   .facts{display:flex;flex-wrap:wrap;gap:8px 24px;margin:0}.facts div{display:grid;gap:0;min-width:0}.facts dt{font-size:0.875rem;color:var(--muted)}.facts dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
   .actions{display:flex;flex-wrap:wrap;gap:8px}.actions .btn{min-height:44px;text-decoration:none;display:inline-flex;align-items:center;box-sizing:border-box}

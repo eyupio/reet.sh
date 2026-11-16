@@ -1244,8 +1244,9 @@ The owner asked for a review of Gaffer, the Factory integration and what the
 handoffs still owed, then chose to have every finding fixed in one PR. Two
 independent reads were made (the controller engine; the REST, MCP and
 Gaffer-tool surface). Each defect below was reproduced by a failing test
-before it was fixed. Nothing here was run against a real machine, agent or
-provider, and dev.reet.sh had no outcomes at the time.
+before it was fixed. The owner runs the Factory against real agents and
+raises what they find; the fixes in this section were checked with the test
+fakes only, not against a real machine, agent or provider.
 
 ### Found and fixed
 
@@ -1317,6 +1318,67 @@ after session text; history for a provider without it; a full-size call) and
 read; `applied`; the start check; the marked tools). `mcp_tools.json` was
 regenerated from `mcp/src/server.ts`; still 48 definitions.
 
+### Whether the chosen agent, model and effort were applied
+
+The owner asked for a check that what they choose for a stage is what runs.
+What was found by reading the path from the dialog to the agent:
+
+- **At launch the machine already confirms.** `acpagent` reads the model back
+  and sets the effort through the agent's own option, and refuses the chat if
+  either is not confirmed; the broker refuses an effort for a machine without
+  `acp-start-options-v1`. A launch that succeeds was on the chosen model and
+  effort.
+- **The Factory kept and showed only the choice.** Nothing recorded what a
+  session was on, so the page could not tell "applied" from "asked for", and
+  "Who did each stage" did not show effort at all.
+- **A stage that carries on in the session before it is never launched**, so
+  nothing confirmed its choice; and a model or effort changed in the session's
+  own chat afterwards left the stage saying the old one.
+- **A model or effort left to the agent** was never named.
+
+What was added:
+
+- `gaffer.SessionChoiceReader`, implemented by the API's
+  `outcomeStarter.OutcomeSessionChoice`: a `get` of the session's live
+  controls on its machine (the same read the browser makes), giving the
+  model and the `thought_level` option's current value. An agent that is in
+  the middle of changing settings is not taken at its word.
+- `checkStageChoice` (`internal/gaffer/outcome_choice.go`) runs once a staged
+  pipeline's session is in Gaffer's care, for a stage with a session of its
+  own and for one that carries on in the same session. It writes
+  `AppliedTool`, `AppliedModel`, `AppliedEffort`, `AppliedAt`, `ChoiceCheck`
+  (`applied`, `mismatch`, `unchecked`) and `ChoiceNote` on the stage. Only
+  what was chosen is compared (`stageChoiceCheck`): a default cannot be wrong,
+  and what it turned out to be is recorded.
+- A mismatch stops nothing. It is on the stage and in the activity log as
+  `gaffer-stage-choice-not-applied {outcome, pipeline, stage, session, chosen,
+  applied, reason}`. A machine that cannot be asked leaves `unchecked`, never
+  `applied`.
+- For the stage in hand, `withAgentUsage` compares again on every read against
+  the session's row, which the read-back and every later confirmed change
+  keep current, so a change made in the session's chat shows without another
+  call to the machine.
+- The page: an **Applied** line on the card (Confirmed, Not as chosen, Not
+  checked) and the same under each stage in "Who did each stage", which now
+  shows effort (`stageChoice` in `gafferOutcome.ts`). MCP: `choice`,
+  `applied_model`, `applied_effort` and `choice_note` on each stage.
+
+Validation: `outcome_choice_test.go` (applied, per stage and in a kept
+session; a mismatch named and logged without stopping the pipeline; an
+agent default recorded; a machine that cannot be asked; a later change),
+`TestOutcomeSessionChoiceIsReadBackFromTheMachine` in `internal/api`,
+`gafferOutcome.test.mjs` and `gaffer-factory.e2e.mjs`.
+
+![Applied, desktop](../images/ui/gaffer-factory-applied-1440-light.png)
+
+Limits: a pipeline without stages is not checked (it has no stage to keep
+the answer on). A finished stage keeps the answer from when it started. The
+check asks what the agent reports; it cannot see past an agent that reports
+one model and uses another. Not run against a real agent: whether each
+adapter's `get` names the model and effort the same way its launch was given
+them (a provider-prefixed name, say) decides whether a real stage reads as
+applied, and is the first thing to look at on a real run.
+
 ### Found and not fixed
 
 - **A launch that times out is recorded as failed**, and Retry asks under a
@@ -1333,9 +1395,10 @@ regenerated from `mcp/src/server.ts`; still 48 definitions.
 
 ## Not done, for the next slice
 
-- **No real run.** Every validation is synthetic. Whether a real model hands
-  a stage over reliably is still the largest unknown: run one small staged
-  outcome on a real machine, auto-merge off, before building further.
+- **These fixes on a real run.** The owner runs the Factory against real
+  agents; this slice was checked with fakes. On the next real outcome, look
+  at the Applied line of each stage first, then at a stop and a retry at
+  Ready to merge.
 - Home's worktree sweep and branch pruning remove worktrees by paths
   `WorkDirInUse` does not guard.
 - Model names are checked against the machine only for OpenCode, and an added

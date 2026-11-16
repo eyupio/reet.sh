@@ -37,6 +37,47 @@ func TestOutcomeStartCarriesTheSelectedEffortToTheMachine(t *testing.T) {
 	}
 }
 
+// What a session is on is read back from the machine, not from what its
+// launch asked for: the model and effort the agent reports now.
+func TestOutcomeSessionChoiceIsReadBackFromTheMachine(t *testing.T) {
+	caps := chatCaps()
+	caps.AgentsV2, caps.ACPLiveControls, caps.ACPStartOptions = true, true, true
+	caps.Tools = []string{"opencode"}
+	entries := []terminalproto.ACPAgent{{Tool: "opencode", Adapter: "opencode", State: "available", MinimumVersion: "1.19.5"}}
+	caps.ACPAgents = &entries
+	f := launchAPIFixture(t, caps)
+	starter := outcomeStarter{f.srv.s}
+	session, _, err := starter.StartOutcomeSession(t.Context(), f.uid, gaffer.OutcomeLaunch{
+		AgentID: f.agent.ID, RequestID: terminalbroker.ID(), Title: "Export API", Tool: "opencode",
+		Model: "asked/model", Effort: "high", Dir: "/tmp", Trust: true, Prompt: "Add the CSV export endpoint with tests.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.controls = func(*terminalproto.ACPControl) terminalproto.ACPControlResult {
+		return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Model: "actual/model", Options: []terminalproto.ACPSetting{{ID: "effort", Category: terminalproto.AgentOptionThoughtLevel, Current: "medium", Values: []string{"low", "medium", "high"}}}}}
+	}
+	f.mu.Unlock()
+	got, err := starter.OutcomeSessionChoice(t.Context(), f.uid, session)
+	if err != nil || got.Tool != "opencode" || got.Model != "actual/model" || got.Effort != "medium" {
+		t.Fatalf("read back: %+v %v", got, err)
+	}
+	// The read is kept on the session, so the Factory page compares against it afterwards.
+	if row, err := f.st.TerminalSessionFor(f.uid, session); err != nil || row.Model != "actual/model" || row.Effort != "medium" {
+		t.Fatalf("session after the read: %+v %v", row, err)
+	}
+	// An agent in the middle of a settings change is not taken at its word.
+	f.mu.Lock()
+	f.controls = func(*terminalproto.ACPControl) terminalproto.ACPControlResult {
+		return terminalproto.ACPControlResult{Controls: terminalproto.ACPControls{Configuring: true, Options: []terminalproto.ACPSetting{}}}
+	}
+	f.mu.Unlock()
+	if _, err := starter.OutcomeSessionChoice(t.Context(), f.uid, session); err == nil {
+		t.Fatal("a session that was changing settings was read as settled")
+	}
+}
+
 // Approving an outcome starts agents on a machine, so it needs the owning
 // writer's browser, the canonical origin and remote sessions switched on.
 func TestGafferOutcomeRoutesNeedTheOwningBrowserAndRemoteSessions(t *testing.T) {

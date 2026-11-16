@@ -32,6 +32,10 @@ Object.assign(outcomes[0].sessions[0].stages[3],{agentInputTokens:9000,agentOutp
 // The first pipeline's plan was moved on by the person, and its review stage in hand reports what its agent is doing.
 Object.assign(outcomes[0].sessions[0].stages[0],{closedBy:'person'});Object.assign(outcomes[0].sessions[0].stages[1],{closedBy:'gaffer'})
 Object.assign(outcomes[0].sessions[0].stages[3],{startedAt:now-42*60000,agentState:'working',agentActiveAt:now-20*60000})
+// What each stage's session was read back to be on: the code stage ran as chosen (its model left to the agent), and the
+// review stage in hand is on a lower effort than the one chosen for it.
+Object.assign(outcomes[0].sessions[0].stages[2],{choiceCheck:'applied',appliedTool:'codex',appliedModel:'gpt-coder',appliedEffort:'medium',appliedAt:now-90*60000})
+Object.assign(outcomes[0].sessions[0].stages[3],{effort:'high',choiceCheck:'mismatch',appliedTool:'claude',appliedModel:'opus',appliedEffort:'low',appliedAt:now-42*60000,choiceNote:'You chose the effort high; the session is on low.'})
 const story=[{id:9,at:now-60000,source:'gaffer',action:'gaffer-stage-started',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'review',reason:'The review stage is under way.'})},{id:8,at:now-120000,source:'gaffer',action:'gaffer-stage-handed-over',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'code',by:'gaffer',reason:'x'})}]
 const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:0,version:1,createdAt:now,updatedAt:now},{id:'p2',host:'a1',machine:'workshop',dir:'/work/docs-site',name:'docs-site',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:1,version:1,createdAt:now,updatedAt:now}]
 const routesFor=box=>({'/api/v2/settings/yolo':{allowed:false},'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
@@ -221,6 +225,12 @@ try {
       await expect(pipes.nth(0).getByRole('listitem').filter({hasText:'Design'})).not.toContainText('moved on by you')
       await expect(pipes.nth(0)).toContainText('In this stage');await expect(pipes.nth(0)).toContainText('42 min')
       await expect(pipes.nth(0)).toContainText('Working · last active 20 min ago')
+      // …and whether the agent, model and effort chosen for a stage were applied, as read back from the machine: a
+      // stage on something else says what, and is never shown as confirmed.
+      await expect(pipes.nth(0).locator('dl.facts').first()).toContainText('Not as chosen. You chose the effort high; the session is on low.')
+      await expect(pipes.nth(0).locator('ol.stages > li').nth(3)).toContainText('high effort')
+      await expect(pipes.nth(0).locator('ol.stages > li').nth(2)).toContainText('Confirmed. The session is on gpt-coder · medium effort. The model and effort were left to the agent.')
+      await expect(pipes.nth(1).locator('dl.facts').first()).not.toContainText('Applied')
       // …and the outcome's history is read from the activity log only when asked for.
       await first.getByRole('button',{name:'History',exact:true}).click()
       const told=first.getByRole('region',{name:'History of this outcome',exact:true})

@@ -41,6 +41,21 @@ type SessionStarter interface {
 	StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (sessionID, workDir string, err error)
 }
 
+// SessionChoice is the agent, model and effort a running session is on, as
+// its machine reports them.
+type SessionChoice struct {
+	Tool   string
+	Model  string
+	Effort string
+}
+
+// SessionChoiceReader asks a session's machine what the session is running.
+// A launch carries the person's choice as a request; this is the read-back
+// that says whether it took.
+type SessionChoiceReader interface {
+	OutcomeSessionChoice(ctx context.Context, uid int64, sessionID string) (SessionChoice, error)
+}
+
 // SessionEnder ends a session the controller started for a pipeline, once
 // the pipeline has finished with it. The session's history is kept.
 type SessionEnder interface {
@@ -934,6 +949,11 @@ func (s *Service) advancePipeline(ctx context.Context, o store.GafferOutcome, it
 					// The person stopped the pipeline while this stage's goal was being set: nothing follows it.
 					s.stopPipelineGoal(uid, item.ConversationID, stoppedFollowingNote)
 				}
+				if ok && wrote {
+					// Nothing was launched for this stage, so nothing confirmed its
+					// choice: the session it carries on in is asked what it is on.
+					s.checkStageChoice(ctx, o, item.Key, next, item.SessionID)
+				}
 				return ok
 			}
 			if errors.Is(err, ErrUnavailable) && ctx.Err() != nil {
@@ -1161,6 +1181,9 @@ func (s *Service) runOutcomeSession(ctx context.Context, o store.GafferOutcome, 
 		}))
 		if err == nil && wrote {
 			s.auditPipeline(after, item.Key)
+			if staged {
+				s.checkStageChoice(ctx, o, item.Key, item.Stage, sessionID)
+			}
 		}
 		if err == nil && !wrote {
 			// The person stopped the pipeline while its goal was being set: nothing follows it.

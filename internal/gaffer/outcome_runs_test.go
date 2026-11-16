@@ -34,6 +34,22 @@ type outcomeStarterFake struct {
 	holdOnly string
 	entered  chan struct{}
 	once     sync.Once
+	// started is what each session was launched with; choice, when set, is
+	// what the machine reads back for a session instead of that.
+	started map[string]OutcomeLaunch
+	choice  func(session string, asked OutcomeLaunch) (SessionChoice, error)
+}
+
+// OutcomeSessionChoice reads back what a session runs. By default the machine
+// applied exactly what the launch asked for.
+func (f *outcomeStarterFake) OutcomeSessionChoice(_ context.Context, _ int64, session string) (SessionChoice, error) {
+	f.mu.Lock()
+	asked, choice := f.started[session], f.choice
+	f.mu.Unlock()
+	if choice != nil {
+		return choice(session, asked)
+	}
+	return SessionChoice{Tool: asked.Tool, Model: asked.Model, Effort: asked.Effort}, nil
 }
 
 func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (string, string, error) {
@@ -63,6 +79,12 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 			return "", "", err
 		}
 	}
+	f.mu.Lock()
+	if f.started == nil {
+		f.started = map[string]OutcomeLaunch{}
+	}
+	f.started[row.ID] = in
+	f.mu.Unlock()
 	// The first launch of a project gets a worktree; later stages are sent there.
 	work := in.Dir
 	if in.ProjectID != "" {

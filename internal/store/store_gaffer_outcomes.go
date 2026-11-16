@@ -40,6 +40,18 @@ type GafferOutcomeStage struct {
 	Model    string `json:"model,omitempty"`
 	Effort   string `json:"effort,omitempty"`
 	Provider string `json:"provider,omitempty"`
+	// Tool, Model and Effort above are what the person chose. The Applied
+	// fields are what the stage's session was read back to be running, and
+	// when. ChoiceCheck is "applied" (nothing chosen differs), "mismatch"
+	// (ChoiceNote names what differs) or "unchecked" (the machine could not
+	// be asked; ChoiceNote says why). Empty means no check has been made. For
+	// the stage in hand they are read again from the session on every read.
+	AppliedTool   string `json:"appliedTool,omitempty"`
+	AppliedModel  string `json:"appliedModel,omitempty"`
+	AppliedEffort string `json:"appliedEffort,omitempty"`
+	AppliedAt     int64  `json:"appliedAt,omitempty"`
+	ChoiceCheck   string `json:"choiceCheck,omitempty"`
+	ChoiceNote    string `json:"choiceNote,omitempty"`
 	// What the stage's working agent reported using, from its own figures: kept
 	// when the stage is handed over, and read live for the stage in hand.
 	// ContextUsed and ContextSize are the agent's context window, live only.

@@ -35,8 +35,12 @@ what was found and left.
   it was read; `applied` is false when nothing was queued or changed; `reet_start_outcome` refuses a machine that has
   not said what it runs; and once Gaffer has read handover text in a turn, a change asks first even on Allow.
 
-**Still the largest gap:** no Factory outcome has run against a real machine, agent or provider. dev.reet.sh had no
-outcomes on 16 November. The roadmap's own next item is unchanged: finish and record the
+- **Was the choice applied?** After a stage's session is up, the controller reads back from the machine which model and
+  effort it is on, keeps that with the stage and shows it on the card (**Applied**: Confirmed, Not as chosen, Not
+  checked), including for a stage that carries on in the session before it. A difference is logged and stops nothing.
+
+The owner runs the Factory against real agents; this slice was checked with the test fakes only, so the Applied line on
+a real stage is the first thing to look at. The roadmap's own next item is unchanged: finish and record the
 [device and login checks](docs/device-checks.md), then turn Claude Code and Codex chats on by default.
 
 ## MOBILE-3: what MOBILE-2 left undone (15 November 2026)

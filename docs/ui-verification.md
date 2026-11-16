@@ -4139,3 +4139,18 @@ name and description were checked as markup, not heard). No real machine was ask
 are synthetic here, and are covered by the Go tests (`internal/api` with a stand-in machine, `internal/terminalhost`
 with real git). The same dialog opened from Manage projects and from the Factory's rail was not exercised. The real
 60-second wait of a slow delete was not exercised in a browser.
+
+## Factory: whether a stage's agent, model and effort were applied (16 November 2026)
+
+Production build served with `vite preview`, Chromium through `web/tests/gaffer-factory.e2e.mjs` at 1440 px light and
+dark and 390 px light, synthetic outcomes.
+
+- A stage in hand whose session is on a lower effort than chosen shows **Applied: Not as chosen. You chose the effort
+  high; the session is on low.** in the warning colour beside "Doing this stage"
+  ([capture](images/ui/gaffer-factory-applied-1440-light.png)).
+- "Who did each stage" lists each stage's effort, and under a checked stage says **Confirmed** with the model and
+  effort the session is on, naming what was left to the agent.
+- A pipeline whose stage has not been checked shows no Applied line.
+
+**Not checked.** A real machine or agent: the read-back is covered by Go tests with a stand-in machine. The 390 px and
+dark captures were made and not looked at one by one. No screen reader.

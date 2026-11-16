@@ -11,6 +11,12 @@ this file existed releases were described on their GitHub release pages.
   merge. Stopping an outcome while a session is still starting now stands:
   the session is listed, and nothing follows it. An archived outcome has to
   be brought back before a pipeline in it is tried again, sent back or added.
+- Factory: each stage now says whether the agent, model and effort you chose
+  were **applied**. Once the stage's session is running the controller asks
+  the machine what it is on and shows it on the card: Confirmed (naming the
+  model and effort, including one you left to the agent), Not as chosen
+  (naming what differs) or Not checked. A later change made in the session's
+  own chat shows too. "Who did each stage" now lists effort.
 - MCP: `reet_approve_pipeline_merge` now needs `seen_updated_at`, the
   pipeline's `updated_at` from the read the approval is made on, and approves
   nothing if the pipeline has changed since. `reet_tell_pipeline_agent` and

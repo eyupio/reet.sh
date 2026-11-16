@@ -77,6 +77,21 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 			if stage.Effort != "" {
 				item["effort"] = stage.Effort
 			}
+			// agent, model and effort are what was chosen. choice says whether the
+			// stage's session was read back to be on them: applied, mismatch or
+			// unchecked, with what it is on and, for a mismatch, what differs.
+			if stage.ChoiceCheck != "" {
+				item["choice"] = stage.ChoiceCheck
+				if stage.AppliedModel != "" {
+					item["applied_model"] = stage.AppliedModel
+				}
+				if stage.AppliedEffort != "" {
+					item["applied_effort"] = stage.AppliedEffort
+				}
+				if stage.ChoiceNote != "" {
+					item["choice_note"] = stage.ChoiceNote
+				}
+			}
 			if i == piece.Stage && stage.State != "done" {
 				item["in_hand"] = true
 				row["stage_in_hand"] = stage.Kind

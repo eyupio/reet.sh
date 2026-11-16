@@ -159,6 +159,10 @@ Two tools read the Factory for any connection on a writer account:
 - `reet_list_factory` lists the outcomes with their pipelines: each pipeline's
   state, the stage in hand, every stage's state and agent, how its merge is
   decided, and the state of the goal Gaffer follows it with.
+  Each stage's `agent`, `model` and `effort` are what was chosen; once its
+  session has been asked, `choice` says whether they were applied (`applied`,
+  `mismatch` or `unchecked`), with `applied_model`, `applied_effort` and, for
+  a difference, `choice_note`.
 - `reet_get_factory_outcome` reads one outcome. A management connection also
   receives each finished stage's handover note and Gaffer's latest report, which
   are derived from session text; a read-only connection receives states only.

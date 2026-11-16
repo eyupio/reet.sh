@@ -457,6 +457,34 @@ func (o outcomeStarter) EndOutcomeSession(ctx context.Context, uid int64, sessio
 	return err
 }
 
+// OutcomeSessionChoice asks a session's machine what the session is running:
+// the model and effort its agent reports now, not what its launch asked for.
+// The answer is also kept on the session, as any read of its controls is.
+func (o outcomeStarter) OutcomeSessionChoice(ctx context.Context, uid int64, sessionID string) (gaffer.SessionChoice, error) {
+	s := o.s
+	if !s.terminalEnabled() || s.terminals == nil {
+		return gaffer.SessionChoice{}, errors.New("Remote sessions are disabled on this controller.")
+	}
+	row, err := s.st.TerminalSessionFor(uid, sessionID)
+	if err != nil {
+		return gaffer.SessionChoice{}, errors.New("The session is no longer listed.")
+	}
+	answer, err := s.terminals.ChatControl(ctx, uid, sessionID, terminalproto.ACPControl{Action: "get"})
+	if err != nil {
+		return gaffer.SessionChoice{}, err
+	}
+	if answer.Controls.Configuring {
+		return gaffer.SessionChoice{}, errors.New("The agent was changing its settings when it was asked.")
+	}
+	choice := gaffer.SessionChoice{Tool: row.Tool, Model: answer.Controls.Model}
+	for _, option := range answer.Controls.Options {
+		if option.Category == terminalproto.AgentOptionThoughtLevel {
+			choice.Effort = option.Current
+		}
+	}
+	return choice, nil
+}
+
 func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in gaffer.OutcomeLaunch) (string, string, error) {
 	s := o.s
 	if !s.terminalEnabled() || s.terminals == nil {

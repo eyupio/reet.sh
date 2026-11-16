@@ -391,6 +391,27 @@ it merge by itself** asks you to confirm for a YOLO pipeline. Until you do,
 the pipeline stops at **Ready to merge** and its Merge line reads "Waits for
 you (YOLO)", whatever was ticked when the outcome was approved.
 
+### Whether your choice of agent, model and effort was applied
+
+The agent, model and effort you choose for a stage go to the machine as a
+request. Once the stage's session is running, the controller asks the machine
+what the session is actually on and keeps the answer with the stage. The
+pipeline's card shows it on an **Applied** line, and "Who did each stage"
+shows it for every stage that has been checked:
+
+- **Confirmed.** The session is on what you chose. Where you left the model or
+  the effort to the agent, the line names what the agent picked.
+- **Not as chosen.** The session is on something else, and the line says what
+  you chose and what it is on. Nothing is stopped: send the stage back, change
+  it in the session's chat, or carry on. It is also in the activity log.
+- **Not checked.** The machine could not be asked, and the line says why. This
+  is never shown as confirmed.
+
+A stage that carries on in the session of the stage before it is checked the
+same way, and a model or effort you change in the session's own chat later
+shows on the stage in hand. The check reads what the agent reports about
+itself. A pipeline without stages is not checked.
+
 ### When nothing can happen without you
 
 Gaffer waits for the working agent, but not for ever. Two cases turn a goal to
@@ -421,6 +442,7 @@ reason in the controller's own words:
 | Action | When |
 | --- | --- |
 | `gaffer-stage-handed-over` | A stage ended. `by` is `gaffer` (its review found the stage done), `person` (**Move to next stage**, or MCP) or `chat` (you told Gaffer to continue in the session's chat). |
+| `gaffer-stage-choice-not-applied` | A stage's session was read back to be on another agent, model or effort than you chose. `chosen` and `applied` name both; `reason` says what differs. Nothing is stopped by it. |
 | `gaffer-stage-started` | The controller started the next stage, in the same session or a new one. |
 | `gaffer-pipeline-waiting-merge` | Every stage before the merge is done and the merge waits for you. |
 | `gaffer-pipeline-done` | Every stage is done. |

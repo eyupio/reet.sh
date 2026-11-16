@@ -3,8 +3,8 @@ import type { ProjectColour } from '../projectColour'
 import { TerminalError, type TerminalSession } from '../terminal/api'
 import type { Doc } from './tree'
 
-export type DeskSummary = { id: string; name: string; colour: ProjectColour; template: string; position: number; version: number; tabs: number; panes: number; sessions: string[]; hosts: string[] }
-export type Desk = { id: string; name: string; colour: ProjectColour; template: string; position: number; version: number; schema: number; doc: Doc }
+export type DeskSummary = { id: string; name: string; colour: ProjectColour; template: boolean; position: number; version: number; tabs: number; panes: number; sessions: string[]; hosts: string[] }
+export type Desk = { id: string; name: string; colour: ProjectColour; template: boolean; position: number; version: number; schema: number; doc: Doc }
 
 /** A write that lost to a newer version (409 desk_stale). `desk` is the current record to merge onto. */
 export class StaleDesk extends Error {
@@ -42,7 +42,7 @@ export async function getDesk(id: string): Promise<Desk> {
   return (await deskRequest(`${base}/${encodeURIComponent(id)}`)).json()
 }
 
-export async function createDesk(input: { name: string; colour?: ProjectColour; template?: string; from?: string }): Promise<Desk> {
+export async function createDesk(input: { name: string; colour?: ProjectColour; template?: boolean; from?: string }): Promise<Desk> {
   return (await deskRequest(base, json('POST', input))).json()
 }
 

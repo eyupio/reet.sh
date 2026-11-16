@@ -4175,16 +4175,24 @@ names Gaffer's instruction as what goes next, opens to all three messages with R
 **Not checked.** A real phone. The line under the header returning for a failure or a reconnect was built and not
 looked at (a waiting approval is, in the same suite). Dark theme. A screen reader.
 
-## Plan limits in a chat and on a Factory card (16 November 2026)
+## Plan meters on Home, Sessions, a chat and a Factory card (16 November 2026)
 
-Production build served with `vite preview`, Chromium, synthetic figures (a session window with 81% left and a week
-with less).
+Production build served with `vite preview`, Chromium, synthetic figures: one Claude Code account signed in on two
+machines (12% of its week left) and a Codex account whose latest read failed three hours ago.
 
-- A chat's status strip shows **Plan 40% left** after the context left at 1360 px, and **Plan 40%** at 390 and 320 px
-  with both figures inside the line and no sideways scroll ([390 px](images/ui/plan-left-chat-390-light.png));
-  `chat-usage.e2e.mjs`. A machine that does not read sign-ins is not asked and shows nothing.
-- A Factory card shows **Plan left: Session 81% left · Week 12% left** in the warning colour for the agent doing the
-  stage in hand ([capture](images/ui/plan-left-factory-1440-light.png)); `gaffer-factory.e2e.mjs`.
+- **Home and the Sessions toolbar** at 1440 px: two chips, one per account, the low one in the warning colour and the
+  kept one dimmed. A mouse over them shows a tip listing both accounts' windows
+  ([Home](images/ui/plan-meters-home-1440-hover.png)); keyboard focus shows the same tip. Enter or a click opens
+  **Plan limits** ([Sessions](images/ui/plan-meters-sessions-1440-open.png)) with focus on its close button; Escape
+  closes it and returns focus; a click elsewhere closes it. Tip and panel stay inside the window.
+- **A phone** (390 × 844, touch, light and dark): no tip on a tap; the panel fits the screen with a 44 px close button
+  ([capture](images/ui/plan-meters-home-390-open.png)); no sideways scroll.
+- **A chat's status strip** and **a Factory card** use the same control (`chat-usage.e2e.mjs`,
+  `gaffer-factory.e2e.mjs`).
+- A machine that does not read sign-ins is never asked, and with none that does nothing is drawn.
 
-**Not checked.** A real machine's figures. Dark theme for the new figure. The Factory card on a phone. A figure kept
-from a failed read (its age is in the tooltip; covered by the unit test only).
+All of the above is asserted in `plan-meters.e2e.mjs`, which runs with the chat suites.
+
+**Not checked.** A real machine's figures. A screen reader (roles and names were checked as markup: a button with
+`aria-expanded`, a `tooltip`, a `dialog`, a `meter` per window). The +N fold with more than three accounts. Safari and
+Firefox, which draw HTML popovers but were not run.

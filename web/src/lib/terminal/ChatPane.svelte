@@ -33,14 +33,14 @@ import { promptTrigger, replacePromptTrigger } from './prompts'
 import { insertSkillPrompt } from '../skillPrompt'
 import { chatControls, chatSetting, chatEnqueue, chatUsage, type ChatControls } from './api'
 import { chatUsageView, type ChatUsage } from '../chatUsage'
-import { accountFor, planLeft, type MachineAccounts } from '../agentAccounts'
+import { planEntries, type MachineAccounts } from '../agentAccounts'
 import { machinePlans, PLAN_REFRESH } from '../planLimits'
 import { applyInvocation, slashQuery, type SessionSkill, type SessionSkills } from './skills'
 import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, reattachRetryable } from './reattachState'
  import { loadBinding, loadThumb, makeThumb, saveBinding, saveThumb } from './thumbs'
  import { baseName, chatPromptParts, formatImageSize, imageFiles, splitImageRefs, MAX_EMBEDDED_IMAGES, MAX_IMAGES, MAX_IMAGE_TOTAL_BYTES, validateImage } from './upload'
 
- let { session, project, planLimits = false, liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
+ let { session, project, planLimits = false, planHost = '', liveControls = false, uploadsSupported = false, uploadsOff = false, acpImages = false, acpModel = false, agentModes = [], onbusy, onstate, onnewchat, newChatOff = false, oncontinue, continueOff = false, reattach, onreattach, ontrustreattach, continuation }: { session: TerminalSession; project?: { name: string; dir: string; baseBranch?: string }; /** The session's machine reads agent sign-ins, so what is left of this agent's plan can be asked for. */ planLimits?: boolean; /** That machine's name, for the plan's details. */ planHost?: string; liveControls?: boolean; uploadsSupported?: boolean; uploadsOff?: boolean; acpImages?: boolean
   /** Whether this agent descriptor permits a confirmed live model switch. */
   acpModel?: boolean
   /** The modes the machine lets this chat be switched between (empty when the agent offers none). */
@@ -394,7 +394,7 @@ function openLink() { const href = linkPrompt; linkPrompt = null; if (href) wind
  // What is left of this agent's plan, where its machine reads sign-ins and the account has plan limits on: the same
  // figures as the machine's settings, beside the context left. The controller answers from the machine's last read.
  let plans = $state<MachineAccounts | null>(null), planClock = $state(Date.now())
- const planView = $derived(planLeft(accountFor(plans, tool), planClock))
+ const planView = $derived(planEntries([{ host: planHost, answer: plans }], planClock).filter(entry => entry.tool === tool))
  $effect(() => {
   const agentId = session.agentId
   plans = null
@@ -1065,7 +1065,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
    {/if}
   {/each}
  </div>
- <ChatStatus {chat} dir={session.dir} agent={toolName} usage={usageView} plan={planView} {...progressState} />
+ <ChatStatus {chat} dir={session.dir} agent={toolName} usage={usageView} plan={planView} planNow={planClock} {...progressState} />
  {#if ended && !reattaching}
   {#if liveControls}<ChatQueue sessionId={session.id} controls={null} active={false} />{/if}
   {#if queued.length}<p class="composer-note">{queued.length} queued {queued.length === 1 ? 'message was' : 'messages were'} not sent.</p>{/if}

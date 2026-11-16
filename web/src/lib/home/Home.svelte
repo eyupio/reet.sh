@@ -1,5 +1,6 @@
 <script lang="ts">
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
+  import FleetPlanMeters from '../FleetPlanMeters.svelte'
   import { onMount, tick } from 'svelte'
   import { signalAttentionChanged } from '../attentionSignal'
   import { getProfile, getSyncState, listGafferGoals, listGafferOutcomes, UnauthorizedError, type SyncState, type GafferGoalOverviewView } from '../api'
@@ -449,7 +450,7 @@
     <header class="workspace-heading">
       <div class="home-identity"><h1>Home</h1><p class="welcome-note">Your sessions and plans.</p></div>
       {#if writer}<div class="home-controls">{#if accounts}<a class="btn home-factory" href="/factory" title="Gaffer’s pipelines: hand over an outcome and watch it run">Factory</a>{/if}<button type="button" class="btn home-projects" aria-expanded={!railCollapsed} title={railCollapsed ? 'Show the project names and groups' : 'Hide the project list'} onclick={() => setRailCollapsed(!railCollapsed)}>Projects</button><button type="button" class="btn primary home-start" onclick={event => { notice = null; projectStart = { opener: event.currentTarget } }}>New session</button></div>{/if}
-      <div class="workspace-summary"><span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
+      <div class="workspace-summary">{#if writer}<span class="plan-slot"><FleetPlanMeters machines={terminals} caption="Plans" max={3}/></span>{/if}<span>{cards.filter(reporting).length} {cards.filter(reporting).length === 1 ? 'machine' : 'machines'} connected</span>{#if needs.length}<span>{needs.length} {needs.length === 1 ? 'session needs' : 'sessions need'} you</span>{/if}
         {#if writer && accounts && (followupsNeedReview || following || foldedGoals || followupsFailed || unfollowed)}<a class="followups" href="/factory"><GafferCompanionAvatar size={26}/><span class="followups-text">
           {#if true}{#if followupsNeedReview}Gaffer: {followupsNeedReview} {followupsNeedReview === 1 ? 'goal needs' : 'goals need'} you{:else if following}Gaffer: following {following} {following === 1 ? 'session' : 'sessions'}{:else if foldedGoals}Gaffer: {foldedGoals} {foldedGoals === 1 ? 'goal is' : 'goals are'} in Needs you{:else if followupsFailed}Gaffer’s goals unavailable{:else if unfollowed}Gaffer: {unfollowed} running {unfollowed === 1 ? 'chat' : 'chats'} not followed{/if}{#if followupsFailed && (followupsNeedReview || following || foldedGoals)}{' · last read'}{/if}{/if}
         </span></a>{/if}
@@ -536,6 +537,10 @@
   .attention-window button:focus-visible { outline: 2px solid var(--accent); }
   .workspace-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
   .workspace-summary:has(.followups) { align-items: center; gap: 0 18px; }
+  /* What is left of each agent's plan, first in the summary; nothing is drawn, and no gap kept, where there are no figures. */
+  .workspace-summary:has(.plan-slot :global(.plan-meters)) { align-items: center; }
+  .plan-slot { display: inline-flex; align-items: center; margin-left: -6px; }
+  .plan-slot:empty { display: none; }
   /* Gaffer's line on Home is the way onto the factory floor, so it reads as a control and carries his face. */
   .followups { min-height: 44px; padding: 0 14px 0 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
   .followups:hover { border-color: var(--line-strong); background: var(--tint); }

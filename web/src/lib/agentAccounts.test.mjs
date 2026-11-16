@@ -33,6 +33,19 @@ test('a plan in one line names the window with the least left, and says nothing 
   assert.equal(a.planLeft(undefined, now), null)
 })
 
+test('plans across machines list each account once, from the machine that read it last', () => {
+  const read = (over = {}) => signedIn({ limitsState: 'read', limits, limitsAt: now, ...over })
+  const entries = a.planEntries([
+    { host: 'studio', answer: { accounts: [read({ limitsAt: now - hour }), { tool: 'codex', state: 'signed_in', method: 'api_key', limitsState: 'unsupported' }] } },
+    { host: 'laptop', answer: { accounts: [read(), read({ tool: 'codex', account: '', limitsState: 'failed', limits: [limits[0]] })] } },
+    { host: 'offline', answer: null },
+  ], now)
+  // The same Claude account on two machines is one allowance; a Codex key has no plan; an unnamed account is its machine's.
+  assert.deepEqual(entries.map(e => [e.key, e.host, e.stale]), [['claude:person@example.com', 'laptop', false], ['codex@laptop', 'laptop', true]])
+  assert.equal(entries[0].plan.left, a.planLeft(read(), now).left)
+  assert.deepEqual(a.planEntries([], now), [])
+})
+
 test('the sign-in line says who is signed in and on which plan', () => {
   assert.equal(a.signInLine(signedIn()), 'Signed in as person@example.com · Max plan')
   assert.equal(a.signInLine(signedIn({ plan: '' })), 'Signed in as person@example.com')

@@ -76,6 +76,24 @@ export function planLeft(account: AgentAccount | undefined, now: number): PlanLe
   }
 }
 
+/** One plan to draw: an agent's account on a machine that has figures for it. */
+export type PlanEntry = { key: string; tool: string; host: string; account: AgentAccount; plan: PlanLeft; stale: boolean }
+/** The plans across a set of machines, one per account. The same account signed in on two machines is one allowance,
+ *  so it is listed once, from whichever machine read it last. An account with no figures (plan limits off, an API key,
+ *  no sign-in) is left out. `stale` marks figures kept from a read that has since failed. */
+export function planEntries(machines: { host: string; answer: Pick<MachineAccounts, 'accounts'> | null | undefined }[], now: number): PlanEntry[] {
+  const out = new Map<string, PlanEntry>()
+  for (const machine of machines) for (const account of machine.answer?.accounts ?? []) {
+    const plan = planLeft(account, now)
+    if (!plan) continue
+    const key = account.account ? `${account.tool}:${account.account}` : `${account.tool}@${machine.host}`
+    const have = out.get(key)
+    if (have && (have.account.limitsAt ?? 0) >= (account.limitsAt ?? 0)) continue
+    out.set(key, { key, tool: account.tool, host: machine.host, account, plan, stale: account.limitsState !== 'read' })
+  }
+  return [...out.values()]
+}
+
 /** How long ago something was read. '' when it never was. */
 export function readAgo(at: number | null | undefined, now: number): string {
   if (!at || at <= 0) return ''

@@ -235,9 +235,15 @@ try {
       await expect(pipes.nth(1).locator('dl.facts').first()).not.toContainText('Applied')
       // What is left of the plan of the agent doing the stage in hand: every window, marked when one is nearly spent.
       // (An agent with no plan to read shows no line: agentAccounts.test.mjs.)
-      const planLine=pipes.nth(0).locator('dl.facts').first().locator('div').filter({hasText:'Plan left'}).locator('dd')
-      await expect(planLine).toHaveText('Session 81% left · Week 12% left');await expect(planLine).toHaveClass(/low/)
-      await expect(planLine).toHaveAttribute('title',/^Session 81% left, resets in 2 h \d+ min\. Week 12% left, resets in 3 days\.$/)
+      const planLine=pipes.nth(0).locator('dl.facts').first().locator('div').filter({hasText:'Plan left'}).locator('dd'),planChips=planLine.locator('button.strip')
+      await expect(planChips.locator('.words')).toHaveText('Session 81% left · Week 12% left');await expect(planLine.locator('.chip')).toHaveClass(/low/)
+      // A click on it opens every limit with its reset and the account, over the card and inside the window.
+      await planChips.click()
+      const planPanel=page.getByRole('dialog',{name:'Plan limits',exact:true})
+      await expect(planPanel).toContainText('Claude Code');await expect(planPanel).toContainText('Max');await expect(planPanel).toContainText('sam@example.test')
+      await expect(planPanel.getByRole('meter',{name:'Week left',exact:true})).toHaveAttribute('aria-valuenow','12')
+      await expect(planPanel).toContainText('Read on workshop')
+      await page.keyboard.press('Escape');await expect(planPanel).toBeHidden()
       // …and the outcome's history is read from the activity log only when asked for.
       await first.getByRole('button',{name:'History',exact:true}).click()
       const told=first.getByRole('region',{name:'History of this outcome',exact:true})

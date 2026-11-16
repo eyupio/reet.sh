@@ -13,7 +13,8 @@
   import { DEFAULT_STAGES, agentActivity, ago, needsYou, sessionEndedChoices, sessionLost, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track, stageChoice } from '../gafferOutcome'
   import { eventLabel } from '../events'
   import { sourceLabel } from '../clineSource'
-  import { accountFor, planLeft, type MachineAccounts } from '../agentAccounts'
+  import { planEntries, type MachineAccounts } from '../agentAccounts'
+  import PlanMeters from '../PlanMeters.svelte'
   import { machinePlans, PLAN_REFRESH } from '../planLimits'
   import GafferProse from '../GafferProse.svelte'
   import { formatWhen } from '../time'
@@ -100,7 +101,7 @@
       // Connected machines come from the health report; where this sign-in cannot read it, from the machines that are ready.
       if (h.status === 'fulfilled') machineReporting = new Map((h.value.machines ?? []).map(item => [item.agentId, item.state === 'connected']))
       else if (m.status === 'fulfilled') machineReporting = new Map(m.value.map(item => [item.agentId, item.ready]))
-      if (m.status === 'fulfilled') planMachines = new Set(m.value.filter(item => item.capabilities?.agentAccounts === true).map(item => item.agentId))
+      if (m.status === 'fulfilled') planMachines = new Map(m.value.filter(item => item.capabilities?.agentAccounts === true).map(item => [item.agentId, item.host]))
     } finally { if (mine === railGeneration) railLoading = false }
   }
   function settle(next: FolderProject[]) { railGeneration++; railLoading = false; projects = next; void loadSetup() }
@@ -364,7 +365,7 @@
   // What is left of the plan of the agent doing a pipeline's stage in hand, where the outcome's machine reads sign-ins
   // and the account has plan limits on. The same figures as the machine's settings; nothing is asked of the machine.
   let plans = $state<Record<string, MachineAccounts>>({}), planClock = $state(Date.now())
-  let planMachines = $state<Set<string>>(new Set())
+  let planMachines = $state<Map<string, string>>(new Map())
   const planAgents = $derived([...new Set(records.map(o => o.agentId).filter(id => id && planMachines.has(id)))].sort().join(','))
   $effect(() => {
     const ids = planAgents ? planAgents.split(',') : []
@@ -375,7 +376,7 @@
     const timer = setInterval(read, PLAN_REFRESH)
     return () => { live = false; clearInterval(timer) }
   })
-  const planFor = (record: Outcome, piece: GafferOutcomeSession) => planLeft(accountFor(plans[record.agentId], piece.stages?.[piece.stage ?? 0]?.tool ?? record.tool), planClock)
+  const planFor = (record: Outcome, piece: GafferOutcomeSession) => { const tool = piece.stages?.[piece.stage ?? 0]?.tool ?? record.tool; return planEntries([{ host: planMachines.get(record.agentId) ?? '', answer: plans[record.agentId] }], planClock).filter(entry => entry.tool === tool) }
   const crew = (piece: GafferOutcomeSession, record: Outcome) => {
     const stage = piece.stages?.[piece.stage ?? 0]
     const tool = stage?.tool ?? record.tool, model = stage?.model ?? record.model ?? ''
@@ -504,7 +505,7 @@
             <dl class="facts">
               <div><dt>Doing this stage</dt><dd>{crew(piece, record)}</dd></div>
               {#if piece.state !== 'done'}{@const plan = planFor(record, piece)}
-                {#if plan}<div><dt>Plan left</dt><dd class:low={plan.low} title={plan.detail}>{plan.summary}</dd></div>{/if}{/if}
+                {#if plan.length}<div><dt>Plan left</dt><dd><PlanMeters entries={plan} now={planClock} wide /></dd></div>{/if}{/if}
               {#if piece.state === 'following' || piece.state === 'ready_to_merge'}{@const applied = stageChoice(piece.stages?.[piece.stage ?? 0])}
                 {#if applied}<div><dt>Applied</dt><dd class:low={applied.tone === 'bad'}><strong>{applied.label}.</strong> {applied.text}</dd></div>{/if}{/if}
               {#if piece.state === 'following'}{@const stage = piece.stages?.[piece.stage ?? 0]}{@const activity = agentActivity(stage, clock)}

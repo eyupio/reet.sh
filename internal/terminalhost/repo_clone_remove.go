@@ -21,6 +21,13 @@ const (
 	cloneStatusTimeout = 10 * time.Second
 	// maxCloneTips bounds the distinct commits checked against origin.
 	maxCloneTips = 1000
+	// CloneFetchTimeout bounds the fetch of a clone's default branch that a
+	// status may ask for (RepoCloneStatus.Fetch), on top of cloneStatusTimeout.
+	CloneFetchTimeout = 20 * time.Second
+	// maxMergedFiles and maxMergedPathBytes bound the files whose content is
+	// compared with the default branch when a local branch is looked at.
+	maxMergedFiles     = 500
+	maxMergedPathBytes = 64 << 10
 )
 
 // removeCloneDir deletes a clone's folder; tests replace it.
@@ -52,10 +59,12 @@ type cloneAt struct {
 }
 
 // CloneStatus reports what the clone at req.Dir holds that deleting it would
-// lose. It changes nothing, in the clone or anywhere else, and never reaches
-// the network: what is on GitHub is read from the remote-tracking branches
-// the clone already has. It never returns a Go error: every outcome is a
-// RepoCloneState.
+// lose. It changes nothing, in the clone or anywhere else, and reaches no
+// network: what is on GitHub is read from the remote-tracking branches the
+// clone already has. The one exception is a request with Fetch, which first
+// fetches the default branch into refs/remotes/origin/ (fetchCloneDefault) so
+// a pull request merged since the clone last looked is seen; nothing else moves.
+// It never returns a Go error: every outcome is a RepoCloneState.
 //
 // req.Dir must be exactly <home>/reet/repos/<owner>/<repo> for req.Origin
 // ("owner/repo"), with home resolved, and every folder from reet down to it
@@ -103,10 +112,12 @@ type cloneAt struct {
 //   - Stashes is the stash entries.
 //   - Unpushed is the local branches whose tip is not reachable from any
 //     refs/remotes/origin/* ref, plus a detached HEAD on such a commit, plus
-//     each ref of a bisect or rebase in progress on one. Nothing is fetched,
-//     so a branch pushed from elsewhere, or deleted on GitHub and pruned
-//     here, counts. Tags, notes and commits only a reflog holds are not
-//     looked at.
+//     each ref of a bisect or rebase in progress on one. Nothing is fetched
+//     (unless the request asked), so a branch pushed from elsewhere, or
+//     deleted on GitHub and pruned here, counts. A branch whose every changed
+//     file already reads the same in origin's default branch does not: its
+//     pull request was squash-merged or rebased (contentOnOrigin). Tags,
+//     notes and commits only a reflog holds are not looked at.
 //   - Fingerprint is a SHA-256 over the worktree list, the status, every
 //     ref with its tip (branches, tags, remote-tracking branches, the
 //     stash), HEAD, the stash count and, when anything is changed, the
@@ -147,9 +158,13 @@ type cloneAt struct {
 // when the 10 seconds of a status run out, and a clone whose file listing
 // passes 4 MiB (some tens of thousands of tracked files) answers failed.
 func CloneStatus(ctx context.Context, home string, req terminalproto.RepoCloneStatus, git GitRunner) terminalproto.RepoCloneState {
-	ctx, cancel := context.WithTimeout(ctx, cloneStatusTimeout)
+	limit := cloneStatusTimeout
+	if req.Fetch {
+		limit += CloneFetchTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	state, _ := cloneState(ctx, home, req.Dir, req.Origin, git)
+	state, _ := cloneState(ctx, home, req.Dir, req.Origin, req.Fetch, git)
 	return state
 }
 
@@ -180,7 +195,7 @@ func RemoveClone(ctx context.Context, home string, req terminalproto.RepoCloneRe
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, cloneStatusTimeout)
 	defer cancel()
-	state, at := cloneState(checkCtx, home, req.Dir, req.Origin, git)
+	state, at := cloneState(checkCtx, home, req.Dir, req.Origin, false, git)
 	switch {
 	case state.Reason != "":
 		return refuse(state.Reason)
@@ -208,7 +223,7 @@ func RemoveClone(ctx context.Context, home string, req terminalproto.RepoCloneRe
 
 // cloneState is what CloneStatus documents, with the checked folder for a
 // remove. The folder is set only when the state has no reason.
-func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (terminalproto.RepoCloneState, cloneAt) {
+func cloneState(ctx context.Context, home, dir, origin string, fetch bool, git GitRunner) (terminalproto.RepoCloneState, cloneAt) {
 	refuse := func(reason terminalproto.RepoCloneReason) (terminalproto.RepoCloneState, cloneAt) {
 		return terminalproto.RepoCloneState{Reason: reason}, cloneAt{}
 	}
@@ -329,6 +344,9 @@ func cloneState(ctx context.Context, home, dir, origin string, git GitRunner) (t
 	}
 	if marker, marked := cloneMarked(at.dest); !marked || !sameRepo(marker, req) {
 		return terminalproto.RepoCloneState{}, at
+	}
+	if fetch {
+		fetchCloneDefault(ctx, at.dest, git)
 	}
 	state, err := cloneCounts(ctx, at.dest, git)
 	if err != nil || ctx.Err() != nil {
@@ -469,7 +487,7 @@ func cloneCounts(ctx context.Context, dest string, git GitRunner) (terminalproto
 		headLine = "detached " + oid
 	}
 
-	unpushed, err := unpushedTips(ctx, dest, git, tips)
+	unpushed, err := unpushedTips(ctx, dest, git, tips, defaultOriginRef(ctx, dest, git))
 	if err != nil {
 		return none, err
 	}
@@ -553,10 +571,82 @@ func linkedWorktrees(out []byte, dest string) (linked int, ok bool) {
 	return linked, true
 }
 
+// fetchCloneDefault fetches the clone's default branch from GitHub into
+// refs/remotes/origin/<branch>, so a pull request merged there since the clone
+// last looked is seen. It runs only for a status that asked (CloneStatus), after
+// the clone has been shown to be a plain clone of the repository on github.com,
+// with what fetchBase does: hooks off, gh's credentials for github.com only, no
+// prompt, no tags, no FETCH_HEAD, and nothing but that one remote-tracking
+// branch moving. It is best effort: when GitHub does not answer the clone is
+// looked at as it is, which only ever keeps it.
+func fetchCloneDefault(ctx context.Context, dest string, git GitRunner) {
+	ctx, cancel := context.WithTimeout(pinGitDir(ctx, dest), CloneFetchTimeout)
+	defer cancel()
+	base := cloneDefaultBranch(ctx, dest, git)
+	if base == "" {
+		return
+	}
+	if origin := githubFetch(ctx, git, dest); origin.from != "" {
+		fetchBase(ctx, git, dest, origin.from, base)
+	}
+}
+
+// defaultOriginRef is origin's copy of the repository's default branch
+// ("refs/remotes/origin/main"), or "" when the clone has none.
+func defaultOriginRef(ctx context.Context, dest string, git GitRunner) string {
+	base := cloneDefaultBranch(ctx, dest, git)
+	if base == "" {
+		return ""
+	}
+	ref := "refs/remotes/origin/" + base
+	if commit, err := gitCommit(ctx, git, dest, ref); err != nil || commit == "" {
+		return ""
+	}
+	return ref
+}
+
+// contentOnOrigin reports whether everything the commit tip changed since it
+// forked from baseRef is already there: every file it changed reads the same
+// in tip and in baseRef. That is a branch whose pull request was squash-merged
+// or rebased on GitHub: its commits have other ids there, and a delete loses
+// none of its work, only its history. Anything unknown, too long to check, or
+// different is not on origin, so the branch is kept.
+func contentOnOrigin(ctx context.Context, dest string, git GitRunner, tip, baseRef string) bool {
+	out, err := git(ctx, dest, "merge-base", tip, baseRef)
+	if err != nil {
+		return false
+	}
+	base := strings.TrimSpace(string(out))
+	if !validHeadLine("HEAD " + base) {
+		return false
+	}
+	files, err := git(ctx, dest, "diff", "--name-only", "--no-renames", "-z", base, tip)
+	if err != nil || len(files) >= maxMergedPathBytes {
+		return false
+	}
+	var paths []string
+	for _, path := range strings.Split(string(files), "\x00") {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	if len(paths) > maxMergedFiles {
+		return false
+	}
+	if len(paths) == 0 {
+		// Nothing changed since the fork: the commits are empty. (An empty
+		// pathspec would compare whole trees, which is not the question.)
+		return true
+	}
+	args := append([]string{"--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", tip, baseRef, "--"}, paths...)
+	_, err = git(ctx, dest, args...)
+	return err == nil
+}
+
 // unpushedTips counts the tips with a commit that no refs/remotes/origin/*
 // ref reaches. Nothing is fetched. One call answers for a clone where every
 // tip is on origin; otherwise each distinct commit is asked about once.
-func unpushedTips(ctx context.Context, dest string, git GitRunner, tips []string) (int, error) {
+func unpushedTips(ctx context.Context, dest string, git GitRunner, tips []string, baseRef string) (int, error) {
 	if len(tips) == 0 {
 		return 0, nil
 	}
@@ -583,6 +673,15 @@ func unpushedTips(ctx context.Context, dest string, git GitRunner, tips []string
 	for _, oid := range distinct {
 		if missing[oid], err = notOnOrigin(oid); err != nil {
 			return 0, err
+		}
+	}
+	// A branch squash-merged or rebased on GitHub has commits origin does not
+	// hold under their own ids, but everything it changed is there.
+	if baseRef != "" {
+		for _, oid := range distinct {
+			if missing[oid] && contentOnOrigin(ctx, dest, git, oid, baseRef) {
+				missing[oid] = false
+			}
 		}
 	}
 	count := 0

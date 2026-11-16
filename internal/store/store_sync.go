@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/eyupio/reet.sh/internal/contentobs"
+	"github.com/eyupio/reet.sh/internal/ref"
 )
 
 var ErrSync = errors.New("sync requires two different, recently scanned environments owned by this account")
@@ -125,6 +126,35 @@ func (s *Store) SyncEnvironmentsFor(userID int64) ([]SyncEnvironment, error) {
 
 type environmentQuerier interface {
 	Query(string, ...any) (*sql.Rows, error)
+}
+
+// SkillInstalledAsFor finds the skill on a person's shelf, from this source,
+// that the skills CLI installs into folder when the catalogue knows it by
+// another name. The CLI names the folder after the skill's own name
+// ("UI/UX Design Review" becomes ui-ux-design-review) while the catalogue has
+// its own slug (uiux-design-review), so a scan reports a folder the shelf does
+// not know. It reports false when no skill, or more than one, fits.
+func (s *Store) SkillInstalledAsFor(userID int64, source, folder string) (ref.Ref, bool, error) {
+	rows, err := s.db.Query(`SELECT k.id,k.source,k.slug,k.source_type,k.url,k.name FROM skills k JOIN shelf sh ON sh.skill_id=k.id WHERE sh.user_id=? AND k.source=? AND k.slug<>? AND k.name<>'' AND k.name<>k.slug`, userID, source, folder)
+	if err != nil {
+		return ref.Ref{}, false, err
+	}
+	defer rows.Close()
+	var found []ref.Ref
+	for rows.Next() {
+		var r ref.Ref
+		var name string
+		if err := rows.Scan(&r.ID, &r.Source, &r.Slug, &r.SourceType, &r.URL, &name); err != nil {
+			return ref.Ref{}, false, err
+		}
+		if ref.InstalledFolder(name) == folder {
+			found = append(found, r)
+		}
+	}
+	if err := rows.Err(); err != nil || len(found) != 1 {
+		return ref.Ref{}, false, err
+	}
+	return found[0], true, nil
 }
 
 func (s *Store) EnvironmentSkillsFor(userID int64, envID string) ([]SyncSkill, error) {

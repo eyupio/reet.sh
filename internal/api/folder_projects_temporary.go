@@ -189,8 +189,17 @@ func (s *server) sweepTemporaryProject(uid int64, p store.FolderProject, now tim
 	if err != nil || !current.Temporary || current.Version != p.Version || current.Host != p.Host || current.Dir != p.Dir {
 		return
 	}
-	ctx, cancel := context.WithTimeout(s.baseContext(), terminalbroker.RepoCloneStatusCallTimeout)
-	state, err := s.terminals.CloneStatus(ctx, uid, p.Host, terminalproto.RepoCloneStatus{Dir: dir, Origin: origin})
+	// The look asks the machine to fetch the default branch first when it can,
+	// so a pull request merged on GitHub since the clone last fetched (a squash
+	// merge leaves the branch's own commits on no remote branch) is seen. A
+	// machine that cannot is looked at as it is.
+	fetch := s.cloneCanFetch(uid, p.Host)
+	timeout := terminalbroker.RepoCloneStatusCallTimeout
+	if fetch {
+		timeout = terminalbroker.RepoCloneStatusFetchCallTimeout
+	}
+	ctx, cancel := context.WithTimeout(s.baseContext(), timeout)
+	state, err := s.terminals.CloneStatus(ctx, uid, p.Host, terminalproto.RepoCloneStatus{Dir: dir, Origin: origin, Fetch: fetch})
 	cancel()
 	if err != nil {
 		return

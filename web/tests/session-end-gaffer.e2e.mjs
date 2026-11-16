@@ -126,7 +126,7 @@ try{
   await needs(q,e.box,1)
   ended(e.box.sessions[1])
   await q.evaluate(()=>window.dispatchEvent(new Event('online')))
-  await expect(q).toHaveURL(base+'/sessions?view=list')
+  await expect(q).toHaveURL(base+'/sessions')
   // Its confirmed end clears the card once the view is dismissed.
   await needs(q,e.box,0)
   // Keeping history is separate from dismissing a stopped view.
@@ -159,7 +159,7 @@ try{
  await needs(up,uncertain.box,0)
  ended(uncertain.box.sessions[0])
  await up.evaluate(()=>window.dispatchEvent(new Event('online')))
- await expect(up).toHaveURL(base+'/sessions?view=list')
+ await expect(up).toHaveURL(base+'/sessions')
  await needs(up,uncertain.box,0)
  expect(uncertain.box.sessions[1].state).toBe('running')
  await uncertain.context.close()
@@ -172,9 +172,9 @@ try{
  await needs(pp,plain.box,0)
  await stop(pp)
  // The confirmed end dismisses the stopped view with a full page load (location.assign), and the address changes before the
- // old page is torn down: wait for the list to be loaded, or the next evaluate can land in the destroyed page ("Execution
+ // old page is torn down: wait for the page to be loaded, or the next evaluate can land in the destroyed page ("Execution
  // context was destroyed") when the machine is slow. Reproduced with Chromium's CPU throttled eight-fold.
- await expect(pp).toHaveURL(base+'/sessions?view=list')
+ await expect(pp).toHaveURL(base+'/sessions')
  await pp.waitForLoadState('load')
  expect(plain.box.sessions[0]).toMatchObject({id:'regression-session-004',state:'ended',changedSinceSeen:true})
  await needs(pp,plain.box,0)

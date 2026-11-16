@@ -94,3 +94,35 @@ test('an ambiguous installed source is reported, not changed automatically', () 
   assert.match(problem.detail, /did not change this automatically/)
   assert.match(problem.detail, /no single installed source/)
 })
+
+test('a failed install keeps its own reason and is never called a changed plan', () => {
+  // Agents before the fix ended every install failure with "preview again", which read as a stale plan.
+  for (const message of [
+    'sync stopped at svg-logo-designer: exit status 1; rescan and preview again',
+    'sync stopped at svg-logo-designer: No matching skills found for: svg-logo-designer',
+  ]) {
+    const problem = explainSyncFailure(message, context)
+    assert.equal(problem.kind, 'install')
+    assert.equal(problem.title, 'svg-logo-designer could not be installed')
+    assert.doesNotMatch(problem.detail, /preview again|plan changed/i)
+    assert.equal(problem.retry, true)
+  }
+  assert.match(explainSyncFailure('sync stopped at svg-logo-designer: No matching skills found for: svg-logo-designer', context).detail, /No matching skills found for: svg-logo-designer/)
+  assert.match(explainSyncFailure('sync stopped at beta: exit status 1; rescan and preview again', context).detail, /update reet on studio/i)
+})
+
+test('only a plan that really went stale is called a changed plan', () => {
+  for (const message of [
+    'Target changed; preview again.',
+    'The plan changed before it ran. Reet asked the machine for a fresh plan and continues automatically.',
+    'controller target changed; preview again',
+    'local skills changed; preview again',
+    'target identity or revision changed',
+    'Desired revision changed during apply; rescan and preview.',
+    'Machine renamed; preview again.',
+    'Environment merged; preview again.',
+  ]) assert.equal(explainSyncFailure(message, context).kind, 'stale-plan', message)
+  const lost = explainSyncFailure('Agent disconnected or timed out; inspect local files and preview again.', context)
+  assert.equal(lost.kind, 'other')
+  assert.match(lost.detail, /disconnected or timed out/)
+})

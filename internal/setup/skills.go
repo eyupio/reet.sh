@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/eyupio/reet.sh/internal/ref"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -309,6 +310,15 @@ func readSkillLock(path string) map[string]skillLockEntry {
 		for key, entry := range asMap {
 			name := lockSkillName(key, entry.SkillPath)
 			if entry.Source != "" {
+				entries[name] = skillLockEntry{Source: entry.Source, SourceType: entry.SourceType, SkillPath: entry.SkillPath}
+			}
+		}
+		// The skills CLI installs into a folder made from the skill's own name
+		// (the key), which can differ from the folder it had upstream. That
+		// folder gets the same origin unless an entry already names it.
+		for key, entry := range asMap {
+			name := ref.InstalledFolder(key)
+			if _, taken := entries[name]; !taken && entry.Source != "" {
 				entries[name] = skillLockEntry{Source: entry.Source, SourceType: entry.SourceType, SkillPath: entry.SkillPath}
 			}
 		}

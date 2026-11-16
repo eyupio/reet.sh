@@ -60,6 +60,71 @@ run one after another, and MCP may never give Gaffer the decisions.
   (OpenCode). Each other agent needs its own listing command confirmed on a real machine. Also not done: adding a
   part by hand in the plan review, parts over MCP, parts in the Add pipelines dialog, parts running at the same time.
 
+## SYNC-INSTALL-NAME-1: installs that failed were called a changed plan (16 November 2026)
+
+The owner reported skills sync still failing on Elitebook with **The plan changed before it ran**, after
+f70eef5 had made stale plans repair themselves. The plan never changed. Read this before touching sync again.
+
+- **Root cause, reproduced with the real CLI.** `npx skills@1.7.4 add <source> --skill <slug>` matches `--skill`
+  against the name in the skill's SKILL.md, case-insensitively, not its folder. `rknall/claude-skills` names its
+  skills "SVG Logo Designer" and "Web Design Builder"; reet passed `svg-logo-designer`, the CLI answered
+  "No matching skills found" and exited 1. Those were the two installs on the failing card and the only two
+  skills in the plan whose name is not their slug.
+- **Why it read as a changed plan.** The apply failed as `sync stopped at <slug>: exit status 1; rescan and
+  preview again`. `web/src/lib/syncProblems.ts` matched the bare words "preview again" as a stale plan. The
+  stage strip was the tell: a stale plan stops at Plan, this stopped at Apply.
+- **Fixes.** `skillsAddCommand` (`internal/scan/sync.go`) offers the slug and the skill's own name
+  (`--skill` takes several values); a name that reads as a flag, holds `*` or control characters is left out.
+  `installFailure` gives the installer's own error line and no longer says "preview again". The web has an
+  `install` problem kind and its stale-plan matcher lists only messages that mean a stale plan.
+- **Three names for one skill.** Catalogue slug (skills.sh `skillId`), installed folder (the CLI's
+  `sanitizeName` of the skill name) and repository folder (lock `skillPath`) can all differ: "Python Backend
+  Architecture Review" is `python-backend-architecture-review` installed and `python-architecture-review`
+  upstream. `lockSkillNames` (`internal/scan/scan.go`) now maps a lock entry to the installed folder, with the
+  repository folder as an alias; `internal/setup/skills.go` does the same for snapshots.
+- **Catalogue slug against installed folder.** "UI/UX Design Review" is `uiux-design-review` in the catalogue
+  and `ui-ux-design-review` on disk; the install worked and the plan never settled. The rule lives once, in
+  `ref.InstalledFolder`. The agent's `knownByInstalledFolder` (`internal/scan/sync.go`) reports such a folder
+  under the desired slug when its source matches, before planning. The controller's `importEntry` asks
+  `SkillInstalledAsFor` when the shelf has no skill by the folder's name, so the scan is recorded as the
+  catalogued skill and no second skill is made. An exact shelf entry under the folder's name still wins: a
+  person who already has that ghost removes it. Run for real against the CLI, in mirror mode.
+- **Copied commands.** `npx skills add` commands (`web/src/lib/install.ts`, `installCommand` in
+  `internal/api/api.go`) give the slug and then the name in quotes; `ref.parseInstallCommand` reads past one
+  quoted value after the slug so the command still pastes back into reet, and refuses anything unquoted as
+  before. The `npx skills use` prompt takes one selector, so `useSelector` gives the name when it differs.
+  Checked on skills 1.7.4 and 1.9.0: the name works on both; `svg-logo-designer` fails on 1.7.4 and
+  `uiux-design-review` on both.
+- **One CLI version.** `ref.SkillsCLI` (`skills@1.7.4`) is what sync runs and what every copied command names:
+  the install command, the use prompt, the hosted skill page and the Markdown export. `SKILLS_CLI` in
+  `web/src/lib/install.ts` holds the same value and `skillPrompt.test.mjs` fails if the two differ, so a
+  version bump is one change in each file. `ref.parseInstallCommand` accepts `skills@<version>` pasted in.
+  The pinned command for a hosted skill was not run against a live reet; it is the version sync already uses
+  for hosted sources.
+- **Checks that protect what is on the machine.** They compared slugs only. In `collect`
+  (`internal/scan/sync.go`) the cross-app check, the unrecognised-entry check and the copy left out of an
+  exact-set plan now also look at `installedFolder(skill)`, where the CLI will really write. In the scope being
+  synced, `knownByInstalledFolder` reports that folder under the slug whatever its source, so `planSync` gives
+  the usual answers: another source is a source conflict, no source is a replacement, and the backup moves the
+  folder that is really there.
+- **Auto fix.** `resolveSyncSourceFixesFor` (`internal/store/store_sync_source_fix.go`) also looks for the
+  installed copy under `ref.InstalledFolder(name)`. It now makes the plan ask for the installed skill itself
+  (id, name, slug and source). It used to change the source and keep the old id, so after the install the
+  controller listed the old skill as missing and the installed one as an extra for ever; that was true of
+  every Auto fix, not only this case. A plan that already held the installed skill keeps one entry.
+- **Auto fix on a folder that follows its source.** `MaintainSync` compared the saved plan with the source on
+  every poll and wrote the source's skill back, so the fix was undone, the machine refused the skill again and
+  the two took turns, a job each time. `keepFollowedCopies` puts back each installed copy the saved plan
+  already follows before the comparison, and again after a save made for another reason. It is stateless: a
+  copy stands only while it is still on the machine and the one source of its name, so removing it returns
+  the folder to its source. It never follows a copy the saved plan did not already follow. Library
+  (canonical) folders are untouched, as Auto fix never applied to them.
+- **MCP.** `mcpPage` gives up a record's largest list for a count when one record is over the response limit;
+  `reet_list_sync_targets` failed for five of the owner's seven targets.
+- **Seen, not changed.** 24 `reet-server` environments, one per controller container name; pruning is the
+  `prune_server_environments_days` setting. `TestLibraryManagedRemovalExecutor/journal_refused` fails when the
+  tests run as root (it relies on `chmod 0500`), with or without this change.
+
 ## A pull request appears in the stages as it is made (16 November 2026)
 
 The owner created a pull request in a session and the right-hand panel still showed **PR — Not yet** with the other

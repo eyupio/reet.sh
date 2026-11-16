@@ -74,6 +74,10 @@ func ParseAt(input, host string) (Ref, error) {
 	return Ref{}, errors.New("expected owner/repo/skill or domain/skill")
 }
 
+// skillsPackage is the skills CLI named with a version or tag, as in the pinned
+// commands reet copies out and in "skills@latest".
+var skillsPackage = regexp.MustCompile(`^skills@[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
 var commandPart = regexp.MustCompile(`^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$`)
 
 // parseInstallCommand reads arguments only; pasted commands are never executed.
@@ -81,18 +85,20 @@ func parseInstallCommand(args []string, host string) (Ref, error) {
 	invalid := errors.New("expected npx skills add <hosted skill URL> or npx skills add <GitHub URL or owner/repo> --skill <skill-name>")
 	// Sources and skill names cannot contain spaces, so quoted arguments can be
 	// handled without interpreting shell substitutions or escape sequences.
+	wasQuoted := make([]bool, len(args))
 	for i, arg := range args {
 		quoted := len(arg) >= 2 && (arg[0] == '\'' || arg[0] == '"')
 		if quoted && arg[len(arg)-1] == arg[0] {
 			args[i] = arg[1 : len(arg)-1]
+			wasQuoted[i] = true
 		}
 	}
-	args = args[1:]
+	args, wasQuoted = args[1:], wasQuoted[1:]
 	yes := len(args) > 0 && (args[0] == "-y" || args[0] == "--yes")
 	if yes {
-		args = args[1:]
+		args, wasQuoted = args[1:], wasQuoted[1:]
 	}
-	valid := len(args) >= 3 && (args[0] == "skills" || args[0] == "skills@latest") &&
+	valid := len(args) >= 3 && (args[0] == "skills" || skillsPackage.MatchString(args[0])) &&
 		args[1] == "add"
 	if !valid {
 		return Ref{}, invalid
@@ -106,6 +112,22 @@ func parseInstallCommand(args []string, host string) (Ref, error) {
 		case arg == "--skill" && slug == "" && i+1 < len(args):
 			i++
 			slug = args[i]
+			// The command reet copies out gives the slug and then the skill's
+			// own name in quotes, because the skills CLI matches on the name.
+			// Only the slug identifies the skill here, so one quoted value
+			// after it is read past. Anything unquoted is still refused.
+			if i+1 < len(args) && wasQuoted[i+1] {
+				i++
+			} else if i+1 < len(args) && (args[i+1][0] == '\'' || args[i+1][0] == '"') {
+				quote, end := args[i+1][:1], i+2
+				for end < len(args) && !strings.HasSuffix(args[end], quote) {
+					end++
+				}
+				if end == len(args) {
+					return Ref{}, invalid
+				}
+				i = end
+			}
 		case strings.HasPrefix(arg, "--skill=") && slug == "":
 			slug = strings.TrimPrefix(arg, "--skill=")
 		default:

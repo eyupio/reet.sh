@@ -10,6 +10,7 @@ export type SyncProblemKind =
   | 'project'
   | 'scan'
   | 'stale-plan'
+  | 'install'
   | 'busy'
   | 'source'
   | 'paused'
@@ -48,7 +49,11 @@ const enrollmentOwner = /enrollment belongs to another local machine or user/i
 const alreadyEnrolled = /configuration already exists/i
 const projectScope = /project is not enrolled/i
 const scanBlocked = /scan incomplete|no changes allowed|cannot read target skills directory[\s\S]*permission denied/i
-const stalePlan = /approved plan no longer matches|target identity or revision changed|controller target changed|local skills changed|desired revision changed|preview again/i
+// Only messages that mean the plan itself went stale. "preview again" used to
+// be matched on its own, so a failed install was reported as a changed plan.
+const stalePlan = /approved plan no longer matches|target identity or revision changed|target changed|local skills changed|desired (?:revision|skills) changed|plan changed before it ran|library intent changed|machine renamed|environment merged/i
+const installStopped = /^sync stopped at ([^:\s]+):\s*([\s\S]*)$/i
+const oldInstallAdvice = /;?\s*rescan and preview again/i
 const busy = /another sync may be running|cannot lock target/i
 const duplicateName = /More than one source uses the name/i
 const sharedAgentSource = /is shared with .+? from a different source|source conflict for .+?; inspect its local lock file/i
@@ -204,6 +209,22 @@ export function explainSyncFailure(message: string, context: SyncProblemContext 
       retry: false,
       local: false,
       href: '/sync/advanced#sync-selection',
+    }
+  }
+  const stopped = installStopped.exec(text)
+  if (stopped) {
+    // The plan was right; installing this one skill is what failed.
+    const reason = stopped[2].replace(oldInstallAdvice, '').trim()
+    const unexplained = /^(?:exit status \d+|exited \d+)?$/i.test(reason)
+    return {
+      kind: 'install',
+      title: `${stopped[1]} could not be installed`,
+      detail: unexplained
+        ? `The installer on ${host} stopped without saying why. Update reet on ${host} so it reports the reason, then retry. Skills installed before it are in place.`
+        : `The installer on ${host} said: ${reason}. Skills installed before it are in place. Retry once the cause is fixed.`,
+      commands: [],
+      retry: true,
+      local: false,
     }
   }
   if (stalePlan.test(text)) {

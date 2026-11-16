@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -434,4 +435,217 @@ func TestNetworkFailureRecognisesOfflineErrors(t *testing.T) {
 	if networkFailure(errors.New("source conflict for alpha")) {
 		t.Fatal("ordinary refusal looked like a network failure")
 	}
+}
+
+// The skills CLI selects a skill by the name in its SKILL.md. A skill whose
+// name is not its folder name ("SVG Logo Designer" in svg-logo-designer) was
+// asked for by folder name only, so every install of it failed.
+func TestSkillsAddCommandOffersTheSkillsOwnName(t *testing.T) {
+	for _, tc := range []struct {
+		label string
+		skill store.SyncSkill
+		names []string
+	}{
+		{"name is the folder", store.SyncSkill{Name: "beta", Slug: "beta"}, []string{"beta"}},
+		{"display name", store.SyncSkill{Name: "SVG Logo Designer", Slug: "svg-logo-designer"}, []string{"svg-logo-designer", "SVG Logo Designer"}},
+		{"only case differs", store.SyncSkill{Name: "Beta", Slug: "beta"}, []string{"beta"}},
+		{"no name", store.SyncSkill{Slug: "beta"}, []string{"beta"}},
+		{"a name that reads as a flag", store.SyncSkill{Name: "--all", Slug: "beta"}, []string{"beta"}},
+		{"a name that selects everything", store.SyncSkill{Name: "*", Slug: "beta"}, []string{"beta"}},
+		{"a name with a line break", store.SyncSkill{Name: "Beta\nTwo", Slug: "beta"}, []string{"beta"}},
+	} {
+		want := append([]string{"--yes", "skills@1.7.4", "add", "https://github.com/o/r", "--skill"}, tc.names...)
+		want = append(want, "--agent", "codex", "--yes", "--global")
+		got := skillsAddCommand("https://github.com/o/r", tc.skill, "codex", true)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s:\n got %q\nwant %q", tc.label, got, want)
+		}
+	}
+	project := strings.Join(skillsAddCommand("https://github.com/o/r", store.SyncSkill{Slug: "beta"}, "codex", false), " ")
+	if strings.Contains(project, "--global") {
+		t.Errorf("a project install must not be global: %s", project)
+	}
+}
+
+// A failed install says what the installer said, not only its exit status, and
+// never tells the person to preview again: nothing about the plan was stale.
+func TestInstallFailureSaysWhatTheInstallerSaid(t *testing.T) {
+	output := "\x1b[?25l|\n\x1b[32mo\x1b[39m  Found 10 skills\n|\n\x1b[31m■\x1b[39m  No matching skills found for: svg-logo-designer\n|\n•  Available skills:\n|    - SVG Logo Designer\nnpm notice\nnpm notice New major version of npm available!\n"
+	err := installFailure("svg-logo-designer", &commandOutputError{err: errors.New("exit status 1"), output: output})
+	if got := err.Error(); got != "sync stopped at svg-logo-designer: No matching skills found for: svg-logo-designer" {
+		t.Fatalf("got %q", got)
+	}
+	if ErrReplanWorthAttempting(err) || strings.Contains(err.Error(), "preview again") {
+		t.Fatalf("an install failure is not a stale plan: %v", err)
+	}
+	plain := installFailure("beta", errors.New("fixture failure"))
+	if got := plain.Error(); got != "sync stopped at beta: fixture failure" {
+		t.Fatalf("got %q", got)
+	}
+	offline := installFailure("beta", &commandOutputError{err: errors.New("exit status 1"), output: "npm error code ENOTFOUND\nnpm error network request to https://registry.npmjs.org/skills failed\n"})
+	if got := offline.Error(); !strings.Contains(got, "npm error network request") || !strings.Contains(got, "check network access") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// The catalogue calls "UI/UX Design Review" uiux-design-review; the skills CLI
+// installs it into ui-ux-design-review. The install worked and the plan never
+// settled: the agent kept seeing the catalogued name as missing.
+func TestSyncAcceptsTheFolderTheInstallerMade(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".agents", "skills")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	skill := store.SyncSkill{ID: "rknall/claude-skills/uiux-design-review", Name: "UI/UX Design Review", Slug: "uiux-design-review", Source: "rknall/claude-skills", SourceType: "github"}
+	for _, mode := range []string{"additive", "mirror"} {
+		target := store.SyncTarget{Target: store.Environment{ID: "1/laptop/agents", Name: "Laptop shared", Host: "laptop", Agent: "agents"}, SourceName: "Reference", Revision: "one", Mode: mode, Desired: []store.SyncSkill{skill}}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "GET" {
+				json.NewEncoder(w).Encode(map[string]any{"targets": []store.SyncTarget{target}, "canWrite": true})
+				return
+			}
+			w.Write([]byte(`{"imported":1,"errors":[]}`))
+		}))
+		installs := 0
+		run := func(apply bool) (string, error) {
+			args := []string{"--server", srv.URL, "--token", "secret", "--env", "laptop", "--target", target.Target.ID}
+			if apply {
+				args = append(args, "--apply")
+			}
+			var out bytes.Buffer
+			err := runSync(args, strings.NewReader("yes\n"), &out, func(args []string, cwd string) error {
+				installs++
+				// What the real CLI does: a folder made from the skill's name, and a
+				// lock entry keyed by that name that points at the repository folder.
+				mkSkill(t, dir, "ui-ux-design-review", true)
+				lock := `{"version":3,"skills":{"UI/UX Design Review":{"source":"rknall/claude-skills","sourceType":"github","skillPath":"ui-design-review/SKILL.md"}}}`
+				return os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(lock), 0600)
+			}, "vtest")
+			return out.String(), err
+		}
+		if out, err := run(true); err != nil {
+			t.Fatalf("%s: apply did not settle: %v\n%s", mode, err, out)
+		}
+		out, err := run(false)
+		if err != nil || !strings.Contains(out, "Already in sync.") || strings.Contains(out, "REMOVE") {
+			t.Fatalf("%s: a second look still plans changes: %v\n%s", mode, err, out)
+		}
+		if installs != 1 {
+			t.Fatalf("%s: installed %d times", mode, installs)
+		}
+		srv.Close()
+		os.RemoveAll(filepath.Join(dir, "ui-ux-design-review"))
+		os.Remove(filepath.Join(home, ".agents", ".skill-lock.json"))
+	}
+}
+
+// The skills CLI writes a skill into a folder made from its name, which is not
+// always the catalogue's slug. The checks that protect what is already on the
+// machine compared slugs only, so a copy another app held under the installed
+// folder, from another source, was not seen and would have been overwritten.
+func TestSyncLeavesACopyUnderTheInstalledFolderAlone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	shared := filepath.Join(home, ".agents", "skills")
+	mkSkill(t, shared, "ui-ux-design-review", true)
+	os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(`{"skills":{"ui-ux-design-review":{"source":"o/r"}}}`), 0600)
+	claude := filepath.Join(home, ".claude", "skills")
+	mkSkill(t, claude, "ui-ux-design-review", true)
+	desired := []store.SyncSkill{
+		{ID: "rknall/claude-skills/uiux-design-review", Name: "UI/UX Design Review", Slug: "uiux-design-review", SourceType: "github", Source: "rknall/claude-skills"},
+		{ID: "x/y/other", Name: "other", Slug: "other", SourceType: "github", Source: "x/y"},
+	}
+	for _, mode := range []string{"additive", "mirror"} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{"canWrite": true, "targets": []store.SyncTarget{{Target: store.Environment{ID: "target", Host: "local", Agent: "claude"}, Mode: mode, Desired: desired, Revision: "one"}}})
+		}))
+		var plan SyncPlan
+		err := runSyncWithOptions([]string{"--server", srv.URL, "--target", "target", "--env", "local"}, strings.NewReader(""), &bytes.Buffer{}, func([]string, string) error { t.Fatal("a preview must not install"); return nil }, "dev", syncOptions{onPlan: func(p SyncPlan) { plan = p }})
+		srv.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if !strings.Contains(plan.Problems["uiux-design-review"], "The shared skills folder already has this skill from o/r") {
+			t.Fatalf("%s: the copy under the installed folder was not seen: problems %+v actions %+v", mode, plan.Problems, plan.Actions)
+		}
+		if len(plan.Actions) != 1 || plan.Actions[0].Skill.Slug != "other" || !plan.Actions[0].Add {
+			t.Fatalf("%s: the plan must install the other skill and touch nothing else: %+v", mode, plan.Actions)
+		}
+	}
+}
+
+// An entry that is not a skill, sitting where the CLI would write, stops the
+// install whether it carries the catalogue's slug or the installed folder name.
+func TestSyncRefusesAnUnrecognisedEntryUnderTheInstalledFolder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".agents", "skills", "ui-ux-design-review"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	desired := []store.SyncSkill{{ID: "rknall/claude-skills/uiux-design-review", Name: "UI/UX Design Review", Slug: "uiux-design-review", SourceType: "github", Source: "rknall/claude-skills"}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"canWrite": true, "targets": []store.SyncTarget{{Target: store.Environment{ID: "target", Host: "local", Agent: "agents"}, Mode: "additive", Desired: desired, Revision: "one"}}})
+	}))
+	defer srv.Close()
+	err := runSync([]string{"--server", srv.URL, "--target", "target", "--env", "local"}, strings.NewReader(""), &bytes.Buffer{}, func([]string, string) error { t.Fatal("must not install over an unrecognised entry"); return nil }, "dev")
+	if err == nil || !strings.Contains(err.Error(), "unrecognised existing entry") || !strings.Contains(err.Error(), "ui-ux-design-review") {
+		t.Fatalf("an unrecognised entry under the installed folder was accepted: %v", err)
+	}
+}
+
+// In the scope being synced, a copy under the installed folder gets the same
+// care as one under the slug: another source is a conflict that stops the plan,
+// and a copy with no source is backed up before it is replaced.
+func TestSyncTreatsTheInstalledFolderInItsOwnScopeAsTheSkill(t *testing.T) {
+	skill := store.SyncSkill{ID: "rknall/claude-skills/uiux-design-review", Name: "UI/UX Design Review", Slug: "uiux-design-review", SourceType: "github", Source: "rknall/claude-skills"}
+	serve := func() *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "GET" {
+				json.NewEncoder(w).Encode(map[string]any{"canWrite": true, "targets": []store.SyncTarget{{Target: store.Environment{ID: "target", Name: "Local shared", Host: "local", Agent: "agents"}, Mode: "additive", Desired: []store.SyncSkill{skill}, Revision: "one"}}})
+				return
+			}
+			w.Write([]byte(`{"imported":1,"errors":[]}`))
+		}))
+	}
+	t.Run("another source", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		mkSkill(t, filepath.Join(home, ".agents", "skills"), "ui-ux-design-review", true)
+		os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(`{"skills":{"ui-ux-design-review":{"source":"o/r"}}}`), 0600)
+		srv := serve()
+		defer srv.Close()
+		err := runSync([]string{"--server", srv.URL, "--target", "target", "--env", "local", "--apply"}, strings.NewReader("yes\n"), &bytes.Buffer{}, func([]string, string) error { t.Fatal("must not install over another source's copy"); return nil }, "dev")
+		if err == nil || !strings.Contains(err.Error(), "source conflict for uiux-design-review") {
+			t.Fatalf("another source's copy under the installed folder was accepted: %v", err)
+		}
+	})
+	t.Run("no source", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		dir := filepath.Join(home, ".agents", "skills")
+		mkSkill(t, dir, "ui-ux-design-review", true)
+		if err := os.WriteFile(filepath.Join(dir, "ui-ux-design-review", "mine.txt"), []byte("local work"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		srv := serve()
+		defer srv.Close()
+		var out bytes.Buffer
+		err := runSync([]string{"--server", srv.URL, "--target", "target", "--env", "local", "--apply"}, strings.NewReader("yes\n"), &out, func([]string, string) error {
+			if _, err := os.Stat(filepath.Join(dir, "ui-ux-design-review")); !os.IsNotExist(err) {
+				t.Error("the unlinked copy was still in place when the install ran")
+			}
+			mkSkill(t, dir, "ui-ux-design-review", true)
+			lock := `{"version":3,"skills":{"UI/UX Design Review":{"source":"rknall/claude-skills","skillPath":"ui-design-review/SKILL.md"}}}`
+			return os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(lock), 0600)
+		}, "dev")
+		if err != nil || !strings.Contains(out.String(), "REPLACE uiux-design-review") {
+			t.Fatalf("an unlinked copy was not replaced with a backup: %v\n%s", err, out.String())
+		}
+		kept, _ := filepath.Glob(filepath.Join(home, ".agents", ".reet-sync-backups", "removed-*", "ui-ux-design-review", "mine.txt"))
+		if len(kept) != 1 {
+			t.Fatalf("the unlinked copy was not backed up: %v\n%s", kept, out.String())
+		}
+	})
 }

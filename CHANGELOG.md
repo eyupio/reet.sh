@@ -41,6 +41,12 @@ this file existed releases were described on their GitHub release pages.
   `lists_counted`), instead of failing with "one record exceeds the response
   limit".
 
+- Sessions: an agent's answer is now shown as the markdown it wrote. Tables
+  are tables, lists nest and keep their task boxes, and italics,
+  strikethrough, rules and every heading level are drawn rather than left as
+  raw symbols. The same goes for Gaffer's reviews and reports. HTML in an
+  answer is still shown as text, and only http and https links are links.
+
 - Factory: on an outcome set to **Gaffer decides**, Gaffer now answers a
   working agent's multiple-choice question, choosing among the options the
   agent offered, or leaves it to you with its reason. It never answers an

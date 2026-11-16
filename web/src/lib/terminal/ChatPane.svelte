@@ -1,8 +1,7 @@
 <script lang="ts">
  import { onDestroy, onMount, tick, untrack } from 'svelte'
  import { fly } from 'svelte/transition'
- import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, inlineSegments, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, proseBlocks, rejectLabel, resetChat, summarizeAnswers, textSegments, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
- import { copyText } from '../clipboard'
+ import { applyChatEvent, checkQuestionDraft, endedReason, reattachCopy, diffCounts, displayPath, dropQueuedPrompt, editQueuedPrompt, emptyDraft, enqueuePrompt, fieldLabel, formatDuration, initialChat, isWorking, own, pendingPermissions, pendingQuestions, promoteQueuedPrompt, rejectLabel, resetChat, summarizeAnswers, thoughtPreview, toolLabel, toolState, approvalOutcome, foldApprovals, toolTarget, type ChatEvent, type ChatState, type ChatItem, type QueuedPrompt, type QuestionAnswers, type QuestionDraft } from '../chat'
  import { signalAttentionChanged } from '../attentionSignal'
  import { composerPrefill } from '../sessions/composerPrefill'
  import { prefillText } from '../sessions/fixMessages'
@@ -15,6 +14,7 @@
  import SlotPicker, { type SlotOption } from '../launch/SlotPicker.svelte'
 import Toast from '../Toast.svelte'
 import ConfirmDialog from '../ConfirmDialog.svelte'
+import Markdown from '../Markdown.svelte'
 import ImageLightbox from './ImageLightbox.svelte'
  import ChatPreview from './ChatPreview.svelte'
  import ChatStatus from './ChatStatus.svelte'
@@ -371,8 +371,6 @@ import { offersContinueAfterReattach, offersTrustedReattach, reattachDetail, rea
  function stopSettle() { if (settleTimer !== undefined) { clearTimeout(settleTimer); settleTimer = undefined } }
  // Every tool row is folded by default, including a failure; the person's toggle wins for that key.
  let expanded = $state<Record<string, boolean>>({})
-let copied = $state('')
-let copyTimer: ReturnType<typeof setTimeout> | undefined
 // A link in the agent's narrative waits here until the person confirms it, so a message can never navigate the tab by itself.
 let linkPrompt = $state<string | null>(null)
 function openLink() { const href = linkPrompt; linkPrompt = null; if (href) window.open(href, '_blank', 'noopener,noreferrer') }
@@ -721,13 +719,6 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   if (line.startsWith('-')) return 'line del'
   return 'line'
  }
- async function copyBlock(key: string, text: string) {
-  if (await copyText(text)) {
-   copied = key
-   if (copyTimer !== undefined) clearTimeout(copyTimer)
-   copyTimer = setTimeout(() => { copied = '' }, 1500)
-  } else feedback = 'Clipboard access was denied. Use your browser’s copy command.'
- }
  const ICON_PATHS: Record<string, string[]> = {
   execute: ['M4 17l6-6-6-6', 'M12 19h8'],
   read: ['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', 'M14 2v6h6'],
@@ -772,14 +763,11 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   stream.addEventListener('chat', readEvent)
   stream.onopen = () => { chat = { ...chat, connection: 'open' } }
   stream.onerror = () => { if (alive) { chat = { ...chat, connection: 'reconnecting' }; stopSettle(); replayed = false } }
-  return () => { alive = false; skillsLife?.abort(); pendingEvents = []; stopFlush(); stopSettle(); if (copyTimer !== undefined) clearTimeout(copyTimer); closeStream() }
+  return () => { alive = false; skillsLife?.abort(); pendingEvents = []; stopFlush(); stopSettle(); closeStream() }
  })
  onDestroy(() => { clearTimeout(awaitingTimer); for (const image of images) URL.revokeObjectURL(image.preview); for (const url of sentUrls) URL.revokeObjectURL(url); for (const item of queued) for (const image of item.payload) URL.revokeObjectURL(image.preview) })
 </script>
 
-{#snippet inline(text: string)}
- {#each inlineSegments(text) as part, n (n)}{#if part.kind === 'code'}<code>{part.text}</code>{:else if part.kind === 'strong'}<strong>{part.text}</strong>{:else if part.kind === 'link'}<button type="button" class="prose-link" title={part.href} onclick={() => (linkPrompt = part.href)} onauxclick={(event) => { if (event.button === 1) { event.preventDefault(); linkPrompt = part.href } }}>{part.text}</button>{:else}{part.text}{/if}{/each}
-{/snippet}
 
 <section class="chat-pane" aria-label={`Gaffer in ${session.title}`} ondragover={(event) => { if (canAttach) { event.preventDefault(); dropping = true } }} ondragleave={(event) => { if (event.currentTarget === event.target || !(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) dropping = false }} ondrop={(event) => { dropping = false; dropped(event) }}>
  <div class="chat-status" class:plain={!failed && !reattaching && !ended && chat.connection === 'open' && pending.length === 0}>
@@ -867,33 +855,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
    {:else if item.kind === 'agent'}
     <div class="row agent">
      <div class="bubble agent">
-      {#each textSegments(item.text) as segment, i (i)}
-       {#if segment.kind === 'code'}
-        <div class="code">
-         <div class="code-head">
-          <span>{segment.lang || 'code'}</span>
-          <button type="button" class="copy" onclick={() => void copyBlock(`${item.key}-${i}`, segment.text)}>{copied === `${item.key}-${i}` ? 'Copied' : 'Copy'}</button>
-         </div>
-         <pre>{segment.text}</pre>
-        </div>
-       {:else if segment.text.trim()}
-        {#each proseBlocks(segment.text) as block, j (j)}
-         {#if block.kind === 'h'}
-          {#if block.level === 1}<h4 class="prose-h">{@render inline(block.text)}</h4>
-          {:else if block.level === 2}<h5 class="prose-h">{@render inline(block.text)}</h5>
-          {:else}<h6 class="prose-h">{@render inline(block.text)}</h6>{/if}
-         {:else if block.kind === 'ul'}
-          <ul class="prose-list">{#each block.items as item, k (k)}<li>{@render inline(item)}</li>{/each}</ul>
-         {:else if block.kind === 'ol'}
-          <ol class="prose-list">{#each block.items as item, k (k)}<li>{@render inline(item)}</li>{/each}</ol>
-         {:else if block.kind === 'quote'}
-          <blockquote class="prose-quote">{@render inline(block.text)}</blockquote>
-         {:else}
-          <p class="prose">{@render inline(block.text)}</p>
-         {/if}
-        {/each}
-       {/if}
-      {/each}
+      <Markdown text={item.text} copy onlink={(href) => (linkPrompt = href)} oncopyfail={() => (feedback = 'Clipboard access was denied. Use your browser’s copy command.')} />
      </div>
     </div>
    {:else if item.kind === 'preview'}
@@ -1234,24 +1196,6 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  .bubble { min-width: 0; max-width: min(78ch, 100%); }
  .bubble.user { padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card-raised, var(--card)); color: var(--ink); font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
  .bubble.agent { max-width: min(84ch, 100%); padding: 2px 2px 4px; color: var(--ink); font-size: 14px; line-height: 1.65; }
- .prose { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
- .bubble.agent > :last-child { margin-bottom: 0; }
- .prose-h { margin: 14px 0 6px; font: 600 1.02rem/1.35 var(--sans); color: var(--ink); }
- .prose-h:first-child { margin-top: 2px; }
- .prose-list { margin: 0 0 8px; padding-left: 1.35em; }
- .prose-list li { margin: 2px 0; }
- .prose-list li::marker { color: var(--faint); }
- .prose-quote { margin: 0 0 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--line-strong); color: var(--muted); font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
- .prose code, .prose-list code, .prose-quote code { padding: 1px 4px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--bg-sunk); font: 14px var(--mono); color: var(--ink); }
- .prose strong, .prose-list strong { font-weight: 600; color: var(--ink); }
- .prose-link { padding: 0; border: 0; background: none; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; font: inherit; text-align: left; }
- .prose-link:hover { color: var(--ink); }
- .prose-link:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 2px; }
- .code { margin: 8px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-sunk); overflow: hidden; }
- .code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--line-soft); font: 600 14px var(--sans); letter-spacing: 0.01em; color: var(--faint); }
- .code pre { margin: 0; padding: 8px 12px; max-height: 24rem; overflow: auto; font: 14px/1.55 var(--mono); color: var(--ink-soft); white-space: pre; }
- .copy { padding: 4px 8px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--faint); font: 500 14px var(--sans); letter-spacing: 0.01em; cursor: pointer; }
- .copy:hover { border-color: var(--line); color: var(--ink); }
  .notice { margin: 2px 0; padding: 8px 10px; border-left: 2px solid var(--line-strong); border-radius: 0 8px 8px 0; background: var(--bg-sunk); color: var(--ink-soft); font-size: 14px; }
  .notice.bad { border-left-color: var(--bad); color: var(--bad); }
  /* A tool: one line at rest, with the detail folded under it. */
@@ -1261,7 +1205,7 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
  .tool.failed { border-color: color-mix(in srgb, var(--bad) 42%, var(--line)); }
  .tool-head { display: grid; grid-template-columns: 8px 16px auto minmax(0, 1fr) auto auto 14px; align-items: center; gap: 8px; width: 100%; min-height: 38px; padding: 6px 10px; border: 0; background: none; color: inherit; text-align: left; cursor: pointer; }
  div.tool-head { cursor: default; }
- .tool-head:focus-visible, .think-head:focus-visible, .copy:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
+ .tool-head:focus-visible, .think-head:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); flex: none; }
  .dot.good { background: var(--good); }
  .dot.warn { background: var(--warn); }
@@ -1476,7 +1420,6 @@ const promptBlocked = $derived(reattaching || sending || uploading || changingMo
   .think-head { min-height: 40px; }
   .approval-actions .btn { min-height: 46px; flex: 1 1 0; }
   .qoption { min-height: 44px; align-items: center; }
-  .copy { min-height: 32px; padding: 0 10px; font-size: 14px; }
   .tile-remove { width: 30px; height: 30px; top: -8px; right: -8px; }
   .star { height: 36px; }
   .model-picker { height: 36px; }

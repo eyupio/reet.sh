@@ -24,12 +24,14 @@ export type Now = {
   pane: (id: string) => Receiver | undefined
   name: (id: string) => string
 }
-/** Whether a paste of `text` would be held for review in a program with or without bracketed paste. */
-export type Review = (text: string, bracketed: boolean) => boolean
+/** Why a paste of `text` would be held for review in a program with or without bracketed paste (paste.ts's reasons:
+ *  `newline` for line breaks), or '' when it would not be. */
+export type Review = (text: string, bracketed: boolean) => string
 
 export const STOP_CHANGED = 'Stopped typing in all panes: the panes on this tab changed.'
 export const stopDropped = (name: string) => `Stopped typing in all panes: ${name} is no longer connected.`
 export const stopLineByLine = (name: string) => `Stopped typing in all panes: ${name} would run this paste line by line.`
+export const stopReview = (name: string) => `Stopped typing in all panes: ${name} would need to review this paste.`
 export const stopPartial = (names: string[]) => `Stopped typing in all panes: only ${listOf(names)} received the last input.`
 function listOf(names: string[]): string {
   return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
@@ -63,7 +65,8 @@ export function sendToAll(mode: Mode, now: Now, from: string, data: string, past
   if (paste) {
     for (const id of others) {
       const r = now.pane(id)!
-      if (review(data, r.bracketed())) return { sent: [], stop: stopLineByLine(now.name(id)) }
+      const why = review(data, r.bracketed())
+      if (why) return { sent: [], stop: why === 'newline' ? stopLineByLine(now.name(id)) : stopReview(now.name(id)) }
     }
   }
   const sent: string[] = []

@@ -4,11 +4,13 @@
 
   // Closing a pane (or a tab) whose shell is still running asks what should happen to the shell. End the shell is the
   // default and Enter chooses it; Take off this desk keeps the shell running in Sessions.
-  let { name, host, count = 1, onend, ontakeoff, oncancel }: {
+  let { name, host, count = 1, removes = false, onend, ontakeoff, oncancel }: {
     name: string
     host: string
     /** How many running shells the close covers (a tab asks once for all of them). */
     count?: number
+    /** The person's setting: an ended session leaves Sessions (true) or stays there as ended. */
+    removes?: boolean
     onend: () => void
     ontakeoff: () => void
     oncancel: () => void
@@ -48,7 +50,7 @@
     <p>{body}</p>
     <div class="options" role="radiogroup" aria-label="What happens to the shell" tabindex="-1" onkeydown={arrows}>
       <button type="button" class="opt" role="radio" data-choice="end" aria-checked={choice === 'end'} tabindex={choice === 'end' ? 0 : -1} onclick={() => (choice = 'end')}>
-        <b>End the shell</b><span>Stops what is running in it. Its command history for this pane is removed.</span>
+        <b>End the shell</b><span>{removes ? "Stops what is running in it. The session leaves Sessions, and this pane's command history is removed." : "Stops what is running in it. The session stays in Sessions as ended, and this pane's command history is removed."}</span>
       </button>
       <button type="button" class="opt" role="radio" data-choice="takeoff" aria-checked={choice === 'takeoff'} tabindex={choice === 'takeoff' ? 0 : -1} onclick={() => (choice = 'takeoff')}>
         <b>Take off this desk</b><span>It keeps running, and stays in Sessions.</span>

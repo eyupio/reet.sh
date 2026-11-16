@@ -9,7 +9,7 @@ const load = async file => {
 }
 const g = await load('./typeInAll.ts')
 const { pasteNeedsReview } = await load('../terminal/paste.ts')
-const review = (text, bracketed) => pasteNeedsReview(text, { bracketed }).review
+const review = (text, bracketed) => pasteNeedsReview(text, { bracketed }).reason
 
 /** A fake pane: `up` is read on every canSend (a function flips it between two calls), `fails` makes send refuse. */
 function fake(name, over = {}) {
@@ -73,6 +73,19 @@ test('a multi-line paste goes nowhere else when one other pane lacks bracketed p
   assert.equal(out.stop, 'Stopped typing in all panes: gamma would run this paste line by line.')
   assert.deepEqual(b.got, [])
   assert.deepEqual(c.got, [])
+})
+
+test('a paste another pane would hold for review for any other reason says so, and goes nowhere else', () => {
+  const a = fake('alpha'), b = fake('beta'), c = fake('gamma', { bracketed: false })
+  const { mode, now } = tab([a, b, c])
+  // A control character and an over-long line are held for review; neither is about line breaks.
+  for (const text of ['echo \x07bell', 'x'.repeat(5000)]) {
+    const out = g.sendToAll(mode, now, 'alpha', text, true, review)
+    assert.equal(out.stop, text.length > 100 ? 'Stopped typing in all panes: gamma would need to review this paste.' : 'Stopped typing in all panes: beta would need to review this paste.', JSON.stringify(text.slice(0, 12)))
+  }
+  assert.deepEqual(b.got, [])
+  assert.deepEqual(c.got, [])
+  assert.equal(g.stopReview('gamma'), 'Stopped typing in all panes: gamma would need to review this paste.')
 })
 
 test('a one-line paste still goes to a pane without bracketed paste, and a multi-line one to bracketed panes', () => {

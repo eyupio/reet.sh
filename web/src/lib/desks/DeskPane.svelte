@@ -192,9 +192,12 @@
     {:else if mounted && session && !admitted}
       <p class="waiting" role="status">Connecting…</p>
     {:else if mounted && session}
-      <TerminalPane bind:this={terminal} bind:actions chrome={false} {session} {host} user={machine?.capabilities?.osUser ?? ''} {visible} holdSize={hold}
-        historySupported={machine?.capabilities?.commandHistory ?? false} uploadsSupported={machine?.capabilities?.uploads ?? false} uploadsOff={machine?.capabilities?.uploadsOff ?? false}
-        onconnection={next => (connection = next)} {oninput} />
+      <!-- A pane given another session gets a terminal of its own: nothing of the last session's connection carries over. -->
+      {#key session.id}
+        <TerminalPane bind:this={terminal} bind:actions chrome={false} {session} {host} user={machine?.capabilities?.osUser ?? ''} {visible} holdSize={hold}
+          historySupported={machine?.capabilities?.commandHistory ?? false} uploadsSupported={machine?.capabilities?.uploads ?? false} uploadsOff={machine?.capabilities?.uploadsOff ?? false}
+          onconnection={next => (connection = next)} {oninput} />
+      {/key}
       {#if startup}<StartupBar command={startup} ready={connection === 'live'} onrun={runStartup} ondismiss={() => onstartup?.(false)} />{/if}
       {#if note}<p class="note">{note}</p>{/if}
       {#if card}<PaneStateCard {card} {dir} overlay onaction={act} />{/if}

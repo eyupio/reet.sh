@@ -7,7 +7,7 @@ import type { SessionSkills } from './skills'
 import type { MachineAccounts } from '../agentAccounts'
 import type { ChatUsage } from '../chatUsage'
 
-/** Live sessions the workspace allows on one machine and across one account (a desk tab can hold nine panes on a machine). Mirrors terminalproto.MaxSessionsPerMachine and MaxSessionsPerAccount. */
+/** Live sessions the workspace allows on one machine and across one account (a desk tab can hold nine panes on a machine): the browser's own check before a shell is started. The controller and the machine keep their own limits and answer a refusal past them. */
 export const SESSIONS_PER_MACHINE = 24
 export const SESSIONS_PER_ACCOUNT = 64
 export type SessionState = 'creating' | 'running' | 'end_requested' | 'ended' | 'exited' | 'lost'

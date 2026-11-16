@@ -93,6 +93,12 @@ type Manager struct {
 	// readLiveDirs replaces liveDirs when set; only tests set it.
 	readLiveDirs func(context.Context) (map[string]string, error)
 	changed      chan struct{}
+	// shell replaces the shell a plain create starts (loginShell) when set;
+	// only tests set it.
+	shell string
+	// deskNoHistory marks desk pane sessions whose history wrapper could not
+	// be written, so their shell started as a plain one (desk_shell.go).
+	deskNoHistory map[string]bool
 }
 
 func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
@@ -116,7 +122,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{})}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{}), deskNoHistory: map[string]bool{}}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -325,7 +331,17 @@ func (m *Manager) Create(ctx context.Context, requestID, sessionID string, in te
 		return s, err
 	}
 	reportStage(ctx, terminalproto.StageStarting)
-	args := append([]string{"new-session", "-d", "-s", m.name(sessionID), "-x", integer(in.Cols), "-y", integer(in.Rows), "-c", tmuxLiteral(dir), "-e", "HOME=" + m.home}, argv...)
+	args := []string{"new-session", "-d", "-s", m.name(sessionID), "-x", integer(in.Cols), "-y", integer(in.Rows), "-c", tmuxLiteral(dir), "-e", "HOME=" + m.home}
+	if in.Tool == "" && in.Desk.Pane != "" {
+		// A desk pane's plain shell keeps a history of its own through the
+		// desk wrapper; without one it starts exactly as any plain shell.
+		var env []string
+		argv, env = m.deskShellStart(sessionID, in.Desk.Pane)
+		for _, entry := range env {
+			args = append(args, "-e", entry)
+		}
+	}
+	args = append(args, argv...)
 	for i := range args {
 		args[i] = tmuxArgument(args[i])
 	}

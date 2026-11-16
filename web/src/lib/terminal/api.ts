@@ -55,6 +55,8 @@ export class TerminalError extends Error {
 export type LaunchRequest = { tool?: string; model?: string; dir?: string; prompt?: string; base?: string; effort?: string; provider?: string; yolo?: boolean; resume?: boolean; worktree?: string; project?: string; structured?: boolean; trust?: boolean; resumeAcp?: string
   /** The folder project the session belongs to (checked by the controller, never sent to the machine). */
   projectId?: string
+  /** The desk pane a plain shell is opened for (New tab, Split). A desk-shell-v1 machine keeps that pane's own command history; an older one ignores it. */
+  deskPane?: string
   /** Who named the session, sent only with a tool launch: `prompt` when the title comes from the task, `fallback` when it is the generic agent and folder name. */
   titleOrigin?: 'prompt' | 'fallback' }
 export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(title)}
@@ -202,6 +204,7 @@ export async function createTerminal(agentId: string, requestId: string, title: 
   if (launch?.trust) body.trust = true
   if (launch?.resumeAcp) body.resumeAcp = launch.resumeAcp
   if (launch?.tool && launch.titleOrigin) body.titleOrigin = launch.titleOrigin
+  if (launch?.deskPane) body.deskPane = launch.deskPane
   return (await terminalRequest('/api/v2/terminal/sessions', { method: 'POST', signal, body: JSON.stringify(body) })).json()
 }
 export async function terminalTicket(session: string, cols: number, rows: number, takeover: boolean, signal?: AbortSignal, nativeView = false): Promise<string> { return (await (await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(session)}/attachments`, { method: 'POST', body: JSON.stringify({ cols, rows, takeover, ...(nativeView ? { nativeView: true } : {}) }), signal })).json()).ticket }
@@ -212,7 +215,8 @@ export async function launchProgress(agentId: string, requestId: string, signal?
 export async function machineHealth(signal?: AbortSignal): Promise<HealthResponse> { return (await terminalRequest('/api/v2/machines/health', { signal })).json() }
 export async function machineYolo(agentId: string, signal?: AbortSignal): Promise<{ accepts: boolean; checkedAt: number }> { return (await terminalRequest(`/api/v2/machines/${encodeURIComponent(agentId)}/yolo`, { signal })).json() }
 export async function renameTerminal(id: string, title: string): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify({title}) }) }
-export async function endTerminal(id: string, requestId: string, removeHistory=false, factoryOutcome=''): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify({requestId,removeHistory,factoryOutcome}) }) }
+/** `forgetDesk` is End the shell on a desk pane: the pane is gone for good, so a desk-shell-v1 machine also removes that pane's own command history. Take off this desk does not send it. */
+export async function endTerminal(id: string, requestId: string, removeHistory=false, factoryOutcome='', forgetDesk=false): Promise<void> { await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/end`, { method:'POST', body:JSON.stringify(forgetDesk?{requestId,removeHistory,factoryOutcome,forgetDesk}:{requestId,removeHistory,factoryOutcome}) }) }
 /** The address that opens one session (R17). Only ids go in the address. */
 export const sessionHref = (session: Pick<TerminalSession, 'agentId' | 'id'>): string => `/sessions?agent=${encodeURIComponent(session.agentId)}&session=${encodeURIComponent(session.id)}`
 export function terminalClosed(state: SessionState): boolean { return ['ended','exited','lost'].includes(state) }
@@ -277,8 +281,10 @@ export async function savedPrompts(signal?:AbortSignal):Promise<TerminalPrompt[]
 export async function savePrompt(item:TerminalPromptWrite,current?:TerminalPrompt):Promise<TerminalPrompt>{return(await terminalRequest('/api/v2/terminal/prompts'+(current?`/${encodeURIComponent(current.id)}`:''),{method:current?'PATCH':'POST',signal:AbortSignal.timeout(15000),body:JSON.stringify({...item,revision:current?.revision||0})})).json()}
 export async function removePrompt(item:Pick<TerminalPrompt,'id'|'revision'>):Promise<void>{await terminalRequest(`/api/v2/terminal/prompts/${encodeURIComponent(item.id)}`,{method:'DELETE',signal:AbortSignal.timeout(15000),body:JSON.stringify({revision:item.revision})})}
 
-export type CommandHistoryEntry={command:string;source:'bash'|'zsh';timestamp?:number}
-export type CommandHistorySnapshot={entries:CommandHistoryEntry[];sources:{source:'bash'|'zsh';available:boolean;reason?:string}[];truncated:boolean;skipped:number}
+/** `pane` is a desk pane's own history (desk-shell-v1): listed first, or a source marked unavailable when that pane's shell keeps none. */
+export type CommandHistorySource='bash'|'zsh'|'pane'
+export type CommandHistoryEntry={command:string;source:CommandHistorySource;timestamp?:number}
+export type CommandHistorySnapshot={entries:CommandHistoryEntry[];sources:{source:CommandHistorySource;available:boolean;reason?:string}[];truncated:boolean;skipped:number}
 export async function commandHistory(id:string,signal?:AbortSignal):Promise<CommandHistorySnapshot>{return(await terminalRequest(`/api/v2/terminal/sessions/${encodeURIComponent(id)}/command-history`,{signal:signal?AbortSignal.any([signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)})).json()}
 
 export type InstallStarted = { job: string; reused: boolean; directory: string; host: string }

@@ -29,7 +29,9 @@ type launchAPI struct {
 	cookie  string
 	mu      sync.Mutex
 	creates []terminalproto.Create
-	reply   func(terminalproto.Create) terminalproto.Body
+	// ends records every end the machine is sent.
+	ends  []terminalproto.End
+	reply func(terminalproto.Create) terminalproto.Body
 	// worktree answers worktree_status and worktree_remove; worktrees records them.
 	worktree  func(terminalproto.Body) terminalproto.Body
 	worktrees []terminalproto.Body
@@ -85,6 +87,9 @@ func launchAPIFixture(t *testing.T, caps terminalproto.Capabilities) *launchAPI 
 				reply.Body = respond(op)
 			}
 		case terminalproto.End:
+			f.mu.Lock()
+			f.ends = append(f.ends, op)
+			f.mu.Unlock()
 			reply.Body = terminalproto.SessionChanged{State: terminalproto.Ended}
 		case *terminalproto.ACPPreview:
 			f.mu.Lock()

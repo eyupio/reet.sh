@@ -1112,6 +1112,11 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 				if err != nil {
 					return respond(err)
 				}
+				if op.ForgetDesk {
+					// The pane is gone for good: its history file goes too. A
+					// failed removal never fails the end.
+					_ = m.ForgetDeskSession(callCtx, msg.SessionID)
+				}
 				reply.Body = terminalproto.SessionChanged{
 					State:      s.State,
 					ExitCode:   s.ExitCode,
@@ -1209,7 +1214,7 @@ func FactoryWithChats(opts terminalhost.ManagerOptions, supervisor *ChatSupervis
 					case *terminalproto.History:
 						data, err = m.History(callCtx, msg.SessionID, request.Lines)
 					case *terminalproto.CommandHistory:
-						data, err = m.CommandHistory(callCtx, msg.SessionID)
+						data, err = m.CommandHistoryFor(callCtx, msg.SessionID, features.Has(terminalproto.DeskShellFeature))
 					}
 					if err != nil {
 						reply.Body = result(err)
@@ -1326,6 +1331,12 @@ func bodyFeatureError(body terminalproto.Body, features terminalproto.FeatureSet
 			return terminalproto.ErrInvalid
 		}
 		if b.Effort != "" && !has(terminalproto.ACPLiveControlsFeature) {
+			return terminalproto.ErrInvalid
+		}
+	case *terminalproto.End:
+		// Only a controller that negotiated desk-shell-v1 asks for a desk
+		// pane's history to be removed with its shell.
+		if b.ForgetDesk && !has(terminalproto.DeskShellFeature) {
 			return terminalproto.ErrInvalid
 		}
 	case *terminalproto.CommandHistory:

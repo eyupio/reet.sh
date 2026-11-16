@@ -324,10 +324,11 @@ func (s *server) deskUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, deskView(saved))
 }
 
-// deskEndSession asks for a session to end with its history removed. A test
-// replaces it to make an end fail.
+// deskEndSession asks for a session to end with its history removed, and its
+// desk pane's own command history on the machine with it (the pane is gone
+// for good). A test replaces it to make an end fail.
 var deskEndSession = func(s *server, ctx context.Context, uid int64, session, request string) error {
-	_, err := s.terminals.End(ctx, uid, session, request, true)
+	_, err := s.terminals.EndDeskPane(ctx, uid, session, request, true)
 	return err
 }
 

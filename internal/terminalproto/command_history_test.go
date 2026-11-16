@@ -50,3 +50,29 @@ func TestCommandHistorySnapshotRejectsAmbiguousOrExecutableMetadata(t *testing.T
 		}
 	}
 }
+
+// A desk pane's own history is a third source, "pane"; one marked unavailable
+// carries a reason and no entries.
+func TestCommandHistoryPaneSource(t *testing.T) {
+	good := CommandHistorySnapshot{
+		Entries: []CommandHistoryEntry{{Command: "make", Source: PaneHistorySource}, {Command: "ls", Source: "bash"}},
+		Sources: []CommandHistorySource{{Source: PaneHistorySource, Available: true}, {Source: "bash", Available: true}, {Source: "zsh", Reason: "No saved history file yet."}},
+	}
+	if _, err := EncodeCommandHistory(good); err != nil {
+		t.Fatal(err)
+	}
+	none := CommandHistorySnapshot{Entries: []CommandHistoryEntry{}, Sources: []CommandHistorySource{{Source: PaneHistorySource, Reason: "This pane's own history needs bash or zsh."}}}
+	if _, err := EncodeCommandHistory(none); err != nil {
+		t.Fatal(err)
+	}
+	unavailable := none
+	unavailable.Entries = []CommandHistoryEntry{{Command: "make", Source: PaneHistorySource}}
+	if _, err := EncodeCommandHistory(unavailable); err == nil {
+		t.Fatal("entries accepted from an unavailable pane source")
+	}
+	twice := good
+	twice.Sources = append(append([]CommandHistorySource{}, good.Sources...), CommandHistorySource{Source: PaneHistorySource})
+	if _, err := EncodeCommandHistory(twice); err == nil {
+		t.Fatal("a fourth, repeated source accepted")
+	}
+}

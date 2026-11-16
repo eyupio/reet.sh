@@ -314,8 +314,18 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		// "prompt" or "fallback" only for the exact title the controller would
 		// have chosen. Anything else, or no claim, is the person's own title.
 		TitleOrigin string `json:"titleOrigin"`
+		// DeskPane is the desk pane a plain shell is opened for (New tab and
+		// Split on a desk). On a machine with desk-shell-v1 it goes as
+		// Create.Desk.Pane, so the shell keeps that pane's own command history
+		// there; an older machine starts the plain shell without it. It only
+		// names a history file under the machine user's own ~/.reet folder.
+		DeskPane string `json:"deskPane"`
 	}
 	if !terminalJSON(w, r, &in) {
+		return
+	}
+	if in.DeskPane != "" && !terminalproto.ValidID(in.DeskPane) {
+		writeErrCode(w, 400, "desk_invalid", "deskPane", "That desk pane can't be used.", "")
 		return
 	}
 	create := terminalproto.Create{Title: in.Title, Cols: in.Cols, Rows: in.Rows, Tool: in.Tool, Model: in.Model, Dir: in.Dir, Prompt: in.Prompt, Worktree: in.Worktree, Project: in.Project, ProjectID: in.ProjectID, Base: in.Base, Effort: in.Effort, Provider: in.Provider, Yolo: in.Yolo, Resume: in.Resume, Structured: in.Structured, Trust: in.Trust, ResumeACP: in.ResumeACP}
@@ -339,6 +349,7 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	// A launch in a saved git repository always gets a worktree of its own.
 	s.isolateWorktree(uid, in.AgentID, in.RequestID, &create)
+	s.terminalCreateDeskPane(uid, in.AgentID, in.DeskPane, &create)
 	session, started, err := s.terminals.CreateSession(r.Context(), uid, in.AgentID, in.RequestID, create)
 	if err != nil {
 		s.terminalCreateError(w, err, uid, in.AgentID, in.Tool)
@@ -348,6 +359,21 @@ func (s *server) terminalCreate(w http.ResponseWriter, r *http.Request) {
 		s.auditTerminalLaunch(uid, in.AgentID, create, session)
 	}
 	writeJSON(w, 200, session)
+}
+
+// terminalCreateDeskPane ties a plain shell to its desk pane when the machine
+// negotiated desk-shell-v1; for anything else, or an older machine, the
+// create is left exactly as it was.
+func (s *server) terminalCreateDeskPane(uid int64, agent, pane string, create *terminalproto.Create) {
+	plainShell := create.Tool == "" && !create.Structured && create.Worktree == "" && create.Project == ""
+	if pane == "" || !plainShell {
+		return
+	}
+	caps, err := s.st.RemoteCapabilitiesFor(uid, agent)
+	if err != nil || !caps.Capabilities.DeskShell {
+		return
+	}
+	create.Desk.Pane = pane
 }
 
 // terminalCreateRecorded reports whether uid already has a create with this
@@ -504,6 +530,10 @@ func (s *server) terminalEnd(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		RequestID     string `json:"requestId"`
 		RemoveHistory bool   `json:"removeHistory"`
+		// ForgetDesk says the session is a desk pane's shell ended for good
+		// (End the shell on a desk): the machine also removes that pane's own
+		// command history, when it negotiated desk-shell-v1.
+		ForgetDesk bool `json:"forgetDesk"`
 		// FactoryOutcome is the person's choice for an outcome whose pipeline
 		// still works in this session: "" leaves it alone, "archive" stops
 		// following it and hides it, "delete" stops following it and erases it.
@@ -523,7 +553,13 @@ func (s *server) terminalEnd(w http.ResponseWriter, r *http.Request) {
 	// the session stopped, and archives the session only when nothing is left
 	// behind. Uncommitted changes are never discarded without a person.
 	uid, id := s.uid(r), r.PathValue("id")
-	session, err := s.terminals.End(r.Context(), uid, id, in.RequestID, in.RemoveHistory)
+	var session store.TerminalSession
+	var err error
+	if in.ForgetDesk {
+		session, err = s.terminals.EndDeskPane(r.Context(), uid, id, in.RequestID, in.RemoveHistory)
+	} else {
+		session, err = s.terminals.End(r.Context(), uid, id, in.RequestID, in.RemoveHistory)
+	}
 	if err != nil {
 		terminalError(w, err)
 		return

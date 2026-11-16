@@ -21,6 +21,15 @@ import (
 // CommandHistory reads known shell-owned files, never terminal input or output.
 // The caller cannot choose a path, user, shell command or history configuration.
 func (m *Manager) CommandHistory(ctx context.Context, sessionID string) ([]byte, error) {
+	return m.CommandHistoryFor(ctx, sessionID, false)
+}
+
+// CommandHistoryFor is CommandHistory for a connection that may have
+// negotiated desk-shell-v1 (deskShell). On one that did, a session created for
+// a desk pane has that pane's own history first, as source "pane", or a pane
+// source marked unavailable when its shell keeps none; an older controller
+// never sees that source.
+func (m *Manager) CommandHistoryFor(ctx context.Context, sessionID string, deskShell bool) ([]byte, error) {
 	if !terminalproto.ValidID(sessionID) {
 		return nil, terminalproto.ErrInvalid
 	}
@@ -42,8 +51,34 @@ func (m *Manager) CommandHistory(ctx context.Context, sessionID string) ([]byte,
 	if !ok || s.State != terminalproto.Running {
 		return nil, ErrSessionMissing
 	}
-	history := readShellHistory(ctx, m.home)
+	var pane *paneHistory
+	if deskShell {
+		pane = m.paneHistoryOf(registry, s)
+	}
+	history := readShellHistoryWithPane(ctx, m.home, pane)
 	return terminalproto.EncodeCommandHistory(history)
+}
+
+// paneHistory is where a desk pane's own history is read from: its file and
+// the shell format it is in, or the reason it has none.
+type paneHistory struct {
+	file, kind, reason string
+}
+
+func (m *Manager) paneHistoryOf(r hostRegistry, s ManagedSession) *paneHistory {
+	pane := deskPaneOf(r, s)
+	if pane == "" {
+		return nil
+	}
+	shell := m.loginShell()
+	file := deskHistoryFile(m.home, shell, pane)
+	switch {
+	case file == "":
+		return &paneHistory{reason: deskNoHistoryReason}
+	case m.deskNoHistory[s.ID]:
+		return &paneHistory{reason: deskSetupFailedReason}
+	}
+	return &paneHistory{file: file, kind: deskShellKind(shell)}
 }
 
 type rankedCommand struct {
@@ -53,7 +88,65 @@ type rankedCommand struct {
 }
 
 func readShellHistory(ctx context.Context, home string) terminalproto.CommandHistorySnapshot {
+	return readShellHistoryWithPane(ctx, home, nil)
+}
+
+// rankNewestFirst orders commands newest first, as the drawer lists them.
+func rankNewestFirst(all []rankedCommand) {
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].rank != all[j].rank {
+			return all[i].rank > all[j].rank
+		}
+		if all[i].entry.Source == all[j].entry.Source {
+			return all[i].order > all[j].order
+		}
+		return all[i].entry.Source < all[j].entry.Source
+	})
+}
+
+// readShellHistoryWithPane reads the machine's shared bash and zsh files and,
+// for a desk pane (pane not nil), that pane's own file first. The pane's
+// entries come before the shared ones and take at most half of the entry and
+// byte limits, so the machine's history is never crowded out.
+func readShellHistoryWithPane(ctx context.Context, home string, pane *paneHistory) terminalproto.CommandHistorySnapshot {
 	result := terminalproto.CommandHistorySnapshot{Entries: []terminalproto.CommandHistoryEntry{}, Sources: []terminalproto.CommandHistorySource{}}
+	budget := terminalproto.MaxCommandHistoryBytes - 4096
+	if pane != nil {
+		reason := pane.reason
+		var data []byte
+		var modified int64
+		var truncated bool
+		if reason == "" {
+			data, modified, truncated, reason = readHistoryTail(pane.file)
+		}
+		result.Sources = append(result.Sources, terminalproto.CommandHistorySource{Source: terminalproto.PaneHistorySource, Available: reason == "", Reason: reason})
+		if reason == "" {
+			result.Truncated = result.Truncated || truncated
+			entries, skipped := parseShellHistory(data, pane.kind)
+			result.Skipped += skipped
+			var mine []rankedCommand
+			for i, entry := range entries {
+				entry.Source = terminalproto.PaneHistorySource
+				rank := entry.Timestamp
+				if rank == 0 {
+					rank = modified
+				}
+				mine = append(mine, rankedCommand{entry: entry, rank: rank, order: i})
+			}
+			rankNewestFirst(mine)
+			paneBudget := budget / 2
+			for _, candidate := range mine {
+				encoded, _ := json.Marshal(candidate.entry)
+				if len(result.Entries) >= terminalproto.MaxCommandHistoryEntries/2 || len(encoded)+1 > paneBudget {
+					result.Truncated = true
+					break
+				}
+				result.Entries = append(result.Entries, candidate.entry)
+				paneBudget -= len(encoded) + 1
+				budget -= len(encoded) + 1
+			}
+		}
+	}
 	var all []rankedCommand
 	for _, source := range []struct{ name, file string }{{"bash", ".bash_history"}, {"zsh", ".zsh_history"}} {
 		if ctx.Err() != nil {
@@ -76,16 +169,7 @@ func readShellHistory(ctx context.Context, home string) terminalproto.CommandHis
 			all = append(all, rankedCommand{entry: entry, rank: rank, order: i})
 		}
 	}
-	sort.SliceStable(all, func(i, j int) bool {
-		if all[i].rank != all[j].rank {
-			return all[i].rank > all[j].rank
-		}
-		if all[i].entry.Source == all[j].entry.Source {
-			return all[i].order > all[j].order
-		}
-		return all[i].entry.Source < all[j].entry.Source
-	})
-	budget := terminalproto.MaxCommandHistoryBytes - 4096
+	rankNewestFirst(all)
 	for _, candidate := range all {
 		encoded, _ := json.Marshal(candidate.entry)
 		if len(result.Entries) >= terminalproto.MaxCommandHistoryEntries || len(encoded)+1 > budget {

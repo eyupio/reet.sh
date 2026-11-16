@@ -38,3 +38,18 @@ func TestFolderGoneAnswer(t *testing.T) {
 		t.Fatalf("plain launch refusal: %+v", got)
 	}
 }
+
+// An end that removes a desk pane's history is served only on a connection
+// that negotiated desk-shell-v1; a plain end needs nothing.
+func TestEndForgetDeskNeedsFeature(t *testing.T) {
+	forget := &terminalproto.End{ForgetDesk: true}
+	if bodyFeatureError(forget, terminalproto.ParseFeatures(terminalproto.ShellDirFeature)) == nil {
+		t.Fatal("forgetDesk accepted without desk-shell-v1")
+	}
+	if err := bodyFeatureError(forget, terminalproto.ParseFeatures(terminalproto.DeskShellFeature)); err != nil {
+		t.Fatal(err)
+	}
+	if err := bodyFeatureError(&terminalproto.End{}, terminalproto.ParseFeatures("")); err != nil {
+		t.Fatal(err)
+	}
+}

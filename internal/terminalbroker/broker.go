@@ -75,6 +75,11 @@ type Broker struct {
 	// endRetries holds the sessions a pending end is being retried for, so a
 	// transient answer failure does not leave it waiting forever.
 	endRetries map[endKey]struct{}
+	// forgetDesk holds the sessions whose end also removes their desk pane's
+	// history on the machine (End.ForgetDesk), until the machine answers that
+	// end. It lives in memory: an end resent after a controller restart ends
+	// the shell and leaves the pane's history file on the machine.
+	forgetDesk map[endKey]struct{}
 }
 
 // endKey is one session's pending end retry.
@@ -195,7 +200,7 @@ func ID() string {
 	return hex.EncodeToString(b[:])
 }
 func New(st *store.Store) *Broker {
-	b := &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}, approvals: map[chatKey]map[string]bool{}, queueWorkers: map[chatKey]bool{}, queueOwner: ID(), queueStop: make(chan struct{}), endRetries: map[endKey]struct{}{}}
+	b := &Broker{st: st, peers: map[key]*Peer{}, tickets: map[string]ticket{}, bridges: map[string]*Bridge{}, chats: map[chatKey]*chatLog{}, approvals: map[chatKey]map[string]bool{}, queueWorkers: map[chatKey]bool{}, queueOwner: ID(), queueStop: make(chan struct{}), endRetries: map[endKey]struct{}{}, forgetDesk: map[endKey]struct{}{}}
 	b.wg.Add(1)
 	go b.sweepEnds()
 	return b
@@ -1123,15 +1128,32 @@ func (b *Broker) CreateSessionReserved(ctx context.Context, uid int64, agent, re
 	return s, started, nil
 }
 func (p *Peer) end(ctx context.Context, session, request string) error {
-	reply, err := p.call(ctx, terminalproto.Message{RequestID: request, SessionID: session, Body: terminalproto.End{}})
+	k := endKey{uid: p.key.uid, agent: p.key.agent, session: session}
+	p.b.mu.Lock()
+	_, forget := p.b.forgetDesk[k]
+	p.b.mu.Unlock()
+	// ForgetDesk reaches only a machine that negotiated desk-shell-v1; an
+	// older one's strict decoder would refuse the whole end.
+	if forget {
+		caps, err := p.b.st.RemoteCapabilitiesFor(p.key.uid, p.key.agent)
+		forget = err == nil && caps.Capabilities.DeskShell
+	}
+	reply, err := p.call(ctx, terminalproto.Message{RequestID: request, SessionID: session, Body: terminalproto.End{ForgetDesk: forget}})
 	if err != nil {
 		return err
 	}
+	answered := func() {
+		p.b.mu.Lock()
+		delete(p.b.forgetDesk, k)
+		p.b.mu.Unlock()
+	}
 	switch body := reply.Body.(type) {
 	case *terminalproto.SessionChanged:
+		answered()
 		return p.b.observe(p, p.key.uid, p.key.agent, session, p.Generation, body.State, body.ExitCode)
 	case *terminalproto.Result:
 		if body.Code == terminalproto.NotFound {
+			answered()
 			// The machine answers NotFound only when its registry no longer
 			// holds this session. That is a final answer, not a lost one:
 			// settle the row instead of waiting for a reconnect forever.
@@ -1215,6 +1237,18 @@ func (b *Broker) notifyPeerReady(uid int64, agent string) {
 }
 
 func (b *Broker) End(ctx context.Context, uid int64, session, request string, removeHistory ...bool) (store.TerminalSession, error) {
+	return b.end(ctx, uid, session, request, false, removeHistory...)
+}
+
+// EndDeskPane is End for the shell of a desk pane that is gone for good (End
+// the shell, or a desk deleted with its shells): a machine that negotiated
+// desk-shell-v1 also removes that pane's history file. Taking a pane off a
+// desk is not this; it keeps the history with the session.
+func (b *Broker) EndDeskPane(ctx context.Context, uid int64, session, request string, removeHistory bool) (store.TerminalSession, error) {
+	return b.end(ctx, uid, session, request, true, removeHistory)
+}
+
+func (b *Broker) end(ctx context.Context, uid int64, session, request string, forgetDesk bool, removeHistory ...bool) (store.TerminalSession, error) {
 	s, err := b.st.TerminalSessionFor(uid, session)
 	if err != nil {
 		return s, err
@@ -1224,6 +1258,9 @@ func (b *Broker) End(ctx context.Context, uid int64, session, request string, re
 		return s, err
 	}
 	b.mu.Lock()
+	if forgetDesk && s.State.ReservesQuota() {
+		b.forgetDesk[endKey{uid: uid, agent: s.AgentID, session: session}] = struct{}{}
+	}
 	if v := b.bridges[session]; v != nil {
 		v.Close()
 	}

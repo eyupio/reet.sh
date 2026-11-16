@@ -683,7 +683,14 @@ type Detach struct{}
 func (Detach) kind() string { return "detach" }
 func (Detach) valid() bool  { return true }
 
-type End struct{}
+type End struct {
+	// ForgetDesk also removes the history file of the desk pane the session
+	// was created for: the pane is gone for good (End the shell, or a desk
+	// deleted with its shells). Only a connection that negotiated
+	// desk-shell-v1 carries it; omitempty keeps an older machine's strict
+	// decoder from ever seeing it.
+	ForgetDesk bool `json:"forgetDesk,omitempty"`
+}
 
 func (End) kind() string { return "end" }
 func (End) valid() bool  { return true }

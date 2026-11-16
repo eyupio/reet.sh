@@ -19,6 +19,12 @@
   untrack(() => { void refresh() })
   return () => { life.abort(); clearTimeout(timer) }
  })
+ // In a phone's focus mode the queue is one line that opens (SessionScreen's rule shows the summary and hides the list
+ // until then). What needs the person is said on that line, so a message that was not sent is never out of sight.
+ let open = $state(false)
+ const stuck = $derived(queue.filter(item => item.state === 'failed' || item.state === 'uncertain').length)
+ const next = $derived(queue.find(item => item.state !== 'failed' && item.state !== 'uncertain') ?? queue[0])
+ const listId = $derived(`${sessionId}-queued`)
  async function change(item: ServerQueuedMessage, action: string) {
   if (busy) return
   busy = true; problem = ''
@@ -31,10 +37,16 @@
 </script>
 
 {#if queue.length || problem}
- <section class="server-queue" aria-label="Queued messages">
+ <section class="server-queue" class:open aria-label="Queued messages">
+  <button type="button" class="queue-summary" aria-expanded={open} aria-controls={listId} onclick={() => open = !open}>
+   <strong>Queued {queue.length}</strong>
+   {#if stuck || problem}<span class="needs">{problem ? 'could not be loaded' : `${stuck} not sent`}</span>{/if}
+   {#if next}<span class="next">{next.origin ? 'Gaffer: ' : ''}{next.text || 'Image only'}</span>{/if}
+   <span class="chev" aria-hidden="true">{open ? '▴' : '▾'}</span>
+  </button>
   <header><strong>Queued <span>{queue.length}</span></strong><small>Saved here. Sends between turns.</small></header>
   {#if problem}<p role="alert">{problem}</p>{/if}
-  <ol>{#each queue as item (item.id)}
+  <ol id={listId}>{#each queue as item (item.id)}
    <li>
     <p class="text">{item.text || 'Image only'}{#if item.images.length} <small>· {item.images.length} image{item.images.length === 1 ? '' : 's'}</small>{/if}</p>
     {#if item.note}<p class:uncertain={item.state === 'uncertain'} role="status">{item.note}</p>{/if}
@@ -66,6 +78,13 @@
 <style>
  .server-queue { flex: none; max-height: 15rem; overflow: auto; padding: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-sunk); font-size: 14px; }
  header, .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+ /* Shown only in focus mode. */
+ .queue-summary { display: none; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 4px 10px; border: 0; border-radius: 10px; background: none; text-align: left; }
+ .queue-summary strong { flex: none; }
+ .queue-summary .needs { flex: none; color: var(--bad); font-weight: 600; }
+ .queue-summary .next { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+ .queue-summary .chev { flex: none; color: var(--muted); }
+ .queue-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
  header { justify-content: space-between; }
  small { color: var(--muted); }
  ol { margin: 6px 0 0; padding: 0; list-style: none; }

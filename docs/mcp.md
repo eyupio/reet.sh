@@ -159,6 +159,10 @@ Two tools read the Factory for any connection on a writer account:
 - `reet_list_factory` lists the outcomes with their pipelines: each pipeline's
   state, the stage in hand, every stage's state and agent, how its merge is
   decided, and the state of the goal Gaffer follows it with.
+  Each stage's `agent`, `model` and `effort` are what was chosen; once its
+  session has been asked, `choice` says whether they were applied (`applied`,
+  `mismatch` or `unchecked`), with `applied_model`, `applied_effort` and, for
+  a difference, `choice_note`.
 - `reet_get_factory_outcome` reads one outcome. A management connection also
   receives each finished stage's handover note and Gaffer's latest report, which
   are derived from session text; a read-only connection receives states only.
@@ -170,20 +174,28 @@ Six more are the person's own controls and need management scope:
 | `reet_move_pipeline_on` | Closes the stage in hand as it stands and starts the next, without waiting for Gaffer's review. Needs `confirm: true`. |
 | `reet_retry_pipeline` | Tries a pipeline that did not start, or stopped, again. |
 | `reet_set_pipeline_merge` | Makes a pipeline wait for your approval before merging. It cannot switch one to merge by itself; that is set on the Factory page. |
-| `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true`. |
-| `reet_stop_outcome` | Stops an outcome. Needs `confirm: true`. |
+| `reet_approve_pipeline_merge` | Records approval for a pipeline that is Ready to merge; its agent merges once checks pass. Needs `confirm: true` and `seen_updated_at`, the pipeline's `updated_at` from the read the approval is made on: a pipeline that has changed since is not approved. |
+| `reet_stop_outcome` | Stops an outcome. Needs `confirm: true`. An outcome that had already finished answers `applied: false`. |
 | `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
-| `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. |
+| `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. `applied` is false when nothing was queued (the agent is waiting on an approval, say); trying again takes a new `request_id`. |
 | `reet_send_pipeline_back` | Has the stage in hand, or an earlier one, done again with your reason. Needs `confirm: true`. |
-| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. |
+| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. |
 | `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. |
 
 `reet_list_factory_projects` (a read) lists the projects an outcome can run in.
 
+An outcome you started on the Factory page with YOLO has agents that act
+without approvals. Over MCP it can be read, made to wait for approval before
+merging, asked for a report and stopped, and nothing else: telling its agent,
+adding pipelines, sending a stage back, trying a pipeline again, moving it on
+and approving its merge are refused, and are done on the Factory page.
+
 An outcome started over MCP always runs with ordinary approvals, never YOLO,
 without folder trust, with your usual limits of 12 reviews over 24 hours, and
 every pipeline stops at Ready to merge. Those choices stay yours on the Factory
-page.
+page. It is refused unless the project's machine has reported that it can run
+the chosen agent as a chat, so a machine that is offline or has never connected
+starts nothing.
 
 They are the calls the Factory page makes, under the same rules, and each is
 recorded in Activity with the connection's name. No tool answers an approval

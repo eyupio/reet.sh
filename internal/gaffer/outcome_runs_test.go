@@ -34,6 +34,35 @@ type outcomeStarterFake struct {
 	holdOnly string
 	entered  chan struct{}
 	once     sync.Once
+	// started is what each session was launched with; choice, when set, is
+	// what the machine reads back for a session instead of that.
+	started map[string]OutcomeLaunch
+	choice  func(session string, asked OutcomeLaunch) (SessionChoice, error)
+	// late names a title whose first launch starts its session on the
+	// machine and then never answers in time.
+	late string
+	// offline answers every launch as a machine that cannot be reached: the
+	// request says nothing about whether an earlier one started anything.
+	offline bool
+}
+
+// sessions is how many sessions were really started.
+func (f *outcomeStarterFake) sessions() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.started)
+}
+
+// OutcomeSessionChoice reads back what a session runs. By default the machine
+// applied exactly what the launch asked for.
+func (f *outcomeStarterFake) OutcomeSessionChoice(_ context.Context, _ int64, session string) (SessionChoice, error) {
+	f.mu.Lock()
+	asked, choice := f.started[session], f.choice
+	f.mu.Unlock()
+	if choice != nil {
+		return choice(session, asked)
+	}
+	return SessionChoice{Tool: asked.Tool, Model: asked.Model, Effort: asked.Effort}, nil
 }
 
 func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64, in OutcomeLaunch) (string, string, error) {
@@ -43,6 +72,12 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 	f.mu.Unlock()
 	if f.entered != nil {
 		f.once.Do(func() { close(f.entered) })
+	}
+	f.mu.Lock()
+	offline := f.offline
+	f.mu.Unlock()
+	if offline {
+		return "", "", LaunchUnknown("That machine is offline.")
 	}
 	if hold != nil && (f.holdOnly == "" || f.holdOnly == in.Title) {
 		select {
@@ -62,6 +97,18 @@ func (f *outcomeStarterFake) StartOutcomeSession(ctx context.Context, uid int64,
 		if err = f.st.ObserveTerminalStateFor(uid, in.AgentID, row.ID, 1, terminalproto.Running, nil); err != nil {
 			return "", "", err
 		}
+	}
+	f.mu.Lock()
+	if f.started == nil {
+		f.started = map[string]OutcomeLaunch{}
+	}
+	_, replay := f.started[row.ID]
+	f.started[row.ID] = in
+	slow := f.late == in.Title && !replay
+	f.mu.Unlock()
+	if slow {
+		<-ctx.Done()
+		return "", "", ctx.Err()
 	}
 	// The first launch of a project gets a worktree; later stages are sent there.
 	work := in.Dir

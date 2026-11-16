@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -449,8 +450,13 @@ func (s *Service) reviewGoal(ctx context.Context, g store.GafferGoal) {
 			}
 			observe("active", "Waiting for the existing instruction's delivery.", 10*time.Second)
 			return
-		case "uncertain", "blocked", "removed":
-			observe("needs_user", "The previous instruction was blocked, removed or has uncertain delivery. Check the working conversation before resuming.", time.Minute)
+		case "uncertain", "blocked", "removed", "failed":
+			note := "The previous instruction was blocked, removed or has uncertain delivery. Check the working conversation before resuming."
+			if m.State != "uncertain" && strings.TrimSpace(m.Note) != "" {
+				// Known not to have been delivered, and the queue says why.
+				note = "Gaffer’s last instruction did not reach the working model: " + clipBytes(strings.TrimSpace(m.Note), 300) + " Check its session, then resume the goal: Gaffer reviews where it stopped."
+			}
+			observe("needs_user", note, time.Minute)
 			return
 		}
 	}

@@ -136,7 +136,8 @@ func TestAPipelineThatStopsIsRecordedWithWhy(t *testing.T) {
 	r.starter.mu.Unlock()
 	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Done.", "gaffer")
 	r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "unfollowed" })
-	log.wait(t, "gaffer-stage-started code", "gaffer-stage-handed-over code gaffer", "gaffer-pipeline-stopped review")
+	// The code stage's session is finished with either way, so it is ended.
+	log.wait(t, "gaffer-stage-started code", "gaffer-stage-handed-over code gaffer", "gaffer-pipeline-stopped review", "gaffer-session-ended")
 	stopped := log.all()[2]
 	if stopped.detail["state"] != "unfollowed" || !strings.Contains(fmt.Sprint(stopped.detail["reason"]), "the machine is offline") {
 		t.Fatalf("stopped: %+v", stopped)

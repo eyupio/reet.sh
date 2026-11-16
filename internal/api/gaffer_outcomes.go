@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/gaffer"
 	"github.com/eyupio/reet.sh/internal/store"
+	"github.com/eyupio/reet.sh/internal/terminalbroker"
 	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
@@ -228,6 +229,12 @@ func (s *server) gafferOutcomeMerge(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Revision < 1 || !in.Confirmed {
 		writeErr(w, 400, "Reload this pipeline and confirm the merge.")
+		return
+	}
+	// An approval starts the merge stage, as the other controls that start
+	// work do: it is refused where remote sessions are off.
+	if !s.terminalEnabled() {
+		writeErr(w, 409, "Remote sessions are disabled on this controller, so the merge stage cannot be started.")
 		return
 	}
 	o, err := s.gafferProviders.ApproveMerge(s.uid(r), r.PathValue("id"), r.PathValue("key"), in.Revision)
@@ -451,6 +458,34 @@ func (o outcomeStarter) EndOutcomeSession(ctx context.Context, uid int64, sessio
 	return err
 }
 
+// OutcomeSessionChoice asks a session's machine what the session is running:
+// the model and effort its agent reports now, not what its launch asked for.
+// The answer is also kept on the session, as any read of its controls is.
+func (o outcomeStarter) OutcomeSessionChoice(ctx context.Context, uid int64, sessionID string) (gaffer.SessionChoice, error) {
+	s := o.s
+	if !s.terminalEnabled() || s.terminals == nil {
+		return gaffer.SessionChoice{}, errors.New("Remote sessions are disabled on this controller.")
+	}
+	row, err := s.st.TerminalSessionFor(uid, sessionID)
+	if err != nil {
+		return gaffer.SessionChoice{}, errors.New("The session is no longer listed.")
+	}
+	answer, err := s.terminals.ChatControl(ctx, uid, sessionID, terminalproto.ACPControl{Action: "get"})
+	if err != nil {
+		return gaffer.SessionChoice{}, err
+	}
+	if answer.Controls.Configuring {
+		return gaffer.SessionChoice{}, errors.New("The agent was changing its settings when it was asked.")
+	}
+	choice := gaffer.SessionChoice{Tool: row.Tool, Model: answer.Controls.Model}
+	for _, option := range answer.Controls.Options {
+		if option.Category == terminalproto.AgentOptionThoughtLevel {
+			choice.Effort = option.Current
+		}
+	}
+	return choice, nil
+}
+
 func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in gaffer.OutcomeLaunch) (string, string, error) {
 	s := o.s
 	if !s.terminalEnabled() || s.terminals == nil {
@@ -464,10 +499,18 @@ func (o outcomeStarter) StartOutcomeSession(ctx context.Context, uid int64, in g
 		var reply struct {
 			Error string `json:"error"`
 		}
+		message := reply.Error
 		if json.Unmarshal(capture.body.Bytes(), &reply) != nil || reply.Error == "" {
-			return "", "", errors.New("That machine could not start the session.")
+			message = "That machine could not start the session."
+		} else {
+			message = reply.Error
 		}
-		return "", "", errors.New(reply.Error)
+		// A machine that could not be reached, or did not answer, has said
+		// nothing about a session an earlier request may have started.
+		if errors.Is(err, terminalbroker.ErrOffline) || errors.Is(err, terminalbroker.ErrNotSent) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return "", "", gaffer.LaunchUnknown(message)
+		}
+		return "", "", errors.New(message)
 	}
 	// A later pipeline stage works in the folder its first stage was given and
 	// names no project: it is not a new project launch.

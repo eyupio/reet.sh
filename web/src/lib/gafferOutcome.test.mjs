@@ -122,6 +122,17 @@ test('a pipeline track shows what is done, in hand, waiting on the person or fai
   assert.deepEqual(o.track({ state: 'unfollowed', stage: 1, stages }).map(n => n.state), ['done', 'failed', 'pending'])
   assert.deepEqual(o.track({ state: 'done', stage: 2, stages: stages.map(s => ({ ...s, state: 'done' })) }).map(n => n.state), ['done', 'done', 'done'])
   assert.equal(o.track({ state: 'following', stage: 1, stages })[1].model, 'opus')
+  // Whether the choice was applied is said only for a stage that was checked, and a difference is never called confirmed.
+  assert.equal(o.stageChoice(undefined), null)
+  assert.equal(o.stageChoice({ tool: 'claude', model: 'opus', effort: 'high' }), null)
+  assert.deepEqual(o.stageChoice({ tool: 'claude', model: 'opus', effort: 'high', choiceCheck: 'applied', appliedModel: 'opus', appliedEffort: 'high' }), { tone: 'good', label: 'Confirmed', text: 'The session is on opus · high effort, as chosen.' })
+  assert.equal(o.stageChoice({ tool: 'claude', choiceCheck: 'applied', appliedModel: 'sonnet', appliedEffort: 'medium' }).text, 'The session is on sonnet · medium effort. The model and effort were left to the agent.')
+  assert.equal(o.stageChoice({ tool: 'claude', effort: 'high', choiceCheck: 'applied', appliedModel: 'sonnet', appliedEffort: 'high' }).text, 'The session is on sonnet · high effort. The model was left to the agent.')
+  const off = o.stageChoice({ tool: 'claude', model: 'opus', effort: 'high', choiceCheck: 'mismatch', appliedModel: 'opus', appliedEffort: 'low', choiceNote: 'You chose the effort high; the session is on low.' })
+  assert.deepEqual([off.tone, off.label, off.text], ['bad', 'Not as chosen', 'You chose the effort high; the session is on low.'])
+  assert.equal(o.stageChoice({ tool: 'claude', choiceCheck: 'unchecked', choiceNote: 'reet could not read back what this session is running: offline' }).label, 'Not checked')
+  assert.equal(o.track({ state: 'following', stage: 1, stages: stages.map((s, i) => i === 1 ? { ...s, effort: 'high', choiceCheck: 'mismatch', choiceNote: 'x' } : s) })[1].choice.tone, 'bad')
+  assert.equal(o.track({ state: 'following', stage: 1, stages })[1].choice, null)
   assert.deepEqual(o.track({ state: 'following' }), [])
 })
 

@@ -74,6 +74,10 @@ type GafferTurnTool struct {
 	State  string `json:"state"`
 	Result string `json:"result,omitempty"`
 	At     int64  `json:"at"`
+	// SessionText marks a tool whose result can carry words a working agent
+	// wrote. Such a result is not repeated to a provider that may not read
+	// session text.
+	SessionText bool `json:"sessionText,omitempty"`
 }
 
 func validGafferID(id string) bool {

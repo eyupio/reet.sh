@@ -17,10 +17,24 @@ Claude Code and Codex are read today. Every other agent shows nothing here: reet
 - **Start an agent.** If the machine looked and found no sign-in for the chosen agent, the dialog says so before you
   start, because the agent would refuse its first message. It is advice: nothing is disabled, and a machine that has
   not answered yet shows nothing.
+- **Plan meters**, with plan limits on, wherever the work is. Each account is a chip: the agent's mark, the share
+  left of the window with the least left (the one that stops the agent first) and a hairline meter under it. A chip
+  turns to the warning colour at 15% or less; figures kept from a read that has since failed are dimmed and never
+  alarm. A mouse over the chips, or keyboard focus on them, lists every account's windows; a click or a tap opens
+  **Plan limits**: per account its agent, plan and address, then each window with when it resets and a meter, which
+  machine read it and how long ago, and why if the latest read failed. Escape or a click elsewhere closes it.
+  - **Home**, at the start of the summary line, and the **Sessions** toolbar: every account across your machines.
+    The same account signed in on two machines is one allowance, so it is one chip, from the machine that read it
+    last. More than fit fold into **+N**; the panel lists them all.
+  - **A chat's status strip**, beside the context left: the plan of that chat's agent.
+  - **A Factory pipeline's card**, as **Plan left**: the plan of the agent doing the stage in hand, with its windows
+    in words, until the pipeline is done.
 - **Settings → Agents → Plan limits.** The switch for your account, off until you turn it on.
 
-Figures are the provider's, passed on as numbers; reet attaches no price. When the latest read failed, the last figures
-stay, with why and how old they are.
+These show the figures each machine last read, which the controller keeps; they look again every two minutes and
+never ask a machine to read. Only machines that read sign-ins are asked. An agent with no plan to read (an API key,
+no sign-in, or an agent reet does not read) has no chip. The marks are reet's own, an initial on a tile, not the
+vendors' logos.
 
 ## What a machine reads
 

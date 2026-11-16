@@ -5,6 +5,52 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: a pipeline that was waiting at **Ready to merge** when you stopped
+  it waits there again when you try it again. It used to start its merge
+  stage without your approval; so did a pipeline whose first stage was the
+  merge. Stopping an outcome while a session is still starting now stands:
+  the session is listed, and nothing follows it. An archived outcome has to
+  be brought back before a pipeline in it is tried again, sent back or added.
+- Factory: each stage now says whether the agent, model and effort you chose
+  were **applied**. Once the stage's session is running the controller asks
+  the machine what it is on and shows it on the card: Confirmed (naming the
+  model and effort, including one you left to the agent), Not as chosen
+  (naming what differs) or Not checked. A later change made in the session's
+  own chat shows too. "Who did each stage" now lists effort.
+- With plan limits on, what is left of each agent's plan now shows where the
+  work is, not only in a machine's settings: on **Home**, the **Sessions**
+  toolbar, a chat's status strip and a Factory pipeline's card. Each account
+  is a chip with the agent's mark and the share left of its tightest window;
+  a mouse over it lists every window, and a click opens **Plan limits** with
+  each window's reset, the account, and which machine read it and when.
+- Focus mode on a phone shows less around a chat, so the conversation has the
+  screen while an agent works and messages are queued: one header row, the
+  agent's state said once, the queue as one line that opens, and the
+  composer's Prompts, Skills, image, dictation, effort and model behind
+  **Exit focus**. Upright, the conversation goes from about a third of the
+  screen to about two thirds; sideways, from one line to most of it.
+- A message waiting for an agent to finish its turn no longer gets stuck
+  behind an earlier message that failed, and an agent that turned out to be
+  busy no longer turns the message into a failure you have to retry: it goes
+  when the turn ends. This is what made Gaffer's next instruction wait until
+  you pressed **Stop and send**.
+- MCP: on an outcome that runs on YOLO, trying a pipeline again, moving it on
+  and approving its merge are refused, as telling its agent, adding pipelines
+  and sending back already were.
+- Factory: a session that started but did not answer in time is taken up when
+  you try the pipeline again, instead of a second agent being started in the
+  same folder.
+- MCP: `reet_approve_pipeline_merge` now needs `seen_updated_at`, the
+  pipeline's `updated_at` from the read the approval is made on, and approves
+  nothing if the pipeline has changed since. `reet_tell_pipeline_agent` and
+  `reet_stop_outcome` answer `applied: false` when nothing was queued or
+  changed, and `reet_start_outcome` is refused for a machine that has not
+  reported that it can run the agent. It takes an optional `request_id`, so a
+  retried call starts the outcome once.
+- Gaffer's tools: after Gaffer reads one outcome in full in a chat turn, a
+  tool that changes something asks you first for the rest of that turn, even
+  on Allow.
+
 - **Ending a session that a Factory pipeline is working in now puts the
   outcome away with it.** The end dialog defaults to stopping following the
   outcome and deleting it, with toggles to archive it instead or leave it

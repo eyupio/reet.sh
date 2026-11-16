@@ -278,8 +278,24 @@ export function sessionCount(plan: { tool: string; model: string; effort?: strin
   return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') || (stage.provider ?? '') !== (plan[index - 1].provider ?? '') ? 1 : 0), 0)
 }
 
-export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; source?: string; summary: string; moved: boolean }
-type PipelinePiece = { state: string; stage?: number; stages?: { kind: string; tool: string; model?: string; provider?: string; state: string; summary?: string; closedBy?: string }[] }
+export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; moved: boolean; choice: StageChoice | null }
+type ChosenStage = { tool: string; model?: string; effort?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string }
+type PipelinePiece = { state: string; stage?: number; stages?: (ChosenStage & { kind: string; provider?: string; state: string; summary?: string; closedBy?: string })[] }
+
+/** Whether a stage's agent, model and effort were applied, as the controller read it back from the machine. */
+export type StageChoice = { tone: 'good' | 'bad' | 'idle'; label: string; text: string }
+/** What the page says about a stage's choice. The stage's own agent, model and effort are what was asked for; this is
+ *  what its session was found to be on. Nothing is said for a stage that has not been checked: a stage yet to start,
+ *  or one that ran before the controller made the check. */
+export function stageChoice(stage: ChosenStage | undefined): StageChoice | null {
+  if (!stage?.choiceCheck) return null
+  if (stage.choiceCheck === 'mismatch') return { tone: 'bad', label: 'Not as chosen', text: stage.choiceNote || 'The session is not on what was chosen for this stage.' }
+  if (stage.choiceCheck === 'unchecked') return { tone: 'idle', label: 'Not checked', text: stage.choiceNote || 'reet could not read back what this session is running.' }
+  const on = [stage.appliedModel || 'model not reported', stage.appliedEffort ? `${stage.appliedEffort} effort` : ''].filter(Boolean).join(' · ')
+  // A model or effort left to the agent has nothing to be compared with, so what it turned out to be is the news.
+  const left = [!stage.model && 'model', !stage.effort && stage.appliedEffort && 'effort'].filter(Boolean).join(' and ')
+  return { tone: 'good', label: 'Confirmed', text: left ? `The session is on ${on}. The ${left} ${left.includes(' and ') ? 'were' : 'was'} left to the agent.` : `The session is on ${on}, as chosen.` }
+}
 /** A pipeline's stages as the page draws them. The stage in hand shows the pipeline's own state: running, waiting on the person, or failed. */
 export function track(piece: PipelinePiece): TrackNode[] {
   const at = piece.stage ?? 0
@@ -291,7 +307,7 @@ export function track(piece: PipelinePiece): TrackNode[] {
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
     // A stage the person moved on was closed on their word, not on Gaffer's review of it.
-    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', source: stage.provider, summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat') }
+    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), source: stage.provider, summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat') }
   })
 }
 

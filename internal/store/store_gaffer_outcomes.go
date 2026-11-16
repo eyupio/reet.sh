@@ -40,6 +40,18 @@ type GafferOutcomeStage struct {
 	Model    string `json:"model,omitempty"`
 	Effort   string `json:"effort,omitempty"`
 	Provider string `json:"provider,omitempty"`
+	// Tool, Model and Effort above are what the person chose. The Applied
+	// fields are what the stage's session was read back to be running, and
+	// when. ChoiceCheck is "applied" (nothing chosen differs), "mismatch"
+	// (ChoiceNote names what differs) or "unchecked" (the machine could not
+	// be asked; ChoiceNote says why). Empty means no check has been made. For
+	// the stage in hand they are read again from the session on every read.
+	AppliedTool   string `json:"appliedTool,omitempty"`
+	AppliedModel  string `json:"appliedModel,omitempty"`
+	AppliedEffort string `json:"appliedEffort,omitempty"`
+	AppliedAt     int64  `json:"appliedAt,omitempty"`
+	ChoiceCheck   string `json:"choiceCheck,omitempty"`
+	ChoiceNote    string `json:"choiceNote,omitempty"`
 	// What the stage's working agent reported using, from its own figures: kept
 	// when the stage is handed over, and read live for the stage in hand.
 	// ContextUsed and ContextSize are the agent's context window, live only.
@@ -110,10 +122,14 @@ type GafferOutcomeSession struct {
 	// stage in hand. WorkDir is where the first stage's session works, which
 	// later stages share. AutoMerge and MergeApproved are the person's own
 	// choices: without one of them the merge stage never starts.
-	Stages    []GafferOutcomeStage `json:"stages,omitempty"`
-	Stage     int                  `json:"stage"`
-	WorkDir   string               `json:"workDir,omitempty"`
-	AutoMerge bool                 `json:"autoMerge,omitempty"`
+	Stages  []GafferOutcomeStage `json:"stages,omitempty"`
+	Stage   int                  `json:"stage"`
+	WorkDir string               `json:"workDir,omitempty"`
+	// UnsureRequest is the request of a launch that was not answered in time.
+	// Its session may have started all the same, so the next attempt asks
+	// under this request first and takes that session up if it is there.
+	UnsureRequest string `json:"unsureRequest,omitempty"`
+	AutoMerge     bool   `json:"autoMerge,omitempty"`
 	// YoloMergeOK is the person's separate confirmation that a pipeline whose
 	// agent runs on YOLO may also merge by itself. Without it such a pipeline
 	// stops at Ready to merge whatever AutoMerge says.
@@ -288,6 +304,20 @@ func (s *Store) GafferOutcomesFor(uid int64) ([]GafferOutcome, error) {
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+// ValidGafferOutcomeID reports whether id has the form of an outcome's id.
+func ValidGafferOutcomeID(id string) bool { return validGafferID(id) }
+
+// GafferWorkDirInUseFor reports whether any pipeline that is not finished, in
+// any of the account's outcomes that is not archived, works in dir. It reads
+// every outcome, not only the ones the list shows.
+func (s *Store) GafferWorkDirInUseFor(uid int64, dir string) (bool, error) {
+	var used bool
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gaffer_outcomes o, json_each(o.data,'$.sessions') piece
+ WHERE o.user_id=? AND COALESCE(json_extract(o.data,'$.archivedAt'),0)=0
+ AND json_extract(piece.value,'$.workDir')=? AND json_extract(piece.value,'$.state')!='done')`, uid, dir).Scan(&used)
+	return used, err
 }
 
 // DeleteGafferOutcomeFor removes one outcome record when it is still at

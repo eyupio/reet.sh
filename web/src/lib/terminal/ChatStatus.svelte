@@ -2,8 +2,10 @@
   import type { ChatState } from '../chat'
   import { gafferProgress, type ChatProgressState } from '../gafferProgress'
   import type { ChatUsageView } from '../chatUsage'
+  import type { PlanEntry } from '../agentAccounts'
+  import PlanMeters from '../PlanMeters.svelte'
 
-  let { chat, dir = '', agent = 'Agent', usage = null, replayed, ended, sessionFailed, reattaching }: ChatProgressState & { chat: ChatState; dir?: string; agent?: string; usage?: ChatUsageView | null } = $props()
+  let { chat, dir = '', agent = 'Agent', usage = null, plan = [], planNow = Date.now(), replayed, ended, sessionFailed, reattaching }: ChatProgressState & { chat: ChatState; dir?: string; agent?: string; usage?: ChatUsageView | null; plan?: PlanEntry[]; planNow?: number } = $props()
   const view = $derived(gafferProgress(chat, dir, replayed, ended, agent, sessionFailed, reattaching))
   const attention = $derived(view.phase === 'approval' || view.phase === 'question')
   const problem = $derived(view.phase === 'error' || view.phase === 'reconnecting')
@@ -30,6 +32,10 @@
       <span>{usage.label}</span><span class="vh">. {usage.detail}</span>
     </span>
   {/if}
+  {#if plan.length}
+    <!-- What is left of the agent's plan: its mark and the window with the least left. Hover says every window; a click opens them with their resets. -->
+    <span class="usage plan"><PlanMeters entries={plan} now={planNow} max={1} /></span>
+  {/if}
 </div>
 
 <style>
@@ -46,7 +52,7 @@
   .failed { color: var(--bad); }
   /* What the agent reports: context left, or the chat's tokens. After the counts when there are any, else at the end of the line. */
   .usage { flex: none; display: inline-flex; align-items: center; gap: 6px; margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .counts + .usage { margin-left: 0; padding-left: 8px; border-left: 1px solid var(--line-soft); }
+  .counts + .usage, .usage + .usage { margin-left: 0; padding-left: 8px; border-left: 1px solid var(--line-soft); }
   .usage.low { color: var(--warn); }
   .usage-meter { display: block; width: 36px; height: 3px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
   .usage-meter > span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }

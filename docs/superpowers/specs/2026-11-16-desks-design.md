@@ -284,9 +284,12 @@ Copy follows `docs/voice-and-copy.md`: familiar labels, plain destructive confir
 - A write that fails is retried with backoff and the header says "Not saved yet"; leaving the page with
   an unsaved change sends it with `keepalive`.
 - A session ended or archived elsewhere (Sessions, the machine) is noticed from the session list the
-  desk already polls; the pane moves to Ended with its last folder. The controller clears a pane's
-  `session` when the session record is deleted, in the same transaction, so a doc never names a session
-  that no longer exists.
+  desk already polls; the pane moves to Ended with its last folder. Session records are never deleted
+  except when a machine's enrolment is revoked (they go by cascade); removing a session from history
+  archives it. The controller clears a pane's `session`, with a version bump, in the same transaction as
+  either: the archive (`ArchiveTerminalFor`, and an end that asked for the session's removal), after
+  which the pane reads Not started and offers Start, and the revoke. So a doc never names a session that
+  no longer exists or that Sessions no longer shows.
 
 ## Calls made after the builder's read (mine, for the owner to check)
 
@@ -305,10 +308,13 @@ Copy follows `docs/voice-and-copy.md`: familiar labels, plain destructive confir
 - **Reading the live folder.** One extra tmux call a sweep (`list-panes -a -F` with the session name
   first and the path last), not a change to `allPanes`; a path with a newline is skipped. It is read on
   the sweep, on attach and when the session ends; there is no per-activity hook, and none is added.
-- **A machine forgotten or merged.** A merge re-points panes to the surviving machine in the same
-  transaction. A forgotten machine's panes stay, with `session` cleared and the state "This machine was
-  removed from reet." offering Choose a machine and Close pane. Both paths (`ForgetMachineFor`,
-  `MergeMachinesFor`) are where a pane's `session` is cleared, since session rows go only by cascade.
+- **A machine forgotten, merged or revoked.** A merge keeps the enrolment id panes name, so they stay
+  valid. Forgetting a machine (`ForgetMachineFor`) removes only what it listed: its enrolment and
+  sessions stay, so its panes keep their shells and its reported folders stay. Revoking its enrolment
+  (`ControlSyncAgent(..., "revoke")`) deletes its sessions by cascade, so that transaction clears every
+  pane holding one of them, with a version bump, and removes the machine's `desk_sessions` and
+  `desk_pane_dirs` rows; a pane on a machine that is gone shows "This machine was removed from reet."
+  offering Choose a machine and Close pane.
 - **Type in all panes turns itself off** when the set of receiving panes changes for any reason other
   than the person's own action (a takeover elsewhere, a lost connection, a shell ending), and says
   "Stopped typing in all panes: snicket is no longer connected."

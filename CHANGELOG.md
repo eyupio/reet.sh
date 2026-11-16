@@ -19,7 +19,12 @@ this file existed releases were described on their GitHub release pages.
   history under `~/.reet/desks/` on that machine (the History drawer shows
   **This pane** above **This machine**), and may reopen outside the home
   folder, but only in the folder that machine itself last reported for that
-  pane. An older machine still works on a desk without these.
+  pane. An older machine still works on a desk without these. When reet
+  starts on such a machine it removes desk pane history files that no
+  session there names and that have not changed for 90 days. Downgrading
+  reet on a machine that has started desk pane shells can stop its terminals
+  (the older version refuses the desk field in its session registry); update
+  it again to bring them back.
 - The browser's session limits are now 24 live sessions a machine and 64 an
   account (from 8 and 32).
 - Factory: in Add pipelines each tier's backup can be your crew's, none, or

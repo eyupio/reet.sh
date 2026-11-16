@@ -84,12 +84,15 @@ The layout of every tab, its zoomed pane and its focused pane are saved with the
 
 ## Closing a pane or a tab
 
-A pane or tab with nothing running closes at once. Closing the last pane of a tab closes the tab. One with a running
-shell asks "Close “`<name>`”? Its shell is still running on `<machine>`." (a tab asks once for all its running shells)
-and offers two choices:
+A pane or tab with nothing running closes at once. Closing the last pane of a tab closes the tab. A pane whose shell has
+already ended or was lost is gone for good when it closes: on a machine with `desk-shell-v1` its own command history is
+removed, and the session stays in Sessions as it was. One with a running shell asks "Close “`<name>`”? Its shell is still
+running on `<machine>`." (a tab asks once for all its running shells) and offers two choices:
 
-- **End the shell** (the default; Enter chooses it): "Stops what is running in it. Its command history for this pane is
-  removed." The session is also removed from Sessions' history once it has ended.
+- **End the shell** (the default; Enter chooses it): "Stops what is running in it. The session stays in Sessions as
+  ended, and this pane's command history is removed." Whether the session then stays in Sessions follows your
+  **Terminal history default** (Account → Profile), as Sessions' own End does: with **Remove from history after it
+  ends** the line says "The session leaves Sessions, and this pane's command history is removed." instead.
 - **Take off this desk**: "It keeps running, and stays in Sessions."
 
 The arrow keys move between the two, and Cancel leaves everything as it was. If a shell will not end, the desk says so;
@@ -98,9 +101,10 @@ it is still in Sessions.
 ## Names and colours
 
 A desk, a tab and a pane each have a name of 1 to 80 characters (a tab or pane may be left unnamed) and one of the
-project colours: none, red, amber, green, blue or violet. Desk names are unique on an account, ignoring case. A desk name
-with a control character is refused, and so is a tab or pane name with a control character, a line separator or a
-direction-changing character.
+project colours: none, red, amber, green, blue or violet. Desk names are unique on an account, ignoring case. A desk, tab
+or pane name with a control character, a format character (a zero-width space or a direction-changing character, for
+example) or a line separator is refused by the controller; it is the rule a session title follows, so a pane's name can
+always be its shell's title. A stored name written before this rule has those characters removed when it is read.
 
 Renaming a pane that holds a session renames the session too, so Sessions and the desk agree. If the session's rename
 fails, the desk says so and the pane goes back to the session's name.
@@ -225,7 +229,9 @@ under the home rule. The machine then checks the folder exists, is a folder and 
 **Folder gone**. A folder refused under the home rule says **Folder unavailable**. A folder is never swapped for another
 one quietly.
 
-What a forgotten machine reported is removed with it.
+Forgetting a machine (removing it from the machines list) keeps its enrolment, so its shells, their desk panes and what
+it reported for them stay. Revoking a machine's enrolment removes its sessions, so in the same step every desk pane
+holding one is emptied and what that machine reported for desk panes is removed.
 
 ## Per-pane command history
 
@@ -237,10 +243,13 @@ history, beside your usual one.
   rewritten each time such a shell starts. Neither the controller nor the browser keeps history.
 - **bash.** The shell is started with reet's rc file, which loads your files as a login shell would (`/etc/profile`,
   then the first of `~/.bash_profile`, `~/.bash_login` and `~/.profile`), each guarded so one that fails does not stop
-  the shell, then points `HISTFILE` at the pane's file, turns on `histappend` and adds `history -a` to `PROMPT_COMMAND`.
-  Each command is on disk as soon as it has run, so a crash or a restart keeps it.
+  the shell, then points `HISTFILE` at the pane's file, turns on `histappend` and puts a small function in front of your
+  `PROMPT_COMMAND` that runs `history -a` and hands the last command's exit status on, so your own prompt command still
+  sees it. Each command is on disk as soon as it has run, so a crash or a restart keeps it.
 - **zsh.** The shell is started as a login shell with reet's `ZDOTDIR`, whose `.zshenv`, `.zprofile`, `.zshrc` and
-  `.zlogin` load yours from your own `ZDOTDIR` (or home), then point `HISTFILE` at the pane's file, set `SAVEHIST`
+  `.zlogin` load yours from your own `ZDOTDIR` (or home). While each of your files runs, `ZDOTDIR` is yours (unset when
+  you have none), so a `~/.zshenv` that sets a default such as `export ZDOTDIR="${ZDOTDIR:-$HOME/.config/zsh}"` is
+  followed for the files after it. They then point `HISTFILE` at the pane's file, set `SAVEHIST`
   when yours is not set (to your `HISTSIZE` or 1000, whichever is larger) and turn on `INC_APPEND_HISTORY`. `ZDOTDIR` is
   handed back to yours once start-up is done.
 - **Other shells** start exactly as a plain shell does today, with no wrapper. They get the live folder and Reopen, but
@@ -248,10 +257,14 @@ history, beside your usual one.
 - **History drawer.** For a desk pane's shell, History shows two groups: **This pane** first, then **This machine**
   (your usual `.bash_history` and `.zsh_history`). The pane's entries take at most half of the drawer's 500 entries and
   of its size, so the machine's history is never crowded out. See [Shell command recall](terminal-command-history.md).
-- **What removes it.** **End the shell** (closing a pane with a running shell) removes the pane's history file, and
-  again three seconds later in case the shell saved one last command on its way out, unless a new shell for that pane
-  has started by then. Deleting a desk with **End its shells** does the same. **Take off this desk** keeps the file
-  with the shell, which keeps running in Sessions.
+- **What removes it.** **End the shell** (closing a pane with a running shell) removes the pane's history file (and the
+  lock and new copy zsh keeps beside it), and again three seconds later in case the shell saved one last command on its
+  way out, unless a new shell for that pane has started by then. Closing a pane whose shell had already ended or was
+  lost removes it too, and so does deleting a desk with **End its shells**, for its running shells and for those that
+  had already ended. **Take off this desk** keeps the file with the shell, which keeps running in Sessions.
+- **The sweep.** When reet starts on the machine it removes history files under `~/.reet/desks/history/` that have not
+  changed for 90 days and that no session in its registry was started for. It removes only regular files named as a
+  pane's history, never follows or removes a symlink, and never stops reet starting.
 
 The history is your shell's own: its size is your `HISTSIZE` and `HISTFILESIZE` (or `SAVEHIST`), and what it saves is
 up to your shell.
@@ -265,8 +278,8 @@ desk, or a shell started any other way, offers nothing.
 
 A command with a hidden character (a line break, a control character, a format character such as a zero-width space, or
 a direction-changing one) is refused when you save it, and if one is already stored the band says "This command has
-hidden characters, so reet won't run it. Edit it first." and Run stays off. The controller also refuses control,
-line-separator and direction-changing characters in a start-up command or a tab or pane name.
+hidden characters, so reet won't run it. Edit it first." and Run stays off. The controller also refuses control, format
+and line-separator characters in a start-up command or a tab or pane name.
 
 ## Type in all panes
 
@@ -293,7 +306,8 @@ sent to any other pane and the mode turns itself off with a reason:
 - a receiving pane drops its connection, its shell ends or it is opened in another window ("… `<pane>` is no longer
   connected.");
 - a paste another pane would hold for review, for example several lines into a program that does not take a paste as
-  one block ("… `<pane>` would run this paste line by line.");
+  one block ("… `<pane>` would run this paste line by line."), or one it would hold for another reason ("… `<pane>`
+  would need to review this paste.");
 - a send fails partway ("… only `<panes>` received the last input.", naming the ones that did).
 
 Dragging a separator does not turn it off. It is not offered on a phone or on a template.
@@ -303,8 +317,9 @@ Dragging a separator does not turn it off. It is not offered on a phone or on a 
 - **Duplicate** (desk menu or card menu) makes "`<name>` copy" with every tab, layout, machine, folder, name, colour and
   start-up command, and no sessions: every pane starts empty, with new pane ids, so it has no history of its own yet.
 - **Save as template** makes "`<name>` template" the same way, marked as a template. A template holds no sessions and
-  starts nothing. It is not shown as a card; it appears under **From a template ▾**, which makes a new desk from it
-  (named after the template without " template").
+  starts nothing. It appears under **From a template ▾**, which makes a new desk from it (named after the template
+  without " template"), and as a card in a **Templates** group below your desks, whose menu has Open, New desk from this
+  template, Rename and Delete.
 - A template opened by its address says "This is a template. Make a desk from it to start shells." with **New desk from
   this template**; its panes offer no Start, Reopen or split.
 
@@ -381,12 +396,15 @@ current desk. All but Reopen still work while remote terminals are turned off on
 | `POST /api/v2/desks` | Makes a desk: `name`, `colour`, `template`, and `from` (a desk to copy without its sessions). |
 | `GET /api/v2/desks/{id}` | One desk with its document. |
 | `PATCH /api/v2/desks/{id}` | `expect`, and any of `name`, `colour` and the whole `doc`. |
-| `DELETE /api/v2/desks/{id}` | `expect` and `endSessions`. Answers `left`: the shells that would not end. |
+| `DELETE /api/v2/desks/{id}` | `expect` and `endSessions`. With `endSessions`, its running shells are ended and removed from Sessions, each pane's history with them; a shell that had already ended, on a `desk-shell-v1` machine, is sent an end that only removes its pane's history. Answers `left`: the running shells that would not end. |
 | `POST /api/v2/desks/reorder` | `ids`: every desk once, in the new order. The list has no control for this yet. |
 | `POST /api/v2/desks/{id}/panes/{pane}/reopen` | `expect`, and `home` to reopen in home. Answers the desk and the new session. |
 
 The terminal routes take two desk fields: a create (`POST /api/v2/terminal/sessions`) takes `deskPane`, the pane a plain
-shell is for, and an end takes `forgetDesk`, which also removes that pane's history on the machine.
+shell is for, and an end takes `forgetDesk`, which also removes that pane's history on a `desk-shell-v1` machine, for a
+shell that has already ended or was lost as well. The end's own `removeHistory` says, as always, whether the session
+leaves Sessions; `forgetDesk` never sets it. An older machine is sent a plain end, which for an ended shell does
+nothing.
 
 | Code | Status | Means |
 | --- | --- | --- |
@@ -407,28 +425,44 @@ shell is for, and an end takes `forgetDesk`, which also removes that pane's hist
 Other refusals from a reopen are the terminal create's. The audit records `desk-created`, `desk-deleted` and
 `desk-pane-reopened` (with the folder and whether it was outside home).
 
-The tables are `desks` (one row a desk, its document as JSON), `desk_sessions` (which desk and pane hold each session, so
-a session is in one pane only) and `desk_pane_dirs` (the folder a machine last reported for a pane). A desk with a schema
-newer than this reet's is neither listed nor overwritten.
+The tables are `desks` (one row a desk, its document as JSON), `desk_sessions` (which desk and pane hold each of an
+account's sessions, keyed by account and session, so a session is in one pane only) and `desk_pane_dirs` (the folder a
+machine last reported for a pane). A desk with a schema newer than this reet's is neither listed nor overwritten, and one
+whose stored document cannot be read is left out of the list and logged rather than failing it.
+
+A session removed from Sessions' history (archived there, or ended with its removal asked for) is taken off the desk pane
+that held it in the same step, and the desk's version moves on, so a pane never names a session Sessions no longer
+shows; the pane then reads **Not started** and offers Start. A reopen that finds the desk changed in another window
+starts nothing, and the session it had reserved is removed from history at once.
 
 ## Not done and not verified
 
-- **zsh per-pane history has not been seen to work.** zsh is not installed where desks were built, so its tests skip
-  there. The macOS CI job has zsh and runs the package's tests, but it does not list which tests ran, so that is not
-  confirmed either. A system-wide `ZDOTDIR` (set in `/etc/zshenv`) is expected to bypass reet's wrapper, so that pane
-  would use your usual history; this is unchecked.
-- **A real machine reboot has not been tested.** Restore is tested with a shell killed outright (history kept across
-  it) and with a shell ended and reopened outside home against a real tmux. No test ends the tmux server and then reopens
-  a pane with its history.
+- **zsh per-pane history is verified on Linux only** (zsh 5.9, where the wrapper's real-shell tests run, including a
+  `~/.zshenv` that defaults `ZDOTDIR` to `~/.config/zsh`). It has not been seen to work on macOS, whose `/etc/zshrc`
+  sets `HISTFILE` itself; the wrapper sets the pane's file after it, but that is unchecked there. A system-wide
+  `ZDOTDIR` (set in `/etc/zshenv`) is expected to bypass reet's wrapper, so that pane would use your usual history; this
+  is unchecked too.
+- **A real machine reboot has not been tested.** Restore is tested against a real bash and a real tmux server of the
+  test's own: the server is ended with the pane's shell in it and started again, the shell is reported lost, and a
+  reopen through the route opens a new shell in the pane's last folder with the pane's command in its history. A shell
+  killed outright, and one ended and reopened outside home, are tested too. A whole machine restarting, with reet's
+  service starting again, is not.
+- **After a reboot, a folder on a mount that is not there yet** (a network share, an encrypted volume not yet unlocked)
+  reads as **Folder gone**. Reopen again once it is mounted.
+- **The last folder can be one sweep stale.** The machine reads it about once a second and once more before it ends a
+  shell; a shell lost to a crash or a reboot keeps the folder from the last read, so a `cd` in the second before is
+  missed.
+- **Downgrading reet on a machine** that has started desk pane shells can stop its terminals: an older reet reads the
+  machine's session registry strictly and refuses the desk field a `desk-shell-v1` create left in it, so it cannot open
+  the registry. Update reet on that machine again to bring them back.
 - **bash 3.2 (macOS).** A brand-new pane's shell shows a placeholder line, `: reet desk history`, on up-arrow or in
   `history` until its first command is saved. Run by mistake it does nothing.
 - **bash is interactive, not a login shell.** It loads your login files, but `logout` refuses and `~/.bash_logout` is
   not read. zsh is a login shell.
-- **A controller restart while a pane is being ended** forgets that the end should remove the pane's history, so the
-  file stays on the machine. A reet restart on the machine within three seconds of the end skips the second removal.
-- **History files are removed only by End the shell or deleting a desk with its shells.** Closing a pane whose shell has
-  already ended, or ending a shell from Sessions after it was taken off a desk, leaves its file on the machine. Nothing
-  prunes these files.
+- **Some history files wait for the sweep.** A controller restart while a pane is being ended forgets that the end
+  should remove the pane's history, and a reet restart on the machine within three seconds of the end skips the second
+  removal; ending a shell from Sessions after it was taken off a desk never asks. Those files stay until the 90-day sweep
+  removes them, and only once the machine's registry no longer holds the session started for that pane.
 - **A newline in a folder name** is printed by current tmux as `_`, so the folder is recorded under the wrong name. A
   reopen then opens only if a folder of that name exists, and otherwise says Folder gone; it never opens elsewhere.
 - **Shells other than bash and zsh** get the live folder and Reopen only; fish history is not kept per pane.
@@ -437,10 +471,7 @@ newer than this reet's is neither listed nor overwritten.
 - **Gaffer chats cannot be panes.**
 - **No sharing and no export.** A desk belongs to one account.
 - **No splits on a phone.**
-- **Templates** have no rename or delete on the list; a template's own page (`/desks/<id>`) has both in its menu, but
-  nothing on the page links to it.
 - **Desk order** can be set through `POST /api/v2/desks/reorder` only; the list has no way to move a card.
-- **Removing a session from history** leaves its id on the pane, which then reads as ended and offers Reopen.
 - **Reopen all** gives up waiting for a reopened pane after about half a minute and counts it as reopened; the 15-second
   read shows it when it arrives.
 - **An open desk does not poll for itself.** Another browser's change to the layout shows only when the page is shown

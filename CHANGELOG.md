@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: each crew tier can have a **Backup** agent, model and effort. A
+  stage starts on its backup when its first choice's plan has under 20% left
+  and the backup's has more, so work is spread across the plans you have.
+  The card says **Balanced** with the reason. It needs plan limits to be on.
+
 - Factory: every decision a pipeline is waiting on you for is a set of
   buttons with the recommended choice first, at the head of the outcome's
   card and in the pipeline's session as well as on the pipeline. When

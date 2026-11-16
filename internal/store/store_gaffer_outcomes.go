@@ -82,6 +82,14 @@ type GafferOutcomeStage struct {
 	// stage over), "person" (they moved it on), "chat" (they told Gaffer to)
 	// or "auto" (Gaffer decided to, on an outcome whose decisions it was given).
 	ClosedBy string `json:"closedBy,omitempty"`
+	// Backup is the person's second choice for this stage: used instead of
+	// Tool, Model and Effort when their plan is running low and the backup's
+	// has more left. When that happened, First is the first choice the stage
+	// would otherwise have run on and Balanced says why in a sentence; Tool,
+	// Model, Effort and Provider are then the backup's, which is what ran.
+	Backup   *GafferStageAgent `json:"backup,omitempty"`
+	First    *GafferStageAgent `json:"first,omitempty"`
+	Balanced string            `json:"balanced,omitempty"`
 	// Decided counts the decisions Gaffer took on this stage for the person,
 	// BudgetRenewed is whether one of them gave the stage a new budget, and
 	// DecidedFor names the stop last put to Gaffer, so one stop is one request.
@@ -363,6 +371,17 @@ func (s *Store) GafferOutcomesFor(uid int64) ([]GafferOutcome, error) {
 // outcome's own agent.
 type GafferCrewTier struct {
 	Tool     string `json:"tool,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Effort   string `json:"effort,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	// Backup is who does the tier's stages when the first choice's plan is
+	// running low and the backup has more left. Nil when none was chosen.
+	Backup *GafferStageAgent `json:"backup,omitempty"`
+}
+
+// GafferStageAgent is an agent, model and effort a stage can run on.
+type GafferStageAgent struct {
+	Tool     string `json:"tool"`
 	Model    string `json:"model,omitempty"`
 	Effort   string `json:"effort,omitempty"`
 	Provider string `json:"provider,omitempty"`

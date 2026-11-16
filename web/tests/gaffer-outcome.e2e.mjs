@@ -151,6 +151,19 @@ try {
       await outcome.getByRole('button',{name:'Save as my crew',exact:true}).click()
       await expect(outcome.getByText('Saved. New outcomes start from this crew.',{exact:true})).toBeVisible()
       expect(f.box.crewSaves).toEqual([{light:{tool:'claude',model:'',effort:'low'},standard:{tool:'claude',model:'',effort:''},heavy:{tool:'claude',model:'opus',effort:'high'}}])
+      // A tier can have a backup: who does its stages when the first choice's plan is running low. None is set until chosen.
+      const spare=outcome.getByRole('group',{name:'Heavy backup',exact:true})
+      await expect(spare.getByRole('combobox',{name:'Heavy backup agent',exact:true})).toHaveValue('')
+      await expect(spare.getByRole('combobox',{name:'Heavy backup model',exact:true})).toHaveCount(0)
+      await spare.getByRole('combobox',{name:'Heavy backup agent',exact:true}).selectOption('claude')
+      await spare.getByRole('combobox',{name:'Heavy backup model',exact:true}).selectOption('sonnet')
+      await expect(outcome).toContainText('under 20% left in its tightest window and the backup’s has more')
+      expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      await outcome.getByRole('group',{name:'Heavy crew',exact:true}).screenshot({path:`${shots}/gaffer-outcome-backup-${width}-${theme}.png`})
+      // Saved with the crew, the backup comes back for the next outcome.
+      await outcome.getByRole('button',{name:'Save as my crew',exact:true}).click()
+      await expect.poll(()=>f.box.crewSaves.length).toBe(2)
+      expect(f.box.crewSaves[1].heavy).toEqual({tool:'claude',model:'opus',effort:'high',backup:{tool:'claude',model:'sonnet',effort:''}})
       await expect(outcome.getByRole('combobox',{name:'Effort',exact:true})).toHaveValue('')
       await expect(outcome.getByText('sent only what you type here and the project’s name',{exact:false})).toBeVisible()
       expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
@@ -230,10 +243,10 @@ try {
       await expect(results.nth(1).getByRole('link')).toHaveCount(0)
       await expect(results.nth(2)).toContainText('Started, but not followed: Its chat was not ready')
       // Each stage is sent with its tier and the agent, model and effort that tier means; Gaffer's reason goes with its own.
-      const cheap=kind=>({kind,tool:'claude',model:'',tier:'standard'}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high',tier:'heavy'}),ship=kind=>({kind,tool:'claude',model:'',effort:'low',tier:'light'})
+      const cheap=kind=>({kind,tool:'claude',model:'',tier:'standard'}),strong=kind=>({kind,tool:'claude',model:'opus',effort:'high',tier:'heavy',backup:{tool:'claude',model:'sonnet'}}),ship=kind=>({kind,tool:'claude',model:'',effort:'low',tier:'light'})
       const usual=[cheap('code'),strong('review'),cheap('test'),ship('pr'),ship('babysit'),ship('merge')]
       expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,automation:false,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
-        {title:'Export API',prompt:proposed.sessions[0].prompt,stages:[{...strong('code'),tierWhy:'The export reads the billing ledger while it is being written.'},...usual.slice(1)]},
+        {title:'Export API',prompt:proposed.sessions[0].prompt,stages:[(({backup,...rest})=>({...rest,tierWhy:'The export reads the billing ledger while it is being written.',backup}))(strong('code')),...usual.slice(1)]},
         {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge').map(stage=>stage.kind==='test'?ship('test'):stage)]},
         {title:'Export docs',prompt:'Document the export in the README.    Raise a pull request. Do not merge.',stages:usual},
       ]}])

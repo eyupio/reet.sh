@@ -161,6 +161,10 @@ Two tools read the Factory for any connection on a writer account:
   decided, and the state of the goal Gaffer follows it with.
   A stage's `tier` (`light`, `standard` or `heavy`) is how demanding it was
   judged to be, which chose its agent from the account's saved crew.
+  A stage with a second choice has `backup_agent`. One that started on it,
+  because its first choice's plan was running low, has `balanced` (why) and
+  `first_choice_agent` and `first_choice_model`; `agent` and `model` are then
+  the backup's, which is what ran.
   Each stage's `agent`, `model` and `effort` are what was chosen; once its
   session has been asked, `choice` says whether they were applied (`applied`,
   `mismatch` or `unchecked`), with `applied_model`, `applied_effort` and, for

@@ -81,6 +81,20 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 			if stage.Tier != "" {
 				item["tier"] = stage.Tier
 			}
+			// A stage that started on its backup because its first choice's plan
+			// was running low says so, with what it would otherwise have run on.
+			if stage.Backup != nil {
+				item["backup_agent"] = stage.Backup.Tool
+			}
+			if stage.Balanced != "" {
+				item["balanced"] = stage.Balanced
+				if stage.First != nil {
+					item["first_choice_agent"] = stage.First.Tool
+					if stage.First.Model != "" {
+						item["first_choice_model"] = stage.First.Model
+					}
+				}
+			}
 			// agent, model and effort are what was chosen. choice says whether the
 			// stage's session was read back to be on them: applied, mismatch or
 			// unchecked, with what it is on and, for a mismatch, what differs.

@@ -632,7 +632,7 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 			}
 			for j := target; j < len(row.Stages); j++ {
 				// A stage done again is asked for under a new request, so it gets a session of its own.
-				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, State: "pending", RequestID: fresh[j]}
+				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Backup: row.Stages[j].Backup, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
 			}
 			row.Stages[target].SentBack = "Sent back from the " + from + " stage. " + clipBytes(reason, 1500)
 			row.Stage, row.MergeApproved = target, false

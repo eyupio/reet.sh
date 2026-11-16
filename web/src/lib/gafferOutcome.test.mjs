@@ -429,3 +429,12 @@ test('what Gaffer decided reads as a sentence, and a stage says when it has used
   const closed = o.track({ state: 'following', stage: 2, stages: [{ kind: 'code', tool: 'claude', state: 'done', closedBy: 'auto' }, { kind: 'review', tool: 'claude', state: 'done', closedBy: 'person' }, { kind: 'pr', tool: 'claude', state: 'running' }] })
   assert.deepEqual(closed.map(n => [n.auto, n.moved]), [[true, false], [false, true], [false, false]])
 })
+
+test('a tier’s backup goes with each of its stages, and one that is the first choice again is left out', () => {
+  const one = { tool: 'claude', model: 'opus', effort: 'high' }
+  const crew = { heavy: { ...one, backup: { tool: 'codex', model: ' gpt-strong ', effort: '' } }, standard: { tool: 'claude', model: '', backup: { tool: 'claude', model: '' } }, light: { tool: 'claude', model: '', backup: { tool: '', model: '' } } }
+  const plan = o.stagePlan(['review', 'code', 'pr'], crew)
+  assert.deepEqual(plan.map(stage => stage.backup), [undefined, { tool: 'codex', model: 'gpt-strong' }, undefined])
+  assert.equal(o.BALANCE_LOW_PERCENT, 20)
+  assert.equal(o.track({ state: 'following', stage: 0, stages: [{ kind: 'code', tool: 'codex', state: 'running', balanced: 'Claude Code’s plan had 12% left.' }] })[0].balanced, 'Claude Code’s plan had 12% left.')
+})

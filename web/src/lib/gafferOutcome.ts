@@ -238,7 +238,9 @@ export const STAGES = [
 ] as const
 export type StageKind = typeof STAGES[number]['kind']
 export type CrewTier = 'heavy' | 'standard' | 'light'
-export type Crew = Record<CrewTier, { tool: string; model: string; effort?: string; source?: string }>
+export type Crew = Record<CrewTier, { tool: string; model: string; effort?: string; source?: string; /** The tier's second choice, used when the first choice's plan is running low. An empty tool is no backup. */ backup?: { tool: string; model: string; effort?: string } }>
+/** How much of a plan must be left, in its tightest window, for a stage to stay on its first choice. */
+export const BALANCE_LOW_PERCENT = 20
 /** The crew, heaviest first: which agent, model and effort does a stage of each tier. */
 export const CREW_TIERS: { tier: CrewTier; label: string; does: string }[] = [
   { tier: 'heavy', label: 'Heavy', does: 'Careful judgement: by default plan, design and review. Worth a stronger model.' },
@@ -285,11 +287,13 @@ export function orderStages(kinds: Iterable<string>): StageKind[] {
 /** What is sent for one pipeline: each chosen stage with its tier and the agent and model of the crew member for that
  *  tier. Gaffer's reason goes with a tier that is Gaffer's. A Cline stage carries its chosen billing source when the
  *  machine takes one; empty is Cline's own choice and is left out. */
-export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true, ratings?: StageRatings): { kind: string; tool: string; model: string; effort?: string; provider?: string; tier: CrewTier; tierWhy?: string }[] {
+export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true, ratings?: StageRatings): { kind: string; tool: string; model: string; effort?: string; provider?: string; tier: CrewTier; tierWhy?: string; backup?: { tool: string; model?: string; effort?: string } }[] {
   return orderStages(kinds).map(kind => {
     const { tier, why } = stageTier(kind, ratings), member = crew[tier]
     const source = sourceSupported && member.tool === 'cline' ? (member.source ?? '').trim() : ''
-    return { kind, tool: member.tool, model: member.model.trim(), ...(member.effort ? { effort: member.effort } : {}), ...(source ? { provider: source } : {}), tier, ...(why ? { tierWhy: why } : {}) }
+    // A backup that is the first choice again is no backup.
+    const spare = member.backup?.tool && (member.backup.tool !== member.tool || member.backup.model.trim() !== member.model.trim() || (member.backup.effort ?? '') !== (member.effort ?? '')) ? member.backup : undefined
+    return { kind, tool: member.tool, model: member.model.trim(), ...(member.effort ? { effort: member.effort } : {}), ...(source ? { provider: source } : {}), tier, ...(why ? { tierWhy: why } : {}), ...(spare ? { backup: { tool: spare.tool, ...(spare.model.trim() ? { model: spare.model.trim() } : {}), ...(spare.effort ? { effort: spare.effort } : {}) } } : {}) }
   })
 }
 
@@ -309,8 +313,8 @@ export function sessionCount(plan: unknown[]): number {
   return plan.length
 }
 
-export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; moved: boolean; /** Gaffer closed the stage itself, on an outcome whose decisions it was given. */ auto: boolean; choice: StageChoice | null; /** The tier's name, empty for a stage with none, and Gaffer's reason where the tier was its assessment. */ tier: string; tierWhy: string }
-type ChosenStage = { tool: string; model?: string; effort?: string; tier?: string; tierWhy?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string }
+export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; /** Why the stage ran on its backup instead of its first choice; empty when it did not. */ balanced: string; moved: boolean; /** Gaffer closed the stage itself, on an outcome whose decisions it was given. */ auto: boolean; choice: StageChoice | null; /** The tier's name, empty for a stage with none, and Gaffer's reason where the tier was its assessment. */ tier: string; tierWhy: string }
+type ChosenStage = { tool: string; model?: string; effort?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string }
 type PipelinePiece = { state: string; stage?: number; stages?: (ChosenStage & { kind: string; provider?: string; state: string; summary?: string; closedBy?: string })[] }
 
 /** Whether a stage's agent, model and effort were applied, as the controller read it back from the machine. */
@@ -338,7 +342,7 @@ export function track(piece: PipelinePiece): TrackNode[] {
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
     // A stage the person moved on was closed on their word, not on Gaffer's review of it.
-    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), tier: stage.tier ? tierLabel(stage.tier) : '', tierWhy: stage.tierWhy ?? '', source: stage.provider, summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat'), auto: stage.state === 'done' && stage.closedBy === 'auto' }
+    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), tier: stage.tier ? tierLabel(stage.tier) : '', tierWhy: stage.tierWhy ?? '', source: stage.provider, summary: stage.summary ?? '', balanced: stage.balanced ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat'), auto: stage.state === 'done' && stage.closedBy === 'auto' }
   })
 }
 

@@ -49,5 +49,33 @@ func crewTier(in store.GafferCrewTier) (store.GafferCrewTier, error) {
 	if out.Provider != "" && (!terminalproto.ToolTakesProvider(out.Tool) || !terminalproto.ValidProvider(out.Provider)) {
 		return out, bad
 	}
+	backup, err := stageBackup(in.Backup, out.Tool, out.Model, out.Effort, out.Provider)
+	if err != nil {
+		return out, bad
+	}
+	out.Backup = backup
 	return out, nil
+}
+
+// stageBackup accepts a second choice for a stage or tier whose first choice
+// is tool, model, effort and provider. One with no agent, or the same as the
+// first choice, is no backup at all.
+func stageBackup(in *store.GafferStageAgent, tool, model, effort, provider string) (*store.GafferStageAgent, error) {
+	if in == nil || in.Tool == "" {
+		if in != nil && (strings.TrimSpace(in.Model) != "" || strings.TrimSpace(in.Effort) != "" || strings.TrimSpace(in.Provider) != "") {
+			return nil, invalid("sessions", "Choose an agent for a backup, or leave the backup out.")
+		}
+		return nil, nil
+	}
+	out := store.GafferStageAgent{Tool: in.Tool, Model: strings.TrimSpace(in.Model), Effort: strings.TrimSpace(in.Effort), Provider: strings.TrimSpace(in.Provider)}
+	if !terminalproto.ReviewedChatTool(out.Tool) || out.Model != "" && !terminalproto.ValidModel(out.Model) || out.Effort != "" && !terminalproto.ValidModel(out.Effort) {
+		return nil, invalid("sessions", "Choose a backup agent that can run a Gaffer chat, with a model and effort it accepts.")
+	}
+	if out.Provider != "" && (!terminalproto.ToolTakesProvider(out.Tool) || !terminalproto.ValidProvider(out.Provider)) {
+		return nil, invalid("provider", "Choose a billing source for a Cline backup, or leave it to Cline's own.")
+	}
+	if out.Tool == tool && out.Model == model && out.Effort == effort && out.Provider == provider {
+		return nil, nil
+	}
+	return &out, nil
 }

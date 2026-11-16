@@ -550,6 +550,19 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    outcome, from this page or over MCP, starts from them, for the tiers the
    project's machine can run. Nothing else is saved by it.
 
+   Each tier can also have a **Backup**: a second agent, model and effort.
+   When a stage is about to start and its first choice's plan has under 20%
+   left in its tightest window, the stage starts on the backup instead, if the
+   backup's plan has more left (or the backup is signed in with a key, which
+   has no plan to run low). It switches by itself and says so: the pipeline's
+   card shows **Balanced** with the reason, **Who did each stage** keeps it,
+   and the outcome's History records it. A stage with no backup never moves.
+   A limit that covers one model counts only for stages on that model, so a
+   cheaper model of the same agent can be the backup. Balancing uses the plan
+   figures the machine last read ([plan limits](agent-accounts.md)), no more
+   than six hours old; with plan limits off, or older figures, every stage
+   stays on its first choice. The backup is saved with **Save as my crew**.
+
    Each kind of stage has a usual tier: plan, design and review are heavy, code
    and test are standard, the pull request, babysitting and merge are light.
 3. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you

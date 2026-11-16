@@ -40,6 +40,8 @@ Object.assign(outcomes[0].sessions[0].stages[2],{choiceCheck:'applied',appliedTo
 Object.assign(outcomes[0].sessions[0].stages[3],{effort:'high',choiceCheck:'mismatch',appliedTool:'claude',appliedModel:'opus',appliedEffort:'low',appliedAt:now-42*60000,choiceNote:'You chose the effort high; the session is on low.'})
 // A decision Gaffer took earlier, while it had this outcome's decisions.
 outcomes[0].decisions=[{at:now-50*60000,key:'a',title:'Export API',stage:'code',about:'question',choice:'move',why:'The endpoint and its tests are in the handover; nothing more belongs in this stage.',model:'gaffer-model'}]
+// The review stage in hand was started on its backup because its first choice's plan was running low.
+Object.assign(outcomes[0].sessions[0].stages[3],{balanced:'Claude Code (opus)’s plan had 12% left, so this stage runs on Claude Code (sonnet), which had 60% left.',first:{tool:'claude',model:'opus'},backup:{tool:'claude',model:'sonnet'}})
 const story=[{id:9,at:now-60000,source:'gaffer',action:'gaffer-stage-started',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'review',reason:'The review stage is under way.'})},{id:8,at:now-120000,source:'gaffer',action:'gaffer-stage-handed-over',detail:JSON.stringify({outcome:'e'.repeat(32),pipeline:'a',stage:'code',by:'gaffer',reason:'x'})}]
 const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:0,version:1,createdAt:now,updatedAt:now},{id:'p2',host:'a1',machine:'workshop',dir:'/work/docs-site',name:'docs-site',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:1,version:1,createdAt:now,updatedAt:now}]
 // What the machine last read of its agents' plans. Claude Code is on a plan with two windows; Codex is signed in with a key, which has none.
@@ -166,6 +168,9 @@ try {
       await api.getByText('Who did each stage',{exact:true}).click()
       const who=api.getByRole('list',{name:'Who did each stage of Export API',exact:true}).getByRole('listitem')
       await expect(who.nth(2)).toContainText('Heavy stage');await expect(who.nth(2)).toContainText('Gaffer’s assessment: The export reads the billing ledger while it is being written.')
+      // A stage that ran on its backup says so, and why, in the list and among the pipeline's facts.
+      await expect(who.nth(3)).toContainText('Balanced. Claude Code (opus)’s plan had 12% left, so this stage runs on Claude Code (sonnet), which had 60% left.')
+      await expect(api).toContainText('BalancedClaude Code (opus)’s plan had 12% left')
       await expect(who.nth(7)).toContainText('Light stage');await expect(who.nth(7)).not.toContainText('Gaffer’s assessment');await expect(who.nth(3)).not.toContainText('stage ·')
       await api.getByText('Who did each stage',{exact:true}).click()
       await expect(stages.nth(2)).toContainText('done');await expect(stages.nth(3)).toHaveAttribute('aria-current','step');await expect(stages.nth(3)).toContainText('running now');await expect(stages.nth(4)).toContainText('to come')

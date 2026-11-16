@@ -554,6 +554,11 @@ usual tier is marked with the reason and a button that puts it back (`gaffer-out
 
 ![Stage tiers with Gaffer's assessment](images/ui/gaffer-outcome-tiers-1440-light.png)
 ![Stage tiers, phone dark](images/ui/gaffer-outcome-tiers-390-dark.png)
+
+A tier's backup, used when the first choice's plan is running low (`gaffer-outcome.e2e.mjs`); a stage that ran on
+its backup says so on the pipeline's card (`gaffer-factory.e2e.mjs`).
+
+![A tier with a backup](images/ui/gaffer-outcome-backup-1440-light.png)
 ![Outcome grouped on the floor, phone dark](images/ui/gaffer-outcome-floor-390-dark.png)
 ![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)
 ![Factory floor desktop light](images/ui/gaffer-floor-1440-light.png)

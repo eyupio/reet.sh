@@ -18,6 +18,22 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## FACTORY-BALANCE-1: stages balanced across plans (16 November 2026)
+
+The owner asked for stages to use one agent or model over another when it has more of its plan left.
+
+- **A backup per tier.** `GafferCrewTier.Backup` and `GafferOutcomeStage.Backup` (`GafferStageAgent`). The outcome
+  dialog's crew has a Backup row per tier; a stage sent with no agent takes its tier's backup from the saved crew.
+- **The rule** (`outcome_balance.go`): when a stage is about to launch, `balanceStage` reads the machine's kept plan
+  figures (`MachineAccountsFor`). First choice under 20% left in its tightest window, figures no older than six
+  hours, backup signed in and with more left (or no figures at all): the stage runs on the backup. A window with a
+  label counts only for a model whose name contains it.
+- **Said, not asked.** The stage's `Tool`, `Model`, `Effort` become the backup's, `First` keeps the first choice and
+  `Balanced` the sentence. Audit `gaffer-stage-balanced`. A later start of the same stage looks again and can go back.
+- **Not done:** backups in the Add pipelines dialog; a Cline source for a backup in the dialog; balancing between
+  more than two choices; a re-check while a stage is running. Checked with synthetic figures only.
+- **PR #808** (empty Home, Factory and Sessions) was test-merged against this branch with no conflict.
+
 ## FACTORY-DECIDE-1: decisions as choices, and Gaffer decides (16 November 2026)
 
 The owner asked for every decision to be clickable options with the recommendation first, on the Factory card's

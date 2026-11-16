@@ -21,7 +21,7 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn } from './gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn , BALANCE_LOW_PERCENT} from './gafferOutcome'
   import { gafferAutoMerge } from './gafferMotion'
   import RepoField from './home/RepoField.svelte'
   import { cloneForStart } from './cloneForStart'
@@ -54,6 +54,9 @@
   let yoloSetting = $state<YoloSetting | null>(null), yolo = $state(false), yoloOpen = $state(false)
   // The crew: which agent and model does the thinking, the building and the shipping stages of every pipeline.
   let crew = $state<Crew>({ heavy: { tool: '', model: '' }, standard: { tool: '', model: '' }, light: { tool: '', model: '' } })
+  // Each tier's backup: who does its stages when the first choice's plan is running low. An empty agent is no backup.
+  let backups = $state<Record<'heavy' | 'standard' | 'light', { tool: string; model: string; effort: string }>>({ heavy: { tool: '', model: '', effort: '' }, standard: { tool: '', model: '', effort: '' }, light: { tool: '', model: '', effort: '' } })
+  const crewSent = $derived<Crew>({ heavy: { ...crew.heavy, backup: backups.heavy }, standard: { ...crew.standard, backup: backups.standard }, light: { ...crew.light, backup: backups.light } })
   let autoMerge = $state(false)
   // Gaffer reports across the outcome by itself when a pipeline finishes or stops. Each report is one model request.
   let autoReport = $state(false)
@@ -143,6 +146,8 @@
         if (!member?.tool || !tools.includes(member.tool)) continue
         crew[item.tier] = { tool: member.tool, model: member.model ?? '', effort: member.effort ?? '', source: member.provider ?? '' }
         if (member.provider) crewSourceExplicit[item.tier] = true
+        // A saved backup this machine cannot run is left out, like a saved first choice.
+        if (member.backup?.tool && tools.includes(member.backup.tool)) backups[item.tier] = { tool: member.backup.tool, model: member.backup.model ?? '', effort: member.backup.effort ?? '' }
         used++
       }
       if (used) crewNote = 'Started from your saved crew.'
@@ -151,7 +156,7 @@
   async function rememberCrew() {
     crewSaving = true; crewNote = ''
     try {
-      const member = (tier: 'light' | 'standard' | 'heavy') => ({ tool: crew[tier].tool, model: crew[tier].model.trim(), effort: crew[tier].effort ?? '', ...(crew[tier].tool === 'cline' && crew[tier].source ? { provider: crew[tier].source } : {}) })
+      const member = (tier: 'light' | 'standard' | 'heavy') => ({ tool: crew[tier].tool, model: crew[tier].model.trim(), effort: crew[tier].effort ?? '', ...(crew[tier].tool === 'cline' && crew[tier].source ? { provider: crew[tier].source } : {}), ...(backups[tier].tool ? { backup: { tool: backups[tier].tool, model: backups[tier].model.trim(), effort: backups[tier].effort } } : {}) })
       // What was just saved is what is on screen: there is nothing to apply again.
       crewApplied = true
       savedCrew = (await saveGafferCrew({ light: member('light'), standard: member('standard'), heavy: member('heavy') })).crew
@@ -322,7 +327,7 @@
     try {
       record = await createGafferOutcome({
         objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
-        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crew, machine?.capabilities?.acpProvider === true, item), efforts) })),
+        sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), efforts).map(stage => stage.backup?.effort && !efforts(stage.backup.tool).includes(stage.backup.effort) ? { ...stage, backup: { tool: stage.backup.tool, ...(stage.backup.model ? { model: stage.backup.model } : {}) } } : stage) })),
       }, life.signal)
       step = 'results'; clearImage()
       watch(record.id)
@@ -386,8 +391,17 @@
                 <GafferModelSelect label={`${item.label} model`} tool={crew[item.tier].tool} bind:value={crew[item.tier].model} machine={offeredFor(crew[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
                 <select aria-label={`${item.label} effort`} bind:value={crew[item.tier].effort} disabled={planning || efforts(crew[item.tier].tool).length < 2}>{#each efforts(crew[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(crew[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
                 {#if crew[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} source`} value={crew[item.tier].source ?? ''} saved={savedSource} offered={sourceOffered} disabled={planning} onchange={next => pickCrewSource(item.tier, next)} onsaved={next => savedSource = next} /></div>{/if}
+                <div class="crew-backup" role="group" aria-label={`${item.label} backup`}>
+                  <span class="crew-backup-name">Backup</span>
+                  <select aria-label={`${item.label} backup agent`} bind:value={backups[item.tier].tool} disabled={planning || !tools.length} onchange={() => { backups[item.tier].model = ''; backups[item.tier].effort = '' }}><option value="">No backup</option>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
+                  {#if backups[item.tier].tool}
+                    <GafferModelSelect label={`${item.label} backup model`} tool={backups[item.tier].tool} bind:value={backups[item.tier].model} machine={offeredFor(backups[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
+                    <select aria-label={`${item.label} backup effort`} bind:value={backups[item.tier].effort} disabled={planning || efforts(backups[item.tier].tool).length < 2}>{#each efforts(backups[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(backups[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
+                  {/if}
+                </div>
               </div>{/each}
             </div>
+            <p class="hint">A tier’s backup does its stages when the first choice’s plan has under {BALANCE_LOW_PERCENT}% left in its tightest window and the backup’s has more. The stage says when that happened and why. It needs plan limits to be on for the machine; without figures every stage stays on its first choice.</p>
             <p class="crew-save"><button class="link" type="button" disabled={planning || crewSaving || !tools.length} onclick={() => void rememberCrew()}>{crewSaving ? 'Saving…' : 'Save as my crew'}</button> <span role="status">{crewNote}</span></p>
           </details>
           {#if github}
@@ -516,6 +530,7 @@
   .add{justify-self:start}
   .limit-editor summary{min-height:44px;display:list-item;align-content:center;cursor:pointer;font-variant-numeric:tabular-nums}.limit-editor summary span{color:var(--accent-text);margin-left:8px}
   .steps{list-style:none;display:flex;gap:6px 18px;flex-wrap:wrap;margin:0;padding:0 0 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:0.875rem}.steps li{display:flex;align-items:center;gap:8px}.steps .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line-strong);font-variant-numeric:tabular-nums;font-size:0.875rem}.steps li[aria-current]{color:var(--ink);font-weight:600}.steps li[aria-current] .n,.steps li.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .crew-backup{grid-column:1/-1;display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start;padding-left:12px;border-left:2px solid var(--line)}.crew-backup-name{grid-column:1/-1;font-size:0.875rem;color:var(--muted)}@media(max-width:479px){.crew-backup{grid-template-columns:1fr}}
   .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted);font-weight:400}
   .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}
   /* Each chosen stage with its tier and who that means. One the plan or the person moved off its default is marked, with why. */

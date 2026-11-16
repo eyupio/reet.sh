@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- A session's right-hand **Progress** tracker now shows a pull request created
+  in the session within about 20 seconds while the agent is working, instead
+  of up to two minutes later: the visible session's GitHub read runs every 20
+  seconds while it works and every two minutes while it is quiet.
+
 - Sessions: an agent's answer is now shown as the markdown it wrote. Tables
   are tables, lists nest and keep their task boxes, and italics,
   strikethrough, rules and every heading level are drawn rather than left as

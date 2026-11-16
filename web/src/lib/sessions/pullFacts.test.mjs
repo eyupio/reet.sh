@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
 const source = ts.transpileModule(readFileSync(new URL('./pullFacts.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const { reviewsLine, reviewWord, threadsFact, conflictFact, placeholderLine, githubReadDue, githubStale } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+const { reviewsLine, reviewWord, threadsFact, conflictFact, placeholderLine, githubReadDue, githubCadenceMs, githubStale } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 
 const pull = (over = {}) => ({ number: 7, title: 't', url: 'https://github.com/o/r/pull/7', state: 'OPEN', draft: false, review: '', mergeable: 'MERGEABLE', added: 1, removed: 1, checks: [], ...over })
 
@@ -92,6 +92,14 @@ test('a warm store within the cadence is not read again, whatever the local copy
 test('a stored answer at or past the cadence is due', () => {
   assert.equal(due({ hasStored: true, ageMs: 120_000 }), true)
   assert.equal(due({ hasStored: true, ageMs: 500_000 }), true)
+})
+
+test('a working session is read on a much shorter clock than a quiet one', () => {
+  assert.equal(githubCadenceMs(true), 20_000)
+  assert.equal(githubCadenceMs(false), 120_000)
+  assert.equal(due({ hasStored: true, ageMs: 19_999, cadenceMs: githubCadenceMs(true) }), false)
+  assert.equal(due({ hasStored: true, ageMs: 20_000, cadenceMs: githubCadenceMs(true) }), true)
+  assert.equal(due({ hasStored: true, ageMs: 30_000, cadenceMs: githubCadenceMs(false) }), false)
 })
 
 test('a read in flight, a hidden tab or an unreadable machine is never due', () => {

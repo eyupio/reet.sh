@@ -9,7 +9,7 @@
   import { inspectSession, worktreeStatus, type TerminalSession } from '../terminal/api'
   import { elapsedWord, insightReason, type InsightFile, type InsightView, type SessionInsight } from '../sessionInsights'
   import { insightsAuto, pullReadAge, pullReadBusy, pullReadingIds, rememberInsight, sessionInsights, trackPullRead } from './insightStore'
-  import { githubReadDue } from './pullFacts'
+  import { githubCadenceMs, githubReadDue } from './pullFacts'
   import { PANEL_TAB_KEY, readPanelTab, type PanelTab } from './panelTab'
   import InsightIcon from './InsightIcon.svelte'
   import { pullVerdict } from './pullVerdict'
@@ -116,11 +116,14 @@
     catch { if (alive) legacyFailed = true }
     finally { if (alive) legacyBusy = false }
   }
+  // The panel shows the pull request on every tab, so a working session is read often enough for a push or a pull
+  // request the agent makes to appear in the stages soon after; a quiet one is read on the slower clock.
+  const githubCadence = $derived(githubCadenceMs(session.attention === 'working'))
   // Every automatic GitHub read goes through here: not while Live updates is off, not while the navigation's read for this session is in flight, and not within a cadence of the last read by either.
   function backgroundGitHub() {
     // The shared store decides, not the local copy: on a warm store `github` may not be seeded yet when the mount effect runs.
     const hasStored = !!github || !!get(sessionInsights)[session.id]?.github
-    if (githubReadDue({ auto, canRead, hidden: document.hidden, pending: !!pending.github, busy: pullReadBusy(session.id), hasStored, ageMs: Math.min(Date.now() - lastGitHub, pullReadAge(session.id)), cadenceMs: 120_000 })) void read('github')
+    if (githubReadDue({ auto, canRead, hidden: document.hidden, pending: !!pending.github, busy: pullReadBusy(session.id), hasStored, ageMs: Math.min(Date.now() - lastGitHub, pullReadAge(session.id)), cadenceMs: githubCadence })) void read('github')
   }
   // The Overview shows the pull request too, so its Refresh reads both; a manual refresh is never held back by the cadence.
   function refresh() { if (!supported) void readLegacy(); else if (selected) void read(previewView, selected); else { void read(view, tab === 'files' ? folder : ''); if (tab === 'overview') void read('github') } }
@@ -128,7 +131,7 @@
     tab = next; try { localStorage.setItem(PANEL_TAB_KEY, next) } catch { /* optional preference */ }
     selected = ''; preview = null
     requests.get('preview')?.abort(); pending.preview = false
-    if (next === 'github' && (!github || Date.now() - lastGitHub > 120_000)) void read('github')
+    if (next === 'github' && (!github || Date.now() - lastGitHub > githubCadence)) void read('github')
     if (next === 'files') void read('files', folder)
     if ((next === 'changes' || next === 'overview') && (!workspace || Date.now() - lastLocal > 15_000)) void read('status')
     if (!supported && next === 'changes' && !legacy) void readLegacy()

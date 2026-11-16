@@ -1,5 +1,20 @@
 # UI verification — 4 November 2026
 
+## A pull request appears in the stages while the agent works (16 November 2026)
+
+What changed is in [handoff.md](../handoff.md) and the [changelog](../CHANGELOG.md).
+
+Commands run in this container:
+
+- `cd web && npm run check`: 0 errors, 0 warnings (including the new
+  `pullFacts.test.mjs` cases for the two GitHub clocks and their boundary).
+- `npm run build`, `npx vite preview --port 4188 --strictPort`, then
+  `node tests/session-workspace.e2e.mjs`: passes in full, both themes and
+  widths. A new case opens with `no_pr`, changes the fixture to answer with a
+  pull request, advances the page clock 25 seconds and checks the **Pull
+  request** card and the **PR** stage turn Done — it fails on the old
+  two-minute cadence.
+
 ## Overlays within the safe area, and dictation in a chat (15 November 2026)
 
 What changed is in [handoff.md](../handoff.md) (MOBILE-3) and the [changelog](../CHANGELOG.md).

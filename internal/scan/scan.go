@@ -11,11 +11,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
+	"github.com/eyupio/reet.sh/internal/ref"
 )
 
 // Found is one installed skill in one place; Source is "owner/repo" when the skills CLI lock file knows it.
@@ -269,22 +269,6 @@ func readLock(path string, add func(name, alias, source string)) {
 	}
 }
 
-var notFolderSafe = regexp.MustCompile(`[^a-z0-9._]+`)
-
-// InstalledFolderName is the folder the skills CLI installs a skill into: the
-// skill's own name, lower-cased, with every run of other characters made one
-// hyphen ("UI/UX Design Review" becomes ui-ux-design-review).
-func InstalledFolderName(name string) string {
-	folder := strings.Trim(notFolderSafe.ReplaceAllString(strings.ToLower(name), "-"), ".-")
-	if len(folder) > 255 {
-		folder = folder[:255]
-	}
-	if folder == "" {
-		return "unnamed-skill"
-	}
-	return folder
-}
-
 // lockSkillNames gives the folder names a lock entry can describe. The skills
 // CLI keys an entry by the skill's own name and installs it into a folder made
 // from that name, which is the first result. The folder the skill had in its
@@ -292,7 +276,7 @@ func InstalledFolderName(name string) string {
 // "Python Backend Architecture Review" is installed as
 // python-backend-architecture-review but lives in python-architecture-review.
 func lockSkillNames(key, skillPath string) (name, alias string) {
-	name = InstalledFolderName(key)
+	name = ref.InstalledFolder(key)
 	if skillPath != "" {
 		base := path.Base(path.Dir(strings.ReplaceAll(skillPath, "\\", "/")))
 		if base != "." && base != "/" && base != "" && base != name {

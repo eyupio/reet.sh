@@ -25,6 +25,7 @@ import (
 
 	"github.com/eyupio/reet.sh/internal/clientconfig"
 	"github.com/eyupio/reet.sh/internal/noderuntime"
+	"github.com/eyupio/reet.sh/internal/ref"
 	"github.com/eyupio/reet.sh/internal/skillbundle"
 	"github.com/eyupio/reet.sh/internal/store"
 	"github.com/eyupio/reet.sh/internal/systeminstall"
@@ -926,6 +927,9 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				}
 			}
 		}
+		// The skills CLI names a folder after the skill's own name, which is not
+		// always the catalogue's name for it. Such a folder is the desired skill.
+		actual = knownByInstalledFolder(desired, actual)
 		if target.Mode == "bidirectional" {
 			// A changed local set must be reconciled and saved in the web UI first.
 			base := map[string]string{}
@@ -1145,7 +1149,13 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 				global := operationErr == nil && target.Target.Project == ""
 				supported := agent == "cursor" || agent == "opencode"
 				if global && supported {
-					operationErr = linkSharedInstall(home, targetPath, action.Skill.Slug)
+					folder := action.Skill.Slug
+					if _, err := os.Stat(filepath.Join(home, ".agents", "skills", folder, "SKILL.md")); err != nil {
+						if made := installedFolder(action.Skill); made != "" {
+							folder = made
+						}
+					}
+					operationErr = linkSharedInstall(home, targetPath, folder)
 				}
 			}
 		} else {
@@ -1198,6 +1208,46 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 	}
 	fmt.Fprintln(out, "Sync complete. Updated inventory persisted on the controller.")
 	return nil
+}
+
+// installedFolder is the folder the skills CLI makes for a desired skill when
+// that is not the catalogue's slug, and "" when it is. "UI/UX Design Review" is
+// uiux-design-review in the catalogue and ui-ux-design-review once installed.
+// A private skill is written by reet into its slug, never by the CLI.
+func installedFolder(skill store.SyncSkill) string {
+	name := strings.TrimSpace(skill.Name)
+	if skill.SourceType == "private" || !plainSkillName(name) {
+		return ""
+	}
+	if folder := ref.InstalledFolder(name); folder != skill.Slug {
+		return folder
+	}
+	return ""
+}
+
+// knownByInstalledFolder reports an installed folder under the desired skill's
+// slug when the CLI made it from that skill's name and it came from the same
+// source. A folder already present under the slug is left as it is.
+func knownByInstalledFolder(desired []store.SyncSkill, actual []Found) []Found {
+	present := map[string]bool{}
+	for _, found := range actual {
+		present[found.Name] = true
+	}
+	out := slices.Clone(actual)
+	for _, want := range desired {
+		folder := installedFolder(want)
+		if folder == "" || present[want.Slug] {
+			continue
+		}
+		for i := range out {
+			if out[i].Name == folder && out[i].Source != "" && canonicalSource(out[i].Source) == canonicalSource(want.Source) {
+				out[i].Name = want.Slug
+				present[want.Slug] = true
+				break
+			}
+		}
+	}
+	return out
 }
 
 // skillsAddCommand is the skills CLI call that installs one skill. The CLI

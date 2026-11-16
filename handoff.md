@@ -40,11 +40,17 @@ f70eef5 had made stale plans repair themselves. The plan never changed. Read thi
   Architecture Review" is `python-backend-architecture-review` installed and `python-architecture-review`
   upstream. `lockSkillNames` (`internal/scan/scan.go`) now maps a lock entry to the installed folder, with the
   repository folder as an alias; `internal/setup/skills.go` does the same for snapshots.
-- **Not done.** When the catalogue slug differs from the installed folder ("UI/UX Design Review":
-  `uiux-design-review` against `ui-ux-design-review`) the install works and the plan never settles; the verify
-  error now names the skill. It needs the controller and `planSync` to treat the two as one skill. The
-  copied `npx skills add` commands (`web/src/lib/install.ts`, `installCommand` in `internal/api/api.go`) offer the
-  name too; the `npx skills use` prompt still passes the slug only, and was not checked against the CLI.
+- **Catalogue slug against installed folder.** "UI/UX Design Review" is `uiux-design-review` in the catalogue
+  and `ui-ux-design-review` on disk; the install worked and the plan never settled. The rule lives once, in
+  `ref.InstalledFolder`. The agent's `knownByInstalledFolder` (`internal/scan/sync.go`) reports such a folder
+  under the desired slug when its source matches, before planning. The controller's `importEntry` asks
+  `SkillInstalledAsFor` when the shelf has no skill by the folder's name, so the scan is recorded as the
+  catalogued skill and no second skill is made. An exact shelf entry under the folder's name still wins: a
+  person who already has that ghost removes it. Run for real against the CLI, in mirror mode.
+- **Not done.** The copied `npx skills add` commands (`web/src/lib/install.ts`, `installCommand` in
+  `internal/api/api.go`) offer the name too; the `npx skills use` prompt still passes the slug only, and was
+  not checked against the CLI. A copy of the same name another app holds under the installed folder, from a
+  different source, is not seen by the shared-folder conflict check, which compares slugs.
 - **MCP.** `mcpPage` gives up a record's largest list for a count when one record is over the response limit;
   `reet_list_sync_targets` failed for five of the owner's seven targets.
 - **Seen, not changed.** 24 `reet-server` environments, one per controller container name; pruning is the

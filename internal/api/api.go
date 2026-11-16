@@ -1539,6 +1539,21 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 		source = strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(source, "https://github.com/"), "http://github.com/"), ".git")
 		if r, err := ref.Parse(source + "/" + name); err == nil {
 			rf = r
+			// A scan reports the folder the skills CLI made, which is named
+			// after the skill and not always what the catalogue calls it. When
+			// the shelf has no skill by the folder's name but has one from this
+			// source that installs into it, that is the skill the scan found.
+			if _, exact, err := s.st.GetFor(userID, r.ID); err != nil {
+				return "", false, false, err
+			} else if !exact {
+				known, ok, err := s.st.SkillInstalledAsFor(userID, r.Source, name)
+				if err != nil {
+					return "", false, false, err
+				}
+				if ok {
+					rf = known
+				}
+			}
 		}
 	}
 	if rf.ID == "" {

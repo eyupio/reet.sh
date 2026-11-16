@@ -8,10 +8,10 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/eyupio/reet.sh/internal/ref"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -317,7 +317,7 @@ func readSkillLock(path string) map[string]skillLockEntry {
 		// (the key), which can differ from the folder it had upstream. That
 		// folder gets the same origin unless an entry already names it.
 		for key, entry := range asMap {
-			name := installedFolderName(key)
+			name := ref.InstalledFolder(key)
 			if _, taken := entries[name]; !taken && entry.Source != "" {
 				entries[name] = skillLockEntry{Source: entry.Source, SourceType: entry.SourceType, SkillPath: entry.SkillPath}
 			}
@@ -337,21 +337,6 @@ func readSkillLock(path string) map[string]skillLockEntry {
 		}
 	}
 	return entries
-}
-
-var notFolderSafe = regexp.MustCompile(`[^a-z0-9._]+`)
-
-// installedFolderName is the folder the skills CLI makes for a skill name:
-// "UI/UX Design Review" is installed as ui-ux-design-review.
-func installedFolderName(name string) string {
-	folder := strings.Trim(notFolderSafe.ReplaceAllString(strings.ToLower(name), "-"), ".-")
-	if len(folder) > 255 {
-		folder = folder[:255]
-	}
-	if folder == "" {
-		return "unnamed-skill"
-	}
-	return folder
 }
 
 func lockSkillName(key, skillPath string) string {

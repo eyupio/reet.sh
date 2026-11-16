@@ -487,3 +487,56 @@ func TestInstallFailureSaysWhatTheInstallerSaid(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// The catalogue calls "UI/UX Design Review" uiux-design-review; the skills CLI
+// installs it into ui-ux-design-review. The install worked and the plan never
+// settled: the agent kept seeing the catalogued name as missing.
+func TestSyncAcceptsTheFolderTheInstallerMade(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".agents", "skills")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	skill := store.SyncSkill{ID: "rknall/claude-skills/uiux-design-review", Name: "UI/UX Design Review", Slug: "uiux-design-review", Source: "rknall/claude-skills", SourceType: "github"}
+	for _, mode := range []string{"additive", "mirror"} {
+		target := store.SyncTarget{Target: store.Environment{ID: "1/laptop/agents", Name: "Laptop shared", Host: "laptop", Agent: "agents"}, SourceName: "Reference", Revision: "one", Mode: mode, Desired: []store.SyncSkill{skill}}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "GET" {
+				json.NewEncoder(w).Encode(map[string]any{"targets": []store.SyncTarget{target}, "canWrite": true})
+				return
+			}
+			w.Write([]byte(`{"imported":1,"errors":[]}`))
+		}))
+		installs := 0
+		run := func(apply bool) (string, error) {
+			args := []string{"--server", srv.URL, "--token", "secret", "--env", "laptop", "--target", target.Target.ID}
+			if apply {
+				args = append(args, "--apply")
+			}
+			var out bytes.Buffer
+			err := runSync(args, strings.NewReader("yes\n"), &out, func(args []string, cwd string) error {
+				installs++
+				// What the real CLI does: a folder made from the skill's name, and a
+				// lock entry keyed by that name that points at the repository folder.
+				mkSkill(t, dir, "ui-ux-design-review", true)
+				lock := `{"version":3,"skills":{"UI/UX Design Review":{"source":"rknall/claude-skills","sourceType":"github","skillPath":"ui-design-review/SKILL.md"}}}`
+				return os.WriteFile(filepath.Join(home, ".agents", ".skill-lock.json"), []byte(lock), 0600)
+			}, "vtest")
+			return out.String(), err
+		}
+		if out, err := run(true); err != nil {
+			t.Fatalf("%s: apply did not settle: %v\n%s", mode, err, out)
+		}
+		out, err := run(false)
+		if err != nil || !strings.Contains(out, "Already in sync.") || strings.Contains(out, "REMOVE") {
+			t.Fatalf("%s: a second look still plans changes: %v\n%s", mode, err, out)
+		}
+		if installs != 1 {
+			t.Fatalf("%s: installed %d times", mode, installs)
+		}
+		srv.Close()
+		os.RemoveAll(filepath.Join(dir, "ui-ux-design-review"))
+		os.Remove(filepath.Join(home, ".agents", ".skill-lock.json"))
+	}
+}

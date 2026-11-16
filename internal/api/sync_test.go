@@ -104,3 +104,55 @@ func TestLocalScanErrorPreservesInventoryAndShelfIntent(t *testing.T) {
 		}
 	}
 }
+
+// The skills.sh catalogue, the skills CLI and a repository can each name one
+// skill differently. "UI/UX Design Review" is uiux-design-review in the
+// catalogue and is installed into ui-ux-design-review. A scan that reports the
+// installed folder must be read as the catalogued skill, or the folder stays
+// "missing" for ever and a second, unlinked skill appears beside it.
+func TestScanReadsAnInstalledFolderAsItsCataloguedSkill(t *testing.T) {
+	st, err := storetest.Open(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := httptest.NewServer(New(st, deadFetcher(t), "tok"))
+	defer srv.Close()
+	client := srv.Client()
+	const catalogued = "rknall/claude-skills/uiux-design-review"
+	if code, body := doClient(t, client, srv, "POST", "/api/skills", `{"input":"`+catalogued+`"}`, "X-Reet-Token", "tok"); code >= 300 {
+		t.Fatalf("add %d %s", code, body)
+	}
+	if err := st.SetMeta(catalogued, "UI/UX Design Review", "", 0, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	scan := `{"machine":{"host":"laptop","os":"linux","arch":"amd64","version":"vtest"},"prune":true,` +
+		`"items":[{"name":"ui-ux-design-review","source":"rknall/claude-skills","host":"laptop","agent":"agents"},` +
+		`{"name":"alpha","source":"rknall/claude-skills","host":"laptop","agent":"agents"}],` +
+		`"environments":[{"host":"laptop","agent":"agents","skills":["alpha","ui-ux-design-review"]}]}`
+	for range 2 {
+		if code, body := doClient(t, client, srv, "POST", "/api/import", scan, "X-Reet-Token", "tok", "X-Reet-Source", "scan"); code != 200 {
+			t.Fatalf("scan %d %s", code, body)
+		}
+	}
+	var state struct{ Environments []store.SyncEnvironment }
+	_, body := doClient(t, client, srv, "GET", "/api/v2/sync", "", "X-Reet-Token", "tok")
+	if err := json.Unmarshal([]byte(body), &state); err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{}
+	for _, env := range state.Environments {
+		if env.Agent == "agents" {
+			for _, sk := range env.Skills {
+				ids = append(ids, sk.ID)
+			}
+		}
+	}
+	if strings.Join(ids, ",") != "rknall/claude-skills/alpha,"+catalogued {
+		t.Fatalf("installed folder was not read as the catalogued skill: %v", ids)
+	}
+	_, body = doClient(t, client, srv, "GET", "/api/skills", "", "X-Reet-Token", "tok")
+	if strings.Contains(body, "rknall/claude-skills/ui-ux-design-review") {
+		t.Fatalf("a second skill was made for the installed folder: %s", body)
+	}
+}

@@ -115,7 +115,7 @@ Start with the default mode. Move to exact or bidirectional only when you want t
 
 ## Limits
 
-- A skill is installed by the `skills` CLI into a folder made from the skill's own name. When the catalogue's name for a skill differs from that folder (a name with punctuation, such as "UI/UX Design Review", catalogued as `uiux-design-review` and installed as `ui-ux-design-review`), the install succeeds but reet still reports the skill as different from the plan, and names it. Install such a skill by hand for now.
+- A skill is installed by the `skills` CLI into a folder made from the skill's own name, which is not always the catalogue's name for it ("UI/UX Design Review" is catalogued as `uiux-design-review` and installed as `ui-ux-design-review`). reet treats that folder as the skill you selected when it came from the same source. If your shelf already holds a separate skill under the folder's name from an earlier scan, remove that one so the folder is read as the catalogued skill.
 - Sync matches identity and source, not bytes. Two skills with the same name from different sources are not the same skill.
 - A replacement backs up the installed local copy, but you should still keep your own backups.
 - Applying content changes to private machine skill files is not available yet; the current reviewed path covers installation and replacement through the supported sync flow.

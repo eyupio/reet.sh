@@ -16,6 +16,12 @@ this file existed releases were described on their GitHub release pages.
 - Skills sync: a skill the `skills` CLI installs under a different folder
   than it has in its repository keeps its source in a scan, instead of
   showing as an unlinked local copy beside a second, phantom entry.
+- Skills sync: a skill the catalogue names differently from the folder the
+  `skills` CLI installs it into ("UI/UX Design Review": `uiux-design-review`
+  in the catalogue, `ui-ux-design-review` on disk) now settles. The install
+  worked and the skill stayed **missing**, with a second unlinked skill beside
+  it. The machine and the controller both read that folder as the skill you
+  selected when it came from the same source.
 - MCP: `reet_list_sync_targets` returns a target that is too large for one
   response with its largest lists replaced by counts (`desired_count`,
   `lists_counted`), instead of failing with "one record exceeds the response

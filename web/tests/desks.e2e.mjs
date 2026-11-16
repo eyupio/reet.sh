@@ -49,6 +49,10 @@ let reopens, reopenFail, staleReopens, reopenDelay, reopenNow, reopenMost, confl
 let renames, folderProjects, createFail, patchFail, deskReadFail
 // Whether the folder projects read and a session rename fail, and how many times the projects were read.
 let projectsFail, renameFail, projectReads
+// The person's End setting (Account › Profile); desk deletes as sent, and the sessions a delete cannot end; ends that
+// fail (by session); a refusal for the next desk create and for each desk's document saves; and what the controller
+// does to a saved document (it keeps a folder a machine reported, say) before it answers.
+let profileRemove, deletes, deleteLeft, endFail, createDeskFail, docRefuse, adjustDoc
 function reset({ empty = false } = {}) {
   sessions = [running('sess-deploy', 'deploy'), running('sess-logs', 'logs'), running('sess-db', 'db'),
     ...['a', 'b', 'c', 'd1', 'd2', 'd3', 'd4'].map(x => running(`sess-${x}`, x))]
@@ -69,6 +73,7 @@ function reset({ empty = false } = {}) {
   posts = []; bracketed = new Set(); histories = new Map(); delete machines[0].capabilities.commandHistory; delete machines[0].capabilities.resume
   renames = []; folderProjects = []; createFail = []; patchFail = new Set(); deskReadFail = false
   projectsFail = false; renameFail = false; projectReads = 0
+  profileRemove = false; deletes = []; deleteLeft = new Set(); endFail = new Set(); createDeskFail = null; docRefuse = new Map(); adjustDoc = null
   machines.splice(1)
   for (const k of ['launch', 'tools', 'agentsV2']) delete machines[0].capabilities[k]
 }
@@ -93,7 +98,7 @@ const api = async route => {
   const request = route.request(), url = new URL(request.url()), path = url.pathname, method = request.method()
   let data = {}
   if (path === '/api/v2/auth/status') data = { mode: 'accounts', user: { id: 1, name: 'Desk tester', email: 'test@example.test', role: 'owner' } }
-  else if (path === '/api/v2/profile') data = { profile: { theme: profileTheme, shelfView: 'list', cardsExpanded: false } }
+  else if (path === '/api/v2/profile') data = { profile: { theme: profileTheme, shelfView: 'list', cardsExpanded: false, terminalRemoveOnClose: profileRemove } }
   else if (path === '/api/skills') data = { skills: [], counts: { all: 0, used: 0, liked: 0, bookmarked: 0 } }
   else if (path === '/api/environments') data = { environments: [], machines: [] }
   else if (path === '/api/tags') data = { tags: [] }
@@ -136,7 +141,9 @@ const api = async route => {
   else if (/^\/api\/v2\/terminal\/sessions\/[^/]+\/end$/.test(path)) {
     const id = path.split('/').at(-2)
     ends.push({ id, ...request.postDataJSON() })
-    sessions = sessions.map(s => s.id === id ? { ...s, state: 'ended' } : s)
+    if (endFail.has(id)) return route.fulfill({ status: 503, json: { error: 'terminal machine is reconnecting; retry after it reconnects' } })
+    // An end of a session that has already ended changes nothing in Sessions (the machine forgets the pane's history).
+    sessions = sessions.map(s => s.id === id && !['ended', 'exited', 'lost'].includes(s.state) ? { ...s, state: 'ended' } : s)
   }
   else if (path.endsWith('/command-history')) {
     const id = path.split('/').at(-2)
@@ -160,6 +167,7 @@ const api = async route => {
   else if (path === '/api/v2/desks' && method === 'POST') {
     const body = request.postDataJSON()
     posts.push(body)
+    if (createDeskFail) { const refusal = createDeskFail; createDeskFail = null; return route.fulfill(refusal) }
     const d = deskOf(`desk-${desks.size + 1}`, body.name, [], { colour: body.colour ?? '', template: !!body.template })
     if (body.from) d.doc = copyDoc(desks.get(body.from).doc)
     desks.set(d.id, d)
@@ -200,10 +208,31 @@ const api = async route => {
       if (body.doc?.tabs.some(t => Object.values(t.panes).some(p => p.session && elsewhere(p.session)))) return route.fulfill({ status: 409, json: { error: 'A session can be in only one pane.', code: 'desk_session_taken' } })
       if (staleNext) { const newer = staleNext; staleNext = null; desks.set(id, newer); return route.fulfill({ status: 409, json: { error: 'desk_stale', code: 'desk_stale', desk: newer } }) }
       if (body.expect !== d.version) return route.fulfill({ status: 409, json: { error: 'desk_stale', code: 'desk_stale', desk: d } })
-      const next = { ...d, ...(body.name !== undefined ? { name: body.name } : {}), ...(body.colour !== undefined ? { colour: body.colour } : {}), ...(body.doc ? { doc: body.doc } : {}), version: d.version + 1 }
+      // As the controller: names are unique on an account, ignoring case; a document that breaks a rule is refused.
+      if (body.name !== undefined && [...desks.values()].some(o => o.id !== id && o.name.toLowerCase() === body.name.toLowerCase())) return route.fulfill({ status: 409, json: { error: 'Another desk already has that name.', code: 'desk_name_taken', field: 'name' } })
+      if (body.doc && docRefuse.has(id)) return route.fulfill(docRefuse.get(id))
+      const doc = body.doc && adjustDoc ? adjustDoc(structuredClone(body.doc)) : body.doc
+      const next = { ...d, ...(body.name !== undefined ? { name: body.name } : {}), ...(body.colour !== undefined ? { colour: body.colour } : {}), ...(doc ? { doc } : {}), version: d.version + 1 }
       desks.set(id, next)
       data = next
-    } else if (method === 'DELETE') { desks.delete(id); data = {} }
+    } else if (method === 'DELETE') {
+      // As the controller: the version is checked, the desk goes first, then (when asked) its running shells are ended;
+      // any that will not end are listed.
+      const body = request.postDataJSON()
+      deletes.push({ id, ...body })
+      if (body.expect !== d.version) return route.fulfill({ status: 409, json: { error: 'desk_stale', code: 'desk_stale', desk: d } })
+      desks.delete(id)
+      const left = []
+      if (body.endSessions) {
+        for (const sid of d.doc.tabs.flatMap(t => Object.values(t.panes).map(p => p.session)).filter(Boolean)) {
+          const s = sessions.find(x => x.id === sid)
+          if (!s || !['creating', 'running'].includes(s.state)) continue
+          if (deleteLeft.has(sid)) { left.push(sid); continue }
+          sessions = sessions.filter(x => x.id !== sid)
+        }
+      }
+      data = { ok: true, left }
+    }
   }
   else return route.fulfill({ status: 404, json: { error: `Unmocked ${path}` } })
   await route.fulfill({ json: data })
@@ -417,16 +446,27 @@ try {
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('Its shell is still running on studio.')
   await expect(dialog.getByRole('radio', { name: /End the shell/ })).toHaveAttribute('aria-checked', 'true')
-  await expect(dialog.getByText('Stops what is running in it. Its command history for this pane is removed.')).toBeVisible()
+  // The person keeps ended sessions in Sessions (their Profile setting, as the Sessions End dialog follows it).
+  await expect(dialog.getByText("Stops what is running in it. The session stays in Sessions as ended, and this pane's command history is removed.")).toBeVisible()
   await expect(dialog.getByText('It keeps running, and stays in Sessions.')).toBeVisible()
   if (shots) await page.screenshot({ path: `${shots}/desks-close-light.png` })
   await page.keyboard.press('Enter')
   await expect(dialog).toHaveCount(0)
   await expect.poll(() => ends.length).toBe(1)
-  expect(ends[0]).toMatchObject({ id: 'sess-deploy', removeHistory: true })
+  expect(ends[0]).toMatchObject({ id: 'sess-deploy', removeHistory: false, forgetDesk: true })
   await expect.poll(tabNames).toEqual(['logs', 'db'])
   await quiet()
   expect(lastDoc().tabs.map(t => t.id)).toEqual(['tab-logs', 'tab-db'])
+  // With the setting that removes an ended session, the dialog says the session leaves Sessions, and so it does.
+  reset()
+  profileRemove = true
+  await openDesk()
+  await page.getByRole('button', { name: 'Actions for reet' }).click()
+  await page.getByRole('menuitem', { name: 'Close' }).click()
+  await expect(page.getByRole('dialog', { name: 'Close “reet”?' }).getByText("Stops what is running in it. The session leaves Sessions, and this pane's command history is removed.")).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => ends.length).toBe(1)
+  expect(ends[0]).toMatchObject({ id: 'sess-deploy', removeHistory: true, forgetDesk: true })
   console.log('ok - closing a live pane asks and Enter ends the shell')
 
   // ── Take off this desk sends no end ──
@@ -1131,7 +1171,7 @@ try {
   await page.getByRole('menuitem', { name: 'Close' }).click()
   await page.getByRole('dialog', { name: 'Close “reet”?' }).getByRole('button', { name: 'End the shell' }).click()
   await expect.poll(() => ends.length).toBe(1)
-  expect(ends[0]).toMatchObject({ id: 'sess-deploy', removeHistory: true, forgetDesk: true })
+  expect(ends[0]).toMatchObject({ id: 'sess-deploy', removeHistory: false, forgetDesk: true })
   // A tab's close covers its panes the same way.
   await page.getByRole('button', { name: 'Actions for tab logs' }).click()
   await page.getByRole('menuitem', { name: 'Close tab' }).click()
@@ -1330,8 +1370,9 @@ try {
     await page.getByRole('menuitem', { name: 'Save as template' }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Sorted.' })).toHaveText('Sorted. “prod deploy template” is saved as a template.')
     expect(posts).toEqual([{ name: 'prod deploy template', colour: 'red', from: 'desk-prod', template: true }])
-    // A template is not a desk card; it is offered under From a template.
-    await expect(page.getByRole('link', { name: 'prod deploy template' })).toHaveCount(0)
+    // A template is not a desk card: it is under Templates, and offered under From a template.
+    await expect(page.locator('.card:not(.tpl)').getByRole('link', { name: 'prod deploy template' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Templates' }).getByRole('link', { name: 'prod deploy template' })).toBeVisible()
     await page.getByRole('button', { name: 'From a template ▾' }).click()
     await page.getByRole('menu', { name: 'From a template' }).getByRole('menuitem', { name: 'prod deploy template' }).click()
     await expect(page.getByRole('heading', { name: 'prod deploy', level: 1 })).toBeVisible()
@@ -2108,6 +2149,458 @@ try {
     console.log('ok - Start an agent from a desk fills the new pane')
   }
 
+  // ── Templates are listed under their own heading, with Open, Rename and Delete ──
+  {
+    reset()
+    const tp = (id, name) => paneOf(id, name, '', '/home/dev/PROD_reet')
+    desks.set('desk-tpl', deskOf('desk-tpl', 'deploy template', [
+      { id: 'tab-t1', name: 'deploy', colour: '', root: { split: 'right', ratio: 0.5, a: leaf('pane-t1'), b: leaf('pane-t2') }, zoomed: '', active: 'pane-t1', panes: { 'pane-t1': tp('pane-t1', 'web'), 'pane-t2': tp('pane-t2', 'api') } },
+    ], { template: true, colour: 'blue', position: 4 }))
+    await page.goto(`${base}/desks`)
+    await page.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
+    await page.goto(`${base}/desks`)
+    const group = page.getByRole('region', { name: 'Templates' })
+    await expect(group.getByRole('heading', { name: 'Templates', level: 2 })).toBeVisible()
+    await expect(group.getByRole('link')).toHaveText(['deploy template'])
+    await expect(group.locator('.card .meta')).toContainText('1 tab · 2 panes')
+    // Not among the desks.
+    await expect(page.locator('.card:not(.tpl)').getByRole('link', { name: 'deploy template' })).toHaveCount(0)
+    await group.getByRole('button', { name: 'Actions for deploy template' }).click()
+    const menu = page.getByRole('menu', { name: 'Actions for deploy template' })
+    await expect(menu.getByRole('menuitem')).toHaveText(['Open', 'New desk from this template', 'Rename', 'Delete'])
+    // Rename.
+    await menu.getByRole('menuitem', { name: 'Rename' }).click()
+    const rename = page.getByRole('dialog', { name: 'Rename “deploy template”' })
+    await rename.getByLabel('Name').fill('web template')
+    await rename.getByRole('button', { name: 'Rename' }).click()
+    await expect(group.getByRole('link')).toHaveText(['web template'])
+    expect(patches.at(-1)).toEqual({ expect: 1, name: 'web template' })
+    // Open: the template's own page, which starts nothing.
+    await group.getByRole('button', { name: 'Actions for web template' }).click()
+    await page.getByRole('menuitem', { name: 'Open' }).click()
+    await expect(page).toHaveURL(/\/desks\/desk-tpl$/)
+    await expect(page.getByText('This is a template. Make a desk from it to start shells.')).toBeVisible()
+    await page.getByRole('button', { name: 'web template, switch desk' }).click()
+    await page.getByRole('menuitem', { name: 'All desks' }).click()
+    // New desk from this template.
+    await group.getByRole('button', { name: 'Actions for web template' }).click()
+    await page.getByRole('menuitem', { name: 'New desk from this template' }).click()
+    await expect(page.getByRole('heading', { name: 'web', level: 1 })).toBeVisible()
+    expect(posts.at(-1)).toMatchObject({ name: 'web', colour: 'blue', from: 'desk-tpl' })
+    // Delete: nothing runs in a template.
+    await page.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
+    await page.goto(`${base}/desks`)
+    await group.getByRole('button', { name: 'Actions for web template' }).click()
+    await page.getByRole('menuitem', { name: 'Delete' }).click()
+    const del = page.getByRole('dialog', { name: 'Delete “web template”?' })
+    await expect(del).toContainText('Its tabs and panes are removed. Nothing is running in it.')
+    await del.getByRole('button', { name: 'Delete' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Sorted.' })).toHaveText('Sorted. “web template” is deleted.')
+    await expect(group).toHaveCount(0)
+    expect(deletes).toEqual([{ id: 'desk-tpl', expect: 2, endSessions: false }])
+    console.log('ok - templates are listed under their own heading, with Open, Rename and Delete')
+  }
+
+  // ── a pane whose shell already ended closes at once, and its machine forgets the pane's history ──
+  {
+    reset()
+    sessions = sessions.map(x => x.id === 'sess-deploy' ? { ...x, state: 'exited', exitCode: 0 } : x.id === 'sess-c' ? { ...x, state: 'lost' } : x)
+    await openDesk()
+    await expect(pane('pane-deploy')).toHaveAttribute('data-state', 'ended')
+    await page.getByRole('button', { name: 'Actions for reet' }).click()
+    await page.getByRole('menuitem', { name: 'Close' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect.poll(tabNames).toEqual(['logs', 'db'])
+    await expect.poll(() => ends.length).toBe(1)
+    expect(ends[0]).toMatchObject({ id: 'sess-deploy', removeHistory: false, forgetDesk: true })
+    // Nothing leaves Sessions.
+    expect(sessions.find(x => x.id === 'sess-deploy')).toMatchObject({ state: 'exited' })
+    // A tab with a live pane and a lost one: End the shell ends the live one as the setting says and forgets the lost one.
+    await openSplit()
+    await attached(['sess-a', 'sess-b'])
+    ends = []
+    await page.getByRole('button', { name: 'Actions for tab deploy' }).click()
+    await page.getByRole('menuitem', { name: 'Close tab' }).click()
+    const both = page.getByRole('dialog', { name: 'Close “deploy”?' })
+    await expect(both).toContainText('2 of its shells are still running on studio.')
+    await both.getByRole('radio', { name: /Take off this desk/ }).click()
+    await both.getByRole('button', { name: 'Take off this desk' }).click()
+    // Take off leaves the running shells as they are; the lost one's pane is gone for good all the same.
+    await expect.poll(() => ends.length).toBe(1)
+    expect(ends[0]).toMatchObject({ id: 'sess-c', removeHistory: false, forgetDesk: true })
+    await quiet()
+    expect(ends.length).toBe(1)
+    // An end that fails still closes the pane, and says nothing.
+    reset()
+    sessions = sessions.map(x => x.id === 'sess-logs' ? { ...x, state: 'lost' } : x)
+    endFail.add('sess-logs')
+    await openDesk()
+    await page.getByRole('button', { name: 'Actions for tab logs' }).click()
+    await page.getByRole('menuitem', { name: 'Close tab' }).click()
+    await expect.poll(tabNames).toEqual(['deploy', 'db'])
+    await expect.poll(() => ends.length).toBe(1)
+    await quiet()
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    console.log("ok - a pane whose shell already ended closes at once, and its machine forgets the pane's history")
+  }
+
+  // ── deleting a desk says what happens to its shells, and which could not be ended ──
+  {
+    reset()
+    await page.goto(`${base}/desks`)
+    await page.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
+    await page.goto(`${base}/desks`)
+    await expect(page.getByRole('link', { name: 'prod deploy' })).toBeVisible()
+    // Another window moved the desk on since the list was read; logs' machine will not end it.
+    { const d = desks.get('desk-prod'); desks.set(d.id, { ...d, version: 2 }) }
+    deleteLeft.add('sess-logs')
+    await page.getByRole('button', { name: 'Actions for prod deploy' }).click()
+    await page.getByRole('menuitem', { name: 'Delete' }).click()
+    const del = page.getByRole('dialog', { name: 'Delete “prod deploy”?' })
+    await expect(del).toContainText('3 of its shells are still running. End them, or leave them running in Sessions.')
+    await expect(del).toContainText("End its shells: Its shells are ended and leave Sessions, and their panes' command history is removed.")
+    await del.getByRole('button', { name: 'End its shells' }).click()
+    await expect(page.getByRole('alert')).toHaveText('Sorted. “prod deploy” is deleted. One of its shells could not be ended. It is still in Sessions.')
+    expect(deletes).toEqual([{ id: 'desk-prod', expect: 1, endSessions: true }, { id: 'desk-prod', expect: 2, endSessions: true }])
+    expect(sessions.map(x => x.id)).not.toContain('sess-deploy')
+    expect(sessions.find(x => x.id === 'sess-logs')).toMatchObject({ state: 'running' })
+    // Leave them running: nothing running is ended; a pane whose shell had ended has its history forgotten.
+    reset()
+    sessions = sessions.map(x => x.id === 'sess-db' ? { ...x, state: 'exited', exitCode: 0 } : x)
+    await page.goto(`${base}/desks`)
+    await page.getByRole('button', { name: 'Actions for prod deploy' }).click()
+    await page.getByRole('menuitem', { name: 'Delete' }).click()
+    await expect(del).toContainText('2 of its shells are still running.')
+    await del.getByRole('button', { name: 'Leave them running in Sessions' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Sorted.' })).toHaveText('Sorted. “prod deploy” is deleted.')
+    expect(deletes).toEqual([{ id: 'desk-prod', expect: 1, endSessions: false }])
+    await expect.poll(() => ends.length).toBe(1)
+    expect(ends[0]).toMatchObject({ id: 'sess-db', removeHistory: false, forgetDesk: true })
+    expect(sessions.find(x => x.id === 'sess-deploy')).toMatchObject({ state: 'running' })
+    console.log('ok - deleting a desk says what happens to its shells, and which could not be ended')
+  }
+
+  // ── a change made in another browser appears without a reload or a save ──
+  {
+    reset()
+    await openDesk()
+    await quiet(); patches = []
+    await page.evaluate(() => { window.__sameDocument = true })
+    const d = desks.get('desk-prod')
+    desks.set(d.id, { ...d, version: d.version + 1, doc: { ...d.doc, tabs: d.doc.tabs.map(t => t.id === 'tab-logs' ? { ...t, name: 'logs (moved)' } : t) } })
+    // The desk list is read every 15 seconds; it lists the newer version, and the desk is read again.
+    await expect(tab('logs (moved)')).toBeVisible({ timeout: 20_000 })
+    expect(await page.evaluate(() => window.__sameDocument)).toBe(true)
+    expect(patches).toEqual([])
+    await expect(page.getByText('This desk was changed in another window.')).toHaveCount(0)
+    console.log('ok - a change made in another browser appears without a reload or a save')
+  }
+
+  // ── a save the controller refuses is not retried, and says why ──
+  {
+    reset()
+    await openDesk()
+    await quiet(); patches = []
+    docRefuse.set('desk-prod', { status: 400, json: { error: "That desk can't be saved: a pane names a session twice.", code: 'desk_invalid' } })
+    await tab('db').dblclick()
+    await tablist.getByRole('textbox', { name: 'Tab name' }).fill('database')
+    await tablist.getByRole('textbox', { name: 'Tab name' }).press('Enter')
+    await expect(page.getByRole('alert')).toContainText("reet couldn't save your last change: That desk can't be saved: a pane names a session twice. Showing the desk as it is saved.")
+    await expect.poll(tabNames).toEqual(['deploy', 'logs', 'db'])
+    await expect(page.locator('.save')).toHaveText('last change not saved')
+    await page.waitForTimeout(2500)
+    expect(patches.length).toBe(1)
+    // The next change saves as usual.
+    docRefuse.delete('desk-prod')
+    await tab('logs').dblclick()
+    await tablist.getByRole('textbox', { name: 'Tab name' }).fill('platform')
+    await tablist.getByRole('textbox', { name: 'Tab name' }).press('Enter')
+    await expect(page.locator('.save')).toHaveText('saved')
+    expect(desks.get('desk-prod').doc.tabs.map(t => t.name)).toEqual(['deploy', 'platform', 'db'])
+    console.log('ok - a save the controller refuses is not retried, and says why')
+  }
+
+  // ── the controller's other refusals are shown in its words ──
+  {
+    reset()
+    await page.goto(`${base}/desks`)
+    await page.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
+    await page.goto(`${base}/desks`)
+    createDeskFail = { status: 409, json: { error: 'An account holds at most 50 desks. Remove one first.', code: 'desk_full' } }
+    await page.locator('.head').getByRole('button', { name: 'New desk' }).click()
+    await expect(page.getByRole('alert')).toHaveText('An account holds at most 50 desks. Remove one first.')
+    await expect(page).toHaveURL(/\/desks$/)
+    await page.getByRole('button', { name: 'Actions for zoomies dev' }).click()
+    await page.getByRole('menuitem', { name: 'Rename' }).click()
+    const rename = page.getByRole('dialog', { name: 'Rename “zoomies dev”' })
+    await rename.getByLabel('Name').fill('Prod Deploy')
+    await rename.getByRole('button', { name: 'Rename' }).click()
+    await expect(rename.getByRole('alert')).toHaveText('Another desk already has that name.')
+    await expect(rename).toBeVisible()
+    expect(desks.get('desk-dev').name).toBe('zoomies dev')
+    console.log("ok - the controller's other refusals are shown in its words")
+  }
+
+  // ── a save the controller adjusted is merged, not overwritten ──
+  {
+    reset()
+    // The controller keeps the folder deploy's machine reported, newer than the one the browser sent.
+    adjustDoc = doc => {
+      const p = doc.tabs.find(t => t.id === 'tab-deploy')?.panes['pane-deploy']
+      if (p && p.dirAt < 9e12) { p.dir = '/home/dev/PROD_reet/web'; p.dirAt = 9e12 }
+      return doc
+    }
+    await openDesk()
+    await quiet(); patches = []
+    await tab('logs').dblclick()
+    await tablist.getByRole('textbox', { name: 'Tab name' }).fill('platform')
+    await tablist.getByRole('textbox', { name: 'Tab name' }).press('Enter')
+    await expect.poll(() => patches.length).toBe(1)
+    await quiet()
+    await tab('db').dblclick()
+    await tablist.getByRole('textbox', { name: 'Tab name' }).fill('database')
+    await tablist.getByRole('textbox', { name: 'Tab name' }).press('Enter')
+    await expect.poll(() => patches.length).toBe(2)
+    expect(patches[1].expect).toBe(2)
+    expect(patches[1].doc.tabs[0].panes['pane-deploy']).toMatchObject({ dir: '/home/dev/PROD_reet/web', dirAt: 9e12 })
+    expect(patches[1].doc.tabs.map(t => t.name)).toEqual(['deploy', 'platform', 'database'])
+    await quiet()
+    await expect(page.getByText('This desk was changed in another window.')).toHaveCount(0)
+    console.log('ok - a save the controller adjusted is merged, not overwritten')
+  }
+
+  // ── a change made just before the page goes is still saved ──
+  {
+    reset()
+    // A page of its own that notes each request sent with keepalive (one that may finish after the page has gone).
+    const kp = await context.newPage()
+    kp.on('pageerror', error => errors.push(error.message))
+    await kp.addInitScript(() => {
+      const send = window.fetch
+      window.__keepalive = []
+      window.fetch = (input, init) => { if (init?.keepalive) window.__keepalive.push(`${init.method} ${String(input)}`); return send(input, init) }
+    })
+    await kp.route('**/api/**', api)
+    await kp.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+    await kp.goto(`${base}/desks/desk-prod`)
+    await expect(kp.getByRole('heading', { name: 'prod deploy', level: 1 })).toBeVisible()
+    await kp.waitForTimeout(700); patches = []
+    await kp.getByRole('tablist', { name: 'Tabs' }).getByRole('tab', { name: 'db', exact: true }).focus()
+    await kp.keyboard.press('F2')
+    await kp.getByRole('textbox', { name: 'Tab name' }).fill('database')
+    // Enter and the page going, within autosave's pause: the save is sent at once, with keepalive.
+    await kp.evaluate(() => {
+      document.querySelector('input[aria-label="Tab name"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      window.dispatchEvent(new PageTransitionEvent('pagehide'))
+    })
+    await expect.poll(() => kp.evaluate(() => window.__keepalive)).toEqual(['PATCH /api/v2/desks/desk-prod'])
+    await expect.poll(() => patches.length).toBe(1)
+    expect(desks.get('desk-prod').doc.tabs.find(t => t.id === 'tab-db').name).toBe('database')
+    await kp.close()
+    console.log('ok - a change made just before the page goes is still saved')
+  }
+
+  // ── New tab and Split: one start per press, the limits first, and plain sentences ──
+  {
+    reset()
+    sessions = sessions.map(x => x.id === 'sess-deploy' ? { ...x, liveDir: '/home/dev/PROD_reet/web' } : x)
+    await openDesk()
+    await quiet(); patches = []
+    await page.getByRole('button', { name: 'New tab' }).click()
+    await page.getByRole('menuitem', { name: 'New shell…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'New tab' })
+    // The folder the focused pane's shell is in now.
+    await expect(dialog.getByLabel('Folder')).toHaveValue('/home/dev/PROD_reet/web')
+    // The first create gets no answer it can trust: the second press asks about the same start.
+    createFail.push({ status: 503, json: { error: 'terminal machine is reconnecting; retry after it reconnects' } })
+    await dialog.getByRole('button', { name: 'Open tab' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('studio is not reporting. Try again once it is back.')
+    await dialog.getByRole('button', { name: 'Open tab' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(creates).toHaveLength(2)
+    expect(creates[1].requestId).toBe(creates[0].requestId)
+    expect(creates[1].deskPane).toBe(creates[0].deskPane)
+    await quiet()
+    expect(Object.keys(lastDoc().tabs.at(-1).panes)).toEqual([creates[0].deskPane])
+    // The next New tab is a new start.
+    await page.getByRole('button', { name: 'New tab' }).click()
+    await page.getByRole('menuitem', { name: 'New shell…' }).click()
+    await dialog.getByRole('button', { name: 'Open tab' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(creates[2].requestId).not.toBe(creates[0].requestId)
+    // At the machine's limit nothing is sent, and the dialog says so as the pane card does.
+    reset()
+    sessions.push(...Array.from({ length: 14 }, (_, i) => running(`sess-fill-${i}`, `fill ${i}`)))
+    await openDesk()
+    await page.getByRole('button', { name: 'New tab' }).click()
+    await page.getByRole('menuitem', { name: 'New shell…' }).click()
+    await dialog.getByRole('button', { name: 'Open tab' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('studio already has 24 sessions running.')
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await openSplit()
+    await attached(['sess-a', 'sess-b', 'sess-c'])
+    await pane('pane-a').locator('.xterm').click()
+    await page.getByRole('toolbar', { name: 'Terminal tools for alpha' }).getByRole('button', { name: 'Split right' }).click()
+    await expect(page.getByRole('alert')).toContainText('studio already has 24 sessions running.')
+    expect(creates).toEqual([])
+    // A refusal the browser could not see coming (another window filled the machine) is said the same way.
+    sessions = sessions.filter(x => !x.id.startsWith('sess-fill-'))
+    await page.reload()
+    await attached(['sess-a', 'sess-b', 'sess-c'])
+    createFail.push({ status: 409, json: { error: 'terminal session limit reached' } })
+    await pane('pane-a').locator('.xterm').click()
+    await page.getByRole('toolbar', { name: 'Terminal tools for alpha' }).getByRole('button', { name: 'Split right' }).click()
+    await expect(page.getByRole('alert')).toContainText('studio already has 24 sessions running.')
+    await expect(page.getByRole('alert')).not.toContainText('terminal session limit reached')
+    console.log('ok - New tab and Split: one start per press, the limits first, and plain sentences')
+  }
+
+  // ── nothing of a desk carries over to the next one ──
+  {
+    reset()
+    await page.goto(`${base}/desks/desk-dev`)
+    await expect(page.getByRole('heading', { name: 'zoomies dev', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'zoomies dev, switch desk' }).click()
+    await page.getByRole('menuitem', { name: 'prod deploy' }).click()
+    await expect(page.getByRole('heading', { name: 'prod deploy', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'Actions for reet' }).click()
+    await page.getByRole('menuitem', { name: 'Close' }).click()
+    await expect(page.getByRole('dialog', { name: 'Close “reet”?' })).toBeVisible()
+    // Back while the dialog is open: the dialog goes with its desk, and nothing is ended.
+    await page.goBack()
+    await expect(page.getByRole('heading', { name: 'zoomies dev', level: 1 })).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await quiet()
+    expect(ends).toEqual([])
+    console.log('ok - nothing of a desk carries over to the next one')
+  }
+
+  // ── a desk that could not be read offers Try again, and comes in once it can be ──
+  {
+    reset()
+    deskReadFail = true
+    await page.goto(`${base}/desks/desk-prod`)
+    await expect(page.getByRole('alert')).toHaveText('This desk could not be read just now. Try again in a moment.')
+    deskReadFail = false
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await expect(page.getByRole('heading', { name: 'prod deploy', level: 1 })).toBeVisible()
+    // A later read that works (the page coming back into view) clears the failure too.
+    deskReadFail = true
+    await page.reload()
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
+    deskReadFail = false
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    await expect(page.getByRole('heading', { name: 'prod deploy', level: 1 })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+    console.log('ok - a desk that could not be read offers Try again, and comes in once it can be')
+  }
+
+  // ── a change still waiting when the desk is left is retried until it is saved ──
+  {
+    reset()
+    await openDesk()
+    await quiet(); patched = []
+    patchFail.add('desk-prod')
+    await tab('db').focus()
+    await page.keyboard.press('F2')
+    await tablist.getByRole('textbox', { name: 'Tab name' }).fill('database')
+    await tablist.getByRole('textbox', { name: 'Tab name' }).press('Enter')
+    await page.getByRole('button', { name: 'prod deploy, switch desk' }).click()
+    await page.getByRole('menu', { name: 'Switch desk' }).getByRole('menuitem', { name: 'zoomies dev' }).click()
+    await expect(page.getByRole('heading', { name: 'zoomies dev', level: 1 })).toBeVisible()
+    await expect.poll(() => patched.length).toBe(1)
+    patchFail.delete('desk-prod')
+    await expect.poll(() => desks.get('desk-prod').doc.tabs.find(t => t.id === 'tab-db').name, { timeout: 10_000 }).toBe('database')
+    expect(patched).toEqual(['desk-prod', 'desk-prod'])
+    console.log('ok - a change still waiting when the desk is left is retried until it is saved')
+  }
+
+  // ── small things: one instruction on a pane open elsewhere, Zoom focuses its pane, Type in all says why it is off ──
+  {
+    resetStates()
+    await openStates()
+    await expect(pane('pane-elsewhere')).toHaveAttribute('data-state', 'elsewhere')
+    await expect(pane('pane-elsewhere')).toContainText('This terminal is open in another window.')
+    await expect(pane('pane-elsewhere')).not.toContainText('Choose Continue here')
+    reset()
+    await openSplit()
+    await attached(['sess-a', 'sess-b', 'sess-c'])
+    await page.getByRole('button', { name: 'Actions for beta' }).click()
+    await page.getByRole('menuitem', { name: 'Zoom' }).click()
+    await expect(pane('pane-a')).toBeHidden()
+    await expect(page.getByRole('toolbar', { name: 'Terminal tools for beta' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Type in all panes' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Type in all panes' })).toHaveAccessibleDescription('Needs two or more live panes on this tab.')
+    console.log('ok - one instruction on a pane open elsewhere, Zoom focuses its pane, Type in all says why it is off')
+  }
+
+  // ── the terminal's own answers to a program's queries reach only its own shell ──
+  {
+    reset()
+    await openThree()
+    await typeInAll()
+    await expect(pane('pane-a').locator('textarea')).toBeFocused()
+    // A program in the focused pane asks for the device attributes and the cursor position; xterm answers each itself.
+    sockets.get('sess-a').socket.send(Buffer.from('\x1b[c'))
+    sockets.get('sess-a').socket.send(Buffer.from('\x1b[6n'))
+    await expect.poll(() => sent('sess-a')).toMatch(/\x1b\[\?[\d;]*c/)
+    await expect.poll(() => sent('sess-a')).toMatch(/\x1b\[\d+;\d+R/)
+    await quiet()
+    expect(sent('sess-b')).toBe('')
+    expect(sent('sess-c')).toBe('')
+    // The mode is still on, and typing still reaches every pane.
+    await expect(stripe()).toBeVisible()
+    await page.keyboard.type('k')
+    for (const x of ['b', 'c']) await expect.poll(() => sent(`sess-${x}`)).toBe('k')
+    console.log("ok - the terminal's own answers to a program's queries reach only its own shell")
+  }
+
+  // ── a paste held for review before the mode was on stays in its own pane ──
+  {
+    reset()
+    bracketed.add('sess-b'); bracketed.add('sess-c')
+    await openThree()
+    await typeInAll()
+    await allButton().click()
+    await expect(stripe()).toHaveCount(0)
+    // alpha takes a paste line by line, so it asks first; beta and gamma would take the block as one.
+    await pane('pane-a').locator('textarea').evaluate(el => {
+      const data = new DataTransfer(); data.setData('text/plain', 'one\ntwo')
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    })
+    const review = page.getByRole('dialog', { name: 'Paste into the remote shell?' })
+    await expect(review).toBeVisible()
+    // While it asks, the mode is turned on (asked once already in this page, so it turns on at once).
+    await page.evaluate(() => document.querySelector('.btn.all').click())
+    await expect(stripe()).toBeVisible()
+    await review.getByRole('button', { name: 'Paste text' }).click()
+    await expect.poll(() => sent('sess-a')).toBe('one\rtwo')
+    await quiet()
+    expect(sent('sess-b')).toBe('')
+    expect(sent('sess-c')).toBe('')
+    await expect(stripe()).toBeVisible()
+    console.log('ok - a paste held for review before the mode was on stays in its own pane')
+  }
+
+  // ── input from a pane that is not the focused one is not sent on ──
+  {
+    reset()
+    await openThree()
+    await typeInAll()
+    await expect(pane('pane-a').locator('textarea')).toBeFocused()
+    // A paste lands in beta without beta taking the focus: it goes into beta's own shell only.
+    await pane('pane-b').locator('textarea').evaluate(el => {
+      const data = new DataTransfer(); data.setData('text/plain', 'echo beta')
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    })
+    await expect.poll(() => sent('sess-b')).toBe('echo beta')
+    await quiet()
+    expect(sent('sess-a')).toBe('')
+    expect(sent('sess-c')).toBe('')
+    await expect(stripe()).toBeVisible()
+    console.log('ok - input from a pane that is not the focused one is not sent on')
+  }
+
   // ── the look, in both themes and on a phone ──
   if (shots) {
     // Three states side by side (lost, folder gone, an ended agent) at 1440 px in both themes, and one card on a phone.
@@ -2207,7 +2700,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, a block one pane would run line by line, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload), a start-up command with hidden characters, a template by address, Continue (project, one request id, the limit), pane_live in Reopen all, busy while the desk cannot be read, a machine that cannot open a terminal, a failure cleared, a project read that failed, which limit, a failed session rename, renames, Add to a desk, the desk chip in Sessions, Add a running session, Start an agent.')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, a block one pane would run line by line, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload), a start-up command with hidden characters, a template by address, Continue (project, one request id, the limit), pane_live in Reopen all, busy while the desk cannot be read, a machine that cannot open a terminal, a failure cleared, a project read that failed, which limit, a failed session rename, renames, Add to a desk, the desk chip in Sessions, Add a running session, Start an agent, templates listed, an ended pane forgotten, delete and its shells, another browser’s change, a refused save, the controller’s refusals, a server-adjusted save, the save on pagehide, one start per press and the limits, nothing carried over, Try again, a retried save after leaving, one instruction elsewhere, Zoom focuses, the query answers, a held paste, the source pane.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

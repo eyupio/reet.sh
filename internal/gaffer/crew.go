@@ -25,6 +25,9 @@ func (s *Service) SaveCrew(uid int64, crew store.GafferCrew) (store.GafferCrew, 
 	if _, err := s.chatPrincipal(uid); err != nil {
 		return store.GafferCrew{}, err
 	}
+	if !validBalanceBelow(crew.BalanceBelow) {
+		return store.GafferCrew{}, invalid("crew", "Choose between 5 and 90 percent for when a backup takes over.")
+	}
 	var err error
 	for _, tier := range []*store.GafferCrewTier{&crew.Light, &crew.Standard, &crew.Heavy} {
 		if *tier, err = crewTier(*tier); err != nil {

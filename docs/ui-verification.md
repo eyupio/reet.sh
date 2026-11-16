@@ -558,7 +558,8 @@ usual tier is marked with the reason and a button that puts it back (`gaffer-out
 A tier's backup, used when the first choice's plan is running low (`gaffer-outcome.e2e.mjs`); a stage that ran on
 its backup says so on the pipeline's card (`gaffer-factory.e2e.mjs`).
 
-![A tier with a backup](images/ui/gaffer-outcome-backup-1440-light.png)
+![The crew with a backup and the threshold](images/ui/gaffer-outcome-backup-1440-light.png)
+![The crew on a phone, dark](images/ui/gaffer-outcome-backup-390-dark.png)
 ![Outcome grouped on the floor, phone dark](images/ui/gaffer-outcome-floor-390-dark.png)
 ![Factory floor entry from general chat and Home](images/ui/gaffer-floor-entry-1280-light.png)
 ![Factory floor desktop light](images/ui/gaffer-floor-1440-light.png)

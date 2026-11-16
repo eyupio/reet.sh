@@ -169,6 +169,8 @@ Two tools read the Factory for any connection on a writer account:
   session has been asked, `choice` says whether they were applied (`applied`,
   `mismatch` or `unchecked`), with `applied_model`, `applied_effort` and, for
   a difference, `choice_note`.
+  `balance_below` is the share of a plan, in percent, under which a stage of
+  the outcome starts on its backup.
   `decisions_by` is `you` or `gaffer`: who chooses what happens when a stage
   stops. `gaffer_decisions` lists what Gaffer decided (`pipeline`, `stage`,
   `about`, `choice`, `failed`); its reason, `why`, goes only to a management

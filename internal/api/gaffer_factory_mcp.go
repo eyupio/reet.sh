@@ -169,6 +169,10 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 	// Who takes the decisions when a stage stops: the person, or Gaffer for
 	// them. What Gaffer decided is listed; its reasons are words about
 	// sessions, so they go only to a connection that may control the Factory.
+	out["balance_below"] = gaffer.DefaultBalanceBelow
+	if o.BalanceBelow > 0 {
+		out["balance_below"] = o.BalanceBelow
+	}
 	out["decisions_by"] = "you"
 	if o.Automation {
 		out["decisions_by"] = "gaffer"

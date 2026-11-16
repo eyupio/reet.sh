@@ -28,6 +28,8 @@ The owner asked for stages to use one agent or model over another when it has mo
   figures (`MachineAccountsFor`). First choice under 20% left in its tightest window, figures no older than six
   hours, backup signed in and with more left (or no figures at all): the stage runs on the backup. A window with a
   label counts only for a model whose name contains it.
+- **The threshold is the person's.** `GafferCrew.BalanceBelow` and `GafferOutcome.BalanceBelow`, 5 to 90, zero for
+  the default of 20. An outcome that names none takes the saved crew's. The dialog's crew has the field.
 - **Said, not asked.** The stage's `Tool`, `Model`, `Effort` become the backup's, `First` keeps the first choice and
   `Balanced` the sentence. Audit `gaffer-stage-balanced`. A later start of the same stage looks again and can go back.
 - **Not done:** backups in the Add pipelines dialog; a Cline source for a backup in the dialog; balancing between

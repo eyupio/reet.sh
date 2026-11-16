@@ -193,6 +193,9 @@ type GafferOutcome struct {
 	AutoReport      bool   `json:"autoReport,omitempty"`
 	AutoReportedFor string `json:"autoReportedFor,omitempty"`
 	AutoReports     int    `json:"autoReports,omitempty"`
+	// BalanceBelow is the share of a plan, as a whole percentage, under which
+	// a stage of this outcome starts on its backup. Zero is reet's default.
+	BalanceBelow int `json:"balanceBelow,omitempty"`
 	// Automation is the person's choice that Gaffer takes this outcome's
 	// decisions for them: what to do when a stage stops. It never covers a
 	// merge or an agent's approval. Decisions is what Gaffer then decided and
@@ -390,10 +393,13 @@ type GafferStageAgent struct {
 // GafferCrew is a person's crew: who does light, standard and heavy stages.
 // It is the account's default; an outcome may be approved with another.
 type GafferCrew struct {
-	Light     GafferCrewTier `json:"light"`
-	Standard  GafferCrewTier `json:"standard"`
-	Heavy     GafferCrewTier `json:"heavy"`
-	UpdatedAt int64          `json:"updatedAt,omitempty"`
+	Light    GafferCrewTier `json:"light"`
+	Standard GafferCrewTier `json:"standard"`
+	Heavy    GafferCrewTier `json:"heavy"`
+	// BalanceBelow is the share of a plan, as a whole percentage, under which
+	// a tier's stages start on its backup. Zero is reet's own default.
+	BalanceBelow int   `json:"balanceBelow,omitempty"`
+	UpdatedAt    int64 `json:"updatedAt,omitempty"`
 }
 
 // Saved reports whether the person has ever saved a crew.

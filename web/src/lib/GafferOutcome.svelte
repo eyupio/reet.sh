@@ -21,7 +21,7 @@
   import WorkspaceDialog from './terminal/WorkspaceDialog.svelte'
   import { readFloorDefaults, writeFloorDefaults } from './gafferFloor'
   import { BUILT_IN_GOAL_PROMPTS } from './gafferPrompts'
-  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn , BALANCE_LOW_PERCENT} from './gafferOutcome'
+  import { CREW_TIERS, DEFAULT_STAGES, MAX_OUTCOME_REPLY_BYTES, MAX_OUTCOME_SESSIONS, STAGES, cleanPrompt, objectiveBlocker, orderStages, outcomeSummary, planBlocker, previousPlan, replyBlocker, stagePlan, stageLabel, stageTier, tierLabel, planRatings, withTier, startingProgress, wholeBetween, withReportedEfforts, type Crew, type PlanSession, type PlanTurn, BALANCE_LOW_PERCENT, BALANCE_MIN_PERCENT, BALANCE_MAX_PERCENT, balancePercent } from './gafferOutcome'
   import { gafferAutoMerge } from './gafferMotion'
   import RepoField from './home/RepoField.svelte'
   import { cloneForStart } from './cloneForStart'
@@ -56,6 +56,9 @@
   let crew = $state<Crew>({ heavy: { tool: '', model: '' }, standard: { tool: '', model: '' }, light: { tool: '', model: '' } })
   // Each tier's backup: who does its stages when the first choice's plan is running low. An empty agent is no backup.
   let backups = $state<Record<'heavy' | 'standard' | 'light', { tool: string; model: string; effort: string }>>({ heavy: { tool: '', model: '', effort: '' }, standard: { tool: '', model: '', effort: '' }, light: { tool: '', model: '', effort: '' } })
+  // The share of the first choice's plan under which a backup takes over. The person's to set; saved with the crew.
+  let balanceBelow = $state<number | string>(BALANCE_LOW_PERCENT)
+  const anyBackup = $derived(CREW_TIERS.some(item => !!backups[item.tier].tool))
   const crewSent = $derived<Crew>({ heavy: { ...crew.heavy, backup: backups.heavy }, standard: { ...crew.standard, backup: backups.standard }, light: { ...crew.light, backup: backups.light } })
   let autoMerge = $state(false)
   // Gaffer reports across the outcome by itself when a pipeline finishes or stops. Each report is one model request.
@@ -150,6 +153,7 @@
         if (member.backup?.tool && tools.includes(member.backup.tool)) backups[item.tier] = { tool: member.backup.tool, model: member.backup.model ?? '', effort: member.backup.effort ?? '' }
         used++
       }
+      if (saved.balanceBelow) balanceBelow = balancePercent(saved.balanceBelow)
       if (used) crewNote = 'Started from your saved crew.'
     })
   })
@@ -159,7 +163,7 @@
       const member = (tier: 'light' | 'standard' | 'heavy') => ({ tool: crew[tier].tool, model: crew[tier].model.trim(), effort: crew[tier].effort ?? '', ...(crew[tier].tool === 'cline' && crew[tier].source ? { provider: crew[tier].source } : {}), ...(backups[tier].tool ? { backup: { tool: backups[tier].tool, model: backups[tier].model.trim(), effort: backups[tier].effort } } : {}) })
       // What was just saved is what is on screen: there is nothing to apply again.
       crewApplied = true
-      savedCrew = (await saveGafferCrew({ light: member('light'), standard: member('standard'), heavy: member('heavy') })).crew
+      savedCrew = (await saveGafferCrew({ light: member('light'), standard: member('standard'), heavy: member('heavy'), balanceBelow: balancePercent(balanceBelow) })).crew
       crewNote = 'Saved. New outcomes start from this crew.'
     } catch (e) { crewNote = e instanceof Error ? e.message : 'The crew could not be saved.' }
     finally { crewSaving = false }
@@ -326,7 +330,7 @@
     writeFloorDefaults(userId, { ...readFloorDefaults(userId, BUILT_IN_GOAL_PROMPTS[0].text), maxReviews, hours })
     try {
       record = await createGafferOutcome({
-        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
+        objective: objective.trim(), projectId: project.id, tool, model: model.trim(), provider: sourceShown ? chosenSource : '', trust, yolo: yolo && !yoloWhy, autoReport, automation, balanceBelow: balancePercent(balanceBelow), autoMerge: autoMerge && hasMerge, maxReviews, hours, confirmed: true,
         sessions: sessions.map(item => ({ title: item.title.trim(), prompt: reference ? imagePrompt(cleanPrompt(item.prompt), [reference]) : cleanPrompt(item.prompt), stages: withReportedEfforts(stagePlan(item.stages ?? DEFAULT_STAGES, crewSent, machine?.capabilities?.acpProvider === true, item), efforts).map(stage => stage.backup?.effort && !efforts(stage.backup.tool).includes(stage.backup.effort) ? { ...stage, backup: { tool: stage.backup.tool, ...(stage.backup.model ? { model: stage.backup.model } : {}) } } : stage) })),
       }, life.signal)
       step = 'results'; clearImage()
@@ -387,21 +391,26 @@
             <div class="crew-rows">
               {#each CREW_TIERS as item (item.tier)}<div class="crew-row" role="group" aria-label={`${item.label} crew`}>
                 <div class="crew-role"><strong>{item.label}</strong><span>{item.does}</span></div>
+                <span class="crew-slot">First choice</span>
                 <select aria-label={`${item.label} agent`} bind:value={crew[item.tier].tool} disabled={planning || !tools.length} onchange={() => { const same = crew[item.tier].tool === tool; crew[item.tier].model = same ? model : ''; crew[item.tier].effort = same ? effort : ''; crew[item.tier].source = same ? chosenSource : ''; crewSourceExplicit[item.tier] = false }}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                 <GafferModelSelect label={`${item.label} model`} tool={crew[item.tier].tool} bind:value={crew[item.tier].model} machine={offeredFor(crew[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
                 <select aria-label={`${item.label} effort`} bind:value={crew[item.tier].effort} disabled={planning || efforts(crew[item.tier].tool).length < 2}>{#each efforts(crew[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(crew[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
                 {#if crew[item.tier].tool === 'cline' && machine?.capabilities?.acpProvider}<div class="crew-source"><ClineSourceSelect label={`${item.label} source`} value={crew[item.tier].source ?? ''} saved={savedSource} offered={sourceOffered} disabled={planning} onchange={next => pickCrewSource(item.tier, next)} onsaved={next => savedSource = next} /></div>{/if}
                 <div class="crew-backup" role="group" aria-label={`${item.label} backup`}>
-                  <span class="crew-backup-name">Backup</span>
+                  <span class="crew-slot">Backup</span>
                   <select aria-label={`${item.label} backup agent`} bind:value={backups[item.tier].tool} disabled={planning || !tools.length} onchange={() => { backups[item.tier].model = ''; backups[item.tier].effort = '' }}><option value="">No backup</option>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
                   {#if backups[item.tier].tool}
                     <GafferModelSelect label={`${item.label} backup model`} tool={backups[item.tier].tool} bind:value={backups[item.tier].model} machine={offeredFor(backups[item.tier].tool)} {favourites} host={machine?.host ?? ''} disabled={planning}/>
                     <select aria-label={`${item.label} backup effort`} bind:value={backups[item.tier].effort} disabled={planning || efforts(backups[item.tier].tool).length < 2}>{#each efforts(backups[item.tier].tool) as level (level)}<option value={level}>{level ? `${level[0].toUpperCase()}${level.slice(1)} effort` : efforts(backups[item.tier].tool).length < 2 ? 'No effort setting' : 'Default effort'}</option>{/each}</select>
-                  {/if}
+                  {:else}<span class="crew-none">Stages stay on the first choice.</span>{/if}
                 </div>
               </div>{/each}
             </div>
-            <p class="hint">A tier’s backup does its stages when the first choice’s plan has under {BALANCE_LOW_PERCENT}% left in its tightest window and the backup’s has more. The stage says when that happened and why. It needs plan limits to be on for the machine; without figures every stage stays on its first choice.</p>
+            <div class="balance" role="group" aria-label="When a backup takes over">
+              <label for={`${formId}-balance`}>Switch to a backup below</label>
+              <span class="percent"><input id={`${formId}-balance`} type="number" inputmode="numeric" min={BALANCE_MIN_PERCENT} max={BALANCE_MAX_PERCENT} step="5" bind:value={balanceBelow} disabled={planning} aria-describedby={`${formId}-balance-unit`} onblur={() => balanceBelow = balancePercent(balanceBelow)}/><span id={`${formId}-balance-unit`}>% of the first choice’s plan left</span></span>
+            </div>
+            <p class="hint">{anyBackup ? `A stage starts on its tier’s backup when the first choice’s plan has under ${balancePercent(balanceBelow)}% left in its tightest window and the backup’s has more. The stage says when that happened and why.` : 'No tier has a backup yet, so every stage runs on its first choice.'} Balancing needs plan limits to be on for the machine; without figures every stage stays on its first choice.</p>
             <p class="crew-save"><button class="link" type="button" disabled={planning || crewSaving || !tools.length} onclick={() => void rememberCrew()}>{crewSaving ? 'Saving…' : 'Save as my crew'}</button> <span role="status">{crewNote}</span></p>
           </details>
           {#if github}
@@ -448,7 +457,7 @@
             <div class="stage-tier" class:changed={rated.changed} data-stage={kind}>
               <span class="stage-name">{stageLabel(kind)}</span>
               <select aria-label={`${stageLabel(kind)} tier in pipeline ${index + 1}`} value={rated.tier} onchange={event => setTier(item, kind, event.currentTarget.value)}>{#each CREW_TIERS as choice (choice.tier)}<option value={choice.tier}>{choice.label}</option>{/each}</select>
-              <span class="stage-who">{member.tool ? chatToolName(member.tool) : 'No agent'}{member.model.trim() ? ` · ${member.model.trim()}` : ''}{member.effort ? ` · ${member.effort} effort` : ''}</span>
+              <span class="stage-who">{member.tool ? chatToolName(member.tool) : 'No agent'}{member.model.trim() ? ` · ${member.model.trim()}` : ''}{member.effort ? ` · ${member.effort} effort` : ''}{#if backups[rated.tier].tool}<span class="stage-spare">Backup: {chatToolName(backups[rated.tier].tool)}{backups[rated.tier].model.trim() ? ` · ${backups[rated.tier].model.trim()}` : ''}{backups[rated.tier].effort ? ` · ${backups[rated.tier].effort} effort` : ''}</span>{/if}</span>
               {#if rated.changed}<p class="stage-why"><strong>{rated.by === 'gaffer' ? 'Gaffer’s assessment' : 'Your choice'}.</strong> {rated.why || `The default for ${stageLabel(kind).toLowerCase()} is ${tierLabel(rated.standard)}.`} <button class="link" type="button" aria-label={`Put ${stageLabel(kind)} in pipeline ${index + 1} back on ${tierLabel(rated.standard)}`} onclick={() => setTier(item, kind, rated.standard)}>Use {tierLabel(rated.standard)}</button></p>{/if}
             </div>{/each}
           </div>{/if}
@@ -530,15 +539,17 @@
   .add{justify-self:start}
   .limit-editor summary{min-height:44px;display:list-item;align-content:center;cursor:pointer;font-variant-numeric:tabular-nums}.limit-editor summary span{color:var(--accent-text);margin-left:8px}
   .steps{list-style:none;display:flex;gap:6px 18px;flex-wrap:wrap;margin:0;padding:0 0 12px;border-bottom:1px solid var(--line);color:var(--muted);font-size:0.875rem}.steps li{display:flex;align-items:center;gap:8px}.steps .n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid var(--line-strong);font-variant-numeric:tabular-nums;font-size:0.875rem}.steps li[aria-current]{color:var(--ink);font-weight:600}.steps li[aria-current] .n,.steps li.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-  .crew-backup{grid-column:1/-1;display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start;padding-left:12px;border-left:2px solid var(--line)}.crew-backup-name{grid-column:1/-1;font-size:0.875rem;color:var(--muted)}@media(max-width:479px){.crew-backup{grid-template-columns:1fr}}
-  .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted);font-weight:400}
+  .crew-backup{grid-column:1/-1;display:grid;grid-template-columns:subgrid;gap:6px 10px;align-items:start}.crew-slot{align-self:start;line-height:44px;font-size:0.875rem;font-weight:600;color:var(--muted)}.crew-none{grid-column:3/-1;align-self:start;line-height:44px;font-size:0.875rem;color:var(--muted)}.crew-row select{width:100%;min-width:0}
+  .balance{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-items:center;gap:6px 10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.balance label{font-weight:600;line-height:1.3}.percent{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;color:var(--ink)}.percent input{width:5.5rem;min-height:44px;text-align:right;font-variant-numeric:tabular-nums}.balance+.hint{margin-top:8px}@media(max-width:479px){.balance{grid-template-columns:1fr}}
+  .stage-spare{display:block;color:var(--muted)}
+  .crew-rows{display:grid;gap:10px;padding-top:6px}.crew-row{display:grid;grid-template-columns:5.5rem minmax(0,1fr) minmax(0,1.25fr) minmax(0,1.05fr);gap:8px 10px;align-items:start}.crew-row+.crew-row{padding-top:12px;border-top:1px solid var(--line)}.crew-source{grid-column:2/-1}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted);font-weight:400}
   .stage-pick{display:flex;flex-wrap:wrap;gap:6px}.stage-chip{font:inherit;font-size:0.875rem;min-height:36px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}.stage-chip[aria-pressed=true]{background:var(--tint);border-color:var(--accent);color:var(--ink);font-weight:600}
   /* Each chosen stage with its tier and who that means. One the plan or the person moved off its default is marked, with why. */
   .stage-tiers{margin:8px 0 0;display:grid;gap:6px}.stage-tier{display:grid;grid-template-columns:5.5rem 8rem minmax(0,1fr);align-items:center;gap:2px 10px;padding:4px 8px;border:1px solid var(--line-soft);border-radius:8px}
   .stage-tier.changed{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--accent-wash)}.stage-name{font-weight:600}.stage-tiers select{min-height:36px;font:inherit;font-size:0.875rem}
   .stage-who{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:0.875rem}.stage-why{grid-column:1/-1;margin:2px 0 0;font-size:0.875rem;color:var(--ink-soft)}
-  .crew-save{margin:8px 0 0;font-size:0.875rem;color:var(--muted)}
-  @media(max-width:479px){.crew-row{grid-template-columns:1fr}.stage-tier{grid-template-columns:5rem minmax(0,1fr)}.stage-who{grid-column:1/-1}}@media(pointer:coarse){.stage-chip{min-height:44px}.stage-tiers select{min-height:44px}}
+  .crew-save{margin:12px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:0.875rem;color:var(--muted)}
+  @media(max-width:479px){.crew-row{grid-template-columns:1fr}.crew-slot{line-height:1.4;margin-top:4px}.crew-none,.crew-source{grid-column:1/-1}.stage-tier{grid-template-columns:5rem minmax(0,1fr)}.stage-who{grid-column:1/-1}}@media(pointer:coarse){.stage-chip{min-height:44px}.stage-tiers select{min-height:44px}}
   .approvals{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}.approvals legend{font-weight:600;padding:0;margin-bottom:6px}
   .choice{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;justify-self:start}.choice label{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;font-weight:600;cursor:pointer;color:var(--muted)}.choice label+label{border-left:1px solid var(--line)}.choice label.on{background:var(--tint);color:var(--ink)}.choice label.off{cursor:not-allowed;opacity:.6}.choice input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:var(--accent)}
   .hint.warn{color:var(--warn)}

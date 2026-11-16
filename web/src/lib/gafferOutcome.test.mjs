@@ -436,5 +436,7 @@ test('a tier’s backup goes with each of its stages, and one that is the first 
   const plan = o.stagePlan(['review', 'code', 'pr'], crew)
   assert.deepEqual(plan.map(stage => stage.backup), [undefined, { tool: 'codex', model: 'gpt-strong' }, undefined])
   assert.equal(o.BALANCE_LOW_PERCENT, 20)
+  // The share is the person's to set, within bounds; anything that is not a number is the default.
+  assert.deepEqual([35, '50', 2, 400, '', null, 'x', 19.6].map(o.balancePercent), [35, 50, 5, 90, 20, 20, 20, 20])
   assert.equal(o.track({ state: 'following', stage: 0, stages: [{ kind: 'code', tool: 'codex', state: 'running', balanced: 'Claude Code’s plan had 12% left.' }] })[0].balanced, 'Claude Code’s plan had 12% left.')
 })

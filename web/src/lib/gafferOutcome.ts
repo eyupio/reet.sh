@@ -241,6 +241,13 @@ export type CrewTier = 'heavy' | 'standard' | 'light'
 export type Crew = Record<CrewTier, { tool: string; model: string; effort?: string; source?: string; /** The tier's second choice, used when the first choice's plan is running low. An empty tool is no backup. */ backup?: { tool: string; model: string; effort?: string } }>
 /** How much of a plan must be left, in its tightest window, for a stage to stay on its first choice. */
 export const BALANCE_LOW_PERCENT = 20
+/** The least and most a person may choose for that share. */
+export const BALANCE_MIN_PERCENT = 5, BALANCE_MAX_PERCENT = 90
+/** A typed share as one a person may choose: a whole number within the bounds, the default for anything that is not a number. */
+export function balancePercent(value: unknown): number {
+  const n = Math.round(Number(value))
+  return Number.isFinite(n) && n > 0 ? Math.min(BALANCE_MAX_PERCENT, Math.max(BALANCE_MIN_PERCENT, n)) : BALANCE_LOW_PERCENT
+}
 /** The crew, heaviest first: which agent, model and effort does a stage of each tier. */
 export const CREW_TIERS: { tier: CrewTier; label: string; does: string }[] = [
   { tier: 'heavy', label: 'Heavy', does: 'Careful judgement: by default plan, design and review. Worth a stronger model.' },

@@ -14,9 +14,12 @@ import (
 // its tightest window; it then runs on the backup the person chose for it, if
 // the backup's plan has more left. Nothing else is ever chosen for a stage.
 const (
-	// balanceLowPercent is how much of a plan must be left for a stage to
-	// stay on its first choice.
-	balanceLowPercent = 20
+	// DefaultBalanceBelow is how much of a plan must be left, as a whole
+	// percentage, for a stage to stay on its first choice, unless the person
+	// chose another figure. MinBalanceBelow and MaxBalanceBelow bound theirs.
+	DefaultBalanceBelow = 20
+	MinBalanceBelow     = 5
+	MaxBalanceBelow     = 90
 	// balanceFreshFor is how old a machine's plan figures may be and still
 	// move a stage. Windows start again; older figures decide nothing.
 	balanceFreshFor = 6 * time.Hour
@@ -64,10 +67,20 @@ func agentWords(a store.GafferStageAgent) string {
 	return name
 }
 
+// validBalanceBelow reports whether n is a threshold a person may choose.
+// Zero is none chosen.
+func validBalanceBelow(n int) bool {
+	return n == 0 || n >= MinBalanceBelow && n <= MaxBalanceBelow
+}
+
 // balanceChoice reports whether a stage should run on its backup, and why.
-func balanceChoice(accounts []terminalproto.AgentAccount, first, backup store.GafferStageAgent, now time.Time) (bool, string) {
+// below is the share of the first choice's plan under which it does.
+func balanceChoice(accounts []terminalproto.AgentAccount, first, backup store.GafferStageAgent, below int, now time.Time) (bool, string) {
+	if below == 0 {
+		below = DefaultBalanceBelow
+	}
 	one := planLeft(accounts, first.Tool, first.Model, now)
-	if !one.known || one.left >= balanceLowPercent {
+	if !one.known || one.left >= below {
 		return false, ""
 	}
 	two := planLeft(accounts, backup.Tool, backup.Model, now)
@@ -97,7 +110,7 @@ func (s *Service) balanceStage(o store.GafferOutcome, stage store.GafferOutcomeS
 	}
 	use, why := false, ""
 	if kept, ok, err := s.store.MachineAccountsFor(o.OwnerID, o.AgentID); err == nil && ok {
-		use, why = balanceChoice(kept.Accounts, first, *stage.Backup, time.Now())
+		use, why = balanceChoice(kept.Accounts, first, *stage.Backup, o.BalanceBelow, time.Now())
 	}
 	out := stage
 	if use {

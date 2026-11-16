@@ -40,14 +40,14 @@ func TestAStageUsesItsBackupOnlyWhenItsFirstChoiceRunsLowAndTheBackupHasMore(t *
 		"figures too old":        {[]terminalproto.AgentAccount{planAccount("claude", now.Add(-7*time.Hour), window("week", 99, "")), planAccount("codex", now, window("week", 5, ""))}, false, ""},
 		"only its model is low":  {[]terminalproto.AgentAccount{planAccount("claude", now, window("week", 30, ""), window("week", 96, "Opus")), planAccount("codex", now, window("week", 5, ""))}, true, "had 4% left"},
 	} {
-		use, why := balanceChoice(c.accounts, first, backup, now)
+		use, why := balanceChoice(c.accounts, first, backup, 0, now)
 		if use != c.use || !strings.Contains(why, c.says) || !use && why != "" {
 			t.Errorf("%s: %v %q", name, use, why)
 		}
 	}
 	// A window for one model does not count against a stage on another, so a cheaper model of the same agent can be the backup.
 	same := []terminalproto.AgentAccount{planAccount("claude", now, window("week", 40, ""), window("week", 96, "Opus"))}
-	if use, why := balanceChoice(same, first, store.GafferStageAgent{Tool: "claude", Model: "sonnet"}, now); !use || !strings.Contains(why, "Claude Code (sonnet), which had 60% left") {
+	if use, why := balanceChoice(same, first, store.GafferStageAgent{Tool: "claude", Model: "sonnet"}, 0, now); !use || !strings.Contains(why, "Claude Code (sonnet), which had 60% left") {
 		t.Errorf("same agent, another model: %v %q", use, why)
 	}
 }
@@ -122,5 +122,45 @@ func TestATiersBackupIsSavedAndComesWithItsStages(t *testing.T) {
 	stages := mustOutcome(t, r, created.ID).Sessions[0].Stages
 	if stages[0].Tool != "opencode" || stages[0].Backup == nil || stages[0].Backup.Tool != "codex" || stages[0].Backup.Model != "gpt-strong" || stages[1].Backup != nil {
 		t.Fatalf("stages: %+v", stages)
+	}
+}
+
+// The share under which a backup takes over is the person's to set: saved
+// with the crew, taken by an outcome that names none, and bounded.
+func TestTheBalancingThresholdIsThePersonsToSet(t *testing.T) {
+	now := time.Now()
+	first, backup := store.GafferStageAgent{Tool: "claude"}, store.GafferStageAgent{Tool: "codex"}
+	accounts := []terminalproto.AgentAccount{planAccount("claude", now, window("week", 60, "")), planAccount("codex", now, window("week", 10, ""))}
+	// 40% left: above the default of 20, under a threshold of 50.
+	if use, _ := balanceChoice(accounts, first, backup, 0, now); use {
+		t.Fatal("moved at the default threshold with 40% left")
+	}
+	if use, why := balanceChoice(accounts, first, backup, 50, now); !use || !strings.Contains(why, "had 40% left") {
+		t.Fatalf("not moved under a threshold of 50: %q", why)
+	}
+	r := outcomeFixture(t)
+	for _, bad := range []int{-1, 4, 91} {
+		if _, err := r.s.SaveCrew(r.p.UserID, store.GafferCrew{BalanceBelow: bad}); err == nil {
+			t.Fatalf("a threshold of %d was saved", bad)
+		}
+		in := r.in
+		in.BalanceBelow = bad
+		if _, err := r.s.CreateOutcome(r.p.UserID, in); err == nil {
+			t.Fatalf("an outcome took a threshold of %d", bad)
+		}
+	}
+	if saved, err := r.s.SaveCrew(r.p.UserID, store.GafferCrew{BalanceBelow: 35}); err != nil || saved.BalanceBelow != 35 {
+		t.Fatalf("saved: %+v %v", saved, err)
+	}
+	r.s.StartGoalSupervisor()
+	// An outcome that names none takes the saved crew's; one that names its own keeps it.
+	created, err := r.s.CreateOutcome(r.p.UserID, r.in)
+	if err != nil || created.BalanceBelow != 35 {
+		t.Fatalf("from the crew: %+v %v", created.BalanceBelow, err)
+	}
+	in := r.in
+	in.BalanceBelow = 60
+	if created, err = r.s.CreateOutcome(r.p.UserID, in); err != nil || created.BalanceBelow != 60 {
+		t.Fatalf("its own: %+v %v", created.BalanceBelow, err)
 	}
 }

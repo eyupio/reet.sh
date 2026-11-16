@@ -42,8 +42,12 @@ func (s *server) gafferCrewGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]any{"crew": crew, "saved": crew.Saved(), "tiers": gaffer.StageTiers, "defaults": gafferTierDefaults()})
+	writeJSON(w, 200, map[string]any{"crew": crew, "saved": crew.Saved(), "tiers": gaffer.StageTiers, "defaults": gafferTierDefaults(), "balance": gafferBalanceBounds})
 }
+
+// gafferBalanceBounds is what a person may choose for when a backup takes
+// over, and what applies until they do.
+var gafferBalanceBounds = map[string]int{"default": gaffer.DefaultBalanceBelow, "min": gaffer.MinBalanceBelow, "max": gaffer.MaxBalanceBelow}
 
 // gafferTierDefaults is the tier each stage kind has until someone says otherwise.
 func gafferTierDefaults() map[string]string {
@@ -59,18 +63,20 @@ func (s *server) gafferCrewPut(w http.ResponseWriter, r *http.Request) {
 		Light    store.GafferCrewTier `json:"light"`
 		Standard store.GafferCrewTier `json:"standard"`
 		Heavy    store.GafferCrewTier `json:"heavy"`
+		// BalanceBelow is when a tier's backup takes over; absent keeps reet's default.
+		BalanceBelow int `json:"balanceBelow"`
 	}
 	if !decodeStrictJSON(w, r, 8<<10, &in, "That crew is invalid.") {
 		return
 	}
-	crew, err := s.gafferProviders.SaveCrew(s.uid(r), store.GafferCrew{Light: in.Light, Standard: in.Standard, Heavy: in.Heavy})
+	crew, err := s.gafferProviders.SaveCrew(s.uid(r), store.GafferCrew{Light: in.Light, Standard: in.Standard, Heavy: in.Heavy, BalanceBelow: in.BalanceBelow})
 	if err != nil {
 		gafferError(w, err)
 		return
 	}
 	s.eventRequest(r, "gaffer-crew-changed", "", map[string]any{"light": in.Light.Tool, "standard": in.Standard.Tool, "heavy": in.Heavy.Tool})
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]any{"crew": crew, "saved": true, "tiers": gaffer.StageTiers, "defaults": gafferTierDefaults()})
+	writeJSON(w, 200, map[string]any{"crew": crew, "saved": true, "tiers": gaffer.StageTiers, "defaults": gafferTierDefaults(), "balance": gafferBalanceBounds})
 }
 
 func (s *server) gafferPrincipal(r *http.Request) gaffer.Principal {

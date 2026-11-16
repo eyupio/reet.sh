@@ -108,6 +108,10 @@ type OutcomeInput struct {
 	// stage stops. It is the person's choice only, and never covers a merge
 	// or an agent's approval.
 	Automation bool `json:"automation"`
+	// BalanceBelow is the share of a plan, as a whole percentage, under which
+	// a stage starts on its backup. Zero takes the saved crew's, else reet's
+	// default.
+	BalanceBelow int `json:"balanceBelow"`
 	// RequestID, when given, names this request: asking again under the same
 	// one answers the outcome it already started instead of starting another.
 	// It is for a client that may not hear back; the browser sends none.
@@ -361,6 +365,13 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
+	if !validBalanceBelow(in.BalanceBelow) {
+		return o, invalid("balance", "Choose between 5 and 90 percent for when a backup takes over.")
+	}
+	balanceBelow := in.BalanceBelow
+	if balanceBelow == 0 {
+		balanceBelow = crew.BalanceBelow
+	}
 	// Trust and YOLO are judged on the agents that will run: a stage that
 	// names none takes its tier's from the saved crew, and a stage may start
 	// on its backup.
@@ -373,7 +384,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if in.Yolo && !outcomeTakesYolo(in.Tool, sessions) {
 		return o, invalid("yolo", "One of the chosen agents has no YOLO option reet can use.")
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, Automation: in.Automation, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, Automation: in.Automation, BalanceBelow: balanceBelow, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err

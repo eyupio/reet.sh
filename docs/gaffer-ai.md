@@ -552,7 +552,8 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
 
    Each tier can also have a **Backup**: a second agent, model and effort.
    When a stage is about to start and its first choice's plan has under 20%
-   left in its tightest window, the stage starts on the backup instead, if the
+   left in its tightest window (the figure is yours to change, from 5 to 90,
+   under **Switch to a backup below**, and is saved with the crew), the stage starts on the backup instead, if the
    backup's plan has more left (or the backup is signed in with a key, which
    has no plan to run low). It switches by itself and says so: the pipeline's
    card shows **Balanced** with the reason, **Who did each stage** keeps it,

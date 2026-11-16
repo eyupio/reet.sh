@@ -89,7 +89,6 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/ > /dev/null; then break; fi
             sleep 1
           done
-          node web/tests/workbench.e2e.mjs
           node web/tests/public-workspace.e2e.mjs
           node web/tests/first-run.e2e.mjs
           node web/tests/session-board.e2e.mjs
@@ -246,9 +245,9 @@ jobs:
           # Chat sessions for each agent: controls, the usage line, previews, recovery, launch options and the question card.
           - job: phone-chat
             scripts: chat chat-controls chat-usage chat-previews launch-options chat-recovery chat-claude chat-codex chat-cline chat-cline-source chat-antigravity question-card
-          # Gaffer's artwork, theme, variety, return, interaction, progress and layout, and the Account page.
+          # Home and Factory's Workbench, then Gaffer's artwork, theme, variety, return, interaction, progress and layout, and the Account page.
           - job: phone-gaffer
-            scripts: gaffer-artwork gaffer-theme gaffer-variety gaffer-return gaffer-interaction gaffer-progress gaffer-layout account
+            scripts: workbench gaffer-artwork gaffer-theme gaffer-variety gaffer-return gaffer-interaction gaffer-progress gaffer-layout account
           # The Sessions page and the session screen.
           - job: phone-sessions
             scripts: sessions session-workspace calm-session session-end-gaffer
@@ -298,3 +297,10 @@ jobs:
       - name: Add a project by browsing a machine's folders
         if: matrix.job == 'phone-dialogs'
         run: node web/tests/add-project.e2e.mjs
+      - name: Upload Workbench screenshots
+        if: always() && matrix.job == 'phone-gaffer'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbench
+          path: ${{ runner.temp }}/terminal-browser/workbench
+          if-no-files-found: ignore

@@ -241,12 +241,12 @@ func TestDeskDeleteEndsLiveSessions(t *testing.T) {
 	old := deskEndSession
 	t.Cleanup(func() { deskEndSession = old })
 	var asked []string
-	deskEndSession = func(s *server, ctx context.Context, uid int64, session, request string) error {
+	deskEndSession = func(s *server, ctx context.Context, uid int64, session, request string, removeHistory bool) error {
 		asked = append(asked, session)
 		if session == bad {
 			return errors.New("machine unreachable")
 		}
-		return old(s, ctx, uid, session, request)
+		return old(s, ctx, uid, session, request, removeHistory)
 	}
 
 	_, d := f.do("POST", "/api/v2/desks", `{"name":"Work"}`)

@@ -324,11 +324,12 @@ func (s *server) deskUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, deskView(saved))
 }
 
-// deskEndSession asks for a session to end with its history removed, and its
-// desk pane's own command history on the machine with it (the pane is gone
-// for good). A test replaces it to make an end fail.
-var deskEndSession = func(s *server, ctx context.Context, uid int64, session, request string) error {
-	_, err := s.terminals.EndDeskPane(ctx, uid, session, request, true)
+// deskEndSession asks for a session to end, removed from Sessions' history
+// when removeHistory is set, and its desk pane's own command history on the
+// machine with it (the pane is gone for good). A test replaces it to make an
+// end fail.
+var deskEndSession = func(s *server, ctx context.Context, uid int64, session, request string, removeHistory bool) error {
+	_, err := s.terminals.EndDeskPane(ctx, uid, session, request, removeHistory)
 	return err
 }
 
@@ -368,11 +369,20 @@ func (s *server) deskDelete(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue // not a session reet knows: nothing to end
 			}
-			if sess.State != terminalproto.Creating && sess.State != terminalproto.Running {
-				continue // already ended or ending
-			}
-			if err := deskEndSession(s, r.Context(), uid, sid, terminalbroker.ID()); err != nil {
-				left = append(left, sid)
+			switch sess.State {
+			case terminalproto.Creating, terminalproto.Running:
+				if err := deskEndSession(s, r.Context(), uid, sid, terminalbroker.ID(), true); err != nil {
+					left = append(left, sid)
+				}
+			case terminalproto.Ended, terminalproto.Exited, terminalproto.Lost:
+				// A shell that already ended still has its pane's history on
+				// a desk-shell-v1 machine: the end removes only that, and
+				// leaves the session in Sessions as it was. An older machine
+				// keeps no such file, so nothing is sent to it.
+				caps, err := s.st.RemoteCapabilitiesFor(uid, sess.AgentID)
+				if err == nil && caps.Capabilities.DeskShell {
+					_ = deskEndSession(s, r.Context(), uid, sid, terminalbroker.ID(), false)
+				}
 			}
 		}
 	}

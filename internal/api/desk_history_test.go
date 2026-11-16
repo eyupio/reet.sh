@@ -82,3 +82,83 @@ func TestDeskDeleteWithShellsForgetsPaneHistory(t *testing.T) {
 		t.Fatalf("ends %+v", ends)
 	}
 }
+
+// endedShell starts a plain shell and ends it with a plain end, then forgets
+// the ends the machine was sent so far.
+func endedShell(t *testing.T, f *launchAPI) string {
+	t.Helper()
+	session := startShell(t, f)
+	code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/end", map[string]any{"requestId": terminalbroker.ID(), "removeHistory": false, "factoryOutcome": ""})
+	if code != 200 {
+		t.Fatal(code, raw)
+	}
+	if s, err := f.st.TerminalSessionFor(f.uid, session); err != nil || s.State.ReservesQuota() {
+		t.Fatalf("shell did not end: %+v %v", s, err)
+	}
+	f.mu.Lock()
+	f.ends = nil
+	f.mu.Unlock()
+	return session
+}
+
+// Closing a pane whose shell already ended or was lost sends the end route
+// forgetDesk with removeHistory false: a desk-shell-v1 machine is asked to
+// remove the pane's history, an older one gets a plain end it answers as a
+// no-op, and the session stays in Sessions either way.
+func TestEndRouteForgetsEndedDeskPane(t *testing.T) {
+	for _, deskShell := range []bool{true, false} {
+		f := launchAPIFixture(t, reopenCaps(deskShell, true))
+		session := endedShell(t, f)
+		code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/end", map[string]any{"requestId": terminalbroker.ID(), "removeHistory": false, "factoryOutcome": "", "forgetDesk": true})
+		if code != 200 {
+			t.Fatalf("desk shell %v: %d %s", deskShell, code, raw)
+		}
+		if ends := f.sentEnds(); len(ends) != 1 || ends[0].ForgetDesk != deskShell {
+			t.Fatalf("desk shell %v: ends %+v", deskShell, ends)
+		}
+		if archived, err := f.st.TerminalArchivedFor(f.uid, session); err != nil || archived {
+			t.Fatalf("desk shell %v: removed from history: %v %v", deskShell, archived, err)
+		}
+		if s, err := f.st.TerminalSessionFor(f.uid, session); err != nil || s.RemoveHistory {
+			t.Fatalf("desk shell %v: %+v %v", deskShell, s, err)
+		}
+	}
+}
+
+// End the shell on a live pane takes removeHistory from the request (the
+// person's terminalRemoveOnClose setting); nothing on the server forces it.
+func TestEndRouteForgetDeskKeepsRemoveHistoryChoice(t *testing.T) {
+	for _, remove := range []bool{false, true} {
+		f := launchAPIFixture(t, reopenCaps(true, true))
+		session := startShell(t, f)
+		code, _, raw := f.do(t, f.cookie, "POST", "/api/v2/terminal/sessions/"+session+"/end", map[string]any{"requestId": terminalbroker.ID(), "removeHistory": remove, "factoryOutcome": "", "forgetDesk": true})
+		if code != 200 {
+			t.Fatal(code, raw)
+		}
+		if archived, err := f.st.TerminalArchivedFor(f.uid, session); err != nil || archived != remove {
+			t.Fatalf("removeHistory %v: archived %v %v", remove, archived, err)
+		}
+	}
+}
+
+// Deleting a desk with its shells also asks a desk-shell-v1 machine to remove
+// the history of a pane whose shell had already ended, without removing that
+// session from Sessions; an older machine is sent nothing for it.
+func TestDeskDeleteWithShellsForgetsEndedPane(t *testing.T) {
+	for _, deskShell := range []bool{true, false} {
+		f := launchAPIFixture(t, reopenCaps(deskShell, true))
+		session := endedShell(t, f)
+		id, version := reopenDesk(t, f, "shell", session, "")
+		code, _, raw := f.do(t, f.cookie, "DELETE", "/api/v2/desks/"+id, `{"expect":`+jsonNumber(int64(version))+`,"endSessions":true}`)
+		if code != 200 {
+			t.Fatal(code, raw)
+		}
+		ends := f.sentEnds()
+		if deskShell && (len(ends) != 1 || !ends[0].ForgetDesk) || !deskShell && len(ends) != 0 {
+			t.Fatalf("desk shell %v: ends %+v", deskShell, ends)
+		}
+		if archived, err := f.st.TerminalArchivedFor(f.uid, session); err != nil || archived {
+			t.Fatalf("desk shell %v: removed from history: %v %v", deskShell, archived, err)
+		}
+	}
+}

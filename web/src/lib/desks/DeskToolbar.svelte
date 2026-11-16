@@ -68,6 +68,9 @@
   /* Labels go first, then nothing else changes: every button keeps its name for a screen reader through aria-label. */
   @media (max-width: 1599px) { .wide { display: none; } }
   @media (max-width: 1280px) { .tl { display: none; } button { padding: 6px; min-width: 32px; justify-content: center; } }
+  /* On a tablet the tools wrap onto a second line rather than hide their last controls (Zoom, Theatre) off the end; a
+     phone keeps one line that scrolls, to leave its height to the terminal. */
+  @media (min-width: 701px) and (max-width: 1280px) { .tools { flex-wrap: wrap; row-gap: 2px; } }
   @media (pointer: coarse) { button { min-width: 44px; min-height: 44px; } }
   @media (max-width: 700px) { .desk-toolbar { padding: 0 4px 0 10px; gap: 6px; } .space { display: none; } }
 </style>

@@ -596,6 +596,8 @@ try {
       ['desk name', tp.getByRole('button', { name: 'prod deploy, switch desk' })],
       ['desk menu', tp.getByRole('button', { name: 'Desk menu' })],
     ]) expect(await heights(locator), what).toBeGreaterThanOrEqual(44)
+    // A short tab name still makes a tab at least 44 px wide.
+    expect((await ttabs.getByRole('tab', { name: 'db', exact: true }).boundingBox()).width, 'short tab').toBeGreaterThanOrEqual(44)
     await tp.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
     await tp.goto(`${base}/desks`)
     const title = tp.getByRole('link', { name: 'prod deploy' })
@@ -2223,6 +2225,7 @@ try {
     await page.getByRole('menuitem', { name: 'Close tab' }).click()
     const both = page.getByRole('dialog', { name: 'Close “deploy”?' })
     await expect(both).toContainText('2 of its shells are still running on studio.')
+    await expect(both).toContainText("Stops what is running in them. The sessions stay in Sessions as ended, and these panes' command history is removed.")
     await both.getByRole('radio', { name: /Take off this desk/ }).click()
     await both.getByRole('button', { name: 'Take off this desk' }).click()
     // Take off leaves the running shells as they are; the lost one's pane is gone for good all the same.
@@ -2298,6 +2301,20 @@ try {
     await expectCard('pane-deploy', 'empty', 'Not started', 'studio · ~/PROD_reet', 'Start')
     expect(reopens).toEqual([])
     console.log('ok - a session removed from history elsewhere leaves its pane Not started')
+  }
+
+  // ── a desk card counts only shells that ended or were lost as to reopen ──
+  {
+    reset()
+    sessions = sessions.map(x => x.id === 'sess-logs' ? { ...x, state: 'lost' } : x)
+    await page.goto(`${base}/desks`)
+    await page.evaluate(() => localStorage.removeItem('reet.desks.last.1'))
+    await page.goto(`${base}/desks`)
+    const card = name => page.locator('.card').filter({ has: page.getByRole('link', { name, exact: true }) })
+    await expect(card('prod deploy').locator('.pill')).toHaveText(['2 live', '1 to reopen'])
+    // The split desk's nine-pane tab was never started: nothing there is to reopen.
+    await expect(card('split desk').locator('.pill')).toHaveText(['7 live'])
+    console.log('ok - a desk card counts only shells that ended or were lost as to reopen')
   }
 
   // ── a change made in another browser appears without a reload or a save ──
@@ -2448,6 +2465,19 @@ try {
     await dialog.getByRole('button', { name: 'Open tab' }).click()
     await expect(dialog).toHaveCount(0)
     expect(creates[2].requestId).not.toBe(creates[0].requestId)
+    // A New tab that failed and was then cancelled is over: the next one is a new start too.
+    createFail.push({ status: 503, json: { error: 'terminal machine is reconnecting; retry after it reconnects' } })
+    await page.getByRole('button', { name: 'New tab' }).click()
+    await page.getByRole('menuitem', { name: 'New shell…' }).click()
+    await dialog.getByRole('button', { name: 'Open tab' }).click()
+    await expect(dialog.getByRole('alert')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await page.getByRole('button', { name: 'New tab' }).click()
+    await page.getByRole('menuitem', { name: 'New shell…' }).click()
+    await dialog.getByRole('button', { name: 'Open tab' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(creates).toHaveLength(5)
+    expect(creates[4].requestId).not.toBe(creates[3].requestId)
     // At the machine's limit nothing is sent, and the dialog says so as the pane card does.
     reset()
     sessions.push(...Array.from({ length: 14 }, (_, i) => running(`sess-fill-${i}`, `fill ${i}`)))
@@ -2720,7 +2750,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, a block one pane would run line by line, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload), a start-up command with hidden characters, a template by address, Continue (project, one request id, the limit), pane_live in Reopen all, busy while the desk cannot be read, a machine that cannot open a terminal, a failure cleared, a project read that failed, which limit, a failed session rename, renames, Add to a desk, the desk chip in Sessions, Add a running session, Start an agent, templates listed, an ended pane forgotten, a session cleared from its pane, delete and its shells, another browser’s change, a refused save, the controller’s refusals, a server-adjusted save, the save on pagehide, one start per press and the limits, nothing carried over, Try again, a retried save after leaving, one instruction elsewhere, Zoom focuses, the query answers, a held paste, the source pane.')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, a block one pane would run line by line, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload), a start-up command with hidden characters, a template by address, Continue (project, one request id, the limit), pane_live in Reopen all, busy while the desk cannot be read, a machine that cannot open a terminal, a failure cleared, a project read that failed, which limit, a failed session rename, renames, Add to a desk, the desk chip in Sessions, Add a running session, Start an agent, templates listed, an ended pane forgotten, a session cleared from its pane, delete and its shells, another browser’s change, a refused save, the controller’s refusals, a server-adjusted save, the save on pagehide, one start per press and the limits, a short tab’s width, the reopen count, nothing carried over, Try again, a retried save after leaving, one instruction elsewhere, Zoom focuses, the query answers, a held paste, the source pane.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

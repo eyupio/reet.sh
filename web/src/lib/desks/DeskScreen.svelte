@@ -73,6 +73,7 @@
     // Nothing of the desk being left carries over: its dialogs, menus, offers, failures and notices go with it.
     desk = null; failure = ''; saveState = 'saved'; typeAll = null; askAll = false
     offered = {}; failures = {}; closing = null; choosing = null; menu = null; reopenNotice = ''; notice = ''; reopening = {}
+    adding = null; agentStart = null; addingRunning = null
     continueIds.clear(); attempts.clear()
     const mine = createAutosave({
       load: () => getDesk(deskId),
@@ -288,6 +289,9 @@
   // second shell. A definite refusal (a 4xx) forgets it, so the next press is a new start.
   const attempts = new Map<string, { request: string; pane: string }>()
   function attempt(key: string) {
+    // One attempt of each kind: a New tab elsewhere, or a split of another pane or tab, is a new start.
+    const kind = key.split('\n')[0]
+    for (const k of [...attempts.keys()]) if (k !== key && k.split('\n')[0] === kind) attempts.delete(k)
     let a = attempts.get(key)
     if (!a) { a = { request: crypto.randomUUID(), pane: newId() }; attempts.set(key, a) }
     return a
@@ -332,7 +336,11 @@
     if (!desk?.doc.tabs.some(x => x.id === tab.id)) { notice = `The shell “${name}” started, but there was no room for a tab. It is in Sessions.`; return }
     change({ kind: 'active', tab: tab.id })
   }
-  async function closeNewTab() { const opener = adding; adding = null; await tick(); opener?.focus() }
+  async function closeNewTab() {
+    // A New tab that is closed or cancelled is over: the next one is a new start.
+    for (const k of [...attempts.keys()]) if (k.startsWith('tab\n')) attempts.delete(k)
+    const opener = adding; adding = null; await tick(); opener?.focus()
+  }
 
   // Start an agent… (the existing dialog, on the focused pane's machine, and its project when the pane is in one): the
   // session it starts is put in a new tab. An agent pane has no pane history, so no pane id is sent with it.

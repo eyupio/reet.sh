@@ -196,6 +196,46 @@ try {
     console.log('ok - targets are at least 44 px')
   }
 
+  // ── a tablet keeps every control reachable ──
+  {
+    reset()
+    context = await browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true })
+    page = await context.newPage()
+    page.on('pageerror', error => errors.push(error.message))
+    await page.route('**/api/**', api)
+    await page.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+    await page.goto(`${base}/desks/desk-split`)
+    await expect(page.locator('.desk-pane .xterm-screen')).toHaveCount(3)
+    // The toolbar wraps rather than hide its last controls: Theatre view is on screen without scrolling, and pressed.
+    const tools = page.locator('.desk-toolbar .tools')
+    const theatre = page.getByRole('button', { name: 'Theatre view' })
+    for (const width of [820, 1100]) {
+      await page.setViewportSize({ width, height: 1180 })
+      await expect(theatre).toBeInViewport({ ratio: 1 })
+      expect(await tools.evaluate(el => el.scrollWidth <= el.clientWidth), `toolbar at ${width}`).toBe(true)
+    }
+    await page.setViewportSize({ width: 820, height: 1180 })
+    await theatre.tap()
+    await expect(page.getByRole('button', { name: 'Exit theatre view' })).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: 'Exit theatre view' }).tap()
+    // A half-width pane's key bar scrolls sideways within the pane, so every key can be reached.
+    for (const id of ['pane-a', 'pane-b']) {
+      const p = page.locator(`.desk-pane[data-pane="${id}"]`), keys = p.locator('.mobile-keys')
+      expect(await keys.evaluate(el => getComputedStyle(el).overflowX), id).toBe('auto')
+      expect(await keys.evaluate(el => el.scrollWidth > el.clientWidth), id).toBe(true)
+      const pb = await p.boundingBox(), kb = await keys.boundingBox()
+      expect(kb.x + kb.width, id).toBeLessThanOrEqual(pb.x + pb.width + 1)
+      const last = keys.getByRole('button').last()
+      await last.scrollIntoViewIfNeeded()
+      const lb = await last.boundingBox()
+      expect(lb.x + lb.width, id).toBeLessThanOrEqual(kb.x + kb.width + 1)
+    }
+    if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desk-tablet-split.png` }) }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await context.close()
+    console.log('ok - a tablet keeps every control reachable')
+  }
+
   if (shots) {
     reset()
     await mkdir(shots, { recursive: true })
@@ -208,7 +248,7 @@ try {
     await context.close()
   }
   expect(errors).toEqual([])
-  console.log('Desks on a phone passed: one pane and chips, the tree kept, 44 px targets.')
+  console.log('Desks on a phone passed: one pane and chips, the tree kept, 44 px targets, a tablet\'s toolbar and key bars.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots && page && !page.isClosed()) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-phone-failure.png`, fullPage: true }) }

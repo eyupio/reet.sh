@@ -181,7 +181,7 @@
   .add:hover:not(:disabled) { color: var(--ink); background: var(--line-soft); }
   .add:disabled { color: var(--faint); cursor: default; }
   @media (pointer: coarse) {
-    .tab [role='tab'] { min-height: 44px; }
+    .tab [role='tab'] { min-height: 44px; min-width: 44px; }
     .more { width: 44px; height: 44px; opacity: 1; }
     .add { min-width: 44px; min-height: 44px; }
   }

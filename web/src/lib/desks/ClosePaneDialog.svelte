@@ -20,6 +20,9 @@
   let confirmButton = $state<HTMLButtonElement>()
   let choice = $state<'end' | 'takeoff'>('end')
   const titleId = $props.id()
+  const endSentence = $derived(count > 1
+    ? (removes ? "Stops what is running in them. The sessions leave Sessions, and these panes' command history is removed." : "Stops what is running in them. The sessions stay in Sessions as ended, and these panes' command history is removed.")
+    : (removes ? "Stops what is running in it. The session leaves Sessions, and this pane's command history is removed." : "Stops what is running in it. The session stays in Sessions as ended, and this pane's command history is removed."))
   const body = $derived(count > 1 ? `${count} of its shells are still running on ${host}.` : `Its shell is still running on ${host}.`)
 
   onMount(() => {
@@ -50,7 +53,7 @@
     <p>{body}</p>
     <div class="options" role="radiogroup" aria-label="What happens to the shell" tabindex="-1" onkeydown={arrows}>
       <button type="button" class="opt" role="radio" data-choice="end" aria-checked={choice === 'end'} tabindex={choice === 'end' ? 0 : -1} onclick={() => (choice = 'end')}>
-        <b>End the shell</b><span>{removes ? "Stops what is running in it. The session leaves Sessions, and this pane's command history is removed." : "Stops what is running in it. The session stays in Sessions as ended, and this pane's command history is removed."}</span>
+        <b>End the shell</b><span>{endSentence}</span>
       </button>
       <button type="button" class="opt" role="radio" data-choice="takeoff" aria-checked={choice === 'takeoff'} tabindex={choice === 'takeoff' ? 0 : -1} onclick={() => (choice = 'takeoff')}>
         <b>Take off this desk</b><span>It keeps running, and stays in Sessions.</span>

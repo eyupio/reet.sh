@@ -27,14 +27,17 @@
   const hostName = $derived(new Map(machines.map(m => [m.agentId, m.host])))
   const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
   function counts(d: DeskSummary) {
-    let live = 0, waiting = 0
+    let live = 0, waiting = 0, reopen = 0
     for (const id of d.sessions) {
       const s = byId.get(id)
-      if (!s || terminalClosed(s.state)) continue
+      if (!s) continue
+      // To reopen: a plain shell that ended or was lost on a machine still enrolled, as Reopen all counts them. A pane
+      // never started is not one.
+      if (terminalClosed(s.state)) { if (!s.tool && hostName.has(s.agentId)) reopen++; continue }
       live++
       if (sessionStatus(s) === 'waiting') waiting++
     }
-    return { live, waiting, reopen: d.panes - live }
+    return { live, waiting, reopen }
   }
 
   let menu = $state<{ kind: 'card' | 'template' | 'templates'; desk?: DeskSummary; x: number; y: number; opener: HTMLElement } | null>(null)
@@ -87,11 +90,11 @@
             <span>{plural(d.tabs, 'tab')} · {plural(d.panes, 'pane')}</span>
             {#if d.hosts.length}<span>{d.hosts.map(h => hostName.get(h) ?? 'a removed machine').join(', ')}</span>{/if}
           </div>
-          {#if c.waiting || c.live || (d.panes && c.reopen)}
+          {#if c.waiting || c.live || c.reopen}
             <div class="pills">
               {#if c.waiting}<span class="pill w">{c.waiting} need{c.waiting === 1 ? 's' : ''} you</span>{/if}
               {#if c.live}<span class="pill">{c.live} live</span>{/if}
-              {#if d.panes && c.reopen}<span class="pill">{c.reopen} to reopen</span>{/if}
+              {#if c.reopen}<span class="pill">{c.reopen} to reopen</span>{/if}
             </div>
           {/if}
         </li>

@@ -310,8 +310,8 @@ receive.
 - **The first time** in a page's life it asks: "Type in all panes? Everything you type, paste or send from Compose goes
   to all N live panes on this tab until you turn it off or change tab." with Cancel and **Type in all N**. After that the
   button turns it on at once. Nothing about it is saved; it is off whenever a desk opens.
-- **While on**, a stripe says "Typing in N panes on this tab. Turns off when you change tab." and each receiving pane's
-  header says **Receiving**.
+- **While on**, a stripe says "Typing in N panes on this tab. Turns off when you change tab." and every pane the input goes
+  to, the one you are typing in included, says **Receiving** in its header (N counts them all).
 
 Before each input goes on, every receiving pane is checked as it is at that moment; if anything is wrong, nothing is
 sent to any other pane and the mode turns itself off with a reason:

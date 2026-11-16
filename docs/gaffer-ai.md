@@ -620,8 +620,9 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    remove it, add one (up to four), or choose **Do as one stage** to undo the
    split. **Split into parts** on a stage splits it by hand; every part then
    needs a name and a brief before the plan can be approved. The Add
-   pipelines dialog offers the same split, and lets you leave a tier's saved
-   backups off a pipeline. Every stage runs in an agent session of its
+   pipelines dialog offers the same split. Each tier there has a **Backup**
+   choice: your saved crew's backups, none, or an agent, model and effort of
+   that pipeline's own. Every stage runs in an agent session of its
    own, in the pipeline's folder and branch: it starts from that stage's
    instruction and the handover of the stage before, and the earlier stage's
    session is ended with its history kept.
@@ -659,7 +660,8 @@ be changed when you approve one. The default for who decides only sets where
 the dialog starts: an outcome started any other way, such as over MCP, is
 never given to Gaffer by it. Model and effort are typed there, because no one
 machine is in view to list them; the outcome dialog checks them against the
-project's machine.
+project's machine. A Cline tier or backup there has a field for the billing
+source it starts on; left empty, Cline uses its own.
 
 **Account → Gaffer AI → How Gaffer works** has two choices:
 

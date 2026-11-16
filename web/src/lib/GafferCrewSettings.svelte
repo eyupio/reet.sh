@@ -8,15 +8,14 @@
   import { chatToolName } from './terminal/api'
 
   const AGENTS = ['claude', 'codex', 'opencode', 'cline', 'antigravity']
-  type Row = { tool: string; model: string; effort: string }
+  // `source` is the billing source a Cline row starts on; empty is Cline's own.
+  type Row = { tool: string; model: string; effort: string; source?: string }
   type Tier = 'heavy' | 'standard' | 'light'
   const blank = (): Row => ({ tool: '', model: '', effort: '' })
   let first = $state<Record<Tier, Row>>({ heavy: blank(), standard: blank(), light: blank() })
   let spare = $state<Record<Tier, Row>>({ heavy: blank(), standard: blank(), light: blank() })
   // Further backups of a tier, tried in order after the first.
   let others = $state<Record<Tier, Row[]>>({ heavy: [], standard: [], light: [] })
-  // A Cline tier's billing source is chosen on a machine, in the outcome dialog; it is kept as it was saved.
-  let sources: Partial<Record<Tier, string>> = {}
   let below = $state<number | string>(BALANCE_LOW_PERCENT), decides = $state(false)
   let loading = $state(true), busy = $state(false), error = $state(''), notice = $state(''), savedAt = $state(0)
   const formId = $props.id()
@@ -24,10 +23,9 @@
   function show(crew: GafferCrew) {
     for (const item of CREW_TIERS) {
       const member: GafferCrewTier = crew[item.tier] ?? {}
-      first[item.tier] = { tool: member.tool ?? '', model: member.model ?? '', effort: member.effort ?? '' }
-      spare[item.tier] = { tool: member.backup?.tool ?? '', model: member.backup?.model ?? '', effort: member.backup?.effort ?? '' }
-      others[item.tier] = (member.moreBackups ?? []).map(one => ({ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '' }))
-      sources[item.tier] = member.provider
+      first[item.tier] = { tool: member.tool ?? '', model: member.model ?? '', effort: member.effort ?? '', source: member.provider ?? '' }
+      spare[item.tier] = { tool: member.backup?.tool ?? '', model: member.backup?.model ?? '', effort: member.backup?.effort ?? '', source: member.backup?.provider ?? '' }
+      others[item.tier] = (member.moreBackups ?? []).map(one => ({ tool: one.tool, model: one.model ?? '', effort: one.effort ?? '', source: one.provider ?? '' }))
     }
     below = balancePercent(crew.balanceBelow); decides = !!crew.gafferDecides; savedAt = crew.updatedAt ?? 0
   }
@@ -35,10 +33,12 @@
     try { show((await getGafferCrew()).crew) } catch (e) { error = e instanceof Error ? e.message : 'Your crew could not be read.' }
     loading = false
   })
+  // A row as it is saved: a Cline row carries its billing source when one was typed.
+  const sent = (one: Row) => ({ tool: one.tool, model: one.model.trim(), effort: one.effort.trim(), ...(one.tool === 'cline' && one.source?.trim() ? { provider: one.source.trim() } : {}) })
   const tier = (name: Tier): GafferCrewTier => {
-    const one = first[name], two = spare[name]
+    const one = first[name], two = spare[name], rest = others[name].filter(row => row.tool)
     if (!one.tool) return {}
-    return { tool: one.tool, model: one.model.trim(), effort: one.effort.trim(), ...(one.tool === 'cline' && sources[name] ? { provider: sources[name] } : {}), ...(two.tool ? { backup: { tool: two.tool, model: two.model.trim(), effort: two.effort.trim() }, ...(others[name].some(one => one.tool) ? { moreBackups: others[name].filter(one => one.tool).map(one => ({ tool: one.tool, model: one.model.trim(), effort: one.effort.trim() })) } : {}) } : {}) }
+    return { ...sent(one), ...(two.tool ? { backup: sent(two), ...(rest.length ? { moreBackups: rest.map(sent) } : {}) } : {}) }
   }
   async function save() {
     if (busy) return
@@ -65,16 +65,19 @@
         {#if first[item.tier].tool}
           <input aria-label={`${item.label} model`} placeholder="Agent’s default model" bind:value={first[item.tier].model} disabled={busy} maxlength="200" autocapitalize="off" spellcheck="false"/>
           <input aria-label={`${item.label} effort`} placeholder="Default effort" bind:value={first[item.tier].effort} disabled={busy} maxlength="40" autocapitalize="off" spellcheck="false"/>
+          {#if first[item.tier].tool === 'cline'}<input class="source" aria-label={`${item.label} Cline billing source`} placeholder="Cline’s own billing source" bind:value={first[item.tier].source} disabled={busy} maxlength="80" autocapitalize="off" spellcheck="false"/>{/if}
           <span class="slot">Backup</span>
           <select aria-label={`${item.label} backup agent`} bind:value={spare[item.tier].tool} disabled={busy} onchange={() => { if (!spare[item.tier].tool) { spare[item.tier] = blank(); others[item.tier] = [] } }}><option value="">No backup</option>{#each AGENTS as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
           {#if spare[item.tier].tool}
             <input aria-label={`${item.label} backup model`} placeholder="Agent’s default model" bind:value={spare[item.tier].model} disabled={busy} maxlength="200" autocapitalize="off" spellcheck="false"/>
             <input aria-label={`${item.label} backup effort`} placeholder="Default effort" bind:value={spare[item.tier].effort} disabled={busy} maxlength="40" autocapitalize="off" spellcheck="false"/>
+            {#if spare[item.tier].tool === 'cline'}<input class="source" aria-label={`${item.label} backup Cline billing source`} placeholder="Cline’s own billing source" bind:value={spare[item.tier].source} disabled={busy} maxlength="80" autocapitalize="off" spellcheck="false"/>{/if}
             {#each others[item.tier] as extra, n (n)}
               <span class="slot">Then</span>
               <select aria-label={`${item.label} backup ${n + 2} agent`} bind:value={extra.tool} disabled={busy} onchange={() => { if (!extra.tool) others[item.tier] = others[item.tier].filter((_, at) => at !== n) }}><option value="">Remove this backup</option>{#each AGENTS as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
               <input aria-label={`${item.label} backup ${n + 2} model`} placeholder="Agent’s default model" bind:value={extra.model} disabled={busy} maxlength="200" autocapitalize="off" spellcheck="false"/>
               <input aria-label={`${item.label} backup ${n + 2} effort`} placeholder="Default effort" bind:value={extra.effort} disabled={busy} maxlength="40" autocapitalize="off" spellcheck="false"/>
+              {#if extra.tool === 'cline'}<input class="source" aria-label={`${item.label} backup ${n + 2} Cline billing source`} placeholder="Cline’s own billing source" bind:value={extra.source} disabled={busy} maxlength="80" autocapitalize="off" spellcheck="false"/>{/if}
             {/each}
             {#if others[item.tier].length < MAX_BACKUPS - 1}<button class="link more" type="button" disabled={busy} aria-label={`Add another backup for ${item.label}`} onclick={() => others[item.tier] = [...others[item.tier], { tool: AGENTS.find(id => id !== spare[item.tier].tool) ?? AGENTS[0], model: '', effort: '' }]}>Add another backup</button>{/if}
           {:else}<span class="none">Stages stay on the first choice.</span>{/if}
@@ -104,12 +107,12 @@
   .tiers{display:grid;gap:0}.tier{display:grid;grid-template-columns:6rem minmax(0,1fr) minmax(0,1.25fr) minmax(0,1fr);gap:8px 10px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}.tier:first-child{border-top:0;padding-top:0}
   .tier-head{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px}.tier-head span{color:var(--muted);font-size:.875rem}
   .slot{line-height:44px;font-size:.875rem;font-weight:600;color:var(--muted)}.none{grid-column:3/-1;line-height:44px;font-size:.875rem;color:var(--muted)}
-  select,input{width:100%;min-width:0;min-height:44px;font:inherit}
+  select,input{width:100%;min-width:0;min-height:44px;font:inherit}.source{grid-column:2/-1}
   .link{border:0;background:none;padding:0;font:inherit;font-size:.875rem;font-weight:600;color:var(--accent-text);cursor:pointer;min-height:44px}.link:hover{text-decoration:underline}.more{grid-column:2/-1;justify-self:start}
   .row{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-items:center;gap:6px 12px;margin:0;padding:12px 0 0;border:0;border-top:1px solid var(--line);min-width:0}.row label,.who-name{font-weight:600}.who{grid-template-columns:1fr}
   .percent{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}.percent input{width:5.5rem;text-align:right;font-variant-numeric:tabular-nums}
   .choice{display:inline-flex;justify-self:start;border:1px solid var(--line);border-radius:10px;overflow:hidden}.choice label{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;font-weight:600;cursor:pointer;color:var(--muted)}.choice label+label{border-left:1px solid var(--line)}.choice label.on{color:var(--ink);background:var(--tint)}.choice input{width:auto;min-height:0;accent-color:var(--accent)}
   .feedback{margin:0;padding:8px 12px;border-radius:8px;border:1px solid var(--line)}.feedback.bad{border-color:var(--bad);color:var(--bad)}
   .actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;color:var(--muted);font-size:.875rem}
-  @media(max-width:560px){.tier{grid-template-columns:1fr}.more{grid-column:1/-1}.slot{line-height:1.4;margin-top:4px}.none{grid-column:1/-1;line-height:1.5}.row{grid-template-columns:1fr}}
+  @media(max-width:560px){.tier{grid-template-columns:1fr}.more,.source{grid-column:1/-1}.slot{line-height:1.4;margin-top:4px}.none{grid-column:1/-1;line-height:1.5}.row{grid-template-columns:1fr}}
 </style>

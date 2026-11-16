@@ -37,10 +37,14 @@
   // Each tier's backup comes from the person's saved crew, for the agents this machine can run: an added pipeline is
   // balanced across plans like the outcome's own. It is changed where the crew is, in Gaffer settings.
   let spares = $state<Partial<Record<keyof Crew, CrewSpare[]>>>({})
-  // The crew's backups can be left off a pipeline's tier here: ticked is used, unticked is not.
-  let noSpare = $state<Record<string, boolean>>({})
+  // What backs a pipeline's tier up here: the saved crew's backups ('crew', where there are any), none (''), or an
+  // agent of the person's own choosing for this pipeline, with its model and effort.
+  let picked = $state<Record<string, { tool: string; model: string; effort: string }>>({})
   const crewSpares = (tier: keyof Crew) => (spares[tier] ?? []).filter(one => tools.includes(one.tool))
-  const spare = (title: string, tier: keyof Crew) => noSpare[`${title}\n${tier}`] ? [] : crewSpares(tier)
+  const spareKey = (title: string, tier: keyof Crew) => `${title}\n${tier}`
+  const spareChoice = (title: string, tier: keyof Crew) => picked[spareKey(title, tier)]?.tool ?? (crewSpares(tier).length ? 'crew' : '')
+  const spare = (title: string, tier: keyof Crew): CrewSpare[] => { const own = picked[spareKey(title, tier)]; return !own ? crewSpares(tier) : own.tool && own.tool !== 'crew' ? [own] : own.tool === 'crew' ? crewSpares(tier) : [] }
+  const pickSpare = (title: string, tier: keyof Crew, next: Partial<{ tool: string; model: string; effort: string }>) => { const key = spareKey(title, tier); picked[key] = { ...(picked[key] ?? { tool: spareChoice(title, tier), model: '', effort: '' }), ...next } }
   const withSpares = (title: string, tier: keyof Crew, member: Crew[keyof Crew]) => { const list = spare(title, tier); return { ...member, backup: list[0], more: list.slice(1) } }
   const crewSent = (title: string): Crew => { const crew = crewOf(title); return { heavy: withSpares(title, 'heavy', crew.heavy), standard: withSpares(title, 'standard', crew.standard), light: withSpares(title, 'light', crew.light) } }
   // A stage of an added pipeline can be split into parts, as in a new outcome.
@@ -121,7 +125,19 @@
               <select aria-label={`${part.label} agent for ${item.title}`} value={role.tool} disabled={busy} onchange={event => setRole(item.title, part.tier, { tool: event.currentTarget.value, model: '', effort: '' })}>{#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}</select>
               <GafferModelSelect label={`${part.label} model for ${item.title}`} tool={role.tool} value={role.model} machine={offered[role.tool] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => setRole(item.title, part.tier, { model: next })}/>
               <select aria-label={`${part.label} effort for ${item.title}`} value={role.effort ?? ''} disabled={busy || efforts(role.tool).length < 2} onchange={event => setRole(item.title, part.tier, { effort: event.currentTarget.value })}>{#each efforts(role.tool) as level (level)}<option value={level}>{effortLabel(role.tool, level)}</option>{/each}</select>
-              {#if crewSpares(part.tier).length}<label class="crew-spare"><input type="checkbox" checked={!noSpare[`${item.title}\n${part.tier}`]} disabled={busy} onchange={event => noSpare[`${item.title}\n${part.tier}`] = !event.currentTarget.checked}/><span>Backup from your crew: {crewSpares(part.tier).map(spareWords).join(', then ')}</span></label>{/if}
+              {#if true}{@const chosen = spareChoice(item.title, part.tier)}{@const own = picked[spareKey(item.title, part.tier)]}
+              <div class="crew-spare" role="group" aria-label={`${part.label} backup for ${item.title}`}>
+                <span class="spare-name">Backup</span>
+                <select aria-label={`${part.label} backup agent for ${item.title}`} value={chosen} disabled={busy} onchange={event => pickSpare(item.title, part.tier, { tool: event.currentTarget.value, model: '', effort: '' })}>
+                  {#if crewSpares(part.tier).length}<option value="crew">From your crew: {crewSpares(part.tier).map(spareWords).join(', then ')}</option>{/if}
+                  <option value="">No backup</option>
+                  {#each tools as id (id)}<option value={id}>{chatToolName(id)}</option>{/each}
+                </select>
+                {#if own && chosen && chosen !== 'crew'}
+                  <GafferModelSelect label={`${part.label} backup model for ${item.title}`} tool={chosen} value={own.model} machine={offered[chosen] ?? null} {favourites} host={machine?.host ?? ''} disabled={busy} onchange={next => pickSpare(item.title, part.tier, { model: next })}/>
+                  <select aria-label={`${part.label} backup effort for ${item.title}`} value={own.effort} disabled={busy || efforts(chosen).length < 2} onchange={event => pickSpare(item.title, part.tier, { effort: event.currentTarget.value })}>{#each efforts(chosen) as level (level)}<option value={level}>{effortLabel(chosen, level)}</option>{/each}</select>
+                {/if}
+              </div>{/if}
             </div>{/each}
           </div>
           <p class="hint">{kinds(item).length} {kinds(item).length === 1 ? 'stage' : 'stages'}, each in an agent session of its own.</p>
@@ -151,7 +167,7 @@
   .who{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:10px;align-items:start}label{font-weight:600;display:grid;gap:6px;min-width:0}
   select{font:inherit;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0;width:100%;min-height:44px;box-sizing:border-box}
   .crew summary{min-height:44px;display:list-item;align-content:center;cursor:pointer}.crew summary span{color:var(--accent-text);margin-left:8px}
-  .crew-spare{grid-column:1/-1;margin:0;display:flex;align-items:center;gap:8px;min-height:44px;font-size:0.875rem;color:var(--muted);cursor:pointer}.crew-spare input{accent-color:var(--accent)}
+  .crew-spare{grid-column:1/-1;display:grid;grid-template-columns:subgrid;gap:6px 10px;align-items:start}.spare-name{grid-column:1/-1;font-size:0.875rem;font-weight:600;color:var(--muted)}.crew-spare select{min-width:0;width:100%}.crew-spare>select:last-child{grid-column:1/-1}
   .splits{display:grid;gap:8px;margin:8px 0 0}.split-offer{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:0.875rem;color:var(--muted)}.split-offer button{min-height:44px;border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:var(--accent-text);cursor:pointer}.split-offer button:hover{text-decoration:underline}
   .crew-rows{display:grid;gap:10px;padding:6px 0 8px}.crew-row{display:grid;grid-template-columns:1fr 1.3fr .9fr;gap:6px 10px;align-items:start}.crew-role{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;min-width:0}.crew-role span{font-size:0.875rem;color:var(--muted)}
   summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

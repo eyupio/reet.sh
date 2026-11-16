@@ -5,6 +5,10 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: in Add pipelines each tier's backup can be your crew's, none, or
+  one of that pipeline's own. The crew in Gaffer settings takes a billing
+  source for a Cline tier or backup.
+
 - Factory: a stage can be split into parts by hand, and a part added, in the
   outcome dialog and in Add pipelines; an MCP client can split a stage too.
 - Factory: a tier can have up to three backups, tried in order, and a Cline

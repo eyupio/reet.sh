@@ -255,10 +255,17 @@ try {
       await add.getByRole('combobox',{name:'Light effort for Changelog entry',exact:true}).selectOption('low')
       await expect(add.getByText('2 stages, each in an agent session of its own.',{exact:false})).toBeVisible()
       // The light tier's backup comes from the saved crew and is said, not edited here.
-      await expect(add.getByRole('group',{name:'Light crew for Changelog entry',exact:true})).toContainText('Backup from your crew: Codex · gpt-small')
-      // It can be left off this pipeline, and put back.
-      const kept=add.getByRole('checkbox',{name:'Backup from your crew: Codex · gpt-small',exact:true})
-      await expect(kept).toBeChecked();await kept.uncheck();await kept.check()
+      const lightSpare=add.getByRole('group',{name:'Light backup for Changelog entry',exact:true}),lightAgent=lightSpare.getByRole('combobox',{name:'Light backup agent for Changelog entry',exact:true})
+      await expect(lightAgent).toHaveValue('crew');await expect(lightAgent.locator('option:checked')).toHaveText('From your crew: Codex · gpt-small')
+      // It can be left off this pipeline, or replaced with a backup of this pipeline's own, and put back.
+      await expect(lightSpare.getByRole('combobox')).toHaveCount(1)
+      await lightAgent.selectOption('');await expect(lightSpare.getByRole('combobox')).toHaveCount(1)
+      await lightAgent.selectOption('codex')
+      await expect(lightSpare.getByRole('combobox',{name:'Light backup model for Changelog entry',exact:true})).toBeVisible()
+      await expect(lightSpare.getByRole('combobox',{name:'Light backup effort for Changelog entry',exact:true})).toBeVisible()
+      await lightAgent.selectOption('crew');await expect(lightSpare.getByRole('combobox')).toHaveCount(1)
+      // A tier with nothing saved starts with no backup and can be given one here.
+      await expect(add.getByRole('combobox',{name:'Standard backup agent for Changelog entry',exact:true})).toHaveValue('')
       // A stage of an added pipeline can be split into parts too; undone here, so the pipeline is added whole.
       await add.getByRole('button',{name:'Split Code of Changelog entry into parts',exact:true}).click()
       await expect(add.getByRole('group',{name:'Code parts in Changelog entry',exact:true}).getByRole('group',{name:/^Part \d of Code in Changelog entry$/})).toHaveCount(2)
@@ -325,7 +332,12 @@ try {
       await tell.getByRole('button',{name:'Send to the agent',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'instruction'})).toHaveText('Your instruction is with the agent of “Export API” for its next turn.')
       expect(box.told).toHaveLength(1);expect(box.told[0].text).toBe('Add the missing error case test.');expect(box.told[0].requestId).toMatch(/^[a-f0-9]{32}$/)
-      // …and send it back to the stage in hand or an earlier one, with the reason.
+      // …and send it back to the stage in hand or an earlier one, with the reason. Its code stage was split into two
+      // parts: a split stage is offered once, since sending back does the whole stage again from its first part.
+      const piece=outcomes[0].sessions[0],at=piece.stages.findIndex(stage=>stage.kind==='code'),whole=piece.stages[at]
+      piece.stages.splice(at,1,{...whole,part:'Ledger query',brief:'Write the query.'},{...whole,part:'Download button',brief:'Add the button.'});piece.stage++
+      // The page reads the floor again every few seconds; the card then shows both parts as steps of their own.
+      await expect(pipes.nth(0).getByRole('list',{name:'Stages of Export API',exact:true}).getByRole('listitem')).toHaveCount(9,{timeout:20000})
       await pipes.nth(0).getByRole('button',{name:'Send back…',exact:true}).click()
       const back=page.getByRole('dialog',{name:'Send “Export API” back',exact:true})
       await expect(back).toContainText('Nothing already committed is undone.')
@@ -336,6 +348,8 @@ try {
       await back.getByRole('button',{name:'Send back',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Sent'})).toHaveText('Sent “Export API” back to code. The controller is starting that stage again.')
       expect(box.back).toEqual([{stage:'code',reason:'The export leaks other tenants’ rows.',confirmed:true}])
+      // The fixture is shared with the passes that follow: the stage is one again for them.
+      piece.stages.splice(at,2,whole);piece.stage--
       expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
     } finally { await w.context.close() }
   }
@@ -436,6 +450,11 @@ try {
       await expect(below).toHaveValue('20');await below.fill('3');await below.blur();await expect(below).toHaveValue('5');await below.fill('30')
       const who=crew.getByRole('radiogroup',{name:'Who decides by default',exact:true})
       await expect(who.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked();await who.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
+      // A Cline tier can be given the billing source it starts on; any other agent has no such field.
+      const light=crew.getByRole('group',{name:'Light tier',exact:true})
+      await light.getByRole('combobox',{name:'Light agent',exact:true}).selectOption('cline')
+      await light.getByRole('textbox',{name:'Light Cline billing source',exact:true}).fill('openrouter')
+      await expect(heavy.getByRole('textbox',{name:/Cline billing source/})).toHaveCount(0)
       // A tier can have a second backup, tried after the first.
       await heavy.getByRole('button',{name:'Add another backup for Heavy',exact:true}).click()
       await heavy.getByRole('combobox',{name:'Heavy backup 2 agent',exact:true}).selectOption('opencode')
@@ -444,7 +463,7 @@ try {
       await crew.screenshot({path:`${shots}/gaffer-crew-settings-1280-light.png`})
       await crew.getByRole('button',{name:'Save crew',exact:true}).click()
       await expect(crew.getByRole('status')).toHaveText('Saved. New outcomes start from this crew.')
-      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'opus',effort:'high',backup:{tool:'codex',model:'gpt-strong',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{},balanceBelow:30,gafferDecides:true}])
+      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'opus',effort:'high',backup:{tool:'codex',model:'gpt-strong',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{tool:'cline',model:'',effort:'',provider:'openrouter'},balanceBelow:30,gafferDecides:true}])
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }

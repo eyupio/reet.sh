@@ -33,8 +33,10 @@ stops" for a stage whose plan runs low while it is running.
   `RetryPipeline` when `balanceStage` now says a backup. `Rebalanced` makes it once for a stage. A working agent is
   never ended for this.
 - **Add pipelines:** a tier's saved backups can be unticked for a pipeline; a stage can be split.
-- **Not done:** parts running at the same time (the owner chose one after another). Choosing different backups in Add
-  pipelines than the saved crew's. Checked with fakes and synthetic plan figures only.
+- **Afterwards:** Add pipelines has a backup choice for each tier (the crew's, none, or its own agent); the crew in
+  settings takes a Cline billing source as text; `gaffer-factory.e2e.mjs` sends a split stage back.
+- **Not done:** parts running at the same time (the owner chose one after another). Checked with fakes and
+  synthetic plan figures only.
 
 ## FACTORY-PARTS-1: a stage split into parts, and what earlier slices left (16 November 2026)
 

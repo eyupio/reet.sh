@@ -3,6 +3,7 @@ package terminalhost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -179,4 +180,35 @@ func (f *cloneFixture) fetchCalls() int {
 		}
 	}
 	return n
+}
+
+// A branch that changed more files than a short git listing holds must not be
+// judged by the first of them: ExecGit cuts a listing at its limit without
+// saying so, and a prefix that is all on GitHub says nothing about the rest.
+func TestCloneStatusKeepsABranchWithMoreChangedFilesThanAShortListingHolds(t *testing.T) {
+	f := newCloneFixture(t)
+	dir := f.madeClone(t)
+	name := func(i int) string { return fmt.Sprintf("a-rather-long-file-name-to-fill-the-listing-%03d", i) }
+	testGit(t, dir, "checkout", "-q", "-b", "task")
+	for i := range 150 {
+		writeFile(t, filepath.Join(dir, name(i)), name(i)+"\n")
+	}
+	testGit(t, dir, "add", ".")
+	testGit(t, dir, "-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "many")
+	testGit(t, dir, "checkout", "-q", "main")
+
+	// Only the first hundred files reach GitHub, with the content the branch has.
+	scratch := filepath.Join(f.home, "scratch-many")
+	testGit(t, f.home, "clone", "-q", f.remote, scratch)
+	for i := range 100 {
+		writeFile(t, filepath.Join(scratch, name(i)), name(i)+"\n")
+	}
+	testGit(t, scratch, "add", ".")
+	testGit(t, scratch, "-c", "user.name=Reet Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "part")
+	testGit(t, scratch, "push", "-q", "origin", "HEAD:main")
+
+	if out, err := ExecGit(t.Context(), dir, "diff", "--name-only", "-z", "main", "task"); err != nil || len(out) <= gitOutputLimit {
+		t.Fatalf("the listing was cut at %d bytes (%v)", len(out), err)
+	}
+	wantCounts(t, f.fetchedStatus(t, dir, f.fetchesFromTheStandIn), 0, 0, 0, 1)
 }

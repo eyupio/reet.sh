@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -77,7 +78,7 @@ const (
 )
 
 // outputLimit is gitListLimit for the read-only listings (including every
-// for-each-ref, which only reads) and gitOutputLimit
+// for-each-ref, which only reads, and `diff --name-only`) and gitOutputLimit
 // for every other git call. Leading "-c name=value" arguments are looked
 // past, so a hardened listing keeps its bound.
 func outputLimit(args []string) int {
@@ -87,7 +88,10 @@ func outputLimit(args []string) int {
 	isListing := len(args) > 0 &&
 		(args[0] == "status" || args[0] == "ls-files" || args[0] == "for-each-ref")
 	isWorktreeList := len(args) > 1 && args[0] == "worktree" && args[1] == "list"
-	if isListing || isWorktreeList {
+	// A list of the files a branch changed grows with the branch: cut at
+	// gitOutputLimit it would read as a shorter list that is wholly on origin.
+	isChangedFiles := len(args) > 0 && args[0] == "diff" && slices.Contains(args, "--name-only")
+	if isListing || isWorktreeList || isChangedFiles {
 		return gitListLimit
 	}
 	return gitOutputLimit

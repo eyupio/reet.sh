@@ -84,6 +84,11 @@ func (m *Manager) noteLiveDirsLocked(ctx context.Context, r *hostRegistry) bool 
 			delete(m.liveDir, id)
 		}
 	}
+	for id := range m.deskStarts {
+		if _, ok := r.Sessions[id]; !ok {
+			delete(m.deskStarts, id)
+		}
+	}
 	live := false
 	for _, s := range r.Sessions {
 		live = live || s.State.ReservesQuota()

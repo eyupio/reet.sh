@@ -96,9 +96,14 @@ type Manager struct {
 	// shell replaces the shell a plain create starts (loginShell) when set;
 	// only tests set it.
 	shell string
-	// deskNoHistory marks desk pane sessions whose history wrapper could not
-	// be written, so their shell started as a plain one (desk_shell.go).
-	deskNoHistory map[string]bool
+	// deskStarts records, per desk pane session this manager started, the
+	// shell kind whose history it keeps or why it keeps none (desk_shell.go).
+	// It is in memory only, like liveDir.
+	deskStarts map[string]deskStart
+	// deskForget holds each pane's pending second history removal; deskMu
+	// guards it (its timers run without m.mu).
+	deskMu     sync.Mutex
+	deskForget map[string]*time.Timer
 }
 
 func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
@@ -122,7 +127,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 	if git == nil {
 		git = ExecGit
 	}
-	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{}), deskNoHistory: map[string]bool{}}
+	m := &Manager{enrollment: opts.EnrollmentID, layout: opts.Layout, home: opts.Home, tmux: tmux, consent: opts.Consent, clipboardConsent: opts.ClipboardConsent, uploadConsent: opts.UploadConsent, yoloConsent: opts.YoloConsent, lookPath: exec.LookPath, toolVersion: readToolVersion, git: git, attachments: map[string]*Attachment{}, deadSeen: map[string]time.Time{}, uploadReserved: map[string]uploadReservation{}, liveDir: map[string]string{}, changed: make(chan struct{}), deskStarts: map[string]deskStart{}, deskForget: map[string]*time.Timer{}}
 	// Validate a present registry even when tmux is offline. Never silently
 	// repair an unreadable file or adopt sessions from another enrollment.
 	lock, err := m.registryLock(ctx)
@@ -798,6 +803,7 @@ func (m *Manager) Close() error {
 		return nil
 	}
 	m.closed = true
+	m.stopDeskForgets()
 	close(m.changed)
 	for _, a := range m.attachments {
 		_ = a.Close()

@@ -5,6 +5,7 @@ package terminalhost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +28,12 @@ const (
 // is not installed. Nothing outside the temporary HOME is touched.
 func deskShellFixture(t *testing.T, shell string, files map[string]string) (*Manager, string) {
 	t.Helper()
+	// REET_TEST_BASH / REET_TEST_ZSH run these tests against another build
+	// of the shell (for example bash 3.2, which macOS ships).
 	path, err := exec.LookPath(shell)
+	if other := os.Getenv("REET_TEST_" + strings.ToUpper(shell)); other != "" {
+		path, err = other, nil
+	}
 	if err != nil {
 		t.Skipf("%s is not installed on this machine, so the %s wrapper was not run", shell, shell)
 	}
@@ -420,7 +426,7 @@ func TestForgetDeskPaneRemovesFile(t *testing.T) {
 	if err := os.WriteFile(file, []byte("late\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(300 * time.Millisecond)
+	waitNoPendingForget(t, m)
 	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("history file written late is still there: %v", err)
 	}
@@ -433,4 +439,176 @@ func TestForgetDeskPaneRemovesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = other
+}
+
+// waitNoPendingForget waits until no second removal is waiting, so none fires
+// after the test's temporary HOME is gone.
+func waitNoPendingForget(t *testing.T, m *Manager) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for m.pendingDeskForgets() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("a second history removal is still waiting")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// A shell started for the same pane before the second removal calls it off:
+// the new shell's history is kept.
+func TestForgetDeskPaneKeepsNewShellsHistory(t *testing.T) {
+	old := deskForgetAgain
+	deskForgetAgain = 200 * time.Millisecond
+	t.Cleanup(func() { deskForgetAgain = old })
+	m, home := deskShellFixture(t, "bash", nil)
+	s := createDeskShell(t, m, 1, deskPaneA)
+	if _, err := m.End(context.Background(), testRequestID(9), s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ForgetDeskSession(context.Background(), s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if m.pendingDeskForgets() != 1 {
+		t.Fatal("no second removal was scheduled")
+	}
+	again := createDeskShell(t, m, 2, deskPaneA)
+	if m.pendingDeskForgets() != 0 {
+		t.Fatal("the new shell did not call off the second removal")
+	}
+	typeInShell(t, m, again.ID, "echo reet-kept")
+	file := deskHistoryFile(home, m.shell, deskPaneA)
+	waitFileHas(t, file, "echo reet-kept")
+	time.Sleep(3 * deskForgetAgain)
+	if data, err := os.ReadFile(file); err != nil || !strings.Contains(string(data), "echo reet-kept") {
+		t.Fatalf("the new shell's history went: %q %v", data, err)
+	}
+}
+
+// Close calls off a waiting second removal.
+func TestCloseStopsPendingForget(t *testing.T) {
+	m, _ := deskShellFixture(t, "bash", nil)
+	s := createDeskShell(t, m, 1, deskPaneA)
+	if err := m.ForgetDeskSession(context.Background(), s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if m.pendingDeskForgets() != 1 {
+		t.Fatal("no second removal was scheduled")
+	}
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if m.pendingDeskForgets() != 0 {
+		t.Fatal("Close left a second removal waiting")
+	}
+}
+
+// A SHELL naming a bash that is not there starts the plain shell exactly as
+// today (tmux falls back to /bin/sh), not the missing path, and the pane
+// reports no history of its own.
+func TestDeskShellMissingShellStartsPlain(t *testing.T) {
+	m, opts := managerFixture(t)
+	m.shell = filepath.Join(opts.Home, "no-such", "bash")
+	s := createDeskShell(t, m, 1, deskPaneA)
+	if s.State != terminalproto.Running {
+		t.Fatalf("state %s", s.State)
+	}
+	typeInShell(t, m, s.ID, "echo reet-alive-$((3+4))")
+	waitScreen(t, m, s.ID, "reet-alive-7")
+	if _, err := os.Stat(filepath.Join(opts.Home, ".reet", "desks")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a wrapper was written for a missing shell: %v", err)
+	}
+	history := readHistory(t, m, s.ID, true)
+	if len(history.Sources) == 0 || history.Sources[0] != (terminalproto.CommandHistorySource{Source: "pane", Reason: deskNoHistoryReason}) {
+		t.Fatalf("sources %+v", history.Sources)
+	}
+}
+
+// The history read uses the shell kind recorded at create, not SHELL as it is
+// later.
+func TestCommandHistoryUsesShellRecordedAtCreate(t *testing.T) {
+	m, home := deskShellFixture(t, "bash", nil)
+	s := createDeskShell(t, m, 1, deskPaneA)
+	if err := os.WriteFile(deskHistoryFile(home, "bash", deskPaneA), []byte("make test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.shell = "/bin/sh"
+	history := readHistory(t, m, s.ID, true)
+	if len(history.Entries) == 0 || history.Entries[0] != (terminalproto.CommandHistoryEntry{Command: "make test", Source: "pane", Timestamp: history.Entries[0].Timestamp}) {
+		t.Fatalf("entries %+v sources %+v", history.Entries, history.Sources)
+	}
+}
+
+// A ~/.bash_profile that sources ~/.bashrc, as most do, loads it once.
+func TestBashWrapperLoadsBashrcOnce(t *testing.T) {
+	m, home := deskShellFixture(t, "bash", map[string]string{
+		".bash_profile": ". \"$HOME/.bashrc\"\n",
+		".bashrc":       "echo loaded >> \"$HOME/bashrc-loads\"\n",
+	})
+	s := createDeskShell(t, m, 1, deskPaneA)
+	typeInShell(t, m, s.ID, "echo reet-ready-$((1+1))")
+	waitScreen(t, m, s.ID, "reet-ready-2")
+	data, err := os.ReadFile(filepath.Join(home, "bashrc-loads"))
+	if err != nil || strings.Count(string(data), "loaded") != 1 {
+		t.Fatalf("~/.bashrc loaded %d times: %q %v", strings.Count(string(data), "loaded"), data, err)
+	}
+}
+
+// The first command a shell with no pane history yet runs is on disk at the
+// next prompt, and the shell's own list holds only the person's commands.
+// (bash 3.2 saves nothing with history -a until its list held a line from
+// before the shell; the wrapper's placeholder covers that and is dropped.)
+func TestBashWrapperSavesFirstCommandAndHidesPlaceholder(t *testing.T) {
+	m, home := deskShellFixture(t, "bash", nil)
+	s := createDeskShell(t, m, 1, deskPaneA)
+	file := deskHistoryFile(home, m.shell, deskPaneA)
+	typeInShell(t, m, s.ID, "echo reet-a-$((1))")
+	waitFileHas(t, file, "echo reet-a-")
+	typeInShell(t, m, s.ID, "echo reet-b-$((1))")
+	waitFileHas(t, file, "echo reet-b-")
+	typeInShell(t, m, s.ID, "history; echo reet-listed-$((2))")
+	screen := waitScreen(t, m, s.ID, "reet-listed-2")
+	data, _ := os.ReadFile(file)
+	if strings.Contains(screen, deskBashSeedLine) || strings.Contains(string(data), deskBashSeedLine) {
+		t.Fatalf("the placeholder shows:\n%s\nfile:\n%s", screen, data)
+	}
+}
+
+// bashVersion is the major and minor version of the bash at path.
+func bashVersion(t *testing.T, path string) (int, int) {
+	t.Helper()
+	out, err := exec.Command(path, "-c", `echo "${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]}"`).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var major, minor int
+	if _, err := fmt.Sscan(string(out), &major, &minor); err != nil {
+		t.Fatal(err)
+	}
+	return major, minor
+}
+
+// PROMPT_COMMAND as an array (bash 5.1 and later) keeps its other elements.
+func TestBashWrapperKeepsPromptCommandArray(t *testing.T) {
+	m, home := deskShellFixture(t, "bash", map[string]string{
+		".bash_profile": "PROMPT_COMMAND=('touch \"$HOME/pc0\"' 'touch \"$HOME/pc1\"')\n",
+	})
+	if major, minor := bashVersion(t, m.shell); major < 5 || major == 5 && minor < 1 {
+		t.Skipf("bash %d.%d does not run PROMPT_COMMAND as an array", major, minor)
+	}
+	s := createDeskShell(t, m, 1, deskPaneA)
+	typeInShell(t, m, s.ID, "echo reet-array-$((1+1))")
+	waitScreen(t, m, s.ID, "reet-array-2")
+	waitFileHas(t, deskHistoryFile(home, m.shell, deskPaneA), "echo reet-array-")
+	for _, name := range []string{"pc0", "pc1"} {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			if _, err := os.Stat(filepath.Join(home, name)); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("PROMPT_COMMAND element %s did not run", name)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 }

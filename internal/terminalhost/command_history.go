@@ -70,15 +70,11 @@ func (m *Manager) paneHistoryOf(r hostRegistry, s ManagedSession) *paneHistory {
 	if pane == "" {
 		return nil
 	}
-	shell := m.loginShell()
-	file := deskHistoryFile(m.home, shell, pane)
-	switch {
-	case file == "":
-		return &paneHistory{reason: deskNoHistoryReason}
-	case m.deskNoHistory[s.ID]:
-		return &paneHistory{reason: deskSetupFailedReason}
+	start := m.deskStartOf(s.ID)
+	if start.reason != "" {
+		return &paneHistory{reason: start.reason}
 	}
-	return &paneHistory{file: file, kind: deskShellKind(shell)}
+	return &paneHistory{file: deskHistoryFile(m.home, start.kind, pane), kind: start.kind}
 }
 
 type rankedCommand struct {

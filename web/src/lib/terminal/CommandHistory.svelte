@@ -33,7 +33,7 @@
    {/snippet}
    {#if loading}<p class="empty" role="status">Reading saved command history…</p>{:else if pane&&!error}
     {#if source==='all'||source==='pane'}<section class="group" aria-label="This pane"><h3>This pane</h3>
-     {#if !pane.available}<p class="source-note">{pane.reason||'This pane’s own history needs bash or zsh.'}</p>{:else if paneMatches.length}{@render list(paneMatches,0,'This pane’s saved commands')}{:else if snapshot.entries.some(item=>item.source==='pane')}<p class="source-note">No commands in this pane match this search.</p>{:else}<p class="source-note">No commands saved in this pane yet.</p>{/if}
+     {#if !pane.available}<p class="source-note">{pane.reason||"This pane's own history needs bash or zsh."}</p>{:else if paneMatches.length}{@render list(paneMatches,0,'This pane’s saved commands')}{:else if snapshot.entries.some(item=>item.source==='pane')}<p class="source-note">No commands in this pane match this search.</p>{:else}<p class="source-note">No commands saved in this pane yet.</p>{/if}
     </section>{/if}
     {#if source!=='pane'}<section class="group" aria-label="This machine"><h3>This machine</h3>
      {#if machineMatches.length}{@render list(machineMatches,paneMatches.length,'Saved shell commands')}{:else if snapshot.entries.some(item=>item.source!=='pane')}<p class="source-note">No commands match this search.</p>{:else}<p class="source-note">No saved commands yet. History comes from this OS user’s Bash/Zsh files.</p>{/if}

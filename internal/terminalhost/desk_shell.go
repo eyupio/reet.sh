@@ -114,12 +114,35 @@ case ${REET_DESK_PANE-} in
 *)
 	HISTFILE=` + shellQuoteLiteral(deskHistoryDir(home)) + `/"$REET_DESK_PANE".bash
 	shopt -s histappend
-	PROMPT_COMMAND="history -a${PROMPT_COMMAND:+
+	if [ "${BASH_VERSINFO[0]}" -lt 4 ] && [ ! -s "$HISTFILE" ]; then
+		# bash 3.2 (macOS) appends with history -a only while its list holds
+		# a line from before this shell, so a pane with no history yet would
+		# save nothing until the shell exits. A placeholder is read into the
+		# list (never into the file) and dropped once the first command is
+		# saved.
+		history -r ` + shellQuoteLiteral(deskBashSeed(home)) + `
+		__reet_unseed() {
+			# Until a command follows the placeholder, keep it.
+			case $(fc -ln -1 2>/dev/null) in *'` + deskBashSeedLine + `'*) return ;; esac
+			case $(fc -ln 1 1 2>/dev/null) in *'` + deskBashSeedLine + `'*) history -d 1 ;; esac
+			__reet_unseed() { :; }
+		}
+		PROMPT_COMMAND="history -a; __reet_unseed${PROMPT_COMMAND:+
 $PROMPT_COMMAND}"
+	else
+		PROMPT_COMMAND="history -a${PROMPT_COMMAND:+
+$PROMPT_COMMAND}"
+	fi
 	;;
 esac
 `
 }
+
+// deskBashSeedLine is the placeholder bash 3.2 is given for a pane with no
+// history yet (see deskBashRCText). Run by mistake, it does nothing.
+const deskBashSeedLine = ": reet desk history"
+
+func deskBashSeed(home string) string { return filepath.Join(deskShellDir(home), "bash-seed") }
 
 // deskZshSource sources the person's own copy of name from their ZDOTDIR (or
 // home) at the top level, so their typeset and setopt lines keep their usual
@@ -251,6 +274,9 @@ func prepareDeskShell(home, shell, pane string) error {
 		}
 	}
 	if kind == "bash" {
+		if err := writePrivateFile(deskBashSeed(home), []byte(deskBashSeedLine+"\n")); err != nil {
+			return err
+		}
 		if err := writePrivateFile(deskBashRC(home), []byte(deskBashRCText(home))); err != nil {
 			return err
 		}
@@ -278,21 +304,53 @@ func (m *Manager) loginShell() string {
 	return ""
 }
 
+// deskStart is how a desk pane's shell was started: the shell kind whose
+// history file it keeps, or why it keeps none. The history read uses it rather
+// than looking at SHELL again.
+type deskStart struct {
+	kind, reason string
+}
+
+// executableFile reports whether path is a regular file someone may run, the
+// check tmux makes before it uses a default shell (falling back to /bin/sh).
+func executableFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
+}
+
 // deskShellStart is the command and environment for a desk pane's shell, or
-// nothing (a plain create) for a shell without history support or when the
-// wrapper could not be written. The caller holds m.mu.
+// nothing (a plain create, exactly as today) for a shell without history
+// support, a shell that is not there to run, or when the wrapper could not be
+// written. A removal of the pane's history still pending from an earlier end
+// is called off first. The caller holds m.mu.
 func (m *Manager) deskShellStart(sessionID, pane string) (argv, env []string) {
-	delete(m.deskNoHistory, sessionID)
+	m.cancelDeskForget(pane)
 	shell := m.loginShell()
 	argv, env, ok := deskShellCommand(m.home, shell, pane, true)
-	if !ok {
+	switch {
+	case !ok || !executableFile(shell):
+		m.deskStarts[sessionID] = deskStart{reason: deskNoHistoryReason}
+		return nil, nil
+	case prepareDeskShell(m.home, shell, pane) != nil:
+		m.deskStarts[sessionID] = deskStart{reason: deskSetupFailedReason}
 		return nil, nil
 	}
-	if err := prepareDeskShell(m.home, shell, pane); err != nil {
-		m.deskNoHistory[sessionID] = true
-		return nil, nil
-	}
+	m.deskStarts[sessionID] = deskStart{kind: deskShellKind(shell)}
 	return argv, env
+}
+
+// deskStartOf is how the session's desk shell was started: as recorded at
+// create, or, for a session this manager did not start (reet restarted since),
+// worked out from the shell a plain create starts. The caller holds m.mu.
+func (m *Manager) deskStartOf(sessionID string) deskStart {
+	if start, ok := m.deskStarts[sessionID]; ok {
+		return start
+	}
+	shell := m.loginShell()
+	if deskShellKind(shell) == "" || !executableFile(shell) {
+		return deskStart{reason: deskNoHistoryReason}
+	}
+	return deskStart{kind: deskShellKind(shell)}
 }
 
 // deskPaneOf is the desk pane the session was created for, from its create
@@ -303,29 +361,6 @@ func deskPaneOf(r hostRegistry, s ManagedSession) string {
 		return ""
 	}
 	return op.Create.Desk.Pane
-}
-
-// deskPaneFor reads the session's desk pane from the registry ("" for none).
-func (m *Manager) deskPaneFor(ctx context.Context, sessionID string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return "", ErrManagerClosed
-	}
-	lock, err := m.registryLock(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer lock.Close()
-	r, err := m.loadRegistry()
-	if err != nil {
-		return "", err
-	}
-	s, ok := r.Sessions[sessionID]
-	if !ok {
-		return "", ErrSessionMissing
-	}
-	return deskPaneOf(r, s), nil
 }
 
 // forgetDeskPane removes the pane's history files. A file already gone is not
@@ -345,19 +380,86 @@ func (m *Manager) forgetDeskPane(pane string) error {
 
 // ForgetDeskSession removes the history file of the desk pane the session was
 // created for (End.ForgetDesk), now and once more after deskForgetAgain. A
-// session without a desk pane has nothing to remove.
+// shell started for the same pane before then calls the second removal off,
+// so its new history is kept. A session without a desk pane has nothing to
+// remove.
 func (m *Manager) ForgetDeskSession(ctx context.Context, sessionID string) error {
 	if !terminalproto.ValidID(sessionID) {
 		return terminalproto.ErrInvalid
 	}
-	pane, err := m.deskPaneFor(ctx, sessionID)
+	// m.mu is held throughout, so a create for the same pane (which holds it
+	// too) comes wholly before or after this removal.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return ErrManagerClosed
+	}
+	lock, err := m.registryLock(ctx)
 	if err != nil {
 		return err
 	}
+	defer lock.Close()
+	r, err := m.loadRegistry()
+	if err != nil {
+		return err
+	}
+	s, ok := r.Sessions[sessionID]
+	if !ok {
+		return ErrSessionMissing
+	}
+	pane := deskPaneOf(r, s)
 	if pane == "" {
 		return nil
 	}
 	err = m.forgetDeskPane(pane)
-	time.AfterFunc(deskForgetAgain, func() { _ = m.forgetDeskPane(pane) })
+	m.scheduleDeskForget(pane)
 	return err
+}
+
+// scheduleDeskForget removes the pane's history again after deskForgetAgain,
+// unless a new shell for the pane or Close calls it off first.
+func (m *Manager) scheduleDeskForget(pane string) {
+	m.deskMu.Lock()
+	defer m.deskMu.Unlock()
+	if old := m.deskForget[pane]; old != nil {
+		old.Stop()
+	}
+	var t *time.Timer
+	t = time.AfterFunc(deskForgetAgain, func() {
+		m.deskMu.Lock()
+		defer m.deskMu.Unlock()
+		if m.deskForget[pane] != t {
+			return // called off, or replaced by a later end
+		}
+		delete(m.deskForget, pane)
+		_ = m.forgetDeskPane(pane)
+	})
+	m.deskForget[pane] = t
+}
+
+// cancelDeskForget calls off a pending second removal of the pane's history.
+func (m *Manager) cancelDeskForget(pane string) {
+	m.deskMu.Lock()
+	defer m.deskMu.Unlock()
+	if t := m.deskForget[pane]; t != nil {
+		t.Stop()
+		delete(m.deskForget, pane)
+	}
+}
+
+// stopDeskForgets calls off every pending second removal (Close).
+func (m *Manager) stopDeskForgets() {
+	m.deskMu.Lock()
+	defer m.deskMu.Unlock()
+	for pane, t := range m.deskForget {
+		t.Stop()
+		delete(m.deskForget, pane)
+	}
+}
+
+// pendingDeskForgets is how many second removals are still waiting.
+func (m *Manager) pendingDeskForgets() int {
+	m.deskMu.Lock()
+	defer m.deskMu.Unlock()
+	return len(m.deskForget)
 }

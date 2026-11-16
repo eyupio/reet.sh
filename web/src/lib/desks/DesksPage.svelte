@@ -118,7 +118,7 @@
       open(created.id)
     } catch (e) { failed(e, 'A new desk could not be made just now. Try again.') } finally { busy = false }
   }
-  async function fromTemplate(t: DeskSummary) {
+  async function fromTemplate(t: Pick<DeskSummary, 'id' | 'name' | 'colour'>) {
     if (busy) return
     busy = true; notice = null
     try {
@@ -205,7 +205,7 @@
 {#if notice}<p class="page-notice" class:bad={notice.bad} role={notice.bad ? 'alert' : 'status'}>{notice.text}</p>{/if}
 {#if route.kind === 'desk'}
   <DeskScreen bind:this={screen} id={route.id} {desks} {sessions} {machines} {ready}
-    onopen={open} onlist={showList} onnew={() => void newDesk()} ondesk={(a, d) => void desk(a, d)} onrefresh={refreshLive} onsignedout={e => signedOut(e) || onsignedout(e)} />
+    onopen={open} onlist={showList} onnew={() => void newDesk()} ondesk={(a, d) => void desk(a, d)} onfromtemplate={t => void fromTemplate(t)} onrefresh={refreshLive} onsignedout={e => signedOut(e) || onsignedout(e)} />
 {:else if deciding || !listed && !listFailed}
   <div class="loading" role="status">Reading your desks…</div>
 {:else}

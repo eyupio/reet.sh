@@ -9,7 +9,8 @@
   import { GROUP_CHOICES, attentionCount, needsYou, projectWorktrees, railState, sessionOwners, shortAge, stateWord, type GroupBy, type NeedCard } from '../home'
   import { sessionStatus } from '../sessionStatus'
   import { PROJECT_COLOURS, projectColourHex } from '../projectColour'
-  import { agentChoicesOf, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
+  import { getDesk, listDesks } from '../desks/api'
+  import { agentChoicesOf, deskPlaces, sessionColourOf, filterSessions, filtersOn, offlineSentence, rowMeta, searchSessions, sessionGroups, tabFromMenu, type DeskPlace, type MachineName, type SessionFilter, type SessionSort } from '../sessions'
   import { folderProjectList, listProjectGroups, machineHealth, markSessionSeen, sessionHref, terminalMachines, terminalSessions, TerminalError,
     type FolderProject, type MachineHealth, type ProjectGroup, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import SessionActions from './SessionActions.svelte'
@@ -87,7 +88,18 @@
   })
   // A machine the health report says is not connected is offline; with no report nothing is called offline.
   const offline = $derived(new Set((health ?? []).filter(m => m.state !== 'connected').map(m => m.agentId)))
-  const colourOf = (s: TerminalSession) => sessionColourOf(s, colors, projects ?? [])
+  // Which desk each session is on, read once as the page opens (and again after Add to a desk): the desks list names the
+  // sessions each desk holds, and only the desks holding one are read for the pane and its colour.
+  let places = $state<Map<string, DeskPlace>>(new Map())
+  async function loadPlaces() {
+    try {
+      const holding = (await listDesks()).filter(d => !d.template && !((d as { schema?: number }).schema! > 1) && d.sessions.length > 0)
+      const read = await Promise.allSettled(holding.map(d => getDesk(d.id)))
+      if (life.signal.aborted) return
+      places = deskPlaces(read.flatMap(r => r.status === 'fulfilled' && r.value.schema <= 1 ? [r.value] : []))
+    } catch { /* the rows show no desk; nothing else depends on it */ }
+  }
+  const colourOf = (s: TerminalSession) => sessionColourOf(s, colors, places.get(s.id)?.colour, projects ?? [])
   const colourName = (id: string) => PROJECT_COLOURS.find(c => c.id === id)?.name ?? ''
   const cards = $derived(needsYou(sessions ?? [], now, sessionOwners(sessions ?? [], projects ?? []), machines))
   const needing = $derived(new Set(cards.map(c => c.sessionId)))
@@ -196,6 +208,7 @@
 
   onMount(() => {
     void load()
+    void loadPlaces()
     void getProfile().then(p => { removeDefault = p.profile.terminalRemoveOnClose ?? false; factorySessionEndDefault = factorySessionEndModeOf(p.profile.factorySessionEndMode) }).catch(() => { /* the safe default keeps history */ })
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
     const wake = () => { if (document.visibilityState === 'visible') void load() }
@@ -283,6 +296,10 @@
                     <span class="word" title={word.source}>{word.word}{#if offline.has(s.agentId)}{' '}<span class="lk">· last known</span>{/if}</span>
                     <span class="age"><span class="vh">changed </span>{shortAge(Math.max(0, now - s.updatedAt))}<span class="vh"> ago</span></span>
                   </a>
+                  {#if places.get(s.id)}
+                    {@const place = places.get(s.id)!}
+                    <a class="desk-chip" href={`/desks/${encodeURIComponent(place.desk)}#${encodeURIComponent(place.pane)}`} title={`On the desk ${place.name}`} aria-label={`On the desk ${place.name}`}><span class="desk-icon" aria-hidden="true"></span><span class="desk-name">{place.name}</span></a>
+                  {/if}
                   <button type="button" class="more" aria-label={`Actions for ${s.title}`} aria-haspopup="menu" aria-expanded={openActionsFor === s.id} onclick={event => openMenu(event, s)} oncontextmenu={event => openMenu(event, s)} onkeydown={event => { if (menuKeyOpens(event)) openMenu(event, s) }}>
                     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
                   </button>
@@ -342,7 +359,7 @@
   </div>
 {/if}
 <SessionActions bind:this={actions} machines={machines} {offline} {terminals} {removeDefault} {factorySessionEndDefault}
-  onsignedout={signOut} onchanged={() => load(true)} onnotice={(n) => (notice = n)}
+  onsignedout={signOut} onchanged={() => load(true)} ondesks={() => void loadPlaces()} onnotice={(n) => (notice = n)}
   onopen={(item) => (openActionsFor = item.id)} onclose={() => (openActionsFor = '')} />
 {#if commandsOpen}<CommandLibrary onclose={() => void closeCommands()} />{/if}
 {#if worktreesFor}
@@ -421,6 +438,13 @@
   .session-row[data-status='waiting'], .session-row[data-status='working'], .session-row[data-status='starting'], .session-row[data-status='failed'] { background: color-mix(in srgb, var(--status) 5%, transparent); box-shadow: inset 3px 0 var(--status); }
   .session-row[data-status='waiting'] .title, .session-row[data-status='working'] .title, .session-row[data-status='failed'] .title { color: var(--status); }
   .age { flex: none; min-width: 28px; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--muted); }
+  /* The desk a session is on: a chip after the row's words, opening the desk at that pane. */
+  .desk-chip { flex: none; align-self: center; display: inline-flex; align-items: center; gap: 6px; max-width: 160px; min-height: 30px; padding: 0 10px; margin-left: 4px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink-soft); font-size: 14px; text-decoration: none; }
+  .desk-chip:hover { background: var(--tint); color: var(--ink); }
+  .desk-chip:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+  .desk-icon { width: 10px; height: 8px; flex: none; border: 1.5px solid currentColor; border-radius: 2px; background: linear-gradient(currentColor, currentColor) 50% 0 / 1.5px 100% no-repeat; }
+  .desk-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  @media (pointer: coarse) { .desk-chip { min-height: 44px; } }
   .more { flex: none; width: 44px; display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
   .more:hover { color: var(--accent-text); background: var(--tint); }
   .more svg { width: 18px; height: 18px; }
@@ -458,6 +482,7 @@
     /* The mock-up's phone row: dot, title, state word and age. The agent line and the worktree badge are left out to keep the
        title readable (YOLO stays); "last known" is still read out, and the group says the machine is offline. */
     .meta, .badge.wt { display: none; }
+    .desk-chip { max-width: 96px; padding: 0 8px; }
     .lk { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     /* The colour's name is still read out; the strip shows it. */
     .colour-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

@@ -5,11 +5,12 @@ import ts from 'typescript'
 
 const url = (src) => `data:text/javascript;base64,${Buffer.from(src).toString('base64')}`
 const transpile = (name, rewrite = s => s) => ts.transpileModule(rewrite(readFileSync(new URL(name, import.meta.url), 'utf8')), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
-const terminalStub = url('export class TerminalError extends Error {}')
+const terminalStub = url(transpile('../terminal/api.ts'))
 const apiUrl = url(transpile('./api.ts', s => s.replace("'../terminal/api'", `'${terminalStub}'`)))
 const { StaleDesk } = await import(apiUrl)
 const { apply, createAutosave } = await import(url(transpile('./autosave.ts', s => s
   .replace("'../projectColour'", `'${url(transpile('../projectColour.ts'))}'`)
+  .replace("'../terminal/api'", `'${terminalStub}'`)
   .replace("'./api'", `'${apiUrl}'`)
   .replace("'./tree'", `'${url(transpile('./tree.ts'))}'`))))
 
@@ -85,6 +86,16 @@ test('apply keeps the tab and pane limits', () => {
   assert.equal(apply(deskOf(1, tabs), { kind: 'addTab', tab: tabOf('new', 'a') }), null)
   const one = apply(deskOf(1), { kind: 'addTab', tab: tabOf('t2', 'a'), index: 0 })
   assert.deepEqual(one.doc.tabs.map(t => t.id), ['t2', 't1'])
+})
+
+test('a rename whose name holds a hidden character does not apply', () => {
+  const d = deskOf(1)
+  for (const name of ['a\nb', 'a\u0007b', 'a b', 'a‮b', 'a⁦b', 'a​b', 'a‎b', 'a؜b', 'a\u0085b']) {
+    assert.equal(apply(d, { kind: 'renameTab', tab: 't1', name }), null, JSON.stringify(name))
+    assert.equal(apply(d, { kind: 'renamePane', tab: 't1', pane: 'a', name }), null, JSON.stringify(name))
+  }
+  assert.equal(apply(d, { kind: 'renameTab', tab: 't1', name: 'déploy 🚀' }).doc.tabs[0].name, 'déploy 🚀')
+  assert.equal(apply(d, { kind: 'renamePane', tab: 't1', pane: 'a', name: 'logs' }).doc.tabs[0].panes.a.name, 'logs')
 })
 
 test('setSession binds a session to a pane, once across the desk', () => {

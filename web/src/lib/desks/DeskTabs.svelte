@@ -1,13 +1,14 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { projectColourHex, type ProjectColour } from '../projectColour'
+  import { stripHiddenChars } from '../terminal/api'
   import DeskMenu from './DeskMenu.svelte'
   import type { Tab } from './tree'
 
   // The desk's tab bar: flat tabs with a colour marker, and an underline in the tab's colour on the current one. Click to
   // switch; double-click or F2 to rename in place; drag to reorder; a menu (right-click, Shift+F10 or ⋮) with Rename,
-  // Colour, Duplicate tab and Close tab; + opens New tab. A hidden tab whose shell waits for the person carries a mark.
-  let { tabs, active, panelId, waiting, full = false, onselect, onrename, oncolour, onduplicate, onclose, onreorder, onnew }: {
+  // Colour, Duplicate tab and Close tab; + opens a menu: New shell, Start an agent, Add a running session. A hidden tab whose shell waits for the person carries a mark.
+  let { tabs, active, panelId, waiting, full = false, adding = true, menuOpen = false, onselect, onrename, oncolour, onduplicate, onclose, onreorder, onnew }: {
     tabs: Tab[]
     active: string
     /** The id of the element the tabs control. */
@@ -16,6 +17,10 @@
     waiting: ReadonlySet<string>
     /** At the 20-tab limit: + and Duplicate are off. */
     full?: boolean
+    /** + is offered (not on a template). */
+    adding?: boolean
+    /** The menu + opens is showing. */
+    menuOpen?: boolean
     onselect: (id: string) => void
     onrename: (id: string, name: string) => void
     oncolour: (id: string, colour: ProjectColour) => void
@@ -121,7 +126,7 @@
       {@const on = t.id === active}
       <div class="tab" class:on class:dragging={dragging === t.id} data-tab={t.id} style={`--tc:${t.colour ? projectColourHex(t.colour) : 'transparent'}`} data-colour={t.colour || undefined}>
         {#if renaming === t.id}
-          <input class="rename" aria-label="Tab name" maxlength="80" bind:this={input} bind:value={draft}
+          <input class="rename" aria-label="Tab name" maxlength="80" bind:this={input} bind:value={draft} oninput={() => { const clean = stripHiddenChars(draft); if (clean !== draft) draft = clean }}
             onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); void finishRename(true) } else if (event.key === 'Escape') { event.preventDefault(); void finishRename(false) } }}
             onblur={() => void finishRename(true)} />
         {:else}
@@ -139,7 +144,7 @@
       </div>
     {/each}
   </div>
-  <button type="button" class="add" aria-label="New tab" title={full ? 'A desk holds at most 20 tabs.' : 'New tab'} disabled={full} onclick={event => onnew(event.currentTarget as HTMLElement)}>+</button>
+  {#if adding}<button type="button" class="add" aria-label="New tab" aria-haspopup="menu" aria-expanded={menuOpen} title={full ? 'A desk holds at most 20 tabs.' : 'New tab'} disabled={full} onclick={event => onnew(event.currentTarget as HTMLElement)}>+</button>{/if}
 </div>
 
 {#if menu && menuTab}

@@ -2,6 +2,7 @@
 // pause, one save at a time. When a save loses to a newer server copy the queued changes are replayed onto it, and any
 // that no longer apply are dropped.
 import { projectColour, type ProjectColour } from '../projectColour'
+import { hasHiddenChars } from '../terminal/api'
 import { StaleDesk, type Desk } from './api'
 import { MAX_PANES, MAX_TABS, closePane, movePane, preset, setRatio, splitPane, swapPanes, type Pane, type Split, type Tab } from './tree'
 
@@ -32,6 +33,8 @@ export type SaveState = 'saved' | 'saving' | 'unsaved' | 'stale'
 const MAX_NAME = 80
 const MAX_START = 2000
 const nameOk = (s: unknown) => typeof s === 'string' && [...s].length <= MAX_NAME
+// A rename holds no hidden character (the server refuses a tab or pane name with one, so it would never save).
+const renameOk = (s: unknown) => nameOk(s) && !hasHiddenChars(s as string)
 const colourOk = (c: unknown) => typeof c === 'string' && projectColour(c) === c
 
 /** A desk's content as a string for comparing, leaving out what the server stamps or other windows move: version,
@@ -83,11 +86,11 @@ function applyChange(desk: Desk, c: Change): Desk | null {
     case 'colourDesk':
       return colourOk(c.colour) ? { ...desk, colour: c.colour } : null
     case 'renameTab':
-      return nameOk(c.name) ? withTab(c.tab, t => ({ ...t, name: c.name })) : null
+      return renameOk(c.name) ? withTab(c.tab, t => ({ ...t, name: c.name })) : null
     case 'colourTab':
       return colourOk(c.colour) ? withTab(c.tab, t => ({ ...t, colour: c.colour })) : null
     case 'renamePane':
-      return nameOk(c.name) ? withPane(c.tab, c.pane, (t, p) => editPane(t, p, { name: c.name })) : null
+      return renameOk(c.name) ? withPane(c.tab, c.pane, (t, p) => editPane(t, p, { name: c.name })) : null
     case 'colourPane':
       return colourOk(c.colour) ? withPane(c.tab, c.pane, (t, p) => editPane(t, p, { colour: c.colour })) : null
     case 'start':

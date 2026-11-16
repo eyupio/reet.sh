@@ -44,6 +44,9 @@ let profileTheme = 'light'
 let desks, sessions, patches, patched, ends, creates, staleNext, hidden, sockets, failing, ticketDelay, attachingNow, attachingMost
 // Reopens: what each sent, the answers some panes get instead, how many desks moved on first, and how many were in flight.
 let reopens, reopenFail, staleReopens, reopenDelay, reopenNow, reopenMost, conflicted
+// Session renames, the account's folder projects, creates answered with a refusal (in order), desks whose writes fail and
+// whether a desk read fails.
+let renames, folderProjects, createFail, patchFail, deskReadFail
 function reset({ empty = false } = {}) {
   sessions = [running('sess-deploy', 'deploy'), running('sess-logs', 'logs'), running('sess-db', 'db'),
     ...['a', 'b', 'c', 'd1', 'd2', 'd3', 'd4'].map(x => running(`sess-${x}`, x))]
@@ -62,6 +65,9 @@ function reset({ empty = false } = {}) {
   sockets = new Map(); failing = new Set(); ticketDelay = 0; attachingNow = 0; attachingMost = 0
   reopens = []; reopenFail = new Map(); staleReopens = 0; reopenDelay = 0; reopenNow = 0; reopenMost = 0; conflicted = new Set()
   posts = []; histories = new Map(); delete machines[0].capabilities.commandHistory; delete machines[0].capabilities.resume
+  renames = []; folderProjects = []; createFail = []; patchFail = new Set(); deskReadFail = false
+  machines.splice(1)
+  for (const k of ['launch', 'tools', 'agentsV2']) delete machines[0].capabilities[k]
 }
 let posts = []
 /** As the controller copies a desk (`from`): the same tabs and panes under fresh ids, and no sessions. */
@@ -93,12 +99,26 @@ const api = async route => {
   else if (path === '/api/v2/machines/health') data = { serverNow: Date.now(), machines: [], history: [] }
   else if (path === '/api/v2/terminal/machines') data = { machines }
   else if (path === '/api/v2/terminal/status') data = { available: true, configured: true, reason: '' }
+  else if (path === '/api/v2/folder-projects') data = { projects: folderProjects, savedWaiting: 0 }
+  else if (path.startsWith('/api/v2/folder-projects/') && method === 'GET') {
+    const found = folderProjects.find(p => p.id === decodeURIComponent(path.split('/').at(-1)))
+    if (!found) return route.fulfill({ status: 404, json: { error: 'not found', code: 'project_not_found' } })
+    data = found
+  }
+  else if (path === '/api/v2/project-groups') data = { groups: [] }
+  else if (/^\/api\/v2\/terminal\/sessions\/[^/]+$/.test(path) && method === 'PATCH') {
+    const id = decodeURIComponent(path.split('/').at(-1)), body = request.postDataJSON()
+    renames.push({ id, ...body })
+    sessions = sessions.map(x => x.id === id ? { ...x, title: body.title } : x)
+    data = sessions.find(x => x.id === id) ?? {}
+  }
   else if (path === '/api/v2/terminal/sessions') {
     if (method === 'GET') data = { sessions }
     else {
       const body = request.postDataJSON()
       creates.push(body)
-      const created = { ...running(`sess-new-${creates.length}`, body.title), dir: body.dir || '/home/dev' }
+      if (createFail.length) return route.fulfill(createFail.shift())
+      const created = { ...running(`sess-new-${creates.length}`, body.title), dir: body.dir || '/home/dev', ...(body.tool ? { tool: body.tool } : {}) }
       sessions = [created, ...sessions]
       return route.fulfill({ status: 201, json: created })
     }
@@ -158,10 +178,16 @@ const api = async route => {
   else if (path.startsWith('/api/v2/desks/')) {
     const id = decodeURIComponent(path.split('/')[4]), d = desks.get(id)
     if (!d) return route.fulfill({ status: 404, json: { error: "That desk isn't on this account.", code: 'desk_missing' } })
-    if (method === 'GET') data = d
-    else if (method === 'PATCH') {
+    if (method === 'GET') {
+      if (deskReadFail) return route.fulfill({ status: 500, json: { error: 'reet couldn\'t do that just now. Try again.' } })
+      data = d
+    } else if (method === 'PATCH') {
       const body = request.postDataJSON()
       patches.push(body); patched.push(id)
+      if (patchFail.has(id)) return route.fulfill({ status: 500, json: { error: "reet couldn't do that just now. Try again." } })
+      // As the controller: a session is in one pane across the account's desks.
+      const elsewhere = sid => [...desks.values()].some(o => o.id !== id && o.doc.tabs.some(t => Object.values(t.panes).some(p => p.session === sid)))
+      if (body.doc?.tabs.some(t => Object.values(t.panes).some(p => p.session && elsewhere(p.session)))) return route.fulfill({ status: 409, json: { error: 'A session can be in only one pane.', code: 'desk_session_taken' } })
       if (staleNext) { const newer = staleNext; staleNext = null; desks.set(id, newer); return route.fulfill({ status: 409, json: { error: 'desk_stale', code: 'desk_stale', desk: newer } }) }
       if (body.expect !== d.version) return route.fulfill({ status: 409, json: { error: 'desk_stale', code: 'desk_stale', desk: d } })
       const next = { ...d, ...(body.name !== undefined ? { name: body.name } : {}), ...(body.colour !== undefined ? { colour: body.colour } : {}), ...(body.doc ? { doc: body.doc } : {}), version: d.version + 1 }
@@ -442,6 +468,7 @@ try {
   await openDesk()
   await quiet(); patches = []
   await page.getByRole('button', { name: 'New tab' }).click()
+  await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: 'New shell…' }).click()
   const newTab = page.getByRole('dialog', { name: 'New tab' })
   await expect(newTab.getByLabel('Machine')).toHaveValue(agent)
   await expect(newTab.getByLabel('Folder')).toHaveValue('/home/dev/PROD_reet')
@@ -1064,6 +1091,7 @@ try {
     await openDesk()
     await quiet(); patches = []
     await page.getByRole('button', { name: 'New tab' }).click()
+    await page.getByRole('menuitem', { name: 'New shell…' }).click()
     await page.getByRole('dialog', { name: 'New tab' }).getByRole('button', { name: 'Open tab' }).click()
     await expect.poll(() => creates.length).toBe(1)
     await quiet()
@@ -1632,6 +1660,361 @@ try {
   await ask().getByRole('button', { name: 'Cancel' }).click()
   console.log('ok - the mode is off after a reload')
 
+  // ── a start-up command with a line break is not run ──
+  {
+    resetStates()
+    desks.get('desk-states').doc.tabs[0].panes['pane-lost'].start = 'echo safe\nrm -rf ~/work'
+    await openStates()
+    await pane('pane-lost').getByRole('button', { name: 'Reopen in ~/PROD_reet' }).click()
+    await expect(pane('pane-lost')).toHaveAttribute('data-state', 'live')
+    const bar = pane('pane-lost').getByRole('group', { name: 'Start-up command' })
+    const hiddenSentence = "This command has hidden characters, so reet won't run it. Edit it first."
+    await expect(bar.getByRole('alert')).toHaveText(hiddenSentence)
+    // The whole command is shown, wrapped, so what would run is what is on screen.
+    await expect(bar.locator('code')).toContainText('rm -rf ~/work')
+    expect(await bar.locator('code').evaluate(el => getComputedStyle(el).whiteSpace)).toBe('pre-wrap')
+    await attached(['sess-re-1'])
+    await expect(bar.getByRole('button', { name: 'Run' })).toBeDisabled()
+    await bar.getByRole('button', { name: 'Run' }).click({ force: true })
+    await quiet()
+    expect(sockets.get('sess-re-1').input.join('')).not.toContain('echo safe')
+    // The dialog refuses the same characters with the same sentence, and saves nothing.
+    patches = []
+    await pane('pane-lost').getByRole('button', { name: 'Actions for lost one' }).click()
+    await page.getByRole('menuitem', { name: 'Start-up command…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Start-up command' })
+    const field = dialog.getByRole('textbox', { name: 'Command to offer when this pane is reopened' })
+    for (const bad of ['ls ‮-la', 'ls​ -la', 'ls\u0007', 'ls ⁦x']) {
+      await field.fill(bad)
+      await dialog.getByRole('button', { name: 'Save' }).click()
+      await expect(dialog.getByRole('alert')).toHaveText(hiddenSentence)
+    }
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await quiet()
+    expect(patches.filter(p => p.doc?.tabs[0].panes['pane-lost'].start !== 'echo safe\nrm -rf ~/work')).toEqual([])
+    console.log('ok - a start-up command with a line break is not run')
+  }
+
+  // ── a template opened by its address starts nothing ──
+  {
+    reset()
+    const tp = (id, name) => paneOf(id, name, '', '/home/dev/PROD_reet')
+    desks.set('desk-tpl', deskOf('desk-tpl', 'deploy template', [
+      { id: 'tab-t1', name: 'deploy', colour: '', root: { split: 'right', ratio: 0.5, a: leaf('pane-t1'), b: leaf('pane-t2') }, zoomed: '', active: 'pane-t1', panes: { 'pane-t1': tp('pane-t1', 'web'), 'pane-t2': tp('pane-t2', 'api') } },
+    ], { template: true, position: 4 }))
+    await page.goto(`${base}/desks/desk-tpl`)
+    await expect(page.getByRole('heading', { name: 'deploy template', level: 1 })).toBeVisible()
+    await expect(page.getByText('This is a template. Make a desk from it to start shells.')).toBeVisible()
+    await expect(pane('pane-t1')).toHaveAttribute('data-state', 'empty')
+    for (const name of ['Start', 'New tab', 'Split right', 'Split down', 'Type in all panes']) await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Reopen all/ })).toHaveCount(0)
+    await pane('pane-t1').getByRole('button', { name: 'Actions for web' }).click()
+    await expect(page.getByRole('menu', { name: 'Actions for web' }).getByRole('menuitem', { name: 'Rename' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Split right' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await chord('D')
+    await chord('T')
+    await quiet()
+    expect(creates).toEqual([])
+    expect(reopens).toEqual([])
+    await expect(page.locator('dialog[open]')).toHaveCount(0)
+    await page.getByRole('button', { name: 'New desk from this template' }).click()
+    await expect(page.getByRole('heading', { name: 'deploy', level: 1 })).toBeVisible()
+    expect(posts.at(-1)).toMatchObject({ name: 'deploy', from: 'desk-tpl' })
+    expect(posts.at(-1).template).toBeUndefined()
+    console.log('ok - a template opened by its address starts nothing')
+  }
+
+  // ── Continue keeps the project and one request id, and its limit card's Try again continues ──
+  {
+    resetStates()
+    machines[0].capabilities.resume = true
+    folderProjects = [{ id: 'fp-app', host: agent, machine: 'studio', dir: '/home/dev/app', name: 'app', isRepo: false, baseBranch: '', worktreeDefault: 'inherit', defaultTool: '', defaultModel: '', hasStarterPrompt: false, note: '', position: 0, createdAt: 1, updatedAt: 1, version: 1 }]
+    sessions = sessions.map(x => x.id === 'sess-agent' ? { ...x, projectId: 'fp-app' } : x)
+    // The first create gets no answer it can trust; the second is refused at the machine's limit.
+    createFail = [{ status: 503, json: { error: 'terminal machine is reconnecting; retry after it reconnects' } }, { status: 409, json: { error: 'terminal session limit reached' } }]
+    await openStates()
+    await pane('pane-agent').getByRole('button', { name: 'Continue' }).click()
+    await expect(pane('pane-agent').getByRole('alert')).toHaveText('terminal machine is reconnecting; retry after it reconnects')
+    await pane('pane-agent').getByRole('button', { name: 'Continue' }).click()
+    await expectCard('pane-agent', 'limit', 'At the limit', 'studio already has 24 sessions running.', 'Try again')
+    await pane('pane-agent').getByRole('button', { name: 'Try again' }).click()
+    await expect(pane('pane-agent')).toHaveAttribute('data-state', 'live')
+    expect(creates).toHaveLength(3)
+    for (const c of creates) expect(c).toMatchObject({ agentId: agent, tool: 'claude', resume: true, dir: '/home/dev/app', projectId: 'fp-app' })
+    expect(new Set(creates.map(c => c.requestId)).size).toBe(1)
+    expect(reopens).toEqual([])
+    await expect.poll(() => patches.at(-1)?.doc.tabs[0].panes['pane-agent'].session).toBe('sess-new-3')
+    console.log('ok - Continue keeps the project and one request id, and its limit card’s Try again continues')
+  }
+
+  // ── a pane already live is not counted as reopened ──
+  {
+    resetStates()
+    reopenFail.set('pane-ended', { status: 409, json: { error: 'That pane already has a running shell.', code: 'pane_live' } })
+    await openStates()
+    await page.getByRole('button', { name: 'Reopen all (4)' }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Reopened' })).toContainText('Reopened 1. 2 could not be reopened: old build (folder gone), locked (folder unavailable).', { timeout: 20_000 })
+    console.log('ok - a pane already live is not counted as reopened')
+  }
+
+  // ── the pane stays busy while the desk cannot be read after a reopen ──
+  {
+    resetStates()
+    await openStates()
+    await quiet()
+    deskReadFail = true
+    await pane('pane-lost').getByRole('button', { name: 'Reopen in ~/PROD_reet' }).click()
+    await expect.poll(() => reopens.length).toBe(1)
+    const waitingButton = pane('pane-lost').getByRole('button', { name: 'Reopening…' })
+    await expect(waitingButton).toBeDisabled()
+    await page.waitForTimeout(2000)
+    await expect(waitingButton).toBeDisabled()
+    await expect(page.getByRole('button', { name: /^Reopen all/ })).toHaveText('Reopen all (3)')
+    expect(reopens.length).toBe(1)
+    deskReadFail = false
+    await expect(pane('pane-lost')).toHaveAttribute('data-state', 'live', { timeout: 15_000 })
+    expect(reopens.length).toBe(1)
+    console.log('ok - the pane stays busy while the desk cannot be read after a reopen')
+  }
+
+  // ── Choose a folder on a machine that cannot open a terminal says so ──
+  {
+    resetStates()
+    machines.push({ agentId: 'connector-oldbox0000000001', host: 'old-box', ready: true, serverEnabled: true, capabilities: { osUser: 'dev', terminalEnabled: false, readiness: 'ready' } })
+    desks.get('desk-states').doc.tabs[0].panes['pane-folder'].host = 'connector-oldbox0000000001'
+    await openStates()
+    await pane('pane-folder').getByRole('button', { name: 'Reopen in ~/old' }).click()
+    await pane('pane-folder').getByRole('button', { name: 'Choose a folder' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Choose a folder' })
+    await expect(dialog.getByRole('alert')).toHaveText('This pane’s machine can’t open a terminal just now.')
+    await expect(dialog.getByRole('combobox', { name: 'Machine' })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Reopen' })).toBeDisabled()
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(reopens.length).toBe(1)
+    console.log('ok - Choose a folder on a machine that cannot open a terminal says so')
+  }
+
+  // ── a stored failure goes once the pane holds another session ──
+  {
+    resetStates()
+    await openStates()
+    await pane('pane-folder').getByRole('button', { name: 'Reopen in ~/old' }).click()
+    await expect(pane('pane-folder')).toHaveAttribute('data-state', 'folderGone')
+    // Another window put a session in the pane, which has since ended.
+    sessions = [{ ...running('sess-other', 'old build', '/home/dev/old'), state: 'exited', exitCode: 0 }, ...sessions]
+    const d = desks.get('desk-states'), t = d.doc.tabs[0]
+    desks.set(d.id, { ...d, version: d.version + 1, doc: { ...d.doc, tabs: [{ ...t, panes: { ...t.panes, 'pane-folder': { ...t.panes['pane-folder'], session: 'sess-other' } } }] } })
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    await expect(pane('pane-folder')).toHaveAttribute('data-state', 'ended')
+    console.log('ok - a stored failure goes once the pane holds another session')
+  }
+
+  // ── renaming a pane renames the session; hidden characters never reach a name ──
+  {
+    reset()
+    await openDesk()
+    await quiet(); patches = []
+    await pane('pane-deploy').getByRole('button', { name: 'Actions for reet' }).click()
+    await page.getByRole('menuitem', { name: 'Rename' }).click()
+    const field = page.getByRole('textbox', { name: 'Pane name' })
+    await field.fill('web​ box‮')
+    await expect(field).toHaveValue('web box')
+    await field.press('Enter')
+    await expect.poll(() => renames).toEqual([{ id: 'sess-deploy', title: 'web box' }])
+    await expect.poll(() => lastDoc()?.tabs[0].panes['pane-deploy'].name).toBe('web box')
+    // A tab's name too.
+    await tab('db').focus()
+    await page.keyboard.press('F2')
+    const tabField = tablist.getByRole('textbox', { name: 'Tab name' })
+    await tabField.fill('data⁦base\u0007')
+    await expect(tabField).toHaveValue('database')
+    await tabField.press('Enter')
+    await expect.poll(() => lastDoc()?.tabs.find(t => t.id === 'tab-db')?.name).toBe('database')
+    // A pane with no session keeps the name on the desk only.
+    await openSplit('tab-nine')
+    await quiet(); renames = []
+    await pane('pane-n1').getByRole('button', { name: 'Actions for n1' }).click()
+    await page.getByRole('menuitem', { name: 'Rename' }).click()
+    await page.getByRole('textbox', { name: 'Pane name' }).fill('spare')
+    await page.keyboard.press('Enter')
+    await expect.poll(() => lastDoc()?.tabs.find(t => t.id === 'tab-nine')?.panes['pane-n1'].name).toBe('spare')
+    await quiet()
+    expect(renames).toEqual([])
+    console.log('ok - renaming a pane renames the session')
+  }
+
+  // ── Add to a desk puts a running session in a new pane ──
+  {
+    reset()
+    sessions = [running('sess-free', 'free'), ...sessions]
+    await page.goto(`${base}/sessions?view=list`)
+    const row = title => page.locator('.session-row').filter({ has: page.locator('.title', { hasText: new RegExp(`^${title}$`) }) })
+    await row('free').getByRole('button', { name: 'Actions for free' }).click()
+    await page.getByRole('menuitem', { name: 'Add to a desk…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Add to a desk' })
+    await expect(dialog.getByRole('combobox', { name: 'Desk' })).toHaveValue('desk-prod')
+    await expect(dialog.getByRole('radio', { name: 'deploy' })).toBeChecked()
+    await dialog.getByRole('radio', { name: 'logs' }).check()
+    patches = []; patched = []
+    if (shots) {
+      for (const theme of ['light', 'dark']) {
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.emulateMedia({ colorScheme: theme })
+        await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
+        await page.waitForTimeout(300)
+        await page.screenshot({ path: `${shots}/add-to-desk-${theme}.png` })
+      }
+      await page.emulateMedia({ colorScheme: 'light' })
+      await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'))
+      await page.setViewportSize({ width: 1360, height: 860 })
+    }
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByText('Sorted. “free” is on “prod deploy”.')).toBeVisible()
+    expect(patched).toEqual(['desk-prod'])
+    const logs = desks.get('desk-prod').doc.tabs.find(t => t.id === 'tab-logs')
+    const added = Object.values(logs.panes).find(p => p.session === 'sess-free')
+    expect(added).toMatchObject({ host: agent, kind: 'shell', name: 'free', dir: '/home/dev/PROD_reet', start: '' })
+    expect(logs.root).toEqual({ split: 'right', ratio: 0.5, a: { pane: 'pane-logs' }, b: { pane: added.id } })
+    expect(logs.active).toBe(added.id)
+    // The row now names its desk.
+    await expect(row('free').getByRole('link', { name: 'On the desk prod deploy' })).toHaveAttribute('href', `/desks/desk-prod#${added.id}`)
+
+    // One already on a desk is moved: taken off its old pane first, then added.
+    patched = []
+    await row('db').getByRole('button', { name: 'Actions for db' }).click()
+    await page.getByRole('menuitem', { name: 'Add to a desk…' }).click()
+    await expect(dialog).toContainText('It is on “prod deploy” now.')
+    await expect(dialog.getByRole('combobox', { name: 'Desk' })).toHaveValue('desk-dev')
+    await expect(dialog.getByRole('radio', { name: 'A new tab' })).toBeChecked()
+    await dialog.getByRole('button', { name: 'Move here' }).click()
+    await expect(page.getByText('Sorted. “db” moved to “zoomies dev”.')).toBeVisible()
+    expect(patched).toEqual(['desk-prod', 'desk-dev'])
+    expect(desks.get('desk-prod').doc.tabs.find(t => t.id === 'tab-db').panes['pane-db'].session).toBe('')
+    expect(Object.values(desks.get('desk-dev').doc.tabs[0].panes)[0]).toMatchObject({ session: 'sess-db', name: 'db' })
+    await expect(row('db').getByRole('link', { name: 'On the desk zoomies dev' })).toBeVisible()
+
+    // When the add fails after the old pane let go, it says so; nothing is guessed.
+    patched = []
+    patchFail.add('desk-split')
+    await row('deploy').getByRole('button', { name: 'Actions for deploy' }).click()
+    await page.getByRole('menuitem', { name: 'Add to a desk…' }).click()
+    await dialog.getByRole('combobox', { name: 'Desk' }).selectOption('desk-split')
+    await expect(dialog.getByRole('radio', { name: 'deploy' })).toBeChecked()
+    await expect(dialog.getByRole('radio', { name: /^nine/ })).toBeDisabled()
+    await dialog.getByRole('button', { name: 'Move here' }).click()
+    await expect(dialog.getByRole('alert')).toContainText('It was taken off “prod deploy” but could not be added to “split desk”, so it is on neither desk.')
+    expect(patched).toEqual(['desk-prod', 'desk-split'])
+    expect(desks.get('desk-prod').doc.tabs.find(t => t.id === 'tab-deploy').panes['pane-deploy'].session).toBe('')
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    console.log('ok - Add to a desk puts a running session in a new pane')
+  }
+
+  // ── a session on a desk shows the desk's name in Sessions ──
+  {
+    reset()
+    sessions = [running('sess-free', 'free'), ...sessions]
+    const reads = []
+    const note = request => { const p = new URL(request.url()).pathname; if (p.startsWith('/api/v2/desks')) reads.push(p) }
+    page.on('request', note)
+    await page.goto(`${base}/sessions?view=list`)
+    const row = title => page.locator('.session-row').filter({ has: page.locator('.title', { hasText: new RegExp(`^${title}$`) }) })
+    const chip = row('logs').getByRole('link', { name: 'On the desk prod deploy' })
+    await expect(chip).toHaveText('prod deploy')
+    await expect(chip).toHaveAttribute('href', '/desks/desk-prod#pane-logs')
+    await expect(row('a').getByRole('link', { name: 'On the desk split desk' })).toHaveAttribute('href', '/desks/desk-split#pane-a')
+    await expect(row('free').getByRole('link')).toHaveCount(1)
+    // The desk pane's colour (else its tab's) colours the row when the browser has no choice of its own.
+    await expect(row('logs')).toHaveClass(/coloured/)
+    await expect(row('logs').locator('.colour-name')).toHaveText('Blue')
+    await expect(row('b').locator('.colour-name')).toHaveText('Blue')
+    await expect(row('a').locator('.colour-name')).toHaveText('Red')
+    await page.waitForLoadState('networkidle')
+    // The list once, then each desk that holds a session once: no read per row, and none of the empty desk.
+    expect(reads.filter(p => p === '/api/v2/desks')).toHaveLength(1)
+    expect(reads.filter(p => p !== '/api/v2/desks').sort()).toEqual(['/api/v2/desks/desk-prod', '/api/v2/desks/desk-split'])
+    page.off('request', note)
+    if (shots) {
+      for (const theme of ['light', 'dark']) {
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.emulateMedia({ colorScheme: theme })
+        await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
+        await page.waitForTimeout(300)
+        await page.screenshot({ path: `${shots}/sessions-desk-chip-${theme}.png` })
+      }
+      await page.emulateMedia({ colorScheme: 'light' })
+      await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'))
+      await page.setViewportSize({ width: 1360, height: 860 })
+    }
+    // The chip opens the desk at that pane.
+    await chip.click()
+    await expect(page.getByRole('heading', { name: 'prod deploy', level: 1 })).toBeVisible()
+    await expect(tab('logs')).toHaveAttribute('aria-selected', 'true')
+    await expect(pane('pane-logs')).toHaveAttribute('aria-current', 'true')
+    await expect(page).toHaveURL(`${base}/desks/desk-prod`)
+    console.log("ok - a session on a desk shows the desk's name in Sessions")
+  }
+
+  // ── Add a running session… puts one in a new tab, and moves one from another desk ──
+  {
+    reset()
+    sessions = [running('sess-free', 'free'), ...sessions]
+    await openDesk()
+    await quiet()
+    await page.getByRole('button', { name: 'New tab' }).click()
+    await expect(page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem')).toHaveText(['New shell…', 'Start an agent…', 'Add a running session…'])
+    await page.getByRole('menuitem', { name: 'Add a running session…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Add a running session' })
+    // Those already on this desk are not offered.
+    await expect(dialog.getByRole('radio')).toHaveCount(8)
+    await expect(dialog.getByRole('radio', { name: /^deploy/ })).toHaveCount(0)
+    await dialog.getByRole('radio', { name: /^free studio/ }).check()
+    patched = []
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(tab('free')).toHaveAttribute('aria-selected', 'true')
+    expect(patched).toEqual(['desk-prod'])
+    await attached(['sess-free'])
+    await page.getByRole('button', { name: 'New tab' }).click()
+    await page.getByRole('menuitem', { name: 'Add a running session…' }).click()
+    await dialog.getByRole('radio', { name: /^a studio · on “split desk”/ }).check()
+    await expect(dialog).toContainText('It is on “split desk” now.')
+    patched = []
+    await dialog.getByRole('button', { name: 'Move here' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(tab('a')).toHaveAttribute('aria-selected', 'true')
+    expect(patched).toEqual(['desk-split', 'desk-prod'])
+    expect(desks.get('desk-split').doc.tabs[0].panes['pane-a'].session).toBe('')
+    expect(creates).toEqual([])
+    console.log('ok - Add a running session puts one in a new tab, and moves one from another desk')
+  }
+
+  // ── Start an agent from a desk fills the new pane ──
+  {
+    reset()
+    Object.assign(machines[0].capabilities, { launch: true, tools: ['claude'], agentsV2: true })
+    folderProjects = [{ id: 'fp-reet', host: agent, machine: 'studio', dir: '/home/dev/PROD_reet', name: 'reet', isRepo: false, baseBranch: '', worktreeDefault: 'inherit', defaultTool: '', defaultModel: '', hasStarterPrompt: false, note: '', position: 0, createdAt: 1, updatedAt: 1, version: 1 }]
+    await openDesk()
+    await quiet()
+    await page.getByRole('button', { name: 'New tab' }).click()
+    await page.getByRole('menuitem', { name: 'Start an agent…' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Start an agent', exact: true })
+    await expect(dialog.getByLabel('Project')).toHaveValue('fp-reet')
+    await dialog.getByRole('button', { name: 'Start', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(creates).toHaveLength(1)
+    expect(creates[0]).toMatchObject({ agentId: agent, tool: 'claude', projectId: 'fp-reet', dir: '/home/dev/PROD_reet' })
+    expect(creates[0].deskPane).toBeUndefined()
+    await expect(page.locator('.desk-pane')).toHaveAttribute('data-state', 'live')
+    await expect.poll(() => lastDoc()?.tabs.length).toBe(4)
+    const added = lastDoc().tabs.at(-1)
+    expect(Object.values(added.panes)[0]).toMatchObject({ session: 'sess-new-1', kind: 'agent', host: agent })
+    expect(lastDoc().active).toBe(added.id)
+    console.log('ok - Start an agent from a desk fills the new pane')
+  }
+
   // ── the look, in both themes and on a phone ──
   if (shots) {
     // Three states side by side (lost, folder gone, an ended agent) at 1440 px in both themes, and one card on a phone.
@@ -1731,7 +2114,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload).')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload), a start-up command with hidden characters, a template by address, Continue (project, one request id, the limit), pane_live in Reopen all, busy while the desk cannot be read, a machine that cannot open a terminal, a failure cleared, renames, Add to a desk, the desk chip in Sessions, Add a running session, Start an agent.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

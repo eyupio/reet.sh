@@ -59,7 +59,13 @@ export type LaunchRequest = { tool?: string; model?: string; dir?: string; promp
   deskPane?: string
   /** Who named the session, sent only with a tool launch: `prompt` when the title comes from the task, `fallback` when it is the generic agent and folder name. */
   titleOrigin?: 'prompt' | 'fallback' }
-export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(title)}
+/** Characters that make what is shown differ from what is sent or stored: control and format characters (\p{Cf}: the
+ *  zero-width ones, the direction marks and the bidirectional overrides and isolates) and the two Unicode line separators.
+ *  Names, titles and a desk pane's start-up command never hold one. */
+export function hasHiddenChars(text: string): boolean { return /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text) }
+/** The text without any of those characters (for a field as it is typed or pasted). */
+export function stripHiddenChars(text: string): string { return text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '') }
+export function validTerminalTitle(title:string):boolean {return !!title.trim()&&Array.from(title).length<=80&&!hasHiddenChars(title)}
 // Interactive terminals intentionally use only the browser cookie, never the
 // generic API helper's localStorage API token or a capability in a URL.
 export async function terminalRequest(path: string, init: RequestInit = {}): Promise<Response> {

@@ -7,7 +7,7 @@
   import { onMount, tick, untrack } from 'svelte'
   import { projectColourHex, type ProjectColour } from '../projectColour'
   import { sessionStatus } from '../sessionStatus'
-  import { createTerminal, endTerminal, renameTerminal, SESSIONS_PER_ACCOUNT, SESSIONS_PER_MACHINE, TerminalError, terminalClosed, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { createTerminal, endTerminal, listFolderProjects, renameTerminal, SESSIONS_PER_ACCOUNT, SESSIONS_PER_MACHINE, TerminalError, terminalClosed, validTerminalTitle, type FolderProject, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { canContinue, continueLaunch } from '../sessions'
   import { getDesk, patchDesk, reopenPane, StaleDesk, type Desk, type DeskSummary } from './api'
   import { agentName, isRunning, paneState, reopenable, type PaneActionKind, type PaneFailure } from './paneState'
@@ -23,6 +23,9 @@
   import DeskTabs from './DeskTabs.svelte'
   import DeskToolbar from './DeskToolbar.svelte'
   import NewTabDialog from './NewTabDialog.svelte'
+  import AddSessionDialog from './AddSessionDialog.svelte'
+  import StartAgentDialog from '../StartAgentDialog.svelte'
+  import { paneFor, paneName as cleanName, putOnDesk, tabFor } from './addSession'
   import SplitArea from './SplitArea.svelte'
 
   // One desk: a header (the desk's name as its switcher, the save state, Layout and the desk menu), the tab bar, one
@@ -31,7 +34,7 @@
   // desk starts nothing: a shell starts only from New tab, a split or a press on a pane's card (Reopen, Start, Reopen
   // all). The desk's keys are Alt+Shift chords, caught
   // before the terminal sees them.
-  let { id, desks, sessions, machines, ready, onopen, onlist, onnew, ondesk, onrefresh, onsignedout }: {
+  let { id, desks, sessions, machines, ready, onopen, onlist, onnew, ondesk, onfromtemplate, onrefresh, onsignedout }: {
     id: string
     /** Every desk, for the switcher. */
     desks: DeskSummary[]
@@ -44,6 +47,8 @@
     onnew: () => void
     /** A desk-level action from the menu: the page owns its dialogs and writes. */
     ondesk: (action: 'rename' | 'duplicate' | 'template' | 'delete', desk: Desk) => void
+    /** A template opened by its address: make a desk from it. */
+    onfromtemplate: (desk: Desk) => void
     /** Read the sessions and machines again (after a shell is started or ended here). */
     onrefresh: () => void
     onsignedout: (e: unknown) => void
@@ -73,6 +78,7 @@
       // A desk written by a newer reet is neither shown nor overwritten.
       if (loaded.schema > 1) { mine.stop(); desk = null; failure = 'This desk was saved by a newer version of reet, so it is not shown here.'; return }
       desk = loaded
+      openAt(loaded)
     }).catch(e => {
       if (auto !== mine) return
       if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return }
@@ -80,6 +86,15 @@
     })
   }
   $effect(() => { start(id) })
+  /** `/desks/<id>#<pane>` (a session's desk chip in Sessions) opens the desk at that pane. */
+  function openAt(loaded: Desk) {
+    let want = ''
+    try { want = decodeURIComponent(location.hash.slice(1)) } catch { /* a malformed fragment names no pane */ }
+    if (!want) return
+    history.replaceState(history.state, '', location.pathname + location.search)
+    const t = loaded.doc.tabs.find(x => x.panes[want])
+    if (t && (loaded.doc.active !== t.id || t.active !== want)) change({ kind: 'active', tab: t.id, pane: want })
+  }
   export function reload() { void auto?.refresh().catch(() => { /* the next save or poll tries again */ }) }
 
   onMount(() => {
@@ -126,14 +141,30 @@
   const waiting = $derived(new Set(tabs.filter(t => panesOf(t).some(p => { const s = p.session ? sessionById.get(p.session) : undefined; return !!s && sessionStatus(s) === 'waiting' })).map(t => t.id)))
   const hosts = $derived(new Set(tabs.flatMap(t => Object.values(t.panes).map(p => p.host)).filter(Boolean)))
   const others = $derived(desks.filter(d => !d.template && d.id !== id))
+  // A template opened by its address is shown, but nothing on it starts a shell.
+  const template = $derived(!!desk?.template)
   const saveWord = $derived(saveState === 'saving' ? 'Saving…' : saveState === 'unsaved' ? 'Not saved yet' : 'saved')
   const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 
   // Menus in the header: the switcher (the desk's name) and the desk menu (⋮).
-  let menu = $state<{ kind: 'switch' | 'desk' | 'layout'; x: number; y: number; opener: HTMLElement } | null>(null)
+  let menu = $state<{ kind: 'switch' | 'desk' | 'layout' | 'add'; x: number; y: number; opener: HTMLElement } | null>(null)
   function openMenu(kind: 'switch' | 'desk' | 'layout', event: MouseEvent) {
     const opener = event.currentTarget as HTMLElement, box = opener.getBoundingClientRect()
     menu = { kind, opener, x: kind === 'switch' ? box.left : box.right - 220, y: box.bottom + 4 }
+  }
+  function pickAdd(kind: 'shell' | 'agent' | 'running') {
+    const opener = menu?.opener
+    closeMenu(false)
+    if (!opener) return
+    if (kind === 'shell') adding = opener
+    else if (kind === 'agent') void openAgent(opener)
+    else addingRunning = opener
+  }
+  /** The tab bar's +: New shell, Start an agent and Add a running session. */
+  function openAdd(opener: HTMLElement) {
+    if (template || tabs.length >= MAX_TABS) return
+    const box = opener.getBoundingClientRect()
+    menu = { kind: 'add', opener, x: box.left, y: box.bottom + 4 }
   }
   function closeMenu(focus: boolean) { const opener = menu?.opener; menu = null; if (focus) opener?.focus() }
 
@@ -205,8 +236,8 @@
   // Panes.
   function renamePane(t: Tab, p: Pane, name: string) {
     change({ kind: 'renamePane', tab: t.id, pane: p.id, name })
-    // Sessions and the desk agree on the name.
-    if (live(p)) renameTerminal(p.session, name).then(onrefresh, () => { /* the desk keeps its name; Sessions keeps the old one */ })
+    // Sessions and the desk agree on the name: a pane with a session renames it too; one with none keeps it on the desk.
+    if (p.session && sessionById.has(p.session) && validTerminalTitle(name)) renameTerminal(p.session, name).then(onrefresh, () => { /* the desk keeps its name; Sessions keeps the old one */ })
   }
 
   // New tab: a plain shell, then the tab that holds it.
@@ -216,7 +247,7 @@
   async function createTab(agentId: string, dir: string) {
     // The tab goes to the desk the dialog was opened on, even if another desk is shown by the time the shell starts.
     const mine = auto
-    const name = [...(dir.split('/').filter(Boolean).pop() || machineById.get(agentId)?.host || 'Shell')].slice(0, 80).join('')
+    const name = cleanName(dir.split('/').filter(Boolean).pop() || machineById.get(agentId)?.host || 'Shell')
     // The pane's id comes first, so the shell has the pane's own command history from its first command.
     const pid = newId()
     const created = await createTerminal(agentId, crypto.randomUUID(), name, 100, 30, AbortSignal.timeout(15000), dir ? { dir, deskPane: pid } : { deskPane: pid })
@@ -229,6 +260,54 @@
     change({ kind: 'active', tab: tab.id })
   }
   async function closeNewTab() { const opener = adding; adding = null; await tick(); opener?.focus() }
+
+  // Start an agent… (the existing dialog, on the focused pane's machine, and its project when the pane is in one): the
+  // session it starts is put in a new tab. An agent pane has no pane history, so no pane id is sent with it.
+  let agentStart = $state<{ opener: HTMLElement; projects: FolderProject[]; projectId: string } | null>(null)
+  async function openAgent(opener: HTMLElement) {
+    const projects = await folderProjects()
+    if (!desk || template) return
+    const host = startAgent, dir = startDir
+    agentStart = { opener, projects, projectId: projects.find(p => p.host === host && !!dir && p.dir === dir)?.id ?? '' }
+  }
+  function agentStarted(created: TerminalSession) {
+    const mine = auto
+    fresh = [...fresh.filter(x => x.id !== created.id), created]
+    onrefresh()
+    const pane = paneFor(created), t = tabFor(pane)
+    // A chat is not a terminal, so a pane cannot show it.
+    if (created.structured) { notice = `“${pane.name}” started as a chat, which a desk pane can't show. It is in Sessions.`; return }
+    if (!mine || !desk) { notice = `“${pane.name}” started, but its desk is no longer open. It is in Sessions.`; return }
+    change({ kind: 'addTab', tab: t })
+    if (!desk.doc.tabs.some(x => x.id === t.id)) { notice = `“${pane.name}” started, but there was no room for a tab. It is in Sessions.`; return }
+    change({ kind: 'active', tab: t.id })
+  }
+
+  // Add a running session…: written straight to the saved desk (not through autosave, so a session the controller says
+  // is on another desk is refused there, not retried), then read back.
+  let addingRunning = $state<HTMLElement | null>(null)
+  const onThisDesk = $derived(new Set(tabs.flatMap(t => Object.values(t.panes).map(p => p.session)).filter(Boolean)))
+  const runningElsewhere = $derived([...sessionById.values()].filter(s => isRunning(s) && !s.structured && !onThisDesk.has(s.id)).sort((a, b) => b.updatedAt - a.updatedAt))
+  async function addRunning(s: TerminalSession, from?: { id: string; name: string }) {
+    const mine = auto, current = desk
+    if (!mine || !current || template) return
+    await mine.flush()
+    if (auto !== mine) throw new Error('This desk is no longer open.')
+    await putOnDesk(s, { id: current.id, name: current.name }, '', from)
+    await mine.refresh().catch(() => { /* the next poll reads it */ })
+    onrefresh()
+  }
+
+  // The account's folder projects, read when first needed (Continue, Start an agent): a failed read is no project.
+  let projectsRead: Promise<FolderProject[]> | null = null
+  function folderProjects(): Promise<FolderProject[]> {
+    projectsRead ??= listFolderProjects(AbortSignal.timeout(10_000)).catch(e => {
+      projectsRead = null
+      if (e instanceof TerminalError && e.status === 401) onsignedout(e)
+      return []
+    })
+    return projectsRead
+  }
 
   // The split area. A phone shows one pane at a time and offers no splits, presets or zoom; the saved tree is untouched.
   let phone = $state(false)
@@ -257,7 +336,7 @@
   let splitting = false
   async function splitPane(dir: Split, paneId = activePaneId) {
     const t = activeTab, p = t?.panes[paneId]
-    if (!t || !p || phone || splitting) return
+    if (!t || !p || phone || template || splitting) return
     if (ids.length >= MAX_PANES) { notice = 'A tab holds at most nine panes.'; return }
     if (split && !split.roomFor(p.id, dir)) { notice = "There isn't room to split this pane."; return }
     splitting = true
@@ -265,7 +344,7 @@
     try {
       const s = p.session ? sessionById.get(p.session) : undefined
       const where = s?.liveDir || p.dir
-      const name = [...(where.split('/').filter(Boolean).pop() || machineById.get(p.host)?.host || 'Shell')].slice(0, 80).join('')
+      const name = cleanName(where.split('/').filter(Boolean).pop() || machineById.get(p.host)?.host || 'Shell')
       // Pane ids are unique across the whole desk; the id comes first so the shell starts with the pane's own history.
       const pid = newId()
       const created = await createTerminal(p.host, crypto.randomUUID(), name, 100, 30, AbortSignal.timeout(15000), where ? { dir: where, deskPane: pid } : { deskPane: pid })
@@ -308,7 +387,7 @@
   let reopening = $state<Record<string, boolean>>({})
   /** Why a pane's last try was refused, and the session the pane had then: a pane whose session changes since (another
    *  window reopened it, or this one did) drops it, so a stale reason never outlives the fix. */
-  type Failure = { kind?: PaneFailure; message?: string; home?: boolean; session: string }
+  type Failure = { kind?: PaneFailure; message?: string; home?: boolean; resume?: boolean; session: string }
   let failures = $state<Record<string, Failure>>({})
   let reopenNotice = $state('')
   const paneById = (pid: string) => { for (const t of tabs) if (t.panes[pid]) return { tab: t, pane: t.panes[pid] }; return undefined }
@@ -323,8 +402,12 @@
     failures = next
   }
   $effect(() => {
+    // The tabs are read here, not only inside the filter: with no failure stored the filter reads nothing, and the effect
+    // would never run again.
+    const current = tabs
     const now = untrack(() => failures)
-    const keep = Object.entries(now).filter(([pid, f]) => { const p = paneById(pid)?.pane; return !!p && p.session === f.session })
+    const paneIn = (pid: string) => { for (const t of current) if (t.panes[pid]) return t.panes[pid]; return undefined }
+    const keep = Object.entries(now).filter(([pid, f]) => { const p = paneIn(pid); return !!p && p.session === f.session })
     if (keep.length !== Object.keys(now).length) failures = Object.fromEntries(keep)
   })
   function setBusy(pid: string, on: boolean) {
@@ -397,29 +480,39 @@
     const s = p.session ? sessionById.get(p.session) : undefined
     return !!s && canContinue(s, machineById.get(p.host), [])
   }
+  // One request id per pane and the session it continues, kept until the pane holds the new session: a create that timed
+  // out and is pressed again asks about the same start, so it can never start a second agent session.
+  const continueIds = new Map<string, { from: string; id: string }>()
   async function continuePane(pid: string) {
     const mine = auto, found = paneById(pid)
     if (!mine || !found || reopening[pid]) return
     const s = found.pane.session ? sessionById.get(found.pane.session) : undefined
-    const launch = s && continuable(found.pane) ? continueLaunch(s, []) : null
-    if (!s || !launch) return
+    if (!s || !continuable(found.pane)) return
     const limit = limited(found.pane.host)
-    if (limit) { setFailure(pid, { kind: limit }); return }
+    if (limit) { setFailure(pid, { kind: limit, resume: true }); return }
     setBusy(pid, true)
     setFailure(pid, undefined)
     try {
-      const title = [...(s.title || found.pane.name || agentName(s.tool))].slice(0, 80).join('')
-      const created = await createTerminal(s.agentId, crypto.randomUUID(), title, 100, 30, AbortSignal.timeout(15000), launch)
+      // The account's folder projects go with it, so a continued session keeps its project.
+      const launch = continueLaunch(s, await folderProjects())
+      if (!launch) return
+      let op = continueIds.get(pid)
+      if (!op || op.from !== s.id) { op = { from: s.id, id: crypto.randomUUID() }; continueIds.set(pid, op) }
+      const title = cleanName(s.title || found.pane.name || agentName(s.tool))
+      const created = await createTerminal(s.agentId, op.id, title, 100, 30, AbortSignal.timeout(15000), launch)
       fresh = [...fresh.filter(x => x.id !== created.id), created]
       onrefresh()
       const now = paneById(pid)
       if (auto !== mine || !now) { notice = `“${title}” continued, but its pane is no longer on this desk. It is in Sessions.`; return }
       change({ kind: 'setSession', tab: now.tab.id, pane: pid, session: created.id })
       if (paneById(pid)?.pane.session !== created.id) { notice = `“${title}” continued, but this pane could not hold it. It is in Sessions.`; return }
+      continueIds.delete(pid)
       await mine.flush()
     } catch (e) {
       if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return }
-      setFailure(pid, { message: e instanceof Error && e.message ? e.message : 'The session could not be continued. Try again.' })
+      // A session limit is the limit card, whose Try again continues again.
+      if (e instanceof TerminalError && e.status === 409 && e.message === 'terminal session limit reached') { setFailure(pid, { kind: 'machineLimit', resume: true }); return }
+      setFailure(pid, { message: e instanceof Error && e.message ? e.message : 'The session could not be continued. Try again.', resume: true })
     } finally { setBusy(pid, false) }
   }
 
@@ -429,6 +522,7 @@
     if (kind === 'start') void reopen(pid, { home: !paneById(pid)?.pane.dir })
     else if (kind === 'reopen') void reopen(pid)
     else if (kind === 'reopenHome') void reopen(pid, { home: true })
+    else if (kind === 'again' && failures[pid]?.resume) void continuePane(pid)
     else if (kind === 'again') void reopen(pid, { home: failures[pid]?.home })
     else if (kind === 'continue') void continuePane(pid)
     else if (kind === 'chooseFolder' || kind === 'chooseMachine') choosing = { pane: pid, machine: kind === 'chooseMachine' }
@@ -605,7 +699,7 @@
       case 'splitDown': void splitPane('down'); break
       case 'zoom': zoom(); break
       case 'closePane': if (activeTab && activePaneId) askClose(activeTab.id, activePaneId); break
-      case 'newTab': if (tabs.length < MAX_TABS) adding = section?.querySelector<HTMLElement>('[aria-label="New tab"]') ?? section ?? null; break
+      case 'newTab': if (tabs.length < MAX_TABS && !template) adding = section?.querySelector<HTMLElement>('[aria-label="New tab"]') ?? section ?? null; break
       case 'prevTab': if (tabs.length > 1) select(tabs[(at - 1 + tabs.length) % tabs.length].id); break
       case 'nextTab': if (tabs.length > 1) select(tabs[(at + 1) % tabs.length].id); break
       default: {
@@ -641,9 +735,11 @@
         <button type="button" class="btn lay" aria-haspopup="menu" aria-expanded={menu?.kind === 'layout'} disabled={ids.length < 2} onclick={event => openMenu('layout', event)}>
           <span class="lay-icon" aria-hidden="true">{#each icon as r, i (i)}<i style={`left:${r.x * 100}%;top:${r.y * 100}%;width:${r.w * 100}%;height:${r.h * 100}%`}></i>{/each}</span>Layout
         </button>
-        <button type="button" class="btn all" class:on={!!typeAll} bind:this={allButton} aria-pressed={!!typeAll} aria-expanded={askAll}
-          disabled={!typeAll && receivers.length < 2} title={!typeAll && receivers.length < 2 ? 'Needs two or more live panes on this tab.' : undefined}
-          onclick={toggleAll}>Type in all panes</button>
+        {#if !template}
+          <button type="button" class="btn all" class:on={!!typeAll} bind:this={allButton} aria-pressed={!!typeAll} aria-expanded={askAll}
+            disabled={!typeAll && receivers.length < 2} title={!typeAll && receivers.length < 2 ? 'Needs two or more live panes on this tab.' : undefined}
+            onclick={toggleAll}>Type in all panes</button>
+        {/if}
       {/if}
       {#if askAll}
         <div class="ask" role="dialog" aria-labelledby={`${panelId}-all`} aria-describedby={`${panelId}-all-body`} tabindex="-1"
@@ -658,17 +754,21 @@
       {/if}
       <button type="button" class="btn icon" aria-label="Desk menu" aria-haspopup="menu" aria-expanded={menu?.kind === 'desk'} onclick={event => openMenu('desk', event)}>⋮</button>
     </header>
+    {#if template}
+      {@const current = desk}
+      <p class="notice tpl" role="status"><span>This is a template. Make a desk from it to start shells.</span> <button type="button" class="btn primary" onclick={() => onfromtemplate(current)}>New desk from this template</button></p>
+    {/if}
     {#if saveState === 'stale'}<p class="notice" role="status">This desk was changed in another window. Showing the latest.</p>{/if}
     {#if reopenNotice}<p class="notice done" role="status">{reopenNotice} <button type="button" class="btn quiet" onclick={() => (reopenNotice = '')}>Dismiss</button></p>{/if}
     {#if notice}<p class="notice bad" role="alert">{notice} <button type="button" class="btn quiet" onclick={() => (notice = '')}>Dismiss</button></p>{/if}
-    <DeskTabs {tabs} active={activeTab?.id ?? ''} {panelId} {waiting} full={tabs.length >= MAX_TABS}
+    <DeskTabs {tabs} active={activeTab?.id ?? ''} {panelId} {waiting} full={tabs.length >= MAX_TABS} adding={!template} menuOpen={menu?.kind === 'add'}
       onselect={select}
       onrename={(tab, name) => change({ kind: 'renameTab', tab, name })}
       oncolour={(tab, colour) => change({ kind: 'colourTab', tab, colour })}
       onduplicate={duplicateTab}
       onclose={tabId => askClose(tabId)}
       onreorder={ids => change({ kind: 'reorderTabs', ids })}
-      onnew={opener => (adding = opener)} />
+      onnew={openAdd} />
     {#if typeAll}<p class="stripe" role="status">Typing in {typeAll.set.length} panes on this tab. Turns off when you change tab.</p>{/if}
     {#if phone && activeTab && ids.length > 1}
       <div class="chips" role="group" aria-label="Panes on this tab">
@@ -679,7 +779,7 @@
       </div>
     {/if}
     {#if activeTab && activePane}
-      <DeskToolbar name={paneName(activePane)} actions={actionsFor[activePaneId]} splits={!phone} zoomed={!!zoomed} {theatre}
+      <DeskToolbar name={paneName(activePane)} actions={actionsFor[activePaneId]} splits={!phone && !template} zoomed={!!zoomed} {theatre}
         canZoom={ids.length > 1} onsplit={dir => void splitPane(dir)} onzoom={() => zoom()} ontheatre={() => (theatre = !theatre)} />
     {/if}
     <div class="area" id={panelId} role="tabpanel" aria-labelledby={activeTab ? `desk-tab-${activeTab.id}` : undefined}>
@@ -700,7 +800,7 @@
                 onreceivable={ok => noteReceivable(pid, ok)}
                 oninput={(data, paste) => typeInAll(pid, data, paste)}
                 onstartcommand={start => change({ kind: 'start', tab: t.id, pane: pid, start })}
-                focused={pid === activePaneId} visible={view.visible} hold={view.hold} admitted={admitted.has(pid)} layout={!phone} zoomed={zoomed === pid} {tabs}
+                focused={pid === activePaneId} visible={view.visible} hold={view.hold} admitted={admitted.has(pid)} layout={!phone} {phone} {template} zoomed={zoomed === pid} {tabs}
                 onfocus={() => setActive(pid)}
                 onactions={a => noteActions(pid, a)}
                 onsettled={() => settle(pid)}
@@ -718,7 +818,7 @@
         <div class="empty">
           <h2>{tabs.length ? 'This tab is empty.' : 'Nowt on this desk yet.'}</h2>
           <p>A tab holds a shell on one of your machines, in the folder you choose.</p>
-          <button type="button" class="btn primary" disabled={tabs.length >= MAX_TABS} onclick={event => (adding = event.currentTarget as HTMLElement)}>New tab</button>
+          {#if !template}<button type="button" class="btn primary" disabled={tabs.length >= MAX_TABS} onclick={event => (adding = event.currentTarget as HTMLElement)}>New tab</button>{/if}
         </div>
       {/if}
     </div>
@@ -733,6 +833,12 @@
     {#if others.length}<hr />{/if}
     <button type="button" role="menuitem" onclick={() => { closeMenu(false); onlist() }}>All desks</button>
     <button type="button" role="menuitem" onclick={() => { closeMenu(false); onnew() }}>New desk</button>
+  </DeskMenu>
+{:else if menu?.kind === 'add' && desk}
+  <DeskMenu x={menu.x} y={menu.y} label="New tab" opener={menu.opener} onclose={closeMenu}>
+    <button type="button" role="menuitem" aria-haspopup="dialog" onclick={() => pickAdd('shell')}>New shell…</button>
+    <button type="button" role="menuitem" aria-haspopup="dialog" onclick={() => pickAdd('agent')}>Start an agent…</button>
+    <button type="button" role="menuitem" aria-haspopup="dialog" onclick={() => pickAdd('running')}>Add a running session…</button>
   </DeskMenu>
 {:else if menu?.kind === 'layout' && desk}
   <DeskMenu x={menu.x} y={menu.y} label="Layout" opener={menu.opener} onclose={closeMenu}>
@@ -769,6 +875,15 @@
   <NewTabDialog {machines} agentId={startAgent} dir={startDir} oncreate={createTab} onclose={() => void closeNewTab()} />
 {/if}
 
+{#if agentStart}
+  <StartAgentDialog {machines} snapshot={undefined} projects={agentStart.projects} initialAgent={startAgent} projectId={agentStart.projectId} opener={agentStart.opener}
+    onstarted={agentStarted} onsignedout={onsignedout} onclose={() => { const o = agentStart?.opener; agentStart = null; o?.focus() }} />
+{/if}
+
+{#if addingRunning}
+  <AddSessionDialog sessions={runningElsewhere} {machines} {desks} here={id} onadd={addRunning} onclose={() => { const o = addingRunning; addingRunning = null; o?.focus() }} />
+{/if}
+
 {#if choosing}
   {@const c = choosing}
   {@const p = paneById(c.pane)?.pane}
@@ -795,6 +910,7 @@
   @media (pointer: coarse) { .dname, .btn.icon, .btn.lay, .btn.all { min-height: 44px; } .btn.icon { min-width: 44px; } }
   .notice { flex: none; margin: 0; padding: 6px 14px; background: color-mix(in srgb, var(--info) 14%, var(--bg)); border-bottom: 1px solid var(--line-soft); color: var(--ink); font-size: 14px; }
   .notice.done { display: flex; align-items: center; gap: 8px; }
+  .notice.tpl { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
   .notice.bad { background: color-mix(in srgb, var(--bad) 12%, var(--bg)); display: flex; align-items: center; gap: 8px; }
   .area { flex: 1; min-height: 0; display: flex; padding: 0; background: var(--line-soft); }
   /* Type in all panes: amber while on, with a stripe under the tab bar and "Receiving" in each pane it reaches. */

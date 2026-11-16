@@ -2,7 +2,7 @@
   import { tick } from 'svelte'
   import TerminalPane, { type TerminalActions } from '../terminal/TerminalPane.svelte'
   import type { ConnectionState } from '../terminal/connection'
-  import { SESSIONS_PER_ACCOUNT, SESSIONS_PER_MACHINE, sessionHref, type TerminalMachine, type TerminalSession } from '../terminal/api'
+  import { hasHiddenChars, SESSIONS_PER_ACCOUNT, SESSIONS_PER_MACHINE, sessionHref, stripHiddenChars, type TerminalMachine, type TerminalSession } from '../terminal/api'
   import { projectColourHex, type ProjectColour } from '../projectColour'
   import { sessionStatus, statusLabel } from '../sessionStatus'
   import { middleEllipsis } from '../sessions/middleEllipsis'
@@ -17,7 +17,7 @@
   // either the terminal or a card that says what happened and offers its actions (PaneStateCard). A pane never shows a
   // blank terminal. Reopening is the desk's to do (it owns the desk's version); the pane only asks.
   // The terminal draws no chrome of its own: the desk draws one toolbar for the focused pane from its `actions`.
-  let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [], startup = '', receiving = false,
+  let { tab, pane, session, machine, ready, focused = true, failure, busy = false, error = '', canContinue = false, visible = true, hold = false, admitted = true, layout = true, zoomed = false, tabs = [], startup = '', receiving = false, template = false, phone = false,
     onfocus, onrename, oncolour, onclose, onreopen, onactions, onsettled, onsplit, onzoom, onswap, onmovetab, onstartcommand, onstartup, onreceivable, oninput }: {
     tab: Tab
     pane: Pane
@@ -42,6 +42,10 @@
     admitted?: boolean
     /** Splits, zoom, swap and moving are offered (not on a phone). */
     layout?: boolean
+    /** The desk is a template: nothing starts a shell from it, so the card offers no Start or Reopen and there is no Split. */
+    template?: boolean
+    /** A phone shows this one pane edge to edge, without the machine's name in its header. */
+    phone?: boolean
     zoomed?: boolean
     /** The desk's tabs, for Move to tab. */
     tabs?: Tab[]
@@ -106,7 +110,10 @@
   const name = $derived(pane.name || session?.title || dirLabel(folder).split('/').pop() || 'Shell')
   const colour = $derived(pane.colour || tab.colour)
   const dir = $derived(dirLabel(pane.dir))
-  const card = $derived(paneCard(shown, { host, dir, agent: agentName(session?.tool), perMachine: SESSIONS_PER_MACHINE, perAccount: SESSIONS_PER_ACCOUNT, accountLimit: failure === 'accountLimit', canContinue }))
+  // A template's panes are never started: its card keeps only what does not start a shell.
+  const STARTS = new Set<PaneActionKind>(['start', 'reopen', 'reopenHome', 'again', 'continue', 'chooseFolder', 'chooseMachine', 'retry', 'takeover'])
+  const drawn = $derived(paneCard(shown, { host, dir, agent: agentName(session?.tool), perMachine: SESSIONS_PER_MACHINE, perAccount: SESSIONS_PER_ACCOUNT, accountLimit: failure === 'accountLimit', canContinue }))
+  const card = $derived(drawn && template ? { ...drawn, actions: drawn.actions.filter(a => !STARTS.has(a.kind)) } : drawn)
   const note = $derived(paneNote(pane, shown, machine ? { deskShell } : undefined))
   const status = $derived(session && mounted ? sessionStatus(session) : undefined)
   const WORDS: Record<PaneState, string> = { live: 'Running', reconnecting: 'Reconnecting', elsewhere: 'Elsewhere', ended: 'Ended', lost: 'Lost', agentEnded: 'Ended', agentLost: 'Lost', folderGone: 'Folder gone', folderUnavailable: 'Folder unavailable', limit: 'At the limit', machineGone: 'Machine removed', empty: 'Not started' }
@@ -136,7 +143,9 @@
   const movable = $derived(tabs.filter(t => t.id !== tab.id && leaves(t.root).length > 0 && leaves(t.root).length < MAX_PANES))
   const paneName = (p: Pane) => p.name || 'Untitled'
   // Run types the command and Enter once, through the terminal's own input, and only into a connected terminal.
-  function runStartup() { if (startup && terminal?.type(`${startup}\r`)) onstartup?.(true) }
+  // A command with a hidden character (a line break, a control or format character) is never typed: what is run must be
+  // what the bar shows.
+  function runStartup() { if (startup && !hasHiddenChars(startup) && terminal?.type(`${startup}\r`)) onstartup?.(true) }
 
   // The start-up command dialog: one field, Save and Remove.
   const MAX_START = 2000
@@ -148,7 +157,7 @@
     event.preventDefault()
     const next = startDraft.trim()
     if ([...next].length > MAX_START) { startError = `Keep it to ${MAX_START} characters.`; return }
-    if (/[\r\n]/.test(next)) { startError = 'Keep it to one line.'; return }
+    if (hasHiddenChars(next)) { startError = "This command has hidden characters, so reet won't run it. Edit it first."; return }
     if (next !== pane.start) onstartcommand?.(next)
     closeStart()
   }
@@ -164,14 +173,14 @@
   }
 </script>
 
-<section class="desk-pane" class:focused data-pane={pane.id} data-state={shown} bind:this={section} aria-current={focused ? 'true' : undefined} style={`--pc:${colour ? projectColourHex(colour) : 'transparent'}`} aria-label={`${name} on ${host || 'a removed machine'}`} onpointerdown={() => onfocus?.()} onfocusin={() => onfocus?.()}>
+<section class="desk-pane" class:focused class:phone data-pane={pane.id} data-state={shown} bind:this={section} aria-current={focused ? 'true' : undefined} style={`--pc:${colour ? projectColourHex(colour) : 'transparent'}`} aria-label={`${name} on ${host || 'a removed machine'}`} onpointerdown={() => onfocus?.()} onfocusin={() => onfocus?.()}>
   <header class="ph" class:tinted={!!colour} draggable={layout && !editing && swappable.length > 0 ? 'true' : undefined} data-drag-pane={pane.id}>
     {#if editing}
-      <input class="rename" aria-label="Pane name" maxlength="80" bind:this={input} bind:value={draft} onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); finishRename(true) } else if (event.key === 'Escape') { event.preventDefault(); finishRename(false) } }} onblur={() => finishRename(true)} />
+      <input class="rename" aria-label="Pane name" maxlength="80" bind:this={input} bind:value={draft} oninput={() => { const clean = stripHiddenChars(draft); if (clean !== draft) draft = clean }} onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); finishRename(true) } else if (event.key === 'Escape') { event.preventDefault(); finishRename(false) } }} onblur={() => finishRename(true)} />
     {:else}
       <span class="nm" title={name}>{name}</span>
     {/if}
-    {#if host}<span class="host">{host}</span>{/if}
+    {#if host && !phone}<span class="host">{host}</span>{/if}
     {#if folder}<span class="dir" title={folder}>{middleEllipsis(dirLabel(folder), 48)}</span>{/if}
     <span class="st">{#if receiving}<span class="rcv">Receiving</span>{/if}<span class={`word ${tone}`} data-status={status}>{word}</span>
       <button type="button" class="more" aria-label={`Actions for ${name}`} aria-haspopup="menu" aria-expanded={!!menu} onclick={openMenu}>⋮</button>
@@ -211,8 +220,10 @@
   <DeskMenu x={menu.x} y={menu.y} label={`Actions for ${name}`} opener={menu.opener} onclose={closeMenu} colour={pane.colour} oncolour={c => { closeMenu(true); oncolour(c) }}>
     <button type="button" role="menuitem" onclick={() => { closeMenu(false); void startRename() }}>Rename</button>
     {#if layout}
-      <button type="button" role="menuitem" onclick={() => { closeMenu(false); onsplit?.('right') }}>Split right</button>
-      <button type="button" role="menuitem" onclick={() => { closeMenu(false); onsplit?.('down') }}>Split down</button>
+      {#if !template}
+        <button type="button" role="menuitem" onclick={() => { closeMenu(false); onsplit?.('right') }}>Split right</button>
+        <button type="button" role="menuitem" onclick={() => { closeMenu(false); onsplit?.('down') }}>Split down</button>
+      {/if}
       <button type="button" role="menuitem" disabled={swappable.length === 0} onclick={() => { closeMenu(true); onzoom?.() }}>{zoomed ? 'Show all panes' : 'Zoom'}</button>
       <button type="button" role="menuitem" aria-haspopup="menu" disabled={swappable.length === 0} onclick={() => openList('swap')}>Swap with…</button>
       <button type="button" role="menuitem" aria-haspopup="menu" disabled={movable.length === 0} onclick={() => openList('move')}>Move to tab…</button>
@@ -254,6 +265,8 @@
   .startup .gap { flex: 1; }
   .desk-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .desk-pane.focused { border-color: var(--accent-text); box-shadow: 0 0 0 1px var(--accent-text); }
+  /* A phone shows one pane at a time, edge to edge: no frame, no focus ring. */
+  .desk-pane.phone, .desk-pane.phone.focused { border: 0; border-radius: 0; box-shadow: none; }
   /* The header carries the pane's colour as a wash (the mock-up's tinted bar); with no colour it is the plain card. */
   .ph[draggable='true'] { cursor: grab; }
   .ph { flex: none; display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 4px 0 12px; font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; background: var(--card); border-bottom: 1px solid var(--line-soft); }

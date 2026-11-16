@@ -670,3 +670,119 @@ func TestBashWrapperKeepsPromptCommandArray(t *testing.T) {
 		}
 	}
 }
+
+// At start-up the manager removes desk pane history that no session in its
+// registry was created for and that is older than deskHistoryKeep. A file a
+// session names, a newer file, a file that is not a pane's history and a
+// symlink (and what it points to) are kept.
+func TestStartSweepsOldDeskHistory(t *testing.T) {
+	m, opts := managerFixture(t)
+	const named, stale, fresh, linked = "pane-named-0123456789", "pane-stale-0123456789", "pane-fresh-0123456789", "pane-linked-012345678"
+	createDeskShell(t, m, 1, named)
+	dir := deskHistoryDir(opts.Home)
+	for _, d := range []string{filepath.Join(opts.Home, ".reet"), deskRoot(opts.Home), dir} {
+		if err := os.Mkdir(d, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-deskHistoryKeep - time.Hour)
+	recent := time.Now().Add(-24 * time.Hour)
+	target := filepath.Join(opts.Home, "elsewhere")
+	files := map[string]time.Time{
+		named + ".bash":     old,
+		stale + ".bash":     old,
+		stale + ".zsh":      old,
+		stale + ".zsh.LOCK": old,
+		fresh + ".zsh":      recent,
+		"notes.txt":         old,
+		"short.bash":        old,
+	}
+	for name, at := range files {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("echo kept\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(target, []byte("echo kept\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(target, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, linked+".bash")); err != nil {
+		t.Fatal(err)
+	}
+	again, err := NewManager(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = again.Close() })
+	for _, name := range []string{stale + ".bash", stale + ".zsh", stale + ".zsh.LOCK"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s kept: %v", name, err)
+		}
+	}
+	for _, name := range []string{named + ".bash", fresh + ".zsh", "notes.txt", "short.bash", linked + ".bash"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("%s removed: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("the symlink's target was removed: %v", err)
+	}
+}
+
+// A history folder that is a symlink is not swept, and start-up still works.
+func TestStartSweepSkipsSymlinkedHistoryFolder(t *testing.T) {
+	_, opts := managerFixture(t)
+	realDir := filepath.Join(opts.Home, "real-history")
+	if err := os.MkdirAll(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(deskRoot(opts.Home), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, deskHistoryDir(opts.Home)); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(realDir, "pane-stale-0123456789.bash")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-deskHistoryKeep - time.Hour)
+	if err := os.Chtimes(file, old, old); err != nil {
+		t.Fatal(err)
+	}
+	again, err := NewManager(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = again.Close() })
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("a file through a symlinked folder was removed: %v", err)
+	}
+}
+
+// Forgetting a pane also removes the lock and new copy zsh leaves beside its
+// history file.
+func TestForgetDeskPaneRemovesZshSiblings(t *testing.T) {
+	m, opts := managerFixture(t)
+	dir := deskHistoryDir(opts.Home)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range deskHistoryNames {
+		if err := os.WriteFile(filepath.Join(dir, deskPaneA+suffix), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.forgetDeskPane(deskPaneA); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := os.ReadDir(dir); len(left) != 0 {
+		t.Fatalf("left %v", left)
+	}
+}

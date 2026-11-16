@@ -148,6 +148,9 @@ func NewManager(ctx context.Context, opts ManagerOptions) (*Manager, error) {
 		}
 	}
 	_ = m.sweepUploads(active, time.Now())
+	// Old desk pane history no session names goes too; the same never stops
+	// the connector.
+	_ = m.sweepDeskHistory(registry, time.Now())
 	return m, nil
 }
 

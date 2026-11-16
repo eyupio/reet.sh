@@ -368,6 +368,10 @@ func deskPaneOf(r hostRegistry, s ManagedSession) string {
 	return op.Create.Desk.Pane
 }
 
+// deskHistoryNames are the files a pane's history can leave: bash's file,
+// zsh's, and the lock and the new copy zsh writes beside its own.
+var deskHistoryNames = []string{".bash", ".zsh", ".zsh.LOCK", ".zsh.new"}
+
 // forgetDeskPane removes the pane's history files. A file already gone is not
 // an error.
 func (m *Manager) forgetDeskPane(pane string) error {
@@ -375,12 +379,76 @@ func (m *Manager) forgetDeskPane(pane string) error {
 		return terminalproto.ErrInvalid
 	}
 	var first error
-	for _, kind := range []string{"bash", "zsh"} {
-		if err := os.Remove(filepath.Join(deskHistoryDir(m.home), pane+"."+kind)); err != nil && !errors.Is(err, os.ErrNotExist) && first == nil {
+	for _, suffix := range deskHistoryNames {
+		if err := os.Remove(filepath.Join(deskHistoryDir(m.home), pane+suffix)); err != nil && !errors.Is(err, os.ErrNotExist) && first == nil {
 			first = err
 		}
 	}
 	return first
+}
+
+// deskHistoryKeep is how long a pane's history file no session names is kept
+// before the start-up sweep removes it.
+const deskHistoryKeep = 90 * 24 * time.Hour
+
+// sweepDeskHistory removes the history files of desk panes that no session in
+// the registry was created for and that have not changed for deskHistoryKeep:
+// a pane closed after its shell had ended, a controller restart that lost an
+// end's removal, and the like. Only regular files named as a pane's history
+// are removed; a symlink, or a reet folder that is one, is left alone and not
+// followed. The caller ignores the error: a sweep never stops the manager.
+func (m *Manager) sweepDeskHistory(r hostRegistry, now time.Time) error {
+	for _, dir := range []string{filepath.Join(m.home, ".reet"), deskRoot(m.home), deskHistoryDir(m.home)} {
+		info, err := os.Lstat(dir)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: %s is not a folder", ErrUnsafePath, dir)
+		}
+	}
+	named := map[string]bool{}
+	for _, s := range r.Sessions {
+		if pane := deskPaneOf(r, s); pane != "" {
+			named[pane] = true
+		}
+	}
+	dir := deskHistoryDir(m.home)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var first error
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		pane, ok := deskHistoryPane(entry.Name())
+		if !ok || named[pane] {
+			continue
+		}
+		info, err := entry.Info() // lstat: the entry itself, never a target
+		if err != nil || !info.Mode().IsRegular() || now.Sub(info.ModTime()) < deskHistoryKeep {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+// deskHistoryPane is the pane a history file name belongs to.
+func deskHistoryPane(name string) (string, bool) {
+	for _, suffix := range deskHistoryNames {
+		if pane, ok := strings.CutSuffix(name, suffix); ok && terminalproto.ValidID(pane) {
+			return pane, true
+		}
+	}
+	return "", false
 }
 
 // ForgetDeskSession removes the history file of the desk pane the session was

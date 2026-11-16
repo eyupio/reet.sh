@@ -95,8 +95,8 @@ func TestAPipelinesMovesAreRecordedWithTheirReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	test := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
-	// Moving off review starts test and ends review's session in the background, so wait for both before
-	// handing test over; otherwise the next hand-over's place in the log is down to timing.
+	// The review session's end is recorded just after the test stage starts. Handing test over before
+	// then lets the two events land in either order.
 	log.wait(t,
 		"gaffer-stage-started code", "gaffer-stage-handed-over code gaffer",
 		"gaffer-stage-started review", "gaffer-session-ended", "gaffer-stage-handed-over review person",

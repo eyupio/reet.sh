@@ -535,3 +535,298 @@ func plainAndAgentPanes(panes []string, home, site string) bool {
 	name, path, ok := strings.Cut(shell, " ")
 	return ok && name != "sleep" && path == home && agent == "sleep "+site
 }
+
+// privateTerminals is a controller with one machine connected over the
+// private listener, whose terminals run on a tmux server of the test's own
+// (a private socket under a temporary folder; no other tmux is touched).
+type privateTerminals struct {
+	srv    *Server
+	uid    int64
+	agent  string
+	tmux   string
+	layout terminalhost.Layout
+	home   string
+	public *httptest.Server
+	cookie string
+	server *exec.Cmd
+}
+
+// startPrivateTerminals connects a desk-shell-v1 machine whose home is home.
+// Its tmux server runs until the test ends or killServer stops it.
+func startPrivateTerminals(t *testing.T, dir, home string) *privateTerminals {
+	t.Helper()
+	tmux, err := terminalhost.FindTmux(t.Context())
+	if err != nil {
+		if os.Getenv("REET_BROWSER_TESTS") == "1" {
+			t.Fatal("restore test requires installed tmux", err)
+		}
+		t.Skip(err)
+	}
+	srv, st, agent, secret, _ := privateFixture(t, AuthAccounts, "")
+	uid, _ := st.DefaultOwner()
+	layout, err := terminalhost.NewEnrollmentLayout(filepath.Join(dir, "agent.json"), agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := terminalhost.Ensure(layout); err != nil {
+		t.Fatal(err)
+	}
+	pt := &privateTerminals{srv: srv, uid: uid, agent: agent.ID, tmux: tmux.Path, layout: layout, home: home, cookie: terminalLogin(t, st, uid)}
+	pt.startServer(t)
+	t.Cleanup(func() { pt.killServer(t) })
+
+	private := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv.s.privateHandler().ServeHTTP(w, r.WithContext(privateconn.WithPrivateTransport(r.Context())))
+	}))
+	t.Cleanup(private.Close)
+	pt.public = httptest.NewServer(srv)
+	t.Cleanup(pt.public.Close)
+	srv.s.publicURL = pt.public.URL
+	base, _ := url.Parse(private.URL)
+	privateClient := &http.Client{Transport: terminalTestTransport{base, http.DefaultTransport}}
+
+	headers := http.Header{"X-Reet-Agent": {agent.ID}, "X-Reet-Agent-Key": {secret}, "X-Reet-Version": {"test"}}
+	ctx, cancel := context.WithCancel(t.Context())
+	c, response, err := websocket.Dial(ctx, private.URL+"/private/v1/control", &websocket.DialOptions{HTTPHeader: headers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !terminalproto.SupportsDeskShell(response.Header.Get(terminalproto.FeatureHeader)) {
+		t.Fatal("controller did not advertise desk-shell-v1")
+	}
+	caps := terminalproto.Capabilities{ProtocolVersion: 1, OS: "linux", OSUser: "test", TerminalControl: true, TerminalEnabled: true, HealthEnabled: true, Readiness: terminalproto.Ready, CommandHistory: true, DeskShell: true}
+	headers.Set(terminalproto.FeatureHeader, terminalproto.CommandHistoryFeature+","+terminalproto.DeskShellFeature)
+	handshake, _ := terminalproto.EncodeHandshake(terminalproto.Handshake{ProtocolVersion: 1, RequestID: terminalbroker.ID(), AgentInstanceID: terminalbroker.ID(), Capabilities: caps})
+	if err = c.Write(ctx, websocket.MessageText, handshake); err != nil {
+		t.Fatal(err)
+	}
+	_, data, err := c.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := terminalproto.DecodeHandshakeReply(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	send := func(ctx context.Context, m terminalproto.Message) error {
+		data, err := terminalproto.Encode(m)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return c.Write(ctx, websocket.MessageText, data)
+	}
+	factory := terminalagent.Factory(terminalhost.ManagerOptions{EnrollmentID: agent.ID, Layout: layout, Home: home, Consent: func() error { return nil }})
+	handle, cleanup := factory(ctx, privateClient, headers, reply.Generation, agenthealth.Sender(send))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer cleanup()
+		for {
+			_, data, err := c.Read(ctx)
+			if err != nil {
+				return
+			}
+			m, err := terminalproto.Decode(data)
+			if err != nil {
+				return
+			}
+			if probe, ok := m.Body.(*terminalproto.Probe); ok {
+				m.Body = terminalproto.ProbeResult(*probe)
+				if send(ctx, m) != nil {
+					return
+				}
+			} else if handle(ctx, m) != nil {
+				return
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		cancel()
+		c.CloseNow()
+		<-done
+	})
+	pt.waitFor(t, "a terminal-ready connection", func() bool { return srv.s.terminals.Ready(uid, agent.ID) })
+	return pt
+}
+
+// startServer starts the machine's tmux server on its private socket, as the
+// machine's service does at boot.
+func (pt *privateTerminals) startServer(t *testing.T) {
+	t.Helper()
+	pt.server = exec.Command(pt.tmux, "-D", "-S", pt.layout.Socket, "-f", pt.layout.Config)
+	pt.server.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + pt.home, "SHELL=/bin/sh", "TERM=xterm-256color"}
+	if err := pt.server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pt.waitFor(t, "the tmux server", func() bool { return terminalhost.SocketActive(pt.layout) })
+}
+
+// killServer ends the private tmux server and every shell in it, as a reboot
+// of the machine would. Only this test's own socket is named.
+func (pt *privateTerminals) killServer(t *testing.T) {
+	t.Helper()
+	if pt.server == nil {
+		return
+	}
+	_ = exec.Command(pt.tmux, "-S", pt.layout.Socket, "kill-server").Run()
+	_ = pt.server.Process.Kill()
+	_ = pt.server.Wait()
+	pt.server = nil
+}
+
+func (pt *privateTerminals) tmuxOut(args ...string) string {
+	out, _ := exec.Command(pt.tmux, append([]string{"-S", pt.layout.Socket}, args...)...).Output()
+	return strings.TrimSpace(string(out))
+}
+
+func (pt *privateTerminals) call(t *testing.T, method, path string, in any) (int, map[string]any, string) {
+	t.Helper()
+	data, _ := json.Marshal(in)
+	r, _ := http.NewRequestWithContext(t.Context(), method, pt.public.URL+path, strings.NewReader(string(data)))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", pt.public.URL)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: pt.cookie})
+	resp, err := pt.public.Client().Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	out := map[string]any{}
+	_ = json.Unmarshal(raw, &out)
+	return resp.StatusCode, out, string(raw)
+}
+
+func (pt *privateTerminals) waitFor(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// typeIn types line and Enter into the only window of the tmux session that
+// runs session.
+func (pt *privateTerminals) typeIn(target, line string) {
+	pt.tmuxOut("send-keys", "-t", "="+target+":", "-l", line)
+	pt.tmuxOut("send-keys", "-t", "="+target+":", "Enter")
+}
+
+// The promise of desks: a machine that restarts loses its shells, and a pane
+// whose shell was lost reopens through the route in the folder its shell was
+// last in, with the pane's own command history loaded. Here the restart is
+// the end of the machine's private tmux server, which takes every shell with
+// it, and a new server started in its place.
+func TestDeskPaneRestoredAfterTmuxServerEnds(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not installed, so a desk pane keeps no history here")
+	}
+	// The machine's plain shells are bash, as the service's SHELL says.
+	t.Setenv("SHELL", bash)
+	dir, err := os.MkdirTemp("/tmp", "reet-restore-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	home := filepath.Join(dir, "home")
+	work := filepath.Join(home, "work", "api")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realWork, _ := filepath.EvalSymlinks(work) // /tmp is a symlink on macOS
+	pt := startPrivateTerminals(t, dir, home)
+	st := pt.srv.s.st
+
+	// A desk with one pane, started from the desk.
+	const pane = "restore0123456789ab"
+	code, out, raw := pt.call(t, "POST", "/api/v2/desks", map[string]any{"name": "Restore"})
+	if code != 201 {
+		t.Fatal("desk", code, raw)
+	}
+	deskID := out["id"].(string)
+	doc := map[string]any{"active": "t1", "tabs": []any{map[string]any{"id": "t1", "name": "Main", "colour": "", "zoomed": "", "active": pane, "root": map[string]any{"pane": pane},
+		"panes": map[string]any{pane: map[string]any{"id": pane, "name": "api", "colour": "", "host": pt.agent, "session": "", "kind": "shell", "dir": "", "dirAt": 0, "start": ""}}}}}
+	if code, _, raw := pt.call(t, "PATCH", "/api/v2/desks/"+deskID, map[string]any{"expect": 1, "doc": doc}); code != 200 {
+		t.Fatal("doc", code, raw)
+	}
+	reopen := func() string {
+		t.Helper()
+		current, err := st.DeskFor(pt.uid, deskID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		code, out, raw := pt.call(t, "POST", "/api/v2/desks/"+deskID+"/panes/"+pane+"/reopen", map[string]any{"expect": current.Version})
+		if code != 200 {
+			t.Fatal("reopen", code, raw)
+		}
+		return out["session"].(map[string]any)["id"].(string)
+	}
+	onlySession := func() string {
+		t.Helper()
+		var name string
+		pt.waitFor(t, "one tmux session", func() bool {
+			names := strings.Fields(pt.tmuxOut("list-sessions", "-F", "#{session_name}"))
+			if len(names) == 1 {
+				name = names[0]
+			}
+			return len(names) == 1
+		})
+		return name
+	}
+	first := reopen()
+	target := onlySession()
+
+	// A command run in the pane's shell, in a folder of its own.
+	marker := "echo reet-restored-$((6*7))"
+	pt.typeIn(target, "cd '"+work+"' && "+marker)
+	historyFile := filepath.Join(home, ".reet", "desks", "history", pane+".bash")
+	pt.waitFor(t, "the command in the pane's history file", func() bool {
+		data, _ := os.ReadFile(historyFile)
+		return strings.Contains(string(data), marker)
+	})
+	pt.waitFor(t, "the pane's folder", func() bool {
+		d, err := st.DeskFor(pt.uid, deskID)
+		return err == nil && d.Doc.Tabs[0].Panes[pane].Dir == realWork
+	})
+
+	// The machine "restarts": its tmux server ends with every shell in it,
+	// and a new one starts. The next sweep finds the shell gone.
+	pt.killServer(t)
+	pt.startServer(t)
+	pt.waitFor(t, "the shell to be lost", func() bool {
+		s, err := st.TerminalSessionFor(pt.uid, first)
+		return err == nil && s.State == terminalproto.Lost
+	})
+	if d, _ := st.DeskFor(pt.uid, deskID); d.Doc.Tabs[0].Panes[pane].Session != first || d.Doc.Tabs[0].Panes[pane].Dir != realWork {
+		t.Fatalf("the pane after the restart: %+v", d.Doc.Tabs[0].Panes[pane])
+	}
+
+	// Reopen: a new shell in the last folder, with the pane's history.
+	second := reopen()
+	if second == first {
+		t.Fatal("reopen kept the lost session")
+	}
+	target = onlySession()
+	pt.waitFor(t, "the reopened shell in the last folder", func() bool {
+		return pt.tmuxOut("list-panes", "-t", "="+target+":", "-F", "#{pane_current_path}") == realWork
+	})
+	pt.typeIn(target, "history; echo reet-listed-$((1+1))")
+	var screen string
+	pt.waitFor(t, "the history listing", func() bool {
+		screen = pt.tmuxOut("capture-pane", "-p", "-J", "-S", "-200", "-t", "="+target+":")
+		return strings.Contains(screen, "reet-listed-2")
+	})
+	if !strings.Contains(screen, marker) {
+		t.Fatalf("the reopened shell's history lacks the pane's command:\n%s", screen)
+	}
+	if d, _ := st.DeskFor(pt.uid, deskID); d.Doc.Tabs[0].Panes[pane].Session != second {
+		t.Fatalf("the pane does not hold the reopened shell: %+v", d.Doc.Tabs[0].Panes[pane])
+	}
+}

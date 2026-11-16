@@ -13,7 +13,9 @@ this file existed releases were described on their GitHub release pages.
   folder (or **Reopen all**); opening a desk never starts a shell, and a
   pane's start-up command runs only when you press Run. **Type in all panes**
   sends what you type to every live pane of a tab. A running session can be
-  added to a desk from Sessions or Home. See `docs/desks.md`.
+  added to a desk from Sessions or Home. Templates are listed under their own
+  heading on the Desks page. Ending a pane's shell follows your Terminal
+  history default. See `docs/desks.md`.
 - Machines: updating reet on a machine adds `desk-shell-v1`. A desk pane's
   shell there reports the folder it is in, keeps its own bash or zsh command
   history under `~/.reet/desks/` on that machine (the History drawer shows

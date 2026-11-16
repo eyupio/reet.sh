@@ -25,17 +25,21 @@ viewer). On a tablet and a phone it is under **More**. Jump lists desks too (not
   for shells that need you, live shells and panes to reopen. **New desk** makes an empty desk named "Desk" (then
   "Desk 2", and so on) and opens it. **From a template ▾** lists your templates. Each card's menu has Open, Rename,
   Duplicate, Save as template, Delete and the colour swatches. With no desks the page says what a desk is and offers
-  New desk.
+  New desk. Your templates follow under a **Templates** heading, as cards of the same kind; a template card's name opens
+  the template's own page and its menu has Open, New desk from this template, Rename and Delete.
 - **A desk** has a header: the desk's name, which is the switcher (your other desks, All desks, New desk), a line
   with its tab and machine counts and the save state, **Reopen all** when it applies, **Layout**, **Type in all
   panes** and the desk menu (Rename, Duplicate, Save as template, Keys, Delete, and the colour swatches). Below are the
   tab bar, one terminal toolbar for the focused pane, and the tab's panes.
 
 Deleting a desk with no running shells asks "Its tabs and panes are removed. Nothing is running in it." A desk with
-running shells asks whether to **End its shells** or **Leave them running in Sessions**.
+running shells asks whether to **End its shells** or **Leave them running in Sessions**, and says what the first means:
+"Its shells are ended and leave Sessions, and their panes' command history is removed." When a shell would not end,
+the page says so after the delete: "Sorted. “`<name>`” is deleted. One of its shells could not be ended. It is still in
+Sessions." (or how many of them).
 
-The list and the open desk read your sessions and machines every 15 seconds while the page is in view, as Sessions
-does.
+The Desks page reads your desks, sessions and machines every 15 seconds while the page is in view, as Sessions does.
+If a desk cannot be read when you open it, the page says so and offers **Try again** and **All desks**.
 
 ## Tabs
 
@@ -46,8 +50,12 @@ The tab bar shows flat tabs with a colour marker and an underline in the tab's c
   colour swatches.
 - A tab you are not looking at shows a mark when one of its shells is waiting for you.
 - **+** opens a menu: **New shell…** (a plain shell on a machine, in a folder you type or browse to, under the home rule;
-  it is filled in with the focused pane's machine and the folder its session started in), **Start an agent…** and **Add
-  a running session…**.
+  it is filled in with the focused pane's machine and the folder that pane's shell is in now, else the pane's last
+  folder), **Start an agent…** and **Add a running session…**.
+- New tab and a split check the session limits before anything is sent, and say so with the pane card's words
+  ("`<machine>` already has 24 sessions running." or "You already have 64 sessions running."). A machine that does not
+  answer gives "`<machine>` is not reporting. Try again once it is back." Pressing again after a start that timed out
+  asks about the same start, so it never starts a second shell.
 - **Duplicate tab** copies the tab's layout, machines, folders, names, colours and start-up commands. Its panes start
   empty, because a session can be in only one pane.
 
@@ -72,10 +80,10 @@ command…, Open in Sessions (when the pane has a session) and Close, with the c
 - **Layout** offers **Side by side**, **Stacked**, **Grid** (as many columns as the square root of the pane count,
   rounded up), **Main and stack** (the first pane on the left at 60%, the others stacked beside it) and **Even out**
   (the same shape, every pane an equal share). A layout rearranges the panes you have; it starts and ends nothing.
-- **Zoom** fills the tab with one pane. The others stay attached, hidden, so nothing they print is missed; Show all
+- **Zoom** fills the tab with one pane (from a pane's menu, that pane, which also takes the focus). The others stay attached, hidden, so nothing they print is missed; Show all
   brings them back.
 - **Swap with…** exchanges two panes' places. **Move to tab…** moves the pane, with its shell, beside the focused pane
-  of a tab that has room. You can also drag a pane by its header onto an edge of another pane; a preview shows the half
+  of a tab that has room, in one saved step, so another window never sees it on neither tab. You can also drag a pane by its header onto an edge of another pane; a preview shows the half
   it will take.
 - **Theatre view** (the last toolbar button) folds the top bar and the desk header away, leaving the tab bar, the toolbar
   and the panes. It is not saved.
@@ -95,8 +103,8 @@ running on `<machine>`." (a tab asks once for all its running shells) and offers
   ends** the line says "The session leaves Sessions, and this pane's command history is removed." instead.
 - **Take off this desk**: "It keeps running, and stays in Sessions."
 
-The arrow keys move between the two, and Cancel leaves everything as it was. If a shell will not end, the desk says so;
-it is still in Sessions.
+The arrow keys move between the two, and Cancel leaves everything as it was, as does leaving the desk while the dialog
+is open. If a shell will not end, the desk says so; it is still in Sessions.
 
 ## Names and colours
 
@@ -149,9 +157,17 @@ yet saved is sent as the page goes away or is hidden, or when you switch to anot
   browser saved first) is made again on the newer copy: each waiting change is applied to it, and a change that no
   longer applies (its tab or pane is gone) is dropped. When anything was dropped the desk says "This desk was changed in
   another window. Showing the latest." Other windows of the same browser hear of a save at once and read the desk
-  again. An open desk does not read itself again on a timer: a change made in another browser shows when this page is
-  shown again (switching back to its browser tab), when this window next saves, or on a reload. The 15-second read
-  covers the desk list, sessions and machines, not the open desk's own layout.
+  again. A change made in another browser shows within about 15 seconds: when the page's regular read of the desk list
+  finds the open desk at a newer version, the desk is read again, and any change still waiting here is applied on top
+  of it. It also shows when this page is shown again (switching back to its browser tab).
+- **A refused save.** A save the controller refuses for good (any refusal but a sign-in, a timeout, a rate limit or a
+  newer copy) is not tried again: the waiting changes are dropped, the desk is shown as it is saved, the header says
+  **last change not saved** and the desk says "reet couldn't save your last change: `<the controller's reason>`.
+  Showing the desk as it is saved."
+- **Too large.** A change that would take the desk over 64 KiB is refused before it is made: "This desk is as large as
+  it can be. Remove a tab or shorten a start-up command."
+- **Leaving with a save waiting.** A change still waiting when you switch desk or go to another part of reet keeps being tried, as
+  above, until it is saved or refused.
 - **A lost answer.** A save whose answer never came back may still have been stored; when the newer copy turns out to be
   that save, its changes are not applied a second time.
 
@@ -437,16 +453,16 @@ starts nothing, and the session it had reserved is removed from history at once.
 
 ## Not done and not verified
 
-- **zsh per-pane history is verified on Linux only** (zsh 5.9, where the wrapper's real-shell tests run, including a
-  `~/.zshenv` that defaults `ZDOTDIR` to `~/.config/zsh`). It has not been seen to work on macOS, whose `/etc/zshrc`
-  sets `HISTFILE` itself; the wrapper sets the pane's file after it, but that is unchecked there. A system-wide
-  `ZDOTDIR` (set in `/etc/zshenv`) is expected to bypass reet's wrapper, so that pane would use your usual history; this
-  is unchecked too.
-- **A real machine reboot has not been tested.** Restore is tested against a real bash and a real tmux server of the
-  test's own: the server is ended with the pane's shell in it and started again, the shell is reported lost, and a
-  reopen through the route opens a new shell in the pane's last folder with the pane's command in its history. A shell
-  killed outright, and one ended and reopened outside home, are tested too. A whole machine restarting, with reet's
-  service starting again, is not.
+- **zsh per-pane history is verified on Linux only.** The wrapper's real-shell tests (both wrapper tests, and a
+  `~/.zshenv` that defaults `ZDOTDIR` to `~/.config/zsh`) ran on Linux with zsh 5.9. They have not been run on macOS,
+  whose `/etc/zshrc` sets `HISTFILE` itself; the wrapper sets the pane's file after it, but that is unchecked there.
+- **A `ZDOTDIR` set before the shell starts is not followed.** One exported in the environment the shell starts in, or
+  defaulted system-wide in `/etc/zshenv`, is not honoured by reet's wrapper; only one set in your own `~/.zshenv` is.
+- **A real machine reboot has not been tested.** Restore after the tmux server ends is tested, on a private tmux
+  socket of the test's own with a real bash: the server is ended with the pane's shell in it and started again, the
+  shell is reported lost, and a reopen through the route opens a new shell in the pane's last folder with the pane's
+  command in its history. A shell killed outright, and one ended and reopened outside home, are tested too. A whole
+  machine restarting, with reet's service starting again, is not.
 - **After a reboot, a folder on a mount that is not there yet** (a network share, an encrypted volume not yet unlocked)
   reads as **Folder gone**. Reopen again once it is mounted.
 - **The last folder can be one sweep stale.** The machine reads it about once a second and once more before it ends a
@@ -471,9 +487,19 @@ starts nothing, and the session it had reserved is removed from history at once.
 - **Gaffer chats cannot be panes.**
 - **No sharing and no export.** A desk belongs to one account.
 - **No splits on a phone.**
-- **Desk order** can be set through `POST /api/v2/desks/reorder` only; the list has no way to move a card.
+- **The desk list cannot be reordered.** Desk order can be set through `POST /api/v2/desks/reorder` only; the list has
+  no way to move a card.
 - **Reopen all** gives up waiting for a reopened pane after about half a minute and counts it as reopened; the 15-second
   read shows it when it arrives.
-- **An open desk does not poll for itself.** Another browser's change to the layout shows only when the page is shown
-  again, when this window next saves, or on a reload.
 - **The session limits** are the browser's; another browser or an older page can start more.
+- **Some joined emoji are refused in names.** A desk, tab or pane name (or a start-up command) holding a zero-width
+  joiner, as some emoji sequences do (a family, a flag with a modifier), is refused with a message about a control
+  character, and such characters are removed from a stored desk when it is read.
+- **Removing a session that is still ending** from Sessions empties its pane at once, while its shell may still be
+  stopping; the pane then offers **Start**.
+- **The tab bar for screen readers.** Each tab's ⋮ button and the rename field sit inside the tab list, which a screen
+  reader may announce as a slightly malformed list of tabs. Shift+F10 on a tab still opens its menu.
+- **The current tab is saved with the desk.** Switching tab in one window moves another window showing the same desk to
+  that tab too.
+- **Ending an agent from a desk** (End the shell on an agent's pane) does not repeat the warnings Sessions' own End
+  dialog gives about a Factory outcome or a worktree.

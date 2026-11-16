@@ -70,10 +70,21 @@ What a person sees is in [docs/desks.md](docs/desks.md). PR [#813](https://githu
   ForgetDesk mark is lost on a controller restart, and an end from Sessions after a pane was taken off a desk never asks,
   so those files wait for the 90-day sweep; downgrading reet on a machine that started desk shells can stop its
   terminals (the older registry reader refuses `Create.Desk` in a receipt); after a reboot a folder on a mount not yet
-  present reads as Folder gone, and the last folder can be one sweep stale; an open desk does not poll for another
-  browser's edits (the spec said 15 s); the desk list has no reorder control; bash in a pane is interactive, not a login
-  shell; fish and other shells get folder restore only; no sharing, export or splits on a phone. The full list with
-  what a person would notice is the last section of [docs/desks.md](docs/desks.md).
+  present reads as Folder gone, and the last folder can be one sweep stale; the desk list has no reorder control; bash
+  in a pane is interactive, not a login shell; fish and other shells get folder restore only; no sharing, export or
+  splits on a phone. Parked after the final review: a zero-width joiner (some emoji sequences) is refused in names
+  with a "control character" message; removing a still-ending session from Sessions empties its pane, which then
+  offers Start; each tab's ⋮ and rename field sit inside the ARIA tablist; a `ZDOTDIR` exported before the shell
+  starts or set in `/etc/zshenv` is not honoured; the current tab is in the saved document, so a tab switch moves
+  another window on the same desk; End the shell on an agent's pane does not repeat Sessions' Factory-outcome and
+  worktree warnings. The full list with what a person would notice is the last section of
+  [docs/desks.md](docs/desks.md).
+- **The open desk and the server.** An open desk re-reads itself when the page's 15 s desk-list read shows it at a
+  newer version (`DeskScreen`'s effect calls `autosave.refresh()`; no second poll). `autosave.ts` stops retrying a save
+  refused for good (any 4xx but 401, 408, 429; state `refused`, `onRefused`), refuses a change over 64 KiB locally
+  (`MAX_DOC_BYTES`, `TOO_LARGE`), moves a pane between tabs as one change (`movePaneToTab`), and `retire()` keeps
+  retrying a left desk's queue. End the shell follows the profile's `terminalRemoveOnClose` (read in `DesksPage`);
+  closing a pane whose shell already ended sends `forgetDesk` with `removeHistory` false and no dialog.
 - **How it was checked** (as recorded in `.superpowers/sdd/2026-11-16-desks/progress.md`): each task reviewed, with
   fix rounds; Go tests for the document, the store, the routes (`desks_integration_test.go`, `desk_history_test.go`), the
   wrappers against real bash (`desk_shell_test.go`, including a locally built bash 3.2.57) and the real-tmux launch test

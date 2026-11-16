@@ -8,7 +8,7 @@
    */
   let { text, onlink, copy = false, oncopyfail }: { text: string; onlink?: (href: string) => void; copy?: boolean; oncopyfail?: () => void } = $props()
   const parsed = $derived(markdownBlocks(text))
-  let copied = $state<MdBlock | null>(null), copyTimer: ReturnType<typeof setTimeout> | undefined
+  let copied = $state.raw<MdBlock | null>(null), copyTimer: ReturnType<typeof setTimeout> | undefined
   async function copyBlock(block: MdBlock & { kind: 'code' }) {
     if (!(await copyText(block.text))) { oncopyfail?.(); return }
     copied = block

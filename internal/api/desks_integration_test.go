@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/desk"
 	"github.com/eyupio/reet.sh/internal/terminalbroker"
@@ -369,7 +370,10 @@ func TestReopenOutsideHomeOnlyForRecordedDir(t *testing.T) {
 	}
 	// The machine reports the shell in /srv/app, then the shell ends.
 	sid := out["session"].(map[string]any)["id"].(string)
-	if err := f.st.RecordTerminalLiveDirFor(f.uid, f.agent.ID, sid, "/srv/app", 4102444900000); err != nil {
+	// The browser's far-future dirAt was stored as the controller's clock, so
+	// a report just after it is newer.
+	first, _ := f.st.DeskFor(f.uid, id)
+	if err := f.st.RecordTerminalLiveDirFor(f.uid, f.agent.ID, sid, "/srv/app", first.Doc.Tabs[0].Panes[reopenPane].DirAt+1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.srv.s.terminals.End(t.Context(), f.uid, sid, terminalbroker.ID()); err != nil {
@@ -394,6 +398,7 @@ func TestReopenOutsideHomeOnlyForRecordedDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := d.Doc.Tabs[0].Panes[reopenPane]
+	time.Sleep(5 * time.Millisecond) // the rewrite is stamped after the report
 	p.Dir, p.DirAt = "/etc", 1<<52
 	d.Doc.Tabs[0].Panes[reopenPane] = p
 	raw2, _ := json.Marshal(d.Doc)
@@ -519,5 +524,24 @@ func TestReopenMissingAndGone(t *testing.T) {
 	}
 	if len(f.sent()) != 0 {
 		t.Fatalf("sent: %+v", f.sent())
+	}
+}
+
+// A plain launch refusal (the folder may well exist, refused by the home
+// rule) is folder_unavailable, not folder_gone; an agent pane whose reopen
+// failed stays an agent pane.
+func TestReopenFolderUnavailable(t *testing.T) {
+	f := launchAPIFixture(t, reopenCaps(true, true))
+	f.reply = func(terminalproto.Create) terminalproto.Body {
+		return terminalproto.Result{Code: terminalproto.LaunchFailed}
+	}
+	id, version := reopenDesk(t, f, "agent", "", "/srv/not-trusted")
+	code, out, raw := f.do(t, f.cookie, "POST", reopenPath(id), map[string]any{"expect": version})
+	if code != 409 || out["code"] != "folder_unavailable" || strings.Contains(out["error"].(string), "no longer exists") {
+		t.Fatal(code, raw)
+	}
+	d, _ := f.st.DeskFor(f.uid, id)
+	if p := d.Doc.Tabs[0].Panes[reopenPane]; p.Session != "" || p.Kind != "agent" {
+		t.Fatalf("pane after a failed reopen: %+v", p)
 	}
 }

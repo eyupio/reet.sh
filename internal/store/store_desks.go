@@ -257,6 +257,20 @@ func keepNewerDirs(doc *desk.Doc, stored desk.Doc) {
 	}
 }
 
+// capDirTimes keeps every pane's dirAt no later than at (the controller's
+// clock), so a browser cannot freeze a pane's folder against later machine
+// reports with a far-future time.
+func capDirTimes(doc *desk.Doc, at int64) {
+	for i := range doc.Tabs {
+		for id, p := range doc.Tabs[i].Panes {
+			if p.DirAt > at {
+				p.DirAt = at
+				doc.Tabs[i].Panes[id] = p
+			}
+		}
+	}
+}
+
 // UpdateDeskFor replaces the name, colour, template flag and document of
 // desk d.ID. expect must be the stored version (ErrDeskStale
 // otherwise, and the caller re-reads). The
@@ -282,6 +296,7 @@ func (s *Store) UpdateDeskFor(uid int64, d Desk, expect int64) (Desk, error) {
 		if expect != 0 && expect != cur.Version {
 			return ErrDeskStale
 		}
+		capDirTimes(&d.Doc, now())
 		keepNewerDirs(&d.Doc, cur.Doc)
 		reports, err := adoptLiveDirsTx(tx, uid, &d.Doc)
 		if err != nil {
@@ -432,9 +447,10 @@ func (s *Store) ReopenDeskPaneFor(uid int64, deskID, pane, session string, expec
 }
 
 // UnbindDeskPaneSessionFor clears a pane's session if it is still session (a
-// reopen whose create failed), bumping the version; otherwise it changes
+// reopen whose create failed) and gives it back kind ("shell" or "agent"; any
+// other value leaves the kind), bumping the version; otherwise it changes
 // nothing and returns the desk as it is.
-func (s *Store) UnbindDeskPaneSessionFor(uid int64, deskID, pane, session string) (Desk, error) {
+func (s *Store) UnbindDeskPaneSessionFor(uid int64, deskID, pane, session, kind string) (Desk, error) {
 	var saved Desk
 	err := s.withTx(func(tx *sql.Tx) error {
 		d, err := deskForTx(tx, uid, deskID)
@@ -448,6 +464,9 @@ func (s *Store) UnbindDeskPaneSessionFor(uid int64, deskID, pane, session string
 		}
 		p := t.Panes[pane]
 		p.Session = ""
+		if kind == "shell" || kind == "agent" {
+			p.Kind = kind
+		}
 		t.Panes[pane] = p
 		saved, err = saveDeskDoc(tx, uid, d, true)
 		return err
@@ -626,11 +645,13 @@ func (r paneReports) save(tx *sql.Tx, uid int64, deskID string) error {
 	return nil
 }
 
-// adoptLiveDirsTx gives every pane of doc that holds a session the live folder
-// its machine last reported for that session, when that is newer than the
-// pane's own, so a session placed on a desk after its last folder change still
-// has its folder. It returns the reports to save as the panes' reported
-// folders once the desk row exists.
+// adoptLiveDirsTx gives every pane of doc that holds a live session (creating,
+// running or end_requested) the folder its machine last reported for that
+// session, when that is newer than the pane's own, so a session placed on a
+// desk after its last folder change still has its folder. It returns the
+// reports to save as the panes' reported folders once the desk row exists. An
+// ended or lost session is not that pane's shell: a document write binding one
+// copies nothing and moves no trust.
 func adoptLiveDirsTx(tx *sql.Tx, uid int64, doc *desk.Doc) (paneReports, error) {
 	var out paneReports
 	for i := range doc.Tabs {
@@ -640,7 +661,7 @@ func adoptLiveDirsTx(tx *sql.Tx, uid int64, doc *desk.Doc) (paneReports, error) 
 			}
 			var agent, dir string
 			var at int64
-			err := tx.QueryRow(`SELECT agent_id,live_dir,live_dir_at FROM terminal_sessions WHERE id=? AND user_id=?`, p.Session, uid).Scan(&agent, &dir, &at)
+			err := tx.QueryRow(`SELECT agent_id,live_dir,live_dir_at FROM terminal_sessions WHERE id=? AND user_id=? AND state IN ('creating','running','end_requested')`, p.Session, uid).Scan(&agent, &dir, &at)
 			if errors.Is(err, sql.ErrNoRows) {
 				continue
 			}
@@ -761,6 +782,12 @@ func agentIDsForHost(tx *sql.Tx, uid int64, host string) ([]string, error) {
 func clearDeskSessionsForHostsTx(tx *sql.Tx, uid int64, hosts []string) error {
 	if len(hosts) == 0 {
 		return nil
+	}
+	// What those machines reported for desk panes goes with them.
+	for _, h := range hosts {
+		if _, err := tx.Exec(`DELETE FROM desk_pane_dirs WHERE user_id=? AND agent_id=?`, uid, h); err != nil {
+			return err
+		}
 	}
 	on := map[string]bool{}
 	for _, h := range hosts {

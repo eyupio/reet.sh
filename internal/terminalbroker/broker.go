@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -989,7 +990,9 @@ func (b *Broker) CreateSessionReserved(ctx context.Context, uid int64, agent, re
 		if hookErr := reserved(s); hookErr != nil {
 			// Nothing was sent: the reservation is refused here, so the
 			// session ends as lost and frees its place.
-			_ = b.st.FailTerminalCreateFor(uid, agent, request, p.Generation, terminalproto.Unavailable)
+			if err := b.st.FailTerminalCreateFor(uid, agent, request, p.Generation, terminalproto.Unavailable); err != nil {
+				log.Printf("terminal: could not fail the unsent create %s: %v", request, err)
+			}
 			if failed, err := b.st.TerminalSessionFor(uid, s.ID); err == nil {
 				s = failed
 			}

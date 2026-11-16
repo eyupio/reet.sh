@@ -503,7 +503,9 @@ func (s *server) deskPaneReopen(w http.ResponseWriter, r *http.Request) {
 			// only one that is definitely not running is taken off it.
 			latest, lerr := s.st.TerminalSessionFor(uid, session.ID)
 			if lerr != nil || !latest.State.ReservesQuota() {
-				_, _ = s.st.UnbindDeskPaneSessionFor(uid, id, paneID, session.ID)
+				if _, uerr := s.st.UnbindDeskPaneSessionFor(uid, id, paneID, session.ID, pane.Kind); uerr != nil {
+					log.Printf("desks: could not take failed session %s off pane %s: %v", session.ID, paneID, uerr)
+				}
 			}
 		}
 		s.deskReopenError(w, err, uid, id, agent, host)
@@ -529,9 +531,13 @@ func (s *server) deskReopenError(w http.ResponseWriter, err error, uid int64, id
 		s.deskStale(w, uid, id)
 	case errors.Is(err, store.ErrDeskMissing):
 		deskRefusal(w, err)
-	case errors.Is(err, terminalbroker.ErrFolderGone), errors.Is(err, terminalbroker.ErrLaunchFailed):
-		// A plain shell's launch fails only on its folder.
+	case errors.Is(err, terminalbroker.ErrFolderGone):
+		// The machine itself says the folder is missing or cannot be entered.
 		writeErrCode(w, 409, "folder_gone", "", "That folder no longer exists on "+host+".", "")
+	case errors.Is(err, terminalbroker.ErrLaunchFailed):
+		// A plain refusal: the folder may exist but be refused there (outside
+		// home and not the machine's own report, or an older machine).
+		writeErrCode(w, 409, "folder_unavailable", "", "reet couldn't open a shell in that folder on "+host+".", "")
 	case errors.Is(err, terminalbroker.ErrShellDirUnsupported), errors.Is(err, terminalbroker.ErrDeskShellUnsupported):
 		writeErrCode(w, 409, "shell_dir_unsupported", "", "Update reet on that machine to keep this pane's folder and history.", "")
 	case errors.Is(err, terminalbroker.ErrOffline), errors.Is(err, store.ErrTerminalNotReady):

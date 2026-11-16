@@ -3,6 +3,7 @@ package gaffer
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -138,6 +139,9 @@ func TestWhichAgentQuestionsGafferMayAnswer(t *testing.T) {
 		"no question, an approval": {nil, false},
 	} {
 		r := outcomeFixture(t)
+		// Gaffer has these decisions, so its supervisor may ask the model about
+		// the stop while this looks at it. What it is told is not under test.
+		r.reply = func(http.ResponseWriter, *http.Request) {}
 		_, o, piece := heldForQuestion(t, r, true, c.question)
 		stop, ok := r.s.pipelineStop(o, piece)
 		if ok != c.ok || ok && (stop.about != "agent_question" || strings.Join(stop.choices, ",") != "answer" || stop.sign != "q:q-1") {

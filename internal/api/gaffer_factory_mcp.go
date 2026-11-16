@@ -23,8 +23,11 @@ var mcpFactoryWrites = map[string]bool{
 }
 
 // mcpPipelines reads the pipelines an MCP client asks to start: a title, a
-// self-contained brief and optional stage kinds. A client never chooses YOLO,
-// folder trust or a merge that happens by itself; those stay the person's.
+// self-contained brief, optional stage kinds and, for any stage, how
+// demanding it is. A client names no agent for a stage: its tier's agent and
+// backup come from the person's saved crew. It never chooses YOLO, folder
+// trust, a merge that happens by itself or who takes the decisions; those
+// stay the person's.
 func mcpPipelines(raw any) ([]gaffer.OutcomeSession, error) {
 	list, ok := raw.([]any)
 	if !ok || len(list) == 0 {
@@ -36,6 +39,13 @@ func mcpPipelines(raw any) ([]gaffer.OutcomeSession, error) {
 		title, _ := item["title"].(string)
 		prompt, _ := item["prompt"].(string)
 		piece := gaffer.OutcomeSession{Title: title, Prompt: prompt}
+		tiers, _ := item["tiers"].(map[string]any)
+		for kind, tier := range tiers {
+			name, _ := tier.(string)
+			if name != "light" && name != "standard" && name != "heavy" {
+				return nil, errors.New("A stage’s tier is light, standard or heavy. \"" + kind + "\" in “" + title + "” has another.")
+			}
+		}
 		if kinds, ok := item["stages"].([]any); ok {
 			for _, kind := range kinds {
 				name, _ := kind.(string)
@@ -45,6 +55,53 @@ func mcpPipelines(raw any) ([]gaffer.OutcomeSession, error) {
 		if len(piece.Stages) == 0 {
 			for _, kind := range []string{"code", "review", "test", "pr", "babysit", "merge"} {
 				piece.Stages = append(piece.Stages, gaffer.OutcomeStageInput{Kind: kind})
+			}
+		}
+		// A stage can be split into named parts, each with a brief and, if it
+		// differs, a tier. The parts replace the stage, in the order given.
+		if list, ok := item["parts"].([]any); ok && len(list) > 0 {
+			split, order := map[string][]gaffer.OutcomeStageInput{}, []string{}
+			for _, entry := range list {
+				part, _ := entry.(map[string]any)
+				kind, _ := part["stage"].(string)
+				name, _ := part["title"].(string)
+				brief, _ := part["brief"].(string)
+				tier, _ := part["tier"].(string)
+				if len(split[kind]) == 0 {
+					order = append(order, kind)
+				}
+				split[kind] = append(split[kind], gaffer.OutcomeStageInput{Kind: kind, Part: name, Brief: brief, Tier: tier})
+			}
+			for _, kind := range order {
+				at := -1
+				for i := range piece.Stages {
+					if piece.Stages[i].Kind == kind {
+						at = i
+					}
+				}
+				if at < 0 || len(split[kind]) < 2 {
+					return nil, errors.New("“" + title + "” splits a \"" + kind + "\" stage it does not have, or gives it only one part. A split is two to four parts of a stage the pipeline runs.")
+				}
+				for i := range split[kind] {
+					if split[kind][i].Tier == "" {
+						if tier, ok := tiers[kind].(string); ok {
+							split[kind][i].Tier = tier
+						}
+					}
+				}
+				piece.Stages = append(piece.Stages[:at], append(split[kind], piece.Stages[at+1:]...)...)
+			}
+		}
+		named := map[string]bool{}
+		for i := range piece.Stages {
+			named[piece.Stages[i].Kind] = true
+			if tier, ok := tiers[piece.Stages[i].Kind].(string); ok && piece.Stages[i].Part == "" {
+				piece.Stages[i].Tier = tier
+			}
+		}
+		for kind := range tiers {
+			if !named[kind] {
+				return nil, errors.New("“" + title + "” gives a tier for a \"" + kind + "\" stage it does not have.")
 			}
 		}
 		out = append(out, piece)
@@ -68,6 +125,19 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 		if piece.SessionID != "" {
 			row["session_id"] = piece.SessionID
 		}
+		// A pipeline with no stages says on itself whether the outcome's agent and model were applied.
+		if piece.Applied != nil {
+			row["choice"] = piece.Applied.Check
+			if piece.Applied.Model != "" {
+				row["applied_model"] = piece.Applied.Model
+			}
+			if piece.Applied.Effort != "" {
+				row["applied_effort"] = piece.Applied.Effort
+			}
+			if piece.Applied.Note != "" {
+				row["choice_note"] = piece.Applied.Note
+			}
+		}
 		stages := []map[string]any{}
 		for i, stage := range piece.Stages {
 			item := map[string]any{"kind": stage.Kind, "state": stage.State, "agent": stage.Tool}
@@ -76,6 +146,10 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 			}
 			if stage.Effort != "" {
 				item["effort"] = stage.Effort
+			}
+			// One part of a stage that was split: parts of a kind sit together and run in order.
+			if stage.Part != "" {
+				item["part"] = stage.Part
 			}
 			// How demanding the stage was judged to be, which chose its agent from the person's crew.
 			if stage.Tier != "" {
@@ -358,7 +432,15 @@ func (s *server) runMCPFactory(ctx context.Context, access mcpAccess, name strin
 			}
 		}
 		// The person's usual limits; no YOLO, no folder trust and no merge by itself can be asked for here.
-		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Model: str("model"), Sessions: pipelines, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true, RequestID: str("request_id")})
+		// When a backup takes over is the client's to say, within the person's bounds; who decides is not.
+		balanceBelow := 0
+		if n, ok := args["balance_below"].(float64); ok {
+			balanceBelow = int(n)
+			if float64(balanceBelow) != n || balanceBelow < gaffer.MinBalanceBelow || balanceBelow > gaffer.MaxBalanceBelow {
+				return nil, errors.New("balance_below is a whole number from 5 to 90.")
+			}
+		}
+		o, err = s.gafferProviders.CreateOutcome(uid, gaffer.OutcomeInput{Objective: str("objective"), ProjectID: str("project_id"), Tool: str("agent"), Model: str("model"), Sessions: pipelines, BalanceBelow: balanceBelow, MaxReviews: 12, Hours: 24, Confirmed: true, AutoReport: args["reports_by_itself"] == true, RequestID: str("request_id")})
 		id = o.ID
 	case "reet_add_pipelines":
 		pipelines, perr := mcpPipelines(args["pipelines"])

@@ -826,6 +826,79 @@
                     "merge"
                   ]
                 }
+              },
+              "tiers": {
+                "description": "How demanding a stage of this pipeline is, by stage: light, standard or heavy. Omit a stage for its usual tier (plan, design and review heavy; code and test standard; pr, babysit and merge light). The tier chooses the agent, model, effort and backup from the user’s saved crew; you cannot name an agent for a stage.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "design",
+                    "code",
+                    "review",
+                    "test",
+                    "pr",
+                    "babysit",
+                    "merge"
+                  ]
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "light",
+                    "standard",
+                    "heavy"
+                  ]
+                }
+              },
+              "parts": {
+                "description": "Split a stage into two to four parts of different work, done one after another in the same folder, each by its own agent on its own tier. Use it only when the parts suit different tiers. The pull request, babysitting and merge cannot be split.",
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "stage": {
+                      "type": "string",
+                      "enum": [
+                        "plan",
+                        "design",
+                        "code",
+                        "review",
+                        "test"
+                      ],
+                      "description": "The stage this part belongs to. It must be one of the pipeline’s stages."
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60,
+                      "description": "Short name for the part, unique within its stage."
+                    },
+                    "brief": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000,
+                      "description": "Exactly what this part does. Its agent sees only this and the handover from the part before, so it must stand alone."
+                    },
+                    "tier": {
+                      "description": "How demanding this part is. Omit for the stage’s own tier.",
+                      "type": "string",
+                      "enum": [
+                        "light",
+                        "standard",
+                        "heavy"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "stage",
+                    "title",
+                    "brief"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
@@ -844,6 +917,12 @@
           "default": false,
           "description": "Have Gaffer report across the outcome when a pipeline finishes or stops. Each report is one model request.",
           "type": "boolean"
+        },
+        "balance_below": {
+          "description": "The share of an agent’s plan, in percent, under which a stage starts on its tier’s backup instead. Omit for the user’s saved figure, else 20. Who takes the outcome’s decisions cannot be set here: only the user can give them to Gaffer, on the Factory page.",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 90
         },
         "confirm": {
           "type": "boolean",
@@ -938,6 +1017,79 @@
                     "babysit",
                     "merge"
                   ]
+                }
+              },
+              "tiers": {
+                "description": "How demanding a stage of this pipeline is, by stage: light, standard or heavy. Omit a stage for its usual tier (plan, design and review heavy; code and test standard; pr, babysit and merge light). The tier chooses the agent, model, effort and backup from the user’s saved crew; you cannot name an agent for a stage.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "enum": [
+                    "plan",
+                    "design",
+                    "code",
+                    "review",
+                    "test",
+                    "pr",
+                    "babysit",
+                    "merge"
+                  ]
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "light",
+                    "standard",
+                    "heavy"
+                  ]
+                }
+              },
+              "parts": {
+                "description": "Split a stage into two to four parts of different work, done one after another in the same folder, each by its own agent on its own tier. Use it only when the parts suit different tiers. The pull request, babysitting and merge cannot be split.",
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "stage": {
+                      "type": "string",
+                      "enum": [
+                        "plan",
+                        "design",
+                        "code",
+                        "review",
+                        "test"
+                      ],
+                      "description": "The stage this part belongs to. It must be one of the pipeline’s stages."
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60,
+                      "description": "Short name for the part, unique within its stage."
+                    },
+                    "brief": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000,
+                      "description": "Exactly what this part does. Its agent sees only this and the handover from the part before, so it must stand alone."
+                    },
+                    "tier": {
+                      "description": "How demanding this part is. Omit for the stage’s own tier.",
+                      "type": "string",
+                      "enum": [
+                        "light",
+                        "standard",
+                        "heavy"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "stage",
+                    "title",
+                    "brief"
+                  ],
+                  "additionalProperties": false
                 }
               }
             },

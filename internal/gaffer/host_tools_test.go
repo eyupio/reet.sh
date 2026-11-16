@@ -267,6 +267,46 @@ func TestAToolRequestLeftTooLongIsNotRunOnApproval(t *testing.T) {
 	}
 }
 
+// A request nobody comes back to is closed by the controller's own look, not
+// only when someone tries to approve it: after a day the chat stops showing
+// it as waiting, and the close is recorded. A fresh request is left alone.
+func TestAToolRequestLeftTooLongIsClosedWithoutAnyoneAnswering(t *testing.T) {
+	asking := writeTool
+	asking.Mode = "ask"
+	s, st, p, v, host, _, _ := hostFixture(t, []HostTool{asking}, `reet_stop_outcome {"outcome_id":"abc"}`, "Asked.")
+	log := recordAudit(s)
+	turn := ask(t, s, p, v, "a", "Stop abc.")
+	c := v.Conversation.ID
+	s.expirePendingTools()
+	if kept, _ := st.GafferTurnFor(p.UserID, c, turn.ID); kept.Tools[0].State != "pending" {
+		t.Fatalf("a fresh request was closed: %+v", kept.Tools)
+	}
+	life := pendingToolLife
+	pendingToolLife = 0
+	t.Cleanup(func() { pendingToolLife = life })
+	time.Sleep(5 * time.Millisecond)
+	// The look is spaced out; a second one straight away does nothing.
+	s.expirePendingTools()
+	if kept, _ := st.GafferTurnFor(p.UserID, c, turn.ID); kept.Tools[0].State != "pending" {
+		t.Fatalf("looked again within ten minutes: %+v", kept.Tools)
+	}
+	s.mu.Lock()
+	s.toolsSwept = time.Time{}
+	s.mu.Unlock()
+	s.expirePendingTools()
+	kept, _ := st.GafferTurnFor(p.UserID, c, turn.ID)
+	if kept.Tools[0].State != "declined" || !strings.Contains(kept.Tools[0].Result, "more than a day") || len(host.made()) != 0 {
+		t.Fatalf("the old request stays open: %+v", kept.Tools)
+	}
+	found := false
+	for _, row := range log.all() {
+		found = found || row.action == "gaffer-tool-declined" && row.detail["expired"] == true && row.detail["turn"] == turn.ID
+	}
+	if !found {
+		t.Fatalf("the close was not recorded: %+v", log.all())
+	}
+}
+
 // What a tool returns goes to the chat's provider. A provider that is not
 // allowed session text is not handed it through a tool.
 func TestAToolCallSaysWhetherItsResultMayCarrySessionText(t *testing.T) {

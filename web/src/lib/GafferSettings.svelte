@@ -6,6 +6,7 @@
   import ConfirmDialog from './ConfirmDialog.svelte'
   import GafferAvatar from './terminal/GafferAvatar.svelte'
   import GafferTools from './GafferTools.svelte'
+  import GafferCrewSettings from './GafferCrewSettings.svelte'
   import { shell } from './dialogShell'
 
   let { onerror }: { onerror?: (e: unknown) => void } = $props()
@@ -130,6 +131,7 @@
     <label class="way"><input type="checkbox" checked={ways.autoMerge} disabled={waysBusy} onchange={event => void setWay('autoMerge', event.currentTarget.checked)}/><span><strong>Let new pipelines merge by themselves</strong><span class="way-note">The starting choice for each new outcome: its agent merges once every check passes, no review thread is open and there are no conflicts. Left off, a pipeline stops at Ready to merge and waits for you. You can change it for any one outcome when you approve its plan.</span></span></label>
     {#if waysError}<p class="feedback bad" role="alert">{waysError}</p>{/if}
   </section>
+  <GafferCrewSettings/>
   <GafferTools/>{/if}
   {#if notice}<p class="feedback good" role="status">{notice}</p>{/if}
   {#if error}<div class="feedback bad" role="alert"><p>{error}</p><button class="btn quiet" onclick={() => void load()} disabled={!!busy}>Reload providers</button></div>{/if}

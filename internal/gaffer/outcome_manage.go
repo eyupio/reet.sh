@@ -182,7 +182,7 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 		// Trust is given once, when the outcome is approved, and Antigravity never starts without it.
 		for _, piece := range pieces {
 			for _, stage := range piece.Stages {
-				if stage.Tool == "antigravity" || stage.Backup != nil && stage.Backup.Tool == "antigravity" {
+				if outcomeRunsOn([]store.GafferOutcomeSession{{Stages: []store.GafferOutcomeStage{stage}}}, "antigravity") {
 					return current, invalid("trust", "This outcome was approved without folder trust, and Google Antigravity starts only in a trusted folder. Choose another agent for “"+piece.Title+"”, or give Gaffer a new outcome with folder trust ticked.")
 				}
 			}
@@ -593,9 +593,11 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 		at = len(piece.Stages) - 1
 	}
 	target := -1
+	// A stage that was split goes back to its first part: the whole stage is done again.
 	for i := 0; i <= at; i++ {
 		if piece.Stages[i].Kind == kind {
 			target = i
+			break
 		}
 	}
 	if target < 0 {
@@ -635,7 +637,7 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 			}
 			for j := target; j < len(row.Stages); j++ {
 				// A stage done again is asked for under a new request, so it gets a session of its own.
-				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Backup: row.Stages[j].Backup, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
+				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Part: row.Stages[j].Part, Brief: row.Stages[j].Brief, Backup: row.Stages[j].Backup, More: row.Stages[j].More, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
 			}
 			row.Stages[target].SentBack = "Sent back from the " + from + " stage. " + clipBytes(reason, 1500)
 			row.Stage, row.MergeApproved = target, false

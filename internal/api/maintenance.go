@@ -171,6 +171,27 @@ func worktreeParts(p string) (project, run string, ok bool) {
 	return project, run, terminalproto.ValidSlug(project) && terminalproto.ValidRunToken(run) && path.Base(p) == run
 }
 
+// worktreeInPipeline reports whether a Factory pipeline that is not finished
+// works in the worktree of that project and run. A pipeline's later stages,
+// and any retry, start in the folder its first session was given, so no
+// cleaning removes it while the pipeline has work left. Records that cannot
+// be read keep the folder.
+func (s *server) worktreeInPipeline(uid int64, project, run string) bool {
+	if s.gafferProviders == nil {
+		return false
+	}
+	dirs, ok := s.gafferProviders.WorkDirsInUse(uid)
+	if !ok {
+		return true
+	}
+	for _, dir := range dirs {
+		if p, r, ok := worktreeParts(dir); ok && p == project && r == run {
+			return true
+		}
+	}
+	return false
+}
+
 // classifyWorktree says what may be done with a worktree whose state the
 // machine reported.
 func classifyWorktree(st terminalproto.WorktreeState) (string, string) {
@@ -244,6 +265,10 @@ func (s *server) sweepWorktrees(ctx context.Context, uid int64, minAgeDays int, 
 				item.Path = state.Path
 			}
 		}
+		if s.worktreeInPipeline(uid, project, run) {
+			// Listed as kept whatever its state: a Factory pipeline still works there.
+			item.Status, item.Reason = sweepBlocked, "in_pipeline"
+		}
 		if apply && item.Status == sweepSafe {
 			item = s.removeSwept(ctx, uid, item, automatic)
 		}
@@ -256,6 +281,12 @@ func (s *server) sweepWorktrees(ctx context.Context, uid int64, minAgeDays int, 
 // made in between is refused by the machine rather than lost. The branch is
 // kept. A failure leaves the item as it was, with the reason.
 func (s *server) removeSwept(ctx context.Context, uid int64, item sweepItem, automatic bool) sweepItem {
+	if s.worktreeInPipeline(uid, item.Project, item.Run) {
+		// Checked at the moment of removal, on every path that cleans: a
+		// pipeline may have started since the list was read.
+		item.Status, item.Reason = sweepBlocked, "in_pipeline"
+		return item
+	}
 	shown := terminalbroker.WorktreeCounts{Changed: item.Changed, Unpushed: item.Unpushed}
 	removed, err := s.terminals.WorktreeRemove(ctx, uid, item.AgentID, item.Project, item.Repo, item.Run, shown)
 	if errors.Is(err, terminalbroker.ErrWorktreeNotFound) {

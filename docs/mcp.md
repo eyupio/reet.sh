@@ -159,6 +159,8 @@ Two tools read the Factory for any connection on a writer account:
 - `reet_list_factory` lists the outcomes with their pipelines: each pipeline's
   state, the stage in hand, every stage's state and agent, how its merge is
   decided, and the state of the goal Gaffer follows it with.
+  A stage that was split appears once for each part, with the part's name in
+  `part`; the entries share a `kind` and run in order.
   A stage's `tier` (`light`, `standard` or `heavy`) is how demanding it was
   judged to be, which chose its agent from the account's saved crew.
   A stage with a second choice has `backup_agent`. One that started on it,
@@ -175,6 +177,8 @@ Two tools read the Factory for any connection on a writer account:
   stops. `gaffer_decisions` lists what Gaffer decided (`pipeline`, `stage`,
   `about`, `choice`, `failed`); its reason, `why`, goes only to a management
   connection. The switch itself is not an MCP tool.
+  A pipeline with no stages carries `choice`, `applied_model`, `applied_effort`
+  and `choice_note` on itself, against the outcome's own agent and model.
 - `reet_get_factory_outcome` reads one outcome. A management connection also
   receives each finished stage's handover note and Gaffer's latest report, which
   are derived from session text; a read-only connection receives states only.
@@ -191,7 +195,7 @@ Six more are the person's own controls and need management scope:
 | `reet_report_outcome` | One request to the Gaffer provider for a report; may use its credits. |
 | `reet_tell_pipeline_agent` | Queues your instruction for the working agent of a pipeline's stage in hand. Takes a stable `request_id`. `applied` is false when nothing was queued (the agent is waiting on an approval, say); trying again takes a new `request_id`. |
 | `reet_send_pipeline_back` | Has the stage in hand, or an earlier one, done again with your reason. Needs `confirm: true`. |
-| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. |
+| `reet_start_outcome` | Starts an outcome in a project: real agent sessions, with ordinary approvals. Needs `confirm: true`. A pipeline's `tiers` says how demanding a stage is (`light`, `standard` or `heavy`), which picks the agent and backup from the user's saved crew; `balance_below` sets when a backup takes over. A pipeline's `parts` splits a stage into two to four named parts, each with a brief and, if it differs, a tier. It cannot name an agent for a stage or give Gaffer the outcome's decisions. Pass a stable `request_id` to make a retry safe: asked again under the same one, it answers the outcome already started with `applied: false`. |
 | `reet_add_pipelines` | Adds up to five pipelines to an outcome. Needs `confirm: true`. |
 
 `reet_list_factory_projects` (a read) lists the projects an outcome can run in.

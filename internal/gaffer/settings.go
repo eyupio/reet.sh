@@ -166,6 +166,8 @@ type activeProbe struct {
 	cancel   context.CancelFunc
 }
 type Service struct {
+	// toolsSwept is when tool requests left waiting were last looked at.
+	toolsSwept      time.Time
 	goalCancel      context.CancelFunc
 	goalWake        chan struct{}
 	goalRecoveryErr error

@@ -172,9 +172,9 @@ func TestGafferCrewRoutesSaveAndReadTheAccountsTiers(t *testing.T) {
 	if code, _ := gafferClient(t, owner, srv, "PUT", "/api/v2/gaffer/crew", `{"light":{},"standard":{},"heavy":{},"balanceBelow":95}`); code != 422 {
 		t.Fatalf("threshold out of range: %d", code)
 	}
-	crew := `{"light":{"tool":"codex","model":"small","effort":"low"},"standard":{"tool":"opencode"},"heavy":{"tool":"claude","model":"opus","effort":"high","backup":{"tool":"codex","model":"big"}},"balanceBelow":35}`
+	crew := `{"light":{"tool":"codex","model":"small","effort":"low"},"standard":{"tool":"opencode"},"heavy":{"tool":"claude","model":"opus","effort":"high","backup":{"tool":"codex","model":"big"}},"balanceBelow":35,"gafferDecides":true}`
 	code, body = gafferClient(t, owner, srv, "PUT", "/api/v2/gaffer/crew", crew)
-	if code != 200 || !strings.Contains(body, `"saved":true`) || !strings.Contains(body, `"model":"opus"`) || !strings.Contains(body, `"balanceBelow":35`) || !strings.Contains(body, `"backup":{"tool":"codex","model":"big"}`) || !strings.Contains(body, `"balance":{"default":20,"max":90,"min":5}`) {
+	if code != 200 || !strings.Contains(body, `"saved":true`) || !strings.Contains(body, `"model":"opus"`) || !strings.Contains(body, `"balanceBelow":35`) || !strings.Contains(body, `"gafferDecides":true`) || !strings.Contains(body, `"backup":{"tool":"codex","model":"big"}`) || !strings.Contains(body, `"balance":{"default":20,"max":90,"min":5}`) {
 		t.Fatalf("save: %d %s", code, body)
 	}
 	code, body = gafferClient(t, owner, srv, "GET", "/api/v2/gaffer/crew", "")

@@ -5,6 +5,31 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Factory: in Add pipelines each tier's backup can be your crew's, none, or
+  one of that pipeline's own. The crew in Gaffer settings takes a billing
+  source for a Cline tier or backup.
+
+- Factory: a stage can be split into parts by hand, and a part added, in the
+  outcome dialog and in Add pipelines; an MCP client can split a stage too.
+- Factory: a tier can have up to three backups, tried in order, and a Cline
+  backup its own billing source. A stage whose agent stops with its plan
+  below your figure is run again on its backup, once; a working agent is
+  never interrupted. Add pipelines can leave a tier's backups off.
+
+- Factory: Gaffer can split a stage into parts of different work, each with
+  its own brief and tier, so each part runs on the agent that suits it. Parts
+  run one after another, each in a session of its own. You see and edit the
+  split before anything starts.
+- Gaffer settings has **Your Factory crew**: the tiers, their backups, when a
+  backup takes over, and whether the outcome dialog starts on Gaffer decides.
+  Added pipelines take each tier's backup from it.
+- MCP: `reet_start_outcome` takes a stage's tier and `balance_below`. It
+  cannot give Gaffer an outcome's decisions.
+- A worktree a Factory pipeline still works in is kept by every kind of
+  cleaning. A pipeline with no stages now says whether the outcome's agent
+  and model were applied. A tool request Gaffer left waiting for you is
+  closed after a day whether or not anyone answers it.
+
 - Skills sync: a skill whose name is not its folder name ("SVG Logo
   Designer", installed as `svg-logo-designer`) now installs. Reet asked the
   `skills` CLI for it by folder name only, the CLI matches on the skill's own

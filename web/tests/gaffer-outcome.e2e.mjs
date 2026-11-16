@@ -21,7 +21,8 @@ const objective='Ship CSV export for billing.'
 const proposed={summary:'Two independent halves: the endpoint, then the button.',model:'gaffer-model',usageReported:true,inputTokens:40,outputTokens:60,sessions:[
   // Gaffer's assessment: this code stage is harder than code usually is, and it says why. The rest take their defaults.
   {title:'Export API',prompt:'Add the CSV export endpoint with tests. Raise a pull request. Do not merge.',stages:[{kind:'code',tier:'heavy',tierWhy:'The export reads the billing ledger while it is being written.'},{kind:'review'},{kind:'test'},{kind:'pr'},{kind:'babysit'},{kind:'merge'}]},
-  {title:'Export button',prompt:'Add the export button to the billing page. Raise a pull request. Do not merge.'},
+  // Gaffer split this pipeline's code stage into two parts of different work, the first of them light.
+  {title:'Export button',prompt:'Add the export button to the billing page. Raise a pull request. Do not merge.',stages:[{kind:'code',part:'Button',brief:'Add the button and wire it to the endpoint.',tier:'light',tierWhy:'Wiring only.'},{kind:'code',part:'Empty state',brief:'Draw the empty state.'},{kind:'review'},{kind:'test'},{kind:'pr'},{kind:'babysit'},{kind:'merge'}]},
 ]}
 const revised={summary:'One session, end to end: the endpoint, its tests and the button together.',model:'gaffer-model',usageReported:true,inputTokens:25,outputTokens:35,sessions:[
   {title:'Export, end to end',prompt:'Build the CSV export API and its button with tests. Raise a pull request. Do not merge.',stages:['plan','code','review','test','pr','babysit'].map(kind=>({kind}))},
@@ -150,7 +151,7 @@ try {
       // The crew can be kept for the account: every later outcome starts from it. Nothing else is saved by it.
       await outcome.getByRole('button',{name:'Save as my crew',exact:true}).click()
       await expect(outcome.getByText('Saved. New outcomes start from this crew.',{exact:true})).toBeVisible()
-      expect(f.box.crewSaves).toEqual([{light:{tool:'claude',model:'',effort:'low'},standard:{tool:'claude',model:'',effort:''},heavy:{tool:'claude',model:'opus',effort:'high'},balanceBelow:20}])
+      expect(f.box.crewSaves).toEqual([{light:{tool:'claude',model:'',effort:'low'},standard:{tool:'claude',model:'',effort:''},heavy:{tool:'claude',model:'opus',effort:'high'},balanceBelow:20,gafferDecides:false}])
       // A tier can have a backup: who does its stages when the first choice's plan is running low. None is set until chosen.
       const spare=outcome.getByRole('group',{name:'Heavy backup',exact:true})
       await expect(spare.getByRole('combobox',{name:'Heavy backup agent',exact:true})).toHaveValue('')
@@ -165,6 +166,15 @@ try {
       await below.fill('35');await below.blur();await expect(outcome).toContainText('under 35% left in its tightest window')
       expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await outcome.locator('details.crew').screenshot({path:`${shots}/gaffer-outcome-backup-${width}-${theme}.png`})
+      // A tier can have further backups, tried in order: up to three in all. One is added and then removed again.
+      await spare.getByRole('button',{name:'Add another backup for Heavy',exact:true}).click()
+      // A further backup starts on another agent than the one before it.
+      await expect(spare.getByRole('combobox',{name:'Heavy backup 2 agent',exact:true})).not.toHaveValue('')
+      await spare.getByRole('button',{name:'Add another backup for Heavy',exact:true}).click()
+      await expect(spare.getByRole('button',{name:'Add another backup for Heavy',exact:true})).toHaveCount(0)
+      await spare.getByRole('combobox',{name:'Heavy backup 3 agent',exact:true}).selectOption('')
+      await spare.getByRole('combobox',{name:'Heavy backup 2 agent',exact:true}).selectOption('')
+      await expect(spare.getByRole('combobox',{name:/^Heavy backup \d agent$/})).toHaveCount(0)
       // Saved with the crew, the backup comes back for the next outcome.
       await outcome.getByRole('button',{name:'Save as my crew',exact:true}).click()
       await expect.poll(()=>f.box.crewSaves.length).toBe(2)
@@ -202,6 +212,33 @@ try {
       const tiers2=outcome.getByRole('group',{name:'Pipeline 2 stage tiers',exact:true}),test2=tiers2.locator('[data-stage=test]')
       await tiers2.getByRole('combobox',{name:'Test tier in pipeline 2',exact:true}).selectOption('light')
       await expect(test2).toHaveClass(/changed/);await expect(test2).toContainText('Your choice. The default for test is Standard.')
+      // A stage Gaffer split is shown as its parts, in the order they run: each a name, a brief and a tier, with the
+      // agent that tier means, Gaffer's reason, and a way to do the stage as one after all. Each is the person's to edit.
+      const split=tiers2.getByRole('group',{name:'Code parts in pipeline 2',exact:true})
+      await expect(split).toContainText('Split into 2 parts, done in this order, each by its own agent.')
+      const part1=split.getByRole('group',{name:'Part 1 of Code in pipeline 2',exact:true}),part2=split.getByRole('group',{name:'Part 2 of Code in pipeline 2',exact:true})
+      await expect(part1.getByRole('textbox',{name:'Part 1 name',exact:true})).toHaveValue('Button');await expect(part1.getByRole('combobox',{name:'Part 1 tier',exact:true})).toHaveValue('light')
+      await expect(part1).toContainText('Claude Code · low effort');await expect(part1).toContainText('Gaffer’s assessment. Wiring only.')
+      await expect(part2.getByRole('combobox',{name:'Part 2 tier',exact:true})).toHaveValue('standard')
+      await part2.getByRole('textbox',{name:'Part 2 brief',exact:true}).fill('Draw the empty state, with the illustration.')
+      await expect(split.getByRole('button',{name:'Do Code in pipeline 2 as one stage',exact:true})).toBeVisible()
+      // A stage can also be split by hand: it starts as two parts on the stage's own tier, and a part can be added.
+      // Parts need a name and a brief before the plan can be approved; doing the stage as one again clears that.
+      await tiers2.getByRole('button',{name:'Split Review in pipeline 2 into parts',exact:true}).click()
+      const mine=tiers2.getByRole('group',{name:'Review parts in pipeline 2',exact:true})
+      await expect(mine.getByRole('group',{name:/^Part \d of Review in pipeline 2$/})).toHaveCount(2)
+      await expect(mine.getByRole('combobox',{name:'Part 1 tier',exact:true})).toHaveValue('heavy')
+      await mine.getByRole('button',{name:'Add a part to Review in pipeline 2',exact:true}).click()
+      await expect(mine.getByRole('group',{name:/^Part \d of Review in pipeline 2$/})).toHaveCount(3)
+      await expect(outcome.getByRole('status').filter({hasText:'Give every part'})).toHaveText('Give every part of the review stage of “Export button” a name and a brief saying what it does.')
+      await expect(outcome.getByRole('button',{name:/^Approve and start/})).toBeDisabled()
+      await mine.getByRole('button',{name:'Do Review in pipeline 2 as one stage',exact:true}).click()
+      await expect(mine).toHaveCount(0);await expect(outcome.getByRole('status').filter({hasText:'Give every part'})).toHaveCount(0)
+      // The pull request, babysitting and merge are never split.
+      await expect(tiers2.getByRole('button',{name:/^Split (PR|Babysit|Merge) in pipeline 2/})).toHaveCount(0)
+      await expect(outcome.getByText('6 stages, 1 split into parts: 7 agent sessions in all, one after another.',{exact:true})).toBeVisible()
+      await split.scrollIntoViewIfNeeded();expect(await outcome.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      await split.screenshot({path:`${shots}/gaffer-outcome-parts-${width}-${theme}.png`})
       // Every part of the plan is editable, and a session the person adds is as good as one Gaffer proposed.
       await outcome.getByRole('textbox',{name:'Pipeline 2 title',exact:true}).fill('Export button, renamed')
       // Each pipeline's stages are the person's to choose: this one gets a plan first and never merges.
@@ -252,7 +289,7 @@ try {
       const usual=[cheap('code'),strong('review'),cheap('test'),ship('pr'),ship('babysit'),ship('merge')]
       expect(f.box.approved).toEqual([{objective,projectId:'p-billing',tool:'claude',model:'',provider:'',trust:false,yolo:false,autoReport:false,automation:false,balanceBelow:35,autoMerge:false,maxReviews:8,hours:24,confirmed:true,sessions:[
         {title:'Export API',prompt:proposed.sessions[0].prompt,stages:[(({backup,...rest})=>({...rest,tierWhy:'The export reads the billing ledger while it is being written.',backup}))(strong('code')),...usual.slice(1)]},
-        {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),...usual.filter(stage=>stage.kind!=='merge').map(stage=>stage.kind==='test'?ship('test'):stage)]},
+        {title:'Export button, renamed',prompt:proposed.sessions[1].prompt,stages:[strong('plan'),{...ship('code'),tierWhy:'Wiring only.',part:'Button',brief:'Add the button and wire it to the endpoint.'},{...cheap('code'),part:'Empty state',brief:'Draw the empty state, with the illustration.'},...usual.slice(1).filter(stage=>stage.kind!=='merge').map(stage=>stage.kind==='test'?ship('test'):stage)]},
         {title:'Export docs',prompt:'Document the export in the README.    Raise a pull request. Do not merge.',stages:usual},
       ]}])
       expect(f.box.writes).toEqual([`POST /api/v2/gaffer/providers/${pid}/plan`,'POST /api/v2/gaffer/outcomes'])
@@ -271,7 +308,7 @@ try {
       await expect(pipes.nth(0)).toContainText('Waits for you')
       await expect(pipes.nth(0).getByRole('link',{name:'Open session',exact:true})).toHaveAttribute('href','/sessions?agent=a1&session=outcome-session-1')
       await expect(pipes.nth(1)).toContainText('Not started');await expect(pipes.nth(1).getByRole('link')).toHaveCount(0)
-      await expect(pipes.nth(1).getByRole('list',{name:'Stages of Export button, renamed',exact:true}).getByRole('listitem')).toHaveCount(6)
+      await expect(pipes.nth(1).getByRole('list',{name:'Stages of Export button, renamed',exact:true}).getByRole('listitem')).toHaveCount(7)
       await expect(pipes.nth(2)).toContainText('Stopped')
       await expect(w.page.getByRole('list',{name:'Factory at a glance',exact:true})).toContainText('1Running')
       // A session that was started but is not followed is still offered below, to be looked after.

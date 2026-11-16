@@ -48,7 +48,9 @@ const story=[{id:9,at:now-60000,source:'gaffer',action:'gaffer-stage-started',de
 const projects=[{id:'p1',host:'a1',machine:'workshop',dir:'/work/billing',name:'billing',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:0,version:1,createdAt:now,updatedAt:now},{id:'p2',host:'a1',machine:'workshop',dir:'/work/docs-site',name:'docs-site',isRepo:true,baseBranch:'',worktreeDefault:'',colour:'',position:1,version:1,createdAt:now,updatedAt:now}]
 // What the machine last read of its agents' plans. Claude Code is on a plan with two windows; Codex is signed in with a key, which has none.
 const plans={state:'read',sentence:'',planLimits:true,checkedAt:now,accounts:[{tool:'claude',state:'signed_in',method:'subscription',account:'sam@example.test',plan:'max',limitsState:'read',limitsAt:now,limits:[{kind:'session',usedPercent:19,resetsAt:now+130*60000},{kind:'week',usedPercent:88,resetsAt:now+3*86400000+3600000}]},{tool:'codex',state:'signed_in',method:'api_key',limitsState:'unsupported'}]}
-const routesFor=box=>({'/api/v2/machines/a1/accounts':plans,'/api/v2/settings/yolo':{allowed:false},'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
+// The account's saved crew gives the light tier a backup; an added pipeline takes it for its light stages.
+const savedCrew={crew:{heavy:{},standard:{},light:{tool:'claude',backup:{tool:'codex',model:'gpt-small'}},updatedAt:now},saved:true,tiers:[],defaults:{}}
+const routesFor=box=>({'/api/v2/gaffer/crew':savedCrew,'/api/v2/machines/a1/accounts':plans,'/api/v2/settings/yolo':{allowed:false},'/api/v2/gaffer/providers':{providers:[provider],presets:[],available:true,canUseLocal:true,maxProviders:12},'/api/v2/terminal/sessions':{sessions},'/api/v2/gaffer/goals':{goals,readAt:now},'/api/v2/gaffer/outcomes':{outcomes},'/api/v2/folder-projects':{projects,savedWaiting:0},'/api/v2/gaffer/conversations':r=>new URL(r.url()).searchParams.get('all')==='true'?{conversations:[general.conversation]}:general,
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/history`]:{events:story},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/automation`]:request=>{const input=request.postDataJSON();box.who.push(input.on);outcomes[0].automation=input.on;return outcomes[0]},
  [`/api/v2/gaffer/outcomes/${'e'.repeat(32)}/sessions/c/merge`]:request=>{box.merges.push(request.postDataJSON());const o=outcomes[0],piece=o.sessions[2];Object.assign(piece,{state:'following',mergeApproved:true,note:'The merge stage is under way.'});piece.stages[7].state='running';o.revision++;return o},
@@ -252,11 +254,30 @@ try {
       await add.getByRole('combobox',{name:'Light agent for Changelog entry',exact:true}).selectOption('claude')
       await add.getByRole('combobox',{name:'Light effort for Changelog entry',exact:true}).selectOption('low')
       await expect(add.getByText('2 stages, each in an agent session of its own.',{exact:false})).toBeVisible()
+      // The light tier's backup comes from the saved crew and is said, not edited here.
+      const lightSpare=add.getByRole('group',{name:'Light backup for Changelog entry',exact:true}),lightAgent=lightSpare.getByRole('combobox',{name:'Light backup agent for Changelog entry',exact:true})
+      await expect(lightAgent).toHaveValue('crew');await expect(lightAgent.locator('option:checked')).toHaveText('From your crew: Codex · gpt-small')
+      // It can be left off this pipeline, or replaced with a backup of this pipeline's own, and put back.
+      await expect(lightSpare.getByRole('combobox')).toHaveCount(1)
+      await lightAgent.selectOption('');await expect(lightSpare.getByRole('combobox')).toHaveCount(1)
+      await lightAgent.selectOption('codex')
+      await expect(lightSpare.getByRole('combobox',{name:'Light backup model for Changelog entry',exact:true})).toBeVisible()
+      await expect(lightSpare.getByRole('combobox',{name:'Light backup effort for Changelog entry',exact:true})).toBeVisible()
+      await lightAgent.selectOption('crew');await expect(lightSpare.getByRole('combobox')).toHaveCount(1)
+      // A tier with nothing saved starts with no backup and can be given one here.
+      await expect(add.getByRole('combobox',{name:'Standard backup agent for Changelog entry',exact:true})).toHaveValue('')
+      // A stage of an added pipeline can be split into parts too; undone here, so the pipeline is added whole.
+      await add.getByRole('button',{name:'Split Code of Changelog entry into parts',exact:true}).click()
+      await expect(add.getByRole('group',{name:'Code parts in Changelog entry',exact:true}).getByRole('group',{name:/^Part \d of Code in Changelog entry$/})).toHaveCount(2)
+      await expect(add.getByRole('button',{name:'Add pipeline',exact:true})).toBeDisabled()
+      await add.getByRole('button',{name:'Do Code in Changelog entry as one stage',exact:true}).click()
+      await expect(add.getByRole('button',{name:'Add pipeline',exact:true})).toBeEnabled()
+      await expect(add.getByRole('group',{name:'Standard crew for Changelog entry',exact:true})).not.toContainText('Backup from your crew')
       expect(await add.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
       await add.screenshot({path:`${shots}/gaffer-factory-add-${width}-${theme}.png`})
       await add.getByRole('button',{name:'Add pipeline',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Added'})).toHaveText('Added “Changelog entry”. The controller is starting it.')
-      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low',tier:'standard'},{kind:'pr',tool:'claude',model:'',effort:'low',tier:'light'}]}]}])
+      expect(box.added).toEqual([{revision:7,confirmed:true,sessions:[{title:'Changelog entry',prompt:'Add a changelog entry for CSV export. Do not merge.',stages:[{kind:'code',tool:'codex',model:'gpt-5-codex',effort:'low',tier:'standard'},{kind:'pr',tool:'claude',model:'',effort:'low',tier:'light',backup:{tool:'codex',model:'gpt-small'}}]}]}])
       await expect(pipes).toHaveCount(4);await expect(report.getByRole('list',{name:'Proposed pipelines',exact:true})).toHaveCount(0)
       await expect(totals).toContainText('Gaffer tokens4,884')
       expect(box.reviews).toEqual([{revision:6}])
@@ -311,7 +332,12 @@ try {
       await tell.getByRole('button',{name:'Send to the agent',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'instruction'})).toHaveText('Your instruction is with the agent of “Export API” for its next turn.')
       expect(box.told).toHaveLength(1);expect(box.told[0].text).toBe('Add the missing error case test.');expect(box.told[0].requestId).toMatch(/^[a-f0-9]{32}$/)
-      // …and send it back to the stage in hand or an earlier one, with the reason.
+      // …and send it back to the stage in hand or an earlier one, with the reason. Its code stage was split into two
+      // parts: a split stage is offered once, since sending back does the whole stage again from its first part.
+      const piece=outcomes[0].sessions[0],at=piece.stages.findIndex(stage=>stage.kind==='code'),whole=piece.stages[at]
+      piece.stages.splice(at,1,{...whole,part:'Ledger query',brief:'Write the query.'},{...whole,part:'Download button',brief:'Add the button.'});piece.stage++
+      // The page reads the floor again every few seconds; the card then shows both parts as steps of their own.
+      await expect(pipes.nth(0).getByRole('list',{name:'Stages of Export API',exact:true}).getByRole('listitem')).toHaveCount(9,{timeout:20000})
       await pipes.nth(0).getByRole('button',{name:'Send back…',exact:true}).click()
       const back=page.getByRole('dialog',{name:'Send “Export API” back',exact:true})
       await expect(back).toContainText('Nothing already committed is undone.')
@@ -322,6 +348,8 @@ try {
       await back.getByRole('button',{name:'Send back',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Sent'})).toHaveText('Sent “Export API” back to code. The controller is starting that stage again.')
       expect(box.back).toEqual([{stage:'code',reason:'The export leaks other tenants’ rows.',confirmed:true}])
+      // The fixture is shared with the passes that follow: the stage is one again for them.
+      piece.stages.splice(at,2,whole);piece.stage--
       expect(w.errors).toEqual([]);expect(w.state.unexpected).toEqual([])
     } finally { await w.context.close() }
   }
@@ -397,8 +425,8 @@ try {
   }
   // How Gaffer works is set once for the account: looking after sessions is pre-approved, and pipelines do not merge by themselves, until changed.
   {
-    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[]}
-    const w=await openWorkspace(browser,{width:1280,height:1000,routes:routesFor(box)})
+    const box={writes:[],merges:[],reviews:[],added:[],retries:[],moved:[],modes:[],told:[],back:[],who:[],crews:[]}
+    const w=await openWorkspace(browser,{width:1280,height:1000,routes:{...routesFor(box),'/api/v2/gaffer/crew':request=>{if(request.method()==='PUT'){box.crews.push(request.postDataJSON());return {crew:{...box.crews.at(-1),updatedAt:now},saved:true,tiers:[],defaults:{}}}return {crew:{light:{},standard:{},heavy:{}},saved:false,tiers:[],defaults:{}}}}})
     try {
       const page=w.page
       await page.goto(base+'/account/gaffer')
@@ -408,6 +436,34 @@ try {
       await expect(ways).toContainText('Nothing is read or sent until you ask')
       await auto.check();await expect.poll(()=>w.state.patches).toEqual([{gafferAutoMerge:true}])
       await standing.uncheck();await expect.poll(()=>w.state.patches).toEqual([{gafferAutoMerge:true},{gafferStanding:false}])
+      // The crew is the account's too: who does each tier, its backup, when a backup takes over, and where the outcome dialog starts for who decides.
+      const crew=page.getByRole('region',{name:'Your Factory crew',exact:true}),heavy=crew.getByRole('group',{name:'Heavy tier',exact:true})
+      await expect(crew).toContainText('Not saved yet: outcomes use their own agent for every stage.')
+      await expect(heavy.getByRole('combobox',{name:'Heavy agent',exact:true})).toHaveValue('')
+      await expect(heavy.getByRole('textbox')).toHaveCount(0);await expect(heavy).toContainText('Stages of this tier run on whichever agent the outcome is given.')
+      await heavy.getByRole('combobox',{name:'Heavy agent',exact:true}).selectOption('claude')
+      await heavy.getByRole('textbox',{name:'Heavy model',exact:true}).fill('opus');await heavy.getByRole('textbox',{name:'Heavy effort',exact:true}).fill('high')
+      await expect(heavy).toContainText('Stages stay on the first choice.')
+      await heavy.getByRole('combobox',{name:'Heavy backup agent',exact:true}).selectOption('codex')
+      await heavy.getByRole('textbox',{name:'Heavy backup model',exact:true}).fill('gpt-strong')
+      const below=crew.getByRole('group',{name:'When a backup takes over',exact:true}).getByRole('spinbutton')
+      await expect(below).toHaveValue('20');await below.fill('3');await below.blur();await expect(below).toHaveValue('5');await below.fill('30')
+      const who=crew.getByRole('radiogroup',{name:'Who decides by default',exact:true})
+      await expect(who.getByRole('radio',{name:'Ask me',exact:true})).toBeChecked();await who.getByRole('radio',{name:'Gaffer decides',exact:true}).check()
+      // A Cline tier can be given the billing source it starts on; any other agent has no such field.
+      const light=crew.getByRole('group',{name:'Light tier',exact:true})
+      await light.getByRole('combobox',{name:'Light agent',exact:true}).selectOption('cline')
+      await light.getByRole('textbox',{name:'Light Cline billing source',exact:true}).fill('openrouter')
+      await expect(heavy.getByRole('textbox',{name:/Cline billing source/})).toHaveCount(0)
+      // A tier can have a second backup, tried after the first.
+      await heavy.getByRole('button',{name:'Add another backup for Heavy',exact:true}).click()
+      await heavy.getByRole('combobox',{name:'Heavy backup 2 agent',exact:true}).selectOption('opencode')
+      await expect(crew).toContainText('an outcome started any other way, such as over MCP, is never given to Gaffer by this.')
+      expect(await crew.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+      await crew.screenshot({path:`${shots}/gaffer-crew-settings-1280-light.png`})
+      await crew.getByRole('button',{name:'Save crew',exact:true}).click()
+      await expect(crew.getByRole('status')).toHaveText('Saved. New outcomes start from this crew.')
+      expect(box.crews).toEqual([{heavy:{tool:'claude',model:'opus',effort:'high',backup:{tool:'codex',model:'gpt-strong',effort:''},moreBackups:[{tool:'opencode',model:'',effort:''}]},standard:{},light:{tool:'cline',model:'',effort:'',provider:'openrouter'},balanceBelow:30,gafferDecides:true}])
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }

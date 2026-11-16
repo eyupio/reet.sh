@@ -1,6 +1,7 @@
 package gaffer
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"time"
@@ -101,25 +102,104 @@ func balanceChoice(accounts []terminalproto.AgentAccount, first, backup store.Ga
 // puts back a stage that was balanced on an earlier start. changed is whether
 // that differs from the stage as given.
 func (s *Service) balanceStage(o store.GafferOutcome, stage store.GafferOutcomeStage) (store.GafferOutcomeStage, bool) {
-	if stage.Backup == nil {
+	spares := store.Spares(stage.Backup, stage.More)
+	if len(spares) == 0 {
 		return stage, false
 	}
 	first := store.GafferStageAgent{Tool: stage.Tool, Model: stage.Model, Effort: stage.Effort, Provider: stage.Provider}
 	if stage.First != nil {
 		first = *stage.First
 	}
-	use, why := false, ""
-	if kept, ok, err := s.store.MachineAccountsFor(o.OwnerID, o.AgentID); err == nil && ok {
-		use, why = balanceChoice(kept.Accounts, first, *stage.Backup, o.BalanceBelow, time.Now())
-	}
 	out := stage
-	if use {
-		out.Tool, out.Model, out.Effort, out.Provider = stage.Backup.Tool, stage.Backup.Model, stage.Backup.Effort, stage.Backup.Provider
-		out.First, out.Balanced = &first, why
-	} else {
-		out.Tool, out.Model, out.Effort, out.Provider = first.Tool, first.Model, first.Effort, first.Provider
-		out.First, out.Balanced = nil, ""
+	out.Tool, out.Model, out.Effort, out.Provider = first.Tool, first.Model, first.Effort, first.Provider
+	out.First, out.Balanced = nil, ""
+	if kept, ok, err := s.store.MachineAccountsFor(o.OwnerID, o.AgentID); err == nil && ok {
+		// The backups are tried in the order the person gave them: the first
+		// one with more of its plan left than the first choice does the stage.
+		for _, spare := range spares {
+			if use, why := balanceChoice(kept.Accounts, first, spare, o.BalanceBelow, time.Now()); use {
+				out.Tool, out.Model, out.Effort, out.Provider = spare.Tool, spare.Model, spare.Effort, spare.Provider
+				out.First, out.Balanced = &first, why
+				break
+			}
+		}
 	}
 	changed := out.Tool != stage.Tool || out.Model != stage.Model || out.Effort != stage.Effort || out.Provider != stage.Provider || out.Balanced != stage.Balanced || (out.First == nil) != (stage.First == nil)
 	return out, changed
+}
+
+// rebalanceStopped runs a stage again on its backup when its agent has
+// stopped and its plan is now below the person's threshold. A working agent
+// is never interrupted: only a session that has ended, or whose agent has
+// stopped or failed, is replaced, and only once for a stage.
+func (s *Service) rebalanceStopped(ctx context.Context) {
+	rows, err := s.store.BackedGafferOutcomes()
+	if err != nil {
+		return
+	}
+	for _, o := range rows {
+		for _, piece := range o.Sessions {
+			if ctx.Err() != nil {
+				return
+			}
+			if piece.State != "following" || piece.Stage >= len(piece.Stages) || piece.SessionID == "" {
+				continue
+			}
+			stage := piece.Stages[piece.Stage]
+			if stage.Rebalanced || stage.Backup == nil {
+				continue
+			}
+			running := s.sessionRunning(o.OwnerID, piece.SessionID)
+			if running {
+				// Still there: only an agent that has itself stopped or failed counts.
+				g, err := s.store.GafferGoalFor(o.OwnerID, piece.ConversationID)
+				halted, _ := s.store.GafferWorkerHalted(o.OwnerID, piece.SessionID)
+				if err != nil || g.State != "needs_user" || g.ActiveTurnID != "" || g.WaitingOnWorker || !halted {
+					continue
+				}
+			}
+			next, changed := s.balanceStage(o, stage)
+			if !changed || next.Balanced == "" {
+				continue
+			}
+			if _, err := s.chatPrincipal(o.OwnerID); err != nil {
+				continue
+			}
+			key, at, marked := piece.Key, piece.Stage, false
+			after, err := s.outcomeStep(o.OwnerID, o.ID, func(o *store.GafferOutcome) bool {
+				marked = false
+				for i := range o.Sessions {
+					if row := &o.Sessions[i]; row.Key == key && row.Stage == at && row.State == "following" && at < len(row.Stages) && !row.Stages[at].Rebalanced {
+						row.Stages[at].Rebalanced, marked = true, true
+						return true
+					}
+				}
+				return false
+			})
+			if err != nil || !marked {
+				continue
+			}
+			if running {
+				// The session is the pipeline's own in hand, so it is ended here
+				// and not by the helper that only ends sessions nothing uses.
+				s.mu.Lock()
+				ender, _ := s.starter.(SessionEnder)
+				s.mu.Unlock()
+				if ender == nil {
+					continue
+				}
+				endCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+				err := ender.EndOutcomeSession(endCtx, o.OwnerID, piece.SessionID)
+				cancel()
+				if err != nil {
+					continue
+				}
+				s.audit(o.OwnerID, "gaffer-session-ended", map[string]any{"outcome": o.ID, "pipeline": key, "session": piece.SessionID, "reason": "Its agent stopped with its plan running low, so the stage is run again on its backup."})
+			}
+			if _, err := s.RetryPipeline(o.OwnerID, o.ID, key, after.Revision); err != nil {
+				continue
+			}
+			s.audit(o.OwnerID, "gaffer-stage-rebalanced", map[string]any{"outcome": o.ID, "pipeline": key, "stage": stage.Kind, "from": stage.Tool, "to": next.Tool, "reason": next.Balanced})
+		}
+	}
 }

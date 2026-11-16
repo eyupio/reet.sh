@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/reet.sh/internal/store"
 )
@@ -60,8 +61,16 @@ func TestAStagesPartsRunInOrderEachInItsOwnSession(t *testing.T) {
 	if !strings.Contains(three, "ONE stage of a staged piece of work: the review stage") || !strings.Contains(three, "Handover from the “Download button” part of the code stage: The button is wired.") {
 		t.Fatalf("review's prompt:\n%s", three)
 	}
-	if len(r.starter.closed()) != 2 || review.Stages[1].State != "done" {
-		t.Fatalf("finished parts' sessions were not ended: %v", r.starter.closed())
+	// Each finished part's session is ended once the next one is in Gaffer's care, which is just after it starts.
+	deadline := time.Now().Add(15 * time.Second)
+	for len(r.starter.closed()) != 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("finished parts' sessions were not ended: %v", r.starter.closed())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if review.Stages[1].State != "done" {
+		t.Fatalf("second part: %+v", review.Stages[1])
 	}
 }
 

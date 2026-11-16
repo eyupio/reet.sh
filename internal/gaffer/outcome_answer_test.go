@@ -138,7 +138,9 @@ func TestWhichAgentQuestionsGafferMayAnswer(t *testing.T) {
 		"no question, an approval": {nil, false},
 	} {
 		r := outcomeFixture(t)
-		_, o, piece := heldForQuestion(t, r, true, c.question)
+		// Which stops qualify does not depend on who decides, so the outcome is the person's here:
+		// the supervisor running behind the test then asks nothing of the model.
+		_, o, piece := heldForQuestion(t, r, false, c.question)
 		stop, ok := r.s.pipelineStop(o, piece)
 		if ok != c.ok || ok && (stop.about != "agent_question" || strings.Join(stop.choices, ",") != "answer" || stop.sign != "q:q-1") {
 			t.Fatalf("%s: %+v %v", name, stop, ok)

@@ -1129,7 +1129,7 @@ func (s *Store) RecordTerminalACPSessionFor(uid int64, agentID, sessionID, acpSe
 // RecordTerminalLiveDirFor records the live working folder agentID reported
 // for one of its sessions at at (Unix milliseconds), unless a newer report is
 // already stored. It then notes the folder on the desk pane that holds the
-// session, if any (NoteDeskPaneDirFor), in the same transaction, so the last
+// session, if any (noteDeskPaneDirTx), in the same transaction, so the last
 // folder outlives the session and a failure keeps neither. The desk's version
 // is not changed.
 func (s *Store) RecordTerminalLiveDirFor(uid int64, agentID, sessionID, dir string, at int64) error {

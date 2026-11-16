@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/eyupio/reet.sh/internal/desk"
@@ -25,6 +25,8 @@ var (
 	ErrDeskFull         = fmt.Errorf("an account can have at most %d desks", MaxDesks)
 	ErrDeskNameTaken    = errors.New("another desk has that name")
 	ErrDeskSessionTaken = errors.New("a session can be in only one pane")
+	// errStoredDesk is a desk row whose document cannot be read back.
+	errStoredDesk = errors.New("stored desk")
 )
 
 // Desk is one saved workspace: a name and a document of tabs, split trees and
@@ -83,7 +85,7 @@ func deskInvalid(format string, args ...any) error {
 // form it is stored (parsed, so ratios are clamped and empties are not nil).
 func normalizeDesk(d Desk) (Desk, string, error) {
 	d.Name = strings.TrimSpace(d.Name)
-	if d.Name == "" || utf8.RuneCountInString(d.Name) > desk.MaxName || strings.ContainsFunc(d.Name, unicode.IsControl) {
+	if d.Name == "" || utf8.RuneCountInString(d.Name) > desk.MaxName || desk.HasUnsafe(d.Name) {
 		return d, "", deskInvalid("a desk name is 1 to %d characters of plain text", desk.MaxName)
 	}
 	if d.Colour != "" && !validFolderProjectColour(d.Colour) {
@@ -117,7 +119,7 @@ func scanDesk(r rowScanner) (Desk, error) {
 	}
 	parsed, err := desk.ParseStored([]byte(doc))
 	if err != nil {
-		return Desk{}, fmt.Errorf("stored desk %s: %w", d.ID, err)
+		return Desk{}, fmt.Errorf("%w %s: %v", errStoredDesk, d.ID, err)
 	}
 	d.Doc = parsed
 	return d, nil
@@ -220,7 +222,7 @@ func (s *Store) DeskFor(uid int64, id string) (Desk, error) {
 }
 
 // ListDesksFor lists uid's desks by position, leaving out any written by a
-// newer schema.
+// newer schema and any whose stored document cannot be read.
 func (s *Store) ListDesksFor(uid int64) ([]Desk, error) {
 	rows, err := s.db.Query(`SELECT `+deskColumns+` FROM desks WHERE user_id=? AND schema<=? ORDER BY position,id`, uid, desk.Schema)
 	if err != nil {
@@ -230,6 +232,11 @@ func (s *Store) ListDesksFor(uid int64) ([]Desk, error) {
 	out := []Desk{}
 	for rows.Next() {
 		d, err := scanDesk(rows)
+		if errors.Is(err, errStoredDesk) {
+			// One desk that cannot be read does not hide the others.
+			log.Printf("desks: %v; left out of the list", err)
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -242,15 +249,17 @@ func (s *Store) ListDesksFor(uid int64) ([]Desk, error) {
 // stored DirAt is newer, so a whole-document write cannot undo a folder the
 // machine reported more recently.
 func keepNewerDirs(doc *desk.Doc, stored desk.Doc) {
+	// Pane ids are unique across a desk, so a pane moved to another tab is
+	// still matched.
 	have := map[string]desk.Pane{}
 	for _, t := range stored.Tabs {
 		for id, p := range t.Panes {
-			have[t.ID+"\x00"+id] = p
+			have[id] = p
 		}
 	}
 	for _, t := range doc.Tabs {
 		for id, p := range t.Panes {
-			if old, ok := have[t.ID+"\x00"+id]; ok && old.DirAt > p.DirAt {
+			if old, ok := have[id]; ok && old.DirAt > p.DirAt {
 				p.Dir, p.DirAt = old.Dir, old.DirAt
 				t.Panes[id] = p
 			}
@@ -294,7 +303,7 @@ func (s *Store) UpdateDeskFor(uid int64, d Desk, expect int64) (Desk, error) {
 		if err != nil {
 			return err
 		}
-		if expect != 0 && expect != cur.Version {
+		if expect != cur.Version {
 			return ErrDeskStale
 		}
 		capDirTimes(&d.Doc, now())
@@ -350,7 +359,7 @@ func (s *Store) DeleteDeskFor(uid int64, id string, expect int64) error {
 			}
 			return err
 		}
-		if expect != 0 && expect != version {
+		if expect != version {
 			return ErrDeskStale
 		}
 		if _, err := tx.Exec(`DELETE FROM desk_sessions WHERE user_id=? AND desk_id=?`, uid, id); err != nil {
@@ -429,17 +438,11 @@ func findPane(doc *desk.Doc, pane string) (*desk.Tab, bool) {
 	return nil, false
 }
 
-// SetDeskPaneSessionFor sets (or, when empty, clears) the session of one pane
-// and bumps the desk's version. A session the machine already reported a
-// folder for gives the pane that folder when it is newer than the pane's.
-func (s *Store) SetDeskPaneSessionFor(uid int64, deskID, pane, session string) (Desk, error) {
-	return s.setDeskPaneSession(uid, deskID, pane, session, 0, false)
-}
-
-// ReopenDeskPaneFor puts a reopened shell's session into a pane, as
-// SetDeskPaneSessionFor does, but only while the desk is still at version
-// expect (ErrDeskStale otherwise), and makes the pane a shell: an agent pane
-// reopens as a plain shell.
+// ReopenDeskPaneFor puts a reopened shell's session into a pane, bumping the
+// desk's version, only while the desk is still at version expect (ErrDeskStale
+// otherwise), and makes the pane a shell: an agent pane reopens as a plain
+// shell. A session the machine already reported a folder for gives the pane
+// that folder when it is newer than the pane's.
 func (s *Store) ReopenDeskPaneFor(uid int64, deskID, pane, session string, expect int64) (Desk, error) {
 	if expect <= 0 || session == "" {
 		return Desk{}, ErrDeskStale
@@ -570,18 +573,12 @@ func (s *Store) DeskPaneForSession(uid int64, session string) (deskID, pane stri
 	return deskID, pane, true, nil
 }
 
-// NoteDeskPaneDirFor records the folder a machine reported for the pane that
+// noteDeskPaneDirTx records the folder a machine reported for the pane that
 // holds session, if at is newer than what is stored. It does not change the
 // desk's version: a folder change never makes a browser's write stale. A
-// session in no desk is ignored.
-func (s *Store) NoteDeskPaneDirFor(uid int64, session, dir string, at int64) error {
-	return s.withTx(func(tx *sql.Tx) error { return noteDeskPaneDirTx(tx, uid, session, dir, at) })
-}
-
-// noteDeskPaneDirTx is NoteDeskPaneDirFor inside the caller's transaction. The
-// folder also becomes the pane's reported folder (DeskPaneReportedDirFor), tied
-// to the machine the session runs on; a session reet has no record of updates
-// the document only.
+// session in no desk is ignored. The folder also becomes the pane's reported
+// folder (DeskPaneReportedDirFor), tied to the machine the session runs on; a
+// session reet has no record of updates the document only.
 func noteDeskPaneDirTx(tx *sql.Tx, uid int64, session, dir string, at int64) error {
 	if len(dir) > maxDeskDirBytes || strings.ContainsRune(dir, 0) {
 		return deskInvalid("folder")
@@ -729,7 +726,8 @@ func (s *Store) DeskPaneReportedDirFor(uid int64, deskID, pane string) (agent, d
 }
 
 // rewriteDesksTx applies edit to every listed desk of uid and saves those it
-// changed, with a version bump. It is used inside machine forget and merge.
+// changed, with a version bump. It is used when a machine's enrolment is
+// revoked. A desk whose stored document cannot be read is left as it is.
 func rewriteDesksTx(tx *sql.Tx, uid int64, edit func(*desk.Doc) bool) error {
 	rows, err := tx.Query(`SELECT `+deskColumns+` FROM desks WHERE user_id=? AND schema<=?`, uid, desk.Schema)
 	if err != nil {
@@ -738,6 +736,10 @@ func rewriteDesksTx(tx *sql.Tx, uid int64, edit func(*desk.Doc) bool) error {
 	var all []Desk
 	for rows.Next() {
 		d, err := scanDesk(rows)
+		if errors.Is(err, errStoredDesk) {
+			log.Printf("desks: %v; left as it is", err)
+			continue
+		}
 		if err != nil {
 			rows.Close()
 			return err
@@ -760,45 +762,39 @@ func rewriteDesksTx(tx *sql.Tx, uid int64, edit func(*desk.Doc) bool) error {
 	return nil
 }
 
-// agentIDsForHost lists the enrollment ids of a machine name.
-func agentIDsForHost(tx *sql.Tx, uid int64, host string) ([]string, error) {
-	rows, err := tx.Query(`SELECT id FROM sync_agents WHERE user_id=? AND host=? COLLATE NOCASE`, uid, host)
-	if err != nil {
-		return nil, err
+// clearDeskSessionsForAgentTx is for an enrolment about to be deleted, whose
+// terminal sessions go with it by cascade: every desk pane on that machine, or
+// holding one of its sessions, loses its session, with a version bump; the
+// session index loses those sessions; and what the machine reported for desk
+// panes is forgotten.
+func clearDeskSessionsForAgentTx(tx *sql.Tx, uid int64, agent string) error {
+	if _, err := tx.Exec(`DELETE FROM desk_pane_dirs WHERE user_id=? AND agent_id=?`, uid, agent); err != nil {
+		return err
 	}
-	defer rows.Close()
-	var ids []string
+	rows, err := tx.Query(`SELECT id FROM terminal_sessions WHERE user_id=? AND agent_id=?`, uid, agent)
+	if err != nil {
+		return err
+	}
+	gone := map[string]bool{}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
-// clearDeskSessionsForHostsTx empties the session of every desk pane on any
-// of the machines (enrollment ids).
-func clearDeskSessionsForHostsTx(tx *sql.Tx, uid int64, hosts []string) error {
-	if len(hosts) == 0 {
-		return nil
-	}
-	// What those machines reported for desk panes goes with them.
-	for _, h := range hosts {
-		if _, err := tx.Exec(`DELETE FROM desk_pane_dirs WHERE user_id=? AND agent_id=?`, uid, h); err != nil {
+			rows.Close()
 			return err
 		}
+		gone[id] = true
 	}
-	on := map[string]bool{}
-	for _, h := range hosts {
-		on[h] = true
+	if err := rows.Close(); err != nil {
+		return err
 	}
-	return rewriteDesksTx(tx, uid, func(doc *desk.Doc) bool {
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rewriteDesksTx(tx, uid, func(doc *desk.Doc) bool {
 		changed := false
 		for i := range doc.Tabs {
 			for id, p := range doc.Tabs[i].Panes {
-				if on[p.Host] && p.Session != "" {
+				if p.Session != "" && (p.Host == agent || gone[p.Session]) {
 					p.Session = ""
 					doc.Tabs[i].Panes[id] = p
 					changed = true
@@ -806,5 +802,15 @@ func clearDeskSessionsForHostsTx(tx *sql.Tx, uid int64, hosts []string) error {
 			}
 		}
 		return changed
-	})
+	}); err != nil {
+		return err
+	}
+	// A desk this reet cannot rewrite (a newer schema) keeps its document,
+	// but the index never names a session that is gone.
+	for session := range gone {
+		if _, err := tx.Exec(`DELETE FROM desk_sessions WHERE user_id=? AND session_id=?`, uid, session); err != nil {
+			return err
+		}
+	}
+	return nil
 }

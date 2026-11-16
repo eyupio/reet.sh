@@ -100,14 +100,17 @@ func ParseStored(data []byte) (Doc, error) {
 }
 
 // unsafeRune reports a character that can make visible text differ from what
-// is sent to a shell: control characters (C0, DEL, C1), line and paragraph
-// separators, and bidirectional overrides and isolates.
+// is sent to a shell: control characters (C0, DEL, C1), format characters
+// (Unicode Cf, which takes in the bidirectional overrides and isolates and
+// zero-width characters), and line and paragraph separators. It is the
+// protocol's plain-text rule, so a pane name is always a valid session title.
 func unsafeRune(r rune) bool {
-	return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' ||
-		(r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069')
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029'
 }
 
-func hasUnsafe(s string) bool { return strings.IndexFunc(s, unsafeRune) >= 0 }
+// HasUnsafe reports whether s holds a character unsafeRune refuses. A desk's
+// own name follows the same rule.
+func HasUnsafe(s string) bool { return strings.IndexFunc(s, unsafeRune) >= 0 }
 
 func stripUnsafe(s string) string {
 	return strings.Map(func(r rune) rune {
@@ -200,7 +203,7 @@ func (t *Tab) validate(sessions, paneIDs map[string]bool) error {
 	if utf8.RuneCountInString(t.Name) > MaxName {
 		return invalid("tab name over %d characters", MaxName)
 	}
-	if hasUnsafe(t.Name) {
+	if HasUnsafe(t.Name) {
 		return invalid("tab name has a control character")
 	}
 	if !validColour(t.Colour) {
@@ -232,7 +235,7 @@ func (t *Tab) validate(sessions, paneIDs map[string]bool) error {
 		if utf8.RuneCountInString(p.Name) > MaxName {
 			return invalid("pane name over %d characters", MaxName)
 		}
-		if hasUnsafe(p.Name) {
+		if HasUnsafe(p.Name) {
 			return invalid("pane name has a control character")
 		}
 		if !validColour(p.Colour) {
@@ -244,7 +247,7 @@ func (t *Tab) validate(sessions, paneIDs map[string]bool) error {
 		if utf8.RuneCountInString(p.Start) > MaxStart {
 			return invalid("start-up command over %d characters", MaxStart)
 		}
-		if hasUnsafe(p.Start) {
+		if HasUnsafe(p.Start) {
 			return invalid("start-up command has a control or direction-changing character")
 		}
 		if p.Session != "" {
@@ -341,23 +344,6 @@ func (d *Doc) ClearSession(session string) bool {
 	d.orderedPanes(func(t *Tab, id string) {
 		if p := t.Panes[id]; p.Session == session {
 			p.Session = ""
-			t.Panes[id] = p
-			changed = true
-		}
-	})
-	return changed
-}
-
-// RepointHost moves every pane on machine from to machine to, reporting
-// whether anything changed.
-func (d *Doc) RepointHost(from, to string) bool {
-	if from == to {
-		return false
-	}
-	changed := false
-	d.orderedPanes(func(t *Tab, id string) {
-		if p := t.Panes[id]; p.Host == from {
-			p.Host = to
 			t.Panes[id] = p
 			changed = true
 		}

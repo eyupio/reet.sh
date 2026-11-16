@@ -18,7 +18,7 @@ func TestSetDeskPaneSessionCopiesLiveDir(t *testing.T) {
 	p.Session, p.Dir, p.DirAt = "", "/old", 50
 	doc.Tabs[0].Panes["p1"] = p
 	d := mustDesk(t, s, uid, Desk{Name: "A", Doc: doc})
-	got, err := s.SetDeskPaneSessionFor(uid, d.ID, "p1", sess.ID)
+	got, err := setPaneSession(s, uid, d.ID, "p1", sess.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,10 +34,10 @@ func TestSetDeskPaneSessionCopiesLiveDir(t *testing.T) {
 	if err := s.RecordTerminalLiveDirFor(uid, a.ID, other.ID, "/older", 10); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetDeskPaneSessionFor(uid, d.ID, "p1", ""); err != nil {
+	if _, err := setPaneSession(s, uid, d.ID, "p1", ""); err != nil {
 		t.Fatal(err)
 	}
-	got, err = s.SetDeskPaneSessionFor(uid, d.ID, "p1", other.ID)
+	got, err = setPaneSession(s, uid, d.ID, "p1", other.ID)
 	if err != nil || got.Doc.Tabs[0].Panes["p1"].Dir != "/srv/app" {
 		t.Fatalf("%+v %v", got.Doc.Tabs[0].Panes["p1"], err)
 	}
@@ -172,10 +172,10 @@ func TestAdoptLiveDirOnlyFromLiveSession(t *testing.T) {
 	if _, _, ok, _ := s.DeskPaneReportedDirFor(uid, d.ID, "p1"); ok {
 		t.Fatal("an ended session's folder became trusted")
 	}
-	if _, err := s.SetDeskPaneSessionFor(uid, d.ID, "p1", ""); err != nil {
+	if _, err := setPaneSession(s, uid, d.ID, "p1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetDeskPaneSessionFor(uid, d.ID, "p1", sess.ID); err != nil {
+	if _, err := setPaneSession(s, uid, d.ID, "p1", sess.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, ok, _ := s.DeskPaneReportedDirFor(uid, d.ID, "p1"); ok {
@@ -206,31 +206,6 @@ func TestUpdateCapsFutureDirAt(t *testing.T) {
 	}
 	if after, _ := s.DeskFor(uid, d.ID); after.Doc.Tabs[0].Panes["p1"].Dir != "/srv/later" {
 		t.Fatalf("a later report was frozen out: %+v", after.Doc.Tabs[0].Panes["p1"])
-	}
-}
-
-// Forgetting a machine forgets what it reported for desk panes.
-func TestForgetMachineDropsPaneReports(t *testing.T) {
-	s, uid, a, c := terminalFixture(t)
-	other, oc := terminalAgent(t, s, uid, "server")
-	sess := createTerminal(t, s, uid, a, c)
-	kept := createTerminal(t, s, uid, other, oc)
-	d := mustDesk(t, s, uid, Desk{Name: "A", Doc: deskDoc(a.ID, sess.ID)})
-	e := mustDesk(t, s, uid, Desk{Name: "B", Doc: deskDoc(other.ID, kept.ID)})
-	if err := s.RecordTerminalLiveDirFor(uid, a.ID, sess.ID, "/srv/app", 100); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RecordTerminalLiveDirFor(uid, other.ID, kept.ID, "/srv/kept", 100); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.ForgetMachineFor(uid, "laptop"); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, ok, _ := s.DeskPaneReportedDirFor(uid, d.ID, "p1"); ok {
-		t.Fatal("a forgotten machine's report kept")
-	}
-	if _, dir, ok, _ := s.DeskPaneReportedDirFor(uid, e.ID, "p1"); !ok || dir != "/srv/kept" {
-		t.Fatalf("another machine's report lost: %q %v", dir, ok)
 	}
 }
 

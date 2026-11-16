@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 func leaf(id string) *Node { return &Node{Pane: id} }
@@ -165,6 +167,12 @@ func TestValidate(t *testing.T) {
 			p.Name = "a\u2028b"
 			d.Tabs[0].Panes["p1"] = p
 		}), false},
+		{"pane name zero-width space", mut(func(d *Doc) {
+			p := d.Tabs[0].Panes["p1"]
+			p.Name = "a\u200bb"
+			d.Tabs[0].Panes["p1"] = p
+		}), false},
+		{"tab name soft hyphen", mut(func(d *Doc) { d.Tabs[0].Name = "a\u00adb" }), false},
 		{"duplicate tab id", mut(func(d *Doc) { d.Tabs = append(d.Tabs, Tab{ID: "t1", Panes: map[string]Pane{}}) }), false},
 		{"pane id in two tabs", mut(func(d *Doc) {
 			d.Tabs = append(d.Tabs, Tab{ID: "t2", Root: leaf("p1"), Panes: map[string]Pane{"p1": pane("p1")}})
@@ -275,19 +283,6 @@ func TestClearSession(t *testing.T) {
 	}
 }
 
-func TestRepointHost(t *testing.T) {
-	d := twoTabs()
-	if !d.RepointHost("m1", "m9") {
-		t.Fatal("expected change")
-	}
-	if d.Tabs[0].Panes["a"].Host != "m9" || d.Tabs[1].Panes["c"].Host != "m9" || d.Tabs[0].Panes["b"].Host != "m2" {
-		t.Fatalf("wrong repoint: %+v", d)
-	}
-	if d.RepointHost("m1", "m9") {
-		t.Fatal("expected no change")
-	}
-}
-
 func TestParseNormalisesEmpties(t *testing.T) {
 	d, err := Parse([]byte(`{"tabs":null,"active":""}`))
 	if err != nil || d.Tabs == nil || len(d.Tabs) != 0 {
@@ -307,7 +302,7 @@ func TestParseNormalisesEmpties(t *testing.T) {
 func TestParseStoredStripsUnsafeText(t *testing.T) {
 	d := oneTab()
 	p := d.Tabs[0].Panes["p1"]
-	p.Start, p.Name = "ls\n\x1b[2Jrm\u202e x", "a\x03b"
+	p.Start, p.Name = "ls\n\x1b[2Jrm\u202e x", "a\x03\u200bb"
 	d.Tabs[0].Panes["p1"] = p
 	d.Tabs[0].Name = "t\u2028x"
 	raw, err := json.Marshal(d)
@@ -324,5 +319,15 @@ func TestParseStoredStripsUnsafeText(t *testing.T) {
 	gp := got.Tabs[0].Panes["p1"]
 	if gp.Start != "ls[2Jrm x" || gp.Name != "ab" || got.Tabs[0].Name != "tx" {
 		t.Fatalf("not stripped: %q %q %q", gp.Start, gp.Name, got.Tabs[0].Name)
+	}
+}
+
+// A pane name a reopen uses as the session title passes the protocol's
+// title rule: what the document accepts, a session title accepts.
+func TestSafeNameIsValidTitle(t *testing.T) {
+	for _, name := range []string{"api", "café ☕", "a\u200bb", "a\u2066b", "a\u00adb", "a\u2028b"} {
+		if HasUnsafe(name) == terminalproto.ValidTitle(name) {
+			t.Fatalf("%q: document and title rules disagree", name)
+		}
 	}
 }

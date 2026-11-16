@@ -240,15 +240,11 @@ func (s *Store) ForgetMachineFor(userID int64, host string) error {
 		return ErrMachineName
 	}
 	// Retain aliases so a future scan cannot resurrect duplicate names.
+	// Forgetting removes what the machine listed, not its enrolment: its
+	// terminal sessions and what it reported for desk panes stay, so desk
+	// panes keep their shells. Revoking the enrolment is what removes those
+	// (ControlSyncAgent).
 	return s.withTx(func(tx *sql.Tx) error {
-		// Desk panes on the machine lose their shell, as its sessions go.
-		agents, err := agentIDsForHost(tx, userID, host)
-		if err != nil {
-			return err
-		}
-		if err := clearDeskSessionsForHostsTx(tx, userID, agents); err != nil {
-			return err
-		}
 		if _, err := tx.Exec(`DELETE FROM environments WHERE user_id=? AND host=? COLLATE NOCASE`, userID, host); err != nil {
 			return fmt.Errorf("forget machine: %w", err)
 		}

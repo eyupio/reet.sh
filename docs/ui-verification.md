@@ -4217,3 +4217,31 @@ All of the above is asserted in `plan-meters.e2e.mjs`, which runs with the chat 
 **Not checked.** A real machine's figures. A screen reader (roles and names were checked as markup: a button with
 `aria-expanded`, a `tooltip`, a `dialog`, a `meter` per window). The +N fold with more than three accounts. Safari and
 Firefox, which draw HTML popovers but were not run.
+
+## Backup storage overview and standalone Move — 16 November 2026
+
+Admin → Backups separates **Off-site copies** from **On this machine**, with a
+unique total and links into the matching copy filters. The remote-only fixture
+has 27 off-site copies and no local files. The overview also shows destination
+readiness and last uploads, the saved storage policy, and incomplete counts when
+a destination cannot be listed. Key details and informational guidance are under
+**Encryption and recovery**.
+
+Schedule settings group timing, storage and local retention separately from
+protection. They explain that off-site retention belongs to each destination,
+that successful remote-only uploads remove the local file, and that a failed
+upload keeps a recovery copy. The phone overview puts both location counts side
+by side. Admin → Move is a separate owner-only menu item and page; fence notices
+link there, and the existing final-copy and import safeguards are retained.
+
+The browser fixtures cover remote-only and mixed locations, unreadable
+destinations, manual upload failure feedback, keyboard navigation, and the Move
+flows. Captures use synthetic data at 1440 px and 390 px in both themes; the
+layout assertions also run at 320 px. These are automated browser checks, not a
+physical-device or screen-reader assessment.
+
+![Backup overview, desktop light](images/ui/backups-overview-desktop-light.png)
+![Backup overview, desktop dark](images/ui/backups-overview-desktop-dark.png)
+
+[Phone light](images/ui/backups-overview-phone-light.png) ·
+[Phone dark](images/ui/backups-overview-phone-dark.png)

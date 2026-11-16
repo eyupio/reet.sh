@@ -270,7 +270,7 @@
     <li>
       <h4><span class="marker" aria-hidden="true">3</span>On the new controller</h4>
       <ul>
-        <li>Open <strong>Admin → Backups</strong> there and find <strong>Move a controller in</strong>.</li>
+        <li>Open <strong>Admin → Move</strong> there and find <strong>Move a controller in</strong>.</li>
         <li>Give it the downloaded copy, the copy password and the address it answers at.</li>
         <li>Restart it to put the copy in place, then set by hand what its report lists as not in the copy.</li>
       </ul>

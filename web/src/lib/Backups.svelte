@@ -3,7 +3,7 @@
   import { onMount } from 'svelte'
   import {
     backupDownloadUrl, createBackupRemote, deleteBackup, deleteBackupRemote, deleteBackupRemoteCopy, getBackupStatus,
-    listBackupRemoteCopies, pruneBackupCopies, getPendingImport, stageImport, cancelPendingImport, type RestoreReport, type StagedImport, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
+    listBackupRemoteCopies, pruneBackupCopies, runBackupNow, restoreUserBackup, saveBackupSettings, shipBackupCopies,
     testBackupRemote, testBackupRemoteDraft, updateBackupRemote, verifyBackup, getBuildInfo, getFence,
     type BackupCheck, type BackupCompression, type BackupDestination, type BackupItem, type BackupRemote,
     type BackupRemoteInput, type BackupStatus,
@@ -11,14 +11,13 @@
   import CopyButton from './CopyButton.svelte'
   import ConfirmDialog from './ConfirmDialog.svelte'
   import CollectionPanel from './CollectionPanel.svelte'
-  import MoveAway from './MoveAway.svelte'
   import {
-    addressLines, addressProblem, cleanAddress, fenceSentence, fenceWatch, isLiveSourceRefusal, moveFeatures,
+    fenceSentence, fenceWatch, moveFeatures,
     type Fence,
   } from './controllerMove'
   import {
     BACKUP_COPY_SCOPES, BACKUP_RUN_SCOPES, backupCopyCountLabel, backupCopyMatchesSearch, backupCopyScopeCounts,
-    backupRunCountLabel, backupRunMatchesSearch, backupRunScopeCounts, filterBackupCopies, filterBackupRuns,
+    backupRemoteReady, backupRunLocation, backupRunCountLabel, backupRunMatchesSearch, backupRunScopeCounts, filterBackupCopies, filterBackupRuns,
     type BackupCopyScope, type BackupRunScope,
   } from './adminBackups'
 
@@ -48,42 +47,23 @@
   let deleteFor = $state<BackupItem | null>(null)
   let deleteRemoteFor = $state<BackupRemote | null>(null)
   let restoreFor = $state<BackupItem | null>(null)
-  let pendingImport = $state<StagedImport | null>(null)
-  let importFile = $state<File | null>(null)
-  let importPassword = $state('')
-  let importError = $state('')
-  // Prefilled with where this page was opened: the address the controller demonstrably answers at.
-  let importPublicUrl = $state(typeof window === 'undefined' ? '' : window.location.origin)
-  let importAllowLive = $state(false)
-  // Set only by the controller's own refusal, so the tick is asked for when it is needed and never offered as a
-  // way round a check nobody has run yet.
-  let importLiveRefused = $state(false)
-  // What this controller can do in a move. Nothing is offered until it has said so itself.
-  let features = $state(moveFeatures(undefined))
   let fence = $state<Fence>(fenceWatch.get())
   const isOwner = $derived(admin && role === 'owner')
-  const importAddressBad = $derived(addressProblem(importPublicUrl))
-  let importDropSessions = $state(false)
-  let importDropTokens = $state(false)
-  let importOwnerEmail = $state('')
-  let importReplace = $state(false)
   let copySearch = $state('')
   let copyScope = $state<BackupCopyScope>('all')
   let runSearch = $state('')
   let runScope = $state<BackupRunScope>('all')
 
-  type Section = 'overview' | 'copies' | 'destinations' | 'schedule' | 'runs' | 'import'
+  type Section = 'overview' | 'copies' | 'destinations' | 'schedule' | 'runs'
   let section = $state<Section>('overview')
   const sections = $derived.by(() => {
     const list: { key: Section; label: string; count?: number }[] = [
-      { key: 'overview', label: 'Overview', count: status?.findings.length },
+      { key: 'overview', label: 'Overview', count: status?.findings.filter(f => f.severity !== 'info').length },
       { key: 'copies', label: 'Copies', count: status?.items.length },
       { key: 'destinations', label: 'Destinations', count: status?.remotes.length },
       { key: 'schedule', label: 'Schedule' },
       { key: 'runs', label: 'Runs', count: status?.runs.length },
     ]
-    // Both sides of moving a controller live here: away from this one, and into it.
-    if (admin && canEdit) list.push({ key: 'import', label: 'Move' })
     return list
   })
   const current = $derived<Section>(sections.some((s) => s.key === section) ? section : 'overview')
@@ -102,64 +82,6 @@
     document.getElementById(`backups-tab-${keys[n]}`)?.focus()
   }
 
-  function reportLines(r: RestoreReport): string[] {
-    const roles = Object.entries(r.usersByRole ?? {}).map(([role, n]) => `${n} ${role}`).join(', ')
-    const l = [`${r.users} account(s)${roles ? ` (${roles})` : ''}, ${r.shelves} ${r.shelves === 1 ? 'library' : 'libraries'}, ${r.skills} skill(s), ${r.lists} list(s), ${r.tags} tag(s), ${r.environments} environment(s), ${r.machines} connected machine(s) and ${r.destinations} backup destination(s) come across.`,
-      r.sessionsEnded ? `${r.sessionsEnded} browser sign-in(s) end.` : `${r.sessionsKept} browser sign-in(s) are kept.`]
-    if (r.libraryItems || r.privateBundles) l.splice(1, 0, `${r.libraryItems ?? 0} library item(s) and ${r.privateBundles ?? 0} private content bundle(s) come across.`)
-    l.push(r.tokensKept
-      ? 'Personal API tokens and MCP connections are kept, so the old controller\'s tokens open this one.'
-      : `${r.tokensRevoked} personal API token(s) and ${r.mcpConnectionsRevoked} MCP connection(s) are revoked.`)
-    if (r.identityDropped) l.push('The private-connection identity is dropped; this controller makes its own.')
-    if (r.safetyCopy) l.push(`The database that is live now was copied to ${r.safetyCopy} first.`)
-    return l
-  }
-
-  function chooseImport(file: File | null) {
-    importFile = file
-    // The refusal was about the copy that was chosen; another copy is asked afresh.
-    importLiveRefused = false
-    importAllowLive = false
-    importError = ''
-  }
-
-  async function stage() {
-    if (!importFile || importAddressBad) return
-    busy = 'import'
-    importError = ''
-    saved = ''
-    try {
-      pendingImport = await stageImport(importFile, {
-        password: importPassword, dropSessions: importDropSessions, dropTokens: importDropTokens, ownerEmail: importOwnerEmail, replace: importReplace,
-        publicUrl: features.publicUrl ? cleanAddress(importPublicUrl) : '', allowLiveSource: importLiveRefused && importAllowLive,
-      })
-      importFile = null
-      importPassword = ''
-      importLiveRefused = false
-      importAllowLive = false
-      saved = 'Staged. Restart reet to put it in place.'
-    } catch (e) {
-      // Said beside the form, with everything typed left as it was: the refusal is usually answered by changing one
-      // field and trying again.
-      importError = e instanceof Error ? e.message : String(e)
-      if (isLiveSourceRefusal(e)) importLiveRefused = true
-    } finally {
-      busy = ''
-    }
-  }
-
-  async function discardImport() {
-    busy = 'import'
-    try {
-      await cancelPendingImport()
-      pendingImport = null
-      saved = 'The staged import was discarded.'
-    } catch (e) {
-      importError = e instanceof Error ? e.message : String(e)
-    } finally {
-      busy = ''
-    }
-  }
   let remoteError = $state('')
   let remoteCheck = $state<BackupCheck | null>(null)
 
@@ -175,15 +97,12 @@
     return fenceWatch.subscribe((next) => (fence = next))
   })
 
-  // `quiet` reads again without the skeleton, which would otherwise take the move card off the page, and what it had
-  // just said with it, the moment a copy was taken.
   async function load(quiet = false) {
     if (!quiet) loading = true
     try {
       status = await getBackupStatus(admin)
-      if (admin && role === 'owner') pendingImport = await getPendingImport().catch(() => null)
       if (admin) {
-        features = moveFeatures((await getBuildInfo().catch(() => null))?.features)
+        const features = moveFeatures((await getBuildInfo().catch(() => null))?.features)
         // An admin may read the fence; anyone else is refused, which says nothing either way and changes nothing.
         if (features.fence) await getFence().then((f) => fenceWatch.set(f)).catch(() => {})
       }
@@ -251,7 +170,7 @@
   }
 
   function protectionText(): string {
-    const compression = form.compression === 'gzip' ? 'gzip' : 'no compression'
+    const compression = status?.settings.compression === 'gzip' ? 'gzip' : 'no compression'
     return `${status?.settings.hasPassword ? 'Password' : 'Instance key'} + ${compression}`
   }
 
@@ -266,8 +185,12 @@
     saved = ''
     try {
       const item = await runBackupNow(admin)
-      saved = `Took ${item.id}.`
+      saved = `Took ${item.id}. ${item.local ? (item.remotes.length ? 'Stored on this machine and off-site.' : 'Stored on this machine.') : 'Stored off-site; no local copy retained.'}`
       await load()
+      if (status?.settings.destination === 'remote' && item.local && !item.remotes.length) {
+        saved = ''
+        error = 'The off-site upload failed. A recovery copy was kept on this machine. Check Destinations and retry the upload.'
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
       onerror?.(e)
@@ -527,6 +450,11 @@
   }
 
   const copyItems = $derived(status?.items ?? [])
+  const locations = $derived(backupCopyScopeCounts(copyItems))
+  const readyRemotes = $derived(status?.remotes.filter(backupRemoteReady) ?? [])
+  const attention = $derived(status?.findings.filter(f => f.severity !== 'info') ?? [])
+  const information = $derived(status?.findings.filter(f => f.severity === 'info') ?? [])
+  const latestCopy = $derived(copyItems.reduce<BackupItem | null>((latest, item) => !latest || item.takenAt > latest.takenAt ? item : latest, null))
   const searchedCopies = $derived(copyItems.filter((item) => backupCopyMatchesSearch(item, copySearch, verified)))
   const copyCounts = $derived(backupCopyScopeCounts(searchedCopies, verified))
   const shownCopies = $derived(filterBackupCopies(copyItems, copyScope, copySearch, verified))
@@ -553,8 +481,8 @@
     <div>
       <p class="lede">
         {admin
-          ? 'Sealed copies of the whole database, kept on this machine and shipped to any S3-compatible destination.'
-          : 'Sealed copies of your own library, on this machine and at your own off-site destination.'}
+          ? 'Encrypted copies of the whole database. See where each copy is stored and manage your backup policy.'
+          : 'Encrypted copies of your library. Choose local storage, an off-site destination, or both.'}
       </p>
     </div>
     <div class="actions">
@@ -579,7 +507,7 @@
         <strong>This controller is fenced.</strong>
         {fenceSentence(fence, when)}
         Signing in, reading, and taking, checking and downloading copies still work.
-        {isOwner ? 'Lift the fence under Move this controller away to undo it.' : 'Only the owner can lift the fence.'}
+        {#if isOwner}<a href="/admin/move">Open Move to manage the fence.</a>{:else}Only the owner can lift the fence.{/if}
       </div>
     {/if}
 
@@ -602,72 +530,81 @@
 
     <div role="tabpanel" id="backups-panel" aria-labelledby={`backups-tab-${current}`}>
     {#if current === 'overview'}
-    <div class="cards">
-      {#if admin}
-        <article>
-          <h3>Key</h3>
-          <p>{status.key.fingerprint || '—'}</p>
-          <small>
-            {status.key.source === 'environment' ? 'From the environment' : 'Generated beside the database'}
-            {#if status.key.path}· <code>{status.key.path}</code>{/if}
-          </small>
-        </article>
-      {:else}
-        <article>
-          <h3>Sealed</h3>
-          <p>AES-256-GCM</p>
-          <small>Every copy is encrypted with the instance's backup key before it is written or sent.</small>
-        </article>
-      {/if}
+    <section class="health" class:attention={!status.enabled || attention.length > 0 || !!status.unreachable?.length || status.settings.lastState === 'failed'} aria-label="Backup status">
+      <div>
+        <span class="eyebrow">Backup status</span>
+        <h3>{!status.enabled ? 'Backups are unavailable' : attention.length || status.unreachable?.length || status.settings.lastState === 'failed'
+          ? 'Backups need attention'
+          : locations.remote ? 'Off-site copies available' : copyItems.length ? 'Copies available on this machine' : 'Ready for your first backup'}</h3>
+        <p>{destinationText(status.settings.destination)} · {status.settings.everySeconds ? `Every ${everyText(status.settings.everySeconds)}` : 'Manual backups only'}</p>
+      </div>
+      <button type="button" class="btn" onclick={() => (section = 'schedule')}>Manage schedule</button>
+    </section>
+
+    <div class="cards" aria-label="Stored copies">
       <article>
-        <h3>Schedule</h3>
-        <p>{everyText(status.settings.everySeconds) === '0' ? 'Manual only' : `Every ${everyText(status.settings.everySeconds)}`}</p>
-        <small>Next {when(status.settings.nextAt)}</small>
+        <h3>Off-site copies</h3>
+        <p>{locations.remote}</p>
+        <small>Across {readyRemotes.length} ready {readyRemotes.length === 1 ? 'destination' : 'destinations'}</small>
+        <button type="button" class="text-action" onclick={() => { copyScope = 'remote'; copySearch = ''; section = 'copies' }}>View off-site copies →</button>
       </article>
       <article>
-        <h3>Keep</h3>
-        <p>{status.settings.keep === 0 ? 'Every copy' : `Newest ${status.settings.keep}`}</p>
-        <small>{status.items.length} {status.items.length === 1 ? 'copy' : 'copies'} on this machine</small>
+        <h3>On this machine</h3>
+        <p>{locations.local}</p>
+        <small>{status.settings.destination === 'remote' ? 'Successful off-site uploads leave no local copy.' : `Local retention: ${status.settings.keep ? `newest ${status.settings.keep}` : 'keep every copy'}`}</small>
+        <button type="button" class="text-action" onclick={() => { copyScope = 'local'; copySearch = ''; section = 'copies' }}>View local copies →</button>
       </article>
       <article>
-        <h3>Where copies go</h3>
-        <p>{destinationText(status.settings.destination)}</p>
-        <small>{status.settings.destination === 'local'
-          ? 'They are lost with this machine.'
-          : status.settings.destination === 'remote'
-            ? (status.remotes.filter((r) => !r.disabled && !r.problem).length
-              ? 'Kept here only when no destination took one.'
-              : 'No usable destination is configured.')
-            : 'On this machine and at every enabled destination.'}</small>
-      </article>
-      <article>
-        <h3>Protection</h3>
-        <p>{protectionText()}</p>
-        <small>{status.settings.hasPassword
-          ? 'A copy opens with its password alone; it is stored sealed here for the schedule.'
-          : 'A copy opens with the instance backup key.'}</small>
-      </article>
-      <article>
-        <h3>Off-site</h3>
-        <p>{status.remotes.filter((r) => !r.disabled && !r.problem).length || 'None'}</p>
-        <small>{status.remotes.length ? 'Every copy is sealed before it leaves' : 'Copies are on this machine only'}</small>
+        <h3>Latest copy</h3>
+        <p class="latest">{latestCopy ? when(latestCopy.takenAt) : 'No copies yet'}</p>
+        <small>{copyItems.length} unique {copyItems.length === 1 ? 'copy' : 'copies'} in total · {locations.local && locations.remote ? 'A copy can be in both locations.' : 'Includes all listed locations.'}</small>
+        <button type="button" class="text-action" onclick={() => (section = 'runs')}>View run history →</button>
       </article>
     </div>
 
-    {#if status.findings.length}
-      <section class="block" aria-labelledby="findings-title">
-        <h3 id="findings-title">Needs attention</h3>
+    {#if attention.length || status.unreachable?.length || status.settings.lastState === 'failed'}
+      <section class="block attention-block" aria-labelledby="findings-title">
+        <div class="blockhead"><h3 id="findings-title">Needs attention</h3><button type="button" class="btn" onclick={() => (section = 'destinations')}>Check destinations</button></div>
         <ul class="findings">
-          {#each status.findings as f, i (f.code + i)}
-            <li class={f.severity}>
-              <span class="sev">{f.severity}</span>
-              <span>{f.message}</span>
-            </li>
+          {#each attention as f, i (f.code + i)}
+            <li class={f.severity}><span class="sev">{f.severity}</span><span>{f.message}</span></li>
           {/each}
+          {#if status.unreachable?.length}<li class="error"><span class="sev">error</span><span>Could not list {status.unreachable.join(', ')}. Off-site counts may be incomplete; check the destination connection.</span></li>{/if}
+          {#if status.settings.lastState === 'failed' && status.settings.lastError}<li class="error"><span class="sev">error</span><span>Last run: {status.settings.lastError}</span></li>{/if}
         </ul>
       </section>
     {/if}
+
+    <div class="overview-grid">
+      <section class="block" aria-labelledby="policy-title">
+        <div class="blockhead"><h3 id="policy-title">Backup policy</h3><button type="button" class="text-action" onclick={() => (section = 'schedule')}>Edit policy →</button></div>
+        <dl class="policy">
+          <div><dt>Storage</dt><dd>{destinationText(status.settings.destination)}</dd></div>
+          <div><dt>Next run</dt><dd>{status.settings.everySeconds ? when(status.settings.nextAt) : 'Manual only'}</dd></div>
+          <div><dt>Protection</dt><dd>{protectionText()}</dd></div>
+          {#if status.settings.destination !== 'remote'}<div><dt>Local retention</dt><dd>{status.settings.keep ? `Newest ${status.settings.keep} copies` : 'Every copy'}</dd></div>{/if}
+        </dl>
+        {#if status.settings.destination === 'remote'}<p class="policy-note">Copies are removed from this machine after a successful off-site upload. If all uploads fail, a recovery copy stays here. Changing this setting does not remove older local copies.</p>{/if}
+      </section>
+      <section class="block" aria-labelledby="destinations-summary-title">
+        <div class="blockhead"><h3 id="destinations-summary-title">Off-site destinations</h3><button type="button" class="text-action" onclick={() => (section = 'destinations')}>Manage →</button></div>
+        {#if status.remotes.length}
+          <ul class="destination-summary">
+            {#each status.remotes as r (r.name)}
+              <li><div><strong>{r.name}</strong><small>{r.disabled ? 'Uploads paused' : r.lastUploadAt ? `Last upload ${when(r.lastUploadAt)}` : 'No successful upload recorded'}</small></div><span class="tag" class:good={backupRemoteReady(r) && !r.lastError} class:bad={!r.disabled && (!!r.problem || !!r.lastError)}>{r.disabled ? 'Disabled' : r.lastError ? 'Upload failed' : backupRemoteReady(r) ? 'Ready' : 'Needs setup'}</span></li>
+            {/each}
+          </ul>
+        {:else}<p class="empty">Add an S3-compatible destination to keep copies off this machine.</p>{/if}
+      </section>
+    </div>
+    <details class="block recovery">
+      <summary>Encryption and recovery</summary>
+      <p class="muted">{status.settings.hasPassword ? 'New copies open with your stored copy password. Keep it somewhere safe.' : 'New copies open with the instance backup key. Keep a copy of that key away from this machine.'}</p>
+      {#if admin}<p class="muted">Key fingerprint: <code>{status.key.fingerprint || '—'}</code>{#if status.key.path} · <code>{status.key.path}</code>{/if}</p>{/if}
+      {#if information.length}<ul class="findings">{#each information as f, i (f.code + i)}<li><span>{f.message}</span></li>{/each}</ul>{/if}
+    </details>
     {:else if current === 'copies'}
+      {#if status.unreachable?.length}<p class="notice bad" role="alert">Could not list {status.unreachable.join(', ')}. Off-site counts may be incomplete.</p>{/if}
       {#if restoreFor}
         <div class="banner" role="note">
           {#if admin}
@@ -778,7 +715,7 @@
           <h3 id="destinations-title">Off-site destinations</h3>
           <p class="muted">Any S3-compatible service: AWS S3, Cloudflare R2, Backblaze B2, MinIO, Garage. The secret is sealed in the database.</p>
         </div>
-        {#if canEdit}
+        <div class="actions">{#if canEdit}
           {#if status.remotes.length > 0 && status.settings.destination !== 'local'}
             <button type="button" class="btn" onclick={copyOffsite} disabled={busy === 'offsite'}>
               {busy === 'offsite' ? 'Copying…' : 'Copy offsite now'}
@@ -788,7 +725,7 @@
             </button>
           {/if}
           <button type="button" class="btn" onclick={() => editRemote()}>Add destination</button>
-        {/if}
+        {/if}</div>
       </div>
 
       {#if status.remotes.length === 0}
@@ -801,7 +738,7 @@
           {#each status.remotes as r (r.name)}
             <li class:failing={!!r.lastError}>
               <div class="rwho">
-                <strong>{r.name}</strong>
+                <div class="destination-name"><strong>{r.name}</strong><span class="tag" class:good={backupRemoteReady(r) && !r.lastError}>{r.disabled ? 'Disabled' : r.lastError ? 'Upload failed' : backupRemoteReady(r) ? 'Ready' : 'Needs setup'}</span></div>
                 {#if r.source === 'environment'}<span class="tag">from the environment</span>{/if}
                 {#if r.disabled}<span class="tag">disabled</span>{/if}
                 {#if r.problem}<span class="tag bad">{r.problem}</span>{/if}
@@ -914,17 +851,13 @@
     {:else if current === 'schedule'}
     <section class="block" aria-labelledby="schedule-title">
       <h3 id="schedule-title">Schedule and retention</h3>
-      <p class="muted">How often a copy is taken and how many this machine keeps. 0 turns the schedule off; 0 copies kept means every one.</p>
+      <p class="muted">Choose when backups run, where they are stored, and how they are protected.</p>
       <form class="settings" onsubmit={saveSettings}>
+        <fieldset><legend>When and where</legend><div class="settings-grid">
         <label>
           <span>Every</span>
           <input bind:value={form.every} placeholder="24h" disabled={!canEdit} aria-invalid={everyBad || undefined} />
           <small class:bad={everyBad}>{everyBad ? 'Use 30m, 1h, 24h or 7d; 0 is off.' : 'The shortest schedule is a minute.'}</small>
-        </label>
-        <label>
-          <span>Keep</span>
-          <input bind:value={form.keep} inputmode="numeric" disabled={!canEdit} aria-invalid={keepBad || undefined} />
-          <small class:bad={keepBad}>{keepBad ? 'A whole number, 0 or more.' : '0 keeps every copy on this machine.'}</small>
         </label>
         <label>
           <span>Where copies go</span>
@@ -933,16 +866,23 @@
             <option value="local">This machine only</option>
             <option value="remote">Off-site only</option>
           </select>
-          <small class:bad={form.destination === 'remote' && !status.remotes.some((r) => !r.disabled && !r.problem)}>
+          <small class:bad={form.destination === 'remote' && readyRemotes.length === 0}>
             {form.destination === 'local'
               ? 'Lost with this machine. Not recommended.'
               : form.destination === 'remote'
-                ? (status.remotes.some((r) => !r.disabled && !r.problem)
-                  ? 'A copy stays here only if no destination took it.'
-                  : 'Add and test an enabled destination below, or every copy will fail.')
+                ? (readyRemotes.length > 0
+                  ? 'Removed locally after a successful upload. Kept locally only if all uploads fail.'
+                  : 'Add and test a destination in Destinations before running a backup.')
                 : 'Every copy is on this machine and at each enabled destination.'}
           </small>
         </label>
+        <label>
+          <span>Local copies to keep</span>
+          <input bind:value={form.keep} inputmode="numeric" disabled={!canEdit} aria-invalid={keepBad || undefined} />
+          <small class:bad={keepBad}>{keepBad ? 'A whole number, 0 or more.' : form.destination === 'remote' ? 'Applies to existing local copies and recovery copies after failed uploads. 0 keeps all.' : '0 keeps every copy on this machine.'}</small>
+        </label>
+        </div><p class="policy-note">Off-site retention is set separately on each destination.</p></fieldset>
+        <fieldset><legend>Encryption and compression</legend><div class="settings-grid">
         <label>
           <span>Compression</span>
           <select bind:value={form.compression} disabled={!canEdit}>
@@ -969,13 +909,16 @@
             Remove the stored password
           </label>
         {/if}
+        </div></fieldset>
+        <div class="settings-footer">
         {#if canEdit}
           <button type="submit" class="btn primary" disabled={busy === 'settings' || everyBad || keepBad}>
-            {busy === 'settings' ? 'Saving…' : 'Save'}
+            {busy === 'settings' ? 'Saving…' : 'Save backup policy'}
           </button>
         {:else}
           <p class="muted">{admin ? 'Only the instance owner can change the schedule.' : 'Read-only accounts can see backups but not change them.'}</p>
         {/if}
+        </div>
       </form>
     </section>
     {:else if current === 'runs'}
@@ -1016,98 +959,14 @@
               <div class="run-meta">
                 <span class="state {run.state}">{run.state}</span>
                 <small>{bytes(run.bytes)}</small>
-                <small>{run.offsite || 'This machine only'}</small>
+                <small>{backupRunLocation(run)}</small>
               </div>
             </li>
           {/each}
         </ul>
       {/if}
     </CollectionPanel>
-    {:else if current === 'import'}
-      {#if isOwner && features.fence}
-        <MoveAway {fence} {features} items={copyItems} enabled={status.enabled} {when} size={bytes}
-          onfence={(next) => fenceWatch.set(next)} ontaken={() => void load(true)} />
-      {/if}
-      {#if admin && canEdit}
-        <div class="banner import" role="group" aria-labelledby="import-title">
-          <strong id="import-title">Move a controller in</strong>
-          <p class="muted">Import a sealed copy from another controller (<code>.reetbackup</code> or the downloaded <code>.zip</code>). It is opened and checked now; it replaces this controller's database only when reet next starts, and the current one is kept beside it.</p>
-          {#if importError}<p class="notice bad" role="alert">{importError}</p>{/if}
-          {#if pendingImport}
-            {@const report = pendingImport.report}
-            <p><strong>{report.id}</strong> is staged. Restart reet to put it in place.</p>
-            <ul>
-              {#each reportLines(report) as line}<li>{line}</li>{/each}
-              {#if features.publicUrl}{#each addressLines(report) as line}<li>{line}</li>{/each}{/if}
-            </ul>
-            {#if report.unreadable.length}
-              <p>Sealed under a different backup key, so they cannot be opened here. They were cleared:</p>
-              <ul>{#each report.unreadable as u}<li>{u}</li>{/each}</ul>
-            {/if}
-            {#if report.paused?.length}
-              <p>Held back, so this controller does not repeat it by itself. Resume each when you are ready:</p>
-              <ul>{#each report.paused as p}<li>{p}</li>{/each}</ul>
-            {/if}
-            {#if pendingImport.notInCopy.length}
-              <details class="not-in-copy">
-                <summary>Not in the copy: set these by hand on this machine</summary>
-                <dl>
-                  {#each pendingImport.notInCopy as item}
-                    <dt>{item.names.join(', ')}</dt>
-                    <dd>{item.say}</dd>
-                  {/each}
-                </dl>
-              </details>
-            {/if}
-            <p class="muted">Once it has restarted, machines move to it on their own: the old controller's fence tells each one this address, and the old controller's Move page shows them arrive. Keep the old one fenced and running until they have.</p>
-            <div class="formacts"><button type="button" class="btn" onclick={discardImport} disabled={busy === 'import'}>Discard the staged import</button></div>
-          {:else}
-            <label>
-              <span>Copy</span>
-              <input type="file" accept=".reetbackup,.sealed,.zip" onchange={(e) => chooseImport((e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
-            </label>
-            <label>
-              <span>Copy password (if it has one)</span>
-              <input type="password" autocomplete="off" bind:value={importPassword} />
-            </label>
-            {#if features.publicUrl}
-              <label>
-                <span>This controller's address (optional)</span>
-                <input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://reet.example.com" bind:value={importPublicUrl}
-                  aria-invalid={importAddressBad ? 'true' : undefined} aria-describedby="import-address-hint" />
-              </label>
-              <small id="import-address-hint" class:bad={!!importAddressBad}>
-                {importAddressBad || 'The addresses saved in the copy (links in mail, the sync library origin) are changed to this one, and MCP clients authorise again here. Clear it to leave them as they are.'}
-              </small>
-            {/if}
-            <label class="keep">
-              <input type="checkbox" bind:checked={importDropSessions} />
-              End every browser sign-in in the copy
-            </label>
-            <label class="keep">
-              <input type="checkbox" bind:checked={importDropTokens} />
-              Revoke every personal API token and MCP connection in the copy
-            </label>
-            <label class="keep">
-              <input type="checkbox" bind:checked={importReplace} />
-              Replace what this controller already holds (a copy of the current database is kept first)
-            </label>
-            {#if importLiveRefused}
-              <label class="keep needed">
-                <input type="checkbox" bind:checked={importAllowLive} required />
-                <span><strong>The old controller is stopped or gone</strong> (needed for this copy). It was not taken from a fenced controller. If the old one is still running, two controllers would work from one set of data; fence it and take a final copy instead.</span>
-              </label>
-            {/if}
-            <label>
-              <span>Make sure this owner can sign in (optional)</span>
-              <input type="email" autocomplete="off" bind:value={importOwnerEmail} />
-            </label>
-            <div class="formacts">
-              <button type="button" class="btn primary" onclick={stage} disabled={!importFile || busy === 'import' || !!importAddressBad || (importLiveRefused && !importAllowLive)} aria-busy={busy === 'import'}>{busy === 'import' ? 'Checking…' : 'Check and stage'}</button>
-            </div>
-          {/if}
-        </div>
-      {/if}
+
     {/if}
     </div>
   {/if}
@@ -1121,6 +980,30 @@
 {/if}
 
 <style>
+  .health { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; padding: 24px; border: 1px solid color-mix(in srgb, var(--good) 40%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--good) 5%, var(--card)); }
+  .health.attention { border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); background: var(--card); }
+  .eyebrow { color: var(--muted); font-size: 0.875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  .health h3 { font: 500 clamp(1.3rem, 2vw, 1.7rem)/1.25 var(--serif); margin: 6px 0; }
+  .health p { color: var(--muted); font-size: 0.9rem; margin: 0; }
+  .text-action { display: inline-block; padding: 4px 0; border: 0; background: transparent; color: var(--accent-text); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; }
+  .text-action:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .cards .text-action { margin-top: 12px; }
+  .cards p.latest { font-size: 1.1rem; line-height: 1.5; }
+  .overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .overview-grid .block { min-width: 0; }
+  .policy { display: grid; gap: 12px; margin: 20px 0 0; font-size: 0.9rem; }
+  .policy > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; }
+  .policy dt { color: var(--muted); }
+  .policy dd { margin: 0; overflow-wrap: anywhere; }
+  .policy-note { margin: 16px 0 0; color: var(--muted); font-size: 0.875rem; line-height: 1.55; }
+  .destination-summary { list-style: none; margin: 12px 0 0; padding: 0; }
+  .destination-summary li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+  .destination-summary small { display: block; margin-top: 4px; color: var(--muted); font-size: 0.875rem; }
+  .recovery summary { cursor: pointer; font-weight: 600; }
+  .recovery code { overflow-wrap: anywhere; }
+  .destination-name { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  @media (max-width: 760px) { .overview-grid { grid-template-columns: 1fr; gap: 0; } }
+  @media (pointer: coarse) { .text-action { min-height: 44px; } }
   .backups { padding-top: 4px; }
   .head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; }
   .lede { margin: 0; max-width: 62ch; color: var(--muted); }
@@ -1140,7 +1023,7 @@
   .subtab:hover { color: var(--ink); }
   .subtab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
   .subtab small { margin-left: 6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-  .cards { margin-top: 24px; }
+
   .block { margin-top: 24px; padding: clamp(16px, 3vw, 24px); border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
   .blockhead { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
   .muted { margin: 6px 0 0; color: var(--muted); font-size: 0.88rem; }
@@ -1150,10 +1033,16 @@
   .sev { flex: none; padding: 1px 7px; border: 1px solid var(--line); border-radius: 6px; font-size: 0.875rem; }
   .findings li.error .sev { border-color: var(--bad); color: var(--bad); }
   .findings li.warning .sev { border-color: var(--heart); color: var(--heart); }
-  .settings { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-top: 16px; }
-  .settings label { display: grid; gap: 4px; font-size: 0.875rem; color: var(--muted); }
-  .settings input { width: 9rem; }
-  .settings small { display: block; max-width: 18rem; color: var(--muted); }
+  .settings { display: grid; gap: 24px; margin-top: 24px; max-width: 960px; }
+  .settings fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+  .settings legend { padding: 0; margin-bottom: 14px; font-weight: 600; font-size: 0.95rem; }
+  .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .settings label { display: grid; gap: 6px; align-content: start; font-size: 0.875rem; color: var(--muted); min-width: 0; }
+  .settings input, .settings select { width: 100%; min-width: 0; }
+  .settings small { display: block; color: var(--muted); line-height: 1.5; }
+  .settings label.check { display: flex; align-items: center; gap: 10px; }
+  .settings .check input { width: 18px; height: 18px; flex: none; }
+  .settings-footer { border-top: 1px solid var(--line); padding-top: 20px; }
   .bad { color: var(--bad) !important; overflow-wrap: anywhere; }
   .remotes { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; }
   .remotes > li { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
@@ -1178,7 +1067,8 @@
   .grid2 label.check input { width: 18px; height: 18px; min-height: 0; }
   .formacts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
   .copy-toolbar, .run-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
-  .search { flex: 1 1 240px; }
+  .search { flex: 1 1 240px; display: grid; gap: 6px; color: var(--muted); font-size: 0.875rem; }
+  .search input { width: 100%; }
   .scopes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
   .scope { min-height: 36px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
   .scope:hover { border-color: var(--muted); color: var(--ink); }
@@ -1206,31 +1096,19 @@
   .state-block { padding: 24px 0 16px; max-width: 58ch; }
   .state-block h3 { margin: 0; font: 500 1.25rem/1.2 var(--serif); letter-spacing: -0.02em; }
   .state-block p { margin: 6px 0 12px; color: var(--muted); }
-  .banner.import { border-color: var(--line); }
   .banner.fenced { border-color: color-mix(in srgb, var(--warn) 60%, var(--line)); }
-  .banner.import > label:not(.keep) { display: grid; gap: 4px; margin-top: 12px; }
-  .banner.import > label:not(.keep) > span { color: var(--muted); font-size: 0.875rem; }
-  .banner.import input[type='url'], .banner.import input[type='password'], .banner.import input[type='email'] { width: 100%; max-width: 28rem; min-width: 0; }
-  .banner.import small { display: block; max-width: 34rem; margin-top: 4px; color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
-  .banner.import .notice { margin: 12px 0; overflow-wrap: anywhere; }
-  .banner.import ul { overflow-wrap: anywhere; }
-  .keep.needed { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 60%, var(--line)); border-radius: 8px; }
-  .not-in-copy { margin: 12px 0; }
-  .not-in-copy summary { cursor: pointer; font-weight: 600; }
-  .not-in-copy dl { margin: 8px 0 0; display: grid; gap: 4px; }
-  .not-in-copy dt { font: 0.875rem/1.45 var(--mono); overflow-wrap: anywhere; }
-  .not-in-copy dd { margin: 0 0 8px; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
-  .banner.import input[type='file'] { width: 100%; min-width: 0; max-width: 100%; }
-  .keep { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
-  .keep input { width: 18px; height: 18px; min-height: 0; flex: none; }
   .cmdline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
   .cmdline code { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow-wrap: anywhere; }
   @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 560px) {
-    .cards { grid-template-columns: 1fr; }
-    .settings { display: grid; grid-template-columns: 1fr 1fr; }
+    .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .cards article { padding: 16px; min-width: 0; }
+    .cards article:last-child { grid-column: 1 / -1; }
+    .health { padding: 16px; }
+    .health .btn { display: none; }
+    .settings-grid { grid-template-columns: 1fr; }
     .settings input { width: 100%; }
-    .settings .btn { grid-column: 1 / -1; }
+    .settings-footer .btn { width: 100%; }
     .actions, .actions .btn { width: 100%; }
     .copy-toolbar, .run-toolbar { gap: 10px; }
     .search { flex-basis: 100%; }

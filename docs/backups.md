@@ -7,6 +7,13 @@ reet takes copies of two things:
 - **A person's shelf**, for that person: their own skills, notes, tags and
   environments, exported as the same JSON snapshot the UI calls Download JSON.
 
+The Backups overview counts local and off-site copies separately; a copy stored in
+both places counts in each location but only once in the total. Destination
+readiness and schedule warnings use the current saved configuration, including
+destinations added through the page. If a destination cannot be listed, the page
+marks off-site counts as incomplete. Off-site retention is set on each destination;
+the schedule's retention controls local copies.
+
 Both are sealed with one key, written where the owner chooses, and copied to
 any S3-compatible destination you configure. Off-site is where a copy survives
 losing the machine, so "both" is the default.
@@ -380,7 +387,7 @@ is the one meant to be live, so a restore clears it.
 ### Moving a controller from the web page
 
 The same move needs no terminal on either controller. Everything below is in the
-**Move** section of **Admin → Backups**, for the owner only, and each piece is offered only when the
+dedicated **Admin → Move** page, for the owner only, and each piece is offered only when the
 controller lists it in `GET /api/version` (see
 [asking a controller what it can do](#asking-a-controller-what-it-can-do)).
 
@@ -621,7 +628,7 @@ needs it unless the copy was taken from a fenced controller. `--replace` is
 described below. The command streams
 the file, so it is not read into memory on this side.
 
-**From the page**, under **Admin → Backups → Move a controller in**: choose the
+**From the page**, under **Admin → Move → Move a controller in**: choose the
 copy, enter its password if it has one, check the address and pick the options.
 The page shows the report and a **Discard** button while it waits. See
 [moving a controller from the web page](#moving-a-controller-from-the-web-page).
@@ -696,7 +703,7 @@ any part of controller moving in full, `"features": [...]`, drawn from `"fence"`
 of that part is built. A controller built before the list existed has no
 `features` field, and so does one that holds none of the parts; treat a missing
 field as "none". A script that moves a controller should read it first rather
-than assume. The Backups page does the same: the move card needs `"fence"`, the
+than assume. The Move page does the same: the move card needs `"fence"`, the
 copy's own password `"copy-password-request"`, the fenced mark and the
 live-source tick `"copy-origin"`, and the address field `"restore-public-url"`.
 

@@ -39,7 +39,7 @@
   <p class="fence-strip" role="status">
     <strong>This controller is fenced.</strong>
     {fenceSentence(fence, ms => formatWhen(ms, timeZone, dateFormat))}
-    {#if admin}<a href="/admin/backups">Open Backups</a>{/if}
+    {#if admin}<a href="/admin/move">Open Move</a>{/if}
   </p>
 {/if}
 

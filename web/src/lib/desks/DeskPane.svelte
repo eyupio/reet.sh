@@ -7,7 +7,7 @@
   import { sessionStatus, statusLabel } from '../sessionStatus'
   import { middleEllipsis } from '../sessions/middleEllipsis'
   import DeskMenu from './DeskMenu.svelte'
-  import { agentName, dirLabel, isRunning, paneCard, paneNote, paneState, type PaneActionKind, type PaneFailure, type PaneState } from './paneState'
+  import { agentName, dirLabel, isRunning, paneCard, paneNote, paneState, startupInput, type PaneActionKind, type PaneFailure, type PaneState } from './paneState'
   import PaneStateCard from './PaneStateCard.svelte'
   import StartupBar from './StartupBar.svelte'
   import { shell } from '../dialogShell'
@@ -116,9 +116,9 @@
   const card = $derived(drawn && template ? { ...drawn, actions: drawn.actions.filter(a => !STARTS.has(a.kind)) } : drawn)
   const note = $derived(paneNote(pane, shown, machine ? { deskShell } : undefined))
   const status = $derived(session && mounted ? sessionStatus(session) : undefined)
-  const WORDS: Record<PaneState, string> = { live: 'Running', reconnecting: 'Reconnecting', elsewhere: 'Elsewhere', ended: 'Ended', lost: 'Lost', agentEnded: 'Ended', agentLost: 'Lost', folderGone: 'Folder gone', folderUnavailable: 'Folder unavailable', limit: 'At the limit', machineGone: 'Machine removed', empty: 'Not started' }
+  const WORDS: Record<PaneState, string> = { live: 'Running', reconnecting: 'Reconnecting', elsewhere: 'Elsewhere', ended: 'Ended', lost: 'Lost', agentEnded: 'Ended', agentLost: 'Lost', folderGone: 'Folder gone', folderUnavailable: 'Folder unavailable', limit: 'At the limit', machineGone: 'Machine removed', projectsUnread: 'Not continued', empty: 'Not started' }
   const word = $derived(shown === 'live' && status && !(status === 'working' && !session?.tool) ? statusLabel(status) : WORDS[shown])
-  const tone = $derived(shown === 'lost' || shown === 'agentLost' || shown === 'machineGone' ? 'bad' : shown === 'folderGone' || shown === 'folderUnavailable' || shown === 'limit' ? 'warn' : shown === 'live' ? 'good' : '')
+  const tone = $derived(shown === 'lost' || shown === 'agentLost' || shown === 'machineGone' ? 'bad' : shown === 'folderGone' || shown === 'folderUnavailable' || shown === 'limit' || shown === 'projectsUnread' ? 'warn' : shown === 'live' ? 'good' : '')
 
   // Rename in place, from the menu or the terminal's own Manage menu.
   let editing = $state(false), draft = $state(''), input = $state<HTMLInputElement>()
@@ -145,7 +145,7 @@
   // Run types the command and Enter once, through the terminal's own input, and only into a connected terminal.
   // A command with a hidden character (a line break, a control or format character) is never typed: what is run must be
   // what the bar shows.
-  function runStartup() { if (startup && !hasHiddenChars(startup) && terminal?.type(`${startup}\r`)) onstartup?.(true) }
+  function runStartup() { const keys = startupInput(startup); if (keys && terminal?.type(keys)) onstartup?.(true) }
 
   // The start-up command dialog: one field, Save and Remove.
   const MAX_START = 2000

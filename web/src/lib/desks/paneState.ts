@@ -1,16 +1,16 @@
 // What a desk pane is showing, and what it offers. Pure: the pane, its session as last listed, its machine and the
 // attachment's own state go in; a state and its card come out. A pane is never a blank terminal: every state but live is
 // drawn in the pane as a card with a tag, a heading, a sentence and its actions, the main one first (spec: Restore).
-// Only type imports, so the unit test can load this file on its own.
-import type { TerminalSession } from '../terminal/api'
+// Its one runtime import (the hidden-character check) is plain, so the unit test loads it beside this file.
+import { hasHiddenChars, type TerminalSession } from '../terminal/api'
 import type { Pane } from './tree'
 
-export type PaneState = 'live' | 'reconnecting' | 'elsewhere' | 'ended' | 'lost' | 'agentEnded' | 'agentLost' | 'folderGone' | 'folderUnavailable' | 'limit' | 'machineGone' | 'empty'
+export type PaneState = 'live' | 'reconnecting' | 'elsewhere' | 'ended' | 'lost' | 'agentEnded' | 'agentLost' | 'folderGone' | 'folderUnavailable' | 'limit' | 'machineGone' | 'projectsUnread' | 'empty'
 export type PaneActionKind = 'reopen' | 'reopenHome' | 'continue' | 'start' | 'again' | 'takeover' | 'retry' | 'chooseFolder' | 'chooseMachine' | 'close'
 export type PaneAction = { label: string; kind: PaneActionKind }
 /** Why the last reopen of this pane was refused, kept by the screen until the next try. `offline`: the machine did not
  *  answer; `machineLimit` and `accountLimit`: the browser's own check of the session limits. */
-export type PaneFailure = 'folderGone' | 'folderUnavailable' | 'machineLimit' | 'accountLimit' | 'offline' | 'machineGone'
+export type PaneFailure = 'folderGone' | 'folderUnavailable' | 'machineLimit' | 'accountLimit' | 'offline' | 'machineGone' | 'projectsUnread'
 
 const RUNNING = new Set(['creating', 'running', 'end_requested'])
 /** A session that holds a slot of the session limits, and that a pane attaches to. */
@@ -82,6 +82,13 @@ export const PANE_CARDS: Record<Exclude<PaneState, 'live'>, CardRow> = {
   elsewhere: { tag: 'Open elsewhere', heading: () => 'This terminal is open in another window.', body: () => 'A terminal has one keyboard at a time.', actions: () => [{ label: 'Use it here', kind: 'takeover' }] },
   agentEnded: { tag: 'Agent ended', heading: c => `${c.agent} finished in this pane.`, body: agentBody, actions: agentActions },
   agentLost: { tag: 'Lost', heading: c => `${where(c)} restarted, so this shell was lost.`, body: agentBody, actions: agentActions },
+  // Continue for an agent session in a project, when the projects could not be read: nothing was started without it.
+  projectsUnread: {
+    tag: 'Not continued',
+    heading: () => "reet couldn't read your projects just now, so this conversation was not continued.",
+    body: () => '',
+    actions: () => [{ label: 'Try again', kind: 'again' }, { label: 'Start a shell here', kind: 'reopen' }],
+  },
   empty: { tag: 'Not started', heading: c => `${where(c)} · ${c.dir}`, body: () => '', actions: () => [{ label: 'Start', kind: 'start' }] },
 }
 
@@ -94,6 +101,12 @@ export function paneCard(state: PaneState, ctx: CardContext): PaneCard | null {
   if (state === 'live') return null
   const row = PANE_CARDS[state]
   return { tag: row.tag, heading: row.heading(ctx), body: row.body(ctx), actions: row.actions(ctx) }
+}
+
+/** What Run types for a start-up command: the command and Enter, or null when it must not be run (nothing to run, or a
+ *  hidden character that would make what runs differ from what the bar shows). */
+export function startupInput(command: string): string | null {
+  return command && !hasHiddenChars(command) ? `${command}\r` : null
 }
 
 /** Panes that Reopen all brings back: shells whose session ended or was lost, on a machine that is still enrolled, that

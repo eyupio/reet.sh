@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 
-const source = ts.transpileModule(readFileSync(new URL('./paneState.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const transpile = name => ts.transpileModule(readFileSync(new URL(name, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText
+const terminalApi = `data:text/javascript;base64,${Buffer.from(transpile('../terminal/api.ts')).toString('base64')}`
+const source = transpile('./paneState.ts').replace("'../terminal/api'", `'${terminalApi}'`)
 const p = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 
 const pane = (over = {}) => ({ id: 'p1', name: 'reet', colour: '', host: 'm1', session: 's1', kind: 'shell', dir: '~/PROD_reet', dirAt: 0, start: '', ...over })
@@ -56,6 +58,7 @@ test('each card has its tag, heading and main action', () => {
     ['agentEnded', ctx({ dir: '~/app' }), 'Agent ended', 'Claude Code finished in this pane.', 'Start a plain shell in ~/app.', ['Start a shell here']],
     ['agentLost', ctx({ canContinue: true, dir: '~/app' }), 'Lost', 'studio restarted, so this shell was lost.', 'Continue the same conversation, or start a plain shell in ~/app.', ['Continue', 'Start a shell here']],
     ['agentLost', ctx({ dir: '~/app' }), 'Lost', 'studio restarted, so this shell was lost.', 'Start a plain shell in ~/app.', ['Start a shell here']],
+    ['projectsUnread', ctx({ dir: '~/app' }), 'Not continued', "reet couldn't read your projects just now, so this conversation was not continued.", '', ['Try again', 'Start a shell here']],
     ['empty', ctx(), 'Not started', 'studio · ~/PROD_reet', '', ['Start']],
   ]
   for (const [state, c, tag, heading, body, actions] of rows) {
@@ -69,6 +72,18 @@ test('each card has its tag, heading and main action', () => {
   // Every state but live has a card, and the rows above cover them all.
   assert.deepEqual(Object.keys(p.PANE_CARDS).sort(), [...new Set(rows.map(r => r[0]))].sort())
   assert.equal(p.paneCard('live', ctx()), null)
+})
+
+test('Run types a start-up command only when it has no hidden character', () => {
+  assert.equal(p.startupInput('npm run dev'), 'npm run dev\r')
+  assert.equal(p.startupInput('docker compose logs -f | grep "é"'), 'docker compose logs -f | grep "é"\r')
+  assert.equal(p.startupInput(''), null)
+  for (const bad of ['echo safe\nrm -rf ~', 'ls\r', 'ls \u202e-la', 'ls\u200b', 'ls \u2066x', 'ls\u2028', 'ls\u0007', 'ls\u0085', 'ls\u200e', 'ls\u061c']) assert.equal(p.startupInput(bad), null, JSON.stringify(bad))
+})
+
+test('a project read that failed holds Continue back, and Try again asks again', () => {
+  assert.equal(p.paneState(pane({ kind: 'agent' }), session({ state: 'exited', tool: 'claude' }), online, fine, 'projectsUnread'), 'projectsUnread')
+  assert.deepEqual(p.paneCard('projectsUnread', ctx()).actions.map(a => a.kind), ['again', 'reopen'])
 })
 
 test('the actions say what they do', () => {

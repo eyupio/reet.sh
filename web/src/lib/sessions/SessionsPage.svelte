@@ -90,13 +90,17 @@
   const offline = $derived(new Set((health ?? []).filter(m => m.state !== 'connected').map(m => m.agentId)))
   // Which desk each session is on, read once as the page opens (and again after Add to a desk): the desks list names the
   // sessions each desk holds, and only the desks holding one are read for the pane and its colour.
+  // Only the desks holding a session this page lists are read; a read that finishes after a newer one started is dropped.
   let places = $state<Map<string, DeskPlace>>(new Map())
+  let placesRead = 0
   async function loadPlaces() {
+    const mine = ++placesRead
+    const listed = new Set((sessions ?? []).map(s => s.id))
     try {
-      const holding = (await listDesks()).filter(d => !d.template && !((d as { schema?: number }).schema! > 1) && d.sessions.length > 0)
+      const holding = (await listDesks()).filter(d => !d.template && d.sessions.some(id => listed.has(id)))
       const read = await Promise.allSettled(holding.map(d => getDesk(d.id)))
-      if (life.signal.aborted) return
-      places = deskPlaces(read.flatMap(r => r.status === 'fulfilled' && r.value.schema <= 1 ? [r.value] : []))
+      if (life.signal.aborted || mine !== placesRead) return
+      places = deskPlaces(read.flatMap(r => r.status === 'fulfilled' ? [r.value] : []))
     } catch { /* the rows show no desk; nothing else depends on it */ }
   }
   const colourOf = (s: TerminalSession) => sessionColourOf(s, colors, places.get(s.id)?.colour, projects ?? [])
@@ -207,8 +211,8 @@
   const clearFilters = () => { filter = { state: '', agent: '', machine: '', yoloOnly: false, worktreeOnly: false, colour: '' } }
 
   onMount(() => {
-    void load()
-    void loadPlaces()
+    // The desks are read once the sessions are, so only those holding a listed session are read.
+    void load().then(() => { if (sessions?.length) void loadPlaces() })
     void getProfile().then(p => { removeDefault = p.profile.terminalRemoveOnClose ?? false; factorySessionEndDefault = factorySessionEndModeOf(p.profile.factorySessionEndMode) }).catch(() => { /* the safe default keeps history */ })
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void load() }, POLL_MS)
     const wake = () => { if (document.visibilityState === 'visible') void load() }

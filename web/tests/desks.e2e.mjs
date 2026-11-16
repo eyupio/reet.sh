@@ -47,6 +47,8 @@ let reopens, reopenFail, staleReopens, reopenDelay, reopenNow, reopenMost, confl
 // Session renames, the account's folder projects, creates answered with a refusal (in order), desks whose writes fail and
 // whether a desk read fails.
 let renames, folderProjects, createFail, patchFail, deskReadFail
+// Whether the folder projects read and a session rename fail, and how many times the projects were read.
+let projectsFail, renameFail, projectReads
 function reset({ empty = false } = {}) {
   sessions = [running('sess-deploy', 'deploy'), running('sess-logs', 'logs'), running('sess-db', 'db'),
     ...['a', 'b', 'c', 'd1', 'd2', 'd3', 'd4'].map(x => running(`sess-${x}`, x))]
@@ -66,6 +68,7 @@ function reset({ empty = false } = {}) {
   reopens = []; reopenFail = new Map(); staleReopens = 0; reopenDelay = 0; reopenNow = 0; reopenMost = 0; conflicted = new Set()
   posts = []; bracketed = new Set(); histories = new Map(); delete machines[0].capabilities.commandHistory; delete machines[0].capabilities.resume
   renames = []; folderProjects = []; createFail = []; patchFail = new Set(); deskReadFail = false
+  projectsFail = false; renameFail = false; projectReads = 0
   machines.splice(1)
   for (const k of ['launch', 'tools', 'agentsV2']) delete machines[0].capabilities[k]
 }
@@ -101,7 +104,11 @@ const api = async route => {
   else if (path === '/api/v2/machines/health') data = { serverNow: Date.now(), machines: [], history: [] }
   else if (path === '/api/v2/terminal/machines') data = { machines }
   else if (path === '/api/v2/terminal/status') data = { available: true, configured: true, reason: '' }
-  else if (path === '/api/v2/folder-projects') data = { projects: folderProjects, savedWaiting: 0 }
+  else if (path === '/api/v2/folder-projects') {
+    projectReads++
+    if (projectsFail) return route.fulfill({ status: 500, json: { error: "reet couldn't do that just now. Try again." } })
+    data = { projects: folderProjects, savedWaiting: 0 }
+  }
   else if (path.startsWith('/api/v2/folder-projects/') && method === 'GET') {
     const found = folderProjects.find(p => p.id === decodeURIComponent(path.split('/').at(-1)))
     if (!found) return route.fulfill({ status: 404, json: { error: 'not found', code: 'project_not_found' } })
@@ -111,6 +118,7 @@ const api = async route => {
   else if (/^\/api\/v2\/terminal\/sessions\/[^/]+$/.test(path) && method === 'PATCH') {
     const id = decodeURIComponent(path.split('/').at(-1)), body = request.postDataJSON()
     renames.push({ id, ...body })
+    if (renameFail) return route.fulfill({ status: 503, json: { error: 'terminal machine is reconnecting; retry after it reconnects' } })
     sessions = sessions.map(x => x.id === id ? { ...x, title: body.title } : x)
     data = sessions.find(x => x.id === id) ?? {}
   }
@@ -1833,6 +1841,63 @@ try {
     console.log('ok - a stored failure goes once the pane holds another session')
   }
 
+  // ── Continue does not drop the project when the projects cannot be read ──
+  {
+    resetStates()
+    machines[0].capabilities.resume = true
+    const app = { id: 'fp-app', host: agent, machine: 'studio', dir: '/home/dev/app', name: 'app', isRepo: false, baseBranch: '', worktreeDefault: 'inherit', defaultTool: '', defaultModel: '', hasStarterPrompt: false, note: '', position: 0, createdAt: 1, updatedAt: 1, version: 1 }
+    sessions = sessions.map(x => x.id === 'sess-agent' ? { ...x, projectId: 'fp-app' } : x)
+    projectsFail = true
+    await openStates()
+    await pane('pane-agent').getByRole('button', { name: 'Continue' }).click()
+    await expectCard('pane-agent', 'projectsUnread', 'Not continued', "reet couldn't read your projects just now, so this conversation was not continued.", 'Try again')
+    await quiet()
+    expect(creates).toEqual([])
+    // Try again reads the projects afresh and continues, with the project.
+    projectsFail = false
+    folderProjects = [app]
+    const readsBefore = projectReads
+    await pane('pane-agent').getByRole('button', { name: 'Try again' }).click()
+    await expect(pane('pane-agent')).toHaveAttribute('data-state', 'live')
+    expect(projectReads).toBe(readsBefore + 1)
+    expect(creates).toHaveLength(1)
+    expect(creates[0]).toMatchObject({ tool: 'claude', resume: true, dir: '/home/dev/app', projectId: 'fp-app' })
+    expect(reopens).toEqual([])
+    console.log('ok - Continue does not drop the project when the projects cannot be read')
+  }
+
+  // ── a limit refusal says which limit ──
+  {
+    resetStates()
+    machines[0].capabilities.resume = true
+    // The account is nearly full on another machine; studio has room. The server refuses at the account's limit.
+    sessions = [...sessions, ...Array.from({ length: 48 }, (_, i) => ({ ...running(`sess-elsewhere-${i}`, `other ${i}`), agentId: 'connector-other000000001' }))]
+    createFail = [{ status: 409, json: { error: 'terminal session limit reached' } }]
+    await openStates()
+    await pane('pane-agent').getByRole('button', { name: 'Continue' }).click()
+    await expectCard('pane-agent', 'limit', 'At the limit', 'You already have 64 sessions running.', 'Try again')
+    // The browser's own count was under both limits: the refusal came from the server.
+    expect(creates).toHaveLength(1)
+    console.log('ok - a limit refusal says which limit')
+  }
+
+  // ── a session rename that fails puts the pane's name back ──
+  {
+    reset()
+    await openDesk()
+    await quiet(); patches = []
+    renameFail = true
+    await pane('pane-deploy').getByRole('button', { name: 'Actions for reet' }).click()
+    await page.getByRole('menuitem', { name: 'Rename' }).click()
+    await page.getByRole('textbox', { name: 'Pane name' }).fill('web box')
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('alert').filter({ hasText: 'The pane was renamed' })).toContainText('The pane was renamed, but its session could not be. Try again.')
+    await expect(pane('pane-deploy').locator('.nm')).toHaveText('deploy')
+    await expect.poll(() => desks.get('desk-prod').doc.tabs[0].panes['pane-deploy'].name).toBe('deploy')
+    expect(renames).toEqual([{ id: 'sess-deploy', title: 'web box' }])
+    console.log('ok - a session rename that fails puts the pane’s name back')
+  }
+
   // ── renaming a pane renames the session; hidden characters never reach a name ──
   {
     reset()
@@ -1930,6 +1995,9 @@ try {
     await expect(dialog.getByRole('alert')).toContainText('It was taken off “prod deploy” but could not be added to “split desk”, so it is on neither desk.')
     expect(patched).toEqual(['desk-prod', 'desk-split'])
     expect(desks.get('desk-prod').doc.tabs.find(t => t.id === 'tab-deploy').panes['pane-deploy'].session).toBe('')
+    // The page reads the desks again, so the row no longer names the desk it was taken off; the dialog now offers Add.
+    await expect(row('deploy').getByRole('link', { name: /^On the desk/ })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Add', exact: true })).toBeVisible()
     await dialog.getByRole('button', { name: 'Cancel' }).click()
     console.log('ok - Add to a desk puts a running session in a new pane')
   }
@@ -1938,6 +2006,8 @@ try {
   {
     reset()
     sessions = [running('sess-free', 'free'), ...sessions]
+    // A desk whose only session is not listed here is not read.
+    desks.set('desk-ghost', deskOf('desk-ghost', 'ghost', [tabOf('tab-g', 'g', '', paneOf('pane-g', 'g', 'sess-ghost', '/home/dev'))], { position: 5 }))
     const reads = []
     const note = request => { const p = new URL(request.url()).pathname; if (p.startsWith('/api/v2/desks')) reads.push(p) }
     page.on('request', note)
@@ -1954,7 +2024,8 @@ try {
     await expect(row('b').locator('.colour-name')).toHaveText('Blue')
     await expect(row('a').locator('.colour-name')).toHaveText('Red')
     await page.waitForLoadState('networkidle')
-    // The list once, then each desk that holds a session once: no read per row, and none of the empty desk.
+    // The list once, then each desk that holds a listed session once: no read per row, none of the empty desk and none
+    // of the desk whose session is not listed.
     expect(reads.filter(p => p === '/api/v2/desks')).toHaveLength(1)
     expect(reads.filter(p => p !== '/api/v2/desks').sort()).toEqual(['/api/v2/desks/desk-prod', '/api/v2/desks/desk-split'])
     page.off('request', note)
@@ -2136,7 +2207,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, a block one pane would run line by line, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload), a start-up command with hidden characters, a template by address, Continue (project, one request id, the limit), pane_live in Reopen all, busy while the desk cannot be read, a machine that cannot open a terminal, a failure cleared, renames, Add to a desk, the desk chip in Sessions, Add a running session, Start an agent.')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, a block one pane would run line by line, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload), a start-up command with hidden characters, a template by address, Continue (project, one request id, the limit), pane_live in Reopen all, busy while the desk cannot be read, a machine that cannot open a terminal, a failure cleared, a project read that failed, which limit, a failed session rename, renames, Add to a desk, the desk chip in Sessions, Add a running session, Start an agent.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

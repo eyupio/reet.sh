@@ -9,11 +9,13 @@
   // Add to a desk…: a running session from its menu (Sessions and Home) into a new pane on one of the person's desks, in
   // a tab they choose or a new one. The desks are read when the dialog opens, never before. A session already on a desk
   // is offered as Move here: it is taken off its old pane, then added here.
-  let { session, onclose, ondone, onsignedout }: {
+  let { session, onclose, ondone, ondesks, onsignedout }: {
     session: TerminalSession
     onclose: () => void
     /** It was added (or moved): the sentence to show. */
     ondone: (text: string) => void
+    /** The desks changed although the add did not finish (a move whose second save failed): read them again. */
+    ondesks?: () => void
     onsignedout: (e: unknown) => void
   } = $props()
 
@@ -31,7 +33,7 @@
   onMount(() => {
     dialog?.showModal()
     void listDesks().then(list => {
-      desks = list.filter(d => !((d as { schema?: number }).schema! > 1))
+      desks = list
       const first = choices.find(d => d.id !== holder?.id) ?? choices[0]
       if (first) pick(first.id)
     }).catch(e => { if (!signedOut(e)) readFailed = true })
@@ -60,6 +62,11 @@
     } catch (e) {
       if (signedOut(e)) return
       error = e instanceof Error && e.message ? e.message : 'That session could not be added just now. Try again.'
+      // A move may have taken it off its old desk already: the page and this dialog read the desks again.
+      if (holder) {
+        ondesks?.()
+        try { desks = await listDesks() } catch { /* the sentence above already says where it is */ }
+      }
     } finally { busy = false }
   }
 </script>

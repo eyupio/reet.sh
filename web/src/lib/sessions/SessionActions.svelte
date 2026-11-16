@@ -195,7 +195,7 @@
   </ConfirmDialog>
 {/if}
 {#if adding}
-  <AddToDeskDialog session={adding} onclose={() => { adding = null; returnFocus?.focus() }} ondone={text => { onnotice({ text }); ondesks?.(); void onchanged() }} onsignedout={() => onsignedout(new UnauthorizedError())} />
+  <AddToDeskDialog session={adding} onclose={() => { adding = null; returnFocus?.focus() }} ondone={text => { onnotice({ text }); ondesks?.(); void onchanged() }} ondesks={() => ondesks?.()} onsignedout={() => onsignedout(new UnauthorizedError())} />
 {/if}
 {#if removing && member}
   <WorktreeDialog {member} host={removing.host} opener={returnFocus ?? null} onremoved={() => void onchanged()} onsignedout={onsignedout} onclose={() => (removing = null)} />

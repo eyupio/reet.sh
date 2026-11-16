@@ -239,7 +239,16 @@
   function renamePane(t: Tab, p: Pane, name: string) {
     change({ kind: 'renamePane', tab: t.id, pane: p.id, name })
     // Sessions and the desk agree on the name: a pane with a session renames it too; one with none keeps it on the desk.
-    if (p.session && sessionById.has(p.session) && validTerminalTitle(name)) renameTerminal(p.session, name).then(onrefresh, () => { /* the desk keeps its name; Sessions keeps the old one */ })
+    const s = p.session ? sessionById.get(p.session) : undefined
+    if (!s || !validTerminalTitle(name)) return
+    const mine = auto
+    renameTerminal(s.id, name).then(onrefresh, e => {
+      if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return }
+      notice = 'The pane was renamed, but its session could not be. Try again.'
+      // The two stay in step: the pane goes back to the session's name, unless it has been renamed again since.
+      const now = paneById(p.id)
+      if (auto === mine && now && now.pane.name === name && now.pane.session === s.id) change({ kind: 'renamePane', tab: now.tab.id, pane: p.id, name: s.title })
+    })
   }
 
   // New tab: a plain shell, then the tab that holds it.
@@ -267,7 +276,7 @@
   // session it starts is put in a new tab. An agent pane has no pane history, so no pane id is sent with it.
   let agentStart = $state<{ opener: HTMLElement; projects: FolderProject[]; projectId: string } | null>(null)
   async function openAgent(opener: HTMLElement) {
-    const projects = await folderProjects()
+    const projects = await folderProjects() ?? []
     if (!desk || template) return
     const host = startAgent, dir = startDir
     agentStart = { opener, projects, projectId: projects.find(p => p.host === host && !!dir && p.dir === dir)?.id ?? '' }
@@ -300,15 +309,13 @@
     onrefresh()
   }
 
-  // The account's folder projects, read when first needed (Continue, Start an agent): a failed read is no project.
-  let projectsRead: Promise<FolderProject[]> | null = null
-  function folderProjects(): Promise<FolderProject[]> {
-    projectsRead ??= listFolderProjects(AbortSignal.timeout(10_000)).catch(e => {
-      projectsRead = null
+  // The account's folder projects, read afresh each time they are needed (Continue, Start an agent); null when the read
+  // failed, so a caller that needs them can say so rather than carry on without.
+  async function folderProjects(): Promise<FolderProject[] | null> {
+    try { return await listFolderProjects(AbortSignal.timeout(10_000)) } catch (e) {
       if (e instanceof TerminalError && e.status === 401) onsignedout(e)
-      return []
-    })
-    return projectsRead
+      return null
+    }
   }
 
   // The split area. A phone shows one pane at a time and offers no splits, presets or zoom; the saved tree is untouched.
@@ -396,7 +403,7 @@
   // Every running session, a shell started here and not yet listed included (each counted once: `fresh` and the list
   // are merged by id).
   const runningOn = (host?: string) => [...sessionById.values()].filter(s => isRunning(s) && (!host || s.agentId === host)).length
-  const REASONS: Record<PaneFailure, string> = { folderGone: 'folder gone', folderUnavailable: 'folder unavailable', machineLimit: 'at the limit', accountLimit: 'at the limit', offline: 'machine offline', machineGone: 'machine removed' }
+  const REASONS: Record<PaneFailure, string> = { folderGone: 'folder gone', folderUnavailable: 'folder unavailable', machineLimit: 'at the limit', accountLimit: 'at the limit', offline: 'machine offline', machineGone: 'machine removed', projectsUnread: 'projects unread' }
   const CODES: Record<string, PaneFailure> = { folder_gone: 'folderGone', folder_unavailable: 'folderUnavailable', machine_gone: 'machineGone', machine_offline: 'offline' }
   function setFailure(pid: string, f: Omit<Failure, 'session'> | undefined) {
     const next = { ...failures }
@@ -416,6 +423,16 @@
     const next = { ...reopening }
     if (on) next[pid] = true; else delete next[pid]
     reopening = next
+  }
+  /** A refusal at a session limit. The server says the same words for the machine's limit and the account's, so the
+   *  sessions this page knows of say which: a full machine, else a full account, else whichever is nearer its limit
+   *  (sessions started in another window may not be listed here yet). */
+  const atLimit = (e: TerminalError) => e.status === 409 && e.message === 'terminal session limit reached'
+  function limitKind(host: string): PaneFailure {
+    const onMachine = runningOn(host), all = runningOn()
+    if (onMachine >= SESSIONS_PER_MACHINE) return 'machineLimit'
+    if (all >= SESSIONS_PER_ACCOUNT) return 'accountLimit'
+    return all / SESSIONS_PER_ACCOUNT > onMachine / SESSIONS_PER_MACHINE ? 'accountLimit' : 'machineLimit'
   }
   /** The limits, checked before anything is sent: the reason a new shell may not start, or undefined. */
   function limited(host: string): PaneFailure | undefined {
@@ -468,7 +485,7 @@
       if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return 'signed out' }
       // Another window reopened it first: take the desk as it is now; nothing was started here.
       if (e instanceof TerminalError && e.code === 'pane_live') { onrefresh(); await mine.refresh().catch(() => {}); return 'live' }
-      const kind = e instanceof TerminalError ? (CODES[e.code ?? ''] ?? (e.status === 409 && e.message === 'terminal session limit reached' ? 'machineLimit' : undefined)) : undefined
+      const kind = e instanceof TerminalError ? (CODES[e.code ?? ''] ?? (atLimit(e) ? limitKind(p.host) : undefined)) : undefined
       if (kind) { setFailure(pid, { kind, home }); return REASONS[kind] }
       const message = e instanceof StaleDesk ? 'This desk changed in another window. Try again.' : e instanceof Error && e.message ? e.message : 'A new shell could not be started just now. Try again.'
       setFailure(pid, { message, home })
@@ -495,8 +512,11 @@
     setBusy(pid, true)
     setFailure(pid, undefined)
     try {
-      // The account's folder projects go with it, so a continued session keeps its project.
-      const launch = continueLaunch(s, await folderProjects())
+      // The account's folder projects go with it, so a continued session keeps its project. A session in a project is not
+      // continued without them: it would lose its project, silently.
+      const projects = await folderProjects()
+      if (!projects && s.projectId) { setFailure(pid, { kind: 'projectsUnread', resume: true }); return }
+      const launch = continueLaunch(s, projects ?? [])
       if (!launch) return
       let op = continueIds.get(pid)
       if (!op || op.from !== s.id) { op = { from: s.id, id: crypto.randomUUID() }; continueIds.set(pid, op) }
@@ -513,7 +533,7 @@
     } catch (e) {
       if (e instanceof TerminalError && e.status === 401) { onsignedout(e); return }
       // A session limit is the limit card, whose Try again continues again.
-      if (e instanceof TerminalError && e.status === 409 && e.message === 'terminal session limit reached') { setFailure(pid, { kind: 'machineLimit', resume: true }); return }
+      if (e instanceof TerminalError && atLimit(e)) { setFailure(pid, { kind: limitKind(found.pane.host), resume: true }); return }
       setFailure(pid, { message: e instanceof Error && e.message ? e.message : 'The session could not be continued. Try again.', resume: true })
     } finally { setBusy(pid, false) }
   }

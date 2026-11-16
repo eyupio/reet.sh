@@ -8,7 +8,8 @@ const transpile = (name, rewrite = s => s) => ts.transpileModule(rewrite(readFil
 const terminalStub = url(transpile('../terminal/api.ts'))
 const apiUrl = url(transpile('./api.ts', s => s.replace("'../terminal/api'", `'${terminalStub}'`)))
 const { StaleDesk } = await import(apiUrl)
-const { apply, createAutosave } = await import(url(transpile('./autosave.ts', s => s
+const { TerminalError } = await import(terminalStub)
+const { apply, createAutosave, TOO_LARGE, MAX_DOC_BYTES } = await import(url(transpile('./autosave.ts', s => s
   .replace("'../projectColour'", `'${url(transpile('../projectColour.ts'))}'`)
   .replace("'../terminal/api'", `'${terminalStub}'`)
   .replace("'./api'", `'${apiUrl}'`)
@@ -72,8 +73,8 @@ test('apply is pure and returns null when a change no longer applies', () => {
   assert.equal(r.doc.tabs[0].name, 'Build')
   assert.equal(JSON.stringify(d), before)
   assert.equal(apply(d, { kind: 'renameTab', tab: 'gone', name: 'x' }), null)
-  assert.equal(apply(d, { kind: 'renameDesk', name: 'x'.repeat(81) }), null)
-  assert.equal(apply(d, { kind: 'colourDesk', colour: 'pink' }), null)
+  assert.equal(apply(d, { kind: 'renameTab', tab: 't1', name: 'x'.repeat(81) }), null)
+  assert.equal(apply(d, { kind: 'colourTab', tab: 't1', colour: 'pink' }), null)
   assert.equal(apply(d, { kind: 'ratio', tab: 't1', path: 'ab', ratio: 0.3 }), null)
   assert.equal(apply(d, { kind: 'closePane', tab: 't1', pane: 'zzz' }), null)
   assert.equal(apply(d, { kind: 'addPane', tab: 't1', at: 'a', dir: 'down', pane: pane('c') }).doc.tabs[0].panes.c.id, 'c')
@@ -220,11 +221,11 @@ test('drops a ratio change for a split that is gone and reports stale', async ()
   })
   await h.a.ready
   h.a.change({ kind: 'ratio', tab: 't1', path: '', ratio: 0.3 })
-  h.a.change({ kind: 'renameDesk', name: 'Kept' })
+  h.a.change({ kind: 'renameTab', tab: 't1', name: 'Kept' })
   await h.timers.tick(400)
   assert.equal(h.states.filter(s => s === 'stale').length, 1)
   assert.equal(h.saves.length, 1)
-  assert.equal(h.saves[0].desk.name, 'Kept')
+  assert.equal(h.saves[0].desk.doc.tabs[0].name, 'Kept')
   assert.equal(h.saves[0].desk.doc.tabs[0].root.pane, 'a')
   assert.equal(h.states.at(-1), 'stale')
 })
@@ -240,7 +241,7 @@ test('retries a failed save and keeps the change', async () => {
     return { ...desk, version: expect + 1 }
   })
   await h.a.ready
-  h.a.change({ kind: 'renameDesk', name: 'Keep me' })
+  h.a.change({ kind: 'renameTab', tab: 't1', name: 'Keep me' })
   await h.timers.tick(400)
   assert.equal(calls, 1)
   assert.equal(h.states.at(-1), 'unsaved')
@@ -250,7 +251,7 @@ test('retries a failed save and keeps the change', async () => {
   await h.timers.tick(1); assert.equal(calls, 3)
   await h.timers.tick(3999); assert.equal(calls, 3)
   await h.timers.tick(1); assert.equal(calls, 4)
-  assert.equal(h.saves[0].desk.name, 'Keep me')
+  assert.equal(h.saves[0].desk.doc.tabs[0].name, 'Keep me')
   assert.equal(h.states.at(-1), 'saved')
 })
 
@@ -258,7 +259,7 @@ test('retry delay stops growing at 15 seconds', async () => {
   let calls = 0
   const h = harness(deskOf(1), async () => { calls++; throw new Error('offline') })
   await h.a.ready
-  h.a.change({ kind: 'renameDesk', name: 'x' })
+  h.a.change({ kind: 'renameTab', tab: 't1', name: 'x' })
   await h.timers.tick(400)
   for (const wait of [1000, 2000, 4000, 8000, 15000, 15000]) {
     const at = calls
@@ -288,7 +289,7 @@ test('flush saves at once and passes keepalive through', async () => {
   const seen = []
   const h = harness(deskOf(1), async (desk, expect, keepalive) => { seen.push(keepalive); return { ...desk, version: expect + 1 } })
   await h.a.ready
-  h.a.change({ kind: 'renameDesk', name: 'Now' })
+  h.a.change({ kind: 'renameTab', tab: 't1', name: 'Now' })
   await h.a.flush(true)
   assert.deepEqual(seen, [true])
   assert.equal(h.timers.count(), 0)
@@ -306,7 +307,7 @@ test('a message from another window refreshes, and our own saves are announced',
   chan.onmessage({ data: { id: 'd1', version: 2 } })
   await settle()
   assert.equal(a.desk().name, 'Elsewhere')
-  a.change({ kind: 'renameDesk', name: 'Mine' })
+  a.change({ kind: 'renameTab', tab: 't1', name: 'Mine' })
   await timers.tick(400)
   assert.deepEqual(sent, [{ id: 'd1', version: 3 }])
   a.stop()
@@ -403,4 +404,155 @@ test('a change made during a save whose response is lost is kept and nothing is 
   assert.equal(applied.doc.tabs[0].name, 'Build')
   assert.equal(h.states.at(-1), 'saved')
   assert.equal(h.states.includes('stale'), false)
+})
+
+test('movePaneToTab moves a pane in one step, and takes the tab it leaves when it was the last', () => {
+  const d = deskOf(1, [tabOf('t1', 'a', 'b'), tabOf('t2', 'c'), tabOf('t3', 'e')])
+  d.doc.tabs[1].active = 'c'
+  const moved = apply(d, { kind: 'movePaneToTab', from: 't1', to: 't2', pane: 'b' })
+  assert.deepEqual(Object.keys(moved.doc.tabs[0].panes), ['a'])
+  assert.deepEqual(moved.doc.tabs[0].root, { pane: 'a' })
+  assert.deepEqual(moved.doc.tabs[1].root, { split: 'right', ratio: 0.5, a: { pane: 'c' }, b: { pane: 'b' } })
+  assert.equal(moved.doc.tabs[1].active, 'b')
+  assert.equal(moved.doc.active, 't2')
+  // The last pane of a tab takes the tab with it.
+  const last = apply(d, { kind: 'movePaneToTab', from: 't3', to: 't2', pane: 'e' })
+  assert.deepEqual(last.doc.tabs.map(t => t.id), ['t1', 't2'])
+  assert.ok(last.doc.tabs[1].panes.e)
+  // Nothing moves when either end is gone or full: the pane never leaves one tab without reaching the other.
+  assert.equal(apply(d, { kind: 'movePaneToTab', from: 't1', to: 'gone', pane: 'b' }), null)
+  assert.equal(apply(d, { kind: 'movePaneToTab', from: 't1', to: 't2', pane: 'zz' }), null)
+  assert.equal(apply(d, { kind: 'movePaneToTab', from: 't1', to: 't1', pane: 'b' }), null)
+  const full = deskOf(1, [tabOf('t1', 'a', 'b'), tabOf('t9', ...'cdefghijk'.split(''))])
+  assert.equal(apply(full, { kind: 'movePaneToTab', from: 't1', to: 't9', pane: 'b' }), null)
+})
+
+test('a move whose target tab went in another window is dropped whole at the merge', async () => {
+  const newer = deskOf(5, [tabOf('t1', 'a', 'b')])
+  let calls = 0
+  const h = harness(deskOf(4, [tabOf('t1', 'a', 'b'), tabOf('t2', 'c')]), async (desk, expect) => {
+    calls++
+    if (calls === 1) throw new StaleDesk(newer)
+    h.saves.push({ desk, expect })
+    return { ...desk, version: expect + 1 }
+  })
+  await h.a.ready
+  h.a.change({ kind: 'movePaneToTab', from: 't1', to: 't2', pane: 'b' })
+  await h.timers.tick(400)
+  // The move no longer applies, so b stays where it was rather than leaving the desk.
+  assert.deepEqual(Object.keys(h.a.desk().doc.tabs[0].panes).sort(), ['a', 'b'])
+  assert.equal(h.states.at(-1), 'stale')
+})
+
+test('a save the server refuses for good is not retried: the queue is dropped and the desk read again', async () => {
+  let calls = 0, loads = 0
+  const refusals = []
+  const timers = clock()
+  const states = []
+  let server = deskOf(1)
+  const a = createAutosave({
+    load: async () => { loads++; return server },
+    save: async () => { calls++; throw new TerminalError(409, 'A session can be in only one pane.', 'desk_session_taken') },
+    onState: s => states.push(s), onRefused: m => refusals.push(m), timers, channel: null, delay: 400,
+  })
+  await a.ready
+  a.change({ kind: 'renameTab', tab: 't1', name: 'Mine' })
+  a.change({ kind: 'setSession', tab: 't1', pane: 'a', session: 'taken' })
+  await timers.tick(400)
+  assert.equal(calls, 1)
+  assert.deepEqual(refusals, ["reet couldn't save your last change: A session can be in only one pane. Showing the desk as it is saved."])
+  assert.equal(states.at(-1), 'refused')
+  assert.equal(a.desk().doc.tabs[0].name, 't1', 'the desk is shown as it is saved')
+  assert.equal(a.desk().doc.tabs[0].panes.a.session, '')
+  await settle()
+  assert.equal(loads, 2, 'the desk was read again')
+  await timers.tick(60000)
+  assert.equal(calls, 1, 'nothing is retried')
+  assert.equal(timers.count(), 0)
+  // The next change is saved as usual and the state moves on.
+  let saved = 0
+  server = deskOf(1)
+  const b = createAutosave({
+    load: async () => server,
+    save: async (desk, expect) => { saved++; if (saved === 1) throw new TerminalError(400, "That desk can't be saved: bad tree.", 'desk_invalid'); return { ...desk, version: expect + 1 } },
+    onState: s => states.push(s), timers, channel: null, delay: 400,
+  })
+  await b.ready
+  b.change({ kind: 'renameTab', tab: 't1', name: 'One' })
+  await b.flush()
+  assert.equal(states.at(-1), 'refused')
+  b.change({ kind: 'renameTab', tab: 't1', name: 'Two' })
+  await b.flush()
+  assert.equal(saved, 2)
+  assert.equal(b.desk().doc.tabs[0].name, 'Two')
+  assert.equal(states.at(-1), 'saved')
+})
+
+test('a sign-in, a timeout, a rate limit and a server error are retried, not refused', async () => {
+  for (const status of [401, 408, 429, 500, 503]) {
+    let calls = 0
+    const refusals = []
+    const h = harness(deskOf(1), async (desk, expect) => { calls++; if (calls === 1) throw new TerminalError(status, 'later'); return { ...desk, version: expect + 1 } })
+    await h.a.ready
+    h.a.change({ kind: 'renameTab', tab: 't1', name: 'Kept' })
+    await h.timers.tick(400)
+    assert.equal(h.states.at(-1), 'unsaved', String(status))
+    await h.timers.tick(1000)
+    assert.equal(calls, 2, String(status))
+    assert.equal(h.a.desk().doc.tabs[0].name, 'Kept')
+    assert.deepEqual(refusals, [])
+  }
+})
+
+test('a change that would take the document over 64 KiB is refused before it is made', async () => {
+  const refusals = []
+  const timers = clock()
+  const saves = []
+  // Twenty tabs of nine panes; each start-up command of 2000 characters takes the document nearer the limit.
+  const tabs = Array.from({ length: 20 }, (_, i) => tabOf('t' + i, ...Array.from({ length: 9 }, (_, j) => `p${i}x${j}`)))
+  const first = deskOf(1, tabs)
+  const size = d => new TextEncoder().encode(JSON.stringify(d.doc)).length
+  assert.ok(size(first) < MAX_DOC_BYTES / 2, String(size(first)))
+  const a = createAutosave({ load: async () => first, save: async (d, e) => { saves.push(d); return { ...d, version: e + 1 } }, onState() {}, onRefused: m => refusals.push(m), timers, channel: null })
+  await a.ready
+  let refusedAt = -1
+  for (let i = 0; i < 180 && refusedAt < 0; i++) {
+    a.change({ kind: 'start', tab: 't' + Math.floor(i / 9), pane: `p${Math.floor(i / 9)}x${i % 9}`, start: 'y'.repeat(2000) })
+    if (refusals.length) refusedAt = i
+  }
+  assert.ok(refusedAt > 0)
+  assert.deepEqual(refusals, [TOO_LARGE])
+  assert.equal(TOO_LARGE, 'This desk is as large as it can be. Remove a tab or shorten a start-up command.')
+  assert.ok(size(a.desk()) <= MAX_DOC_BYTES)
+  assert.ok(size(a.desk()) > MAX_DOC_BYTES - 2100, 'every change that fitted was made')
+  const refusedPane = a.desk().doc.tabs[Math.floor(refusedAt / 9)].panes[`p${Math.floor(refusedAt / 9)}x${refusedAt % 9}`]
+  assert.equal(refusedPane.start, '', 'the refused change was not made')
+  // A change that makes it smaller is still made.
+  a.change({ kind: 'closeTab', tab: 't19' })
+  assert.equal(a.desk().doc.tabs.length, 19)
+  await a.flush()
+  assert.ok(size(saves.at(-1)) <= MAX_DOC_BYTES)
+})
+
+test('a retired autosave keeps retrying until its queue is saved, then stops', async () => {
+  let calls = 0
+  const h = harness(deskOf(1), async (desk, expect) => { calls++; if (calls <= 2) throw new Error('offline'); h.saves.push({ desk, expect }); return { ...desk, version: expect + 1 } })
+  await h.a.ready
+  h.a.change({ kind: 'renameTab', tab: 't1', name: 'Kept' })
+  h.a.retire()
+  await settle()
+  assert.equal(calls, 1, 'sent at once')
+  await h.timers.tick(1000)
+  assert.equal(calls, 2)
+  await h.timers.tick(2000)
+  assert.equal(calls, 3)
+  assert.equal(h.saves[0].desk.doc.tabs[0].name, 'Kept')
+  assert.equal(h.timers.count(), 0, 'stopped once saved')
+  // A retired autosave with nothing queued stops at once, and takes no more changes.
+  const idle = harness(deskOf(1))
+  await idle.a.ready
+  idle.a.retire()
+  idle.a.change({ kind: 'renameTab', tab: 't1', name: 'Late' })
+  await idle.timers.tick(10000)
+  assert.equal(idle.saves.length, 0)
 })

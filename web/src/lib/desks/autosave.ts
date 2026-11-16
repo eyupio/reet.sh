@@ -1,10 +1,11 @@
 // Desk autosave. Edits arrive as Changes; each is applied to the local desk at once, queued, and saved after a short
 // pause, one save at a time. When a save loses to a newer server copy the queued changes are replayed onto it, and any
-// that no longer apply are dropped.
+// that no longer apply are dropped. A save the server refuses for good is not retried: the queued changes are dropped
+// and the desk is shown as it is saved. A change that would make the document too large is refused before it is made.
 import { projectColour, type ProjectColour } from '../projectColour'
-import { hasHiddenChars } from '../terminal/api'
+import { hasHiddenChars, TerminalError } from '../terminal/api'
 import { StaleDesk, type Desk } from './api'
-import { MAX_PANES, MAX_TABS, closePane, movePane, preset, setRatio, splitPane, swapPanes, type Pane, type Split, type Tab } from './tree'
+import { MAX_PANES, MAX_TABS, closePane, leaves, movePane, preset, setRatio, splitPane, swapPanes, type Pane, type Split, type Tab } from './tree'
 
 export type Change =
   | { kind: 'renameTab'; tab: string; name: string }
@@ -16,6 +17,9 @@ export type Change =
   | { kind: 'addPane'; tab: string; at: string; dir: Split; pane: Pane }
   | { kind: 'closePane'; tab: string; pane: string }
   | { kind: 'closeTab'; tab: string }
+  /** A pane moved to another tab, beside that tab's active pane, in one step: it never leaves one tab without reaching
+   *  the other. The tab it leaves goes with it when it was that tab's last pane. */
+  | { kind: 'movePaneToTab'; from: string; to: string; pane: string }
   | { kind: 'reorderTabs'; ids: string[] }
   | { kind: 'preset'; tab: string; name: 'side' | 'stack' | 'grid' | 'main' | 'even' }
   | { kind: 'swap'; tab: string; a: string; b: string }
@@ -25,10 +29,17 @@ export type Change =
   | { kind: 'start'; tab: string; pane: string; start: string }
   | { kind: 'setSession'; tab: string; pane: string; session: string }
   | { kind: 'setPlace'; tab: string; pane: string; host: string; dir: string }
-  | { kind: 'renameDesk'; name: string }
-  | { kind: 'colourDesk'; colour: ProjectColour }
 
-export type SaveState = 'saved' | 'saving' | 'unsaved' | 'stale'
+/** `refused`: the server refused the last save for good (a 4xx that is not a sign-in or a stale version); the queued
+ *  changes were dropped and the desk is shown as it is saved. */
+export type SaveState = 'saved' | 'saving' | 'unsaved' | 'stale' | 'refused'
+
+/** The size the controller allows a desk's document, as the JSON it is sent as. */
+export const MAX_DOC_BYTES = 64 << 10
+export const TOO_LARGE = 'This desk is as large as it can be. Remove a tab or shorten a start-up command.'
+const docBytes = (desk: Desk) => new TextEncoder().encode(JSON.stringify(desk.doc)).length
+/** What the person is told when the server refuses a save for good, with the server's own sentence. */
+export const refusedSentence = (why: string) => `reet couldn't save your last change: ${why.trim().replace(/[.\s]+$/, '')}. Showing the desk as it is saved.`
 
 const MAX_NAME = 80
 const MAX_START = 2000
@@ -81,10 +92,6 @@ function applyChange(desk: Desk, c: Change): Desk | null {
   const editPane = (t: Tab, p: Pane, patch: Partial<Pane>): Tab => ({ ...t, panes: { ...t.panes, [p.id]: { ...p, ...patch } } })
 
   switch (c.kind) {
-    case 'renameDesk':
-      return nameOk(c.name) ? { ...desk, name: c.name } : null
-    case 'colourDesk':
-      return colourOk(c.colour) ? { ...desk, colour: c.colour } : null
     case 'renameTab':
       return renameOk(c.name) ? withTab(c.tab, t => ({ ...t, name: c.name })) : null
     case 'colourTab':
@@ -135,6 +142,18 @@ function applyChange(desk: Desk, c: Change): Desk | null {
     }
     case 'closePane':
       return withTab(c.tab, t => closePane(t, c.pane))
+    case 'movePaneToTab': {
+      const from = doc.tabs[index(c.from)], to = doc.tabs[index(c.to)]
+      const p = from?.panes[c.pane]
+      if (!from || !to || !p || from.id === to.id || Object.keys(to.panes).length >= MAX_PANES) return null
+      const at = to.panes[to.active] ? to.active : leaves(to.root)[0]
+      if (!at) return null
+      const moved = { ...splitPane(to, at, 'right', p), active: c.pane }
+      // The last pane of a tab takes the tab with it.
+      const last = leaves(from.root).length <= 1
+      const tabs = doc.tabs.flatMap(t => t.id === to.id ? [moved] : t.id === from.id ? (last ? [] : [closePane(t, c.pane)]) : [t])
+      return withDoc(tabs, to.id)
+    }
     case 'preset':
       return withTab(c.tab, t => preset(t, c.name))
     case 'swap':
@@ -162,6 +181,9 @@ export type AutosaveOptions = {
   load(): Promise<Desk>
   save(desk: Desk, expect: number, keepalive?: boolean): Promise<Desk>
   onState(s: SaveState): void
+  /** A change or a save refused for good, with the sentence to show: a change that would make the desk too large (the
+   *  change is not made), or the server's refusal of a save (the queued changes are dropped and the desk read again). */
+  onRefused?(message: string): void
   /** Called whenever the local desk changes because of something other than the caller's own change (a refresh, a
    *  merge onto a newer copy, a saved result). */
   onDesk?(desk: Desk): void
@@ -177,8 +199,17 @@ export type Autosave = {
   flush(keepalive?: boolean): Promise<void>
   refresh(): Promise<void>
   stop(): void
+  /** Stops once whatever is queued has been saved (or refused), retrying meanwhile as usual; nothing is read again and
+   *  no other window's change is followed from here on. For a desk that is no longer shown. */
+  retire(): void
   /** Settles when the first load has. */
   ready: Promise<void>
+}
+
+/** A refusal a retry cannot change: any 4xx but a sign-in (401), a timeout (408) or a rate limit (429). A stale
+ *  version is not one; it is merged. */
+function refusedForGood(e: unknown): boolean {
+  return e instanceof TerminalError && e.status >= 400 && e.status < 500 && ![401, 408, 429].includes(e.status)
 }
 
 const RETRY_FIRST = 1000
@@ -202,11 +233,14 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
   let timerIsRetry = false
   let failures = 0
   let staleNote = false
+  let refusedNote = false
   let stopped = false
+  let retiring = false
   let last: SaveState | '' = ''
 
   const emit = (s: SaveState) => {
-    if (s === 'saved' && staleNote) s = 'stale'
+    if (s === 'saved' && refusedNote) s = 'refused'
+    else if (s === 'saved' && staleNote) s = 'stale'
     if (s === last) return
     last = s
     opts.onState(s)
@@ -275,6 +309,21 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
           emit('saved')
           return
         }
+        if (refusedForGood(e)) {
+          // A save the server refuses for good is never retried: the queued changes are dropped (they were made on top
+          // of the refused one) and the desk is shown as it is saved, then read again in case it moved on.
+          attempts = []
+          failures = 0
+          queue = []
+          sent = 0
+          local = server
+          opts.onDesk?.(local!)
+          refusedNote = true
+          emit('refused')
+          opts.onRefused?.(refusedSentence((e as Error).message))
+          if (!retiring) void Promise.resolve().then(() => refresh()).catch(() => { /* the desk as last saved stays shown */ })
+          return
+        }
         if (attempts.at(-1)?.desk !== sentDesk) attempts.push({ desk: sentDesk!, sent })
         if (attempts.length > 8) attempts = attempts.slice(-8)
         sent = 0
@@ -283,9 +332,18 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
         if (!stopped) arm(Math.min(RETRY_MAX, RETRY_FIRST * 2 ** (failures - 1)), true)
       }
     })()
-    running = p.finally(() => { if (running === wrapped) running = null })
+    running = p.finally(() => {
+      if (running === wrapped) running = null
+      if (retiring && !queue.length) stop()
+    })
     const wrapped = running
     return wrapped
+  }
+
+  const stop = () => {
+    stopped = true
+    clearTimer()
+    if (channel) { channel.onmessage = null; try { channel.close() } catch { /* already closed */ } }
   }
 
   const refresh = async (): Promise<void> => {
@@ -320,9 +378,12 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
       if (!local) throw new Error('desk not loaded')
       const next = apply(local, c)
       if (!next) return
+      // The controller refuses a document over its size: such a change is refused here, before it is made.
+      if (docBytes(next) > MAX_DOC_BYTES) { opts.onRefused?.(TOO_LARGE); return }
       local = next
       queue.push(c)
       staleNote = false
+      refusedNote = false
       emit('unsaved')
       if (!running && !(timerIsRetry && timer !== null)) arm(delay, false)
     },
@@ -337,10 +398,14 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
       }
     },
     refresh,
-    stop() {
-      stopped = true
-      clearTimer()
-      if (channel) { channel.onmessage = null; try { channel.close() } catch { /* already closed */ } }
+    stop,
+    retire() {
+      if (stopped || retiring) return
+      retiring = true
+      // Its own saves are still announced to other windows; it no longer listens to theirs.
+      if (channel) channel.onmessage = null
+      if (!queue.length && !running) { stop(); return }
+      if (!running && !(timerIsRetry && timer !== null)) void run()
     },
   }
 }

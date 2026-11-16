@@ -22,6 +22,12 @@ this file existed releases were described on their GitHub release pages.
   worked and the skill stayed **missing**, with a second unlinked skill beside
   it. The machine and the controller both read that folder as the skill you
   selected when it came from the same source.
+- Skills sync: a copy another app holds, an entry that is not a skill, or
+  your own unlinked copy is now seen when it sits under the folder the
+  `skills` CLI installs into and not only under the catalogue's name. Such
+  a copy is left alone and reported, or backed up before it is replaced,
+  as one under the catalogue's name already was. It would have been
+  overwritten.
 - Skills: the **Copy prompt** text (`npx skills use …`) names a skill by its
   own name when that is not its folder name, as the copied install command
   does. The folder name found nothing for such a skill.

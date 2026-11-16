@@ -59,8 +59,14 @@ f70eef5 had made stale plans repair themselves. The plan never changed. Read thi
   version bump is one change in each file. `ref.parseInstallCommand` accepts `skills@<version>` pasted in.
   The pinned command for a hosted skill was not run against a live reet; it is the version sync already uses
   for hosted sources.
-- **Not done.** A copy of the same name another app holds under the installed folder, from a different
-  source, is not seen by the shared-folder conflict check, which compares slugs.
+- **Checks that protect what is on the machine.** They compared slugs only. In `collect`
+  (`internal/scan/sync.go`) the cross-app check, the unrecognised-entry check and the copy left out of an
+  exact-set plan now also look at `installedFolder(skill)`, where the CLI will really write. In the scope being
+  synced, `knownByInstalledFolder` reports that folder under the slug whatever its source, so `planSync` gives
+  the usual answers: another source is a source conflict, no source is a replacement, and the backup moves the
+  folder that is really there.
+- **Not done.** The controller's Auto fix (`resolveSyncSourceFixesFor`) still matches an installed copy by
+  slug, so a conflict under the installed folder is reported on the skill and left for a person.
 - **MCP.** `mcpPage` gives up a record's largest list for a count when one record is over the response limit;
   `reet_list_sync_targets` failed for five of the owner's seven targets.
 - **Seen, not changed.** 24 `reet-server` environments, one per controller container name; pruning is the

@@ -777,7 +777,10 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 			for _, found := range inventory.Found {
 				sameScope := found.Project == target.Target.Project && found.Agent != target.Target.Agent &&
 					found.Host == *host
-				sameName := found.Name == desired.Slug
+				// The skills CLI writes into a folder made from the skill's name,
+				// which is not always the slug; either is the name it would take.
+				folder := installedFolder(desired)
+				sameName := found.Name == desired.Slug || (folder != "" && found.Name == folder)
 				differentSource := canonicalSource(found.Source) != canonicalSource(desired.Source)
 				conflict := sameScope && sameName
 				if conflict && differentSource {
@@ -785,6 +788,10 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 					// replacing this scope's copy. Known, different sources still do.
 					if found.Source == "" {
 						continue
+					}
+					if folder != "" {
+						// The copy this scope holds under that folder is left alone too.
+						blocked[folder] = true
 					}
 					if target.Canonical {
 						blocked[desired.Slug] = true
@@ -1009,7 +1016,13 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		}
 		for _, action := range actions {
 			if action.Add {
-				for _, candidate := range []string{filepath.Join(targetPath, action.Skill.Slug), filepath.Join(canonicalBase, ".agents", "skills", action.Skill.Slug)} {
+				candidates := []string{filepath.Join(targetPath, action.Skill.Slug), filepath.Join(canonicalBase, ".agents", "skills", action.Skill.Slug)}
+				if folder := installedFolder(action.Skill); folder != "" {
+					// Where the skills CLI will really write when the skill's name
+					// makes a different folder than its slug.
+					candidates = append(candidates, filepath.Join(targetPath, folder), filepath.Join(canonicalBase, ".agents", "skills", folder))
+				}
+				for _, candidate := range candidates {
 					if _, err := os.Lstat(candidate); err == nil {
 						if skill, err := os.Stat(filepath.Join(candidate, "SKILL.md")); (err != nil || skill.IsDir()) && !(action.Replace && forceReplace[action.Skill.Slug]) {
 							return nil, fmt.Errorf("unrecognised existing entry %s; inspect or move it aside before installing", candidate)
@@ -1128,7 +1141,15 @@ func runSyncWithOptions(args []string, in io.Reader, out io.Writer, execute func
 		var operationErr error
 		if action.Add {
 			if action.Replace {
-				operationErr = backupSkillEntry(targetPath, action.Skill.Slug, out, options.onBackup)
+				// The copy being replaced sits under the slug, or under the
+				// folder the skills CLI made from the skill's name.
+				entry := action.Skill.Slug
+				if folder := installedFolder(action.Skill); folder != "" {
+					if _, err := os.Lstat(filepath.Join(targetPath, entry)); os.IsNotExist(err) {
+						entry = folder
+					}
+				}
+				operationErr = backupSkillEntry(targetPath, entry, out, options.onBackup)
 			}
 			if operationErr == nil && action.Skill.SourceType == "private" {
 				operationErr = installPrivateSkill(*server, *token, action.Skill, targetPath, func(files []skillbundle.ContentFile) error {
@@ -1225,9 +1246,11 @@ func installedFolder(skill store.SyncSkill) string {
 	return ""
 }
 
-// knownByInstalledFolder reports an installed folder under the desired skill's
-// slug when the CLI made it from that skill's name and it came from the same
-// source. A folder already present under the slug is left as it is.
+// knownByInstalledFolder reports a folder the CLI makes from a desired skill's
+// name under that skill's slug, so the plan treats it as that skill: nothing
+// to do when it came from the same source, a conflict when it came from
+// another, and a replacement with a backup when it has no source at all.
+// A folder already present under the slug is left as it is.
 func knownByInstalledFolder(desired []store.SyncSkill, actual []Found) []Found {
 	present := map[string]bool{}
 	for _, found := range actual {
@@ -1240,7 +1263,7 @@ func knownByInstalledFolder(desired []store.SyncSkill, actual []Found) []Found {
 			continue
 		}
 		for i := range out {
-			if out[i].Name == folder && out[i].Source != "" && canonicalSource(out[i].Source) == canonicalSource(want.Source) {
+			if out[i].Name == folder {
 				out[i].Name = want.Slug
 				present[want.Slug] = true
 				break

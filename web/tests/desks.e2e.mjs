@@ -64,12 +64,14 @@ function reset({ empty = false } = {}) {
   patches = []; patched = []; ends = []; creates = []; staleNext = null; hidden = false
   sockets = new Map(); failing = new Set(); ticketDelay = 0; attachingNow = 0; attachingMost = 0
   reopens = []; reopenFail = new Map(); staleReopens = 0; reopenDelay = 0; reopenNow = 0; reopenMost = 0; conflicted = new Set()
-  posts = []; histories = new Map(); delete machines[0].capabilities.commandHistory; delete machines[0].capabilities.resume
+  posts = []; bracketed = new Set(); histories = new Map(); delete machines[0].capabilities.commandHistory; delete machines[0].capabilities.resume
   renames = []; folderProjects = []; createFail = []; patchFail = new Set(); deskReadFail = false
   machines.splice(1)
   for (const k of ['launch', 'tools', 'agentsV2']) delete machines[0].capabilities[k]
 }
 let posts = []
+// The sessions whose shell turns bracketed paste on.
+let bracketed = new Set()
 /** As the controller copies a desk (`from`): the same tabs and panes under fresh ids, and no sessions. */
 let copies = 0
 function copyDoc(doc) {
@@ -212,6 +214,8 @@ const socketStub = socket => {
       // A session whose machine cannot be reached: the socket closes before it is ready.
       if (failing.has(id)) { socket.close({ code: 1011, reason: 'machine unreachable' }); return }
       socket.send('{"type":"ready"}'); socket.send(Buffer.from('\x1b[2J\x1b[Hdev@studio:~/PROD_reet$ '))
+      // A shell that turned bracketed paste on takes a pasted block as one.
+      if (bracketed.has(id)) socket.send(Buffer.from('\x1b[?2004h'))
     } else if (data.type === 'resize') record?.resizes.push([data.cols, data.rows])
   })
 }
@@ -1499,6 +1503,24 @@ try {
   for (const x of ['a', 'b', 'c']) await expect.poll(() => sent(`sess-${x}`)).toBe('echo pasted')
   console.log('ok - paste reaches all panes')
 
+  // ── a multi-line paste is not broadcast when one pane lacks bracketed paste ──
+  reset()
+  bracketed.add('sess-a'); bracketed.add('sess-b')
+  await openThree()
+  await typeInAll()
+  await pane('pane-a').locator('textarea').evaluate(el => {
+    const data = new DataTransfer(); data.setData('text/plain', 'one\ntwo\nthree')
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  // alpha takes the block as one (its own rule); gamma would run it line by line, so neither other pane gets it.
+  await expect.poll(() => sent('sess-a')).toBe('\x1b[200~one\rtwo\rthree\x1b[201~')
+  await expect(page.getByRole('alert')).toContainText('Stopped typing in all panes: gamma would run this paste line by line.')
+  await expect(stripe()).toHaveCount(0)
+  await quiet()
+  expect(sent('sess-b')).toBe('')
+  expect(sent('sess-c')).toBe('')
+  console.log('ok - a multi-line paste is not broadcast when one pane lacks bracketed paste')
+
   // ── Compose's send reaches all panes ──
   reset()
   await openThree()
@@ -2114,7 +2136,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload), a start-up command with hidden characters, a template by address, Continue (project, one request id, the limit), pane_live in Reopen all, busy while the desk cannot be read, a machine that cannot open a terminal, a failure cleared, renames, Add to a desk, the desk chip in Sessions, Add a running session, Start an agent.')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, chords out of text fields, a failing pane, theatre, the live folder, swap and move, the phone, pane states, no reopen on open, Reopen, Reopen in home, a stale reopen, Reopen all, the limit in the browser, Choose a folder, the pane id on create, forgetting a pane’s history, History by pane, Continue, the start-up command, Duplicate, templates, the limits in Reopen all, the account limit, a double press, a rename before Reopen, Type in all panes (asks once, typing, paste, a block one pane would run line by line, Compose, Run stays put, zoom, tab change, a drop, a takeover, another window, reload), a start-up command with hidden characters, a template by address, Continue (project, one request id, the limit), pane_live in Reopen all, busy while the desk cannot be read, a machine that cannot open a terminal, a failure cleared, renames, Add to a desk, the desk chip in Sessions, Add a running session, Start an agent.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

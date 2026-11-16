@@ -7,8 +7,13 @@
     earlierOutput(): void; compose(): void; search(): void; copy(): void; copyScreen(): void; selectText(): void; paste(): void
     attach(): void; interrupt(): void; commands(): void; prompts(opener: HTMLButtonElement): void; openSkills(): void
     appearance(): void; history(): void; focus(): void
+    /** Whether the program here takes a paste as one block (bracketed paste). */
+    readonly bracketed: boolean
+    /** Bytes handed over now would be sent now: live, with its socket open (not closing). */
+    canSend(): boolean
     /** Sends input another pane reported (`oninput`) to this shell: text as typed, or `paste` through this terminal's
-     *  own paste. Never reported again here. False when it is not live (nothing sent). */
+     *  own paste, without the on-screen keys' modifiers. Never reported again here. True only once the bytes were handed
+     *  to the socket. */
     send(data: string, paste?: boolean): boolean
   }
 </script>
@@ -53,9 +58,10 @@
     /** false hides the pane's own header, toolbar and footer; the screen draws one toolbar from `actions` (a desk). */
     chrome?:boolean
     actions?:TerminalActions
-    /** Told of typed keys, a paste and Compose's text just before they are sent (a desk's Type in all panes). Not told
-     *  of inserts (Commands, Prompts, Skills, History, attached files), Interrupt, `type` or mouse and focus reports. */
-    oninput?:(data:string,paste:boolean)=>void } = $props()
+    /** Told of typed keys, a paste and Compose's text once this pane has sent them (a desk's Type in all panes); `at` is
+     *  when the input was made (a paste held for review was made before it was confirmed). Not told of inserts (Commands,
+     *  Prompts, Skills, History, attached files), Interrupt, `type`, input that was not sent, or mouse and focus reports. */
+    oninput?:(data:string,paste:boolean,at:number)=>void } = $props()
   let element = $state<HTMLDivElement>(),screenFrame=$state<HTMLDivElement>()
   let pane=$state<HTMLElement>(),searchInput=$state<HTMLInputElement>(),viewportHeight=$state(innerHeight),viewportTop=$state(0)
   let connectionState = $state<ConnectionState>('connecting'), message = $state('')
@@ -70,7 +76,7 @@
   let contextMenu = $state<{x:number;y:number}|null>(null), menu = $state<HTMLElement>(), hasSelection = $state(false)
   const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
   let feedback = $state(''), terminalBackground=$state('#101820'),terminalForeground=$state('#dce5ef')
-  let pendingPaste = $state<{text:string;generation:number;execute?:boolean;share?:boolean}|null>(null), generation=0, alive=true
+  let pendingPaste = $state<{text:string;generation:number;execute?:boolean;share?:boolean;at?:number}|null>(null), generation=0, alive=true
   let fileInput=$state<HTMLInputElement>(), uploads=$state<{id:number;name:string;size:number;controller:AbortController}[]>([])
   let draggingFiles=$state(false), staleUploads=$state<string[]|null>(null), staleReason=$state<'connection'|'scrollback'>('connection'), uploadSeq=0
   let historyOpen=$state(false),appearanceOpen=$state(false),commandsOpen=$state(false),promptsOpen=$state(false),promptButton=$state<HTMLButtonElement>(),palette=$state('system'),cursor=$state<CursorShape>('bar')
@@ -100,9 +106,15 @@
   let keyGroup = $state(keyGroups[0].id)
   const shownGroup = $derived(keyGroups.find(group=>group.id===keyGroup)??keyGroups[0])
   try{keysOpen=localStorage.getItem('reet-terminal-keys-open')==='1';const stored=localStorage.getItem('reet-terminal-keys-group');if(stored&&keyGroups.some(group=>group.id===stored))keyGroup=stored}catch{/* optional preference */}
-  // Every paste into xterm goes through pasteRaw, so xterm's own echo of it (onData) is never taken for typing.
-  let pasting=false
-  function pasteRaw(text:string){pasting=true;try{terminal?.paste(text)}finally{pasting=false}}
+  // Every paste into xterm goes through pasteRaw, so xterm's own echo of it (onData) is never taken for typing. It says
+  // whether the bytes were handed to the socket. `relay`: input from another pane, written without this pane's modifiers.
+  let pasting=false,relaying=false,pasteSent=false,pasteFired=false
+  function pasteRaw(text:string,relay=false):boolean{
+    pasting=true;relaying=relay;pasteSent=true;pasteFired=false
+    try{terminal?.paste(text)}finally{pasting=false;relaying=false}
+    return pasteFired&&pasteSent
+  }
+  const report=(data:string,paste:boolean,at=performance.now())=>oninput?.(data,paste,at)
   // Mouse and focus reports, and xterm's answers to a program's queries (device attributes, cursor position, status,
   // window and mode reports, OSC and DCS replies), are xterm's, not the person's typing.
   const REPORT=/^\x1b(?:\[(?:[IO]|<\d+;\d+;\d+[Mm]|M[\s\S]{3}|\d+;\d+;\d+M|[?>]?[\d;]*[cRnt]|\??[\d;]*\$y)|[\]P][\s\S]+)$/
@@ -134,9 +146,10 @@
     const clean=sanitizePaste(text)
     if(!clean)return
     if(pasteTooLarge(clean)){feedback='That is too long to send at once. Limit it to 240 KiB.';return}
-    held=afterKey(held);oninput?.(clean,true);pasteRaw(clean)
-    if(enter)oninput?.('\r',false)
-    if(enter&&!connection?.text('\r')){feedback='Connection changed while sending. Check the terminal before sending again.';return}
+    // This pane first: only what it sent goes on to other panes.
+    held=afterKey(held);const sent=pasteRaw(clean)
+    if(sent)report(clean,true)
+    if(enter){if(!connection?.text('\r')){feedback='Connection changed while sending. Check the terminal before sending again.';return}if(sent)report('\r',false)}
     composeDraft='';feedback=enter?'Sent.':'Inserted. Press Enter in the terminal to send it.'
     if(!touch)terminal?.focus()
   }
@@ -330,8 +343,8 @@
     if(!live){feedback='Reconnect before pasting. Nothing was sent.';return}
     if(pasteTooLarge(clean)){feedback='Paste is too large. Limit it to 240 KiB.';return}
     const {review:needsReview}=pasteNeedsReview(clean,{bracketed:terminal?.modes.bracketedPasteMode===true,force:review})
-    if(needsReview){pendingPaste={text:clean,generation,share};return}
-    held=afterKey(held);if(share)oninput?.(clean,true);pasteRaw(clean)
+    if(needsReview){pendingPaste={text:clean,generation,share,at:performance.now()};return}
+    held=afterKey(held);if(pasteRaw(clean)&&share)report(clean,true)
     const lines=clean.split('\n').length
     if(lines>1)feedback=`Pasted ${lines} lines as one block.`
   }
@@ -342,7 +355,7 @@
     if(!alive||!live||pending.generation!==generation){feedback=pending.execute?'Connection changed. Choose the command again after reconnecting; nothing was sent.':'Connection changed. Paste again after reconnecting; nothing was sent.';return}
     const text=sanitizePaste(pending.text)
     if(!text){feedback='Nothing to paste.';terminal?.focus();return}
-    held=afterKey(held);if(pending.share&&!pending.execute)oninput?.(text,true);pasteRaw(text)
+    held=afterKey(held);if(pasteRaw(text)&&pending.share&&!pending.execute)report(text,true,pending.at)
     if(pending.execute)feedback=connection?.text('\r')?'Command sent to the active terminal.':'Connection changed while sending. Check the terminal before retrying.'
     terminal?.focus()
   }
@@ -384,7 +397,7 @@
   // then used up. On a touch screen the focus is left where it was: the keys never take it (onpointerdown), so a
   // terminal that had it keeps it and the phone's own keyboard stays as it was, open or closed. With a mouse the
   // terminal takes the focus, as it always did.
-  function press(value:string) { if(!live||scrollbackOpen)return; const text=withModifiers(value,activeModifiers(held)); held=afterKey(held); oninput?.(text,false); connection?.text(text); if(!touch)terminal?.focus() }
+  function press(value:string) { if(!live||scrollbackOpen)return; const text=withModifiers(value,activeModifiers(held)); held=afterKey(held); if(connection?.text(text))report(text,false); if(!touch)terminal?.focus() }
   // The toolbar's Interrupt is Ctrl+C exactly, whatever modifiers are on.
   function interrupt() { if(!live||scrollbackOpen)return; connection?.text('\x03'); terminal?.focus() }
   function tapModifierKey(name:Modifier) { held=tapModifier(held,name); if(!touch)terminal?.focus() }
@@ -454,12 +467,14 @@
       copy:()=>void copy(),copyScreen:()=>void copyBuffer('screen'),selectText:openSelect,paste:()=>void readClipboard(),attach:chooseImages,interrupt,
       commands:()=>commandsOpen=true,prompts:opener=>{promptButton=opener;promptsOpen=true},openSkills,
       appearance:()=>appearanceOpen=true,history:()=>historyOpen=true,focus:()=>terminal?.focus(),
+      get bracketed(){return terminal?.modes.bracketedPasteMode===true},
+      canSend:()=>live&&!!connection?.canSend(),
       send:(data,paste=false)=>{
         if(!live||scrollbackOpen||!data)return false
         if(!paste)return !!connection?.text(data)
         const clean=sanitizePaste(data)
         if(!clean||pasteTooLarge(clean))return false
-        pasteRaw(clean);return true
+        return pasteRaw(clean,true)
       },
     }
   })
@@ -546,7 +561,12 @@
     // Refresh after parsing and fitting so accessibility rows match full redraws.
     connection = new TerminalConnection({nativeView,session:session.id,dimensions:()=>{if(!alive)return {cols:80,rows:24};const size=grid();clip();sender.known(size);restoringGrid=true;return size},renderer:{write:(bytes,reset,done)=>{if(!alive)return;if(reset)term.reset();term.write(bytes,()=>{if(!alive)return;term.refresh(0,term.rows-1);done()})}},onstate:(next,detail)=>{if(!alive)return;if(next!=='resynchronising'){restoringGrid=false;if(next==='live')resize()}generation++;held=noModifiers();if(next==='access_denied'){historyOpen=false;scrollbackOpen=false;selectOpen=false;selectModel='';pendingCopy=null};connectionState=next;if(next==='live'){if(attached)redraw();attached=true}message=detail;term.options.disableStdin=next!=='live';if(chrome&&visible&&next==='live'&&!scrollbackOpen&&!searching&&!pendingPaste&&!contextMenu&&!document.querySelector('dialog[open]')&&!focusHeldElsewhere())term.focus()}})
     term.options.disableStdin=true
-    const input=term.onData((text)=>{if(scrollbackOpen)return;const value=withModifiers(text,activeModifiers(held));held=afterKey(held);if(!pasting&&!REPORT.test(value))oninput?.(value,false);connection?.text(value)})
+    const input=term.onData((text)=>{
+      if(scrollbackOpen)return
+      if(relaying){pasteFired=true;pasteSent=pasteSent&&!!connection?.text(text);return}
+      const value=withModifiers(text,activeModifiers(held));held=afterKey(held);const sent=!!connection?.text(value)
+      if(pasting){pasteFired=true;pasteSent=pasteSent&&sent}else if(sent&&!REPORT.test(value))report(value,false)
+    })
     const binary=term.onBinary((data)=>!scrollbackOpen&&connection?.send(Uint8Array.from(data,c=>c.charCodeAt(0)&255)))
     const online=()=>connection?.recover(),pageVisible=()=>{if(document.visibilityState!=='visible'){hiddenAt=performance.now();return}const now=performance.now(),hiddenFor=hiddenAt===null?0:now-hiddenAt;hiddenAt=null;resize();if(repaintOnReturn({hiddenFor,coarse:coarse.matches,sinceRepaint:now-repaintedAt}))redraw();connection?.recover()}
     window.addEventListener('online',online);document.addEventListener('visibilitychange',pageVisible)

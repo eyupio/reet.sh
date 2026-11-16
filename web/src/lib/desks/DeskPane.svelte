@@ -74,8 +74,8 @@
     receiving?: boolean
     /** Whether this pane could receive now: its terminal is mounted, on screen and connected. */
     onreceivable?: (ok: boolean) => void
-    /** Typed keys, a paste or Compose's text, just before this pane's terminal sends them (TerminalPane's `oninput`). */
-    oninput?: (data: string, paste: boolean) => void
+    /** Typed keys, a paste or Compose's text, once this pane's terminal has sent them (TerminalPane's `oninput`). */
+    oninput?: (data: string, paste: boolean, at: number) => void
   } = $props()
 
   let terminal = $state<TerminalPane>()

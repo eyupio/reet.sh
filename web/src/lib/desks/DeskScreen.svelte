@@ -17,6 +17,8 @@
   import { shell } from '../dialogShell'
   import { layout as treeLayout, leaves, MAX_PANES, MAX_TABS, neighbour, newId, type Pane, type Split, type Tab } from './tree'
   import { DESK_KEYS, deskKey } from './keys'
+  import { pasteNeedsReview } from '../terminal/paste'
+  import { sendToAll, stopReason, STOP_CHANGED, type Mode, type Now } from './typeInAll'
   import ClosePaneDialog from './ClosePaneDialog.svelte'
   import DeskMenu from './DeskMenu.svelte'
   import DeskPane from './DeskPane.svelte'
@@ -607,16 +609,28 @@
   /** The tab's panes and splits without the ratios, and the zoomed pane: a separator drag changes nothing here. */
   const treeShape = (n: Tab['root']): string => !n ? '' : 'split' in n ? `(${n.split} ${treeShape(n.a)} ${treeShape(n.b)})` : n.pane
   const shapeNow = $derived(activeTab ? `${treeShape(activeTab.root)}|${zoomed}` : '')
-  let typeAll = $state<{ desk: string; tab: string; set: string[]; shape: string } | null>(null)
+  let typeAll = $state<(Mode & { desk: string; since: number }) | null>(null)
   let askAll = $state(false), allButton = $state<HTMLButtonElement>(), askCancel = $state<HTMLButtonElement>()
   const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every(x => b.includes(x))
-  function stopAll() {
-    const on = typeAll, t = activeTab
+  /** The tab as it is at this moment, for the gate (typeInAll.ts): each pane's terminal is read when the gate asks. */
+  function tabNow(): Now {
+    const t = activeTab
+    return {
+      tab: t?.id ?? '', shape: shapeNow, receivers,
+      present: pid => !!t?.panes[pid] && ids.includes(pid),
+      pane: pid => {
+        const a = actionsFor[pid]
+        return a ? { canSend: () => a.canSend(), scrollback: () => a.scrollback, bracketed: () => a.bracketed, send: (data, paste) => a.send(data, paste) } : undefined
+      },
+      name: pid => paneName(t?.panes[pid]),
+    }
+  }
+  const review = (text: string, bracketed: boolean) => pasteNeedsReview(text, { bracketed }).review
+  function stopAll(why = '') {
+    const on = typeAll
     if (!on) return
     typeAll = null
-    // A pane still on the tab, in the same place, that no longer receives is named; anything else is the tab changing.
-    const dropped = t && shapeNow === on.shape ? on.set.find(pid => t.panes[pid] && (!receivers.includes(pid) || !actionsFor[pid]?.live)) : undefined
-    notice = dropped && t ? `Stopped typing in all panes: ${paneName(t.panes[dropped])} is no longer connected.` : 'Stopped typing in all panes: the panes on this tab changed.'
+    notice = why || stopReason(on, tabNow()) || STOP_CHANGED
   }
   $effect(() => {
     const on = typeAll
@@ -642,19 +656,18 @@
   function closeAsk() { askAll = false; allButton?.focus() }
   function startAll() {
     askAll = false
-    if (!desk || !activeTab || receivers.length < 2) return
+    if (!desk || !activeTab || template || receivers.length < 2) return
     confirmedAll = true
-    typeAll = { desk: desk.id, tab: activeTab.id, set: [...receivers], shape: shapeNow }
+    typeAll = { desk: desk.id, tab: activeTab.id, set: [...receivers], shape: shapeNow, since: performance.now() }
     void focusPane(receivers.includes(activePaneId) ? activePaneId : receivers[0])
   }
-  /** Input in a pane, just before its own terminal sends it: from the focused pane, it goes to the other receivers too. */
-  function typeInAll(from: string, data: string, paste: boolean) {
+  /** Input a pane has just sent to its own shell: from the focused pane, the gate sends it on to the other receivers,
+   *  checking each of them as it is now. Input made before the mode was turned on (a paste held for review) stays put. */
+  function typeInAll(from: string, data: string, paste: boolean, at: number) {
     const on = typeAll
-    if (!on || from !== activePaneId || !on.set.includes(from)) return
-    // Read now, not as the screen last drew: a pane that dropped a moment ago gets nothing, and nor does any other.
-    const ready = activeTab?.id === on.tab && shapeNow === on.shape && sameSet(receivers, on.set) && on.set.every(pid => actionsFor[pid]?.live && !actionsFor[pid]?.scrollback)
-    if (!ready) { stopAll(); return }
-    for (const pid of on.set) if (pid !== from && !actionsFor[pid]?.send(data, paste)) { stopAll(); return }
+    if (!on || from !== activePaneId || at < on.since) return
+    const out = sendToAll(on, tabNow(), from, data, paste, review)
+    if (out.stop) stopAll(out.stop)
   }
 
   // Presets and the layout menu.
@@ -798,7 +811,7 @@
                 onstartup={() => offerDone(pid)}
                 receiving={!!typeAll && typeAll.set.includes(pid)}
                 onreceivable={ok => noteReceivable(pid, ok)}
-                oninput={(data, paste) => typeInAll(pid, data, paste)}
+                oninput={(data, paste, at) => typeInAll(pid, data, paste, at)}
                 onstartcommand={start => change({ kind: 'start', tab: t.id, pane: pid, start })}
                 focused={pid === activePaneId} visible={view.visible} hold={view.hold} admitted={admitted.has(pid)} layout={!phone} {phone} {template} zoomed={zoomed === pid} {tabs}
                 onfocus={() => setActive(pid)}

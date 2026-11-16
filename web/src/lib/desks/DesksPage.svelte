@@ -200,8 +200,9 @@
       }
       if (readLast() === t.id) writeLast('')
       // A pane whose shell had already ended is gone for good: its machine forgets the pane's own command history, and
-      // the session stays in Sessions as it is. Nothing is said if that fails (the file is the person's own).
-      for (const id of sessionIds) {
+      // the session stays in Sessions as it is. Nothing is said if that fails (the file is the person's own). With End
+      // its shells the controller does this itself; leaving them running, the live shells keep their history.
+      if (!endSessions) for (const id of sessionIds) {
         const s = sessions.find(x => x.id === id)
         if (s && terminalClosed(s.state)) void endTerminal(id, crypto.randomUUID(), false, '', true).catch(() => { /* see above */ })
       }

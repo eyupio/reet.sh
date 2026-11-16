@@ -567,11 +567,11 @@ func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
 	if old, err := r.st.GafferGoalFor(r.p.UserID, code.ConversationID); err != nil || old.State != "stopped" {
 		t.Fatalf("the finished stage's goal: %+v %v", old, err)
 	}
-	// Review to test is the same agent and model: the session carries on under a fresh goal.
+	// Review to test is the same agent and model, and still a session of its own, under its own goal.
 	r.s.stageHandedOver(r.p.UserID, review.ConversationID, "Two fixes committed; nothing needs a decision.", "gaffer")
 	test := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 2 })
-	if test.SessionID != review.SessionID || test.ConversationID != review.ConversationID || len(r.starter.asked()) != 2 {
-		t.Fatalf("test stage should keep the session: %+v", test)
+	if test.SessionID == review.SessionID || test.ConversationID == review.ConversationID || len(r.starter.asked()) != 3 {
+		t.Fatalf("test stage should have its own session: %+v", test)
 	}
 	if g, err := r.st.GafferGoalFor(r.p.UserID, test.ConversationID); err != nil || g.State != "active" || !strings.Contains(g.Text, "\nStage: test\n") || g.UsedReviews != 0 {
 		t.Fatalf("test goal: %+v %v", g, err)
@@ -580,7 +580,7 @@ func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
 	r.s.stageHandedOver(r.p.UserID, test.ConversationID, "All checks pass locally.", "gaffer")
 	ready := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "ready_to_merge" })
 	time.Sleep(60 * time.Millisecond)
-	if ready.Stage != 3 || ready.Stages[3].State != "pending" || len(r.starter.asked()) != 2 {
+	if ready.Stage != 3 || ready.Stages[3].State != "pending" || len(r.starter.asked()) != 3 {
 		t.Fatalf("ready to merge: %+v", ready)
 	}
 	o, _ := r.s.Outcome(r.p.UserID, created.ID)
@@ -605,8 +605,8 @@ func TestPipelineHandsOverStageByStageAndWaitsForTheMerge(t *testing.T) {
 	if err != nil || !strings.Contains(g.Text, "\nStage: merge\n") || strings.Contains(g.Text, "Do not merge") || !strings.Contains(g.Text, "only once every check passes") {
 		t.Fatalf("merge goal: %q %v", g.Text, err)
 	}
-	if merge.SessionID != test.SessionID {
-		t.Fatalf("merge should keep the session: %+v", merge)
+	if merge.SessionID == test.SessionID || len(r.starter.asked()) != 4 {
+		t.Fatalf("merge should have its own session: %+v", merge)
 	}
 	r.s.stageHandedOver(r.p.UserID, merge.ConversationID, "Merged.", "gaffer")
 	done := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "done" })
@@ -1278,8 +1278,6 @@ func TestAStageKeepsWhatItsAgentReportedUsing(t *testing.T) {
 	r := outcomeFixture(t)
 	r.s.StartGoalSupervisor()
 	in := pipelineInput(r, false)
-	// One agent and model for the first two stages, so they share a session.
-	in.Sessions[0].Stages[1].Model = in.Sessions[0].Stages[0].Model
 	created, err := r.s.CreateOutcome(r.p.UserID, in)
 	if err != nil {
 		t.Fatal(err)
@@ -1301,14 +1299,14 @@ func TestAStageKeepsWhatItsAgentReportedUsing(t *testing.T) {
 	}
 	r.s.stageHandedOver(r.p.UserID, code.ConversationID, "Committed.", "gaffer")
 	review := r.piece(t, created.ID, func(p store.GafferOutcomeSession) bool { return p.State == "following" && p.Stage == 1 })
-	if review.SessionID != code.SessionID {
-		t.Fatalf("the second stage did not keep the session: %+v", review)
+	if review.SessionID == code.SessionID {
+		t.Fatalf("the second stage has no session of its own: %+v", review)
 	}
 	if s := review.Stages[0]; !s.AgentUsageReported || s.AgentInputTokens != 1000 || s.AgentOutputTokens != 200 || s.AgentCachedTokens != 5000 {
 		t.Fatalf("kept at hand-over: %+v", s)
 	}
-	// The session's total keeps growing; the second stage counts only what came after the first.
-	if err = r.st.AddTerminalSessionUsage(r.p.UserID, code.SessionID, 300, 50, 0, 90000, 200000); err != nil {
+	// The second stage counts what its own session reports, from nothing.
+	if err = r.st.AddTerminalSessionUsage(r.p.UserID, review.SessionID, 300, 50, 0, 90000, 200000); err != nil {
 		t.Fatal(err)
 	}
 	after, err := r.s.Outcome(r.p.UserID, created.ID)

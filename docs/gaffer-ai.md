@@ -270,7 +270,7 @@ When you approve a plan you choose how its agents run:
 The **Model** list beside each agent holds what that agent really offers on the
 project's machine, your favourites and reet's suggestions; **Other…** takes a
 name none of them has. The model beside the main agent applies to every stage
-until you give a crew role its own.
+until you give a crew tier its own.
 
 Tick **Have Gaffer report across this outcome by itself** (off unless you tick
 it) and Gaffer makes that report without being asked when a pipeline finishes or
@@ -278,9 +278,9 @@ stops: one request to its model each time, at most six for an outcome and never
 within ten minutes of the last. It only reports and proposes.
 
 **Effort** works the same way, for agents whose machine reports thinking levels: set it for the whole
-outcome beside the main agent, or per crew role, so the thinking stages can run
-at high effort while babysitting and merging run at low. A change of agent,
-model or effort between two stages starts a new session for the later one.
+outcome beside the main agent, or per crew tier, so heavy stages can run
+at high effort while light ones run at low. Every stage runs in a session of
+its own, so each stage's agent, model and effort are its own too.
 
 A session that is part of a pipeline is marked **Factory · stage n of m** on
 Home, in Continue working and on the planning board, and on the Sessions page,
@@ -354,6 +354,60 @@ can do:
 - **Try the review again** appears when Gaffer's own review failed.
 - **Give it a new budget** appears when the stage ran out of reviews or time.
 
+The choice to take unless you know better comes first and is marked
+**Recommended**. When Gaffer's review brought the stage back, the
+recommendation is Gaffer's own: the card says **Gaffer recommends** with its
+reason and, if it would tell the agent something, the words it would use.
+Choosing **Tell the agent…** then starts from those words, which are yours to
+change. Otherwise the recommended choice is the usual one for that kind of stop.
+A recommendation is advice: nothing happens until you choose.
+
+The same decisions are in two more places, with the same buttons:
+
+- **At the head of the outcome's card**, under **N decisions waiting for
+  you**: every decision the outcome is waiting on, one block for each
+  pipeline, including a merge that waits for your approval.
+- **In the pipeline's session**, under its header, for the session doing the
+  stage in hand. There you can have Gaffer look again, tell the agent, move on
+  or run the stage again without leaving the session. A merge, a new budget
+  and stopping the outcome take you to the pipeline's card.
+
+#### Let Gaffer take the decisions
+
+Each outcome has **You decide** and **Gaffer decides** at the head of its
+card, and **Decisions: Ask me / Gaffer decides** when you approve its plan. It
+is **You decide** unless you choose otherwise, and you can switch at any time.
+
+With **Gaffer decides**, when a stage stops Gaffer chooses one of that stage's
+own choices: review again, tell the agent, move on, a new budget (once for a
+stage) or, for a stage whose session ended, a new session. The controller then
+does it exactly as your button would. Each decision is one request to Gaffer's
+model, made from the outcome's handovers and reviews, so the outcome's
+provider must still be allowed session text.
+
+Gaffer also answers an agent's **multiple-choice question**. When the working
+agent stops to ask one, and it is the only thing the agent is waiting for,
+Gaffer picks among the options the agent offered, as the outcome's objective
+and the pipeline's brief suggest, and the answer goes to the agent exactly as
+yours would. It can also leave the question to you, and does when nothing in
+the outcome gives a reason to prefer an option or the choice is one only you
+should make. It never types an answer: a question that needs your own words
+stays yours, and an optional text field is left empty.
+
+Gaffer never decides a merge (that stays with **Ready to merge** and the merge
+setting), never answers an approval to run a command or change a file (that
+stays with **Ask me** or YOLO), never answers a question while an approval is
+waiting beside it, and never stops an outcome. It takes at most three decisions on one stage; after that the
+stage is yours and the card says so. A decision Gaffer could not make or carry
+out is left with you, with the reason. You can always choose first: the
+buttons stay.
+
+**What Gaffer decided**, at the head of the card, lists every decision with
+its time, pipeline and stage, what had stopped the stage, what Gaffer did and
+why, newest first. A stage Gaffer moved on from reads **Done: Gaffer decided
+to move on** under **Who did each stage**. Each decision is also in the
+outcome's **History**.
+
 If Gaffer reviewed the stage and simply chose no next step, the card says that
 rather than asking for a decision. The **Need you** and **Ready to merge**
 numbers at the top of the page go to the first such pipeline, and Home's
@@ -415,9 +469,9 @@ shows it for every stage that has been checked:
 - **Not checked.** The machine could not be asked, and the line says why. This
   is never shown as confirmed.
 
-A stage that carries on in the session of the stage before it is checked the
-same way, and a model or effort you change in the session's own chat later
-shows on the stage in hand. The check reads what the agent reports about
+Every stage has a session of its own and is checked when it starts; a model
+or effort you change in that session's own chat later shows on the stage in
+hand. The check reads what the agent reports about
 itself. A pipeline without stages is not checked.
 
 ### When nothing can happen without you
@@ -451,7 +505,7 @@ reason in the controller's own words:
 | --- | --- |
 | `gaffer-stage-handed-over` | A stage ended. `by` is `gaffer` (its review found the stage done), `person` (**Move to next stage**, or MCP) or `chat` (you told Gaffer to continue in the session's chat). |
 | `gaffer-stage-choice-not-applied` | A stage's session was read back to be on another agent, model or effort than you chose. `chosen` and `applied` name both; `reason` says what differs. Nothing is stopped by it. |
-| `gaffer-stage-started` | The controller started the next stage, in the same session or a new one. |
+| `gaffer-stage-started` | The controller started the next stage, in a session of its own. |
 | `gaffer-pipeline-waiting-merge` | Every stage before the merge is done and the merge waits for you. |
 | `gaffer-pipeline-done` | Every stage is done. |
 | `gaffer-pipeline-stopped` | A stage could not be started or followed; the reason says why. |
@@ -506,19 +560,47 @@ project, choose Gaffer's model. Each step links to where it is done and ticks of
    on it is an ordinary outcome in that project, and once the outcome is done reet
    removes the project and its clone unless that would lose work
    ([Temporary projects](projects.md#temporary-projects)).
-2. Choose the **crew** under **Choose who does what**. Thinking covers plan, design
-   and review; Building covers code and test; Shipping covers the pull request,
-   babysitting and merge. Give each its agent and, if you like, a model: a stronger
-   one for thinking, a cheaper one for building or shipping. Left alone, one agent
-   does every stage.
+2. Choose the **crew** under **Choose who does what**. The crew has three tiers,
+   named for how demanding a stage is: **Heavy**, **Standard** and **Light**. Give
+   each its agent and, if you like, a model and an effort: a stronger one for
+   heavy stages, a cheaper one for light ones. Left alone, one agent does every
+   stage. **Save as my crew** keeps the three tiers for your account; every later
+   outcome, from this page or over MCP, starts from them, for the tiers the
+   project's machine can run. Nothing else is saved by it.
+
+   Each tier can also have a **Backup**: a second agent, model and effort.
+   When a stage is about to start and its first choice's plan has under 20%
+   left in its tightest window (the figure is yours to change, from 5 to 90,
+   under **Switch to a backup below**, and is saved with the crew), the stage starts on the backup instead, if the
+   backup's plan has more left (or the backup is signed in with a key, which
+   has no plan to run low). It switches by itself and says so: the pipeline's
+   card shows **Balanced** with the reason, **Who did each stage** keeps it,
+   and the outcome's History records it. A stage with no backup never moves.
+   A limit that covers one model counts only for stages on that model, so a
+   cheaper model of the same agent can be the backup. Balancing uses the plan
+   figures the machine last read ([plan limits](agent-accounts.md)), no more
+   than six hours old; with plan limits off, or older figures, every stage
+   stays on its first choice. The backup is saved with **Save as my crew**.
+
+   Each kind of stage has a usual tier: plan, design and review are heavy, code
+   and test are standard, the pull request, babysitting and merge are light.
 3. Choose **Ask Gaffer for a plan**. Gaffer's default provider is sent what you
    typed and the project's name, nothing else, and proposes the pipelines: a title,
-   a brief and the stages each needs. It cannot choose an agent, a model or whether
-   anything merges. **Write the plan myself** skips this.
+   a brief and the stages each needs. It also says how demanding each stage of
+   this plan is, with a reason when a stage is harder or easier than that kind of
+   stage usually is. It cannot choose an agent, a model or whether
+   anything merges: its rating picks a tier, and the tier's agent is yours.
+   **Write the plan myself** skips this.
 4. Review the plan. Edit any title or brief, add or remove a pipeline, and tick the
-   stages each one runs through. The plan says how many agent sessions a pipeline
-   will use: a new session starts whenever the agent or model changes from one
-   stage to the next, and otherwise the same session carries on.
+   stages each one runs through. Under each pipeline every stage has its tier and
+   the agent, model and effort that tier means. A stage Gaffer moved off its usual
+   tier is marked **Gaffer's assessment** with its reason and a **Use Standard**
+   (or Heavy, or Light) button that puts it back; a tier you change is marked
+   **Your choice**. On the Factory, **Who did each stage** names each stage's tier
+   and keeps Gaffer's reason. Every stage runs in an agent session of its
+   own, in the pipeline's folder and branch: it starts from that stage's
+   instruction and the handover of the stage before, and the earlier stage's
+   session is ended with its history kept.
 5. Decide the merge. **Merge by itself** lets each pipeline's agent merge once every
    check passes, no review thread is open and there are no conflicts. Left off, a
    pipeline stops at **Ready to merge** and waits for **Approve merge** on the

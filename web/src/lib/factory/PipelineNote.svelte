@@ -2,14 +2,15 @@
   // The person's own words to a pipeline: an instruction for its working agent, or the reason a stage is sent back.
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
 
-  let { title, intro, label, placeholder = '', confirmLabel, stages = [], busy = false, error = '', oncancel, onconfirm }: {
-    title: string; intro: string; label: string; placeholder?: string; confirmLabel: string
+  let { title, intro, label, placeholder = '', initial = '', confirmLabel, stages = [], busy = false, error = '', oncancel, onconfirm }: {
+    title: string; intro: string; label: string; placeholder?: string; /** Words to start from, which the person can change: Gaffer's suggested instruction. */ initial?: string; confirmLabel: string
     /** For sending back: the stages that can be done again, the one in hand last. */
     stages?: { kind: string; label: string }[]
     busy?: boolean; /** Why the last attempt was refused, shown where the person is looking. */ error?: string; oncancel: () => void; onconfirm: (text: string, stage: string) => void
   } = $props()
   const formId = $props.id()
-  let text = $state(''), stage = $state('')
+  // svelte-ignore state_referenced_locally
+  let text = $state(initial), stage = $state('')
   $effect(() => { if (stages.length && !stages.some(item => item.kind === stage)) stage = stages[stages.length - 1].kind })
   const bytes = $derived(new TextEncoder().encode(text).length)
   const limit = $derived(stages.length ? 2000 : 8000)

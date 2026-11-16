@@ -55,6 +55,8 @@ export async function openWorkspace(browser, {width, height=812, theme='light', 
   if(path==='/api/v2/session-backlog')return json({drafts:[]})
   if(path==='/api/v2/gaffer/goals'&&route.request().method()==='GET')return json({goals:[],readAt:Date.now()})
   if(path==='/api/v2/gaffer/outcomes'&&route.request().method()==='GET')return json({outcomes:[]})
+  // An account that has saved no crew: the outcome dialog then starts every tier on the outcome's own agent.
+  if(path==='/api/v2/gaffer/crew'&&route.request().method()==='GET')return json({crew:{light:{},standard:{},heavy:{}},saved:false,tiers:['light','standard','heavy'],defaults:{}})
   if(path==='/api/v2/folder-projects')return json({projects:[],savedWaiting:0})
   if(path==='/api/v2/project-groups')return json({groups:[]})
   if(path==='/api/v2/notifications/count')return json({unread})

@@ -170,7 +170,11 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 	for _, row := range current.Sessions {
 		taken[row.Title] = true
 	}
-	pieces, err := outcomePieces(in.Sessions, current.Tool, current.Model, current.Provider, false, taken, len(current.Sessions))
+	crew, err := s.store.GafferCrewFor(uid)
+	if err != nil {
+		return current, err
+	}
+	pieces, err := outcomePieces(in.Sessions, current.Tool, current.Model, current.Provider, crew, false, taken, len(current.Sessions))
 	if err != nil {
 		return current, err
 	}
@@ -178,7 +182,7 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 		// Trust is given once, when the outcome is approved, and Antigravity never starts without it.
 		for _, piece := range pieces {
 			for _, stage := range piece.Stages {
-				if stage.Tool == "antigravity" {
+				if stage.Tool == "antigravity" || stage.Backup != nil && stage.Backup.Tool == "antigravity" {
 					return current, invalid("trust", "This outcome was approved without folder trust, and Google Antigravity starts only in a trusted folder. Choose another agent for “"+piece.Title+"”, or give Gaffer a new outcome with folder trust ticked.")
 				}
 			}
@@ -188,8 +192,11 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 		// The outcome runs without approvals, so a pipeline joins it only with agents that can.
 		for _, piece := range pieces {
 			for _, stage := range piece.Stages {
-				if !terminalproto.ToolTakesYolo(stage.Tool) {
-					return current, invalid("yolo", "This outcome runs on YOLO, and one of the chosen agents has no YOLO option reet can use.")
+				// A stage may start on its backup, so that has to take YOLO too.
+				for _, name := range stageAgents(stage) {
+					if !terminalproto.ToolTakesYolo(name) {
+						return current, invalid("yolo", "This outcome runs on YOLO, and one of the chosen agents has no YOLO option reet can use.")
+					}
 				}
 			}
 		}
@@ -467,7 +474,10 @@ func (s *Service) movePipelineOn(uid int64, conversation, note, by string) error
 		return invalid("advance", "That pipeline has no stage in hand to move on from.")
 	}
 	summary := "The person moved this pipeline on from this stage."
-	if note = strings.TrimSpace(note); note != "" {
+	if note = strings.TrimSpace(note); by == "auto" {
+		// The person gave Gaffer the decisions; the note is Gaffer's reason.
+		summary = "Gaffer moved this pipeline on from this stage for the person, who gave it this outcome’s decisions. Its reason: " + clipBytes(note, 600)
+	} else if note != "" {
 		summary += " They said: " + clipBytes(note, 600)
 	}
 	if g, err := s.store.GafferGoalFor(uid, conversation); err == nil {
@@ -625,7 +635,7 @@ func (s *Service) SendPipelineBack(uid int64, id, key, kind, reason string) (sto
 			}
 			for j := target; j < len(row.Stages); j++ {
 				// A stage done again is asked for under a new request, so it gets a session of its own.
-				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, Provider: row.Stages[j].Provider, State: "pending", RequestID: fresh[j]}
+				row.Stages[j] = store.GafferOutcomeStage{Kind: row.Stages[j].Kind, Tool: row.Stages[j].Tool, Model: row.Stages[j].Model, Effort: row.Stages[j].Effort, Provider: row.Stages[j].Provider, Tier: row.Stages[j].Tier, TierWhy: row.Stages[j].TierWhy, Backup: row.Stages[j].Backup, First: row.Stages[j].First, Balanced: row.Stages[j].Balanced, State: "pending", RequestID: fresh[j]}
 			}
 			row.Stages[target].SentBack = "Sent back from the " + from + " stage. " + clipBytes(reason, 1500)
 			row.Stage, row.MergeApproved = target, false

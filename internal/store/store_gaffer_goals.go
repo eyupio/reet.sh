@@ -55,6 +55,27 @@ type GafferGoal struct {
 	// chose no next step: it neither instructed the working model, asked the
 	// person something, nor handed the stage over.
 	NoStep bool `json:"noStep,omitempty"`
+	// Advice is what Gaffer would do about a pipeline stage it brought back
+	// to the person: one of their choices, and why. It is advice only; the
+	// choice stays the person's unless they gave Gaffer the decisions.
+	Advice *GafferGoalAdvice `json:"advice,omitempty"`
+}
+
+// GafferGoalAdvice is Gaffer's recommendation for a stage that needs a
+// decision. Choice is again, tell or move; Text is the instruction it would
+// give the agent when the choice is tell.
+type GafferGoalAdvice struct {
+	Choice string `json:"choice"`
+	Why    string `json:"why"`
+	Text   string `json:"text,omitempty"`
+}
+
+// ValidGafferGoalAdvice reports whether advice is one Gaffer may give.
+func ValidGafferGoalAdvice(a GafferGoalAdvice) bool {
+	if a.Choice != "again" && a.Choice != "tell" && a.Choice != "move" {
+		return false
+	}
+	return a.Why != "" && len(a.Why) <= 300 && ValidWorkerText(a.Why) && len(a.Text) <= 2000 && (a.Text == "" || ValidWorkerText(a.Text)) && (a.Choice == "tell") == (a.Text != "")
 }
 
 func (s *Store) migrateGafferGoals() error {
@@ -218,6 +239,7 @@ func controlGafferGoal(tx *sql.Tx, uid int64, c string, expected int64, action s
 	g.WaitingOnWorker = false
 	g.ReviewFailed = false
 	g.NoStep = false
+	g.Advice = nil
 	switch action {
 	case "pause":
 		g.State = "paused"
@@ -435,6 +457,8 @@ func (s *Store) FinishGafferGoal(uid int64, c, id string, rev int64, turnID stri
 			return err
 		}
 		g.ActiveTurnID = ""
+		// Advice belongs to the review that gave it; a new review starts without any.
+		g.Advice = nil
 		g.Summary = goalSummary(t.Answer)
 		g.LastReviewedAt = t.FinishedAt
 		g.InputTokens += t.InputTokens
@@ -543,6 +567,25 @@ func (s *Store) RecoverGafferGoals() error {
 		}
 	}
 	return nil
+}
+
+// AdviseGafferGoal keeps Gaffer's recommendation on a goal its review just
+// brought back to the person.
+func (s *Store) AdviseGafferGoal(uid int64, c, id string, advice GafferGoalAdvice) error {
+	if !ValidGafferGoalAdvice(advice) {
+		return ErrGafferConflict
+	}
+	return s.withTx(func(tx *sql.Tx) error {
+		g, err := goalRow(tx, uid, c)
+		if err != nil {
+			return err
+		}
+		if g.ID != id || g.State != "needs_user" || g.ActiveTurnID != "" || g.WaitingOnWorker || g.ReviewFailed {
+			return ErrGafferConflict
+		}
+		g.Advice = &advice
+		return saveGoal(tx, g)
+	})
 }
 
 // MarkGafferGoalNoStep rewords a goal that needs the person because its

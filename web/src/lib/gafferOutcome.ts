@@ -9,7 +9,7 @@ const MAX_GOAL_BYTES = 2000
 const OUTCOME_PREFIX = 'Outcome: '
 const OUTCOME_LINE_BYTES = 600
 
-export type PlanSession = { key: string; title: string; prompt: string; stages?: string[] }
+export type PlanSession = { key: string; title: string; prompt: string; stages?: string[]; /** The tier of each stage that is not on its default, and Gaffer's reasons. */ tiers?: Record<string, 'heavy' | 'standard' | 'light'>; whys?: Record<string, string> }
 export type OutcomeRow = { goal: { text: string; state: string }; attention: boolean }
 export type OutcomeGroup<T> = { objective: string; rows: T[]; needsReview: number; following: number; finished: number }
 export type OutcomeStep = 'waiting' | 'starting' | 'following' | 'advancing' | 'ready_to_merge' | 'done' | 'unfollowed' | 'failed' | 'cancelled'
@@ -224,24 +224,63 @@ export function floorOutcomeLine(group: OutcomeGroup<unknown> & { record?: Outco
 
 // Pipelines. A planned session with stages is a pipeline: it runs through the stages below in order, each done by the
 // agent and model the person chose for it. The controller moves it on when Gaffer's review hands a stage over.
+// Each stage has a tier: how demanding it is, which is what chooses its agent and model from the crew. `tier` below is
+// the default for the stage's kind; Gaffer's plan, or the person, can put a stage on another.
 export const STAGES = [
-  { kind: 'plan', label: 'Plan', role: 'think' },
-  { kind: 'design', label: 'Design', role: 'think' },
-  { kind: 'code', label: 'Code', role: 'build' },
-  { kind: 'review', label: 'Review', role: 'think' },
-  { kind: 'test', label: 'Test', role: 'build' },
-  { kind: 'pr', label: 'PR', role: 'ship' },
-  { kind: 'babysit', label: 'Babysit', role: 'ship' },
-  { kind: 'merge', label: 'Merge', role: 'ship' },
+  { kind: 'plan', label: 'Plan', tier: 'heavy' },
+  { kind: 'design', label: 'Design', tier: 'heavy' },
+  { kind: 'code', label: 'Code', tier: 'standard' },
+  { kind: 'review', label: 'Review', tier: 'heavy' },
+  { kind: 'test', label: 'Test', tier: 'standard' },
+  { kind: 'pr', label: 'PR', tier: 'light' },
+  { kind: 'babysit', label: 'Babysit', tier: 'light' },
+  { kind: 'merge', label: 'Merge', tier: 'light' },
 ] as const
 export type StageKind = typeof STAGES[number]['kind']
-export type CrewRole = 'think' | 'build' | 'ship'
-export type Crew = Record<CrewRole, { tool: string; model: string; effort?: string; source?: string }>
-export const CREW_ROLES: { role: CrewRole; label: string; does: string }[] = [
-  { role: 'think', label: 'Thinking', does: 'Plan, design and review. Worth a stronger model.' },
-  { role: 'build', label: 'Building', does: 'Code and test. Most of the tokens go here.' },
-  { role: 'ship', label: 'Shipping', does: 'Pull request, babysitting and merge. A cheaper model does fine.' },
+export type CrewTier = 'heavy' | 'standard' | 'light'
+export type Crew = Record<CrewTier, { tool: string; model: string; effort?: string; source?: string; /** The tier's second choice, used when the first choice's plan is running low. An empty tool is no backup. */ backup?: { tool: string; model: string; effort?: string } }>
+/** How much of a plan must be left, in its tightest window, for a stage to stay on its first choice. */
+export const BALANCE_LOW_PERCENT = 20
+/** The least and most a person may choose for that share. */
+export const BALANCE_MIN_PERCENT = 5, BALANCE_MAX_PERCENT = 90
+/** A typed share as one a person may choose: a whole number within the bounds, the default for anything that is not a number. */
+export function balancePercent(value: unknown): number {
+  const n = Math.round(Number(value))
+  return Number.isFinite(n) && n > 0 ? Math.min(BALANCE_MAX_PERCENT, Math.max(BALANCE_MIN_PERCENT, n)) : BALANCE_LOW_PERCENT
+}
+/** The crew, heaviest first: which agent, model and effort does a stage of each tier. */
+export const CREW_TIERS: { tier: CrewTier; label: string; does: string }[] = [
+  { tier: 'heavy', label: 'Heavy', does: 'Careful judgement: by default plan, design and review. Worth a stronger model.' },
+  { tier: 'standard', label: 'Standard', does: 'Ordinary building and checking: by default code and test. Most of the tokens go here.' },
+  { tier: 'light', label: 'Light', does: 'Routine work: by default pull request, babysitting and merge. A cheaper model does fine.' },
 ]
+export const tierLabel = (tier: string): string => CREW_TIERS.find(item => item.tier === tier)?.label ?? tier
+const isTier = (tier: unknown): tier is CrewTier => tier === 'heavy' || tier === 'standard' || tier === 'light'
+/** The tier a stage has until Gaffer or the person says otherwise. */
+export const defaultTier = (kind: string): CrewTier => STAGES.find(stage => stage.kind === kind)?.tier ?? 'standard'
+/** The tiers a pipeline's stages are on where that is not their default, and Gaffer's reasons. A stage Gaffer rated
+ *  has an entry in `whys`, empty when it gave no reason, so its tier can be told from one the person chose. */
+export type StageRatings = { tiers?: Record<string, CrewTier>; whys?: Record<string, string> }
+/** Gaffer's assessment as a plan carries it. Only a tier that is one is kept. */
+export function planRatings(stages: { kind: string; tier?: string; tierWhy?: string }[] | undefined): StageRatings {
+  const tiers: Record<string, CrewTier> = {}, whys: Record<string, string> = {}
+  for (const stage of stages ?? []) if (isTier(stage.tier)) { tiers[stage.kind] = stage.tier; whys[stage.kind] = stage.tierWhy?.trim() ?? '' }
+  return { tiers, whys }
+}
+/** One stage's tier as the dialog shows it: the tier in force, the default for its kind, whether they differ, who
+ *  set it (Gaffer's assessment, the person, or nobody) and Gaffer's reason. */
+export function stageTier(kind: string, ratings: StageRatings | undefined): { tier: CrewTier; standard: CrewTier; changed: boolean; by: 'gaffer' | 'you' | 'default'; why: string } {
+  const standard = defaultTier(kind), tier = ratings?.tiers?.[kind] ?? standard, gaffer = ratings?.whys !== undefined && kind in ratings.whys
+  return { tier, standard, changed: tier !== standard, by: gaffer ? 'gaffer' : tier !== standard ? 'you' : 'default', why: gaffer ? ratings!.whys![kind] : '' }
+}
+/** The ratings after the person puts a stage on a tier. Their choice replaces Gaffer's, so its reason goes; choosing
+ *  the default clears the entry. */
+export function withTier(ratings: StageRatings | undefined, kind: string, tier: string): Required<StageRatings> {
+  const tiers = { ...(ratings?.tiers ?? {}) }, whys = { ...(ratings?.whys ?? {}) }
+  delete whys[kind]
+  if (isTier(tier) && tier !== defaultTier(kind)) tiers[kind] = tier; else delete tiers[kind]
+  return { tiers, whys }
+}
 /** The stages a hand-written session gets, and the fallback when Gaffer's plan names none. */
 export const DEFAULT_STAGES: StageKind[] = ['code', 'review', 'test', 'pr', 'babysit', 'merge']
 export const stageLabel = (kind: string): string => STAGES.find(stage => stage.kind === kind)?.label ?? kind
@@ -252,13 +291,16 @@ export function orderStages(kinds: Iterable<string>): StageKind[] {
   return STAGES.filter(stage => chosen.has(stage.kind)).map(stage => stage.kind)
 }
 
-/** What is sent for one pipeline: each chosen stage with the agent and model of the crew role that does it. A Cline
- *  stage carries its chosen billing source when the machine takes one; empty is Cline's own choice and is left out. */
-export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true): { kind: string; tool: string; model: string; effort?: string; provider?: string }[] {
+/** What is sent for one pipeline: each chosen stage with its tier and the agent and model of the crew member for that
+ *  tier. Gaffer's reason goes with a tier that is Gaffer's. A Cline stage carries its chosen billing source when the
+ *  machine takes one; empty is Cline's own choice and is left out. */
+export function stagePlan(kinds: Iterable<string>, crew: Crew, sourceSupported = true, ratings?: StageRatings): { kind: string; tool: string; model: string; effort?: string; provider?: string; tier: CrewTier; tierWhy?: string; backup?: { tool: string; model?: string; effort?: string } }[] {
   return orderStages(kinds).map(kind => {
-    const role = STAGES.find(stage => stage.kind === kind)!.role
-    const source = sourceSupported && crew[role].tool === 'cline' ? (crew[role].source ?? '').trim() : ''
-    return { kind, tool: crew[role].tool, model: crew[role].model.trim(), ...(crew[role].effort ? { effort: crew[role].effort } : {}), ...(source ? { provider: source } : {}) }
+    const { tier, why } = stageTier(kind, ratings), member = crew[tier]
+    const source = sourceSupported && member.tool === 'cline' ? (member.source ?? '').trim() : ''
+    // A backup that is the first choice again is no backup.
+    const spare = member.backup?.tool && (member.backup.tool !== member.tool || member.backup.model.trim() !== member.model.trim() || (member.backup.effort ?? '') !== (member.effort ?? '')) ? member.backup : undefined
+    return { kind, tool: member.tool, model: member.model.trim(), ...(member.effort ? { effort: member.effort } : {}), ...(source ? { provider: source } : {}), tier, ...(why ? { tierWhy: why } : {}), ...(spare ? { backup: { tool: spare.tool, ...(spare.model.trim() ? { model: spare.model.trim() } : {}), ...(spare.effort ? { effort: spare.effort } : {}) } } : {}) }
   })
 }
 
@@ -273,13 +315,13 @@ export function withReportedEfforts<T extends { tool: string; effort?: string }>
   })
 }
 
-/** How many separate agent sessions a pipeline will use: a new one each time the agent, model, effort or source changes. */
-export function sessionCount(plan: { tool: string; model: string; effort?: string; provider?: string }[]): number {
-  return plan.reduce((count, stage, index) => count + (index === 0 || stage.tool !== plan[index - 1].tool || stage.model !== plan[index - 1].model || (stage.effort ?? '') !== (plan[index - 1].effort ?? '') || (stage.provider ?? '') !== (plan[index - 1].provider ?? '') ? 1 : 0), 0)
+/** How many separate agent sessions a pipeline will use: one for every stage, whatever agent and model do it. */
+export function sessionCount(plan: unknown[]): number {
+  return plan.length
 }
 
-export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; moved: boolean; choice: StageChoice | null }
-type ChosenStage = { tool: string; model?: string; effort?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string }
+export type TrackNode = { kind: string; label: string; state: 'done' | 'running' | 'waiting' | 'pending' | 'failed'; tool: string; model: string; effort: string; source?: string; summary: string; /** Why the stage ran on its backup instead of its first choice; empty when it did not. */ balanced: string; moved: boolean; /** Gaffer closed the stage itself, on an outcome whose decisions it was given. */ auto: boolean; choice: StageChoice | null; /** The tier's name, empty for a stage with none, and Gaffer's reason where the tier was its assessment. */ tier: string; tierWhy: string }
+type ChosenStage = { tool: string; model?: string; effort?: string; tier?: string; tierWhy?: string; balanced?: string; appliedModel?: string; appliedEffort?: string; choiceCheck?: string; choiceNote?: string }
 type PipelinePiece = { state: string; stage?: number; stages?: (ChosenStage & { kind: string; provider?: string; state: string; summary?: string; closedBy?: string })[] }
 
 /** Whether a stage's agent, model and effort were applied, as the controller read it back from the machine. */
@@ -307,7 +349,7 @@ export function track(piece: PipelinePiece): TrackNode[] {
       else if (['following', 'starting', 'advancing'].includes(piece.state)) state = 'running'
     }
     // A stage the person moved on was closed on their word, not on Gaffer's review of it.
-    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), source: stage.provider, summary: stage.summary ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat') }
+    return { kind: stage.kind, label: stageLabel(stage.kind), state, tool: stage.tool, model: stage.model ?? '', effort: stage.effort ?? '', choice: stageChoice(stage), tier: stage.tier ? tierLabel(stage.tier) : '', tierWhy: stage.tierWhy ?? '', source: stage.provider, summary: stage.summary ?? '', balanced: stage.balanced ?? '', moved: stage.state === 'done' && (stage.closedBy === 'person' || stage.closedBy === 'chat'), auto: stage.state === 'done' && stage.closedBy === 'auto' }
   })
 }
 
@@ -521,22 +563,60 @@ export function factoryRows(records: { id: string; objective: string; sessions: 
   return rows.sort((a, b) => order[a.tone] - order[b.tone])
 }
 
-export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'restart' | 'stop'; label: string; primary?: boolean }
+export type NeedChoice = { id: 'answer' | 'retry' | 'again' | 'tell' | 'move' | 'budget' | 'open' | 'restart' | 'stop' | 'merge'; label: string; primary?: boolean; /** The choice to take unless the person knows better: Gaffer's, when its review advised, else the usual one. */ recommended?: boolean }
+/** Who recommends the first choice and why. `text` is the instruction Gaffer would give the agent. */
+export type NeedRecommend = { by: 'gaffer' | 'default'; label: string; why: string; text?: string }
+export type Need = { why: string; choices: NeedChoice[]; recommend?: NeedRecommend }
+/** Gaffer's advice on a stage its review brought back: one of the person's choices, and why. */
+export type GoalAdvice = { choice: string; why: string; text?: string }
+/** How many decisions Gaffer may take on one stage of an outcome whose decisions it was given. */
+export const MAX_STAGE_DECISIONS = 3
+/** Puts the recommended choice first and marks it. With one choice there is nothing to recommend. */
+function recommend(why: string, choices: NeedChoice[], advice?: GoalAdvice): Need {
+  if (choices.length < 2) return { why, choices }
+  const advised = advice?.why ? choices.find(choice => choice.id === advice.choice) : undefined
+  const first = advised ?? choices[0]
+  const ordered = [first, ...choices.filter(choice => choice !== first)].map((choice, index) => ({ id: choice.id, label: choice.label, ...(index === 0 ? { primary: true, recommended: true } : {}) }))
+  return { why, choices: ordered, recommend: advised ? { by: 'gaffer', label: first.label, why: advice!.why, ...(advice!.text ? { text: advice!.text } : {}) } : { by: 'default', label: first.label, why: '' } }
+}
 /** What the person can do about a pipeline whose session was ended or removed under it. `gone` is a session that was
  *  removed from history, which cannot be opened. */
-export function sessionEndedChoices(last: boolean, gone: boolean): { why: string; choices: NeedChoice[] } {
+export function sessionEndedChoices(last: boolean, gone: boolean): Need {
   const choices: NeedChoice[] = [{ id: 'restart', label: 'Run this stage again in a new session', primary: true }, { id: 'move', label: last ? 'Finish this stage' : 'Move to next stage' }, { id: 'stop', label: 'Stop following this outcome' }]
   if (!gone) choices.push({ id: 'open', label: 'Read the ended session' })
-  return { why: SESSION_ENDED_WHY, choices }
+  return recommend(SESSION_ENDED_WHY, choices)
 }
-type NeedGoal = { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean }
+type NeedGoal = { state: string; note: string; waitingOnWorker?: boolean; reviewFailed?: boolean; noStep?: boolean; advice?: GoalAdvice }
 /** What a pipeline that needs the person is waiting for, in one sentence, and the things they can do about it as
  *  buttons, the most likely first. `last` is whether the stage in hand is the pipeline's last. */
-export function needsYou(goal: NeedGoal, reason: string | undefined, last: boolean): { why: string; choices: NeedChoice[] } {
+export function needsYou(goal: NeedGoal, reason: string | undefined, last: boolean): Need {
   const move: NeedChoice = { id: 'move', label: last ? 'Finish this stage' : 'Move to next stage' }
   if (goal.waitingOnWorker) return { why: 'The agent is waiting for your answer or approval. Gaffer carries on by itself once you have answered.', choices: [{ id: 'answer', label: 'Open the session to answer', primary: true }] }
-  if (goal.reviewFailed) return { why: goal.note, choices: [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move] }
-  if (goal.state === 'limit') return { why: goal.note || 'This stage used its review budget or its time.', choices: [{ id: 'budget', label: 'Give it a new budget', primary: true }, move] }
-  if (goal.noStep) return { why: 'Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', choices: [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }] }
-  return { why: reason || goal.note || 'Gaffer brought this back to you.', choices: [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }] }
+  if (goal.reviewFailed) return recommend(goal.note, [{ id: 'retry', label: 'Try the review again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move])
+  if (goal.state === 'limit') return recommend(goal.note || 'This stage used its review budget or its time.', [{ id: 'budget', label: 'Give it a new budget', primary: true }, move])
+  if (goal.noStep) return recommend('Gaffer reviewed this and chose no next step, so it stopped. Nothing in particular is being asked of you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }])
+  return recommend(reason || goal.note || 'Gaffer brought this back to you.', [{ id: 'again', label: 'Have Gaffer look again', primary: true }, { id: 'tell', label: 'Tell the agent…' }, move, { id: 'open', label: 'Open the session' }], goal.advice)
+}
+type WaitingPiece = { key: string; title: string; state: string; conversationId?: string; sessionId?: string; sessionState?: string; stage?: number; stages?: { kind: string }[] }
+/** One decision an outcome is waiting on the person for: which pipeline and stage, why, and the choices, recommended first. */
+export type WaitingDecision<P> = { piece: P; stage: string; need: Need; kind: 'ended' | 'goal' | 'merge' }
+/** Every decision an outcome is waiting on the person for, in pipeline order: a stage Gaffer brought back or that used
+ *  its budget, a stage whose session ended, and a merge that waits for approval. */
+export function waitingDecisions<P extends WaitingPiece>(record: { sessions: P[] }, goals: Map<string, { attention: boolean; reason?: string; goal: NeedGoal }>): WaitingDecision<P>[] {
+  const out: WaitingDecision<P>[] = []
+  for (const piece of record.sessions) {
+    const stages = piece.stages ?? [], at = Math.min(piece.stage ?? 0, Math.max(stages.length - 1, 0))
+    const stage = stages.length ? stageLabel(stages[at].kind) : '', last = (piece.stage ?? 0) >= stages.length - 1
+    const goal = piece.conversationId ? goals.get(piece.conversationId) : undefined
+    if (sessionLost(piece)) out.push({ piece, stage, kind: 'ended', need: sessionEndedChoices(last, piece.sessionState === 'gone') })
+    else if (piece.state === 'ready_to_merge') out.push({ piece, stage, kind: 'merge', need: recommend('Ready to merge. Nothing merges until you approve it.', [{ id: 'merge', label: 'Approve the merge…' }, { id: 'open', label: 'Open the session' }]) })
+    else if (goal && pipelineStatus(piece, goal.attention).label === 'Needs you') out.push({ piece, stage, kind: 'goal', need: needsYou(goal.goal, goal.reason, last) })
+  }
+  return out
+}
+const DECISION_ABOUT: Record<string, string> = { question: 'Gaffer’s review brought the stage back', no_step: 'Gaffer’s review chose no next step', review_failed: 'Gaffer’s review did not complete', limit: 'The stage had used its budget', session_ended: 'The stage’s session had ended', agent_question: 'The agent asked a multiple-choice question' }
+const DECISION_DID: Record<string, string> = { again: 'Reviewed the stage again', tell: 'Told the agent what to do', move: 'Moved to the next stage', budget: 'Gave the stage a new budget', restart: 'Ran the stage again in a new session', answer: 'Answered it' }
+/** One of Gaffer's decisions in words: what had stopped the stage, and what Gaffer did about it. */
+export function decisionText(d: { about: string; choice?: string; failed?: boolean }): { about: string; did: string } {
+  return { about: DECISION_ABOUT[d.about] ?? 'The stage stopped', did: d.failed || !d.choice ? 'Left to you' : DECISION_DID[d.choice] ?? d.choice }
 }

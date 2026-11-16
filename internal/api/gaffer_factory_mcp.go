@@ -152,6 +152,24 @@ func (s *server) mcpOutcome(uid int64, o store.GafferOutcome, full bool) map[str
 		"project": o.ProjectName, "agent": o.Tool, "approvals": approvals, "reports_by_itself": o.AutoReport,
 		"created_at": o.CreatedAt, "updated_at": o.UpdatedAt, "pipelines": pipelines, "machine_id": o.AgentID,
 	}
+	// Who takes the decisions when a stage stops: the person, or Gaffer for
+	// them. What Gaffer decided is listed; its reasons are words about
+	// sessions, so they go only to a connection that may control the Factory.
+	out["decisions_by"] = "you"
+	if o.Automation {
+		out["decisions_by"] = "gaffer"
+	}
+	if len(o.Decisions) > 0 {
+		taken := []map[string]any{}
+		for _, d := range o.Decisions {
+			item := map[string]any{"at": d.At, "pipeline": d.Key, "stage": d.Stage, "about": d.About, "choice": d.Choice, "failed": d.Failed}
+			if full {
+				item["why"] = d.Why
+			}
+			taken = append(taken, item)
+		}
+		out["gaffer_decisions"] = taken
+	}
 	if o.Report != nil {
 		report := map[string]any{"at": o.Report.At, "by_itself": o.Report.Auto, "proposals": len(o.Report.Proposals)}
 		if full {

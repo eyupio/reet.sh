@@ -104,6 +104,10 @@ type OutcomeInput struct {
 	// pipeline finishes or stops. Each report is one model request, and it
 	// only ever proposes.
 	AutoReport bool `json:"autoReport"`
+	// Automation gives Gaffer this outcome's decisions: what to do when a
+	// stage stops. It is the person's choice only, and never covers a merge
+	// or an agent's approval.
+	Automation bool `json:"automation"`
 	// RequestID, when given, names this request: asking again under the same
 	// one answers the outcome it already started instead of starting another.
 	// It is for a client that may not hear back; the browser sends none.
@@ -363,7 +367,7 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if err != nil {
 		return o, err
 	}
-	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
+	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, Automation: in.Automation, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
 	if err != nil {
 		return o, err
@@ -633,6 +637,7 @@ func (s *Service) advanceOutcomes(ctx context.Context) {
 	}
 	s.releaseGoneSessions()
 	s.autoReports(ctx)
+	s.autoDecisions(ctx)
 	rows, err := s.store.StartingGafferOutcomes()
 	// The controller's settings are read only when there is an outcome to
 	// start, as the goal supervisor reads them only for a due goal.
@@ -891,7 +896,7 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 						row.Stages[row.Stage].AgentInputTokens, row.Stages[row.Stage].AgentOutputTokens, row.Stages[row.Stage].AgentCachedTokens, row.Stages[row.Stage].AgentUsageReported = agent.InputTokens, agent.OutputTokens, agent.CachedTokens, true
 					}
 					// A stopped outcome starts nothing on Gaffer's word, only on the person's.
-					if o.State != "stopped" || by != "gaffer" {
+					if o.State != "stopped" || by != "gaffer" && by != "auto" {
 						settleStoppedOutcome(o)
 						o.State = "starting"
 					}
@@ -915,6 +920,8 @@ func (s *Service) stageHandedOver(uid int64, conversation, summary, by string) {
 				reason = "The person moved the pipeline on from the " + kind + " stage."
 			case "chat":
 				reason = "The person told Gaffer in the session’s chat to move the pipeline on from the " + kind + " stage."
+			case "auto":
+				reason = "Gaffer, given this outcome’s decisions, moved the pipeline on from the " + kind + " stage."
 			}
 			s.audit(uid, "gaffer-stage-handed-over", map[string]any{"outcome": o.ID, "pipeline": key, "stage": kind, "by": by, "session": piece.SessionID, "reviews": used.UsedReviews, "reason": reason})
 			// The finished stage's goal is closed without calling it the

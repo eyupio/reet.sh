@@ -79,10 +79,17 @@ type GafferOutcomeStage struct {
 	ConversationID string `json:"conversationId,omitempty"`
 	Summary        string `json:"summary,omitempty"`
 	// ClosedBy is who ended a done stage: "gaffer" (its review handed the
-	// stage over), "person" (they moved it on) or "chat" (they told Gaffer to).
-	ClosedBy  string `json:"closedBy,omitempty"`
-	StartedAt int64  `json:"startedAt,omitempty"`
-	EndedAt   int64  `json:"endedAt,omitempty"`
+	// stage over), "person" (they moved it on), "chat" (they told Gaffer to)
+	// or "auto" (Gaffer decided to, on an outcome whose decisions it was given).
+	ClosedBy string `json:"closedBy,omitempty"`
+	// Decided counts the decisions Gaffer took on this stage for the person,
+	// BudgetRenewed is whether one of them gave the stage a new budget, and
+	// DecidedFor names the stop last put to Gaffer, so one stop is one request.
+	Decided       int    `json:"decided,omitempty"`
+	BudgetRenewed bool   `json:"budgetRenewed,omitempty"`
+	DecidedFor    string `json:"decidedFor,omitempty"`
+	StartedAt     int64  `json:"startedAt,omitempty"`
+	EndedAt       int64  `json:"endedAt,omitempty"`
 	// What Gaffer's own model used following this stage, recorded when the
 	// stage was handed over. It is Gaffer's usage, not the working agent's.
 	Reviews       int  `json:"reviews,omitempty"`
@@ -178,11 +185,48 @@ type GafferOutcome struct {
 	AutoReport      bool   `json:"autoReport,omitempty"`
 	AutoReportedFor string `json:"autoReportedFor,omitempty"`
 	AutoReports     int    `json:"autoReports,omitempty"`
+	// Automation is the person's choice that Gaffer takes this outcome's
+	// decisions for them: what to do when a stage stops. It never covers a
+	// merge or an agent's approval. Decisions is what Gaffer then decided and
+	// why, newest last, the most recent MaxGafferOutcomeDecisions kept.
+	Automation bool                    `json:"automation,omitempty"`
+	Decisions  []GafferOutcomeDecision `json:"decisions,omitempty"`
 	// ArchivedAt is when the person put this finished outcome away; zero means
 	// it is on the Factory floor. The record and its report are kept.
 	ArchivedAt int64 `json:"archivedAt,omitempty"`
 	CreatedAt  int64 `json:"createdAt"`
 	UpdatedAt  int64 `json:"updatedAt"`
+}
+
+// MaxGafferOutcomeDecisions is how many of Gaffer's decisions an outcome keeps.
+const MaxGafferOutcomeDecisions = 60
+
+// GafferOutcomeDecision is one decision Gaffer took for the person on an
+// outcome whose decisions it was given: which pipeline and stage, what had
+// stopped it (About), what Gaffer chose and why. Failed marks a stop Gaffer
+// could not decide, with the reason in Why; that stop stays with the person.
+type GafferOutcomeDecision struct {
+	At            int64  `json:"at"`
+	Key           string `json:"key"`
+	Title         string `json:"title"`
+	Stage         string `json:"stage"`
+	About         string `json:"about"`
+	Choice        string `json:"choice,omitempty"`
+	Why           string `json:"why"`
+	Text          string `json:"text,omitempty"`
+	Failed        bool   `json:"failed,omitempty"`
+	Model         string `json:"model,omitempty"`
+	InputTokens   int    `json:"inputTokens,omitempty"`
+	OutputTokens  int    `json:"outputTokens,omitempty"`
+	UsageReported bool   `json:"usageReported,omitempty"`
+}
+
+// Decide records one of Gaffer's decisions, keeping the most recent.
+func (o *GafferOutcome) Decide(d GafferOutcomeDecision) {
+	o.Decisions = append(o.Decisions, d)
+	if extra := len(o.Decisions) - MaxGafferOutcomeDecisions; extra > 0 {
+		o.Decisions = append([]GafferOutcomeDecision(nil), o.Decisions[extra:]...)
+	}
 }
 
 // Retire records conversations the pipeline has left behind, newest last,
@@ -454,6 +498,30 @@ func (s *Store) StartingGafferOutcomes() ([]GafferOutcome, error) {
 // still exists.
 func (s *Store) FollowedGafferOutcomes() ([]GafferOutcome, error) {
 	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE EXISTS(SELECT 1 FROM json_each(gaffer_outcomes.data,'$.sessions') WHERE json_extract(value,'$.state')='following' AND json_extract(value,'$.sessionId')<>'') ORDER BY created_at,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GafferOutcome
+	for rows.Next() {
+		var uid int64
+		var raw string
+		if err = rows.Scan(&uid, &raw); err != nil {
+			return nil, err
+		}
+		o, err := scanOutcome(uid, raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// AutomatedGafferOutcomes lists the outcomes whose owner gave Gaffer the
+// decisions, and that are neither stopped nor archived.
+func (s *Store) AutomatedGafferOutcomes() ([]GafferOutcome, error) {
+	rows, err := s.db.Query(`SELECT user_id,data FROM gaffer_outcomes WHERE json_extract(data,'$.automation') AND json_extract(data,'$.state')!='stopped' AND COALESCE(json_extract(data,'$.archivedAt'),0)=0 ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}

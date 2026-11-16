@@ -471,7 +471,10 @@ func (s *Service) movePipelineOn(uid int64, conversation, note, by string) error
 		return invalid("advance", "That pipeline has no stage in hand to move on from.")
 	}
 	summary := "The person moved this pipeline on from this stage."
-	if note = strings.TrimSpace(note); note != "" {
+	if note = strings.TrimSpace(note); by == "auto" {
+		// The person gave Gaffer the decisions; the note is Gaffer's reason.
+		summary = "Gaffer moved this pipeline on from this stage for the person, who gave it this outcome’s decisions. Its reason: " + clipBytes(note, 600)
+	} else if note != "" {
 		summary += " They said: " + clipBytes(note, 600)
 	}
 	if g, err := s.store.GafferGoalFor(uid, conversation); err == nil {

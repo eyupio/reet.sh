@@ -34,6 +34,7 @@ func (s *server) registerGafferOutcomeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/stop-following", access(s.gafferOutcomeStopFollowing))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/archive", access(s.gafferOutcomeArchive(true)))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/restore", access(s.gafferOutcomeArchive(false)))
+	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/automation", access(s.gafferOutcomeAutomation))
 	mux.HandleFunc("DELETE /api/v2/gaffer/outcomes/{id}", access(s.gafferOutcomeDelete))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/merge", access(s.gafferOutcomeMerge))
 	mux.HandleFunc("POST /api/v2/gaffer/outcomes/{id}/sessions/{key}/retry", access(s.gafferOutcomeRetry))
@@ -172,6 +173,30 @@ func (s *server) gafferOutcomeStopFollowing(w http.ResponseWriter, r *http.Reque
 }
 
 // gafferOutcomeArchive puts a finished outcome away, or brings it back.
+// gafferOutcomeAutomation is the person giving Gaffer an outcome's decisions,
+// or taking them back. It never covers a merge or an agent's approval.
+func (s *server) gafferOutcomeAutomation(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Revision int64 `json:"revision"`
+		On       *bool `json:"on"`
+	}
+	if !decodeStrictJSON(w, r, 1024, &in, "That outcome request is invalid.") {
+		return
+	}
+	if in.Revision < 1 || in.On == nil {
+		writeErr(w, 400, "Reload this outcome before changing it.")
+		return
+	}
+	o, err := s.gafferProviders.SetOutcomeAutomation(s.uid(r), r.PathValue("id"), in.Revision, *in.On)
+	if err != nil {
+		gafferOutcomeError(w, err)
+		return
+	}
+	s.eventRequest(r, "gaffer-outcome-decisions", "", map[string]any{"outcome": o.ID, "gaffer": o.Automation})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, o)
+}
+
 func (s *server) gafferOutcomeArchive(archive bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in struct {

@@ -182,7 +182,7 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 		// Trust is given once, when the outcome is approved, and Antigravity never starts without it.
 		for _, piece := range pieces {
 			for _, stage := range piece.Stages {
-				if stage.Tool == "antigravity" {
+				if stage.Tool == "antigravity" || stage.Backup != nil && stage.Backup.Tool == "antigravity" {
 					return current, invalid("trust", "This outcome was approved without folder trust, and Google Antigravity starts only in a trusted folder. Choose another agent for “"+piece.Title+"”, or give Gaffer a new outcome with folder trust ticked.")
 				}
 			}
@@ -192,8 +192,11 @@ func (s *Service) addPipelinesOnce(uid int64, id string, in AddPipelinesInput) (
 		// The outcome runs without approvals, so a pipeline joins it only with agents that can.
 		for _, piece := range pieces {
 			for _, stage := range piece.Stages {
-				if !terminalproto.ToolTakesYolo(stage.Tool) {
-					return current, invalid("yolo", "This outcome runs on YOLO, and one of the chosen agents has no YOLO option reet can use.")
+				// A stage may start on its backup, so that has to take YOLO too.
+				for _, name := range stageAgents(stage) {
+					if !terminalproto.ToolTakesYolo(name) {
+						return current, invalid("yolo", "This outcome runs on YOLO, and one of the chosen agents has no YOLO option reet can use.")
+					}
 				}
 			}
 		}

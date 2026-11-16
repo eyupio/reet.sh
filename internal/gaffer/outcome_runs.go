@@ -316,15 +316,6 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	if providerSource != "" && (!terminalproto.ToolTakesProvider(in.Tool) || !terminalproto.ValidProvider(providerSource)) {
 		return o, invalid("provider", "Choose a Cline billing source, or leave it to Cline’s own.")
 	}
-	if in.Trust && in.Tool != "opencode" && in.Tool != "antigravity" && !outcomeWantsTrust(in) {
-		return o, invalid("trust", "Only OpenCode and Google Antigravity ask you to trust a folder's plugins.")
-	}
-	if !in.Trust && (in.Tool == "antigravity" || outcomeNames(in, "antigravity")) {
-		return o, invalid("trust", "Google Antigravity starts only in a folder whose hooks and customizations you have trusted. Approve this outcome on the Factory page with folder trust ticked, or choose another agent.")
-	}
-	if in.Yolo && !outcomeTakesYolo(in) {
-		return o, invalid("yolo", "One of the chosen agents has no YOLO option reet can use.")
-	}
 	if in.MaxReviews < 1 || in.MaxReviews > 48 || in.Hours < 1 || in.Hours > 168 {
 		return o, invalid("goal", "Choose 1 to 48 reviews over 1 to 168 hours for each session.")
 	}
@@ -369,6 +360,18 @@ func (s *Service) CreateOutcome(uid int64, in OutcomeInput) (store.GafferOutcome
 	sessions, err := outcomePieces(in.Sessions, in.Tool, model, providerSource, crew, in.AutoMerge, map[string]bool{}, 0)
 	if err != nil {
 		return o, err
+	}
+	// Trust and YOLO are judged on the agents that will run: a stage that
+	// names none takes its tier's from the saved crew, and a stage may start
+	// on its backup.
+	if in.Trust && in.Tool != "opencode" && in.Tool != "antigravity" && !outcomeRunsOn(sessions, "opencode", "antigravity") {
+		return o, invalid("trust", "Only OpenCode and Google Antigravity ask you to trust a folder's plugins.")
+	}
+	if !in.Trust && (in.Tool == "antigravity" || outcomeRunsOn(sessions, "antigravity")) {
+		return o, invalid("trust", "Google Antigravity starts only in a folder whose hooks and customizations you have trusted. Approve this outcome on the Factory page with folder trust ticked, or choose another agent.")
+	}
+	if in.Yolo && !outcomeTakesYolo(in.Tool, sessions) {
+		return o, invalid("yolo", "One of the chosen agents has no YOLO option reet can use.")
 	}
 	o = store.GafferOutcome{ID: id, Objective: objective, AgentID: project.Host, ProjectID: project.ID, ProjectName: project.Name, Dir: project.Dir, Tool: in.Tool, Model: model, Provider: providerSource, Trust: in.Trust, Yolo: in.Yolo, Automation: in.Automation, AutoReport: in.AutoReport, ProviderID: provider.ID, MaxReviews: in.MaxReviews, Hours: in.Hours, Sessions: sessions}
 	o, err = s.store.CreateGafferOutcomeFor(uid, o)
@@ -464,39 +467,48 @@ func outcomePieces(items []OutcomeSession, tool, model, provider string, crew st
 	return out, nil
 }
 
-// outcomeTakesYolo reports whether every agent the outcome names can be
-// started without approvals.
-func outcomeTakesYolo(in OutcomeInput) bool {
-	if !terminalproto.ToolTakesYolo(in.Tool) {
+// stageAgents lists every agent a resolved stage can start on: its own and
+// its backup's.
+func stageAgents(stage store.GafferOutcomeStage) []string {
+	tools := []string{stage.Tool}
+	if stage.First != nil {
+		tools = append(tools, stage.First.Tool)
+	}
+	if stage.Backup != nil {
+		tools = append(tools, stage.Backup.Tool)
+	}
+	return tools
+}
+
+// outcomeTakesYolo reports whether every agent the outcome can run on, the
+// main one and each stage's, can be started without approvals.
+func outcomeTakesYolo(tool string, sessions []store.GafferOutcomeSession) bool {
+	if !terminalproto.ToolTakesYolo(tool) {
 		return false
 	}
-	for _, item := range in.Sessions {
-		for _, stage := range item.Stages {
-			if stage.Tool != "" && !terminalproto.ToolTakesYolo(stage.Tool) || stage.Backup != nil && stage.Backup.Tool != "" && !terminalproto.ToolTakesYolo(stage.Backup.Tool) {
-				return false
+	for _, piece := range sessions {
+		for _, stage := range piece.Stages {
+			for _, name := range stageAgents(stage) {
+				if !terminalproto.ToolTakesYolo(name) {
+					return false
+				}
 			}
 		}
 	}
 	return true
 }
 
-// outcomeNames reports whether any stage of the plan names the agent.
-func outcomeNames(in OutcomeInput, tool string) bool {
-	for _, piece := range in.Sessions {
+// outcomeRunsOn reports whether any stage of the resolved plan can start on
+// one of the named agents.
+func outcomeRunsOn(sessions []store.GafferOutcomeSession, tools ...string) bool {
+	for _, piece := range sessions {
 		for _, stage := range piece.Stages {
-			if stage.Tool == tool {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func outcomeWantsTrust(in OutcomeInput) bool {
-	for _, piece := range in.Sessions {
-		for _, stage := range piece.Stages {
-			if stage.Tool == "opencode" || stage.Tool == "antigravity" || stage.Backup != nil && (stage.Backup.Tool == "opencode" || stage.Backup.Tool == "antigravity") {
-				return true
+			for _, name := range stageAgents(stage) {
+				for _, tool := range tools {
+					if name == tool {
+						return true
+					}
+				}
 			}
 		}
 	}

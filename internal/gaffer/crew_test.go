@@ -145,3 +145,38 @@ func TestAStageWithNoAgentTakesItsTiersFromTheSavedCrew(t *testing.T) {
 		}
 	}
 }
+
+// Folder trust and YOLO are judged on the agents that will run. A stage that
+// names no agent takes its tier's from the saved crew, so trust for that
+// agent is accepted, and required where it must be, although the request
+// itself names another.
+func TestTrustAndYoloAreJudgedOnTheAgentsTheSavedCrewResolvesTo(t *testing.T) {
+	r := outcomeFixture(t)
+	if _, err := r.s.SaveCrew(r.p.UserID, store.GafferCrew{Standard: store.GafferCrewTier{Tool: "opencode", Model: "cheap/coder"}}); err != nil {
+		t.Fatal(err)
+	}
+	in := r.in
+	in.Tool, in.Trust = "claude", true
+	in.Sessions = []OutcomeSession{{Title: "Export API", Prompt: "Add the CSV export endpoint.", Stages: []OutcomeStageInput{{Kind: "code"}}}}
+	r.s.StartGoalSupervisor()
+	created, err := r.s.CreateOutcome(r.p.UserID, in)
+	if err != nil || !created.Trust || created.Sessions[0].Stages[0].Tool != "opencode" {
+		t.Fatalf("trust for the crew's OpenCode was refused: %+v %v", created, err)
+	}
+	// No stage runs on an agent that asks for trust: it is still refused.
+	in.Sessions = []OutcomeSession{{Title: "Export docs", Prompt: "Write the docs.", Stages: []OutcomeStageInput{{Kind: "pr", Tool: "claude"}}}}
+	if _, err = r.s.CreateOutcome(r.p.UserID, in); err == nil || !strings.Contains(err.Error(), "trust") {
+		t.Fatalf("trust with no agent that asks for it: %v", err)
+	}
+	// Antigravity from the crew, or as a backup, needs the trust it always needs.
+	if _, err = r.s.SaveCrew(r.p.UserID, store.GafferCrew{Standard: store.GafferCrewTier{Tool: "antigravity"}, Light: store.GafferCrewTier{Tool: "claude", Backup: &store.GafferStageAgent{Tool: "antigravity"}}}); err != nil {
+		t.Fatal(err)
+	}
+	in.Trust = false
+	for _, kind := range []string{"code", "pr"} {
+		in.Sessions = []OutcomeSession{{Title: "Export " + kind, Prompt: "Do it.", Stages: []OutcomeStageInput{{Kind: kind}}}}
+		if _, err = r.s.CreateOutcome(r.p.UserID, in); err == nil || !strings.Contains(err.Error(), "Antigravity") {
+			t.Fatalf("%s: Antigravity from the crew without trust: %v", kind, err)
+		}
+	}
+}

@@ -167,8 +167,18 @@ func (s *Service) decidePipeline(parent context.Context, p Principal, id string,
 }
 
 func decideTool(choices []string) elicore.Tool {
-	names, _ := json.Marshal(choices)
-	return elicore.Tool{Name: "decide", Description: "Take the one decision this stopped pipeline stage is waiting for.", Parameters: json.RawMessage(`{"type":"object","properties":{"choice":{"type":"string","enum":` + string(names) + `},"why":{"type":"string","minLength":1,"maxLength":300},"instruction":{"type":"string","maxLength":2000}},"required":["choice","why"],"additionalProperties":false}`)}
+	// The schema is built as a value and encoded whole, never by joining text.
+	schema, _ := json.Marshal(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"choice":      map[string]any{"type": "string", "enum": choices},
+			"why":         map[string]any{"type": "string", "minLength": 1, "maxLength": 300},
+			"instruction": map[string]any{"type": "string", "maxLength": 2000},
+		},
+		"required":             []string{"choice", "why"},
+		"additionalProperties": false,
+	})
+	return elicore.Tool{Name: "decide", Description: "Take the one decision this stopped pipeline stage is waiting for.", Parameters: schema}
 }
 
 // decision accepts one complete decision: a listed choice, a reason, and an

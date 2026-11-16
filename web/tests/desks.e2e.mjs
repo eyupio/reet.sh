@@ -1,7 +1,9 @@
-// The Desks tab (/desks): the list, the last desk opened, a desk's tabs (rename, colour, reorder, close) and autosave.
+// The Desks tab (/desks): the list, the last desk opened, a desk's tabs (rename, colour, reorder, close) and autosave;
+// a tab split into panes (splits, separators, presets, zoom, keys, the shared toolbar, swap and move, the phone's chips).
 // Synthetic API answers and a fake terminal socket; nothing is started or ended on a machine.
 // Run against `npm --prefix web run preview -- --host 127.0.0.1 --port 4173` after `npm --prefix web run build`.
-// REET_UI_SCREENSHOTS=<dir> also saves the list and a desk in both themes and at phone width.
+// REET_UI_SCREENSHOTS=<dir> also saves the list and a desk in both themes and at phone width, and a 2 + 1 tab and a grid
+// of four at 1440 px in both themes.
 import { chromium, expect } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 const base = process.env.REET_UI_URL || 'http://127.0.0.1:4173'
@@ -13,7 +15,7 @@ page.on('pageerror', error => errors.push(error.message))
 
 const now = Date.now(), agent = 'connector-studio00000001'
 const machines = [{ agentId: agent, host: 'studio', ready: true, serverEnabled: true, capabilities: { osUser: 'dev', terminalEnabled: true, terminalControl: true, readiness: 'ready', browse: true } }]
-const running = (id, title) => ({ id, agentId: agent, title, state: 'running', createdAt: now, updatedAt: now, exitCode: null, dir: '/home/dev/PROD_reet' })
+const running = (id, title, dir = '/home/dev/PROD_reet') => ({ id, agentId: agent, title, state: 'running', createdAt: now, updatedAt: now, exitCode: null, dir })
 const paneOf = (id, name, session, dir) => ({ id, name, colour: '', host: agent, session, kind: 'shell', dir, dirAt: 0, start: '' })
 const tabOf = (id, name, colour, p) => ({ id, name, colour, root: { pane: p.id }, zoomed: '', active: p.id, panes: { [p.id]: p } })
 const deskOf = (id, name, tabs, over = {}) => ({ id, name, colour: 'red', template: false, position: 0, version: 1, schema: 1, doc: { tabs, active: tabs[0]?.id ?? '' }, ...over })
@@ -21,10 +23,26 @@ const summary = d => ({ id: d.id, name: d.name, colour: d.colour, template: d.te
   panes: d.doc.tabs.reduce((n, t) => n + Object.keys(t.panes).length, 0), sessions: d.doc.tabs.flatMap(t => Object.values(t.panes).map(p => p.session)).filter(Boolean),
   hosts: [...new Set(d.doc.tabs.flatMap(t => Object.values(t.panes).map(p => p.host)))] })
 
+// A desk of split tabs: a 2 + 1 (alpha and beta side by side over gamma), four side by side, and nine.
+const leaf = id => ({ pane: id })
+const twoPlusOne = { split: 'down', ratio: 0.5, a: { split: 'right', ratio: 0.5, a: leaf('pane-a'), b: leaf('pane-b') }, b: leaf('pane-c') }
+const sideOf = ids => ids.length === 1 ? leaf(ids[0]) : { split: 'right', ratio: 1 / ids.length, a: leaf(ids[0]), b: sideOf(ids.slice(1)) }
+const nine = Array.from({ length: 9 }, (_, i) => `pane-n${i + 1}`)
+function splitDesk() {
+  const p = (id, name, session, colour = '') => ({ ...paneOf(id, name, session, '/home/dev/PROD_reet'), colour })
+  return deskOf('desk-split', 'split desk', [
+    { id: 'tab-three', name: 'deploy', colour: 'red', root: twoPlusOne, zoomed: '', active: 'pane-a', panes: { 'pane-a': p('pane-a', 'alpha', 'sess-a', 'red'), 'pane-b': p('pane-b', 'beta', 'sess-b', 'blue'), 'pane-c': p('pane-c', 'gamma', 'sess-c', 'green') } },
+    { id: 'tab-four', name: 'four', colour: 'violet', root: sideOf(['pane-d1', 'pane-d2', 'pane-d3', 'pane-d4']), zoomed: '', active: 'pane-d1', panes: Object.fromEntries(['d1', 'd2', 'd3', 'd4'].map(x => [`pane-${x}`, p(`pane-${x}`, x, `sess-${x}`)])) },
+    { id: 'tab-nine', name: 'nine', colour: '', root: { split: 'down', ratio: 1 / 3, a: sideOf(nine.slice(0, 3)), b: { split: 'down', ratio: 0.5, a: sideOf(nine.slice(3, 6)), b: sideOf(nine.slice(6)) } }, zoomed: '', active: 'pane-n1', panes: Object.fromEntries(nine.map(id => [id, p(id, id.slice(5), '')])) },
+  ], { position: 2 })
+}
+
 // The fixture's state: reset() before each part.
-let desks, sessions, patches, patched, ends, creates, staleNext, hidden
+let profileTheme = 'light'
+let desks, sessions, patches, patched, ends, creates, staleNext, hidden, sockets, failing, ticketDelay, attachingNow, attachingMost
 function reset({ empty = false } = {}) {
-  sessions = [running('sess-deploy', 'deploy'), running('sess-logs', 'logs'), running('sess-db', 'db')]
+  sessions = [running('sess-deploy', 'deploy'), running('sess-logs', 'logs'), running('sess-db', 'db'),
+    ...['a', 'b', 'c', 'd1', 'd2', 'd3', 'd4'].map(x => running(`sess-${x}`, x))]
   desks = new Map()
   if (!empty) {
     const d = deskOf('desk-prod', 'prod deploy', [
@@ -34,8 +52,10 @@ function reset({ empty = false } = {}) {
     ])
     desks.set(d.id, d)
     desks.set('desk-dev', deskOf('desk-dev', 'zoomies dev', [], { colour: 'green', position: 1 }))
+    desks.set('desk-split', splitDesk())
   }
   patches = []; patched = []; ends = []; creates = []; staleNext = null; hidden = false
+  sockets = new Map(); failing = new Set(); ticketDelay = 0; attachingNow = 0; attachingMost = 0
 }
 reset()
 
@@ -43,7 +63,7 @@ const api = async route => {
   const request = route.request(), url = new URL(request.url()), path = url.pathname, method = request.method()
   let data = {}
   if (path === '/api/v2/auth/status') data = { mode: 'accounts', user: { id: 1, name: 'Desk tester', email: 'test@example.test', role: 'owner' } }
-  else if (path === '/api/v2/profile') data = { profile: { theme: 'light', shelfView: 'list', cardsExpanded: false } }
+  else if (path === '/api/v2/profile') data = { profile: { theme: profileTheme, shelfView: 'list', cardsExpanded: false } }
   else if (path === '/api/skills') data = { skills: [], counts: { all: 0, used: 0, liked: 0, bookmarked: 0 } }
   else if (path === '/api/environments') data = { environments: [], machines: [] }
   else if (path === '/api/tags') data = { tags: [] }
@@ -69,7 +89,14 @@ const api = async route => {
     ends.push({ id, ...request.postDataJSON() })
     sessions = sessions.map(s => s.id === id ? { ...s, state: 'ended' } : s)
   }
-  else if (path.endsWith('/attachments')) data = { ticket: 'fixture-ticket00000000000' }
+  else if (path.endsWith('/attachments')) {
+    // Each session's ticket names it, so the socket stub can tell the panes' sockets apart.
+    const id = path.split('/').at(-2)
+    attachingNow++; attachingMost = Math.max(attachingMost, attachingNow)
+    if (ticketDelay) await new Promise(resolve => setTimeout(resolve, ticketDelay))
+    attachingNow--
+    data = { ticket: `ticket-${id}` }
+  }
   else if (path === '/api/v2/desks' && method === 'GET') {
     data = { desks: [...desks.values()].map(summary) }
     // A desk from a newer reet: the controller never lists one, and the browser does not show one either.
@@ -98,11 +125,21 @@ const api = async route => {
   else return route.fulfill({ status: 404, json: { error: `Unmocked ${path}` } })
   await route.fulfill({ json: data })
 }
+// Each pane's socket, by session: what it was sent (input and resizes) and whether it has closed.
 const socketStub = socket => {
+  let record
   socket.onMessage(message => {
-    if (typeof message !== 'string') return
+    if (typeof message !== 'string') { record?.input.push(Buffer.from(message).toString()); return }
     const data = JSON.parse(message)
-    if (data.ticket) { socket.send('{"type":"ready"}'); socket.send(Buffer.from('\x1b[2J\x1b[Hdev@studio:~/PROD_reet$ ')) }
+    if (data.ticket) {
+      const id = String(data.ticket).replace(/^ticket-/, '')
+      record = { input: [], resizes: [], closed: false }
+      sockets.set(id, record)
+      socket.onClose(() => { record.closed = true })
+      // A session whose machine cannot be reached: the socket closes before it is ready.
+      if (failing.has(id)) { socket.close({ code: 1011, reason: 'machine unreachable' }); return }
+      socket.send('{"type":"ready"}'); socket.send(Buffer.from('\x1b[2J\x1b[Hdev@studio:~/PROD_reet$ '))
+    } else if (data.type === 'resize') record?.resizes.push([data.cols, data.rows])
   })
 }
 await page.route('**/api/**', api)
@@ -119,6 +156,17 @@ async function openDesk() {
   await expect(tab('deploy')).toHaveAttribute('aria-selected', 'true')
 }
 const lastDoc = () => patches.at(-1)?.doc
+const pane = id => page.locator(`.desk-pane[data-pane="${id}"]`)
+const chord = key => page.keyboard.press(`Alt+Shift+${key}`)
+const attached = ids => expect.poll(() => ids.every(id => sockets.get(id) && !sockets.get(id).closed), { timeout: 10_000 }).toBe(true)
+/** Opens the split desk on a tab (the 2 + 1 unless named). */
+async function openSplit(tabId = 'tab-three') {
+  desks.get('desk-split').doc.active = tabId
+  await page.goto(`${base}/desks/desk-split`)
+  await expect(page.getByRole('heading', { name: 'split desk', level: 1 })).toBeVisible()
+  await expect(page.locator(`[data-tab="${tabId}"] [role=tab]`)).toHaveAttribute('aria-selected', 'true')
+}
+const tabDoc = id => lastDoc().tabs.find(t => t.id === id)
 
 try {
   // ── Desks is in the top bar ──
@@ -415,8 +463,356 @@ try {
   }
   console.log('ok - loading another page does not read the desks')
 
+  // ── splits right by key and saves the tree ──
+  reset()
+  // The shell has moved since the pane was opened: the split opens where it is now.
+  sessions = sessions.map(x => x.id === 'sess-deploy' ? { ...x, liveDir: '/home/dev/PROD_reet/web' } : x)
+  await openDesk()
+  await attached(['sess-deploy'])
+  await quiet(); patches = []
+  await pane('pane-deploy').locator('.xterm').click()
+  const typed = sockets.get('sess-deploy').input.length
+  await chord('KeyD')
+  await expect(page.locator('.desk-pane')).toHaveCount(2)
+  expect(creates).toHaveLength(1)
+  expect(creates[0]).toMatchObject({ agentId: agent, title: 'web', dir: '/home/dev/PROD_reet/web' })
+  await quiet()
+  {
+    const t = tabDoc('tab-deploy'), added = Object.keys(t.panes).find(id => id !== 'pane-deploy')
+    expect(t.root).toEqual({ split: 'right', ratio: 0.5, a: leaf('pane-deploy'), b: leaf(added) })
+    expect(t.panes[added]).toMatchObject({ session: 'sess-new-1', host: agent, kind: 'shell', dir: '/home/dev/PROD_reet/web' })
+    expect(t.active).toBe(added)
+    await expect(pane(added)).toHaveClass(/focused/)
+    // The chord never reached the shell.
+    expect(sockets.get('sess-deploy').input.slice(typed)).toEqual([])
+    // Alt+Shift+E splits the new pane down, with another fresh id.
+    await attached(['sess-new-1'])
+    await chord('KeyE')
+    await expect(page.locator('.desk-pane')).toHaveCount(3)
+    await quiet()
+    const t2 = tabDoc('tab-deploy'), third = Object.keys(t2.panes).find(id => id !== 'pane-deploy' && id !== added)
+    expect(t2.root).toEqual({ split: 'right', ratio: 0.5, a: leaf('pane-deploy'), b: { split: 'down', ratio: 0.5, a: leaf(added), b: leaf(third) } })
+    expect(new Set(lastDoc().tabs.flatMap(x => Object.keys(x.panes))).size).toBe(5)
+  }
+  console.log('ok - splits right by key and saves the tree')
+
+  // ── the tenth pane is refused ──
+  reset()
+  await openSplit('tab-nine')
+  await quiet(); patches = []
+  await pane('pane-n5').click()
+  await chord('KeyD')
+  await expect(page.locator('.notice.bad')).toContainText('A tab holds at most nine panes.')
+  await expect(page.locator('.desk-pane')).toHaveCount(9)
+  // Four side by side: halving one would leave it under 20 columns, so that is refused too; splitting it down has room.
+  await tab('four').click()
+  await pane('pane-d2').locator('.ph .nm').click()
+  await page.getByRole('button', { name: 'Split right' }).click()
+  await expect(page.locator('.notice.bad')).toContainText("There isn't room to split this pane.")
+  expect(creates).toEqual([])
+  await page.getByRole('button', { name: 'Split down' }).click()
+  await expect(page.locator('.desk-pane')).toHaveCount(5)
+  expect(creates).toHaveLength(1)
+  console.log('ok - the tenth pane is refused')
+
+  // ── drags a separator and sends one resize ──
+  reset()
+  await openSplit()
+  await attached(['sess-a', 'sess-b', 'sess-c'])
+  await quiet(); patches = []
+  for (const r of sockets.values()) r.resizes.length = 0
+  {
+    const sep = page.locator('[role=separator][aria-orientation=vertical]')
+    await expect(sep).toHaveAttribute('aria-valuenow', '50')
+    const box = await sep.boundingBox(), y = box.y + box.height / 2
+    await page.mouse.move(box.x + box.width / 2, y)
+    await page.mouse.down()
+    for (let i = 1; i <= 4; i++) { await page.mouse.move(box.x + box.width / 2 + i * 40, y, { steps: 3 }); await page.waitForTimeout(250) }
+    // Nothing reaches the machines while the separator is held, however long the pauses.
+    expect(sockets.get('sess-a').resizes).toEqual([])
+    expect(sockets.get('sess-b').resizes).toEqual([])
+    await page.mouse.up()
+    await quiet()
+    expect(sockets.get('sess-a').resizes).toHaveLength(1)
+    expect(sockets.get('sess-b').resizes).toHaveLength(1)
+    expect(sockets.get('sess-c').resizes).toEqual([])
+    expect(sockets.get('sess-a').resizes[0][0]).toBeGreaterThan(sockets.get('sess-b').resizes[0][0])
+    expect(patches.length).toBe(1)
+    const ratio = tabDoc('tab-three').root.a.ratio
+    expect(ratio).toBeGreaterThan(0.6)
+    await expect(sep).toHaveAttribute('aria-valuenow', String(Math.round(ratio * 100)))
+  }
+  console.log('ok - drags a separator and sends one resize')
+
+  // ── arrow keys move a separator by 2 % ──
+  reset()
+  await openSplit()
+  await quiet(); patches = []
+  {
+    const sep = page.locator('[role=separator][aria-orientation=vertical]')
+    await sep.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(sep).toHaveAttribute('aria-valuenow', '52')
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.press('ArrowLeft')
+    await expect(sep).toHaveAttribute('aria-valuenow', '48')
+    await quiet()
+    expect(tabDoc('tab-three').root.a.ratio).toBeCloseTo(0.48, 5)
+    // Up and down move the one between rows; End goes as far as the panes allow, a double-click halves it again.
+    const rows = page.locator('[role=separator][aria-orientation=horizontal]')
+    await rows.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(rows).toHaveAttribute('aria-valuenow', '52')
+    await page.keyboard.press('End')
+    // End heads for 90 % but stops where the pane below would drop under 8 rows.
+    await expect.poll(async () => Number(await rows.getAttribute('aria-valuenow'))).toBeGreaterThan(60)
+    expect(Number(await rows.getAttribute('aria-valuenow'))).toBeLessThan(90)
+    await rows.dblclick()
+    await expect(rows).toHaveAttribute('aria-valuenow', '50')
+    await quiet()
+    expect(tabDoc('tab-three').root.ratio).toBe(0.5)
+  }
+  console.log('ok - arrow keys move a separator by 2 %')
+
+  // ── grid preset of four ──
+  reset()
+  ticketDelay = 400
+  await openSplit('tab-four')
+  await attached(['sess-d1', 'sess-d2', 'sess-d3', 'sess-d4'])
+  // Attaches start at most three at a time.
+  expect(attachingMost).toBe(3)
+  await quiet(); patches = []
+  await page.getByRole('button', { name: 'Layout' }).click()
+  await page.getByRole('menu', { name: 'Layout' }).getByRole('menuitem', { name: 'Grid' }).click()
+  await quiet()
+  expect(tabDoc('tab-four').root).toEqual({ split: 'right', ratio: 0.5, a: { split: 'down', ratio: 0.5, a: leaf('pane-d1'), b: leaf('pane-d2') }, b: { split: 'down', ratio: 0.5, a: leaf('pane-d3'), b: leaf('pane-d4') } })
+  expect((await pane('pane-d2').boundingBox()).y).toBeGreaterThan((await pane('pane-d1').boundingBox()).y + 100)
+  // The panes moved; their terminals did not reconnect.
+  expect([...sockets.values()].every(r => !r.closed)).toBe(true)
+  expect(sockets.size).toBe(4)
+  console.log('ok - grid preset of four')
+
+  // ── zoom hides siblings without unmounting them ──
+  reset()
+  await openSplit()
+  await attached(['sess-a', 'sess-b', 'sess-c'])
+  await quiet(); patches = []
+  await pane('pane-b').locator('.ph .nm').click()
+  await chord('KeyZ')
+  await expect(pane('pane-a')).toBeHidden()
+  await expect(pane('pane-c')).toBeHidden()
+  await expect(pane('pane-b')).toBeVisible()
+  await expect(page.locator('.desk-pane .xterm')).toHaveCount(3)
+  expect(['a', 'b', 'c'].every(x => !sockets.get(`sess-${x}`).closed)).toBe(true)
+  await expect(page.getByRole('button', { name: 'Show all panes' })).toHaveAttribute('aria-pressed', 'true')
+  await quiet()
+  expect(tabDoc('tab-three').zoomed).toBe('pane-b')
+  await chord('KeyZ')
+  await expect(pane('pane-a')).toBeVisible()
+  await expect(pane('pane-c')).toBeVisible()
+  expect(sockets.size).toBe(3)
+  await quiet()
+  expect(tabDoc('tab-three').zoomed).toBe('')
+  console.log('ok - zoom hides siblings without unmounting them')
+
+  // ── the toolbar acts on the focused pane ──
+  reset()
+  await openSplit()
+  await attached(['sess-a', 'sess-b', 'sess-c'])
+  await pane('pane-b').locator('.xterm').click()
+  await expect(page.getByRole('toolbar', { name: 'Terminal tools for beta' })).toBeVisible()
+  {
+    const interrupt = page.getByRole('button', { name: 'Interrupt shell' })
+    await expect(interrupt).toBeEnabled()
+    const sentA = sockets.get('sess-a').input.length
+    await interrupt.click()
+    await expect.poll(() => sockets.get('sess-b').input).toContain('\x03')
+    expect(sockets.get('sess-a').input.length).toBe(sentA)
+    await pane('pane-a').locator('.xterm').click()
+    await expect(page.getByRole('toolbar', { name: 'Terminal tools for alpha' })).toBeVisible()
+    await interrupt.click()
+    await expect.poll(() => sockets.get('sess-a').input).toContain('\x03')
+  }
+  // One toolbar for the tab: no pane carries its own toolbar, header or footer.
+  await expect(page.getByRole('toolbar')).toHaveCount(1)
+  await expect(page.locator('.desk-pane .terminal-toolbar, .desk-pane .pane > header, .desk-pane .pane > footer')).toHaveCount(0)
+  console.log('ok - the toolbar acts on the focused pane')
+
+  // ── Alt+Shift+arrow moves focus ──
+  reset()
+  await openSplit()
+  await attached(['sess-a', 'sess-b', 'sess-c'])
+  await quiet(); patches = []
+  await pane('pane-a').locator('.xterm').click()
+  {
+    const sent = ['a', 'b', 'c'].map(x => sockets.get(`sess-${x}`).input.length)
+    await chord('ArrowRight')
+    await expect(pane('pane-b')).toHaveClass(/focused/)
+    await expect(pane('pane-b').locator('textarea')).toBeFocused()
+    await chord('ArrowDown')
+    await expect(pane('pane-c')).toHaveClass(/focused/)
+    await chord('ArrowUp')
+    await expect(pane('pane-a')).toHaveClass(/focused/)
+    await expect(pane('pane-a').locator('textarea')).toBeFocused()
+    // No arrow reached a shell.
+    expect(['a', 'b', 'c'].map(x => sockets.get(`sess-${x}`).input.length)).toEqual(sent)
+    await chord('ArrowRight')
+    await quiet()
+    expect(tabDoc('tab-three').active).toBe('pane-b')
+    // Alt+Shift+] and [ change tab; Alt+Shift+2 picks the second.
+    await chord('BracketRight')
+    await expect(tab('four')).toHaveAttribute('aria-selected', 'true')
+    await chord('BracketLeft')
+    await expect(tab('deploy')).toHaveAttribute('aria-selected', 'true')
+    await chord('Digit3')
+    await expect(tab('nine')).toHaveAttribute('aria-selected', 'true')
+  }
+  // The desk menu's Keys lists them.
+  await page.getByRole('button', { name: 'Desk menu' }).click()
+  await page.getByRole('menuitem', { name: 'Keys' }).click()
+  {
+    const keys = page.getByRole('dialog', { name: 'Keys' })
+    await expect(keys).toContainText('Alt+Shift+D')
+    await expect(keys).toContainText('Split right')
+    await keys.getByRole('button', { name: 'Done' }).click()
+    await expect(keys).toHaveCount(0)
+  }
+  console.log('ok - Alt+Shift+arrow moves focus')
+
+  // ── a pane's failure leaves its neighbours live ──
+  reset()
+  failing.add('sess-b')
+  await openSplit()
+  await expect.poll(() => sockets.get('sess-b')?.closed).toBe(true)
+  await expect(pane('pane-b')).toHaveAttribute('data-state', 'reconnecting')
+  await expect(pane('pane-b')).toContainText('studio is not reporting.')
+  await expect(pane('pane-a')).toHaveAttribute('data-state', 'live')
+  await expect(pane('pane-c')).toHaveAttribute('data-state', 'live')
+  await expect(pane('pane-a').locator('.word')).toHaveText('Running')
+  expect(sockets.get('sess-a').closed).toBe(false)
+  expect(sockets.get('sess-c').closed).toBe(false)
+  await pane('pane-c').locator('.xterm').click()
+  await page.getByRole('button', { name: 'Interrupt shell' }).click()
+  await expect.poll(() => sockets.get('sess-c').input).toContain('\x03')
+  console.log("ok - a pane's failure leaves its neighbours live")
+
+  // ── theatre leaves the tab bar and panes ──
+  reset()
+  await openSplit()
+  await page.getByRole('button', { name: 'Theatre view' }).click()
+  await expect(page.locator('.site-header')).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'split desk', level: 1 })).toBeHidden()
+  await expect(tablist).toBeVisible()
+  await expect(page.locator('.desk-pane:visible')).toHaveCount(3)
+  await page.getByRole('button', { name: 'Exit theatre view' }).click()
+  await expect(page.locator('.site-header')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'split desk', level: 1 })).toBeVisible()
+  console.log('ok - theatre leaves the tab bar and panes')
+
+  // ── the pane header follows the session's folder ──
+  reset()
+  await openDesk()
+  {
+    const dir = pane('pane-deploy').locator('.ph .dir')
+    await expect(dir).toHaveText('~/PROD_reet')
+    const deep = '/home/dev/PROD_reet/web/src/lib/desks/fixtures/a-rather-long-folder-name'
+    sessions = sessions.map(x => x.id === 'sess-deploy' ? { ...x, liveDir: deep } : x)
+    // The page reads the sessions again when it comes back into view (and every 15 s).
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    await expect(dir).toHaveAttribute('title', deep)
+    await expect(dir).toHaveText(/^~\/PROD_re.*….*a-rather-long-folder-name$/)
+    expect([...(await dir.textContent())].length).toBe(48)
+    sessions = sessions.map(x => x.id === 'sess-deploy' ? { ...x, liveDir: '/home/dev' } : x)
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+    await expect(dir).toHaveText('~')
+  }
+  console.log("ok - the pane header follows the session's folder")
+
+  // ── swap, move to tab and drag to an edge ──
+  reset()
+  await openSplit()
+  await attached(['sess-a', 'sess-b', 'sess-c'])
+  await quiet(); patches = []
+  await page.getByRole('button', { name: 'Actions for alpha' }).click()
+  await page.getByRole('menuitem', { name: 'Swap with…' }).click()
+  await page.getByRole('menu', { name: 'Swap alpha with' }).getByRole('menuitem', { name: 'gamma' }).click()
+  await quiet()
+  expect(tabDoc('tab-three').root).toEqual({ split: 'down', ratio: 0.5, a: { split: 'right', ratio: 0.5, a: leaf('pane-c'), b: leaf('pane-b') }, b: leaf('pane-a') })
+  expect(['a', 'b', 'c'].every(x => !sockets.get(`sess-${x}`).closed)).toBe(true)
+  expect((await pane('pane-a').boundingBox()).y).toBeGreaterThan((await pane('pane-c').boundingBox()).y + 100)
+  await page.getByRole('button', { name: 'Actions for beta' }).click()
+  await page.getByRole('menuitem', { name: 'Move to tab…' }).click()
+  await page.getByRole('menu', { name: 'Move beta to tab' }).getByRole('menuitem', { name: 'four' }).click()
+  await expect(tab('four')).toHaveAttribute('aria-selected', 'true')
+  await quiet()
+  expect(tabDoc('tab-three').panes['pane-b']).toBeUndefined()
+  expect(tabDoc('tab-four').panes['pane-b']).toMatchObject({ session: 'sess-b' })
+  expect(tabDoc('tab-four').root.a).toEqual({ split: 'right', ratio: 0.5, a: leaf('pane-d1'), b: leaf('pane-b') })
+  expect(lastDoc().active).toBe('tab-four')
+  // Dragging d4's header onto d1's left edge puts it there, with a preview while it is over the edge.
+  {
+    const target = await pane('pane-d1').boundingBox()
+    await pane('pane-d4').locator('.ph .nm').dragTo(pane('pane-d1'), { targetPosition: { x: 6, y: target.height / 2 } })
+    await quiet()
+    const root = tabDoc('tab-four').root
+    expect(root.a).toEqual({ split: 'right', ratio: 0.5, a: { split: 'right', ratio: 0.5, a: leaf('pane-d4'), b: leaf('pane-d1') }, b: leaf('pane-b') })
+  }
+  console.log('ok - swap, move to tab and drag to an edge')
+
+  // ── a phone shows one pane, with the names as chips ──
+  {
+    reset()
+    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true })
+    const pp = await phoneContext.newPage()
+    pp.on('pageerror', error => errors.push(error.message))
+    await pp.route('**/api/**', api)
+    await pp.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+    await pp.goto(`${base}/desks/desk-split`)
+    const chips = pp.getByRole('group', { name: 'Panes on this tab' })
+    await expect(chips.getByRole('button')).toHaveText(['alpha', 'beta', 'gamma'])
+    await expect(chips.getByRole('button', { name: 'alpha' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(pp.locator('.desk-pane:visible')).toHaveCount(1)
+    await expect(pp.locator('.desk-pane[data-pane="pane-a"]')).toBeVisible()
+    await chips.getByRole('button', { name: 'beta' }).tap()
+    await expect(pp.locator('.desk-pane[data-pane="pane-b"]')).toBeVisible()
+    await expect(pp.locator('.desk-pane[data-pane="pane-a"]')).toBeHidden()
+    expect((await chips.getByRole('button', { name: 'beta' }).boundingBox()).height).toBeGreaterThanOrEqual(44)
+    // No splits, presets or zoom on a phone, and the saved tree is left as it was.
+    await expect(pp.getByRole('button', { name: 'Layout' })).toHaveCount(0)
+    await expect(pp.getByRole('button', { name: 'Split right' })).toHaveCount(0)
+    await expect(pp.getByRole('button', { name: 'Zoom' })).toHaveCount(0)
+    await expect(pp.getByRole('separator')).toHaveCount(0)
+    await pp.waitForTimeout(700)
+    expect(desks.get('desk-split').doc.tabs[0].root).toEqual(twoPlusOne)
+    expect(await pp.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    if (shots) await pp.screenshot({ path: `${shots}/desk-split-phone.png` })
+    await phoneContext.close()
+  }
+  console.log('ok - a phone shows one pane, with the names as chips')
+
   // ── the look, in both themes and on a phone ──
   if (shots) {
+    // A 2 + 1 tab and a grid of four at 1440 px, light and dark; the dark 2 + 1 again at twice the pixels.
+    reset()
+    const wide = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
+    const wp = await wide.newPage()
+    await wp.route('**/api/**', api)
+    await wp.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+    for (const theme of ['light', 'dark']) {
+      await wp.emulateMedia({ colorScheme: theme })
+      profileTheme = theme
+      for (const [tabId, name] of [['tab-three', '2plus1'], ['tab-four', 'grid4']]) {
+        desks.get('desk-split').doc.active = tabId
+        if (tabId === 'tab-four') desks.get('desk-split').doc.tabs[1].root = { split: 'right', ratio: 0.5, a: { split: 'down', ratio: 0.5, a: leaf('pane-d1'), b: leaf('pane-d2') }, b: { split: 'down', ratio: 0.5, a: leaf('pane-d3'), b: leaf('pane-d4') } }
+        await wp.goto(`${base}/desks/desk-split`)
+        await wp.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
+        await expect(wp.locator('.desk-pane .xterm-screen')).toHaveCount(tabId === 'tab-three' ? 3 : 4)
+        await wp.waitForTimeout(800)
+        await wp.screenshot({ path: `${shots}/desk-${name}-${theme}.png` })
+      }
+    }
+    await wide.close()
+    profileTheme = 'light'
     reset()
     await openDesk()
     await page.screenshot({ path: `${shots}/desk-light.png` })
@@ -436,7 +832,7 @@ try {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   expect(errors).toEqual([])
-  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages.')
+  console.log('Desks passed: top bar, empty list, last desk, tab rename, drag reorder, tab colour, close and take off, stale save, newer schema, new tab, switch saves, menu move, touch targets, no desk read on other pages, splits, the pane limit, separators by pointer and keys, presets, zoom, the shared toolbar, focus keys, a failing pane, theatre, the live folder, swap and move, the phone.')
 } catch (error) {
   console.error('Browser errors:', errors)
   if (shots) { await mkdir(shots, { recursive: true }); await page.screenshot({ path: `${shots}/desks-failure.png`, fullPage: true }) }

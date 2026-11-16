@@ -158,6 +158,9 @@
     try { if (desk) sessionStorage.setItem(tabKey(desk.id), tabId) } catch { /* only a convenience */ }
   }
   const activeTab = $derived(tabs.find(t => t.id === localTab) ?? tabs.find(t => t.id === desk?.doc.active) ?? tabs[0])
+  // The tab a window opens on (and the one that takes the place of a tab closed elsewhere) becomes its own choice at
+  // once, so work in another window's tab never moves this one.
+  $effect(() => { const shown = activeTab?.id; if (desk && shown && shown !== untrack(() => localTab)) showTab(shown) })
   const activePaneId = $derived(activeTab ? (activeTab.panes[activeTab.active] ? activeTab.active : leaves(activeTab.root)[0] ?? '') : '')
   const activePane = $derived(activeTab && activePaneId ? activeTab.panes[activePaneId] : undefined)
   // A shell started here (New tab, a split) counts as listed until the next read of the sessions lists it.

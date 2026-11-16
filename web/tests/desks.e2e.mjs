@@ -464,6 +464,24 @@ try {
   await quiet()
   reset()
   await openDesk()
+  // Work in another tab in a second window does not move this one, which opened on deploy.
+  {
+    const other = await context.newPage()
+    other.on('pageerror', error => errors.push(error.message))
+    await other.route('**/api/**', api)
+    await other.routeWebSocket('**/api/v2/terminal/socket', socketStub)
+    await other.goto(`${base}/desks/desk-prod`)
+    await other.locator('.bar .tabs').getByRole('tab', { name: 'logs', exact: true }).click()
+    await other.locator('.desk-pane[data-pane="pane-logs"] .xterm').click()
+    await expect.poll(() => desks.get('desk-prod').doc.active).toBe('tab-logs')
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem('reet-desk-tab:desk-prod'))).toBe('tab-deploy')
+    await page.reload()
+    await expect(tab('deploy')).toHaveAttribute('aria-selected', 'true')
+    await other.close()
+    await quiet()
+    reset()
+    await openDesk()
+  }
   // The tab list holds the tabs and nothing else: each tab's ⋮ button sits outside it.
   const owned = await page.getByRole('tablist', { name: 'Tabs' }).getAttribute('aria-owns')
   expect(owned.split(' ')).toEqual(['desk-tab-tab-deploy', 'desk-tab-tab-logs', 'desk-tab-tab-db'])

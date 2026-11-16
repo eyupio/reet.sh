@@ -556,3 +556,52 @@ test('a retired autosave keeps retrying until its queue is saved, then stops', a
   await idle.timers.tick(10000)
   assert.equal(idle.saves.length, 0)
 })
+
+test('a list refresh after a lost response does not replay the saved change', async () => {
+  let calls = 0
+  const h = harness(deskOf(1), async (desk, expect) => {
+    calls++
+    h.saves.push({ desk, expect })
+    // The server commits the save, but its answer never arrives.
+    h.setServer({ ...desk, version: expect + 1 })
+    throw new Error('response lost')
+  })
+  await h.a.ready
+  h.a.change({ kind: 'swap', tab: 't1', a: 'a', b: 'b' })
+  await h.timers.tick(400)
+  assert.equal(calls, 1)
+  assert.equal(h.states.at(-1), 'unsaved')
+  // The desk list shows the newer version before the retry is due: the desk is read again.
+  await h.a.refresh()
+  const d = h.a.desk()
+  assert.equal(d.version, 2)
+  assert.equal(d.doc.tabs[0].root.a.pane, 'b', 'swapped exactly once')
+  assert.equal(d.doc.tabs[0].root.b.pane, 'a')
+  await h.timers.tick(60000)
+  assert.equal(calls, 1, 'no further save is sent')
+  assert.equal(h.states.at(-1), 'saved')
+  assert.equal(h.states.includes('stale'), false)
+})
+
+test('a list refresh after a lost response still merges another window\'s edit', async () => {
+  let calls = 0
+  const h = harness(deskOf(1), async (desk, expect) => {
+    calls++
+    h.saves.push({ desk, expect })
+    if (calls === 1) throw new Error('offline')
+    return { ...desk, version: expect + 1 }
+  })
+  await h.a.ready
+  h.a.change({ kind: 'swap', tab: 't1', a: 'a', b: 'b' })
+  await h.timers.tick(400)
+  // Another window renamed the desk; this save never landed.
+  h.setServer({ ...deskOf(2), name: 'Renamed elsewhere' })
+  await h.a.refresh()
+  assert.equal(h.a.desk().name, 'Renamed elsewhere')
+  assert.equal(h.a.desk().doc.tabs[0].root.a.pane, 'b', 'the change is replayed onto the other copy')
+  await h.timers.tick(1000)
+  assert.equal(calls, 2)
+  assert.equal(h.saves[1].expect, 2)
+  assert.equal(h.saves[1].desk.doc.tabs[0].root.a.pane, 'b')
+  assert.equal(h.states.at(-1), 'saved')
+})

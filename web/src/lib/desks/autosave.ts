@@ -262,8 +262,13 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
     return { desk, kept, dropped }
   }
 
-  /** Takes a newer server copy and puts the queue back on top of it. */
+  /** Takes a newer server copy and puts the queue back on top of it. A save that failed without an answer may have
+   *  landed: if the copy is that save's desk, its changes are already in it and are not replayed (a swap would undo
+   *  itself, and a replayed add or close would be dropped as if another window had changed the desk). */
   const rebase = (copy: Desk) => {
+    const key = content(copy)
+    const landed = attempts.filter(a => content(a.desk) === key).pop()
+    if (landed) queue = queue.slice(landed.sent)
     attempts = []
     const r = replay(copy, queue)
     server = copy
@@ -299,11 +304,7 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
         emit(queue.length ? 'unsaved' : 'saved')
       } catch (e) {
         if (e instanceof StaleDesk) {
-          // A save that failed without an answer may have landed: if the server copy is that save's desk, its changes
-          // are already in it and must not be replayed (a swap would undo itself).
-          const key = content(e.desk)
-          const landed = attempts.filter(a => content(a.desk) === key).pop()
-          if (landed) queue = queue.slice(landed.sent)
+          // rebase drops the changes of an unanswered save that the server copy shows had landed.
           rebase(e.desk)
           if (queue.length) { emit('saving'); running = null; await run(keepalive); return }
           emit('saved')
@@ -352,6 +353,8 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
     if (server && copy.version <= server.version) return
     if (!server) { server = copy; local = copy; opts.onDesk?.(copy); emit('saved'); return }
     rebase(copy)
+    // Nothing left to save (an unanswered save had landed): its retry is no longer needed.
+    if (!queue.length) { clearTimer(); failures = 0 }
     if (queue.length && !timer && !running) arm(delay, false)
     emit(queue.length ? 'unsaved' : 'saved')
   }

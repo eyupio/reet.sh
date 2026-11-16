@@ -318,3 +318,35 @@ test('a lost response followed by another window\'s edit still merges', async ()
   assert.equal(last.desk.doc.tabs[0].root.a.pane, 'b', 'the change is replayed onto the other copy')
   assert.equal(h.states.at(-1), 'saved')
 })
+
+test('a change made during a save whose response is lost is kept and nothing is replayed', async () => {
+  let calls = 0
+  let applied = null
+  const h = harness(deskOf(1), async (desk, expect) => {
+    calls++
+    h.saves.push({ desk, expect })
+    if (calls === 1) {
+      applied = { ...desk, version: expect + 1 }
+      h.setServer(applied)
+      h.a.change({ kind: 'renameTab', tab: 't1', name: 'Build' })
+      throw new Error('response lost')
+    }
+    if (expect === applied.version) {
+      applied = { ...desk, version: expect + 1 }
+      h.setServer(applied)
+      return applied
+    }
+    throw new StaleDesk(applied)
+  })
+  await h.a.ready
+  h.a.change({ kind: 'swap', tab: 't1', a: 'a', b: 'b' })
+  await h.timers.tick(400)
+  await h.timers.tick(60000)
+  const d = h.a.desk()
+  assert.equal(d.doc.tabs[0].root.a.pane, 'b', 'swapped exactly once')
+  assert.equal(d.doc.tabs[0].root.b.pane, 'a')
+  assert.equal(d.doc.tabs[0].name, 'Build')
+  assert.equal(applied.doc.tabs[0].name, 'Build')
+  assert.equal(h.states.at(-1), 'saved')
+  assert.equal(h.states.includes('stale'), false)
+})

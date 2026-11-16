@@ -231,6 +231,7 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
     if (stopped || !server || !local || queue.length === 0) return Promise.resolve()
     clearTimer()
     sent = queue.length
+    const sentDesk = local // what this save carries; later changes move `local` on
     emit('saving')
     const p = (async () => {
       try {
@@ -260,7 +261,8 @@ export function createAutosave(opts: AutosaveOptions): Autosave {
           emit('saved')
           return
         }
-        attempts.push({ desk: local!, sent })
+        if (attempts.at(-1)?.desk !== sentDesk) attempts.push({ desk: sentDesk!, sent })
+        if (attempts.length > 8) attempts = attempts.slice(-8)
         sent = 0
         failures++
         emit('unsaved')

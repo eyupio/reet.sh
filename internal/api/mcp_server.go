@@ -201,12 +201,55 @@ func mcpPage(items []any, args, meta map[string]any) (map[string]any, error) {
 			return meta, nil
 		}
 		if len(selected) <= 1 {
+			// One record that is too large on its own (a sync target with a big
+			// library) keeps its fields and gives up its largest list for a count.
+			if len(selected) == 1 {
+				if shorter, ok := mcpCountLargestList(selected[0]); ok {
+					selected = []any{shorter}
+					meta["truncated"] = true
+					meta["truncated_reason"] = "record_lists_counted"
+					continue
+				}
+			}
 			return nil, errors.New("one record exceeds the response limit; narrow filters or shorten notes")
 		}
 		selected = selected[:len(selected)-1]
 		meta["truncated"] = true
 		meta["truncated_reason"] = "response_character_limit"
 	}
+}
+
+// mcpCountLargestList returns a copy of record with its largest list replaced
+// by "<name>_count", and the list's name added to "lists_counted". It reports
+// false when the record has no list left to give up.
+func mcpCountLargestList(item any) (map[string]any, bool) {
+	record, ok := item.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	largest, size := "", 0
+	for key, value := range record {
+		list, isList := value.([]any)
+		if !isList || len(list) == 0 || key == "lists_counted" {
+			continue
+		}
+		if b, _ := json.Marshal(list); len(b) > size || (len(b) == size && key < largest) {
+			largest, size = key, len(b)
+		}
+	}
+	if largest == "" {
+		return nil, false
+	}
+	shorter := make(map[string]any, len(record)+1)
+	for key, value := range record {
+		if key != largest {
+			shorter[key] = value
+		}
+	}
+	shorter[largest+"_count"] = len(record[largest].([]any))
+	counted, _ := record["lists_counted"].([]any)
+	shorter["lists_counted"] = append(append([]any{}, counted...), largest)
+	return shorter, true
 }
 
 // mcpDo sends one internal API request as the MCP caller.

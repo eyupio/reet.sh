@@ -21,6 +21,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/eyupio/reet.sh/internal/agenthealth"
 	"github.com/eyupio/reet.sh/internal/agentsoftware"
@@ -1538,6 +1539,21 @@ func (s *server) importEntry(userID int64, item importItem, request *http.Reques
 		source = strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(source, "https://github.com/"), "http://github.com/"), ".git")
 		if r, err := ref.Parse(source + "/" + name); err == nil {
 			rf = r
+			// A scan reports the folder the skills CLI made, which is named
+			// after the skill and not always what the catalogue calls it. When
+			// the shelf has no skill by the folder's name but has one from this
+			// source that installs into it, that is the skill the scan found.
+			if _, exact, err := s.st.GetFor(userID, r.ID); err != nil {
+				return "", false, false, err
+			} else if !exact {
+				known, ok, err := s.st.SkillInstalledAsFor(userID, r.Source, name)
+				if err != nil {
+					return "", false, false, err
+				}
+				if ok {
+					rf = known
+				}
+			}
 		}
 	}
 	if rf.ID == "" {
@@ -2961,7 +2977,15 @@ func installCommand(s store.Skill) string {
 	default:
 		return ""
 	}
-	return fmt.Sprintf("npx skills add %s --skill %s", source, s.Slug)
+	// The skills CLI matches a skill by its own name, which is not always its
+	// folder name, so a differing name is offered as well.
+	selector := s.Slug
+	name := strings.TrimSpace(s.Name)
+	plain := name != "" && len(name) <= 200 && !strings.HasPrefix(name, "-") && !strings.Contains(name, "*") && !strings.ContainsFunc(name, unicode.IsControl)
+	if plain && !strings.EqualFold(name, s.Slug) {
+		selector += " '" + strings.ReplaceAll(name, "'", `'\''`) + "'"
+	}
+	return fmt.Sprintf("npx %s add %s --skill %s", ref.SkillsCLI, source, selector)
 }
 
 func markdown(skills []store.Skill) string {

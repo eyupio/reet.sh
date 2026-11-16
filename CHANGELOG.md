@@ -5,6 +5,52 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Skills sync: a skill whose name is not its folder name ("SVG Logo
+  Designer", installed as `svg-logo-designer`) now installs. Reet asked the
+  `skills` CLI for it by folder name only, the CLI matches on the skill's own
+  name, and every install of such a skill failed. Machines need the new
+  agent build; they update themselves where auto-update is on.
+- Skills sync: a failed install is reported as that, with the skill's name
+  and what the installer said. It was shown as **The plan changed before it
+  ran**, which sent you to preview again for a plan that had not changed.
+- Skills sync: a skill the `skills` CLI installs under a different folder
+  than it has in its repository keeps its source in a scan, instead of
+  showing as an unlinked local copy beside a second, phantom entry.
+- Skills sync: a skill the catalogue names differently from the folder the
+  `skills` CLI installs it into ("UI/UX Design Review": `uiux-design-review`
+  in the catalogue, `ui-ux-design-review` on disk) now settles. The install
+  worked and the skill stayed **missing**, with a second unlinked skill beside
+  it. The machine and the controller both read that folder as the skill you
+  selected when it came from the same source.
+- Skills sync: a copy another app holds, an entry that is not a skill, or
+  your own unlinked copy is now seen when it sits under the folder the
+  `skills` CLI installs into and not only under the catalogue's name. Such
+  a copy is left alone and reported, or backed up before it is replaced,
+  as one under the catalogue's name already was. It would have been
+  overwritten.
+- Skills sync: **Auto fix** now makes the plan ask for the copy already
+  installed, as the skill it is. It changed only the source, so after the
+  install the controller still listed the old skill as missing and the
+  installed one as an extra. It also finds a copy held under the folder the
+  `skills` CLI installs into when that differs from the catalogue's name.
+- Skills sync: an **Auto fix** on a folder that follows a source now holds.
+  The next poll used to write the source's own skill back, the machine
+  refused it again, and the two took turns, queueing a job each time. The
+  folder keeps following the copy while it is on the machine and returns to
+  its source when that copy is removed.
+- Skills: the **Copy prompt** text (`npx skills use …`) names a skill by its
+  own name when that is not its folder name, as the copied install command
+  does. The folder name found nothing for such a skill.
+- Skills: every command reet copies out (the install command, the **Copy
+  prompt** text, a published skill's page and the export) names the `skills`
+  CLI version that sync runs on a machine, `skills@1.7.4`, instead of
+  whatever is newest. A pasted command now behaves like the one reet ran.
+  Reet still accepts an unpinned or differently pinned command pasted in.
+- MCP: `reet_list_sync_targets` returns a target that is too large for one
+  response with its largest lists replaced by counts (`desired_count`,
+  `lists_counted`), instead of failing with "one record exceeds the response
+  limit".
+
 - A session's right-hand **Progress** tracker now shows a pull request created
   in the session within about 20 seconds while the agent is working, instead
   of up to two minutes later: the visible session's GitHub read runs every 20

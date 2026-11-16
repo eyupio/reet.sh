@@ -169,20 +169,47 @@ func (s *Store) MaintainSync(uid int64, role string, agent SyncAgent) error {
 				slices.SortFunc(out, func(a, b SyncSkill) int { return strings.Compare(a.ID, b.ID) })
 				return out
 			}
-			if !slices.Equal(ordered(candidates), ordered(target.Desired)) {
+			// A copy Auto fix made this folder follow is part of what the source
+			// asks for here, for as long as that copy is on the machine.
+			followed := func(selection []SyncSkill) []SyncSkill {
+				if target.Canonical {
+					return selection
+				}
+				return keepFollowedCopies(target, selection, target.Desired, envs)
+			}
+			if !slices.Equal(ordered(followed(candidates)), ordered(target.Desired)) {
+				kept := target.Desired
 				if err = s.SaveDesiredFor(uid, role, in); err != nil {
 					if e := problem("Sync selection needs attention: " + err.Error()); e != nil {
 						return e
 					}
 					continue
 				}
-				updated, e := s.SyncTargetsFor(uid)
-				if e != nil {
-					return e
+				reload := func() error {
+					updated, e := s.SyncTargetsFor(uid)
+					if e != nil {
+						return e
+					}
+					for _, item := range updated {
+						if item.Target.ID == target.Target.ID {
+							target = item
+						}
+					}
+					return nil
 				}
-				for _, item := range updated {
-					if item.Target.ID == target.Target.ID {
-						target = item
+				if err = reload(); err != nil {
+					return err
+				}
+				// The source changed for another reason. What was just saved is the
+				// source's own selection, so put the followed copies back into it.
+				if !target.Canonical {
+					if again := keepFollowedCopies(target, target.Desired, kept, envs); !slices.Equal(again, target.Desired) {
+						if err = s.applySyncSourceFixes(uid, map[string][]SyncSkill{target.Target.ID: again}); err != nil {
+							return err
+						}
+						if err = reload(); err != nil {
+							return err
+						}
 					}
 				}
 			}

@@ -241,10 +241,10 @@ New hosted skills take the name prefix from **Account → Profile** (`reet-` by 
 Skills are private drafts until you select **Publish publicly** and save. Publishing also puts the skill in the shared catalogue and on your own shelf under **To test**. A published skill has a public page at `https://reet.sh/username/skill-name`, with this install command:
 
 ```sh
-npx skills add https://reet.sh/username/skill-name
+npx skills@1.7.4 add https://reet.sh/username/skill-name
 ```
 
-Use `npx skills add` before the URL; `npx https://…` alone is not a skills CLI command. Self-hosted instances use their own hostname. Scoped Agent Skills discovery endpoints below the public URL let the CLI download `SKILL.md` and all supporting files. You can also paste the URL or its install command into the shelf.
+The commands reet copies out name the `skills` CLI version reet itself runs and tests with. Use `npx skills add` before the URL; `npx https://…` alone is not a skills CLI command. Self-hosted instances use their own hostname. Scoped Agent Skills discovery endpoints below the public URL let the CLI download `SKILL.md` and all supporting files. You can also paste the URL or its install command into the shelf.
 
 Uncheck **Publish publicly** and save to unpublish, or delete the skill to remove its files. Both stop future downloads immediately; existing installations remain on users' machines. Disabled author accounts stop serving public skills. Publishing usernames cannot change or be reused after account deletion, so old links cannot be claimed by another account. Skill hosting follows the instance's normal write permissions; viewers cannot publish. Bundles live in `reet.db` and are covered by whole-instance database backups. Shelf JSON exports and personal shelf backups contain skill references, not authored bundles.
 

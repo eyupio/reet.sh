@@ -18,6 +18,40 @@ CONTRIBUTING.md; [docs/](docs/) for shipped behaviour (for example
 [docs/research/](docs/research/); and older narrative in
 [handoff-history.md](handoff-history.md).
 
+## Factory outcome follows a stopped session (16 November 2026)
+
+The owner reported that stopping a session in a Factory outcome left the outcome
+waiting at **Needs you**; removing the session from history was then refused by
+its worktree hold until the outcome was stopped and archived or deleted by hand.
+The owner chose **stop following and delete**, with dialog toggles, a system
+default and an account preference that overrides it.
+
+- **Controller.** `POST /api/v2/terminal/sessions/{id}/end` takes
+  `factoryOutcome` (`""`, `archive`, `delete`). `gaffer.EndSessionOutcome` stops
+  following only the outcome whose pipeline works in that session now, closes
+  its goal, then archives or deletes it. Earlier-stage sessions and finished
+  pipelines are left alone. Failure is recorded as
+  `factory-outcome-not-released` and does not undo the accepted end request.
+- **Browser.** The end dialog in the session lists, Home and the terminal
+  workspace gains **Stop following the outcome** and **Delete it for good,
+  instead of archiving it**. Account → Profile has **When stopping a session in
+  a Factory pipeline** (`delete` is the system default; `archive` and `leave`
+  are the alternatives). The dialog's choice is per session and overrides the
+  preference.
+- **Stored preference.** `user_profiles.factory_session_end_mode`, default
+  `delete`, normalised to delete for unknown values; returned as
+  `factorySessionEndMode`.
+- **Validation.** New Go tests in `internal/gaffer/outcome_orphans_test.go`,
+  `internal/api/terminal_close_test.go` and `internal/store/profile_defaults_test.go`;
+  browser helper tests in `web/src/lib/gafferOutcome.test.mjs`;
+  `account-profile.e2e.mjs` updated for the extra preference. `go build ./...`,
+  `go vet ./...`, the store, gaffer and api packages, `npm test`,
+  `npm run build` and `svelte-check` pass. The browser e2e suite was not run in
+  the container (no Chromium).
+- **PR.** [#807](https://github.com/eyupio/reet.sh/pull/807) on
+  `reet/reet-30e82926db6ff96af08cae36143495e8`. Open; waiting for the
+  benchmarks and image checks before merging to `main`.
+
 ## MOBILE-3: what MOBILE-2 left undone (15 November 2026)
 
 The owner asked for MOBILE-2's "Not done" list: three things.

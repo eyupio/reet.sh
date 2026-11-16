@@ -23,12 +23,14 @@
   import AddPipelines, { type AddedPipeline } from './AddPipelines.svelte'
   import PipelineNote from './PipelineNote.svelte'
   import WorkspaceDialog from '../terminal/WorkspaceDialog.svelte'
+  import FactoryWelcome from './FactoryWelcome.svelte'
 
   let { userId = 0, timeZone = '', dateFormat = 'locale', onsignedout }: { userId?: number; timeZone?: string; dateFormat?: string; onsignedout?: (e: unknown) => void } = $props()
   let records = $state<Outcome[]>([]), goals = $state<GafferGoalOverview[]>([]), loading = $state(true), error = $state(''), readAt = $state(0)
   // What a new installation still needs before a pipeline can run. Each is read once and again after an outcome dialog closes.
   let setup = $state<{ provider: boolean; machine: boolean; project: boolean } | null>(null)
-  let outcomeOpen = $state(false), outcomeButton = $state<HTMLButtonElement>()
+  let outcomeOpen = $state(false), outcomeButton = $state<HTMLButtonElement>(), outcomeObjective = $state('')
+  let welcome = $state<FactoryWelcome>()
   let merging = $state<{ record: Outcome; piece: GafferOutcomeSession } | null>(null), managing = $state<GafferGoalOverview | null>(null)
   let busy = $state(false), notice = $state(''), bad = $state(false), floorKey = $state(0)
   // Why a dialog's last attempt was refused, shown inside that dialog rather than behind it.
@@ -112,7 +114,7 @@
     try { localStorage.setItem('reet.rail.width', String(railWidth)) } catch { /* The rail keeps its width for this page. */ }
   }
   // Give Gaffer an outcome: in the project the page is narrowed to, or the one whose + was pressed.
-  function openOutcome(project = scope?.kind === 'project' ? scope.id : '') { outcomeProject = project; outcomeOpen = true }
+  function openOutcome(project = scope?.kind === 'project' ? scope.id : '', objective = '') { outcomeProject = project; outcomeObjective = objective; outcomeOpen = true }
   const listed = $derived((showArchived ? records : floor).filter(inScope))
   const tally = $derived(factoryTally(floor.filter(inScope), attention))
   // Goals the page draws inside a pipeline are left out of the list of other sessions below.
@@ -154,7 +156,8 @@
   async function closeOutcome() {
     outcomeOpen = false; floorKey++
     if (location.search) history.replaceState(null, '', location.pathname)
-    await Promise.all([load(), loadSetup(), loadRail(true)]); await tick(); outcomeButton?.focus({ preventScroll: true })
+    await Promise.all([load(), loadSetup(), loadRail(true)]); await tick()
+    if (outcomeButton?.isConnected) outcomeButton.focus({ preventScroll: true }); else welcome?.focus()
   }
   async function approve() {
     if (!merging || busy) return
@@ -378,15 +381,15 @@
 <div class="factory">
   <header class="top">
     <div class="identity"><h1>Factory</h1><p class="sub">Hand Gaffer the outcome. It plans the pipelines, you approve, and it runs each one to the finish.</p></div>
-    <div class="top-actions"><a class="btn quiet" href="/account/gaffer">Gaffer settings</a><button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>Give Gaffer an outcome</button></div>
+    <div class="top-actions"><a class="btn quiet" href="/account/gaffer">Gaffer settings</a>{#if loading || error || records.length || scope}<button class="btn primary" type="button" bind:this={outcomeButton} onclick={() => openOutcome()}>Give Gaffer an outcome</button>{/if}</div>
   </header>
 
-  <ul class="tiles" aria-label="Factory at a glance">
+  {#if records.length}<ul class="tiles" aria-label="Factory at a glance">
     <li class:you={tally.needYou > 0}>{#if tally.needYou}<button type="button" class="tile-jump" aria-label={`${tally.needYou} need you. Go to the first`} onclick={() => jump('you')}><strong>{tally.needYou}</strong><span>Need you · show me</span></button>{:else}<strong>0</strong><span>Need you</span>{/if}</li>
     <li class:you={tally.ready > 0}>{#if tally.ready}<button type="button" class="tile-jump" aria-label={`${tally.ready} ready to merge. Go to the first`} onclick={() => jump('ready')}><strong>{tally.ready}</strong><span>Ready to merge · show me</span></button>{:else}<strong>0</strong><span>Ready to merge</span>{/if}</li>
     <li><strong>{tally.running}</strong><span>Running</span></li>
     <li><strong>{tally.done}</strong><span>Done</span></li>
-  </ul>
+  </ul>{/if}
 
   {#if records.length}<div class="fold-all">{#if shelved.length}<button class="btn quiet" type="button" aria-pressed={showArchived} onclick={() => showArchived = !showArchived}>{showArchived ? 'Hide archived' : `Show archived (${shelved.length})`}</button>{/if}<button class="btn quiet" type="button" aria-pressed={allOpen === true} onclick={() => { allOpen = allOpen === true ? false : true; folds = {}; outcomeFolds = {} }}>{allOpen === true ? 'Collapse all' : 'Expand all'}</button></div>{/if}
   {#if scope}<p class="scope"><span>Showing <strong>{scopeName}</strong>{scope.kind === 'project' ? '. A new outcome starts in this project.' : '.'}</span> <button type="button" class="btn quiet" onclick={() => (scope = null)}>Show all projects</button></p>{/if}
@@ -411,7 +414,7 @@
     {:else if error && !records.length}<div class="empty"><h2>The factory could not be read.</h2><p>Nothing is shown because nothing was read, not because there is nothing. The page tries again by itself every few seconds.</p><button class="btn" type="button" onclick={() => { loading = true; void load() }}>Try again now</button></div>
     {:else if scope && !listed.length}<div class="empty"><h2>Nothing in {scopeName} yet.</h2><p>{scope.kind === 'project' ? 'Give Gaffer an outcome and its pipelines for this project appear here.' : 'No outcome has been started in this group’s projects.'}</p>{#if scope.kind === 'project'}<button class="btn primary" type="button" onclick={() => openOutcome()}>Give Gaffer an outcome in {scopeName}</button>{/if}</div>
     {:else if !listed.length && shelved.length}<div class="empty"><h2>Nothing on the floor.</h2><p>Every outcome is archived. Show archived to look at them or bring one back.</p></div>
-    {:else if !records.length}<div class="empty"><h2>No pipelines yet.</h2><p>Give Gaffer an outcome and its pipelines appear here, each moving through plan, design, code, review, test, pull request, babysitting and merge.</p></div>
+    {:else if !records.length}<FactoryWelcome bind:this={welcome} onstart={objective => openOutcome(undefined, objective)} />
     {:else}
       {#each listed as record (record.id)}{@const open_ = outcomeShown(record)}{@const finished = outcomeFinished(record)}{@const usage = outcomeUsage(record.sessions.map(piece => pipelineUsage(piece, piece.conversationId ? byConversation.get(piece.conversationId)?.goal : undefined)), record.report)}<article class="outcome" class:shelved={!!record.archivedAt} aria-label={`Outcome: ${short(record.objective)}`}>
         <header class="outcome-head">
@@ -535,7 +538,7 @@
 
 </div>
 
-{#if outcomeOpen}<GafferOutcome projectId={outcomeProject} room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
+{#if outcomeOpen}<GafferOutcome projectId={outcomeProject} initialObjective={outcomeObjective} room={Math.max(0, 10 - goals.filter(row => row.goal.state === 'active').length)} {userId} onstarted={load} onclose={() => void closeOutcome()}/>{/if}
 {#if releasing}<ConfirmDialog title={`Stop following “${short(releasing.objective)}”?`} body="Gaffer and the controller stop looking after every unfinished pipeline in this outcome and start nothing more for it. Sessions that still exist keep running, and nothing is merged or closed. Use this when a session was lost or removed, or the work is no longer wanted; you can then archive or delete the outcome." confirmLabel="Stop following" oncancel={() => releasing = null} onconfirm={() => releasing && void stopFollowing(releasing)}/>{/if}
 {#if deleting}<ConfirmDialog title={`Delete “${short(deleting.objective)}”?`} body="This erases the outcome, its report and its totals from reet for good. The sessions and pull requests it started are not touched. To keep the record out of sight instead, archive it." confirmLabel="Delete outcome" danger oncancel={() => deleting = null} onconfirm={() => deleting && void putAway(deleting, 'delete')}/>{/if}
 {#if adding}<AddPipelines record={adding} proposals={chosenProposals(adding)} {busy} error={dialogError} oncancel={() => adding = null} onconfirm={pipelines => void add(pipelines)}/>{/if}
@@ -563,7 +566,7 @@
   .notice{position:sticky;top:8px;z-index:5;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:var(--shadow)}.notice.bad{border-color:var(--bad);color:var(--bad)}.notice p{min-width:0}.notice .inline{flex:none}
   h2.folded{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
   .setup{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--tint)}.setup-body{display:grid;gap:12px;min-width:0}.setup ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.setup li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}.setup li p{color:var(--muted)}.tick{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);font-size:0.875rem;font-variant-numeric:tabular-nums}.setup li.done .tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.setup a{color:var(--accent-text);font-weight:600}
-  .lines{display:grid;gap:16px;min-width:0}.empty{padding:28px 20px;border:1px dashed var(--line-strong);border-radius:14px;display:grid;gap:8px;text-align:center;justify-items:center}.empty p{color:var(--muted);max-width:56ch}
+  .lines{container:factory-lines / inline-size;display:grid;gap:16px;min-width:0}.empty{padding:28px 20px;border:1px dashed var(--line-strong);border-radius:14px;display:grid;gap:8px;text-align:center;justify-items:center}.empty p{color:var(--muted);max-width:56ch}
   .outcome{border:1px solid var(--line);border-radius:14px;background:var(--card);min-width:0;overflow:hidden}.outcome-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--line)}.outcome-title{display:grid;gap:2px;min-width:0;flex:1 1 280px}.live{color:var(--accent-text);font-weight:600}
   .outcome-actions{display:flex;gap:8px;flex-wrap:wrap}.outcome-actions .btn{min-height:44px}.totals{padding:12px 18px;border-bottom:1px solid var(--line);background:var(--bg)}
   .outcome-report{display:grid;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}.proposals{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:12px}.proposals li+li{border-top:1px solid var(--line)}.proposals label{display:flex;align-items:flex-start;gap:12px;padding:10px 14px;min-height:44px;cursor:pointer}.proposals input{width:20px;height:20px;margin:2px 0 0;flex:none;accent-color:var(--accent)}.proposals label>span{display:grid;gap:2px;min-width:0;overflow-wrap:anywhere}.why{font-size:0.875rem;color:var(--muted)}

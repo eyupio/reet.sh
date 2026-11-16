@@ -21,6 +21,18 @@ same one the project rail, the machine cards, Machines and Sessions use; a
 session to plan instead is added from the Backlog column's **+** or
 **Plan a session**.
 
+When **Continue working** has no sessions to show, Home offers **Factory**, an
+**agent session**, and a plain **terminal**, in that order. Give Gaffer an outcome
+to coordinate, work alongside an agent, or take direct control. Factory's outcome
+composer opens on Home; opening it starts no work and makes no model request.
+**Plan a session** sits below these choices and opens the existing planning
+composer on the board. Closing it returns keyboard focus to **Planning board**.
+
+An account with no sessions or saved backlog opens this starting view unless you
+have already chosen a Home view in this browser. Existing backlog work, chosen
+projects and explicit view preferences keep their place. Read failures remain
+errors; they are not shown as an empty workspace. Viewers keep the read-only Home.
+
 - **Backlog** contains account-saved prompts that have not reserved a terminal
   session. Create, edit, or delete an item without connecting to its machine.
   Choose a folder project, or a machine and an absolute folder path (empty means

@@ -295,7 +295,7 @@ try {
       await page.getByRole('dialog',{name:'Delete “Tidy the importer logs.”?',exact:true}).getByRole('button',{name:'Delete outcome',exact:true}).click()
       await expect(page.getByRole('status').filter({hasText:'Deleted'})).toBeVisible()
       expect(box.deleted).toBe('?revision=5')
-      await expect(page.getByRole('heading',{name:'No pipelines yet.',exact:true})).toBeVisible()
+      await expect(page.getByRole('heading',{name:'Put Gaffer on the job.',exact:true})).toBeVisible()
       expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }
@@ -313,8 +313,8 @@ try {
       await expect(setup.getByRole('link',{name:'Add a project on Home',exact:true})).toHaveAttribute('href','/')
       await expect(setup.getByRole('link',{name:'Open Gaffer settings',exact:true})).toHaveAttribute('href','/account/gaffer')
       await expect(setup).toContainText('switched on by default')
-      await expect(page.getByRole('heading',{name:'No pipelines yet.',exact:true})).toBeVisible()
-      await expect(page.getByRole('list',{name:'Factory at a glance',exact:true}).getByRole('listitem')).toHaveText(['0Need you','0Ready to merge','0Running','0Done'])
+      await expect(page.getByRole('heading',{name:'Put Gaffer on the job.',exact:true})).toBeVisible()
+      await expect(page.getByRole('list',{name:'Factory at a glance',exact:true})).toHaveCount(0)
       expect(box.writes).toEqual([]);expect(w.errors).toEqual([])
     } finally { await w.context.close() }
   }

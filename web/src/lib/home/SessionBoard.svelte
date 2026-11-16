@@ -25,7 +25,7 @@
 
   let { embedded = false, factory = new Map(), userId, sessions, sessionsFailed = false, projects, machines, health, profile, now, initialProject = '', removeDefault = false, factorySessionEndDefault = FACTORY_SESSION_END_DEFAULT,
     scopeIds = undefined, scopeKind = undefined, scopeName = '', onclearscope,
-    onchanged, onsignedout, onstart }: {
+    onchanged, onsignedout, onstart, onbacklog }: {
     embedded?: boolean
     /** Sessions that are part of a Factory pipeline, by session id. */
     factory?: Map<string, FactoryMember>
@@ -36,6 +36,8 @@
     /** The projects the board is narrowed to; undefined shows every project. */
     scopeIds?: string[]; scopeKind?: 'project' | 'group'; scopeName?: string; onclearscope?: () => void
     onchanged: () => void | Promise<void>; onsignedout: () => void; /** Opens the standard Start an agent dialog for a session that starts now. */ onstart: (opener: HTMLElement) => void
+    /** Undefined until the backlog is read; Home can then distinguish an empty account from saved work. */
+    onbacklog?: (count: number | undefined) => void
   } = $props()
   const id = $props.id()
   const life = new AbortController()
@@ -51,6 +53,8 @@
   $effect(() => { void windowKey; visible = {backlog: PAGE_SIZE, active: PAGE_SIZE, finished: PAGE_SIZE} })
   // `start` opens an idea to be refined and started, rather than just edited.
   let composer = $state<{ draft: SessionDraft | null; opener: HTMLElement; start?: boolean } | null>(null)
+  export function planSession(opener: HTMLElement) { composer = { draft: null, opener } }
+  $effect(() => { onbacklog?.(drafts?.filter(draft => !draft.sessionId).length) })
   let removing = $state<SessionDraft | null>(null), deleteBusy = $state(false)
   let working = $state(''), phase = $state(''), loadingId = $state('')
   // Dragging a backlog card onto Active starts it. The source element is kept so a refined idea can return focus to it.

@@ -740,9 +740,9 @@
 {/snippet}
 {#snippet startActions()}
   <div class="ended-actions">
+    {#if $gafferChatEntry}<a class="btn primary ended-cta" href="/factory?outcome=1">✦ Give Gaffer an outcome</a>{/if}
     <button type="button" class="btn primary ended-cta" disabled={!machines.length || accountActive>=32} onclick={event=>openAgentStart(selectedAgent,event.currentTarget)}>✦ Start a new agent session</button>
-    <button type="button" class="btn ended-cta" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>✦ Start a new Terminal session</button>
-    {#if $gafferChatEntry}<a class="btn ended-cta" href="/factory?outcome=1">✦ Give Gaffer an outcome</a>{/if}
+    <button type="button" class="btn primary ended-cta" disabled={!machines.length || busy} onclick={()=>openTerminalStart()}>✦ Start a new Terminal session</button>
   </div>
 {/snippet}
 {#snippet createForm()}
@@ -879,7 +879,7 @@ reet agent service install</pre><CopyButton text={'reet agent stop\nreet agent s
 <style>
   .ended{position:relative;overflow:hidden}.ended>*{position:relative}.ended-glow{display:none}
   .ended-icon{font-size:2.8rem}
-  .ended h2{font-size:2rem}.ended-actions{display:flex;flex-direction:column;gap:12px;margin:0 0 16px;max-width:100%}.ended-cta{font-size:1rem;padding:12px 24px;min-height:48px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+  .ended h2{font-size:2rem}.ended-actions{display:flex;flex-direction:column;align-items:center;gap:12px;margin:0 0 16px;max-width:100%}.ended-cta{font-size:1rem;padding:12px 24px;min-height:48px;max-width:100%;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
   .ended-banner-actions{display:flex;gap:12px;flex-wrap:wrap}.ended-banner button{font-weight:600}
   .ended-resume{margin-top:24px;margin-bottom:0;max-width:520px;width:100%;text-align:left}.ended-resume h3{font-size:0.875rem;letter-spacing:0.01em;margin:0 0 8px;color:var(--muted)}
   .ended-resume ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}.ended-resume button{width:100%;display:flex;align-items:center;gap:10px;min-height:48px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:0.875rem;text-align:left}.ended-resume button:hover{border-color:var(--accent-text)}

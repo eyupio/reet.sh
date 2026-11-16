@@ -45,6 +45,10 @@ what was found and left.
 - **Focus mode on a phone** shows less around a busy chat: one header row, one status line, the queue as one line that
   opens, and the composer's settings behind **Exit focus**. See [terminal workspace](docs/terminal-workspace.md).
 
+- **Plan limits where the work is.** What is left of an agent's plan (AGENT-ACCOUNTS-1) shows in a chat's status strip
+  and on a Factory card, from the machine's last read (`planLeft` in `agentAccounts.ts`, `planLimits.ts`). No new
+  endpoint and nothing asked of the machine.
+
 The owner runs the Factory against real agents; this slice was checked with the test fakes only, so the Applied line on
 a real stage is the first thing to look at. The roadmap's own next item is unchanged: finish and record the
 [device and login checks](docs/device-checks.md), then turn Claude Code and Codex chats on by default.

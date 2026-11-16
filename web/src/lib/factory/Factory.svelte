@@ -13,6 +13,8 @@
   import { DEFAULT_STAGES, agentActivity, ago, needsYou, sessionEndedChoices, sessionLost, pipelineAnchor, type NeedChoice, agentTokensText, contextLeft, factoryTally, outcomeFinished, outcomeAgentUsage, outcomeUsage, pipelineAgentUsage, pipelineStatus, pipelineUsage, stageLabel, timeLeft, tokensText, track, stageChoice } from '../gafferOutcome'
   import { eventLabel } from '../events'
   import { sourceLabel } from '../clineSource'
+  import { accountFor, planLeft, type MachineAccounts } from '../agentAccounts'
+  import { machinePlans, PLAN_REFRESH } from '../planLimits'
   import GafferProse from '../GafferProse.svelte'
   import { formatWhen } from '../time'
   import GafferCompanionAvatar from '../GafferCompanionAvatar.svelte'
@@ -98,6 +100,7 @@
       // Connected machines come from the health report; where this sign-in cannot read it, from the machines that are ready.
       if (h.status === 'fulfilled') machineReporting = new Map((h.value.machines ?? []).map(item => [item.agentId, item.state === 'connected']))
       else if (m.status === 'fulfilled') machineReporting = new Map(m.value.map(item => [item.agentId, item.ready]))
+      if (m.status === 'fulfilled') planMachines = new Set(m.value.filter(item => item.capabilities?.agentAccounts === true).map(item => item.agentId))
     } finally { if (mine === railGeneration) railLoading = false }
   }
   function settle(next: FolderProject[]) { railGeneration++; railLoading = false; projects = next; void loadSetup() }
@@ -358,6 +361,21 @@
   }
   const sessionHref = (record: Outcome, id: string) => `/sessions?agent=${encodeURIComponent(record.agentId)}&session=${encodeURIComponent(id)}`
   const when = (at: number) => formatWhen(at, timeZone, dateFormat)
+  // What is left of the plan of the agent doing a pipeline's stage in hand, where the outcome's machine reads sign-ins
+  // and the account has plan limits on. The same figures as the machine's settings; nothing is asked of the machine.
+  let plans = $state<Record<string, MachineAccounts>>({}), planClock = $state(Date.now())
+  let planMachines = $state<Set<string>>(new Set())
+  const planAgents = $derived([...new Set(records.map(o => o.agentId).filter(id => id && planMachines.has(id)))].sort().join(','))
+  $effect(() => {
+    const ids = planAgents ? planAgents.split(',') : []
+    if (!ids.length) return
+    let live = true
+    const read = () => { for (const id of ids) void machinePlans(id).then(answer => { if (live && answer) { plans = { ...plans, [id]: answer }; planClock = Date.now() } }) }
+    read()
+    const timer = setInterval(read, PLAN_REFRESH)
+    return () => { live = false; clearInterval(timer) }
+  })
+  const planFor = (record: Outcome, piece: GafferOutcomeSession) => planLeft(accountFor(plans[record.agentId], piece.stages?.[piece.stage ?? 0]?.tool ?? record.tool), planClock)
   const crew = (piece: GafferOutcomeSession, record: Outcome) => {
     const stage = piece.stages?.[piece.stage ?? 0]
     const tool = stage?.tool ?? record.tool, model = stage?.model ?? record.model ?? ''
@@ -485,6 +503,8 @@
             {#if goal?.goal.summary && (status.label !== 'Needs you' || lost)}{@const whole = expanded[piece.conversationId ?? '']}<div class="report"><p class="eyebrow">Gaffer’s latest review</p><div class="prose-clamp" class:open={whole}><GafferProse text={goal.goal.summary}/></div>{#if goal.goal.summary.length > 280}<button class="inline" type="button" aria-expanded={!!whole} onclick={() => expanded = { ...expanded, [piece.conversationId ?? '']: !whole }}>{whole ? 'Show less' : 'Read all of it'}</button>{/if}</div>{/if}
             <dl class="facts">
               <div><dt>Doing this stage</dt><dd>{crew(piece, record)}</dd></div>
+              {#if piece.state !== 'done'}{@const plan = planFor(record, piece)}
+                {#if plan}<div><dt>Plan left</dt><dd class:low={plan.low} title={plan.detail}>{plan.summary}</dd></div>{/if}{/if}
               {#if piece.state === 'following' || piece.state === 'ready_to_merge'}{@const applied = stageChoice(piece.stages?.[piece.stage ?? 0])}
                 {#if applied}<div><dt>Applied</dt><dd class:low={applied.tone === 'bad'}><strong>{applied.label}.</strong> {applied.text}</dd></div>{/if}{/if}
               {#if piece.state === 'following'}{@const stage = piece.stages?.[piece.stage ?? 0]}{@const activity = agentActivity(stage, clock)}

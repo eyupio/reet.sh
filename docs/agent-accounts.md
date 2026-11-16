@@ -17,7 +17,16 @@ Claude Code and Codex are read today. Every other agent shows nothing here: reet
 - **Start an agent.** If the machine looked and found no sign-in for the chosen agent, the dialog says so before you
   start, because the agent would refuse its first message. It is advice: nothing is disabled, and a machine that has
   not answered yet shows nothing.
+- **A chat's status strip.** With plan limits on, the line above the message field says what is left of the agent's
+  plan beside the context left: *Plan 40% left*, naming the window with the least left (it is the one that stops the
+  agent first). Every window and when it starts again is in its tooltip. It is marked at 15% or less.
+- **A Factory pipeline's card.** A **Plan left** line lists every window of the agent doing the stage in hand
+  (*Session 81% left · Week 12% left*), until the pipeline is done.
 - **Settings → Agents → Plan limits.** The switch for your account, off until you turn it on.
+
+The chat and the Factory show the figures the machine last read, which the controller keeps; they look again every
+two minutes and never ask the machine to read. An agent with no plan to read (an API key, no sign-in, or an agent reet
+does not read) shows no line there.
 
 Figures are the provider's, passed on as numbers; reet attaches no price. When the latest read failed, the last figures
 stay, with why and how old they are.

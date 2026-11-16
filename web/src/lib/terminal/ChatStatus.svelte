@@ -2,8 +2,9 @@
   import type { ChatState } from '../chat'
   import { gafferProgress, type ChatProgressState } from '../gafferProgress'
   import type { ChatUsageView } from '../chatUsage'
+  import type { PlanLeft } from '../agentAccounts'
 
-  let { chat, dir = '', agent = 'Agent', usage = null, replayed, ended, sessionFailed, reattaching }: ChatProgressState & { chat: ChatState; dir?: string; agent?: string; usage?: ChatUsageView | null } = $props()
+  let { chat, dir = '', agent = 'Agent', usage = null, plan = null, replayed, ended, sessionFailed, reattaching }: ChatProgressState & { chat: ChatState; dir?: string; agent?: string; usage?: ChatUsageView | null; plan?: PlanLeft | null } = $props()
   const view = $derived(gafferProgress(chat, dir, replayed, ended, agent, sessionFailed, reattaching))
   const attention = $derived(view.phase === 'approval' || view.phase === 'question')
   const problem = $derived(view.phase === 'error' || view.phase === 'reconnecting')
@@ -30,6 +31,12 @@
       <span>{usage.label}</span><span class="vh">. {usage.detail}</span>
     </span>
   {/if}
+  {#if plan}
+    <!-- What is left of the agent's plan: the window with the least left, with every window and its reset in the title. -->
+    <span class="usage plan" class:low={plan.low} title={plan.detail} data-plan-left>
+      <span>Plan {plan.left}%<span class="word">{' left'}</span></span><span class="vh">. {plan.detail}</span>
+    </span>
+  {/if}
 </div>
 
 <style>
@@ -46,7 +53,7 @@
   .failed { color: var(--bad); }
   /* What the agent reports: context left, or the chat's tokens. After the counts when there are any, else at the end of the line. */
   .usage { flex: none; display: inline-flex; align-items: center; gap: 6px; margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .counts + .usage { margin-left: 0; padding-left: 8px; border-left: 1px solid var(--line-soft); }
+  .counts + .usage, .usage + .usage { margin-left: 0; padding-left: 8px; border-left: 1px solid var(--line-soft); }
   .usage.low { color: var(--warn); }
   .usage-meter { display: block; width: 36px; height: 3px; border-radius: 2px; background: var(--line-soft); overflow: hidden; }
   .usage-meter > span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
@@ -54,7 +61,7 @@
   .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   @keyframes status-spin { to { transform: rotate(360deg); } }
   @container chat-status (max-width: 620px) { .detail { display: none; } }
-  @container chat-status (max-width: 420px) { .usage-meter { display: none; } }
+  @container chat-status (max-width: 420px) { .usage-meter, .plan .word { display: none; } }
   /* On a desktop the floating Ask Gaffer circle sits over this line's right-hand end, above the composer. Keep the
      figures out from under it; the circle is not shown beside a docked details panel, on a phone or on a touch tablet. */
   @media (min-width: 768px) and (not (pointer: coarse)) {

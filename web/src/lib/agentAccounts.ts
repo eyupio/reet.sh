@@ -58,6 +58,24 @@ export function limitLines(account: AgentAccount | undefined, now: number): Limi
   })
 }
 
+/** A plan's allowance in one short line, for places with little room: beside a chat's status and on a Factory card. */
+export type PlanLeft = { label: string; left: number; summary: string; detail: string; low: boolean }
+/** The window with the least left is the one that will stop the agent first, so it is the one named. `summary` lists
+ *  every window and `detail` adds when each starts again and, when the latest read failed, how old the figures are.
+ *  Null when there are no figures: plan limits are off, the agent is not signed in to a plan, or it is not one reet reads. */
+export function planLeft(account: AgentAccount | undefined, now: number): PlanLeft | null {
+  const lines = limitLines(account, now)
+  if (!lines.length) return null
+  const tight = lines.reduce((least, line) => line.left < least.left ? line : least)
+  const stale = account!.limitsState !== 'read' && account!.limitsAt ? ` Read ${readAgo(account!.limitsAt, now)}.` : ''
+  return {
+    label: `Plan ${tight.left}% left${lines.length > 1 ? ` (${tight.name.toLowerCase()})` : ''}`, left: tight.left,
+    summary: lines.map(line => line.text).join(' · '),
+    detail: lines.map(line => `${line.text}${line.resets ? `, ${line.resets}` : ''}.`).join(' ') + stale,
+    low: tight.low,
+  }
+}
+
 /** How long ago something was read. '' when it never was. */
 export function readAgo(at: number | null | undefined, now: number): string {
   if (!at || at <= 0) return ''

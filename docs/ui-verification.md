@@ -4174,3 +4174,17 @@ names Gaffer's instruction as what goes next, opens to all three messages with R
 
 **Not checked.** A real phone. The line under the header returning for a failure or a reconnect was built and not
 looked at (a waiting approval is, in the same suite). Dark theme. A screen reader.
+
+## Plan limits in a chat and on a Factory card (16 November 2026)
+
+Production build served with `vite preview`, Chromium, synthetic figures (a session window with 81% left and a week
+with less).
+
+- A chat's status strip shows **Plan 40% left** after the context left at 1360 px, and **Plan 40%** at 390 and 320 px
+  with both figures inside the line and no sideways scroll ([390 px](images/ui/plan-left-chat-390-light.png));
+  `chat-usage.e2e.mjs`. A machine that does not read sign-ins is not asked and shows nothing.
+- A Factory card shows **Plan left: Session 81% left · Week 12% left** in the warning colour for the agent doing the
+  stage in hand ([capture](images/ui/plan-left-factory-1440-light.png)); `gaffer-factory.e2e.mjs`.
+
+**Not checked.** A real machine's figures. Dark theme for the new figure. The Factory card on a phone. A figure kept
+from a failed read (its age is in the tooltip; covered by the unit test only).

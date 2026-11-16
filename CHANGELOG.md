@@ -17,6 +17,10 @@ this file existed releases were described on their GitHub release pages.
   model and effort, including one you left to the agent), Not as chosen
   (naming what differs) or Not checked. A later change made in the session's
   own chat shows too. "Who did each stage" now lists effort.
+- With plan limits on, what is left of an agent's plan now shows where the
+  work is: beside the context left in a chat's status strip (**Plan 40%
+  left**, the window with the least left) and as a **Plan left** line on a
+  Factory pipeline's card. It was only in a machine's settings.
 - Focus mode on a phone shows less around a chat, so the conversation has the
   screen while an agent works and messages are queued: one header row, the
   agent's state said once, the queue as one line that opens, and the

@@ -39,6 +39,24 @@ func SupportsRepoCloneRemove(features string) bool {
 	return false
 }
 
+// RepoCloneFetchFeature lets the controller ask a machine to fetch a clone's
+// default branch from GitHub before it counts what the clone holds that is not
+// there (RepoCloneStatus.Fetch). It is its own token because a machine without
+// it decodes strictly and would refuse the field.
+const RepoCloneFetchFeature = "repo-clone-fetch-v1"
+
+// SupportsRepoCloneFetch reports whether the peer advertised
+// repo-clone-fetch-v1 in X-Reet-Terminal-Features. A RepoCloneStatus with Fetch
+// set is never sent without it.
+func SupportsRepoCloneFetch(features string) bool {
+	for _, feature := range strings.Split(features, ",") {
+		if strings.TrimSpace(feature) == RepoCloneFetchFeature {
+			return true
+		}
+	}
+	return false
+}
+
 // ghOwner matches a GitHub owner (user or organization) segment: letters,
 // digits and hyphens, at most 39 characters, never starting or ending with a
 // hyphen.
@@ -204,6 +222,10 @@ func validCloneFingerprint(s string) bool {
 type RepoCloneStatus struct {
 	Dir    string `json:"dir"`
 	Origin string `json:"origin"`
+	// Fetch asks the machine to fetch the clone's default branch from GitHub
+	// first, so a branch that was squash-merged there is seen as merged. It is
+	// sent only to a connection that negotiated repo-clone-fetch-v1.
+	Fetch bool `json:"fetch,omitempty"`
 }
 
 func (RepoCloneStatus) kind() string  { return "repo_clone_status" }

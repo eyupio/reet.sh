@@ -34,8 +34,8 @@
   ]
   const legacy: Record<string, string> = { 'admin-overview': 'overview', 'admin-envs': 'environments', 'admin-users': 'users', 'admin-team': 'team', 'admin-backups': 'backups', 'admin-settings': 'settings', 'admin-events': 'activity' }
   const requested = legacy[location.hash.slice(1)] || location.pathname.split('/')[2] || 'overview'
-  const section = sections.some(s => s.key === requested) ? requested : 'overview'
-  const sectionTitle = sections.find(s => s.key === section)!.label
+  const section = requested === 'move' || sections.some(s => s.key === requested) ? requested : 'overview'
+  const sectionTitle = section === 'move' ? 'Move' : sections.find(s => s.key === section)!.label
   const descriptions: Record<string, string> = {
     overview: 'Keep the place running reet. Check health, jobs and storage.',
     environments: 'Inspect scanned machines and agent reports, with server heartbeats kept separate.',

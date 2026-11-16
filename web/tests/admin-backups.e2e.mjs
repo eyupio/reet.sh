@@ -492,6 +492,11 @@ try {
       await expect(page.getByText('Only the owner can lift the fence.', { exact: false })).toBeVisible()
       await expect(moveAway(page)).toHaveCount(0)
       await expect(moveIn(page)).toHaveCount(0)
+      await page.goto(`${base}/admin/move`)
+      await expect(page.getByRole('heading', { name: 'Move', exact: true })).toBeVisible()
+      await expect(page.getByText('Only the instance owner can move this controller.')).toBeVisible()
+      await expect(moveAway(page)).toHaveCount(0)
+      await expect(moveIn(page)).toHaveCount(0)
       expect(errors).toEqual([])
       await context.close()
     }

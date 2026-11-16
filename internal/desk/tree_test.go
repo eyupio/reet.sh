@@ -1,7 +1,10 @@
 package desk
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"reflect"
 	"testing"
 )
@@ -160,6 +163,37 @@ func TestPresets(t *testing.T) {
 			}
 			if err := (Doc{Tabs: []Tab{*x}}).Validate(); err != nil {
 				t.Fatalf("%s/%d: %v", p, n, err)
+			}
+		}
+	}
+}
+
+// TestPresetsMatchWeb reads the fixture the web tree test also reads, so the
+// two implementations cannot drift. Panes are p1..pn in a left-leaning chain.
+func TestPresetsMatchWeb(t *testing.T) {
+	data, err := os.ReadFile("../../web/src/lib/desks/fixtures/presets.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want map[string]map[string]*Node
+	if err := json.Unmarshal(data, &want); err != nil {
+		t.Fatal(err)
+	}
+	if len(want) != 5 {
+		t.Fatalf("fixture has %d presets, want 5", len(want))
+	}
+	for name, byCount := range want {
+		for n := 1; n <= MaxPanes; n++ {
+			ids := make([]string, n)
+			for i := range ids {
+				ids[i] = fmt.Sprintf("p%d", i+1)
+			}
+			tab := tabOf(ids...)
+			if err := tab.Preset(name); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(tab.Root, byCount[fmt.Sprint(n)]) {
+				t.Errorf("%s with %d panes differs from the fixture", name, n)
 			}
 		}
 	}

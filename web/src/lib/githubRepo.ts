@@ -39,6 +39,16 @@ export function parseGitHubRepo(input: string): { owner: string; repo: string } 
   return OWNER.test(owner) && validRepo(repo) ? { owner, repo } : null
 }
 
+/**
+ * The repositories whose `owner/name` contains `query`, ignoring letter case and surrounding space; every one, in the
+ * order given, when the query is empty. The picker filters the list it already has, locally, so typing never asks GitHub
+ * for anything and an account with hundreds of repositories stays responsive.
+ */
+export function filterRepositories<T extends { name: string }>(repos: readonly T[], query: string): T[] {
+  const q = query.trim().toLowerCase()
+  return q === '' ? [...repos] : repos.filter(r => r.name.toLowerCase().includes(q))
+}
+
 /** What is said when the controller no longer knows a clone this page started (it restarted mid-clone, or the job
  *  expired): the page cannot tell how it ended. `repo` is owner/name. */
 export const lostCloneLine = (repo: string): string => `reet lost track of cloning ${repo}. Add it again; if the clone finished, reet picks it up.`

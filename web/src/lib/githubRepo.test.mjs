@@ -10,7 +10,7 @@ const compile = name => ts.transpileModule(readFileSync(new URL(name, import.met
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText
 const asURL = text => `data:text/javascript;base64,${Buffer.from(text).toString('base64')}`
-const { parseGitHubRepo, cloneFolder, lostCloneLine, startUnheardLine, timedOut, clonedProject, repoProject, watchClone, outstandingClone, rememberClone } = await import(asURL(compile('./githubRepo.ts')))
+const { parseGitHubRepo, filterRepositories, cloneFolder, lostCloneLine, startUnheardLine, timedOut, clonedProject, repoProject, watchClone, outstandingClone, rememberClone } = await import(asURL(compile('./githubRepo.ts')))
 
 const shown = r => r ? `${r.owner}/${r.repo}` : null
 
@@ -85,6 +85,24 @@ test('refuses what the controller refuses', () => {
 
 test('the folder the machine clones into', () => {
   assert.equal(cloneFolder({ owner: 'eyupio', repo: 'reet.sh' }), '~/reet/repos/eyupio/reet.sh')
+})
+
+test('the picker filters the list it has, by owner/name, ignoring case and edge space', () => {
+  const repos = [{ name: 'eyupio/reet.sh' }, { name: 'eyupio/gaffer' }, { name: 'someone/Reet-tools' }]
+  // An empty or space-only field offers every repository, in the order GitHub gave them.
+  assert.deepEqual(filterRepositories(repos, ''), repos)
+  assert.deepEqual(filterRepositories(repos, '   '), repos)
+  // The whole owner/name is searched: an owner or a repository on its own finds it, in any letter case.
+  assert.deepEqual(filterRepositories(repos, 'eyupio'), [repos[0], repos[1]])
+  assert.deepEqual(filterRepositories(repos, 'REET'), [repos[0], repos[2]])
+  assert.deepEqual(filterRepositories(repos, ' gaffer '), [repos[1]])
+  // Nothing matching is an empty list, so the field can say so rather than offering stale options.
+  assert.deepEqual(filterRepositories(repos, 'nothing'), [])
+  assert.deepEqual(filterRepositories([], 'x'), [])
+  // The result is a fresh list; the source is never changed.
+  const all = filterRepositories(repos, '')
+  all.pop()
+  assert.equal(repos.length, 3)
 })
 
 const tick = ms => new Promise(r => setTimeout(r, ms))

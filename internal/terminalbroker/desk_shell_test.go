@@ -175,6 +175,19 @@ func TestCreateSessionReservedHook(t *testing.T) {
 	if err != nil || got.State == terminalproto.Creating || got.State == terminalproto.Running {
 		t.Fatalf("refused reservation: %+v %v", got, err)
 	}
+	// Nothing ever ran in it, so Sessions does not show it.
+	if archived, err := d.st.TerminalArchivedFor(d.uid, s.ID); err != nil || !archived {
+		t.Fatalf("refused reservation left in history: %v %v", archived, err)
+	}
+	list, err := d.st.TerminalSessionsFor(d.uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, listed := range list {
+		if listed.ID == s.ID {
+			t.Fatalf("refused reservation listed: %+v", listed)
+		}
+	}
 }
 
 // A folder that arrives with a session change the controller could not

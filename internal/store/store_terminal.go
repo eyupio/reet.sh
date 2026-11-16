@@ -632,6 +632,9 @@ func (s *Store) ArchiveTerminalFor(uid int64, sessionID string) error {
 		if err = clearArchivedPrompt(tx, uid, session.ID); err != nil {
 			return err
 		}
+		if err = clearArchivedDeskSessionTx(tx, uid, session.ID); err != nil {
+			return err
+		}
 		_, err = tx.Exec(`UPDATE terminal_chat_queue SET text='',images='[]',state='removed',note='',revision=revision+1 WHERE session_id=? AND user_id=?`, session.ID, uid)
 		return err
 	})
@@ -896,7 +899,10 @@ func archiveTerminalOnClose(tx *sql.Tx, uid int64, agentID, sessionID string) er
 	if err != nil {
 		return err
 	}
-	return clearArchivedPrompt(tx, uid, sessionID)
+	if err := clearArchivedPrompt(tx, uid, sessionID); err != nil {
+		return err
+	}
+	return clearArchivedDeskSessionTx(tx, uid, sessionID)
 }
 
 // ObserveTerminalStateFor applies authenticated, generation-fenced reconciliation.

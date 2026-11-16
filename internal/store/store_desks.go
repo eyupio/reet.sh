@@ -814,3 +814,35 @@ func clearDeskSessionsForAgentTx(tx *sql.Tx, uid int64, agent string) error {
 	}
 	return nil
 }
+
+// clearArchivedDeskSessionTx empties the desk pane holding session once the
+// session has been removed from history (it has an archive row), with a
+// version bump, so a pane never names a session Sessions no longer shows: the
+// pane reads as not started and offers Start. It runs in the archiving
+// transaction. A desk this reet cannot read or rewrite is left as it is.
+func clearArchivedDeskSessionTx(tx *sql.Tx, uid int64, session string) error {
+	var deskID string
+	err := tx.QueryRow(`SELECT ds.desk_id FROM desk_sessions ds WHERE ds.user_id=? AND ds.session_id=? AND EXISTS(SELECT 1 FROM terminal_session_archives a WHERE a.session_id=ds.session_id AND a.user_id=ds.user_id)`, uid, session).Scan(&deskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	d, err := deskForTx(tx, uid, deskID)
+	if errors.Is(err, ErrDeskMissing) {
+		return nil
+	}
+	if errors.Is(err, errStoredDesk) {
+		log.Printf("desks: %v; left as it is", err)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !d.Doc.ClearSession(session) {
+		return nil
+	}
+	_, err = saveDeskDoc(tx, uid, d, true)
+	return err
+}

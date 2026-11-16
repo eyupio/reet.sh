@@ -3,6 +3,8 @@ package store
 import (
 	"errors"
 	"testing"
+
+	"github.com/eyupio/reet.sh/internal/terminalproto"
 )
 
 // A session placed on a desk after its last folder change still gives the
@@ -264,6 +266,67 @@ func TestDeskLoadsWithOldControlCharacters(t *testing.T) {
 		t.Fatalf("start %q", got)
 	}
 	if _, err := s.DeskFor(uid, d.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Removing a session from history empties the desk pane that held it, with a
+// version bump, whether it is archived from Sessions or by an end that asked
+// for its removal; a pane never names a session Sessions no longer shows.
+func TestArchiveClearsDeskPane(t *testing.T) {
+	for _, path := range []string{"archive", "end"} {
+		t.Run(path, func(t *testing.T) {
+			s, uid, a, c := terminalFixture(t)
+			sess := createTerminal(t, s, uid, a, c)
+			other := createTerminal(t, s, uid, a, c)
+			doc := deskDoc(a.ID, sess.ID, other.ID)
+			d := mustDesk(t, s, uid, Desk{Name: "A", Doc: doc})
+			endTerminal(t, s, uid, a.ID, sess.ID, c.Generation)
+			if path == "archive" {
+				if err := s.ArchiveTerminalFor(uid, sess.ID); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := s.RequestTerminalEndFor(uid, a.ID, sess.ID, syncID(), true); err != nil {
+				t.Fatal(err)
+			}
+			if archived, err := s.TerminalArchivedFor(uid, sess.ID); err != nil || !archived {
+				t.Fatalf("not archived: %v %v", archived, err)
+			}
+			got, _ := s.DeskFor(uid, d.ID)
+			if got.Doc.Tabs[0].Panes["p1"].Session != "" || got.Doc.Tabs[0].Panes["p2"].Session != other.ID || got.Version != d.Version+1 {
+				t.Fatalf("%+v", got)
+			}
+			if _, _, ok, _ := s.DeskPaneForSession(uid, sess.ID); ok {
+				t.Fatal("index row left")
+			}
+		})
+	}
+}
+
+// An end that keeps the session in history leaves its pane as it is.
+func TestEndKeepingHistoryKeepsDeskPane(t *testing.T) {
+	s, uid, a, c := terminalFixture(t)
+	sess := createTerminal(t, s, uid, a, c)
+	d := mustDesk(t, s, uid, Desk{Name: "A", Doc: deskDoc(a.ID, sess.ID)})
+	endTerminal(t, s, uid, a.ID, sess.ID, c.Generation)
+	if _, err := s.RequestTerminalEndFor(uid, a.ID, sess.ID, syncID(), false); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.DeskFor(uid, d.ID)
+	if got.Doc.Tabs[0].Panes["p1"].Session != sess.ID || got.Version != d.Version {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// endTerminal has the machine report the session running and then its shell
+// exited.
+func endTerminal(t *testing.T, s *Store, uid int64, agent, session string, generation int64) {
+	t.Helper()
+	if err := s.ObserveTerminalStateFor(uid, agent, session, generation, terminalproto.Running, nil); err != nil {
+		t.Fatal(err)
+	}
+	code := 0
+	if err := s.ObserveTerminalStateFor(uid, agent, session, generation, terminalproto.Exited, &code); err != nil {
 		t.Fatal(err)
 	}
 }

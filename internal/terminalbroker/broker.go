@@ -989,9 +989,12 @@ func (b *Broker) CreateSessionReserved(ctx context.Context, uid int64, agent, re
 	if created && reserved != nil {
 		if hookErr := reserved(s); hookErr != nil {
 			// Nothing was sent: the reservation is refused here, so the
-			// session ends as lost and frees its place.
+			// session ends as lost and frees its place, and is removed from
+			// Sessions' history at once, since nothing ever ran in it.
 			if err := b.st.FailTerminalCreateFor(uid, agent, request, p.Generation, terminalproto.Unavailable); err != nil {
 				log.Printf("terminal: could not fail the unsent create %s: %v", request, err)
+			} else if err := b.st.ArchiveTerminalFor(uid, s.ID); err != nil {
+				log.Printf("terminal: could not remove the unsent create %s from history: %v", request, err)
 			}
 			if failed, err := b.st.TerminalSessionFor(uid, s.ID); err == nil {
 				s = failed

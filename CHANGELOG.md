@@ -5,6 +5,11 @@ this file existed releases were described on their GitHub release pages.
 
 ## Unreleased
 
+- Sessions: an agent's answer is now shown as the markdown it wrote. Tables
+  are tables, lists nest and keep their task boxes, and italics,
+  strikethrough, rules and every heading level are drawn rather than left as
+  raw symbols. The same goes for Gaffer's reviews and reports. HTML in an
+  answer is still shown as text, and only http and https links are links.
 - Factory: a pipeline that was waiting at **Ready to merge** when you stopped
   it waits there again when you try it again. It used to start its merge
   stage without your approval; so did a pipeline whose first stage was the

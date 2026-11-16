@@ -62,8 +62,9 @@ session never creates a shell. Running means a shell lifecycle state, not AI-age
 end-requested sessions retain their actual labels.
 
 The workspace allows 24 live sessions on one machine and 64 across your account (creating, running and
-end-requested ones count). At the limit, New terminal and Start a new agent session are disabled and the New terminal
-dialog says "Session limit reached"; existing sessions keep running. A desk tab can hold nine panes on one machine.
+end-requested ones count); this is applied by the browser, not counted by the controller or machines. At the limit,
+New terminal and Start a new agent session are disabled and the New terminal dialog says "Session limit reached";
+existing sessions keep running.
 
 With no session open, the Sessions screen leads with what is running: **Pick up where you left off** lists up to eight
 running sessions, each with its machine and state, anything waiting for you first and then the most recently active.
